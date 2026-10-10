@@ -7,7 +7,7 @@ import {
     getSessionAnalysisMetrics,
     isValidFillerCount,
 } from '@/utils/sessionAnalysis';
-import { measuredFillerTotal, persistedFillerEvidence } from '@/contracts/fillerEvidence';
+import { persistedFillerTotal } from '@/contracts/fillerCounts';
 
 const isRealNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -18,9 +18,7 @@ const isRealNumber = (v: unknown): v is number => typeof v === 'number' && Numbe
  * and fractional/negative counts are NOT evidence. Mirrors the RPC helper `_ss_valid_filler_total IS NOT NULL`
  * so client and server agree on which rows may contribute the filler metric.
  */
-// #1472 (Browser PM 6102096434): a valid map is necessary but not sufficient. Only OBSERVED evidence (a positive count)
-// contributes; an empty map over saved words is unobservable, so it can never pull the filler average toward clean.
-const hasRealFillerData = (s: PracticeSession): boolean => measuredFillerTotal(persistedFillerEvidence(s)) !== null;
+const hasRealFillerData = (s: PracticeSession): boolean => persistedFillerTotal(s.filler_counts) !== null;
 
 /**
  * #1047 U1 (review correction): provenance is METRIC-SPECIFIC, not all-or-nothing. `available` shows every
@@ -138,7 +136,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
             fillerDurationSeconds += duration;
             // #1131 correction 3: the filler NUMERATOR is the validated, total-authoritative count (honors a
             // total-only snapshot); a row is only eligible when this is a real value, so it is never null here.
-            totalFillerWords += measuredFillerTotal(persistedFillerEvidence(s)) ?? 0;
+            totalFillerWords += persistedFillerTotal(s.filler_counts) ?? 0;
         }
         // #1045 finding 1: object truthiness is not evidence — `pause_metrics: {}` is truthy and
         // carries no measurement. Only a structurally complete snapshot contributes. (Pause rhythm is
@@ -206,8 +204,8 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     const chartData = sessionHistory.slice(0, 10).map(s => {
         const duration = s.duration || 0;
         const sessionMetrics = getSessionAnalysisMetrics(s);
-        // #1131 correction 3 + #1472: the plotted filler count is the OBSERVED total; ineligible rows plot no point.
-        const totalFillerCount = measuredFillerTotal(persistedFillerEvidence(s)) ?? 0;
+        // #1131 correction 3: the plotted filler count is the validated, total-authoritative value.
+        const totalFillerCount = persistedFillerTotal(s.filler_counts) ?? 0;
 
         return {
             date: new Date(s.created_at).toLocaleDateString(),

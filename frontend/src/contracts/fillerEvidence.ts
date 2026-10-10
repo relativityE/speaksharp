@@ -47,10 +47,15 @@ export function fillerEvidenceKind(input: { available: boolean; total: number; w
 }
 
 /**
- * A saved session's ALL-KEY evidence from its persisted `filler_counts` and `total_words` — for the all-key Analytics
- * average and Progress rate, which only ever report positive counts. A surface that claims a TIER count (the true-filler
- * headline, review, analysis copy, PDF, Progress breakdown) must gate on THAT tier's total with `fillerEvidenceKind`
- * (as `getSessionAnalysisMetrics` does), so a discourse marker excluded from the tier never authorizes a zero claim.
+ * A saved session's ALL-KEY evidence from its persisted `filler_counts` and `total_words` — used by the client Progress
+ * filler rate. A surface that claims a TIER count (the true-filler headline, review, analysis copy, PDF, Progress
+ * breakdown) must gate on THAT tier's total with `fillerEvidenceKind` (as `getSessionAnalysisMetrics` does), so a
+ * discourse marker excluded from the tier never authorizes a zero claim.
+ *
+ * NOT YET APPLIED (#1472 increment 3, Browser PM 6102769181): the all-key Analytics average / contributor / chart
+ * eligibility (`lib/analyticsUtils.ts`) still counts an empty map as a measured zero, because the user-visible value
+ * comes from the server RPC `get_analytics_summary`, which does the same. Fixing it needs the RPC and its client
+ * fallback changed together (a migration), so client↔RPC parity is preserved until then.
  */
 export function persistedFillerEvidence(session: { filler_counts?: unknown; total_words?: unknown }): FillerEvidence {
     const counts = readPersistedFillerCounts(session.filler_counts);

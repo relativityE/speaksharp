@@ -238,14 +238,15 @@ describe('#1306 metric-presence provenance — a metric is included iff its OWN 
         expect(nmPoint?.clarity).toBeNull();
     });
 
-    it('CASUALTY #1472: an empty-map ({}) row over saved words is NOT a filler-rate contributor (never a clean 0.0/min)', () => {
-        // #1472 (Browser PM 6102096434): an empty map alone never proves a clean zero; with saved words it is unobservable.
+    it('a MEASURED zero ({}) filler row IS included (counts as a genuine 0 in the denominator)', () => {
+        // One measured-zero row over 1 minute → 0 fillers / 1 min contributes a real 0.0/min data point; it is
+        // a filler-rate CONTRIBUTOR (unlike a null/unmeasured row, which is excluded).
         const zeroRow: PracticeSession = {
             id: 'z', created_at: '2023-10-29T10:00:00.000Z', user_id: 'user-1', duration: 60,
             total_words: 100, filler_counts: {}, clarity_score: 90,
         };
         const stats = calculateOverallStats([zeroRow]);
-        expect(stats.avgFillerWordsPerMin).toBeNull(); // unobservable zero → unavailable, never a flattering 0.0/min
+        expect(stats.avgFillerWordsPerMin).toBe('0.0'); // measured zero → a real 0.0/min, not "unavailable"
     });
 });
 
