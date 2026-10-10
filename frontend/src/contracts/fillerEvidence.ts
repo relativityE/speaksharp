@@ -46,7 +46,12 @@ export function fillerEvidenceKind(input: { available: boolean; total: number; w
     return words === 0 ? 'no_speech' : 'unobservable';
 }
 
-/** A saved session's evidence from its persisted `filler_counts` and `total_words`. */
+/**
+ * A saved session's ALL-KEY evidence from its persisted `filler_counts` and `total_words` — for the all-key Analytics
+ * average and Progress rate, which only ever report positive counts. A surface that claims a TIER count (the true-filler
+ * headline, review, analysis copy, PDF, Progress breakdown) must gate on THAT tier's total with `fillerEvidenceKind`
+ * (as `getSessionAnalysisMetrics` does), so a discourse marker excluded from the tier never authorizes a zero claim.
+ */
 export function persistedFillerEvidence(session: { filler_counts?: unknown; total_words?: unknown }): FillerEvidence {
     const counts = readPersistedFillerCounts(session.filler_counts);
     const total = counts === null ? 0 : Object.values(counts).reduce<number>((sum, n) => sum + (typeof n === 'number' ? n : 0), 0);

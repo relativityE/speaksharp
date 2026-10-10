@@ -91,11 +91,23 @@ describe('#1258 D6 Filler words: counts for the two newest measured sessions', (
         expect(document.body.textContent).not.toMatch(/_|per min(?!ute)|\d\.\d/);
     });
 
-    it('both measured sessions at a true-filler zero (observed discourse markers only): one line, no table', () => {
-        // #1472: the zero must be OBSERVED evidence (a counted discourse marker), never an empty map.
-        render(<FillerWordsBreakdown model={fillerBreakdownModel([session(7, { like: 2 }), session(1, { so: 4 })])} />);
-        expect(screen.getByText('No filler words detected in your last two sessions.')).toBeInTheDocument();
-        expect(screen.queryByRole('table')).toBeNull();
+    it('CASUALTY #1472 (Browser PM 6102458581): discourse-only sessions are NOT a true-filler zero — never "No filler words detected"', () => {
+        // Observing a discourse marker the default tier excludes never authorizes a clean claim (the live review withholds it).
+        const model = fillerBreakdownModel([session(7, { like: 2 }), session(1, { so: 4 })]);
+        expect([model.latest, model.previous]).toEqual([null, null]);
+        render(<FillerWordsBreakdown model={model} />);
+        expect(screen.queryByText(/No filler words detected/)).toBeNull();
+        expect(fillerSummary(model)).toBe('');
+    });
+
+    it('CONTROL (opt-in): with discourse markers counted, the same sessions are observed positive counts', () => {
+        const model = fillerBreakdownModel([session(7, { like: 2 }), session(1, { so: 4 })], { includeDiscourseMarkers: true });
+        expect([model.latest?.count, model.previous?.count]).toEqual([2, 4]);
+    });
+
+    it('CONTROL (mixed): a positive true-filler count is measured; a discourse-only neighbour is skipped by default', () => {
+        const model = fillerBreakdownModel([session(7, { um: 1, like: 2 }), session(5, { like: 3 }), session(1, { uh: 2 })]);
+        expect([model.latest?.count, model.previous?.count]).toEqual([1, 2]);
     });
 
     it('only one measured session: no comparison line and no second column', () => {

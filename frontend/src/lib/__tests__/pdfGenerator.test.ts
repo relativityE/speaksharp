@@ -397,6 +397,13 @@ describe('generateSessionPdf — metric-presence: unmeasured metrics render N/A,
     }));
   });
 
+  it('CASUALTY #1472 (Browser PM 6102458581): a discourse-only map ({ like: 2 }) over saved words has NO "0" filler total', async () => {
+    await generateSessionPdf(base({ total_words: 190, filler_counts: { like: 2 } }), 'TestUser');
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([['Total Filler Words', 'N/A']]),
+    }));
+  });
+
   it('CASUALTY #1472: an empty filler map ({}) with an absent word count renders N/A for both, never a zero', async () => {
     await generateSessionPdf(base({ total_words: undefined, filler_counts: {} }), 'TestUser');
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({

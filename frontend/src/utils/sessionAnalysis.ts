@@ -2,7 +2,7 @@ import type { PracticeSession } from '@/types/session';
 import { countFillerWords, type FillerCounts } from './fillerWordUtils';
 import { countedFillerTotal, countedFillerMap } from './fillerTiers';
 import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
-import { persistedFillerEvidence } from '@/contracts/fillerEvidence';
+import { fillerEvidenceKind, validWordCount } from '@/contracts/fillerEvidence';
 
 export interface CoreSessionMetrics {
     wordCount: number;
@@ -461,10 +461,18 @@ export const getSessionAnalysisMetrics = (
     // is NULLABLE: null = UNAVAILABLE (absent/invalid filler_counts), 0 = a measured `{}` (or discourse-only),
     // N = measured true fillers. This is DISTINCT from the aggregate avgFillerWordsPerMin, which sums all
     // approved keys. Never collapse unavailable/invalid into 0 (that would fabricate "zero fillers").
-    // #1472 (Browser PM 6102096434): a saved headline is a number ONLY for observed evidence (a positive count). An empty
-    // map over saved words is unobservable, zero words is no speech, and a missing word count is unavailable — none of
-    // them may become a "0 fillers" headline, a clean analysis sentence or a PDF zero. Same rule as the live review.
-    const fillerHeadline = fillerData !== null && persistedFillerEvidence(session).kind === 'observed' ? metrics.fillerCount : null;
+    // #1472 (Browser PM 6102096434 / 6102458581): a saved headline is a number ONLY for observed evidence IN THE TIER IT
+    // COUNTS — the same input the live review gates on (its snapshot is tier-filtered before `fillerEvidenceKind`). A
+    // discourse-only map (`{ like: 2 }`) with the default true-filler tier is a ZERO in that tier, so like an empty map it
+    // is unobservable over saved words: observing an excluded discourse marker never authorizes a "no filler words"
+    // claim. With discourse markers opted in, the same map is an observed positive count. Zero words is no speech and a
+    // missing word count is unavailable — none of them may become a "0 fillers" headline, a clean sentence or a PDF zero.
+    const headlineEvidence = fillerEvidenceKind({
+        available: fillerData !== null,
+        total: fillerData === null ? 0 : metrics.fillerCount,
+        words: validWordCount(session.total_words),
+    });
+    const fillerHeadline = headlineEvidence === 'observed' ? metrics.fillerCount : null;
     const wordCount = Math.max(metrics.wordCount, session.total_words ?? 0);
     const wpm = session.wpm ?? calculateWpm(wordCount, session.duration || 0);
     // #1131 (preserved): the PERSISTED clarity score is authoritative when present — an expired session

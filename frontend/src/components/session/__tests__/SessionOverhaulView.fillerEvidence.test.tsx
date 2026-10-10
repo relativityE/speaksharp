@@ -115,6 +115,12 @@ describe('#1472 — unverifiable filler evidence is never shown as a clean resul
         expect(screen.getByTestId('filler-breakdown-count')).toHaveTextContent('×2');
     });
 
+    it('PARITY (Browser PM 6102458581): the LIVE review of a discourse-only take withholds the zero, as the saved review does', () => {
+        openMicAfter({ finalizedFillerData: { like: { count: 2 }, total: { count: 2 } } as unknown as FillerCounts });
+        expect(screen.queryByText(/no filler words detected/i)).toBeNull();
+        expect(screen.queryByTestId('this-run-card-fillers')).toBeNull();
+    });
+
     it('CONTROL (#1417 v4 shape): a filler observed live but absent from the final transcript keeps its truthful count', () => {
         openMicAfter({ finalizedFillerData: { um: { count: 1 }, total: { count: 1 } } as unknown as FillerCounts });
         const words = screen.getAllByTestId('filler-breakdown-word').map((w) => w.getAttribute('data-word'));

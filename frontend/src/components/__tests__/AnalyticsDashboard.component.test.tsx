@@ -291,14 +291,15 @@ describe('AnalyticsDashboard', () => {
         // #1573 Codex P1 4230859591: the card shows the TRUE-filler count per session, so its judgment and the rule card's
         // driver must come from the same true-filler basis and window — never the legacy all-keys per-minute rate, which
         // still counts default-excluded discourse markers such as "so" and "like".
-        it('CASUALTY: discourse markers only → "0.0 fillers per session" is judged Low and is never the rule card\'s focus', () => {
+        // #1472 (Browser PM 6102458581): discourse markers the true-filler tier excludes are not a true-filler zero either —
+        // the card withholds the number and the grade (no "0.0", no "Low"), as the session review withholds that zero.
+        it('CASUALTY: discourse markers only → no true-filler number or grade (never High, never a clean "0.0 … Low"), never the rule card\'s focus', () => {
             localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
             const markersOnly = [5, 4, 3, 2].map((n) => row(n, 140, { so: 40, like: 40 }));   // legacy rate 8/min → "High"
             renderComponent({ sessionHistory: markersOnly });
-            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^0\.0$/);
+            expect(screen.getByTestId('stat-card-filler_words_per_min-interpretation')).toHaveTextContent(/^—$/);
             const detail = screen.getByTestId('stat-card-filler_words_per_min-detail').textContent ?? '';
-            expect(detail).toMatch(/Low/);
-            expect(detail).not.toMatch(/High|Noticeable/);
+            expect(detail).not.toMatch(/High|Noticeable|Low|\d/);
             const card = screen.queryByTestId('try-this-next');
             const chip = card ? (within(card).queryByTestId('rule-card-chip')?.textContent ?? '') : '';
             expect(chip).not.toMatch(/filler/i);
