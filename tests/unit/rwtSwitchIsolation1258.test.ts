@@ -75,6 +75,15 @@ describe('take after switching products is clean', () => {
         const started = step.indexOf('startBenchmarkRecording(page, `${suite}-switch-focus`)');
         expect([observed > 0, started > observed, /staleCoachingShown/.test(step)]).toEqual([true, true, false]);
     });
+    // PO 2026-10-10: the full Focus suite gains ~115 s of takes and three coaching requests; its limit is 35 min, inside the
+    // 45-min gate-3-dast job so the receipt and run-owned cleanup still finish before the job is killed.
+    it('the full Focus suite has a 35-min test limit, inside the 45-min gate-3-dast job', () => {
+        const spec = readFileSync(resolve(__dirname, '../live/rwt-focus-points-session.live.spec.ts'), 'utf8');
+        const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/rc-gates.yml'), 'utf8');
+        const limitMs = Number(/test\.setTimeout\(([\d_]+)\)/.exec(spec)?.[1].replace(/_/g, ''));
+        const jobMinutes = Number(/gate-3-dast:[\s\S]*?timeout-minutes: (\d+)/.exec(workflow)?.[1]);
+        expect([limitMs, limitMs < jobMinutes * 60_000]).toEqual([35 * 60_000, true]);
+    });
     it('the full Focus suite requires the row and runs the step', () => {
         expect(requiredAutomatedRows('focus-points-session')?.product).toEqual(expect.arrayContaining(['take after switching products is clean']));
         const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
