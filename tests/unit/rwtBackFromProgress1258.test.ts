@@ -55,6 +55,21 @@ describe('Back from Progress rows', () => {
         expect([verdicts(live)[ROWS[0]], verdicts(unread)[ROWS[0]]]).toEqual(['FAIL', 'FAIL']);
     });
 
+    // Browser PM RETURN 6097554446: the capture state is the FIRST read after Back — before the restored-UI wait, the idle
+    // control or the review — so a transient leak cannot end unseen during that wait.
+    it('CASUALTY (6097554446): live tracks are read immediately after page.goBack(), before any restored-UI wait', () => {
+        const journey = readFileSync(resolve(__dirname, '../live/helpers/rwtJourney.ts'), 'utf8');
+        const fn = journey.slice(journey.indexOf('export async function backFromProgressRestoresSession'), journey.indexOf('async function readRestoredReview'));
+        const back = fn.indexOf('await page.goBack();');
+        const tracks = fn.indexOf('result.liveTracks = await liveMicTracks(page)');
+        // The first STATEMENT after Back (comments explaining it are skipped).
+        const firstAfterBack = fn.slice(back + 'await page.goBack();'.length).split('\n').map((l) => l.trim())
+            .filter((l) => l !== '' && !l.startsWith('//')).join('\n');
+        expect([back > 0, tracks > back, firstAfterBack.startsWith('result.liveTracks = await liveMicTracks(page)'),
+            tracks < fn.indexOf("getByTestId('saved-session-return')"), tracks < fn.indexOf("getByTestId('mic-start')")])
+            .toEqual([true, true, true, true, true]);
+    });
+
     it('the Open Mic suite requires the rows and runs the step', () => {
         expect(requiredAutomatedRows('open-mic-first-session')?.product).toEqual(expect.arrayContaining([...ROWS]));
         const spec = readFileSync(resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');

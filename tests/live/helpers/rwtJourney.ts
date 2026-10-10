@@ -1263,12 +1263,13 @@ export async function backFromProgressRestoresSession(page: Page, sessionId: str
     await page.getByTestId('dashboard-heading').waitFor({ state: 'visible', timeout: 45_000 }).catch(() => undefined);
     await page.waitForTimeout(2_000); // past the session page's exit transition, as the person stayed on Progress
     await page.goBack();
+    // #1576 Codex P1 4237614260 / Browser PM 6097554446: the capture state is the FIRST read after Back — before the restored
+    // UI wait, the idle control or the review — so a transient or leaked track cannot end unseen during those waits.
+    result.liveTracks = await liveMicTracks(page).catch(() => null);
     const restored = page.getByTestId('saved-session-return');
     result.restored = await restored.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)
         && (await restored.getAttribute('data-session-id').catch(() => null)) === sessionId;
     result.idleShown = (await page.getByTestId('mic-start').count()) > 0;
-    // #1576 Codex P1 4237614260: a live or leaked capture need not render the idle recorder, so read tracks right here.
-    result.liveTracks = await liveMicTracks(page).catch(() => null);
     if (!result.restored) return result;
     result.review = await readRestoredReview(page, savedCoaching);
     return result;
