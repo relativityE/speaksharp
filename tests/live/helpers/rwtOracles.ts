@@ -470,6 +470,8 @@ export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict
 export interface FocusBackReloadObservation {
     leftForProgress: boolean;
     restoredAfterBack: boolean;
+    /** #1576 Codex P1 4237614260: live capture tracks read right after Back (null = unreadable). */
+    liveMicTracksAfterBack: number | null;
     restoredAfterReload: boolean;
     sameSessionAfterReload: boolean;
     idleRecorderShown: boolean;
@@ -489,6 +491,7 @@ export function focusBackReloadVerdict(o: FocusBackReloadObservation): { verdict
     if (!o.leftForProgress) return fail('the header Progress link did not open Progress');
     if (!o.restoredAfterBack) return fail('browser Back did not restore this saved session');
     if (o.idleRecorderShown) return fail('the idle recorder was shown instead of the saved session');
+    if (o.liveMicTracksAfterBack !== 0) return fail('a microphone was live (or unreadable) right after Back');
     if (!o.restoredAfterReload || !o.sameSessionAfterReload) return fail('a reload did not restore the same saved session');
     if (o.liveMicTracks !== 0) return fail('a microphone was live on the restored session');
     if (!o.transcriptMatchesSaved) return fail('the restored transcript is not the saved one');
@@ -519,4 +522,12 @@ export function focusIdentityObservation(input: {
         evidence: input.evidence,
         visibleEvidence: input.visibleEvidence,
     };
+}
+
+/**
+ * #1576 Codex P1 4237614257 — a NEW durable save: `data-session-persisted="true"` AND a non-null id different from the
+ * predecessor. Start clears the attribute, so a bare "not the previous id" check accepts null.
+ */
+export function isNewPersistedSession(state: { persisted: string | null; id: string | null }, previous: string | null): boolean {
+    return state.persisted === 'true' && typeof state.id === 'string' && state.id !== '' && state.id !== previous;
 }

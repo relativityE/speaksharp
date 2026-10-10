@@ -18,7 +18,7 @@ const recorder = (): Recorder & RwtReceipt => {
     return Object.assign(r, { row: (step: string, verdict: string) => { r.rows.push({ step, verdict }); } }) as unknown as Recorder & RwtReceipt;
 };
 const verdicts = (r: Recorder) => Object.fromEntries(r.rows.map((row) => [row.step, row.verdict]));
-const ok = { left: true, restored: true, idleShown: false, review: 'saved' } as const;
+const ok = { left: true, restored: true, idleShown: false, liveTracks: 0, review: 'saved' } as const;
 
 describe('Back from Progress rows', () => {
     it('PASS: restored, saved coaching back, no request', () => {
@@ -44,6 +44,15 @@ describe('Back from Progress rows', () => {
         backFromProgressRows(requested, ok, true, 1, 2);
         expect([verdicts(idle)[ROWS[0]], verdicts(lost)[ROWS[0]], verdicts(lost)[ROWS[1]], verdicts(requested)[ROWS[2]]])
             .toEqual(['FAIL', 'FAIL', 'HOLD', 'FAIL']);
+    });
+
+    // #1576 Codex P1 4237614260: a capture left live after Back need not render the idle recorder, so tracks are read there.
+    it('CASUALTY (Codex 4237614260): a live or unreadable microphone right after Back FAILS the restore row', () => {
+        const live = recorder();
+        backFromProgressRows(live, { ...ok, liveTracks: 1 }, true, 1, 1);
+        const unread = recorder();
+        backFromProgressRows(unread, { ...ok, liveTracks: null }, true, 1, 1);
+        expect([verdicts(live)[ROWS[0]], verdicts(unread)[ROWS[0]]]).toEqual(['FAIL', 'FAIL']);
     });
 
     it('the Open Mic suite requires the rows and runs the step', () => {

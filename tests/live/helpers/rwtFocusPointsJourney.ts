@@ -47,6 +47,7 @@ import {
     analyticsThroughActions,
     backFromProgressRestoresSession,
     reloadRestoredSession,
+    waitForNewPersistedSession,
     performCandidateSwitch,
     readSttIdentity,
     readCpuRuntime,
@@ -431,14 +432,15 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false, review: 'missing' as const };
             const after = await savedIdentity();
             const result = focusBackReloadVerdict({
-                leftForProgress: back.left, restoredAfterBack: back.restored, restoredAfterReload: reload.restored, sameSessionAfterReload: reload.sameSession,
+                leftForProgress: back.left, restoredAfterBack: back.restored, liveMicTracksAfterBack: back.liveTracks,
+                restoredAfterReload: reload.restored, sameSessionAfterReload: reload.sameSession,
                 idleRecorderShown: back.idleShown || reload.idleShown, liveMicTracks: reload.liveTracks, transcriptMatchesSaved: reload.transcriptMatches,
                 reviewAfterBack: back.review, reviewAfterReload: reload.review, coachingSaved: Boolean(savedCoaching),
                 verdictsBefore: before.verdicts, verdictsAfter: after.verdicts,
                 coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
             });
             receipt.row('Focus Back from Progress and reload keep the saved session', result.verdict, result.detail, {
-                left: back.left, restoredAfterBack: back.restored, restoredAfterReload: reload.restored, sameSession: reload.sameSession,
+                left: back.left, restoredAfterBack: back.restored, liveTracksAfterBack: back.liveTracks, restoredAfterReload: reload.restored, sameSession: reload.sameSession,
                 idleShown: back.idleShown || reload.idleShown, liveTracks: reload.liveTracks, transcriptMatches: reload.transcriptMatches,
                 reviewAfterBack: back.review, reviewAfterReload: reload.review, verdictsUnchanged: before.verdicts.length > 0 && before.verdicts.join(',') === after.verdicts.join(','),
                 coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
@@ -610,9 +612,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 10) * 1000));
                         await stopBenchmarkRecording(page, `${suite}-edited`, 180_000);
                         await waitForBenchmarkSaveCandidate(page, `${suite}-edited`, 180_000);
-                        await expect.poll(async () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id')), { timeout: 120_000 })
-                            .not.toBe(persistedId).catch(() => undefined);
-                        takeBId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+                        takeBId = await waitForNewPersistedSession(page, persistedId);
                         await expect.poll(async () => (await readRail(page, edited.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                             .toBe(true).catch(() => undefined);
                         const statuses = (await readRail(page, edited.length)).statuses;
@@ -660,8 +660,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
                 await stopBenchmarkRecording(page, `${suite}-switch-openmic`, 180_000);
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-openmic`, 180_000);
-                await expect.poll(lastSaved, { timeout: 120_000 }).not.toBe(before).catch(() => undefined);
-                const openMicId = await lastSaved();
+                const openMicId = await waitForNewPersistedSession(page, before);
                 const openMicBefore = openMicId && openMicId !== before ? await sessionRow(openMicId) : { product: null, digest: null, transcript: '' };
                 // A point is a carry-over marker only if the Open Mic take actually recognised it (6090552875).
                 const markerSupport = points.slice(1).map((label) => labelHeardIn(label, openMicBefore.transcript));
@@ -688,8 +687,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await page.waitForTimeout(shortTakeSeconds * 1000);
                 await stopBenchmarkRecording(page, `${suite}-switch-focus`, 180_000);
                 await waitForBenchmarkSaveCandidate(page, `${suite}-switch-focus`, 180_000);
-                await expect.poll(lastSaved, { timeout: 120_000 }).not.toBe(openMicId).catch(() => undefined);
-                const focusId = await lastSaved();
+                const focusId = await waitForNewPersistedSession(page, openMicId);
                 await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })
                     .toBe(true).catch(() => undefined);
                 const finalStatuses = (await readRail(page, points.length)).statuses;

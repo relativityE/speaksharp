@@ -32,8 +32,7 @@ import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
 import {
     acquisitionTimingVerdict, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, runJourneyIds, surfaceReadinessFailures,
-    type AcquisitionTiming, type ReadbackPlan,
-} from './rwtOracles';
+    type AcquisitionTiming, type ReadbackPlan, isNewPersistedSession } from './rwtOracles';
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 import { readFeedbackUiState, readPracticeActionState, type PracticeActionState } from './rwtStepDiagnostics';
 
@@ -1237,10 +1236,26 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
  * the idle recorder) and its review must be the saved coaching, or — when none was saved and the transcript is still kept
  * — an explicit Try again. Nothing is pressed here, so no coaching is requested. Only booleans leave.
  */
+/**
+ * #1576 Codex P1 4237614257 — wait for a NEW durable save (see `isNewPersistedSession`). Returns its id, or null when none
+ * is proven within the timeout: a caller never inspects a stale or missing take as if it were the new one.
+ */
+export async function waitForNewPersistedSession(page: Page, previous: string | null, timeoutMs = 120_000): Promise<string | null> {
+    const read = () => page.evaluate(() => ({
+        persisted: document.documentElement.getAttribute('data-session-persisted'),
+        id: document.documentElement.getAttribute('data-session-persisted-id'),
+    }));
+    const proven = await expect.poll(async () => isNewPersistedSession(await read(), previous), { timeout: timeoutMs })
+        .toBe(true).then(() => true).catch(() => false);
+    if (!proven) return null;
+    const state = await read();
+    return isNewPersistedSession(state, previous) ? state.id : null;
+}
+
 export async function backFromProgressRestoresSession(page: Page, sessionId: string, savedCoaching?: SavedCoaching): Promise<{
-    left: boolean; restored: boolean; idleShown: boolean; review: 'saved' | 'try_again' | 'not_available' | 'missing';
+    left: boolean; restored: boolean; idleShown: boolean; liveTracks: number | null; review: 'saved' | 'try_again' | 'not_available' | 'missing';
 }> {
-    const result = { left: false, restored: false, idleShown: false, review: 'missing' as 'saved' | 'try_again' | 'not_available' | 'missing' };
+    const result = { left: false, restored: false, idleShown: false, liveTracks: null as number | null, review: 'missing' as 'saved' | 'try_again' | 'not_available' | 'missing' };
     const progress = page.getByTestId('nav-analytics-link').first();
     if (!(await progress.click({ timeout: 20_000 }).then(() => true).catch(() => false))) return result;
     result.left = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
@@ -1252,6 +1267,8 @@ export async function backFromProgressRestoresSession(page: Page, sessionId: str
     result.restored = await restored.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false)
         && (await restored.getAttribute('data-session-id').catch(() => null)) === sessionId;
     result.idleShown = (await page.getByTestId('mic-start').count()) > 0;
+    // #1576 Codex P1 4237614260: a live or leaked capture need not render the idle recorder, so read tracks right here.
+    result.liveTracks = await liveMicTracks(page).catch(() => null);
     if (!result.restored) return result;
     result.review = await readRestoredReview(page, savedCoaching);
     return result;
@@ -1300,10 +1317,12 @@ export async function reloadRestoredSession(page: Page, sessionId: string, saved
 
 export function backFromProgressRows(receipt: RwtReceipt, b: Awaited<ReturnType<typeof backFromProgressRestoresSession>>,
     coachingSaved: boolean, requestsBefore: number, requestsAfter: number): void {
-    receipt.row('Back from Progress restores the session', b.left && b.restored && !b.idleShown ? 'PASS' : 'FAIL',
+    receipt.row('Back from Progress restores the session', b.left && b.restored && !b.idleShown && b.liveTracks === 0 ? 'PASS' : 'FAIL',
         !b.left ? 'the header Progress link did not open Progress'
             : !b.restored ? 'browser Back did not restore this saved session'
-                : b.idleShown ? 'browser Back showed the idle recorder' : 'browser Back from Progress restored this saved session read-only');
+                : b.idleShown ? 'browser Back showed the idle recorder'
+                    : b.liveTracks !== 0 ? 'a microphone was live (or unreadable) right after Back'
+                        : 'browser Back from Progress restored this saved session read-only, microphone off', { liveTracksAfterBack: b.liveTracks });
     // A saved pair must come back word for word; with none saved, the newest session keeps its transcript, so Try again.
     const reviewOk = coachingSaved ? b.review === 'saved' : b.review === 'try_again';
     receipt.row('restored review', !b.restored ? 'HOLD' : reviewOk ? 'PASS' : 'FAIL',

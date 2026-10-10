@@ -11,7 +11,7 @@ import { focusBackReloadVerdict, type FocusBackReloadObservation } from '../live
 import { requiredAutomatedRows } from '../live/helpers/rwtAcceptance';
 
 const ok: FocusBackReloadObservation = {
-    leftForProgress: true, restoredAfterBack: true, restoredAfterReload: true, sameSessionAfterReload: true,
+    leftForProgress: true, restoredAfterBack: true, liveMicTracksAfterBack: 0, restoredAfterReload: true, sameSessionAfterReload: true,
     idleRecorderShown: false, liveMicTracks: 0, transcriptMatchesSaved: true, reviewAfterBack: 'saved', reviewAfterReload: 'saved', coachingSaved: true,
     verdictsBefore: ['p1:detected', 'p2:not_detected'], verdictsAfter: ['p1:detected', 'p2:not_detected'], coachingRequestsBefore: 1, coachingRequestsAfter: 1,
 };
@@ -36,7 +36,8 @@ describe('Focus Back from Progress, then reload', () => {
         expect([
             v({ restoredAfterBack: false }), v({ idleRecorderShown: true }), v({ restoredAfterReload: false }),
             v({ sameSessionAfterReload: false }), v({ liveMicTracks: 1 }), v({ leftForProgress: false }),
-        ]).toEqual(['FAIL', 'FAIL', 'FAIL', 'FAIL', 'FAIL', 'FAIL']);
+            v({ liveMicTracksAfterBack: 1 }), v({ liveMicTracksAfterBack: null }),
+        ]).toEqual(['FAIL', 'FAIL', 'FAIL', 'FAIL', 'FAIL', 'FAIL', 'FAIL', 'FAIL']);
     });
     it('CASUALTY: a different transcript, changed verdicts, no readable verdicts, regenerated coaching or a missing review FAIL', () => {
         expect([
