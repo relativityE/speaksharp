@@ -20,9 +20,9 @@ describe('a new persisted session', () => {
             isNewPersistedSession({ persisted: 'true', id: 'b' }, null),
         ]).toEqual([true, false, false, false, false, true]);
     });
-    it('the completed-review, New Set / Edit and switch takes wait through it; no null-accepting "not the old id" poll remains', () => {
+    it('the New Set / Edit and switch takes wait through it; no null-accepting "not the old id" poll remains', () => {
         const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
-        expect(helper.match(/await waitForNewPersistedSession\(page, /g)?.length).toBe(4);
+        expect(helper.match(/await waitForNewPersistedSession\(page, /g)?.length).toBe(3);
         expect(helper).not.toMatch(/data-session-persisted-id'\)\), \{ timeout: 120_000 \}\)\s*\.not\.toBe/);
         expect(helper).not.toMatch(/expect\.poll\(lastSaved/);
     });

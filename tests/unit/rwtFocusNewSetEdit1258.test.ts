@@ -90,14 +90,30 @@ describe('Focus New Set / Edit oracle', () => {
     });
     // #1576 Codex P1 4237701739: the next-Start probe stops below the 5 s persist guard, so no completed review is on screen
     // and New Set (after-state only) never renders. The step must reach a completed review explicitly before looking for it.
-    it('CASUALTY (Codex 4237701739): a completed review is reached (durable saved take) before New Set is looked for', () => {
+    it('CASUALTY (Codex 4237701739 / Browser PM 6097978379): New Set starts from the switch take\'s LIVE completed review — no extra recording, take B bound to that predecessor', () => {
         const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
-        const step = helper.slice(helper.indexOf("'Focus: Start a new set, Edit it, and the next take is scored on the edited set'"), helper.lastIndexOf("receipt.row('Focus New Set'"));
-        const record = step.indexOf('startBenchmarkRecording(page, `${suite}-completed-review`)');
-        const durable = step.indexOf('completedReviewTakeId = await waitForNewPersistedSession(page, previousSaved)');
+        const nextStart = helper.indexOf("test.step('next Start without a hold'");
+        const switchStep = helper.indexOf("test.step('Open Mic take, then a Focus take right after the product switch'");
+        const newSetStep = helper.indexOf("test.step('Focus: Start a new set, Edit it, and the next take is scored on the edited set'");
+        // The next-Start probe leaves no completed review; the switch take saves one; New Set runs from it.
+        expect(nextStart).toBeGreaterThan(-1);
+        expect(nextStart).toBeLessThan(switchStep);
+        expect(switchStep).toBeLessThan(newSetStep);
+        const sw = helper.slice(switchStep, newSetStep);
+        expect(sw.indexOf('switchFocusId = focusId && focusId !== openMicId ? focusId : null;'))
+            .toBeGreaterThan(sw.indexOf('const focusId = await waitForNewPersistedSession(page, openMicId);'));
+        const step = helper.slice(newSetStep, helper.lastIndexOf("receipt.row('Focus New Set'"));
         const lookFor = step.indexOf("newSetButton.waitFor({ state: 'visible'");
-        expect([record > 0, durable > record, lookFor > durable]).toEqual([true, true, true]);
-        expect(step).toMatch(/await page\.waitForTimeout\(8_000\); \/\/ past the 5 s no-persist guard/);
+        expect(lookFor).toBeGreaterThan(-1);
+        // No recording of its own before New Set, and none to manufacture a review.
+        expect(step.slice(0, lookFor)).not.toMatch(/startBenchmarkRecording|completed-review|page\.goto\(/);
+        expect(step).not.toMatch(/completedReview/);
+        // New Set is looked for only on the predecessor's review, and take B's durable save is new relative to THAT take.
+        expect(step).toContain('const predecessor = switchFocusId;');
+        expect(step).toMatch(/const offered = onPredecessorReview && await newSetButton\.waitFor\(/);
+        expect(step).toContain('takeBId = await waitForNewPersistedSession(page, predecessor);');
+        expect(step).not.toContain('waitForNewPersistedSession(page, persistedId)');
+        expect(step).toContain('takeBId !== predecessor && takeBId !== persistedId ? await savedFocus(takeBId)');
     });
 
     it('the full Focus suite requires both rows and runs the step', () => {
