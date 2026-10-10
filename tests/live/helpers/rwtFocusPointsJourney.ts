@@ -562,9 +562,21 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 const newPoints = [points[source[0]], points[source[1]], unspoken];
                 const edited = [points[source[0]], points[source[1]], points[source[2]]];
 
-                // Start a new set — from the completed review the next Start just left on this page (a fresh /session would
-                // show the idle recorder, not the completed review) — opens the setup blank.
+                // #1576 Codex P1 4237701739: Start a new set renders only on a COMPLETED review, and the next-Start probe above stops
+                // below the 5 s persist guard, leaving none. Reach one explicitly: one short SAVED take on the current set, proven
+                // durable, before New Set is looked for. (Skipped only if a completed review is already on screen.)
                 const newSetButton = page.getByTestId('focus-points-new-set');
+                let completedReviewTakeId: string | null = null;
+                if (!(await newSetButton.isVisible().catch(() => false))) {
+                    await page.goto('/session');
+                    await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 }).catch(() => undefined);
+                    const previousSaved = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+                    await startBenchmarkRecording(page, `${suite}-completed-review`);
+                    await page.waitForTimeout(8_000); // past the 5 s no-persist guard
+                    await stopBenchmarkRecording(page, `${suite}-completed-review`, 180_000);
+                    await waitForBenchmarkSaveCandidate(page, `${suite}-completed-review`, 180_000);
+                    completedReviewTakeId = await waitForNewPersistedSession(page, previousSaved);
+                }
                 const offered = await newSetButton.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false);
                 let newSetBlank = false;
                 if (offered) {
@@ -628,7 +640,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     takeAVerdictsBefore: takeA.verdicts, takeAVerdictsAfter: takeAAfter.verdicts,
                     editedLabels: edited, railOrdered, takeBSavedOrdered: takeB.ordered,
                 });
-                const evidence = { offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
+                const evidence = { completedReviewTake: completedReviewTakeId !== null, offered, newSetBlank, editSeeded, railLabelsMatchEdit, takeBSaved: takeBId !== null && takeBId !== persistedId, final: railOrdered.map((r) => r.status).join(','), savedVerdicts: takeB.ordered.map((r) => r.verdict).join(',') };
                 receipt.row('Focus New Set', v.newSet.verdict, v.newSet.detail, evidence);
                 receipt.row('Focus Edit', v.edit.verdict, v.edit.detail, evidence);
             });

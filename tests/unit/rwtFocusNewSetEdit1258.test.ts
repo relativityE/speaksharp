@@ -88,6 +88,18 @@ describe('Focus New Set / Edit oracle', () => {
         const detail = helper.slice(helper.indexOf("'analytics point detail'"), helper.indexOf("'analytics point detail'") + 1500);
         expect(detail.match(/\(fail closed\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
     });
+    // #1576 Codex P1 4237701739: the next-Start probe stops below the 5 s persist guard, so no completed review is on screen
+    // and New Set (after-state only) never renders. The step must reach a completed review explicitly before looking for it.
+    it('CASUALTY (Codex 4237701739): a completed review is reached (durable saved take) before New Set is looked for', () => {
+        const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
+        const step = helper.slice(helper.indexOf("'Focus: Start a new set, Edit it, and the next take is scored on the edited set'"), helper.lastIndexOf("receipt.row('Focus New Set'"));
+        const record = step.indexOf('startBenchmarkRecording(page, `${suite}-completed-review`)');
+        const durable = step.indexOf('completedReviewTakeId = await waitForNewPersistedSession(page, previousSaved)');
+        const lookFor = step.indexOf("newSetButton.waitFor({ state: 'visible'");
+        expect([record > 0, durable > record, lookFor > durable]).toEqual([true, true, true]);
+        expect(step).toMatch(/await page\.waitForTimeout\(8_000\); \/\/ past the 5 s no-persist guard/);
+    });
+
     it('the full Focus suite requires both rows and runs the step', () => {
         expect(requiredAutomatedRows('focus-points-session')?.product).toEqual(expect.arrayContaining(['Focus New Set', 'Focus Edit']));
         const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
