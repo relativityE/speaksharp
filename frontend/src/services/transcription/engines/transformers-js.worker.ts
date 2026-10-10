@@ -20,6 +20,7 @@ type WorkerRequest =
             prefixes: string[];
             minimumUniqueCount: number;
             expectedResourceUrls?: string[];
+            allowedResourceUrls?: string[];
         }>;
         /** Test-build-only input used to identify the pinned runtime subset without exposing names. */
         diagnosticAssetUrls?: string[];
@@ -111,6 +112,7 @@ async function init(
         prefixes: string[];
         minimumUniqueCount: number;
         expectedResourceUrls?: string[];
+        allowedResourceUrls?: string[];
     }> = [],
     diagnosticAssetUrls: string[] = [],
     attempt?: { token: string; candidateId: string },

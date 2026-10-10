@@ -18,7 +18,7 @@ import type { Candidate } from './candidateRegistry';
 import type { PinnedAssetRef } from './modelAcquisitionTelemetry';
 import selfHostedPins from './selfHostedAssetPins.json';
 import moonshinePins from './moonshineAssetPins.json';
-import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './engines/transformersV2WasmAssets';
+import { TRANSFORMERS_V2_WASM_ASSET_URLS } from './engines/transformersV2WasmAssets';
 
 export interface CandidateAssetRequests {
     assets: PinnedAssetRef[];
@@ -32,6 +32,8 @@ export interface AcquisitionComponentGroup {
     minimumUniqueCount: number;
     /** Exact required identities when a loader uses a stable subset of the shipped pin inventory. */
     expectedResourceUrls?: string[];
+    /** Allowed exact identities when a loader selects one of several mutually exclusive variants. */
+    allowedResourceUrls?: string[];
 }
 
 interface SelfHostedPinFile { servedFrom: string; files: Array<{ path: string; bytes: number }> }
@@ -73,6 +75,13 @@ function v2PipelineModelUrls(): string[] {
     if (V2_PIPELINE_MODEL_PATHS.some((path) => !available.has(path))) return [];
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     return V2_PIPELINE_MODEL_PATHS.map((path) => `${origin}${pins.servedFrom}/${path}`);
+}
+
+function v2RuntimeAssetUrls(): string[] {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return Object.values(TRANSFORMERS_V2_WASM_ASSET_URLS).map((assetUrl) =>
+        origin ? new URL(assetUrl, origin).href : assetUrl,
+    );
 }
 
 function moonshineAssets(): PinnedAssetRef[] {
@@ -145,11 +154,8 @@ export function acquisitionScopeFor(candidate: Candidate): string[] {
             const cut = a.url.lastIndexOf('/');
             prefixes.add(cut === -1 ? a.url : a.url.slice(0, cut + 1));
         }
-        // v2 initializes ONNX Runtime as part of its first pipeline() call. Its selected WASM binary
-        // is emitted under a separate Vite asset directory, outside the model's pinned /models tree.
-        // The worker timeline is exclusive, so this additional runtime request must be declared rather
-        // than misreported as an unexplained request or silently excluded from setup transfer.
-        if (candidate.id === 'v2:base.en') prefixes.add(TRANSFORMERS_V2_WASM_PATH_PREFIX);
+        // v2 runtime files are added below as exact emitted assets. Do not broaden this scope to the
+        // whole ORT directory: an unrelated same-directory request must remain visible as out-of-scope.
         return [...prefixes];
     }
     // No shipped pin table: scope by the repository the runtime resolves against.
@@ -159,10 +165,10 @@ export function acquisitionScopeFor(candidate: Candidate): string[] {
 /**
  * Required resource classes for a complete first-use measurement.
  *
- * v2's seven model files requested by its first pipeline and its one selected ONNX Runtime WASM binary
- * are separate groups. Exact model identities come from a real worker observation; a missing resource
- * cannot be hidden by counting the runtime binary (or a different pinned file). The full 12-file pin
- * inventory remains the cache-probe candidate list. Other candidates retain their registry inventory.
+ * v2's seven model files requested by its first pipeline and one of four emitted ONNX Runtime WASM
+ * variants are separate groups. Exact model identities come from a real worker observation; runtime
+ * identities come from the emitted asset imports. Unknown files in the ORT directory remain out of
+ * scope. The full 12-file pin inventory remains the cache-probe candidate list.
  */
 export function acquisitionComponentGroupsFor(candidate: Candidate): AcquisitionComponentGroup[] {
     if (candidate.id === 'v2:base.en') {
@@ -172,7 +178,7 @@ export function acquisitionComponentGroupsFor(candidate: Candidate): Acquisition
                 minimumUniqueCount: V2_PIPELINE_MODEL_PATHS.length,
                 expectedResourceUrls: v2PipelineModelUrls(),
             },
-            { prefixes: [TRANSFORMERS_V2_WASM_PATH_PREFIX], minimumUniqueCount: 1 },
+            { prefixes: [], minimumUniqueCount: 1, allowedResourceUrls: v2RuntimeAssetUrls() },
         ];
     }
     const prefixes = acquisitionScopeFor(candidate);

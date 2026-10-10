@@ -9,7 +9,10 @@ const V2 = CANDIDATES['v2:base.en'];
 const SCOPE = acquisitionScopeFor(V2);
 const GROUPS = acquisitionComponentGroupsFor(V2);
 const MODEL_PREFIX = SCOPE.find((prefix) => prefix.includes('/models/whisper-base.en/'))!;
-const RUNTIME_PREFIX = SCOPE.find((prefix) => !prefix.includes('/models/'))!;
+const RUNTIME_GROUP = GROUPS[1];
+const RUNTIME_URLS = RUNTIME_GROUP.allowedResourceUrls ?? [];
+const RUNTIME_URLS_FIRST = RUNTIME_URLS[0]!;
+const RUNTIME_PREFIX = RUNTIME_URLS_FIRST.slice(0, RUNTIME_URLS_FIRST.lastIndexOf('/') + 1);
 const REQUIRED_MODEL_URLS = GROUPS[0].expectedResourceUrls ?? [];
 const MODEL_COUNT = REQUIRED_MODEL_URLS.length;
 const START = 1_000;
@@ -34,7 +37,7 @@ function modelResources(urls: string[] = REQUIRED_MODEL_URLS): Resource[] {
 
 function runtimeResource(overrides: Partial<Resource> = {}): Resource {
     return {
-        name: `${RUNTIME_PREFIX}ort-wasm-simd-threaded.wasm`,
+        name: RUNTIME_URLS_FIRST,
         transferSize: 1_000,
         encodedBodySize: 1_000,
         responseEnd: START + 500,
@@ -57,7 +60,7 @@ describe('v2 cold pipeline acquisition inventory', () => {
     it('requires the exact seven pipeline model resources plus one selected ONNX Runtime WASM request', () => {
         expect(GROUPS).toEqual([
             { prefixes: [MODEL_PREFIX], minimumUniqueCount: 7, expectedResourceUrls: REQUIRED_MODEL_URLS },
-            { prefixes: [RUNTIME_PREFIX], minimumUniqueCount: 1 },
+            { prefixes: [], minimumUniqueCount: 1, allowedResourceUrls: RUNTIME_URLS },
         ]);
         const result = observe([...modelResources(), runtimeResource()]);
         expect(result.completeness).toBe('complete');
@@ -73,9 +76,7 @@ describe('v2 cold pipeline acquisition inventory', () => {
         expect(missingRuntime.completeness).toBe('partial');
         expect(missingRuntime.reasonCode).toBe('component_shortfall');
 
-        // An extra runtime request cannot make up for a missing model file.
-        const missingModel = observe([...modelResources(REQUIRED_MODEL_URLS.slice(0, -1)),
-            runtimeResource(), runtimeResource({ name: `${RUNTIME_PREFIX}second-runtime-file.wasm` })]);
+        const missingModel = observe([...modelResources(REQUIRED_MODEL_URLS.slice(0, -1)), runtimeResource()]);
         expect(missingModel.completeness).toBe('partial');
         expect(missingModel.reasonCode).toBe('component_shortfall');
     });
@@ -111,6 +112,30 @@ describe('v2 cold pipeline acquisition inventory', () => {
         const redirected = observe([...modelResources(), runtimeResource({ redirectStart: START + 50, redirectEnd: START + 80 })]);
         expect(redirected.completeness).toBe('partial');
         expect(redirected.reasonCode).toBe('requests_redirected');
+    });
+
+    it('rejects unrelated files in the ORT directory, even beside a valid runtime variant', () => {
+        const unrelated = {
+            name: `${RUNTIME_PREFIX}unrelated-file.js`, transferSize: 100, encodedBodySize: 100,
+            responseEnd: START + 650,
+        };
+        const unrelatedOnly = observe([...modelResources(), unrelated]);
+        expect(unrelatedOnly.completeness).toBe('partial');
+        expect(unrelatedOnly.reasonCode).toBe('requests_outside_scope');
+        expect(unrelatedOnly.outOfScopeCount).toBe(1);
+
+        const alongsideValid = observe([...modelResources(), runtimeResource(), unrelated]);
+        expect(alongsideValid.completeness).toBe('partial');
+        expect(alongsideValid.reasonCode).toBe('requests_outside_scope');
+        expect(alongsideValid.outOfScopeCount).toBe(1);
+    });
+
+    it('accepts each emitted ORT browser variant by exact identity', () => {
+        for (const url of RUNTIME_URLS) {
+            const result = observe([...modelResources(), runtimeResource({ name: url })]);
+            expect(result.completeness).toBe('complete');
+            expect(result.reasonCode).toBeNull();
+        }
     });
 
     it('keeps opaque response sizes partial even with complete component coverage', () => {

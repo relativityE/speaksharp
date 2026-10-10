@@ -46,6 +46,7 @@ type WorkerRequest =
             prefixes: string[];
             minimumUniqueCount: number;
             expectedResourceUrls?: string[];
+            allowedResourceUrls?: string[];
         }>;
         attempt?: AcquisitionAttempt;
       }

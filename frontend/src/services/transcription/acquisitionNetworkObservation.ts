@@ -126,6 +126,7 @@ export interface AcquisitionTimelineScope {
         prefixes: readonly string[];
         minimumUniqueCount: number;
         expectedResourceUrls?: readonly string[];
+        allowedResourceUrls?: readonly string[];
     }>;
 }
 
@@ -159,9 +160,20 @@ export function observeAcquisitionNetwork(
     }
 
     const inWindow = entries.filter((e) => e.startTime >= startedAt);
+    const resourceIdentity = (value: string) => {
+        try {
+            const parsed = new URL(value);
+            return `${parsed.origin}${parsed.pathname}`;
+        } catch {
+            return value.split(/[?#]/, 1)[0];
+        }
+    };
+    const exactAllowedNames = new Set((scope.expectedComponentGroups ?? [])
+        .flatMap((group) => group.allowedResourceUrls ?? []).map(resourceIdentity));
     // `includes`, not `startsWith`: a scope may be a served location OR a repository identity that
     // appears inside the request path.
-    const matched = inWindow.filter((e) => prefixes.some((p) => e.name.includes(p)));
+    const matched = inWindow.filter((e) => prefixes.some((p) => e.name.includes(p))
+        || exactAllowedNames.has(resourceIdentity(e.name)));
     /*
      * COUNTED ONLY WHERE IT MEANS SOMETHING. On a shared timeline the unmatched entries are the page's
      * own traffic, so the subtraction below would be a count of unrelated requests. Null, not zero:
@@ -236,23 +248,19 @@ export function observeAcquisitionNetwork(
             return entry.name.split(/[?#]/, 1)[0];
         }
     }));
-    const resourceIdentity = (value: string) => {
-        try {
-            const parsed = new URL(value);
-            return `${parsed.origin}${parsed.pathname}`;
-        } catch {
-            return value.split(/[?#]/, 1)[0];
-        }
-    };
-    const observedNames = uniqueNames(matched);
     const componentsProven = groups.length > 0
         ? groups.every((group) => {
-            const resources = matched.filter((entry) => group.prefixes.some((prefix) => entry.name.includes(prefix)));
+            const allowedNames = group.allowedResourceUrls === undefined ? null
+                : new Set(group.allowedResourceUrls.map(resourceIdentity));
+            const resources = matched.filter((entry) => allowedNames
+                ? allowedNames.has(resourceIdentity(entry.name))
+                : group.prefixes.some((prefix) => entry.name.includes(prefix)));
+            const observedGroupNames = uniqueNames(resources);
             if (group.expectedResourceUrls !== undefined) {
                 return group.expectedResourceUrls.length === group.minimumUniqueCount
-                    && group.expectedResourceUrls.every((url) => observedNames.has(resourceIdentity(url)));
+                    && group.expectedResourceUrls.every((url) => observedGroupNames.has(resourceIdentity(url)));
             }
-            return uniqueNames(resources).size >= group.minimumUniqueCount;
+            return observedGroupNames.size >= group.minimumUniqueCount;
         })
         : componentsKnown && uniqueNames(matched).size >= (scope.expectedComponents as number);
     /*

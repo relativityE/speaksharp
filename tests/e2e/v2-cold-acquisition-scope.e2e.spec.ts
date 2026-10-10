@@ -21,6 +21,12 @@ const PIPELINE_MODEL_PATHS = [
     'tokenizer.json',
     'tokenizer_config.json',
 ];
+const ORT_WASM_FILES = [
+    'ort-wasm.wasm',
+    'ort-wasm-threaded.wasm',
+    'ort-wasm-simd.wasm',
+    'ort-wasm-simd-threaded.wasm',
+];
 
 type Receipt = {
     completeness: string;
@@ -39,6 +45,7 @@ async function loadV2Worker(
         prefixes: string[];
         minimumUniqueCount: number;
         expectedResourceUrls?: string[];
+        allowedResourceUrls?: string[];
     }>,
     diagnosticAssetUrls: string[],
 ): Promise<Receipt> {
@@ -89,8 +96,11 @@ test('real v2 worker observation changes from one unmatched runtime request to c
     await page.goto('/');
     const origin = new URL(baseURL!).origin;
     const modelPrefix = `${origin}/models/whisper-base.en/`;
-    const runtimePrefix = `${origin}/assets/`;
-    const diagnosticAssetUrls = MODEL_FILES.map(({ path }) => `${modelPrefix}${path}`);
+    const runtimeUrls = ORT_WASM_FILES.map((file) => `${origin}/assets/transformers-v2-ort/${file}`);
+    const diagnosticAssetUrls = [
+        ...MODEL_FILES.map(({ path }) => `${modelPrefix}${path}`),
+        ...runtimeUrls,
+    ];
     const expectedModelUrls = PIPELINE_MODEL_PATHS.map((path) => `${modelPrefix}${path}`);
 
     // RED control reproduces the deployed scope: only pinned model-directory assets are declared.
@@ -102,10 +112,10 @@ test('real v2 worker observation changes from one unmatched runtime request to c
         await Promise.all((await caches.keys()).map((key) => caches.delete(key)));
     });
 
-    // GREEN measures the same first pipeline with the separately declared model and runtime groups.
-    const completeScope = await loadV2Worker(page, [modelPrefix, runtimePrefix], [
+    // GREEN uses the exact emitted ORT variants. The worker may request the one selected by this browser.
+    const completeScope = await loadV2Worker(page, [modelPrefix], [
         { prefixes: [modelPrefix], minimumUniqueCount: PIPELINE_MODEL_PATHS.length, expectedResourceUrls: expectedModelUrls },
-        { prefixes: [runtimePrefix], minimumUniqueCount: 1 },
+        { prefixes: [], minimumUniqueCount: 1, allowedResourceUrls: runtimeUrls },
     ], diagnosticAssetUrls);
     console.log('content-free v2 acquisition receipts', JSON.stringify({
         modelOnly: {
@@ -115,7 +125,8 @@ test('real v2 worker observation changes from one unmatched runtime request to c
             assetCount: oldScope.assetCount,
             networkBytes: oldScope.networkBytes,
             downloadMs: oldScope.downloadMs,
-            pinnedFileRequestMask: oldScope.diagnosticAssetMask,
+            modelRequestMask: oldScope.diagnosticAssetMask?.slice(0, MODEL_FILES.length),
+            ortVariantRequestMask: oldScope.diagnosticAssetMask?.slice(MODEL_FILES.length),
         },
         modelAndRuntime: {
             completeness: completeScope.completeness,
@@ -124,21 +135,27 @@ test('real v2 worker observation changes from one unmatched runtime request to c
             assetCount: completeScope.assetCount,
             networkBytes: completeScope.networkBytes,
             downloadMs: completeScope.downloadMs,
-            pinnedFileRequestMask: completeScope.diagnosticAssetMask,
+            modelRequestMask: completeScope.diagnosticAssetMask?.slice(0, MODEL_FILES.length),
+            ortVariantRequestMask: completeScope.diagnosticAssetMask?.slice(MODEL_FILES.length),
         },
     }));
     expect(completeScope.completeness, JSON.stringify({
         reasonCode: completeScope.reasonCode,
         outOfScopeCount: completeScope.outOfScopeCount,
         assetCount: completeScope.assetCount,
-        pinnedFileRequestMask: completeScope.diagnosticAssetMask,
+        modelRequestMask: completeScope.diagnosticAssetMask?.slice(0, MODEL_FILES.length),
+        ortVariantRequestMask: completeScope.diagnosticAssetMask?.slice(MODEL_FILES.length),
     })).toBe('complete');
     expect(completeScope.reasonCode).toBeNull();
     expect(completeScope.outOfScopeCount).toBe(0);
-    expect(oldScope.diagnosticAssetMask).toEqual([
+    expect(oldScope.diagnosticAssetMask?.slice(0, MODEL_FILES.length)).toEqual([
         false, true, true, false, false, true, true, true, false, true, true, false,
     ]);
-    expect(completeScope.diagnosticAssetMask).toEqual(oldScope.diagnosticAssetMask);
+    expect(oldScope.diagnosticAssetMask?.slice(MODEL_FILES.length).filter(Boolean)).toHaveLength(1);
+    expect(completeScope.diagnosticAssetMask?.slice(0, MODEL_FILES.length)).toEqual(
+        oldScope.diagnosticAssetMask?.slice(0, MODEL_FILES.length),
+    );
+    expect(completeScope.diagnosticAssetMask?.slice(MODEL_FILES.length).filter(Boolean)).toHaveLength(1);
     expect(completeScope.assetCount).toBe(PIPELINE_MODEL_PATHS.length + 1);
     expect(completeScope.networkBytes).toBeGreaterThan(0);
     expect(completeScope.downloadMs).toBeGreaterThan(0);

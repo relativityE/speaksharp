@@ -135,7 +135,7 @@ describe('#1259 the acquisition payload carries real measurements', () => {
             name: a.url, transferSize: (a.bytes ?? 0) + 300, encodedBodySize: a.bytes ?? 0,
             startTime: LOAD_START, responseEnd: LOAD_START + 2500,
         })), {
-            name: Object.values(TRANSFORMERS_V2_WASM_ASSET_URLS)[0],
+            name: new URL(Object.values(TRANSFORMERS_V2_WASM_ASSET_URLS)[0], window.location.origin).href,
             transferSize: 1_000, encodedBodySize: 1_000,
             startTime: LOAD_START, responseEnd: LOAD_START + 2500,
         }]);
@@ -163,7 +163,7 @@ describe('#1259 the acquisition payload carries real measurements', () => {
         stageResourceTiming([...assets.map((a) => ({
             name: a.url, transferSize: 0, encodedBodySize: a.bytes ?? 1,
         })), {
-            name: Object.values(TRANSFORMERS_V2_WASM_ASSET_URLS)[0],
+            name: new URL(Object.values(TRANSFORMERS_V2_WASM_ASSET_URLS)[0], window.location.origin).href,
             transferSize: 0, encodedBodySize: 1_000,
         }]);
 
