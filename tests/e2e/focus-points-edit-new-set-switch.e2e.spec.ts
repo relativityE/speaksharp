@@ -100,10 +100,18 @@ test.describe('#1258 Focus Points controls and product-switch isolation', () => 
     await expect(page.getByTestId('coverage-pace-covered')).toHaveCount(0); // before-state is a plan, not a score
     await expect(page.getByTestId('review-transcript')).toHaveCount(0);
 
-    await recordAndSave(page, `Today ${NEW_POINT.toLowerCase()}.`);
+    const newTake = NEW_POINT.toLowerCase();
+    await recordAndSave(page, `Today ${newTake}.`);
     await expect(page.getByTestId('focus-points-topic')).toHaveText(NEW_TOPIC);
     await expect(page.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
-    await expect(page.getByTestId('review-transcript')).not.toContainText(oldTake);
+
+    // Positive saved-take evidence comes first. These retrying assertions catch a missing node, a delayed
+    // render that never publishes the new take, or a stale previous-take result still shown after New Set.
+    // Match the distinctive spoken phrase; the transcript formatter may normalize surrounding punctuation.
+    const savedTranscript = page.getByTestId('review-transcript');
+    await expect(savedTranscript).toBeVisible({ timeout: 15_000 });
+    await expect(savedTranscript).toContainText(newTake, { timeout: 15_000 });
+    await expect(savedTranscript).not.toContainText(oldTake);
   });
 
   test('Open Mic → Focus Points switch starts a fresh Focus take with its own transcript and points', async ({ page }) => {
