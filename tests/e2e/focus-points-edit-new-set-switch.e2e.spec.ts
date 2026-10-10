@@ -78,7 +78,7 @@ test.describe('#1258 Focus Points controls and product-switch isolation', () => 
     await saveFocusSet(page, OLD_TOPIC, OLD_POINTS.slice(0, 1));
     await expect(page.locator('[data-testid="session-shell"][data-session-state="before"]')).toBeVisible();
 
-    const oldTake = 'the previous set says price';
+    const oldTake = 'the previous set says $price.';
     await recordAndSave(page, oldTake);
     await expect(page.getByTestId('focus-points-new-set')).toBeVisible();
     await page.getByTestId('focus-points-new-set').click();
@@ -111,7 +111,10 @@ test.describe('#1258 Focus Points controls and product-switch isolation', () => 
     const savedTranscript = page.getByTestId('review-transcript');
     await expect(savedTranscript).toBeVisible({ timeout: 15_000 });
     await expect(savedTranscript).toContainText(newTake, { timeout: 15_000 });
-    await expect(savedTranscript).not.toContainText(oldTake);
+    const oldTakePattern = new RegExp(oldTake.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const sentenceCasedStaleSpeech = `${oldTake[0].toUpperCase()}${oldTake.slice(1)}`;
+    expect(sentenceCasedStaleSpeech).toMatch(oldTakePattern);
+    await expect(savedTranscript).not.toContainText(oldTakePattern);
   });
 
   test('Open Mic → Focus Points switch starts a fresh Focus take with its own transcript and points', async ({ page }) => {
