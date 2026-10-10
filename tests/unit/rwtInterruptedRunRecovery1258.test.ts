@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * #1258 B1 (Browser PM 6097765962) — interrupted-run recovery: selection refuses fresh / non-owned / malformed / ambiguous
+ * #1258 B1 (Browser PM 6097765962) — interrupted-run recovery: selection refuses fresh / non-owned / malformed / ambiguous (across the whole listing)
  * accounts, the listing is bounded and fails closed, no ack = detect-and-HOLD (nothing deleted), the ack is a distinct value on the existing rwt_writes_ack input, deletion goes only through
  * the existing fail-closed cleanup, a second run is a no-op, and the report never carries an id or email.
  */
@@ -49,6 +49,21 @@ describe('selection', () => {
         expect(eligible[0].prefix).toBe('rwt-journey-');
         expect(counts).toEqual({ scanned: 8, nonOwned: 1, runOwned: 7, fresh: 1, malformed: 3, ambiguous: 2, eligible: 1 });
     });
+    it('CASUALTY (CLI PM 6098304364 #1): a fresh / non-owned / malformed row sharing an old account\'s id or email makes it ambiguous', () => {
+        const oldA = user(1, 'rwt-journey-a@example.com', old);
+        const cases: Array<[string, AuthUserLike]> = [
+            ['fresh duplicate email', user(2, 'rwt-journey-a@example.com', fresh)],
+            ['non-owned duplicate id', user(1, 'person@example.com', old)],
+            ['malformed duplicate email', { id: 'not-a-uuid', email: 'RWT-JOURNEY-A@example.com', created_at: old }],
+            ['malformed-date duplicate id (upper-case)', { id: uuid(1).toUpperCase(), email: 'rwt-journey-z@example.com', created_at: 'yesterday' }],
+        ];
+        for (const [label, dup] of cases) {
+            const { eligible, counts } = selectInterruptedRunAccounts([oldA, dup], NOW);
+            expect({ label, eligible: eligible.length, ambiguous: counts.ambiguous }).toEqual({ label, eligible: 0, ambiguous: 1 });
+        }
+        // Control: the same old account alone (or beside an unrelated row) stays eligible.
+        expect(selectInterruptedRunAccounts([oldA, user(9, 'rwt-journey-other@example.com', fresh)], NOW).eligible.map((c) => c.id)).toEqual([uuid(1)]);
+    });
     it('the age floor is the gate-3 timeout plus a safety margin (75 min)', () => {
         expect(MIN_AGE_MS).toBe(75 * 60_000);
         const justYoung = new Date(NOW - MIN_AGE_MS + 1_000).toISOString();
@@ -64,6 +79,24 @@ describe('listing', () => {
         expect(listUsers).toHaveBeenCalledTimes(3);
         const broken = { auth: { admin: { listUsers: async () => ({ data: null, error: { code: 'boom' } }) } } } as unknown as AdminLike;
         await expect(listAuthUsersBounded(broken)).rejects.toThrow(/fail closed/);
+    });
+    it('CASUALTY (CLI PM 6098304364 #2): a null / missing / non-array users payload or a non-object row is malformed, never an empty page', async () => {
+        const payloads: unknown[] = [null, {}, { users: null }, { users: 'x' }, { users: {} }, { users: [null] }, { users: ['row'] }, { users: [[]] }];
+        for (const data of payloads) {
+            const admin = { auth: { admin: { listUsers: async () => ({ data, error: null }) } } } as unknown as AdminLike;
+            await expect(listAuthUsersBounded(admin)).rejects.toThrow(/malformed page \(fail closed\)/);
+            const cleanup = vi.fn();
+            await expect(recoverInterruptedRuns({ admin, nowMs: NOW, ack: RECOVERY_DELETE_ACK, cleanup })).rejects.toThrow(/malformed page/);
+            expect(cleanup).not.toHaveBeenCalled();
+        }
+    });
+    it('CASUALTY: a malformed page AFTER a valid full page still refuses the whole listing; no cleanup runs', async () => {
+        const first = [user(1, 'rwt-journey-a@example.com', old), user(2, 'rwt-journey-b@example.com', old)];
+        const listUsers = vi.fn(async ({ page }: { page: number }) => (page === 1 ? { data: { users: first }, error: null } : { data: null, error: null }));
+        const admin = { auth: { admin: { listUsers } } } as unknown as AdminLike;
+        const cleanup = vi.fn();
+        await expect(recoverInterruptedRuns({ admin, nowMs: NOW, ack: RECOVERY_DELETE_ACK, cleanup, perPage: 2 })).rejects.toThrow(/malformed page/);
+        expect([listUsers.mock.calls.length, cleanup.mock.calls.length]).toEqual([2, 0]);
     });
     it('CASUALTY: hitting the page cap with a full page is INCOMPLETE → HOLD, nothing deleted', async () => {
         const users = Array.from({ length: 4 }, (_, i) => user(i + 1, `rwt-journey-${i}@example.com`, old));

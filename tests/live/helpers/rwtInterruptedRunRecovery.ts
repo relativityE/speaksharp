@@ -5,7 +5,8 @@
  *
  * Detect-and-HOLD by default. Deletion happens only with the exact dispatch acknowledgement AND separate PO Production
  * authority for that run, and only through the existing fail-closed `cleanupRunOwnedAccount` (auth deletion + every residue
- * readback = 0). Selection refuses anything fresh, non-owned, malformed or ambiguous; the listing is bounded and fails closed.
+ * readback = 0). Selection refuses anything fresh, non-owned, malformed or ambiguous (judged over the whole listing); the listing is bounded,
+ * requires a real users array on every page and fails closed.
  * Idempotent: a second run finds nothing to recover. The report is content-safe — counts and a status, never an id or email.
  */
 import { RUN_OWNED_PREFIX_RE, cleanupRunOwnedAccount } from './runOwnedCleanup';
@@ -28,7 +29,12 @@ export interface SelectionCounts { scanned: number; nonOwned: number; runOwned: 
 export function selectInterruptedRunAccounts(users: readonly AuthUserLike[], nowMs: number, minAgeMs: number = MIN_AGE_MS):
     { eligible: RecoveryCandidate[]; counts: SelectionCounts } {
     const counts: SelectionCounts = { scanned: users.length, nonOwned: 0, runOwned: 0, fresh: 0, malformed: 0, ambiguous: 0, eligible: 0 };
-    const owned: RecoveryCandidate[] = [];
+    // CLI PM 6098304364 (1): ambiguity is judged over the COMPLETE listing, before any eligibility filter, so a fresh,
+    // malformed or non-owned row sharing an old account's id or email still makes that account ambiguous.
+    const keyCount = (values: string[]) => values.reduce((m, v) => m.set(v, (m.get(v) ?? 0) + 1), new Map<string, number>());
+    const idCounts = keyCount(users.map((u) => (typeof u.id === 'string' ? u.id.toLowerCase() : '')).filter(Boolean));
+    const emailCounts = keyCount(users.map((u) => (typeof u.email === 'string' ? u.email.toLowerCase() : '')).filter(Boolean));
+    const eligible: RecoveryCandidate[] = [];
     for (const user of users) {
         const email = typeof user.email === 'string' ? user.email.toLowerCase() : '';
         const match = RUN_OWNED_PREFIX_RE.exec(email);
@@ -38,17 +44,10 @@ export function selectInterruptedRunAccounts(users: readonly AuthUserLike[], now
         const created = typeof user.created_at === 'string' ? Date.parse(user.created_at) : Number.NaN;
         if (!UUID_RE.test(id) || !EMAIL_RE.test(email) || !Number.isFinite(created) || created > nowMs) { counts.malformed += 1; continue; }
         if (nowMs - created < minAgeMs) { counts.fresh += 1; continue; }
-        owned.push({ id, email, prefix: match[1] });
+        // The same id or email anywhere else in the listing is ambiguous: refuse rather than guess.
+        if ((idCounts.get(id.toLowerCase()) ?? 0) > 1 || (emailCounts.get(email) ?? 0) > 1) { counts.ambiguous += 1; continue; }
+        eligible.push({ id, email, prefix: match[1] });
     }
-    // The same id or email twice in one listing is ambiguous: refuse every copy rather than guess.
-    const seen = (key: (c: RecoveryCandidate) => string) => owned.reduce((m, c) => m.set(key(c), (m.get(key(c)) ?? 0) + 1), new Map<string, number>());
-    const ids = seen((c) => c.id);
-    const emails = seen((c) => c.email);
-    const eligible = owned.filter((c) => {
-        const dup = (ids.get(c.id) ?? 0) > 1 || (emails.get(c.email) ?? 0) > 1;
-        if (dup) counts.ambiguous += 1;
-        return !dup;
-    });
     counts.eligible = eligible.length;
     return { eligible, counts };
 }
@@ -63,8 +62,13 @@ export async function listAuthUsersBounded(admin: AdminLike, perPage = 200, maxP
     for (let page = 1; page <= maxPages; page += 1) {
         const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
         if (error) throw new Error(`recovery listUsers failed (fail closed): ${error.code ?? 'unknown'}`);
-        const batch = data?.users ?? [];
-        users.push(...batch);
+        // CLI PM 6098304364 (2): only a real users array is a page. A null / missing / non-array payload, or a non-object
+        // row, is a malformed response, never an empty (complete) page, so it can neither end the listing nor reach cleanup.
+        const batch: unknown = data?.users;
+        if (!Array.isArray(batch) || batch.some((u) => typeof u !== 'object' || u === null || Array.isArray(u))) {
+            throw new Error('recovery listUsers returned a malformed page (fail closed)');
+        }
+        users.push(...(batch as AuthUserLike[]));
         if (batch.length < perPage) return { users, complete: true };
     }
     return { users, complete: false };
