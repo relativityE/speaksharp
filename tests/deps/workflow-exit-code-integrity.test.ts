@@ -30,37 +30,22 @@ const MASKING = /\|\s*(tee|head|tail|grep|awk|sed|jq|cut|sort|uniq|xargs)\b/;
  * Each entry is a place where a failure can currently be reported as success. They are outside #1314's
  * authorized scope and are recorded for a scoped follow-up rather than fixed opportunistically in an unrelated
  * PR. `unaffiliated-identity-audit.yml` was in this list and has been FIXED under explicit authorization —
- * nine entries became eight.
+ * nine entries became eight. #1315 then fixed all eight, and the baseline is now empty.
  */
 /**
  * An exemption is keyed by workflow + STEP IDENTITY + command signature.
  *
  * Step identity prefers the stable YAML `id:` and falls back to the display `name:`. A display name is a
  * human-facing string that a reword changes without changing behaviour, so it is a weak key; `id:` is stable
- * across rewording. Of the eight baselined steps only ci.yml's job declares ids at all, so `name` remains the
+ * across rewording. Of the eight steps the baseline held before #1315, only ci.yml's job declared ids, so `name` was the
  * fallback in practice — recorded here rather than left implicit, and `idKind` makes each entry state which key
  * it relies on instead of the reader having to guess.
  */
 interface Exemption { workflow: string; step: string; idKind: 'id' | 'name'; signature: string; note: string }
 
-const FROZEN_BASELINE: ReadonlyArray<Exemption> = [
-  { workflow: 'ci.yml', step: 'Organize Canonical Artifacts', idKind: 'name', signature: 'head -1',
-    note: 'artifact shuffling; the surrounding logic already tolerates a miss' },
-  { workflow: 'progress-mode-separation-matrix.yml', step: 'Install psql client and record version', idKind: 'name', signature: 'select version()',
-    note: 'version probe: a dead DB would be reported as a healthy step' },
-  { workflow: 'security-definer-acl-matrix.yml', step: 'Record server version', idKind: 'name', signature: 'select version()',
-    note: 'version probe' },
-  { workflow: 'trial-commercial-db-matrix.yml', step: 'Install psql client and record version', idKind: 'name', signature: 'select version()',
-    note: 'version probe' },
-  { workflow: 'webhook-snapshot-db-matrix.yml', step: 'Install psql client and record server version', idKind: 'name', signature: 'select version()',
-    note: 'version probe' },
-  { workflow: 'service-level-evidence.yml', step: 'Run browser endurance check', idKind: 'name', signature: 'SOAK_MEMORY_DURATION_MS',
-    note: 'a failed grep yields an empty DURATION, silently changing the soak length' },
-  { workflow: 'stress-endurance.yml', step: 'Run browser endurance check', idKind: 'name', signature: 'SOAK_MEMORY_DURATION_MS',
-    note: 'a failed grep yields an empty DURATION, silently changing the soak length' },
-  { workflow: 'setup-test-users.yml', step: 'Generate and set SOAK_TEST_PASSWORD', idKind: 'name', signature: 'openssl rand',
-    note: 'a failed openssl yields an empty password' },
-];
+// RETIRED by #1315: all eight masked steps were fixed, so no exemption remains. The machinery above is kept
+// so a future exemption is possible — but only as a deliberate, reviewed, counted diff (see the test below).
+const FROZEN_BASELINE: ReadonlyArray<Exemption> = [];
 
 interface Step { workflow: string; name: string; id: string | null; line: number; body: string }
 
@@ -168,9 +153,10 @@ describe('green means green — a failing command may never report a passing ste
     expect(orphaned).toEqual([]);
   });
 
-  it('the baseline is frozen at eight, after the authorized identity-audit fix', () => {
-    // A count assertion so growth is a visible, deliberate diff rather than an unnoticed line.
-    expect(FROZEN_BASELINE.length).toBe(8);
+  it('the baseline is retired and frozen at zero (#1315)', () => {
+    // A count assertion so any new exemption is a visible, deliberate diff rather than an unnoticed line. The
+    // eight pre-existing masked steps were fixed, not re-exempted: a new masked step must be fixed too.
+    expect(FROZEN_BASELINE.length).toBe(0);
     expect(FROZEN_BASELINE.map((e) => e.workflow)).not.toContain('unaffiliated-identity-audit.yml');
   });
 
@@ -189,7 +175,7 @@ describe('green means green — a failing command may never report a passing ste
   });
 
   it('an id-keyed exemption MATCHES, and survives a rename that would break a name-keyed one', () => {
-    // All eight real exemptions currently key on `name`, so the id path would otherwise be untested code. Drive
+    // No real exemption remains (#1315), so the id path would otherwise be untested code. Drive
     // it with a synthetic step: this is what `idKind: 'id'` actually buys.
     const step: Step = {
       workflow: 'synthetic.yml', name: 'Original display name', id: 'stable-step-id',

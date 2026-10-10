@@ -62,7 +62,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
-          psql -XAtc 'select version()' | tee server-version.txt
+          # psql writes the file directly, so a connection failure fails this step under `-e`. Piping it
+          # through `tee` let tee's success mask that failure and leave an empty file behind. #1315.
+          psql -XAtc 'select version()' > server-version.txt
+          cat server-version.txt
 
       - name: Bootstrap disposable schema
         run: psql -X -v ON_ERROR_STOP=1 -f tests/db/webhook-lifecycle-bootstrap.sql
