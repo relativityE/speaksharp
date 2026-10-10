@@ -152,7 +152,8 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
     // coaching function refuses it (425) until results exist; only verified readiness may offer a retry.
     it.each([
         ['open_mic', true, { product: 'open_mic' as const }],
-        ['focus with saved results', true, { product: 'focus_points' as const, focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'] }],
+        ['focus with saved results', true, { product: 'focus_points' as const, focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'], focusEvidenceSaved: true }],
+        ['focus points saved, no evidence rows', false, { product: 'focus_points' as const, focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'], focusEvidenceSaved: false }],
         ['focus without saved results', false, { product: 'focus_points' as const, focusBrief: null, focusPoints: [] as string[] }],
         ['focus results unread', false, { product: 'focus_points' as const, focusBrief: null, focusPoints: [] as string[], focusReadFailed: true as const }],
     ])('CASUALTY (Codex 4236200867): %s → retryReady %s', async (_name, ready, shape) => {

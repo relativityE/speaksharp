@@ -229,10 +229,11 @@ export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = (
         return <>{noneFallback({
             action: <div className="mt-4 [&_button]:bg-signature [&_button]:text-ink">{action}</div>,
             product: review?.product === 'open_mic' || review?.product === 'focus_points' ? review.product : null,
-            // #1577 Codex P2 4236200867: the coaching function refuses a Focus take (425) until its point results are saved,
-            // so only VERIFIED readiness may offer a retry: Open Mic, or Focus with its saved point set read.
+            // #1577 Codex P2 4236200867 / 4236239714: the coaching function refuses a Focus take (425) until it has points AND
+            // at least one persisted evidence row, so only that VERIFIED readiness may offer a retry (Open Mic always may).
             retryReady: review?.product === 'open_mic'
-                || (review?.product === 'focus_points' && review.focusPoints.length > 0 && !review.focusReadFailed && !review.reviewReadFailed),
+                || (review?.product === 'focus_points' && review.focusPoints.length > 0 && review.focusEvidenceSaved === true
+                    && !review.focusReadFailed && !review.reviewReadFailed),
         })}</>;
     }
 

@@ -70,6 +70,18 @@ describe('loadSavedSessionReview', () => {
         expect(r.focusPoints).toEqual(['One', 'Two']);
     });
 
+    // #1577 Codex P2 4236239714: readiness for a coaching retry mirrors the function's rule (points AND >= 1 evidence row).
+    it.each([[2, true], [0, false]] as const)('CASUALTY (Codex 4236239714): %s saved evidence rows → focusEvidenceSaved %s', async (rows, saved) => {
+        row = { data: { ai_suggestions: null, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'focus_points' }, error: null };
+        focus = {
+            kind: 'coverage', detected: 0, total: 1, evidenceRows: rows,
+            points: [{ label: 'One', status: 'unavailable', detectedAtSeconds: null }],
+            brief: { briefId: 'b1', projectId: 'p1', topic: 'T' },
+        };
+        const r = await loadSavedSessionReview('s1');
+        expect([r.product, r.focusEvidenceSaved]).toEqual(['focus_points', saved]);
+    });
+
     // #1535 Codex P2 r4112111974 — the product is never inferred from an ABSENCE of Focus rows.
     it('CASUALTY: marked focus_points with NO saved results is Focus Points (results not saved) — never Open Mic, no brief', async () => {
         row = { data: { ai_suggestions: PAIR, transcript_state: 'available', next_action_signal: SIGNAL, duration: 60, product: 'focus_points' }, error: null };

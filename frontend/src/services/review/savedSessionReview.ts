@@ -46,6 +46,11 @@ export interface SavedSessionReview {
     focusPoints: string[];
     /** A marked Focus Points take whose saved results couldn't be read: its point set is unknown until a re-read. */
     focusReadFailed?: true;
+    /**
+     * #1577 Codex P2 4236239714: the Focus take has at least one persisted evidence row — the coaching function's own
+     * readiness rule (points AND evidence), so a coaching retry is offered only when it can be served.
+     */
+    focusEvidenceSaved?: boolean;
     /** #1535 (Codex P2 r4116859975): the saved review ITSELF could not be read — retryable, never a product choice. */
     reviewReadFailed?: true;
 }
@@ -110,6 +115,7 @@ export async function loadSavedSessionReview(sessionId: string): Promise<SavedSe
                 // #1535 Codex P2 r4116626850: the results render, but the point set failed to READ — the practice action
                 // re-reads (the same retry/no-launch state as a failed results read), never generic Focus setup.
                 ...(focus.briefReadFailed ? { focusReadFailed: true as const } : {}),
+                focusEvidenceSaved: (focus.evidenceRows ?? 0) > 0,
             };
         }
         if (marker === 'focus_points') {
