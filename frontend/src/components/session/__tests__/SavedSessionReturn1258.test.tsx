@@ -8,11 +8,12 @@ import type { PracticeSession } from '@/types/session';
 
 // The stub stands for a session with NO saved coaching whose review resolved the product to `resolvedProduct`.
 let resolvedProduct: 'open_mic' | 'focus_points' | null = 'open_mic';
-type Fallback = (ctx: { action: React.ReactNode; product: 'open_mic' | 'focus_points' | null }) => React.ReactNode;
+let retryReady = true;
+type Fallback = (ctx: { action: React.ReactNode; product: 'open_mic' | 'focus_points' | null; retryReady: boolean }) => React.ReactNode;
 vi.mock('@/components/analytics/SavedPracticeLoopReview', () => ({
     SavedPracticeLoopReview: ({ sessionId, noneFallback }: { sessionId: string; noneFallback?: Fallback }) =>
         <section data-testid="saved-review" data-session={sessionId}>
-            {noneFallback?.({ action: <button data-testid="saved-review-practice">Practice again?</button>, product: resolvedProduct })}
+            {noneFallback?.({ action: <button data-testid="saved-review-practice">Practice again?</button>, product: resolvedProduct, retryReady })}
         </section>,
 }));
 vi.mock('../AISuggestions', () => ({ default: () => <div data-testid="ai-suggestions-stub" /> }));
@@ -78,6 +79,17 @@ describe('SavedSessionReturn', () => {
             .toEqual([0, 1]);
         expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
         resolvedProduct = 'open_mic';
+    });
+
+    it('CASUALTY (Codex 4236200867): a Focus session without saved results is terminal on the reopened page', () => {
+        resolvedProduct = 'focus_points';
+        retryReady = false;
+        render(<SavedSessionReturn session={row({ product: 'focus_points' })} onSeeAllSessions={() => {}} />);
+        expect([screen.queryAllByTestId('restored-review-retry-button').length, screen.queryAllByTestId('restored-review-not-available').length])
+            .toEqual([0, 1]);
+        expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
+        resolvedProduct = 'open_mic';
+        retryReady = true;
     });
 
     it('unmeasured fillers are omitted, never a fabricated zero (ThisRunCard\'s existing rule)', () => {

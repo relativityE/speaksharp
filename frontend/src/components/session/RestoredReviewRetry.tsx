@@ -23,13 +23,16 @@ interface RestoredReviewRetryProps {
     transcriptAvailable: boolean;
     /** The saved review's own "Practice again?" action, kept before and after Try again (#1577 Codex P2 4235188535). */
     action?: React.ReactNode;
+    /** #1577 Codex P2 4236200867: the session's results are verified ready for coaching (Focus: its saved point set read). */
+    resultsReady?: boolean;
 }
 
-export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessionId, product, sessionLabel, transcriptAvailable, action }) => {
+export const RestoredReviewRetry: React.FC<RestoredReviewRetryProps> = ({ sessionId, product, sessionLabel, transcriptAvailable, action, resultsReady = true }) => {
     const [requested, setRequested] = useState(false);
     // #1577 Codex P2 4235535994: with no resolved product the coaching function answers product_unknown, so a retry could
     // never generate coaching. Terminal: no button, no claimed send, no request.
-    const canRetry = transcriptAvailable && product !== null;
+    // #1577 Codex P2 4236200867: a Focus take without saved point results is refused (425) on every request: terminal too.
+    const canRetry = transcriptAvailable && product !== null && resultsReady;
     if (requested) {
         // #1577 Codex P2 4235535990: AISuggestions has no ground of its own; loading, failure and success all stay on the
         // same ink review surface, with the practice action.

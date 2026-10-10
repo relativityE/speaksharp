@@ -63,6 +63,19 @@ describe('RestoredReviewRetry', () => {
         expect(mounted).not.toHaveBeenCalled();
     });
 
+    it('CASUALTY (Codex 4236200867): Focus results not saved → terminal, no button, no disclosure, NO request; ready Focus retries', () => {
+        const { unmount } = render(<RestoredReviewRetry sessionId="s-9" product="focus_points" transcriptAvailable resultsReady={false} action={<button data-testid="practice-again">Practice again?</button>} />);
+        expect([screen.queryAllByTestId('restored-review-retry-button').length, screen.getByTestId('restored-review-retry').textContent?.includes('Google Gemini')])
+            .toEqual([0, false]);
+        expect(screen.getByTestId('restored-review-not-available')).toBeInTheDocument();
+        expect(screen.getByTestId('practice-again')).toBeInTheDocument();
+        expect(mounted).not.toHaveBeenCalled();
+        unmount();
+        render(<RestoredReviewRetry sessionId="s-9" product="focus_points" transcriptAvailable resultsReady />);
+        fireEvent.click(screen.getByTestId('restored-review-retry-button'));
+        expect(mounted).toHaveBeenCalledTimes(1);
+    });
+
     it('Focus Points: the disclosure names the topic and points it sends', () => {
         render(<RestoredReviewRetry sessionId="s-9" product="focus_points" transcriptAvailable />);
         expect(screen.getByTestId('restored-review-retry')).toHaveTextContent('your Focus Points topic and points');

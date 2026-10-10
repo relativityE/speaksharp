@@ -148,6 +148,21 @@ describe('SavedPracticeLoopReview (Analytics detail, #1258 G20)', () => {
         expect(seen[seen.length - 1]).toBe('focus_points');
     });
 
+    // #1577 Codex P2 4236200867: a Focus session whose point results were never saved resolves to focus_points, but the
+    // coaching function refuses it (425) until results exist; only verified readiness may offer a retry.
+    it.each([
+        ['open_mic', true, { product: 'open_mic' as const }],
+        ['focus with saved results', true, { product: 'focus_points' as const, focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'] }],
+        ['focus without saved results', false, { product: 'focus_points' as const, focusBrief: null, focusPoints: [] as string[] }],
+        ['focus results unread', false, { product: 'focus_points' as const, focusBrief: null, focusPoints: [] as string[], focusReadFailed: true as const }],
+    ])('CASUALTY (Codex 4236200867): %s → retryReady %s', async (_name, ready, shape) => {
+        load.mockResolvedValue({ ...base, ...shape, coaching: { kind: 'none' } });
+        const seen: boolean[] = [];
+        render(<SavedPracticeLoopReview sessionId="s1" noneFallback={({ retryReady }) => { seen.push(retryReady); return <div data-testid="none-fallback" />; }} />);
+        await waitFor(() => expect(screen.getByTestId('none-fallback')).toBeInTheDocument());
+        expect(seen[seen.length - 1]).toBe(ready);
+    });
+
     // #1258 (PM 2026-09-25): a saved review shown on Analytics is a REVISIT — once per session per view, never a generation.
     it('sends ONE content-free revisit per session view, and the practice action names its linked-repeat path', async () => {
         load.mockResolvedValue({ ...base, product: 'focus_points', evidence: ['Detected: point 1 at 0:21.'], focusBrief: { briefId: 'b1', projectId: 'p1', topic: 'T' }, focusPoints: ['One'] });

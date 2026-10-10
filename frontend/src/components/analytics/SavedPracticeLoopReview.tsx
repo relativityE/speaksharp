@@ -45,7 +45,7 @@ interface SavedPracticeLoopReviewProps {
      * #1577 Codex P2 4235188535 / 4235188543: it receives this review's own practice action (so the reopened session keeps
      * its "Practice again?" path) and the RESOLVED product (a legacy row with no marker can be Focus Points by its rows).
      */
-    noneFallback?: (ctx: { action: React.ReactNode; product: 'open_mic' | 'focus_points' | null }) => React.ReactNode;
+    noneFallback?: (ctx: { action: React.ReactNode; product: 'open_mic' | 'focus_points' | null; retryReady: boolean }) => React.ReactNode;
 }
 
 export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false, noneFallback }) => {
@@ -229,6 +229,10 @@ export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = (
         return <>{noneFallback({
             action: <div className="mt-4 [&_button]:bg-signature [&_button]:text-ink">{action}</div>,
             product: review?.product === 'open_mic' || review?.product === 'focus_points' ? review.product : null,
+            // #1577 Codex P2 4236200867: the coaching function refuses a Focus take (425) until its point results are saved,
+            // so only VERIFIED readiness may offer a retry: Open Mic, or Focus with its saved point set read.
+            retryReady: review?.product === 'open_mic'
+                || (review?.product === 'focus_points' && review.focusPoints.length > 0 && !review.focusReadFailed && !review.reviewReadFailed),
         })}</>;
     }
 

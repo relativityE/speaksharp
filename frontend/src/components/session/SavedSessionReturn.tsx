@@ -47,9 +47,9 @@ export const SavedSessionReturn: React.FC<SavedSessionReturnProps> = ({ session,
                 sessionLabel={label}
                 // §4.2: no saved review → the §2 band with an explicit Try again (never an automatic request).
                 // #1577 Codex P2: the review's own practice action and RESOLVED product, never the raw row's product alone.
-                noneFallback={({ action, product }) => (
+                noneFallback={({ action, product, retryReady }) => (
                     <RestoredReviewRetry sessionId={session.id} product={product ?? session.product ?? null} sessionLabel={label}
-                        transcriptAvailable={transcript.kind === 'available'} action={action} />
+                        transcriptAvailable={transcript.kind === 'available'} resultsReady={retryReady} action={action} />
                 )}
             />
 
