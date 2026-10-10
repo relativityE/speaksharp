@@ -261,15 +261,14 @@ describe('generateSessionPdf', () => {
     }));
   });
 
-  it('a measured filler ZERO ({}) renders NO filler table and a headline of 0', async () => {
+  it('CASUALTY #1472: an empty filler map ({}) renders NO filler table and NO zero headline (N/A, never a clean 0)', async () => {
     await generateSessionPdf({
       ...mockSession,
-      filler_counts: {}, // measured zero — a genuine "no fillers", never recounted from anything
+      filler_counts: {}, // an unverifiable zero over saved words — never "no fillers"
     } as unknown as Session);
 
-    // Measured zero is the headline, but there are no per-word rows to tabulate.
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
-      body: expect.arrayContaining([['Total Filler Words', '0']]),
+      body: expect.arrayContaining([['Total Filler Words', 'N/A']]),
     }));
     const fillerTableRendered = vi.mocked(autoTable).mock.calls.some(
       ([, opts]) => JSON.stringify((opts as { head?: unknown })?.head ?? null).includes('Filler Word'),
@@ -398,12 +397,19 @@ describe('generateSessionPdf — metric-presence: unmeasured metrics render N/A,
     }));
   });
 
-  it('a measured filler ZERO ({}) renders a headline 0, but an absent word count stays N/A', async () => {
+  it('CASUALTY #1472 (Browser PM 6102458581): a discourse-only map ({ like: 2 }) over saved words has NO "0" filler total', async () => {
+    await generateSessionPdf(base({ total_words: 190, filler_counts: { like: 2 } }), 'TestUser');
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([['Total Filler Words', 'N/A']]),
+    }));
+  });
+
+  it('CASUALTY #1472: an empty filler map ({}) with an absent word count renders N/A for both, never a zero', async () => {
     await generateSessionPdf(base({ total_words: undefined, filler_counts: {} }), 'TestUser');
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([
         ['Total Words', 'N/A'],
-        ['Total Filler Words', '0'],
+        ['Total Filler Words', 'N/A'],
       ]),
     }));
     // No legacy universal-score / coaching rows for any session.

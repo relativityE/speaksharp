@@ -30,6 +30,22 @@ const row = (over: Partial<PracticeSession>): PracticeSession => ({
 } as PracticeSession);
 
 describe('SavedSessionReturn', () => {
+    it('CASUALTY #1472 (saved/reloaded review): an empty filler map over saved words shows no "0" Fillers row', () => {
+        render(<SavedSessionReturn session={row({ filler_counts: {} as PracticeSession['filler_counts'], total_words: 190 })} onSeeAllSessions={vi.fn()} />);
+        expect(screen.queryByTestId('this-run-card-fillers')).toBeNull();
+        expect(screen.getByTestId('this-run-card')).toBeInTheDocument();
+    });
+
+    it('CASUALTY #1472 (Browser PM 6102458581): a discourse-only map on the restored review shows no "0" Fillers row', () => {
+        render(<SavedSessionReturn session={row({ filler_counts: { like: 2 } as PracticeSession['filler_counts'], total_words: 190 })} onSeeAllSessions={vi.fn()} />);
+        expect(screen.queryByTestId('this-run-card-fillers')).toBeNull();
+    });
+
+    it('CONTROL #1472: observed counts on the restored review keep their truthful Fillers row', () => {
+        render(<SavedSessionReturn session={row({})} onSeeAllSessions={vi.fn()} />);
+        expect(screen.getByTestId('this-run-card-fillers')).toHaveTextContent('3');
+    });
+
     it('shows THIS session\'s saved review, transcript and THIS RUN from the row, and no Start control', () => {
         const onSeeAll = vi.fn();
         render(<SavedSessionReturn session={row({})} onSeeAllSessions={onSeeAll} />);

@@ -16,9 +16,29 @@ describe('FillerBreakdown (#1231 R2)', () => {
         expect(screen.getAllByTestId('filler-breakdown-count')[0]).toHaveTextContent('×5');
     });
 
-    it('shows an honest empty state when no fillers were detected', () => {
+    // #1472 (PM 5682359616): an empty map alone never proves a clean zero. Only a verified zero may say so.
+    it('an empty breakdown with NO stated evidence does not claim "no filler words" — it says the zero is unverified', () => {
         render(<FillerBreakdown fillerData={fillers({})} />);
-        expect(screen.getByTestId('filler-breakdown-empty')).toHaveTextContent(/No filler words detected/i);
+        const empty = screen.getByTestId('filler-breakdown-empty');
+        expect(empty).not.toHaveTextContent(/No filler words detected/i);
+        expect(empty).toHaveTextContent(/could not be verified/i);
+    });
+
+    it('an unobservable zero says the zero is unverified', () => {
+        render(<FillerBreakdown fillerData={fillers({})} evidence="unobservable" />);
+        expect(screen.getByTestId('filler-breakdown-empty')).toHaveTextContent(/could not be verified/i);
+    });
+
+    it('a verified zero states there were no filler words', () => {
+        render(<FillerBreakdown fillerData={fillers({})} evidence="verified_zero" />);
+        expect(screen.getByTestId('filler-breakdown-empty')).toHaveTextContent(/No filler words detected this session/i);
+    });
+
+    it('no speech is its own state, distinct from an unverified zero', () => {
+        render(<FillerBreakdown fillerData={fillers({})} evidence="no_speech" />);
+        const empty = screen.getByTestId('filler-breakdown-empty');
+        expect(empty).toHaveTextContent(/No speech was transcribed/i);
+        expect(empty).not.toHaveTextContent(/No filler words detected/i);
     });
 
     it('caps the list and shows "+N more"', () => {
