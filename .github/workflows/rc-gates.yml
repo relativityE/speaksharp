@@ -48,7 +48,7 @@ on:
           - 'v4:distil:q4/open_mic'
           - 'v4:distil:q4/focus_points'
       rwt_writes_ack:
-        description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write."
+        description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write. The SAME input also carries the distinct value RWT-INTERRUPTED-RUN-RECOVERY-DELETE, accepted ONLY by tests/live/interrupted-run-recovery.live.spec.ts: a SEPARATE Production-delete authorization that deletes run-owned accounts older than the gate-3 timeout + margin through the fail-closed cleanup (residue 0); any other value = detect and HOLD only. The journeys refuse that value, so one dispatch never authorizes both."
         required: false
         default: ''
       rwt_canary_claim_ack:
