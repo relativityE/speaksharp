@@ -416,19 +416,20 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const before = await savedIdentity();
             const requestsBefore = coaching.requests;
             const back = await backFromProgressRestoresSession(page, persistedId, savedCoaching ?? undefined);
-            const reload = back.restored ? await reloadRestoredSession(page, persistedId, before.digest)
-                : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false };
+            const reload = back.restored ? await reloadRestoredSession(page, persistedId, before.digest, savedCoaching ?? undefined)
+                : { restored: false, sameSession: false, idleShown: back.idleShown, liveTracks: null, transcriptMatches: false, review: 'missing' as const };
             const after = await savedIdentity();
             const result = focusBackReloadVerdict({
                 leftForProgress: back.left, restoredAfterBack: back.restored, restoredAfterReload: reload.restored, sameSessionAfterReload: reload.sameSession,
                 idleRecorderShown: back.idleShown || reload.idleShown, liveMicTracks: reload.liveTracks, transcriptMatchesSaved: reload.transcriptMatches,
-                reviewShown: back.review, coachingSaved: Boolean(savedCoaching), verdictsBefore: before.verdicts, verdictsAfter: after.verdicts,
+                reviewAfterBack: back.review, reviewAfterReload: reload.review, coachingSaved: Boolean(savedCoaching),
+                verdictsBefore: before.verdicts, verdictsAfter: after.verdicts,
                 coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
             });
             receipt.row('Focus Back from Progress and reload keep the saved session', result.verdict, result.detail, {
                 left: back.left, restoredAfterBack: back.restored, restoredAfterReload: reload.restored, sameSession: reload.sameSession,
                 idleShown: back.idleShown || reload.idleShown, liveTracks: reload.liveTracks, transcriptMatches: reload.transcriptMatches,
-                review: back.review, verdictsUnchanged: before.verdicts.length > 0 && before.verdicts.join(',') === after.verdicts.join(','),
+                reviewAfterBack: back.review, reviewAfterReload: reload.review, verdictsUnchanged: before.verdicts.length > 0 && before.verdicts.join(',') === after.verdicts.join(','),
                 coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests,
             });
         });

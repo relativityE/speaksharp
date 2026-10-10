@@ -1253,24 +1253,36 @@ export async function backFromProgressRestoresSession(page: Page, sessionId: str
         && (await restored.getAttribute('data-session-id').catch(() => null)) === sessionId;
     result.idleShown = (await page.getByTestId('mic-start').count()) > 0;
     if (!result.restored) return result;
+    result.review = await readRestoredReview(page, savedCoaching);
+    return result;
+}
+
+/**
+ * The review a restored saved session shows: its saved coaching word for word, the Try again band (retry offered) or the
+ * terminal not-available band. Shared by the Back and reload checks so both read the SAME state (Browser PM RETURN on
+ * c76283d12). Only a label leaves.
+ */
+async function readRestoredReview(page: Page, savedCoaching?: SavedCoaching): Promise<'saved' | 'try_again' | 'not_available' | 'missing'> {
     const retry = page.getByTestId('restored-review-retry');
     const settled = page.getByTestId('review-try-next').or(retry).first();
     await settled.waitFor({ state: 'visible', timeout: 45_000 }).catch(() => undefined);
     if (await retry.isVisible().catch(() => false)) {
-        result.review = (await retry.getAttribute('data-retry').catch(() => null)) === 'available' ? 'try_again' : 'not_available';
-    } else if (savedCoaching) {
-        const shown = await coachingShownOnPage(page, savedCoaching);
-        result.review = shown.well && shown.next ? 'saved' : 'missing';
+        return (await retry.getAttribute('data-retry').catch(() => null)) === 'available' ? 'try_again' : 'not_available';
     }
-    return result;
+    if (savedCoaching) {
+        const shown = await coachingShownOnPage(page, savedCoaching);
+        return shown.well && shown.next ? 'saved' : 'missing';
+    }
+    return 'missing';
 }
 
 /**
  * #1258 (Browser PM 6093772463) — after Back restored a saved session, a reload must restore the SAME session read-only:
  * its id, its saved transcript (digest compared in Node only), no idle recorder and no live microphone. Only booleans leave.
  */
-export async function reloadRestoredSession(page: Page, sessionId: string, savedDigest: string): Promise<{
+export async function reloadRestoredSession(page: Page, sessionId: string, savedDigest: string, savedCoaching?: SavedCoaching): Promise<{
     restored: boolean; sameSession: boolean; idleShown: boolean; liveTracks: number | null; transcriptMatches: boolean;
+    review: 'saved' | 'try_again' | 'not_available' | 'missing';
 }> {
     await page.reload({ waitUntil: 'domcontentloaded' });
     const restored = page.getByTestId('saved-session-return');
@@ -1281,7 +1293,9 @@ export async function reloadRestoredSession(page: Page, sessionId: string, saved
     const transcript = page.getByTestId('review-transcript');
     const transcriptMatches = savedDigest !== '' && await transcript.waitFor({ state: 'visible', timeout: 20_000 }).then(() => true).catch(() => false)
         && sha256Hex(await transcript.innerText()) === savedDigest;
-    return { restored: shown, sameSession, idleShown, liveTracks, transcriptMatches };
+    // The review is read AFTER the reload too, never inferred from the Back state.
+    const review = sameSession ? await readRestoredReview(page, savedCoaching) : 'missing';
+    return { restored: shown, sameSession, idleShown, liveTracks, transcriptMatches, review };
 }
 
 export function backFromProgressRows(receipt: RwtReceipt, b: Awaited<ReturnType<typeof backFromProgressRestoresSession>>,
