@@ -34,8 +34,12 @@ on:
           - internal_test
           - canary
       stages:
-        description: 'Comma-separated UI stages this run exercised (share_feedback, session_during, session_after_open_mic, session_after_focus_points, practice_again)'
+        description: 'Comma-separated UI stages this run exercised (analytics_inventory, session_pdf_export, share_feedback, practice_again, session_during, session_after_open_mic, session_after_focus_points)'
         required: true
+      attempt_ids:
+        description: 'Comma-separated attemptIds from this journey’s matching rc-gates.yml receipt; required for recording stages'
+        required: false
+        default: ''
       window_hours:
         description: 'Readback window in hours (1-168)'
         required: false
@@ -67,9 +71,11 @@ jobs:
           JOURNEY_ID: ${{ github.event.inputs.journey_id }}
           TRAFFIC_TYPE: ${{ github.event.inputs.traffic_type }}
           STAGES: ${{ github.event.inputs.stages }}
+          ATTEMPT_IDS: ${{ github.event.inputs.attempt_ids }}
           WINDOW_HOURS: ${{ github.event.inputs.window_hours }}
         run: |
           set -euo pipefail
+          ATTEMPT_IDS="${ATTEMPT_IDS:-}"
           # A full 40-hex SHA, never an abbreviation: an abbreviated release identity cannot be matched
           # against the envelope's release_sha, and a gate pinned to an ambiguous release proves nothing.
           echo "$RELEASE_SHA" | grep -Eq '^[0-9a-f]{40}$' \
@@ -88,14 +94,38 @@ jobs:
           # Count the parsed stages, not the raw string (Codex P2): `,` or whitespace is non-empty but
           # declares NOTHING, and would reach a credentialed query that can only HOLD.
           declared=0
+          recording_stage=0
           for s in $(echo "$STAGES" | tr ',' ' '); do
             declared=$((declared + 1))
             case "$s" in
-              share_feedback|session_during|session_after_open_mic|session_after_focus_points|practice_again) ;;
+              analytics_inventory|session_pdf_export|share_feedback|practice_again|session_during|session_after_open_mic|session_after_focus_points) ;;
               *) echo "::error::unknown qualification stage '$s'"; exit 1;;
+            esac
+            case "$s" in
+              session_during|session_after_open_mic|session_after_focus_points) recording_stage=1 ;;
             esac
           done
           [ "$declared" -ge 1 ] || { echo "::error::stages declares no stage (separator or whitespace only)"; exit 1; }
+          if [ "$recording_stage" -eq 1 ]; then
+            [ -n "$ATTEMPT_IDS" ] || { echo "::error::attempt_ids is required when a recording stage is declared"; exit 1; }
+            case "$ATTEMPT_IDS" in
+              ,*|*,|*,,*) echo "::error::attempt_ids contains an empty entry"; exit 1;;
+            esac
+            IFS=',' read -r -a attempt_ids <<< "$ATTEMPT_IDS"
+            [ "${#attempt_ids[@]}" -ge 1 ] && [ "${#attempt_ids[@]}" -le 64 ] \
+              || { echo "::error::attempt_ids must contain 1-64 comma-separated IDs"; exit 1; }
+            validated_attempt_ids=,
+            for attempt_id in "${attempt_ids[@]}"; do
+              [[ "$attempt_id" =~ ^[A-Za-z0-9_-]{1,64}$ ]] \
+                || { echo "::error::each attempt_id must be 1-64 chars of [A-Za-z0-9_-] with no surrounding whitespace"; exit 1; }
+              case "$validated_attempt_ids" in
+                *,"$attempt_id",*) echo "::error::attempt_ids must be unique"; exit 1;;
+              esac
+              validated_attempt_ids="${validated_attempt_ids}${attempt_id},"
+            done
+          else
+            [ -z "$ATTEMPT_IDS" ] || { echo "::error::attempt_ids require at least one declared recording stage"; exit 1; }
+          fi
           echo "$WINDOW_HOURS" | grep -Eq '^[0-9]{1,3}$' \
             || { echo "::error::window_hours must be numeric"; exit 1; }
           [ "$WINDOW_HOURS" -ge 1 ] && [ "$WINDOW_HOURS" -le 168 ] \
@@ -140,6 +170,7 @@ jobs:
           TELEMETRY_QUALIFICATION_JOURNEY_ID: ${{ github.event.inputs.journey_id }}
           TELEMETRY_QUALIFICATION_TRAFFIC_TYPE: ${{ github.event.inputs.traffic_type }}
           QUALIFICATION_STAGES: ${{ github.event.inputs.stages }}
+          QUALIFICATION_ATTEMPT_IDS: ${{ github.event.inputs.attempt_ids }}
           WINDOW_HOURS: ${{ github.event.inputs.window_hours }}
         run: |
           set -euo pipefail

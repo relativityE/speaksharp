@@ -23,6 +23,7 @@ const workflow = read(WORKFLOW_PATH);
 const script = read('scripts/telemetry-readback-qualification.mts');
 const trafficModule = read('frontend/src/services/telemetry/trafficType.ts');
 const gateModule = read('frontend/src/services/telemetry/completenessGate.ts');
+const rcGates = read('.github/workflows/rc-gates.yml');
 
 /** The product's whole traffic vocabulary, read from the shipped module. */
 const vocabulary = (() => {
@@ -37,7 +38,12 @@ const controlled = (() => {
 })();
 
 /** Every qualification stage the gate knows, read from the gate. */
-const stages = [...gateModule.matchAll(/^\s+stage: '([a-z_]+)',$/gm)].map((m) => m[1]);
+const qualificationStageBlock = /export const QUALIFICATION_STAGES:[\s\S]*?Object\.freeze\(\[([\s\S]*?)\n\]\);/.exec(gateModule)?.[1] ?? '';
+const stages = [...qualificationStageBlock.matchAll(/\bstage:\s*'([a-z_]+)'/g)].map((m) => m[1]);
+const recordingStages = (() => {
+    const m = /const RECORDING_STAGES:[^=]*= new Set\(\[([^\]]+)\]\)/.exec(gateModule);
+    return m ? [...m[1].matchAll(/'([a-z_]+)'/g)].map((stage) => stage[1]) : [];
+})();
 
 /** The `options:` block of the traffic_type choice input. */
 const workflowTrafficOptions = (() => {
@@ -50,6 +56,7 @@ describe('#1382 telemetry readback dispatch workflow — contract', () => {
         expect(vocabulary).toContain('user');
         expect(controlled.length).toBeGreaterThan(0);
         expect(stages.length).toBeGreaterThan(0);
+        expect(recordingStages.length).toBeGreaterThan(0);
         expect(workflowTrafficOptions.length).toBeGreaterThan(0);
     });
 
@@ -69,10 +76,46 @@ describe('#1382 telemetry readback dispatch workflow — contract', () => {
 
     it('validates every stage name against the shipped gate, and no invented one', () => {
         // The validation arm is a shell `case` listing the stage names; it must match the gate exactly.
-        const arm = /\s{14}(share_feedback[^)]*)\)/.exec(workflow);
+        const arm = /case "\$s" in\n\s+([a-z_]+(?:\|[a-z_]+)*)\) ;;/g.exec(workflow);
         expect(arm, 'the stage validation case arm must exist').not.toBeNull();
         const listed = arm[1].split('|').map((s) => s.trim());
         expect([...listed].sort()).toEqual([...stages].sort());
+    });
+
+    it('CASUALTY: derives inline inventory and PDF stages from the gate and accepts them in dispatch validation', () => {
+        expect(stages).toContain('analytics_inventory');
+        expect(stages).toContain('session_pdf_export');
+        const step = /name: Validate dispatch inputs \(fail closed\)[\s\S]*?run: \|\n([\s\S]*?)\n\s{6}# Execute only the workflow/.exec(workflow);
+        expect(step).not.toBeNull();
+        const validation = step[1].replace(/^ {10}/gm, '');
+        const run = (declaredStages) => spawnSync('bash', ['-c', validation], {
+            encoding: 'utf8',
+            env: { PATH: process.env.PATH, RELEASE_SHA: 'a'.repeat(40), JOURNEY_ID: 'jrn_contract_1234', TRAFFIC_TYPE: 'canary', STAGES: declaredStages, ATTEMPT_IDS: '', WINDOW_HOURS: '24' },
+        });
+        for (const stage of ['analytics_inventory', 'session_pdf_export']) {
+            const result = run(stage);
+            expect({ stage, status: result.status, output: result.stdout + result.stderr }).toMatchObject({ status: 0 });
+        }
+    });
+
+    it('requires unique, valid attempt bindings for recording stages and passes them to readback', () => {
+        expect(workflow).toMatch(/QUALIFICATION_ATTEMPT_IDS: \$\{\{ github\.event\.inputs\.attempt_ids \}\}/);
+        expect(workflow).toMatch(/attemptIds from this journey’s matching rc-gates\.yml receipt/);
+        expect(rcGates).toMatch(/\(b\.attemptIds\|\|\[\]\)\.join\(","\)/);
+        expect(rcGates).toMatch(/QUALIFICATION_ATTEMPT_IDS="\$attempts"/);
+        const validation = /name: Validate dispatch inputs \(fail closed\)[\s\S]*?run: \|\n([\s\S]*?)\n\s{6}# Execute only the workflow/.exec(workflow)[1].replace(/^ {10}/gm, '');
+        const run = (attemptIds) => spawnSync('bash', ['-c', validation], {
+            encoding: 'utf8',
+            env: { PATH: process.env.PATH, RELEASE_SHA: 'a'.repeat(40), JOURNEY_ID: 'jrn_contract_1234', TRAFFIC_TYPE: 'canary', STAGES: 'session_during,session_after_open_mic', ATTEMPT_IDS: attemptIds, WINDOW_HOURS: '24' },
+        });
+        expect(run('').status).not.toBe(0);
+        expect(run('attempt_1,attempt_2').status).toBe(0);
+        expect(run('attempt_1,attempt_1').status).not.toBe(0);
+        expect(run('attempt_1,bad.id').status).not.toBe(0);
+        expect(run('attempt_1,').status).not.toBe(0);
+        const recordingArm = /case "\$s" in\n\s+(session_during[^\n]*)\) recording_stage=1/.exec(workflow);
+        expect(recordingArm).not.toBeNull();
+        expect(recordingArm[1].split('|').sort()).toEqual([...recordingStages].sort());
     });
 
     it('is dispatch-only: no schedule, no push, no pull_request', () => {
@@ -105,14 +148,14 @@ describe('#1382 telemetry readback dispatch workflow — contract', () => {
         const script = step[1].replace(/^ {10}/gm, '');
         const run = (stages) => spawnSync('bash', ['-c', script], {
             encoding: 'utf8',
-            env: { PATH: process.env.PATH, RELEASE_SHA: 'a'.repeat(40), JOURNEY_ID: 'jrn_contract_1234', TRAFFIC_TYPE: 'canary', STAGES: stages, WINDOW_HOURS: '24' },
+            env: { PATH: process.env.PATH, RELEASE_SHA: 'a'.repeat(40), JOURNEY_ID: 'jrn_contract_1234', TRAFFIC_TYPE: 'canary', STAGES: stages, ATTEMPT_IDS: '', WINDOW_HOURS: '24' },
         });
         for (const empty of [',', ' ', ' , , ']) {
             const r = run(empty);
             expect(r.status, `stages=${JSON.stringify(empty)} must be refused`).not.toBe(0);
             expect(r.stdout + r.stderr).not.toContain('inputs validated');
         }
-        const ok = run('session_during,session_after_open_mic');
+        const ok = run('analytics_inventory,session_pdf_export');
         expect({ status: ok.status, output: ok.stdout + ok.stderr }).toMatchObject({ status: 0 });
         expect(ok.stdout).toContain('inputs validated');
     });
