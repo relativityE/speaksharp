@@ -53,6 +53,7 @@ interface MockOptions {
   readback?: unknown;
   authorityError?: unknown;
   authorityResult?: boolean;
+  authorityReadback?: Array<Record<string, unknown>>;
   /** #1258: the session's saved Focus Points results (objective tables). Absent = an Open Mic take. */
   focus?: {
     objective?: Record<string, unknown> | null;
@@ -146,6 +147,7 @@ function mockSupabase(options: MockOptions = {}) {
     filters: [] as Array<[string, unknown]>,
     rpcCount: 0,
     authorityRpcCount: 0,
+    authorityReadCount: 0,
     authorityArgs: null as Record<string, unknown> | null,
     quotaArgs: null as Record<string, unknown> | null,
     // #1486 — counted on its own. `rpcCount` also counts other rpc traffic, so it cannot answer
@@ -180,6 +182,10 @@ function mockSupabase(options: MockOptions = {}) {
           data: options.authorityResult ?? true,
           error: options.authorityError ?? null,
         });
+      }
+      if (name === 'read_ai_suggestion_authority_v1') {
+        state.authorityReadCount++;
+        return Promise.resolve({ data: options.authorityReadback ?? [], error: null });
       }
       if (name === 'persist_ai_suggestion_with_authority_v1') {
         state.authorityRpcCount++;
@@ -306,6 +312,32 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     });
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertEquals(fetchCount, 1);
+  });
+
+  await t.step('#1258 diagnostics bind one provider attempt without returning prompt content', async () => {
+    resetProvider();
+    const diagnosticRequestId = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    const diagnosticAttemptId = '230bbc6c-5d89-465d-91e6-51f5a5951e34';
+    const response = await handler(request({
+      sessionId: 'session-a', product: 'open_mic', diagnostic_request_id: diagnosticRequestId,
+      diagnostic_attempt_id: diagnosticAttemptId, client_attempt: 1, client_release_id: 'a'.repeat(40),
+    }), mockSupabase().create);
+    const body = await response.json() as Record<string, unknown>;
+    const diagnostic = body.diagnostics as Record<string, unknown>;
+    assertEquals(diagnostic.request_id, diagnosticRequestId);
+    assertEquals(diagnostic.attempt_id, diagnosticAttemptId);
+    assertEquals(diagnostic.client_attempt, 1);
+    assertEquals(diagnostic.configured_model, coachingContract.model);
+    assertEquals(diagnostic.observed_model, 'gemini-3-flash-preview');
+    assertEquals(diagnostic.source, 'fresh');
+    assertEquals(diagnostic.provider_attempts, 1);
+    assertEquals(typeof diagnostic.provider_duration_ms, 'number');
+    assertEquals(typeof diagnostic.total_duration_ms, 'number');
+    assertEquals(diagnostic.prompt_sha256, await crypto.subtle.digest('SHA-256', new TextEncoder().encode(lastPrompt))
+      .then((digest) => [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')));
+    const safeDiagnostic = JSON.stringify(diagnostic).toLowerCase();
+    assertEquals(safeDiagnostic.includes('support has no weekend coverage'), false);
+    assertEquals(safeDiagnostic.includes(suggestionA.what_worked.toLowerCase()), false);
   });
 
   await t.step('fails closed when analysis entitlement is uncertain', async () => {
@@ -437,9 +469,12 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }) });
     const res = await handler(request(), mock.create);
     assertEquals(res.status, 200);
-    assertEquals((await res.json()).suggestions, suggestionA);
+    const body = await res.json() as Record<string, unknown>;
+    assertEquals(body.suggestions, suggestionA);
     assertEquals(fetchCount, 0);
     assertEquals(mock.state.rpcCount, 0);
+    assertEquals(mock.state.authorityReadCount, 1);
+    assertEquals((body.diagnostics as Record<string, unknown>).source, 'cache');
   });
 
   await t.step('returns unavailable when provider configuration is missing', async () => {

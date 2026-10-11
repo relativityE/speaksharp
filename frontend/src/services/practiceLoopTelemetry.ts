@@ -12,7 +12,7 @@ export type PracticeLoopReviewFailureReason =
   | 'transcript_unavailable'
   | 'unavailable';
 
-const emit = (event: GovernedEvent, props: Record<string, string | boolean>): void => {
+const emit = (event: GovernedEvent, props: Record<string, unknown>): void => {
   try {
     analyticsBuffer.push(event, props, 'LOW');
   } catch {
@@ -40,3 +40,30 @@ export const trackPracticeLoopReviewRendered = (): void =>
 
 export const trackPracticeLoopReviewFailed = (reason: PracticeLoopReviewFailureReason): void =>
   emit('practice_loop_review_failed', { reason });
+
+export interface AiCoachingDiagnosticTelemetry {
+  diagnostic_request_id?: string;
+  diagnostic_attempt_id?: string;
+  client_attempt: number;
+  outcome: 'success' | 'retrying' | 'failure' | 'superseded' | 'network_failure';
+  phase: string;
+  reason: string;
+  status: number | null;
+  provider_status: number | null;
+  provider: 'google_gemini' | 'none';
+  configured_model: string | null;
+  observed_model: string | null;
+  source: 'fresh' | 'cache' | 'unknown';
+  provider_attempts: number;
+  retry_count: number;
+  provider_duration_ms: number | null;
+  total_duration_ms: number;
+  prompt_sha256: string | null;
+  product: 'open_mic' | 'focus_points' | 'unknown';
+  has_session: boolean;
+  client_release_id: string | null;
+}
+
+/** One safe event per completed server/client attempt; never includes saved speech or generated coaching. */
+export const trackAiCoachingDiagnostic = (diagnostic: AiCoachingDiagnosticTelemetry): void =>
+  emit('ai_coaching_diagnostic', { ...diagnostic });
