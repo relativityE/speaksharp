@@ -200,7 +200,9 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         const createdAt = (sessionRow as { created_at: string }).created_at;
         const { data: priorRows, error: priorError } = await supabase
             .from('sessions')
-            .select('id, session_progress_evaluations!inner(cohort_key)')
+            // #1258 F1: `session_progress_evaluations` has three FKs to `sessions` (session_id, baseline, previous);
+            // an unhinted embed is ambiguous to PostgREST (PGRST201) and failed every first eligible session.
+            .select('id, session_progress_evaluations!session_id!inner(cohort_key)')
             // PostgREST equivalent of the server's deterministic tuple comparator. A same-timestamp,
             // lower UUID is a real predecessor; self and higher UUIDs are not.
             .or(`created_at.lt.${createdAt},and(created_at.eq.${createdAt},id.lt.${sessionId})`)
