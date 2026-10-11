@@ -1,6 +1,7 @@
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import manifest from '../fixtures/rwt/rwt-fixtures.manifest.json';
-import { buildRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from '../live/helpers/rwtCoachingEvidence';
+import { buildRwtCoachingEvidenceArtifact, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from '../live/helpers/rwtCoachingEvidence';
 
 const fixture = manifest.fixtures.open_mic_tts;
 const phrase = {
@@ -117,5 +118,34 @@ describe('RWT restricted synthetic coaching evidence', () => {
     delete missingCache.authorityReceipt.cache_read_count;
     expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: missingCache }))
       .toThrow(/cache replay lacks/);
+  });
+
+  it('writes exact synthetic evidence create-only with owner-only file permissions', () => {
+    const directory = mkdtempSync('/private/tmp/rwt-coaching-evidence-');
+    try {
+      const input = { releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: take('2', 'cache') };
+      const result = writeRwtCoachingEvidenceArtifact(input, directory);
+      expect(result.mode).toBe(0o600);
+      expect(statSync(directory).mode & 0o077).toBe(0);
+      const contents = readFileSync(result.file, 'utf8');
+      expect(contents).toContain(phrase.what_worked);
+      expect(contents).toContain(input.firstTake.transcript);
+      expect(() => writeRwtCoachingEvidenceArtifact(input, directory)).toThrow(/refusing overwrite/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an output directory accessible to group or other users', () => {
+    const directory = mkdtempSync('/private/tmp/rwt-coaching-evidence-');
+    try {
+      chmodSync(directory, 0o755);
+      expect(() => writeRwtCoachingEvidenceArtifact({
+        releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: take('2'),
+      }, directory)).toThrow(/must not grant group or other access/);
+    } finally {
+      chmodSync(directory, 0o700);
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

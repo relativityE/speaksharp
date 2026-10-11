@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import fixtureManifest from '../../fixtures/rwt/rwt-fixtures.manifest.json';
 
 const SHA40 = /^[0-9a-f]{40}$/i;
@@ -163,4 +166,25 @@ export function buildRwtCoachingEvidenceArtifact(input: RwtCoachingEvidenceInput
     firstTake: input.firstTake,
     repeatTake: input.repeatTake,
   };
+}
+
+/** Write a private artifact once. The caller must explicitly configure a restricted directory. */
+export function writeRwtCoachingEvidenceArtifact(input: RwtCoachingEvidenceInput, privateDirectory: string) {
+  if (!privateDirectory.trim()) throw new Error('a restricted private evidence directory is required');
+  const artifact = buildRwtCoachingEvidenceArtifact(input);
+  const directory = resolve(privateDirectory);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const directoryMode = statSync(directory).mode & 0o777;
+  if ((directoryMode & 0o077) !== 0) throw new Error('restricted evidence directory must not grant group or other access');
+  const safeRunId = input.firstTake.runId.replace(/[^A-Za-z0-9._-]/g, '_');
+  if (!safeRunId || safeRunId !== input.firstTake.runId) throw new Error('run id is not safe for a private artifact filename');
+  const file = resolve(directory, `rwt-coaching-${input.releaseSha}-${safeRunId}.json`);
+  const bytes = `${JSON.stringify(artifact, null, 2)}\n`;
+  try {
+    writeFileSync(file, bytes, { flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('private coaching artifact already exists; refusing overwrite');
+    throw error;
+  }
+  return { file, sha256: createHash('sha256').update(bytes).digest('hex'), mode: statSync(file).mode & 0o777 };
 }
