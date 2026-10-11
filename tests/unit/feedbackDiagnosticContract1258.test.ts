@@ -97,12 +97,64 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
         expect(validateFeedbackDiagnostics(lookup, none)).toEqual({ verdict: 'PASS', reasons: [] });
     });
 
-    it('content in the lookup (transcript, coaching text, prompt, email, report prose) is FAIL', () => {
-        for (const key of ['transcript', 'what_worked', 'what_to_try_next', 'prompt', 'email', 'description']) {
-            const lookup = valid() as unknown as Record<string, Record<string, unknown>>;
-            lookup.report[key] = 'x';
-            expect(validateFeedbackDiagnostics(lookup as unknown as FeedbackDiagnosticLookup, expectCurrent).reasons).toContain('content_leak');
+    it('the schema is an ALLOWLIST: any unexpected key, at any level, is FAIL — content names need not be guessed', () => {
+        const cases: Array<(l: Record<string, unknown> & { report: Record<string, unknown>; requests: Record<string, unknown>[] }) => void> = [
+            (l) => { l.report.transcript = 'x'; },
+            (l) => { l.report.audio = 'data:…'; },
+            (l) => { l.requests[0].apiKey = 'k'; },
+            (l) => { l.requests[0].authorization = 'Bearer t'; },
+            (l) => { l.requests[0].payload = { anything: 'nested' }; },
+            (l) => { l.report.sessionId = { nested: 'object' } as unknown as string; },
+            (l) => { l.requests[0].observedModel = ['array'] as unknown as string; },
+            (l) => { l.extra = 1; },
+            (l) => { l.requests = { not: 'an array' } as unknown as Record<string, unknown>[]; },
+        ];
+        for (const mutate of cases) {
+            const lookup = valid() as unknown as Parameters<typeof mutate>[0];
+            mutate(lookup);
+            const verdict = validateFeedbackDiagnostics(lookup as unknown as FeedbackDiagnosticLookup, expectCurrent);
+            expect(verdict.verdict).toBe('FAIL');
+            expect(verdict.reasons).toContain('unexpected_field');
         }
+    });
+
+    it('legitimate free-form values stay valid: a provider model string and opaque ids', () => {
+        const lookup = valid();
+        Object.assign(lookup.requests[0], { outcome: 'success', failureCategory: null, statusClass: '2xx', observedModel: 'models/gemini-3.8-flash-preview-0925 (rev 7)' });
+        expect(validateFeedbackDiagnostics(lookup, { ...expectCurrent, outcome: 'success', failureCategory: null }).verdict).toBe('PASS');
+    });
+
+    describe('PM RETURN 6110940975 — an older-session report\'s link must resolve', () => {
+        const olderExpected = (): DiagnosticExpectation => ({ ...expectCurrent, association: 'selected_older_session', sessionId: 'ses-older', requestId: null, outcome: null, attemptId: null, failureCategory: null });
+        const olderLookup = (): FeedbackDiagnosticLookup => {
+            const l = valid();
+            Object.assign(l.report, { sessionId: 'ses-older', association: 'selected_older_session', linkedRequestId: 'req-older' });
+            l.requests = [{ ...l.requests[0], requestId: 'req-older', attemptId: 'att-0', sessionId: 'ses-older' }];
+            return l;
+        };
+        it('a valid older request bound to the older session PASSES', () => {
+            expect(validateFeedbackDiagnostics(olderLookup(), olderExpected())).toEqual({ verdict: 'PASS', reasons: [] });
+        });
+        it('an UNKNOWN link (no such request in the lookup) is HOLD, never PASS', () => {
+            const l = olderLookup();
+            l.requests = [];
+            expect(validateFeedbackDiagnostics(l, olderExpected())).toEqual({ verdict: 'HOLD', reasons: ['request_not_found'] });
+        });
+        it('a MALFORMED linked record is FAIL', () => {
+            const l = olderLookup();
+            l.requests[0].retryCount = -2;
+            expect(validateFeedbackDiagnostics(l, olderExpected())).toEqual({ verdict: 'FAIL', reasons: ['request_field_invalid'] });
+        });
+        it('a linked request from ANOTHER session is FAIL', () => {
+            const l = olderLookup();
+            l.requests[0].sessionId = 'ses-third';
+            expect(validateFeedbackDiagnostics(l, olderExpected())).toEqual({ verdict: 'FAIL', reasons: ['request_session_mismatch'] });
+        });
+        it('a duplicated linked record is FAIL', () => {
+            const l = olderLookup();
+            l.requests = [l.requests[0], { ...l.requests[0] }];
+            expect(validateFeedbackDiagnostics(l, olderExpected())).toEqual({ verdict: 'FAIL', reasons: ['request_field_invalid'] });
+        });
     });
 
     it('no single-field corruption of a valid chain can PASS', () => {

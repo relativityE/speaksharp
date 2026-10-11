@@ -7,7 +7,8 @@
  *   - HOLD: evidence is missing (no report, no link, linked request absent, telemetry only sent, success without the
  *     provider-reported model) — never a PASS by absence;
  *   - FAIL: evidence contradicts the run (wrong association/session/request/outcome, an older-session or no-session report
- *     carrying the current take's request, duplicate storage, no acknowledgement, malformed fields, or any content);
+ *     carrying the current take's request, duplicate storage, no acknowledgement, malformed fields, or any field outside the
+ *     exact content-free schema);
  *   - PASS only when the whole chain is present, consistent and content-free.
  * Reasons are closed tokens. Field names are App Dev's proposal to CLI Dev; the mapping from the real lookup lives with
  * the journey, so a renamed column changes one adapter, not this rule.
@@ -72,7 +73,7 @@ export type DiagnosticReason =
     | 'report_mismatch' | 'association_mismatch' | 'session_mismatch' | 'request_mismatch' | 'attempt_mismatch'
     | 'failure_category_mismatch' | 'configured_model_mismatch' | 'request_session_mismatch' | 'outcome_mismatch'
     | 'current_attempt_attached_to_other_session' | 'invented_link' | 'storage_not_exactly_once' | 'acknowledgement_not_visible'
-    | 'report_field_invalid' | 'request_field_invalid' | 'content_leak';
+    | 'report_field_invalid' | 'request_field_invalid' | 'unexpected_field';
 
 export interface DiagnosticVerdict { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: DiagnosticReason[] }
 
@@ -88,19 +89,32 @@ const STATUS_FOR_OUTCOME: Record<string, readonly string[]> = {
 /** AISuggestions' closed failure reasons (#1473/#1486), plus `timeout` for a request that never answered. */
 const FAILURE_CATEGORIES: readonly string[] = ['unavailable', 'network', 'invalid_response', 'timeout', 'rate_limited', 'access_denied',
     'service_configuration', 'not_found', 'transcript_unavailable'];
-/** Keys that would mean the lookup carries user or model content. The lookup is ids, enums, counts and durations only. */
-const CONTENT_KEYS = /^(transcript|what_worked|what_to_try_next|suggestions?|prompt|email|description|title|body|text)$/i;
+/**
+ * The lookup's COMPLETE schema (PM RETURN 6110940975): every object level has an exact allowed-key set and every value is a
+ * scalar. Anything else — an unlisted key (`audio`, `apiKey`, `authorization`, a nested payload) or a nested object/array
+ * where a scalar belongs — is `unexpected_field`. Content-freedom is enforced by what is ALLOWED, never by guessing content
+ * names. Free-form strings remain only where the schema permits them (opaque ids, the provider-reported model).
+ */
+const LOOKUP_KEYS = ['report', 'requests'] as const;
+const REPORT_KEYS = ['reportId', 'sessionId', 'association', 'linkedRequestId', 'storage', 'acknowledgementVisible', 'telemetryReceived'] as const;
+const REQUEST_KEYS = ['requestId', 'attemptId', 'sessionId', 'outcome', 'failureCategory', 'statusClass', 'retryCount', 'totalMs',
+    'providerMs', 'configuredModel', 'observedModel', 'source'] as const;
+const isScalar = (v: unknown): boolean => v === null || ['string', 'number', 'boolean'].includes(typeof v);
+const exactShape = (value: unknown, keys: readonly string[]): boolean =>
+    !!value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).every((k) => keys.includes(k)) && Object.values(value).every(isScalar);
 
 const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 const count = (v: unknown): boolean => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 const duration = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
-function hasContent(value: unknown): boolean {
-    if (Array.isArray(value)) return value.some(hasContent);
-    if (value && typeof value === 'object') {
-        return Object.entries(value as Record<string, unknown>).some(([k, v]) => CONTENT_KEYS.test(k) || hasContent(v));
-    }
-    return false;
+function schemaViolation(lookup: unknown): boolean {
+    if (!lookup || typeof lookup !== 'object' || Array.isArray(lookup)) return true;
+    const top = lookup as Record<string, unknown>;
+    if (!Object.keys(top).every((k) => (LOOKUP_KEYS as readonly string[]).includes(k))) return true;
+    if (!exactShape(top.report, REPORT_KEYS)) return true;
+    if (top.requests !== undefined && !Array.isArray(top.requests)) return true;
+    return (Array.isArray(top.requests) ? top.requests : []).some((q) => !exactShape(q, REQUEST_KEYS));
 }
 
 function reportValid(r: FeedbackReportDiagnostic): boolean {
@@ -123,7 +137,7 @@ export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | n
     const reasons = new Set<DiagnosticReason>();
     const { report } = lookup;
     const requests = Array.isArray(lookup.requests) ? lookup.requests : [];
-    if (hasContent(lookup)) reasons.add('content_leak');
+    if (schemaViolation(lookup)) reasons.add('unexpected_field');
     if (!reportValid(report)) reasons.add('report_field_invalid');
 
     // The report itself: the one the run stored, what the person selected, stored exactly once, and acknowledged.
@@ -160,10 +174,13 @@ export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | n
                 if (q.outcome === 'success' && !nonEmpty(q.observedModel)) reasons.add('observed_model_missing');
             }
         }
-    } else if (report.linkedRequestId !== null) {
-        // A linked request the run did not cause must at least belong to the report's own session.
-        const q = requests.find((r) => r?.requestId === report.linkedRequestId);
-        if (q && q.sessionId !== report.sessionId) reasons.add('request_session_mismatch');
+    } else if (report.linkedRequestId !== null && expected.association !== 'no_session') {
+        // PM RETURN 6110940975: a link the run did not cause (e.g. a report about an older take) must still resolve to ONE
+        // retrievable, valid request bound to that report's own session — never PASS on a dangling or malformed reference.
+        const linked = requests.filter((q) => q?.requestId === report.linkedRequestId);
+        if (linked.length === 0) reasons.add('request_not_found');
+        else if (linked.length > 1 || !requestValid(linked[0])) reasons.add('request_field_invalid');
+        else if (linked[0].sessionId !== report.sessionId) reasons.add('request_session_mismatch');
     }
 
     const list = [...reasons];
