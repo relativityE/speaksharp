@@ -98,25 +98,24 @@ const OUTCOMES: readonly string[] = ['success', 'provider_error', 'timeout', 'tr
 const ASSOCIATIONS: readonly string[] = ['current_take', 'selected_older_session', 'no_session'];
 const STORAGE: readonly string[] = ['stored_once', 'stored_duplicate', 'not_stored'];
 /**
- * What each outcome can truthfully carry (PM 6111008437): endpoint status class, provider status class, the closed server
- * reasons, and whether `source: 'unknown'` is honest. A combination outside this table is malformed evidence.
+ * What each outcome can truthfully carry (PM 6111008437): endpoint status class, provider status class and the closed server
+ * reasons; the source is fixed per outcome by `expectedSource`. A combination outside this table is malformed evidence.
  */
-const OUTCOME_SHAPE: Record<string, { status: readonly string[]; provider: readonly string[]; reasons: readonly (string | null)[]; unknownSource: boolean }> = {
+const OUTCOME_SHAPE: Record<string, { status: readonly string[]; provider: readonly string[]; reasons: readonly (string | null)[] }> = {
     // A cache hit makes no provider call (provider `none`); a fresh success must carry the provider's 2xx (see shapeHolds).
-    success: { status: ['2xx'], provider: ['2xx', 'none'], reasons: ['none'], unknownSource: false },
-    provider_error: { status: ['5xx'], provider: ['4xx', '5xx'], reasons: ['provider_http_4xx', 'provider_http_5xx'], unknownSource: false },
-    timeout: { status: ['5xx'], provider: ['none'], reasons: ['provider_timeout'], unknownSource: false },
-    transport_error: { status: ['5xx'], provider: ['none'], reasons: ['provider_transport'], unknownSource: false },
-    invalid_response: { status: ['5xx'], provider: ['2xx'], reasons: ['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version'], unknownSource: false },
-    rate_limited: { status: ['4xx'], provider: ['none'], reasons: ['quota_exceeded'], unknownSource: true },
+    success: { status: ['2xx'], provider: ['2xx', 'none'], reasons: ['none'] },
+    provider_error: { status: ['5xx'], provider: ['4xx', '5xx'], reasons: ['provider_http_4xx', 'provider_http_5xx'] },
+    timeout: { status: ['5xx'], provider: ['none'], reasons: ['provider_timeout'] },
+    transport_error: { status: ['5xx'], provider: ['none'], reasons: ['provider_transport'] },
+    invalid_response: { status: ['5xx'], provider: ['2xx'], reasons: ['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version'] },
+    rate_limited: { status: ['4xx'], provider: ['none'], reasons: ['quota_exceeded'] },
     server_error: {
         status: ['4xx', '5xx'], provider: ['none', '2xx'],
         reasons: ['invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch', 'focus_context_unavailable',
             'transcript_unavailable', 'product_unknown', 'service_configuration', 'entitlement_unavailable', 'access_denied',
             'quota_unavailable', 'authority_unverified', 'persist_failed', 'internal_error'],
-        unknownSource: true,
     },
-    client_network: { status: ['none'], provider: ['none'], reasons: [null], unknownSource: true },
+    client_network: { status: ['none'], provider: ['none'], reasons: [null] },
 };
 /** AISuggestions' closed failure reasons (#1473/#1486), plus `timeout` for a request that never answered. */
 const FAILURE_CATEGORIES: readonly string[] = ['unavailable', 'network', 'invalid_response', 'timeout', 'rate_limited', 'access_denied',
@@ -155,21 +154,36 @@ function reportValid(r: FeedbackReportDiagnostic): boolean {
         && typeof r.acknowledgementVisible === 'boolean' && typeof r.telemetryReceived === 'boolean';
 }
 
+/**
+ * The ONE source each outcome can truthfully report (PM RETURN 6111565683): `cache` only for a cache success (no provider
+ * call); `fresh` for any request whose provider leg was attempted (a fresh success, a provider error/timeout/transport loss,
+ * an invalid provider answer, or a server failure after the provider answered); `unknown` only for a validated pre-provider
+ * or no-response shape (rate limit, a server refusal before the provider, client network loss).
+ */
+function expectedSource(q: AiRequestDiagnostic): AiRequestDiagnostic['source'] | null {
+    switch (q.outcome) {
+        case 'success': return q.providerStatusClass === 'none' ? 'cache' : 'fresh';
+        case 'provider_error': case 'timeout': case 'transport_error': case 'invalid_response': return 'fresh';
+        case 'rate_limited': case 'client_network': return 'unknown';
+        case 'server_error': return q.providerStatusClass === 'none' ? 'unknown' : 'fresh';
+        default: return null;
+    }
+}
+
 function shapeHolds(q: AiRequestDiagnostic): boolean {
     const shape = OUTCOME_SHAPE[q.outcome];
     if (!shape) return false;
-    // `unknown` is honest only when the provider never answered AND the outcome is a validated pre-provider failure.
-    const sourceOk = q.source !== 'unknown' || (shape.unknownSource && q.providerStatusClass === 'none');
-    const successLeg = q.outcome !== 'success' || (q.source === 'cache' ? q.providerStatusClass === 'none' : q.providerStatusClass === '2xx');
-    return successLeg && shape.status.includes(q.statusClass) && shape.provider.includes(q.providerStatusClass)
-        && shape.reasons.includes(q.serverReason) && sourceOk;
+    return shape.status.includes(q.statusClass) && shape.provider.includes(q.providerStatusClass)
+        && shape.reasons.includes(q.serverReason) && q.source === expectedSource(q);
 }
 
 function requestValid(q: AiRequestDiagnostic): boolean {
     return nonEmpty(q.requestId) && nonEmpty(q.attemptId) && nonEmpty(q.sessionId) && OUTCOMES.includes(q.outcome)
         && (q.outcome === 'success' ? q.failureCategory === null : FAILURE_CATEGORIES.includes(q.failureCategory ?? ''))
         && shapeHolds(q)
-        && count(q.retryCount) && duration(q.totalMs) && (q.providerMs === null || duration(q.providerMs))
+        && count(q.retryCount) && duration(q.totalMs)
+        // The provider leg is part of the request, so it can never exceed the total (PM RETURN 6111565683).
+        && (q.providerMs === null || (duration(q.providerMs) && q.providerMs <= q.totalMs))
         && nonEmpty(q.configuredModel) && (q.observedModel === null || nonEmpty(q.observedModel))
         && ['fresh', 'cache', 'unknown'].includes(q.source);
 }

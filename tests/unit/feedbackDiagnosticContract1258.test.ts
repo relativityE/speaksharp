@@ -78,6 +78,39 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
         expect(result.reasons).toContain(reason);
     });
 
+    describe('PM RETURN 6111565683 — exact source per outcome; coherent timing', () => {
+        const as = (patch: Record<string, unknown>, exp: Partial<DiagnosticExpectation> = {}) => {
+            const lookup = valid();
+            Object.assign(lookup.requests[0], patch);
+            return validateFeedbackDiagnostics(lookup, { ...expectCurrent, ...exp });
+        };
+        it.each([
+            ['provider error claiming cache', { source: 'cache' }, {}],
+            ['timeout claiming cache', { outcome: 'timeout', serverReason: 'provider_timeout', providerStatusClass: 'none', providerMs: null, source: 'cache' }, { outcome: 'timeout', serverReason: 'provider_timeout' }],
+            ['invalid response claiming cache', { outcome: 'invalid_response', serverReason: 'invalid_shape', providerStatusClass: '2xx', source: 'cache' }, { outcome: 'invalid_response', serverReason: 'invalid_shape' }],
+            ['rate limit claiming cache', { outcome: 'rate_limited', failureCategory: 'rate_limited', serverReason: 'quota_exceeded', statusClass: '4xx', providerStatusClass: 'none', providerMs: null, source: 'cache' }, { outcome: 'rate_limited', failureCategory: 'rate_limited', serverReason: 'quota_exceeded' }],
+            ['pre-provider server refusal claiming fresh', { outcome: 'server_error', failureCategory: 'access_denied', serverReason: 'auth_failed', statusClass: '4xx', providerStatusClass: 'none', providerMs: null, source: 'fresh' }, { outcome: 'server_error', failureCategory: 'access_denied', serverReason: 'auth_failed' }],
+            ['client network loss claiming fresh', { outcome: 'client_network', failureCategory: 'network', serverReason: null, statusClass: 'none', providerStatusClass: 'none', providerMs: null, source: 'fresh' }, { outcome: 'client_network', failureCategory: 'network', serverReason: null }],
+            ['post-provider failure claiming unknown', { outcome: 'invalid_response', serverReason: 'missing_text', providerStatusClass: '2xx', source: 'unknown' }, { outcome: 'invalid_response', serverReason: 'missing_text' }],
+            ['server failure after the provider answered claiming unknown', { outcome: 'server_error', failureCategory: 'unavailable', serverReason: 'persist_failed', statusClass: '5xx', providerStatusClass: '2xx', source: 'unknown' }, { outcome: 'server_error', serverReason: 'persist_failed' }],
+        ])('FAIL: %s', (_label, patch, exp) => {
+            const verdict = as(patch, exp);
+            expect(verdict.verdict).toBe('FAIL');
+            expect(verdict.reasons).toContain('request_field_invalid');
+        });
+        it('GREEN: each outcome with its one honest source PASSES', () => {
+            expect(as({}).verdict).toBe('PASS'); // provider_error, fresh
+            expect(as({ outcome: 'server_error', failureCategory: 'unavailable', serverReason: 'persist_failed', statusClass: '5xx', providerStatusClass: '2xx', source: 'fresh' },
+                { outcome: 'server_error', serverReason: 'persist_failed' }).verdict).toBe('PASS');
+            expect(as({ outcome: 'rate_limited', failureCategory: 'rate_limited', serverReason: 'quota_exceeded', statusClass: '4xx', providerStatusClass: 'none', providerMs: null, source: 'unknown' },
+                { outcome: 'rate_limited', failureCategory: 'rate_limited', serverReason: 'quota_exceeded' }).verdict).toBe('PASS');
+        });
+        it('a provider leg longer than the whole request is FAIL; equal is allowed', () => {
+            expect(as({ providerMs: 4201, totalMs: 4200 }).reasons).toContain('request_field_invalid');
+            expect(as({ providerMs: 4200, totalMs: 4200 }).verdict).toBe('PASS');
+        });
+    });
+
     describe('PM 6111008437 — endpoint vs provider status, server_error, server reason, honest unknown source', () => {
         const as = (patch: Record<string, unknown>, exp: Partial<DiagnosticExpectation> = {}) => {
             const lookup = valid();
