@@ -3,7 +3,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../fixtures/rwt/rwt-fixtures.manifest.json';
-import { buildRwtCoachingEvidenceArtifact, canonicalSuggestionSha256, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from '../live/helpers/rwtCoachingEvidence';
+import {
+  buildRwtCoachingEvidenceArtifact,
+  canonicalSuggestionSha256,
+  coachingSessionBindingSha256,
+  recomputeCoachingPromptSha256,
+  writeRwtCoachingEvidenceArtifact,
+  type RwtCoachingTakeEvidence,
+} from '../live/helpers/rwtCoachingEvidence';
 import coachingContract from '../../backend/supabase/functions/get-ai-suggestions/contract.json';
 
 const fixture = manifest.fixtures.open_mic_tts;
@@ -12,35 +19,69 @@ const phrase = {
   what_worked: 'You opened with a clear point and supported it with a concrete example.',
   what_to_try_next: 'Pause after your headline so listeners can absorb the main idea.',
 };
+const attachPromptGenerationReceipt = (value: RwtCoachingTakeEvidence): RwtCoachingTakeEvidence => {
+  const requestId = `50000000-0000-4000-8000-${value.sessionId.slice(-12)}`;
+  const attemptId = `60000000-0000-4000-8000-${value.sessionId.slice(-12)}`;
+  const digest = recomputeCoachingPromptSha256(value.savedInputReadback);
+  if (!digest) throw new Error('synthetic prompt fixture must contain complete saved prompt inputs');
+  const clientReleaseId = 'a'.repeat(40);
+  if (value.source === 'fresh') {
+    value.diagnosticRequestId = requestId;
+    value.diagnosticAttemptId = attemptId;
+    value.diagnosticClientAttempt = 1;
+  }
+  value.promptGenerationReceipt = {
+    request: {
+      sessionId: value.sessionId, product: value.product, requestId, attemptId,
+      clientAttempt: 1, clientReleaseId,
+    },
+    response: {
+      request_id: requestId, attempt_id: attemptId, client_attempt: 1,
+      status: 200, outcome: 'success', reason: 'none', provider: 'google_gemini',
+      configured_model: coachingContract.model, observed_model: value.authorityReceipt.model,
+      source: 'fresh', provider_attempts: 1, retry_count: 0, prompt_sha256: digest,
+      product: value.product, has_session: true, client_release_id: clientReleaseId,
+      session_binding_sha256: coachingSessionBindingSha256(value.userId, value.sessionId),
+    },
+  };
+  value.promptSha256 = value.source === 'fresh' ? digest : null;
+  return value;
+};
 const take = (suffix: string, source: 'fresh' | 'cache' = 'fresh'): RwtCoachingTakeEvidence => {
   const sessionId = `10000000-0000-4000-8000-${suffix.padStart(12, '0')}`;
   const userId = '20000000-0000-4000-8000-000000000001';
-  return {
+  const metrics = {
+    totalWords: 14, fillerCounts: { um: 1 }, durationSeconds: 8.1,
+    wpm: 115, filler_counts: { um: 1 }, filler_words: null, next_action_signal: null,
+  };
+  return attachPromptGenerationReceipt({
     runId: 'rwt-run-42', suiteId: 'coaching-live-suite', product: 'open_mic',
     fixtureName: 'open_mic_tts', fixtureSha256: fixture.sha256,
     sessionId, userId,
     runOwnedBinding: { verified: true, runId: 'rwt-run-42', sessionId, userId, fixtureSha256: fixture.sha256 },
     transcript: 'Um, I opened with a clear point and supported it with an example.',
-    metrics: { totalWords: 14, fillerCounts: { um: 1 }, durationSeconds: 8.1 },
+    metrics,
     savedInputReadback: {
       sessionId, userId, product: 'open_mic',
       transcript: 'Um, I opened with a clear point and supported it with an example.',
-      metrics: { totalWords: 14, fillerCounts: { um: 1 }, durationSeconds: 8.1 },
+      metrics,
+      promptContext: { transcriptState: 'available', focusContext: { kind: 'none' } },
     },
     configuredModel: coachingContract.model,
     diagnosticRequestId: `30000000-0000-4000-8000-${suffix.padStart(12, '0')}`,
     diagnosticAttemptId: `40000000-0000-4000-8000-${suffix.padStart(12, '0')}`,
+    diagnosticClientAttempt: 1,
     diagnosticStatus: 200, diagnosticOutcome: 'success', diagnosticReason: 'none',
     providerAttempts: source === 'fresh' ? 1 : 0, retryCount: 0,
     source,
-    providerDurationMs: source === 'fresh' ? 640 : 0, totalDurationMs: 920, promptSha256: 'a'.repeat(64),
+    providerDurationMs: source === 'fresh' ? 640 : 0, totalDurationMs: 920, promptSha256: null,
     authorityReceipt: {
       session_id: sessionId, user_id: userId, provider: 'google_gemini', model: 'gemini-3.8-flash-001',
       provider_request_made: true, receipt_suggestion_sha256: canonicalSuggestionSha256(phrase), current_suggestion_sha256: canonicalSuggestionSha256(phrase),
       ai_suggestions: { ...phrase }, ...(source === 'cache' ? { cache_read_count: 1 } : { cache_read_count: 0 }),
     },
     renderedSuggestions: { ...phrase },
-  };
+  });
 };
 const focusTake = (suffix: string): RwtCoachingTakeEvidence => {
   const value = take(suffix);
@@ -49,14 +90,30 @@ const focusTake = (suffix: string): RwtCoachingTakeEvidence => {
   value.fixtureName = 'focus_points_tts';
   value.fixtureSha256 = focusFixture.sha256;
   value.runOwnedBinding.fixtureSha256 = focusFixture.sha256;
-  value.metrics = { totalWords: 129, focusVerdicts: ['covered', 'covered', 'covered', 'covered'] };
-  value.savedInputReadback = { ...value.savedInputReadback, product: 'focus_points', metrics: value.metrics };
+  value.metrics = {
+    totalWords: 129, focusVerdicts: ['covered', 'covered', 'covered', 'covered'],
+    wpm: 112, filler_counts: { uh: 2 }, filler_words: null, next_action_signal: { metric: 'filler_rate' },
+  };
+  value.savedInputReadback = {
+    ...value.savedInputReadback,
+    product: 'focus_points',
+    metrics: value.metrics,
+    promptContext: {
+      transcriptState: 'available',
+      focusContext: {
+        kind: 'focus', topic: 'Quarterly launch', points: [
+          { label: 'Customer impact', verdict: 'detected', detectedAtSeconds: 21 },
+          { label: 'Support capacity', verdict: 'not_detected', detectedAtSeconds: null },
+        ],
+      },
+    },
+  };
   value.authorityReceipt.ai_suggestions.version = 'gemini_coaching_focus_v1';
   const digest = canonicalSuggestionSha256(value.authorityReceipt.ai_suggestions);
   value.authorityReceipt.receipt_suggestion_sha256 = digest;
   value.authorityReceipt.current_suggestion_sha256 = digest;
   value.renderedSuggestions.version = 'gemini_coaching_focus_v1';
-  return value;
+  return attachPromptGenerationReceipt(value);
 };
 
 describe('RWT restricted synthetic coaching evidence', () => {
@@ -157,14 +214,95 @@ describe('RWT restricted synthetic coaching evidence', () => {
       .toThrow(/canonical suggestion digest does not match/);
   });
 
-  it('marks prompt provenance HOLD until the server prompt digest is independently bound to saved inputs', () => {
+  it('independently recomputes fresh prompt binding and preserves the original binding across cache replay', () => {
     const artifact = buildRwtCoachingEvidenceArtifact({
       releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: take('2', 'cache'),
     });
-    expect(artifact.firstTake.promptBinding).toEqual({
-      verdict: 'HOLD', reason: 'prompt_digest_not_recomputed_from_server_authoritative_inputs',
+    expect(artifact.firstTake.promptBinding).toMatchObject({
+      verdict: 'PASS', reason: 'recomputed_from_bound_saved_prompt_inputs',
     });
-    expect(artifact.repeatTake.promptBinding).toEqual(artifact.firstTake.promptBinding);
+    expect(artifact.repeatTake.promptBinding).toMatchObject({
+      verdict: 'PASS', reason: 'recomputed_from_bound_saved_prompt_inputs',
+    });
+  });
+
+  it('fails when transcript inputs change even if caller and server-supplied digest strings still agree', () => {
+    const changed = take('1');
+    changed.transcript = 'A substituted transcript with matching fake readback.';
+    changed.savedInputReadback.transcript = changed.transcript;
+    const callerAndReceiptDigest = changed.promptSha256;
+    expect(changed.promptGenerationReceipt?.response.prompt_sha256).toBe(callerAndReceiptDigest);
+    const artifact = buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: changed, repeatTake: take('2') });
+    expect(artifact.firstTake.promptBinding).toMatchObject({
+      verdict: 'FAIL', reason: 'server_prompt_digest_mismatch',
+    });
+  });
+
+  it('fails closed on wrong selected session, product, request, attempt, model, or contract digest', () => {
+    const changedSession = take('1');
+    const otherSession = '90000000-0000-4000-8000-000000000001';
+    changedSession.sessionId = otherSession;
+    changedSession.runOwnedBinding.sessionId = otherSession;
+    changedSession.savedInputReadback.sessionId = otherSession;
+    changedSession.authorityReceipt.session_id = otherSession;
+    changedSession.promptGenerationReceipt!.request.sessionId = otherSession;
+    const sessionArtifact = buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: changedSession, repeatTake: take('2') });
+    expect(sessionArtifact.firstTake.promptBinding).toMatchObject({ verdict: 'FAIL', reason: 'generation_request_or_session_binding_mismatch' });
+
+    for (const mutate of [
+      (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.product = 'focus_points'; },
+      (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.request_id = '70000000-0000-4000-8000-000000000001'; },
+      (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.attempt_id = '80000000-0000-4000-8000-000000000001'; },
+      (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.prompt_sha256 = 'b'.repeat(64); },
+    ]) {
+      const wrong = take('3');
+      mutate(wrong.promptGenerationReceipt!);
+      const result = buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: wrong, repeatTake: take('4') });
+      expect(result.firstTake.promptBinding.verdict).toBe('FAIL');
+    }
+
+    const originalContractModel = coachingContract.model;
+    try {
+      for (const [index, contractModel] of ['gemini-3.6-flash', 'gemini-3.8-flash'].entries()) {
+        coachingContract.model = contractModel;
+        const wrongModel = take(String(31 + index * 2));
+        wrongModel.promptGenerationReceipt!.response.configured_model = `not-${coachingContract.model}`;
+        expect(wrongModel.promptGenerationReceipt!.response.configured_model).not.toBe(coachingContract.model);
+        const result = buildRwtCoachingEvidenceArtifact({
+          releaseSha: 'a'.repeat(40), firstTake: wrongModel, repeatTake: take(String(32 + index * 2)),
+        });
+        expect(result.firstTake.promptBinding).toMatchObject({
+          verdict: 'FAIL', reason: 'generation_request_or_session_binding_mismatch',
+        });
+      }
+    } finally {
+      coachingContract.model = originalContractModel;
+    }
+
+    const mismatchedCurrentAttempt = take('5');
+    mismatchedCurrentAttempt.diagnosticRequestId = '70000000-0000-4000-8000-000000000002';
+    const attemptArtifact = buildRwtCoachingEvidenceArtifact({
+      releaseSha: 'a'.repeat(40), firstTake: mismatchedCurrentAttempt, repeatTake: take('6'),
+    });
+    expect(attemptArtifact.firstTake.promptBinding).toMatchObject({
+      verdict: 'FAIL', reason: 'generation_request_or_session_binding_mismatch',
+    });
+  });
+
+  it('keeps HOLD when exact authoritative prompt inputs or the original generation response are unavailable', () => {
+    const missingPromptInputs = take('1');
+    delete missingPromptInputs.savedInputReadback.promptContext;
+    const missingReceipt = take('3');
+    delete missingReceipt.promptGenerationReceipt;
+    const artifact = buildRwtCoachingEvidenceArtifact({
+      releaseSha: 'a'.repeat(40), firstTake: missingPromptInputs, repeatTake: missingReceipt,
+    });
+    expect(artifact.firstTake.promptBinding).toMatchObject({
+      verdict: 'HOLD', reason: 'authoritative_prompt_inputs_or_generation_receipt_unavailable',
+    });
+    expect(artifact.repeatTake.promptBinding).toMatchObject({
+      verdict: 'HOLD', reason: 'authoritative_prompt_inputs_or_generation_receipt_unavailable',
+    });
   });
 
   it('requires a server-recorded cache read for repeat-take cache provenance', () => {
