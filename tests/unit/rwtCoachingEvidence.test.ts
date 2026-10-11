@@ -6,12 +6,12 @@ import manifest from '../fixtures/rwt/rwt-fixtures.manifest.json';
 import {
   buildRwtCoachingEvidenceArtifact,
   canonicalSuggestionSha256,
+  coachingContract,
   coachingSessionBindingSha256,
   recomputeCoachingPromptSha256,
   writeRwtCoachingEvidenceArtifact,
   type RwtCoachingTakeEvidence,
 } from '../live/helpers/rwtCoachingEvidence';
-import coachingContract from '../../backend/supabase/functions/get-ai-suggestions/contract.json';
 
 const fixture = manifest.fixtures.open_mic_tts;
 const phrase = {

@@ -9,9 +9,9 @@ import fixtureManifest from '../../fixtures/rwt/rwt-fixtures.manifest.json';
  * tree (`backend/supabase/functions/`) into the live typecheck, which `scripts/verify-live-typecheck-scope.mjs` forbids.
  * Same file, same value — the configured-model check below is unchanged.
  */
-const coachingContract = JSON.parse(readFileSync(
+export const coachingContract = JSON.parse(readFileSync(
     resolve(dirname(fileURLToPath(import.meta.url)), '../../../backend/supabase/functions/get-ai-suggestions/contract.json'), 'utf8',
-)) as { model: string };
+)) as { model: string; promptTemplate: string };
 
 const SHA40 = /^[0-9a-f]{40}$/i;
 const SHA64 = /^[0-9a-f]{64}$/i;
