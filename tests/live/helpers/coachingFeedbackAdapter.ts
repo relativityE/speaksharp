@@ -50,19 +50,33 @@ export function contractOutcome(exchange: CoachingExchange): AiRequestOutcome | 
 
 const nonNegInt = (v: unknown): number | null => (Number.isInteger(v) && Number(v) >= 0 ? Number(v) : null);
 
+/**
+ * PM RETURN 6115025110: the request's identity is what the page SENT at the boundary — never the response being verified.
+ * An answered exchange whose echoed request or attempt id differs from the sent one is inconsistent evidence; it is kept
+ * (never dropped) and poisons its request's record so the contract FAILs it.
+ */
+export function echoMismatch(exchange: CoachingExchange): 'request' | 'attempt' | null {
+    if (exchange.status === null || !exchange.diagnostics) return null;
+    if (exchange.diagnostics.request_id !== exchange.sent.requestId) return 'request';
+    if (exchange.diagnostics.attempt_id !== exchange.sent.attemptId) return 'attempt';
+    return null;
+}
+
 /** One exchange as the contract's request record. `failureCategory` is the product category the page reported. */
-export function toAiRequestDiagnostic(exchange: CoachingExchange, failureCategory: string | null): AiRequestDiagnostic {
+export function toAiRequestDiagnostic(exchange: CoachingExchange, failureCategory: string | null, poisoned = echoMismatch(exchange) !== null): AiRequestDiagnostic {
     const outcome = contractOutcome(exchange);
     const d = exchange.diagnostics ?? {};
     const clientNetwork = outcome === 'client_network';
     const providerAttempts = nonNegInt(d.provider_attempts) ?? 0;
     return {
-        // The Edge echoes the client's ids when they are valid; a different id is evidence the contract must see.
-        requestId: clientNetwork ? exchange.sent.requestId ?? '' : typeof d.request_id === 'string' ? d.request_id : '',
-        attemptId: clientNetwork ? exchange.sent.attemptId ?? '' : typeof d.attempt_id === 'string' ? d.attempt_id : '',
+        // Identity from the sent request (the boundary); the echoed ids are checked by `echoMismatch`, never trusted.
+        requestId: exchange.sent.requestId ?? '',
+        attemptId: exchange.sent.attemptId ?? '',
         sessionId: exchange.sent.sessionId ?? '',
-        // An unmappable terminal shape is passed through under its raw label so `shapeHolds` rejects it.
-        outcome: (outcome === null || outcome === 'unmappable' ? `unmapped:${String(d.outcome)}` : outcome) as AiRequestOutcome,
+        // An inconsistent echo, or an unmappable terminal shape, is passed through under a non-contract label so the
+        // contract rejects the record (`request_field_invalid`) instead of the adapter dropping it.
+        outcome: (poisoned ? 'unmapped:echo_mismatch'
+            : outcome === null || outcome === 'unmappable' ? `unmapped:${String(d.outcome)}` : outcome) as AiRequestOutcome,
         failureCategory: outcome === 'success' ? null : failureCategory,
         serverReason: clientNetwork ? null : typeof d.reason === 'string' ? d.reason : null,
         statusClass: statusClass(exchange.status),
@@ -76,22 +90,25 @@ export function toAiRequestDiagnostic(exchange: CoachingExchange, failureCategor
     };
 }
 
-/** The request's identity: the Edge's echoed id when answered, the id the page sent otherwise. */
-const requestKey = (e: CoachingExchange): string | null =>
-    (e.status !== null && typeof e.diagnostics?.request_id === 'string' ? e.diagnostics.request_id : e.sent.requestId);
-
 /**
- * One terminal record per request id: the LAST exchange of that request whose outcome is terminal (`retrying` is
- * intermediate). Requests with no terminal exchange are omitted — a report linking one resolves to nothing (HOLD).
+ * One record per SENT request id: its last terminal exchange (`retrying` is intermediate). A request any of whose
+ * exchanges echoed a different request/attempt id is poisoned (its record FAILs the contract) — including a request whose
+ * only inconsistent exchange was an intermediate retry. An exchange the page sent without a request id keeps its own
+ * record. A consistent request with no terminal exchange is omitted: a report linking it resolves to nothing (HOLD).
  */
 export function terminalRequests(exchanges: readonly CoachingExchange[], failureCategory: (e: CoachingExchange) => string | null): AiRequestDiagnostic[] {
-    const last = new Map<string, CoachingExchange>();
-    for (const e of exchanges) {
-        const key = requestKey(e);
-        if (!key || contractOutcome(e) === null) continue;
-        last.set(key, e);
-    }
-    return [...last.values()].map((e) => toAiRequestDiagnostic(e, failureCategory(e)));
+    const groups = new Map<string, { terminal: CoachingExchange | null; latest: CoachingExchange; poisoned: boolean }>();
+    exchanges.forEach((e, index) => {
+        const key = e.sent.requestId ?? `unsent:${index}`;
+        const group = groups.get(key) ?? { terminal: null, latest: e, poisoned: false };
+        group.latest = e;
+        if (echoMismatch(e) !== null) group.poisoned = true;
+        if (contractOutcome(e) !== null) group.terminal = e;
+        groups.set(key, group);
+    });
+    return [...groups.values()]
+        .filter((g) => g.terminal !== null || g.poisoned)
+        .map((g) => { const e = g.terminal ?? g.latest; return toAiRequestDiagnostic(e, failureCategory(e), g.poisoned); });
 }
 
 export interface StoredReportReadback {
@@ -151,18 +168,19 @@ export function currentTakeExpectation(input: {
     const terminal = forTake[forTake.length - 1];
     if (!terminal) return null;
     const outcome = contractOutcome(terminal);
-    const record = toAiRequestDiagnostic(terminal, null);
+    // The expectation is the independently captured boundary: the ids the page SENT, never the response's echo.
+    const requestId = terminal.sent.requestId ?? '';
     return {
         reportId: input.reportId,
         association: 'current_take',
         sessionId: input.currentSessionId,
-        requestId: record.requestId,
+        requestId,
         outcome: outcome === 'unmappable' || outcome === null ? null : outcome,
-        attemptId: record.attemptId,
+        attemptId: terminal.sent.attemptId ?? '',
         failureCategory: null,
         serverReason: null,
         configuredModel: input.configuredModel,
-        currentRequestId: record.requestId,
+        currentRequestId: requestId,
     };
 }
 
@@ -214,8 +232,10 @@ export async function feedbackDiagnosticChainRow(input: {
         failureCategory: () => null,
     }) : null;
     const v = validateFeedbackDiagnostics(lookup, expected);
+    // Echoed-id evidence is preserved as a count (content-free); a mismatch already FAILs the request's record.
+    const echoMismatches = input.exchanges.filter((e) => echoMismatch(e) !== null).length;
     receipt.row('feedback diagnostic chain', v.verdict,
         v.verdict === 'PASS' ? 'the report resolves to the exact coaching request for this take'
             : v.verdict === 'FAIL' ? 'the report and the coaching request contradict each other' : 'the chain is incomplete',
-        { reasons: v.reasons.join(',') || 'none' });
+        { reasons: v.reasons.join(',') || 'none', echoMismatches });
 }

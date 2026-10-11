@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    buildFeedbackLookup, contractOutcome, feedbackDiagnosticChainRow, currentTakeExpectation, reportAssociation, terminalRequests, toAiRequestDiagnostic,
+    buildFeedbackLookup, contractOutcome, echoMismatch, feedbackDiagnosticChainRow, currentTakeExpectation, reportAssociation, terminalRequests, toAiRequestDiagnostic,
 } from '../live/helpers/coachingFeedbackAdapter';
 import { readSentRequest, readSuggestionPair, type CoachingExchange } from '../live/helpers/coachingGenerationTap';
 import { validateFeedbackDiagnostics } from '../live/helpers/feedbackDiagnosticContract';
@@ -139,5 +139,56 @@ describe('#1258 coaching → feedback adapter', () => {
         const admin = { from: () => { throw new Error('must not read'); } };
         await feedbackDiagnosticChainRow({ receipt, admin: admin as never, userId: 'uid-1', reportId: null, currentSessionId: SES, exchanges: [], configuredModel: MODEL });
         expect(rows).toEqual([{ step: 'feedback diagnostic chain', verdict: 'HOLD', evidence: { reasons: 'report_not_found' } }]);
+    });
+
+    // ── PM RETURN 6115025110: identity is the SENT boundary; a response echo can never establish it ──────────────
+    const WRONG_REQ = '77777777-7777-4777-8777-777777777777';
+    const WRONG_ATT = '88888888-8888-4888-8888-888888888888';
+
+    it('CASUALTY: mutually consistent WRONG echoes (B/b) with the report linked to B can never PASS', () => {
+        const ex = [exchange({ diag: { request_id: WRONG_REQ, attempt_id: WRONG_ATT } })];
+        const exp = expectation(ex);
+        expect(exp).toMatchObject({ requestId: REQ, attemptId: ATT1, currentRequestId: REQ });
+        const v = validateFeedbackDiagnostics(lookup(ex, true, report(SES, WRONG_REQ)), exp);
+        expect(v.verdict).toBe('FAIL');
+        expect(v.reasons).toContain('request_mismatch');
+    });
+
+    it.each([
+        ['a changed response request id', { request_id: WRONG_REQ }, 'request'],
+        ['a changed response attempt id', { attempt_id: WRONG_ATT }, 'attempt'],
+    ])('CASUALTY: %s poisons the request — FAIL even when the report links the sent id', (_label, diag, kind) => {
+        const ex = [exchange({ diag })];
+        expect(echoMismatch(ex[0])).toBe(kind);
+        const records = terminalRequests(ex, () => null);
+        expect(records).toEqual([expect.objectContaining({ requestId: REQ, attemptId: ATT1, outcome: 'unmapped:echo_mismatch' })]);
+        const v = validateFeedbackDiagnostics(lookup(ex), expectation(ex));
+        expect(v.verdict).toBe('FAIL');
+        expect(v.reasons).toContain('request_field_invalid');
+    });
+
+    it('CASUALTY: an inconsistent echo on an intermediate retry is not dropped — the request still FAILs', () => {
+        const ex = [
+            exchange({ status: 425, diag: { outcome: 'retrying', reason: 'focus_results_pending', status: 425, attempt_id: WRONG_ATT } }),
+            exchange({ sent: { sessionId: SES, product: 'open_mic', requestId: REQ, attemptId: ATT2, clientAttempt: 2, clientReleaseId: null }, diag: { attempt_id: ATT2, client_attempt: 2 } }),
+        ];
+        expect(terminalRequests(ex, () => null)).toEqual([expect.objectContaining({ attemptId: ATT2, outcome: 'unmapped:echo_mismatch' })]);
+        expect(validateFeedbackDiagnostics(lookup(ex), expectation(ex)).verdict).toBe('FAIL');
+    });
+
+    it('an exchange the page sent without a request id keeps its own record (never merged, never dropped)', () => {
+        const unsent = exchange({ sent: { sessionId: SES, product: 'open_mic', requestId: null, attemptId: null, clientAttempt: 1, clientReleaseId: null } });
+        const records = terminalRequests([exchange(), unsent], () => null);
+        expect(records).toHaveLength(2);
+        expect(records[1]).toMatchObject({ requestId: '', outcome: 'unmapped:echo_mismatch' });
+    });
+
+    it('CONTROL: consistent echoes keep PASS for fresh, cache and retry chains', () => {
+        const fresh = [exchange()];
+        const cache = [exchange({ diag: { source: 'cache', provider_status: null, provider_attempts: 0, provider_duration_ms: 0 } })];
+        expect(validateFeedbackDiagnostics(lookup(fresh), expectation(fresh)).verdict).toBe('PASS');
+        expect(validateFeedbackDiagnostics(lookup(cache), expectation(cache)).verdict).toBe('PASS');
+        expect(echoMismatch(fresh[0])).toBeNull();
+        expect(echoMismatch(exchange({ status: null, diagnostics: null }))).toBeNull();
     });
 });
