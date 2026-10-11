@@ -217,6 +217,7 @@ export type CoachingFailureReason =
 
 const DIAGNOSTIC_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_MODEL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+const SHA256_HEX = /^[0-9a-f]{64}$/i;
 const CLIENT_RELEASE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const PROVIDER_TIMEOUT_MS = 20_000;
 const DIAGNOSTIC_REASONS = new Set([
@@ -658,6 +659,8 @@ export async function handler(
         const row = Array.isArray(rows) ? rows[0] as Record<string, unknown> | undefined : undefined;
         if (!error && row?.session_id === sessionId && row?.user_id === userId
           && row?.provider === 'google_gemini' && row?.provider_request_made === true
+          && typeof row?.receipt_suggestion_sha256 === 'string' && SHA256_HEX.test(row.receipt_suggestion_sha256)
+          && typeof row?.current_suggestion_sha256 === 'string' && SHA256_HEX.test(row.current_suggestion_sha256)
           && row?.current_suggestion_sha256 === row?.receipt_suggestion_sha256
           && typeof row?.model === 'string' && SAFE_MODEL_ID.test(row.model)) {
           observedProviderModel = row.model;

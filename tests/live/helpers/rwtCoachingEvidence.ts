@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { lstatSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { parse, resolve, sep } from 'node:path';
 import fixtureManifest from '../../fixtures/rwt/rwt-fixtures.manifest.json';
+import coachingContract from '../../../backend/supabase/functions/get-ai-suggestions/contract.json';
 
 const SHA40 = /^[0-9a-f]{40}$/i;
 const SHA64 = /^[0-9a-f]{64}$/i;
@@ -76,6 +77,52 @@ export interface RwtCoachingEvidenceInput {
   repeatTake: RwtCoachingTakeEvidence;
 }
 
+const TAKE_KEYS = [
+  'runId', 'suiteId', 'product', 'fixtureName', 'fixtureSha256', 'sessionId', 'userId', 'runOwnedBinding',
+  'transcript', 'metrics', 'savedInputReadback', 'configuredModel', 'diagnosticRequestId', 'diagnosticAttemptId',
+  'diagnosticStatus', 'diagnosticOutcome', 'diagnosticReason', 'providerAttempts', 'retryCount', 'source',
+  'providerDurationMs', 'totalDurationMs', 'promptSha256', 'authorityReceipt', 'renderedSuggestions',
+];
+const PROMPT_BINDING_HOLD = Object.freeze({
+  verdict: 'HOLD' as const,
+  reason: 'prompt_digest_not_recomputed_from_server_authoritative_inputs' as const,
+});
+
+function record(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}: expected an object`);
+  return value as Record<string, unknown>;
+}
+
+function exactKeys(value: unknown, required: readonly string[], optional: readonly string[], label: string): Record<string, unknown> {
+  const item = record(value, label);
+  const allowed = new Set([...required, ...optional]);
+  for (const key of Object.keys(item)) if (!allowed.has(key)) throw new Error(`${label}: unexpected field ${key}`);
+  for (const key of required) if (!Object.prototype.hasOwnProperty.call(item, key)) throw new Error(`${label}: missing field ${key}`);
+  return item;
+}
+
+function jsonbText(value: unknown): string {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number' && Number.isFinite(value)) return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(jsonbText).join(', ')}]`;
+  if (value && typeof value === 'object') {
+    const item = value as Record<string, unknown>;
+    const keys = Object.keys(item).sort((left, right) => {
+      const leftBytes = Buffer.from(left, 'utf8');
+      const rightBytes = Buffer.from(right, 'utf8');
+      return leftBytes.length - rightBytes.length || Buffer.compare(leftBytes, rightBytes);
+    });
+    return `{${keys.map((key) => `${JSON.stringify(key)}: ${jsonbText(item[key])}`).join(', ')}}`;
+  }
+  throw new Error('suggestion pair contains a non-JSON value');
+}
+
+/** Matches PostgreSQL `jsonb::text` for the exact string-only suggestion object stored by the authority RPC. */
+export function canonicalSuggestionSha256(value: unknown): string {
+  if (!exactPair(value)) throw new Error('suggestion pair is invalid');
+  return createHash('sha256').update(jsonbText(value), 'utf8').digest('hex');
+}
+
 const exactPair = (value: unknown): value is CoachingPair => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
@@ -86,6 +133,13 @@ const exactPair = (value: unknown): value is CoachingPair => {
 };
 
 function validateTake(take: RwtCoachingTakeEvidence, releaseSha: string, label: string): void {
+  if (take.product !== 'open_mic' && take.product !== 'focus_points') throw new Error(`${label}: product is invalid`);
+  if (take.source !== 'fresh' && take.source !== 'cache') throw new Error(`${label}: source is invalid`);
+  exactKeys(take.runOwnedBinding, ['verified', 'runId', 'sessionId', 'userId', 'fixtureSha256'], [], `${label}.runOwnedBinding`);
+  exactKeys(take.savedInputReadback, ['sessionId', 'userId', 'product', 'transcript', 'metrics'], [], `${label}.savedInputReadback`);
+  exactKeys(take.authorityReceipt,
+    ['session_id', 'user_id', 'provider', 'model', 'provider_request_made', 'receipt_suggestion_sha256', 'current_suggestion_sha256', 'ai_suggestions'],
+    ['cache_read_count'], `${label}.authorityReceipt`);
   const fixture = FIXTURES[take.fixtureName];
   if (!fixture || fixture.kind !== 'synthetic' || fixture.sha256 !== take.fixtureSha256) {
     throw new Error(`${label}: fixture identity/hash is not a pinned synthetic fixture`);
@@ -111,16 +165,25 @@ function validateTake(take: RwtCoachingTakeEvidence, releaseSha: string, label: 
     || take.diagnosticStatus !== 200 || take.diagnosticOutcome !== 'success' || take.diagnosticReason !== 'none'
     || !Number.isInteger(take.providerAttempts) || take.providerAttempts < 0 || take.providerAttempts > 2
     || !Number.isInteger(take.retryCount) || take.retryCount < 0 || take.retryCount > 1
-    || !MODEL_ID.test(take.configuredModel) || !Number.isFinite(take.providerDurationMs) || take.providerDurationMs < 0
+    || !MODEL_ID.test(take.configuredModel) || take.configuredModel !== coachingContract.model
+    || !Number.isFinite(take.providerDurationMs) || take.providerDurationMs < 0
     || !Number.isFinite(take.totalDurationMs) || take.totalDurationMs < take.providerDurationMs
-    || !SHA64.test(take.promptSha256)) throw new Error(`${label}: model or timing evidence is incomplete`);
+    || !SHA64.test(take.promptSha256)) {
+    if (take.configuredModel !== coachingContract.model) throw new Error(`${label}: configured model does not match the active coaching contract`);
+    throw new Error(`${label}: model or timing evidence is incomplete`);
+  }
 
   const receipt = take.authorityReceipt;
+  const computedSuggestionSha256 = canonicalSuggestionSha256(receipt.ai_suggestions);
   if (receipt.session_id !== take.sessionId || receipt.user_id !== take.userId
     || receipt.provider !== 'google_gemini' || receipt.provider_request_made !== true
     || !MODEL_ID.test(receipt.model) || !SHA64.test(receipt.receipt_suggestion_sha256)
-    || receipt.current_suggestion_sha256 !== receipt.receipt_suggestion_sha256 || !exactPair(receipt.ai_suggestions)) {
+    || !SHA64.test(receipt.current_suggestion_sha256)
+    || receipt.current_suggestion_sha256 !== receipt.receipt_suggestion_sha256) {
     throw new Error(`${label}: server authority receipt does not prove this saved provider result`);
+  }
+  if (computedSuggestionSha256 !== receipt.receipt_suggestion_sha256) {
+    throw new Error(`${label}: canonical suggestion digest does not match the server authority receipt`);
   }
   if (take.source === 'fresh' && receipt.cache_read_count && receipt.cache_read_count > 0) {
     throw new Error(`${label}: fresh generation conflicts with cache-read evidence`);
@@ -154,7 +217,10 @@ function validateTake(take: RwtCoachingTakeEvidence, releaseSha: string, label: 
  * exact synthetic transcript/metrics and the exact saved/rendered phrases; callers must write it only
  * to the access-restricted evidence destination, never to logs, PostHog or the public RWT receipt.
  */
-export function buildRwtCoachingEvidenceArtifact(input: RwtCoachingEvidenceInput) {
+export function buildRwtCoachingEvidenceArtifact(rawInput: RwtCoachingEvidenceInput) {
+  const input = exactKeys(rawInput, ['releaseSha', 'firstTake', 'repeatTake'], [], 'evidence input') as unknown as RwtCoachingEvidenceInput;
+  exactKeys(input.firstTake, TAKE_KEYS, [], 'firstTake');
+  exactKeys(input.repeatTake, TAKE_KEYS, [], 'repeatTake');
   validateTake(input.firstTake, input.releaseSha, 'firstTake');
   validateTake(input.repeatTake, input.releaseSha, 'repeatTake');
   if (input.firstTake.runId !== input.repeatTake.runId || input.firstTake.suiteId !== input.repeatTake.suiteId
@@ -169,9 +235,37 @@ export function buildRwtCoachingEvidenceArtifact(input: RwtCoachingEvidenceInput
     suiteId: input.firstTake.suiteId,
     product: input.firstTake.product,
     fixture: { name: input.firstTake.fixtureName, sha256: input.firstTake.fixtureSha256 },
-    firstTake: input.firstTake,
-    repeatTake: input.repeatTake,
+    firstTake: { ...input.firstTake, promptBinding: PROMPT_BINDING_HOLD },
+    repeatTake: { ...input.repeatTake, promptBinding: PROMPT_BINDING_HOLD },
   };
+}
+
+function assertSafeEvidenceDirectory(directory: string): void {
+  const absolute = resolve(directory);
+  const root = parse(absolute).root;
+  const parts = absolute.slice(root.length).split(sep).filter(Boolean);
+  let current = root;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = resolve(current, parts[index]);
+    let metadata;
+    try { metadata = lstatSync(current); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') break;
+      throw error;
+    }
+    if (metadata.isSymbolicLink()) throw new Error(`restricted evidence path contains a symlink: ${current}`);
+    const isDestination = index === parts.length - 1;
+    if (!isDestination && (metadata.mode & 0o022) !== 0) {
+      const stickySystemTemp = (metadata.mode & 0o1000) !== 0 && metadata.uid === 0;
+      if (!stickySystemTemp) throw new Error(`restricted evidence path has an unsafe writable ancestor: ${current}`);
+    }
+    if (isDestination) {
+      if (!metadata.isDirectory()) throw new Error('restricted evidence destination is not a directory');
+      if (typeof process.getuid === 'function' && metadata.uid !== process.getuid()) {
+        throw new Error('restricted evidence directory must be owned by the current user');
+      }
+    }
+  }
 }
 
 /** Write a private artifact once. The caller must explicitly configure a restricted directory. */
@@ -179,8 +273,10 @@ export function writeRwtCoachingEvidenceArtifact(input: RwtCoachingEvidenceInput
   if (!privateDirectory.trim()) throw new Error('a restricted private evidence directory is required');
   const artifact = buildRwtCoachingEvidenceArtifact(input);
   const directory = resolve(privateDirectory);
+  assertSafeEvidenceDirectory(directory);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const directoryMode = statSync(directory).mode & 0o777;
+  assertSafeEvidenceDirectory(directory);
+  const directoryMode = lstatSync(directory).mode & 0o777;
   if ((directoryMode & 0o077) !== 0) throw new Error('restricted evidence directory must not grant group or other access');
   const safeRunId = input.firstTake.runId.replace(/[^A-Za-z0-9._-]/g, '_');
   if (!safeRunId || safeRunId !== input.firstTake.runId) throw new Error('run id is not safe for a private artifact filename');

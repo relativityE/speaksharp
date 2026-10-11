@@ -477,6 +477,43 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((body.diagnostics as Record<string, unknown>).source, 'cache');
   });
 
+  await t.step('#1258 cache provenance requires two valid SHA-256 digests; missing or malformed digests keep coaching readable but model unknown', async () => {
+    const baseReceipt = {
+      session_id: 'session-a', user_id: 'pro-user', provider: 'google_gemini', provider_request_made: true,
+      model: 'gemini-3.6-flash-001',
+    };
+    const rows = [
+      { ...baseReceipt },
+      { ...baseReceipt, receipt_suggestion_sha256: 'bad', current_suggestion_sha256: 'bad' },
+      { ...baseReceipt, receipt_suggestion_sha256: 'a'.repeat(64) },
+      { ...baseReceipt, current_suggestion_sha256: 'a'.repeat(64) },
+    ];
+    for (const authorityReadback of rows) {
+      resetProvider();
+      const mock = mockSupabase({
+        session: savedSession({ ai_suggestions: suggestionA }),
+        authorityReadback: [authorityReadback],
+      });
+      const response = await handler(request(), mock.create);
+      const body = await response.json() as Record<string, unknown>;
+      assertEquals(response.status, 200);
+      assertEquals(body.suggestions, suggestionA);
+      assertEquals((body.diagnostics as Record<string, unknown>).observed_model, null);
+      assertEquals(fetchCount, 0);
+    }
+
+    resetProvider();
+    const digest = 'c'.repeat(64);
+    const valid = mockSupabase({
+      session: savedSession({ ai_suggestions: suggestionA }),
+      authorityReadback: [{ ...baseReceipt, receipt_suggestion_sha256: digest, current_suggestion_sha256: digest }],
+    });
+    const response = await handler(request(), valid.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertEquals(response.status, 200);
+    assertEquals((body.diagnostics as Record<string, unknown>).observed_model, baseReceipt.model);
+  });
+
   await t.step('returns unavailable when provider configuration is missing', async () => {
     Deno.env.delete('GEMINI_API_KEY');
     const mock = mockSupabase();

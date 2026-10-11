@@ -1,7 +1,9 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../fixtures/rwt/rwt-fixtures.manifest.json';
-import { buildRwtCoachingEvidenceArtifact, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from '../live/helpers/rwtCoachingEvidence';
+import { buildRwtCoachingEvidenceArtifact, canonicalSuggestionSha256, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from '../live/helpers/rwtCoachingEvidence';
+import coachingContract from '../../backend/supabase/functions/get-ai-suggestions/contract.json';
 
 const fixture = manifest.fixtures.open_mic_tts;
 const phrase = {
@@ -24,7 +26,7 @@ const take = (suffix: string, source: 'fresh' | 'cache' = 'fresh'): RwtCoachingT
       transcript: 'Um, I opened with a clear point and supported it with an example.',
       metrics: { totalWords: 14, fillerCounts: { um: 1 }, durationSeconds: 8.1 },
     },
-    configuredModel: 'gemini-3.8-flash',
+    configuredModel: coachingContract.model,
     diagnosticRequestId: `30000000-0000-4000-8000-${suffix.padStart(12, '0')}`,
     diagnosticAttemptId: `40000000-0000-4000-8000-${suffix.padStart(12, '0')}`,
     diagnosticStatus: 200, diagnosticOutcome: 'success', diagnosticReason: 'none',
@@ -33,7 +35,7 @@ const take = (suffix: string, source: 'fresh' | 'cache' = 'fresh'): RwtCoachingT
     providerDurationMs: source === 'fresh' ? 640 : 0, totalDurationMs: 920, promptSha256: 'a'.repeat(64),
     authorityReceipt: {
       session_id: sessionId, user_id: userId, provider: 'google_gemini', model: 'gemini-3.8-flash-001',
-      provider_request_made: true, receipt_suggestion_sha256: 'b'.repeat(64), current_suggestion_sha256: 'b'.repeat(64),
+      provider_request_made: true, receipt_suggestion_sha256: canonicalSuggestionSha256(phrase), current_suggestion_sha256: canonicalSuggestionSha256(phrase),
       ai_suggestions: { ...phrase }, ...(source === 'cache' ? { cache_read_count: 1 } : { cache_read_count: 0 }),
     },
     renderedSuggestions: { ...phrase },
@@ -49,6 +51,9 @@ const focusTake = (suffix: string): RwtCoachingTakeEvidence => {
   value.metrics = { totalWords: 129, focusVerdicts: ['covered', 'covered', 'covered', 'covered'] };
   value.savedInputReadback = { ...value.savedInputReadback, product: 'focus_points', metrics: value.metrics };
   value.authorityReceipt.ai_suggestions.version = 'gemini_coaching_focus_v1';
+  const digest = canonicalSuggestionSha256(value.authorityReceipt.ai_suggestions);
+  value.authorityReceipt.receipt_suggestion_sha256 = digest;
+  value.authorityReceipt.current_suggestion_sha256 = digest;
   value.renderedSuggestions.version = 'gemini_coaching_focus_v1';
   return value;
 };
@@ -114,6 +119,51 @@ describe('RWT restricted synthetic coaching evidence', () => {
       .toThrow(/authority receipt/);
   });
 
+  it('rejects runtime source/product unions, unknown serialized fields, and the wrong configured model', () => {
+    const wrongProduct = take('1') as unknown as Record<string, unknown>;
+    wrongProduct.product = 'other';
+    expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: wrongProduct as never, repeatTake: take('2') }))
+      .toThrow(/product is invalid/);
+
+    const wrongSource = take('1') as unknown as Record<string, unknown>;
+    wrongSource.source = 'mystery';
+    expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: wrongSource as never, repeatTake: take('2') }))
+      .toThrow(/source is invalid/);
+
+    const extra = take('1') as unknown as Record<string, unknown>;
+    extra.apiKey = 'must never be serialized';
+    expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: extra as never, repeatTake: take('2') }))
+      .toThrow(/unexpected field.*apiKey/i);
+
+    const nestedExtra = take('1');
+    (nestedExtra.authorityReceipt as unknown as Record<string, unknown>).authorization = 'must never be serialized';
+    expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: nestedExtra, repeatTake: take('2') }))
+      .toThrow(/unexpected field.*authorization/i);
+
+    const wrongModel = take('1');
+    wrongModel.configuredModel = 'gemini-3.8-flash';
+    expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: wrongModel, repeatTake: take('2') }))
+      .toThrow(/configured model does not match the active coaching contract/);
+  });
+
+  it('recomputes the canonical saved suggestion digest; changing the pair and matching render cannot reuse old hashes', () => {
+    const corrupted = take('1');
+    corrupted.authorityReceipt.ai_suggestions.what_worked = 'A substituted phrase with untouched receipt hashes.';
+    corrupted.renderedSuggestions.what_worked = corrupted.authorityReceipt.ai_suggestions.what_worked;
+    expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: corrupted, repeatTake: take('2') }))
+      .toThrow(/canonical suggestion digest does not match/);
+  });
+
+  it('marks prompt provenance HOLD until the server prompt digest is independently bound to saved inputs', () => {
+    const artifact = buildRwtCoachingEvidenceArtifact({
+      releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: take('2', 'cache'),
+    });
+    expect(artifact.firstTake.promptBinding).toEqual({
+      verdict: 'HOLD', reason: 'prompt_digest_not_recomputed_from_server_authoritative_inputs',
+    });
+    expect(artifact.repeatTake.promptBinding).toEqual(artifact.firstTake.promptBinding);
+  });
+
   it('requires a server-recorded cache read for repeat-take cache provenance', () => {
     const missingCache = take('2', 'cache');
     delete missingCache.authorityReceipt.cache_read_count;
@@ -147,6 +197,38 @@ describe('RWT restricted synthetic coaching evidence', () => {
     } finally {
       chmodSync(directory, 0o700);
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlink evidence destination without writing through it', () => {
+    const parent = mkdtempSync('/private/tmp/rwt-coaching-evidence-');
+    const target = path.join(parent, 'target');
+    const link = path.join(parent, 'linked');
+    try {
+      mkdirSync(target, { mode: 0o700 });
+      symlinkSync(target, link, 'dir');
+      expect(() => writeRwtCoachingEvidenceArtifact({
+        releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: take('2'),
+      }, link)).toThrow(/symlink/);
+      expect(() => writeRwtCoachingEvidenceArtifact({
+        releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: take('2'),
+      }, path.join(link, 'nested'))).toThrow(/symlink/);
+      expect(readdirSync(target)).toEqual([]);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a group/world-writable non-sticky ancestor but permits the system temp ancestor', () => {
+    const parent = mkdtempSync('/private/tmp/rwt-coaching-evidence-');
+    try {
+      chmodSync(parent, 0o777);
+      expect(() => writeRwtCoachingEvidenceArtifact({
+        releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: take('2'),
+      }, path.join(parent, 'private'))).toThrow(/unsafe writable ancestor/);
+    } finally {
+      chmodSync(parent, 0o700);
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 });
