@@ -474,6 +474,9 @@ export async function handler(
   let providerDurationMs = 0;
   let providerStatus: number | null = null;
   let promptSha256: string | null = null;
+  // Response-only binding for the private evidence collector. Do not include this in the content-free
+  // diagnostic log or any telemetry: it is a stable pseudonymous link to the selected authenticated row.
+  let sessionBindingSha256: string | null = null;
   const finish = (payload: Record<string, unknown>, status: number): Response => {
     const rawReason = closedDiagnosticReason(payload, status, diagnosticPhase);
     const diagnostic = {
@@ -501,7 +504,10 @@ export async function handler(
     };
     // Structured, content-free log line is the fallback diagnostic path when Sentry is absent.
     console.info('AI_COACHING_DIAGNOSTIC', JSON.stringify(diagnostic));
-    return new Response(JSON.stringify({ ...payload, diagnostics: diagnostic }), {
+    const responseDiagnostic = sessionBindingSha256
+      ? { ...diagnostic, session_binding_sha256: sessionBindingSha256 }
+      : diagnostic;
+    return new Response(JSON.stringify({ ...payload, diagnostics: responseDiagnostic }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status,
     });
@@ -574,6 +580,12 @@ export async function handler(
     if (sessionError || !sessionData) {
       return finish({ error: 'Session was not found' }, 404);
     }
+
+    // Bind the response digest to the authenticated owner and the exact selected session. This remains
+    // response-only: the raw IDs and their stable digest are excluded from logs and telemetry.
+    sessionBindingSha256 = [...new Uint8Array(await crypto.subtle.digest(
+      'SHA-256', new TextEncoder().encode(JSON.stringify({ user_id: userId, session_id: sessionId })),
+    ))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 
     const session = sessionData as unknown as SessionEvidence;
     diagnosticProduct = asProduct(session.product) ?? requestedProduct ?? 'unknown';

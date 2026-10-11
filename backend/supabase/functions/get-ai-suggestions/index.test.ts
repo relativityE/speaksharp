@@ -112,6 +112,10 @@ let lastRequestUrl = '';
  */
 const outboundRequests: string[] = [];
 const APPROVED_GEMINI_ORIGIN = 'https://generativelanguage.googleapis.com';
+const sessionBindingDigest = async (userId: string, sessionId: string): Promise<string> =>
+  [...new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(JSON.stringify({ user_id: userId, session_id: sessionId })),
+  ))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 
 globalThis.fetch = async (url, init) => {
   const requested = url.toString();
@@ -318,10 +322,18 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     resetProvider();
     const diagnosticRequestId = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
     const diagnosticAttemptId = '230bbc6c-5d89-465d-91e6-51f5a5951e34';
-    const response = await handler(request({
-      sessionId: 'session-a', product: 'open_mic', diagnostic_request_id: diagnosticRequestId,
-      diagnostic_attempt_id: diagnosticAttemptId, client_attempt: 1, client_release_id: 'a'.repeat(40),
-    }), mockSupabase().create);
+    const logLines: string[] = [];
+    const originalInfo = console.info;
+    console.info = (...args: unknown[]) => { logLines.push(args.map(String).join(' ')); };
+    let response: Response;
+    try {
+      response = await handler(request({
+        sessionId: 'session-a', product: 'open_mic', diagnostic_request_id: diagnosticRequestId,
+        diagnostic_attempt_id: diagnosticAttemptId, client_attempt: 1, client_release_id: 'a'.repeat(40),
+      }), mockSupabase().create);
+    } finally {
+      console.info = originalInfo;
+    }
     const body = await response.json() as Record<string, unknown>;
     const diagnostic = body.diagnostics as Record<string, unknown>;
     assertEquals(diagnostic.request_id, diagnosticRequestId);
@@ -331,6 +343,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(diagnostic.observed_model, 'gemini-3-flash-preview');
     assertEquals(diagnostic.source, 'fresh');
     assertEquals(diagnostic.provider_attempts, 1);
+    assertEquals(diagnostic.session_binding_sha256, await sessionBindingDigest('pro-user', 'session-a'));
+    assertEquals(JSON.stringify(diagnostic).includes('session-a'), false);
+    assertEquals(logLines.some((line) => line.includes('session_binding_sha256')), false);
+    assertEquals(logLines.some((line) => line.includes('session-a')), false);
     assertEquals(typeof diagnostic.provider_duration_ms, 'number');
     assertEquals(typeof diagnostic.total_duration_ms, 'number');
     assertEquals(diagnostic.prompt_sha256, await crypto.subtle.digest('SHA-256', new TextEncoder().encode(lastPrompt))
@@ -338,6 +354,18 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const safeDiagnostic = JSON.stringify(diagnostic).toLowerCase();
     assertEquals(safeDiagnostic.includes('support has no weekend coverage'), false);
     assertEquals(safeDiagnostic.includes(suggestionA.what_worked.toLowerCase()), false);
+  });
+
+  await t.step('#1258 response session binding follows the selected authenticated row, not a caller-supplied owner', async () => {
+    resetProvider();
+    const response = await handler(request({
+      sessionId: 'session-b', user_id: 'forged-user', product: 'open_mic',
+    }), mockSupabase({ userId: 'actual-user' }).create);
+    const body = await response.json() as Record<string, unknown>;
+    const diagnostic = body.diagnostics as Record<string, unknown>;
+    assertEquals(response.status, 200);
+    assertEquals(diagnostic.session_binding_sha256, await sessionBindingDigest('actual-user', 'session-b'));
+    assertEquals(diagnostic.session_binding_sha256 === await sessionBindingDigest('forged-user', 'session-b'), false);
   });
 
   await t.step('fails closed when analysis entitlement is uncertain', async () => {
