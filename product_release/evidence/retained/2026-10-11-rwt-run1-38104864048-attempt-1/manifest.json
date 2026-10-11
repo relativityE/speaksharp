@@ -18,16 +18,84 @@
   },
   "provenance": "Downloaded with `gh run download 38104864048 -n rwt-receipts-attempt-1` on 2026-10-11 by App Dev; bytes are unmodified and match an independent earlier download. Original relative paths (artifact root) preserved.",
   "files": [
-    { "path": "open-mic-first-session.receipt.json", "bytes": 21869, "sha256": "9db74a9765e824446472da11ab22dae4d78c76dbb9bc8db8ee2cf59fb88dcf73" },
-    { "path": "open-mic-first-session.readback-verdicts.json", "bytes": 582, "sha256": "5b55019ca0fd1020324edd065719807f07e4bd88a833d24be1eeb4bbd923f408" },
-    { "path": "open-mic-first-session.human-worksheet.md", "bytes": 1155, "sha256": "ea8b57f0762630c988b443872e82fe09fa4c2a8147a224c1f17cf20aa2d70b28" }
+    {
+      "path": "open-mic-first-session.receipt.json",
+      "bytes": 21869,
+      "sha256": "9db74a9765e824446472da11ab22dae4d78c76dbb9bc8db8ee2cf59fb88dcf73"
+    },
+    {
+      "path": "open-mic-first-session.readback-verdicts.json",
+      "bytes": 582,
+      "sha256": "5b55019ca0fd1020324edd065719807f07e4bd88a833d24be1eeb4bbd923f408"
+    },
+    {
+      "path": "open-mic-first-session.human-worksheet.md",
+      "bytes": 1155,
+      "sha256": "ea8b57f0762630c988b443872e82fe09fa4c2a8147a224c1f17cf20aa2d70b28"
+    },
+    {
+      "path": "open-mic-first-session.14bcb70c-b6f3-4ca8-8020-59a810217ac4.readback.log",
+      "bytes": 975,
+      "sha256": "ffb485ab2f071a58a64b434ed7c78b4f7602c816d27bee640f87112efcaf98b1",
+      "classification": "content-free per-journey qualification log (telemetry readback step output: USER_STAGE_RECEIPT / ACQUISITION_RECEIPT / TELEMETRY_READBACK_QUALIFICATION_EVIDENCE records and the HOLD/QUALIFIED verdict line)"
+    },
+    {
+      "path": "open-mic-first-session.385b988b-a182-4bd7-b6f9-b6d08ec0e0c8.user-stage.readback.log",
+      "bytes": 1380,
+      "sha256": "d7beed4448a9d21111a3cd950f6b96170b9efcc692d59c28607cb3efe2da596f",
+      "classification": "content-free per-journey qualification log (telemetry readback step output: USER_STAGE_RECEIPT / ACQUISITION_RECEIPT / TELEMETRY_READBACK_QUALIFICATION_EVIDENCE records and the HOLD/QUALIFIED verdict line)"
+    },
+    {
+      "path": "open-mic-first-session.4233c347-c344-4f9b-870d-2afe6e4f25b3.user-stage.readback.log",
+      "bytes": 1380,
+      "sha256": "14223222174df4350f8d93fa0961c46cd3a58f7dc8a20df4794762c6ca788aac",
+      "classification": "content-free per-journey qualification log (telemetry readback step output: USER_STAGE_RECEIPT / ACQUISITION_RECEIPT / TELEMETRY_READBACK_QUALIFICATION_EVIDENCE records and the HOLD/QUALIFIED verdict line)"
+    },
+    {
+      "path": "open-mic-first-session.4c411373-7659-4d72-b523-df83a888f9e3.user-stage.readback.log",
+      "bytes": 1380,
+      "sha256": "0bd6e2e4f9ce0145ba840d14f50729665e9eb7f18069dcad6f0d8041cc808245",
+      "classification": "content-free per-journey qualification log (telemetry readback step output: USER_STAGE_RECEIPT / ACQUISITION_RECEIPT / TELEMETRY_READBACK_QUALIFICATION_EVIDENCE records and the HOLD/QUALIFIED verdict line)"
+    },
+    {
+      "path": "open-mic-first-session.6b29d535-c093-4969-a149-2018e6dafd74.readback.log",
+      "bytes": 2413,
+      "sha256": "1b03b487078b86d42c3e62b035f2c7dc7e4ce89aff7cb0c49e016c31a7fdc489",
+      "classification": "content-free per-journey qualification log (telemetry readback step output: USER_STAGE_RECEIPT / ACQUISITION_RECEIPT / TELEMETRY_READBACK_QUALIFICATION_EVIDENCE records and the HOLD/QUALIFIED verdict line)"
+    },
+    {
+      "path": "open-mic-first-session.b87fff60-dc85-4a89-a820-77bd16c3d8d1.user-stage.readback.log",
+      "bytes": 1455,
+      "sha256": "3a1376c86ae5a385a26f7ff594193b8fbfd17eead8ce03d1ccf6070c2b67dd20",
+      "classification": "content-free per-journey qualification log (telemetry readback step output: USER_STAGE_RECEIPT / ACQUISITION_RECEIPT / TELEMETRY_READBACK_QUALIFICATION_EVIDENCE records and the HOLD/QUALIFIED verdict line)"
+    },
+    {
+      "path": "open-mic-first-session.e6d6e411-6273-481d-8df4-82f62ce79b62.user-stage.readback.log",
+      "bytes": 1380,
+      "sha256": "49c1a597d1d450d3c6138ee2dd7c764798c2bad550e9f54642296075193e4368",
+      "classification": "content-free per-journey qualification log (telemetry readback step output: USER_STAGE_RECEIPT / ACQUISITION_RECEIPT / TELEMETRY_READBACK_QUALIFICATION_EVIDENCE records and the HOLD/QUALIFIED verdict line)"
+    }
   ],
-  "excluded_from_artifact": "Seven per-journey *.readback.log files in the same artifact are not retained here (PM placement 6108892819 lists the receipt, readback verdicts and worksheet only); their per-journey outcome is the readback-verdicts.json above.",
   "historical_verdict": {
     "acceptance": "FAIL",
-    "summary": { "pass": 51, "fail": 3, "hold": 7, "human": 2 },
-    "non_gating_holds": ["base_q4 primary", "signup-stage telemetry received"],
-    "human_observations": { "open_mic_coaching_relevant": "pending", "open_mic_uh_detected": "pending" },
-    "readback": { "6b29d535-c093-4969-a149-2018e6dafd74": "QUALIFIED", "14bcb70c-b6f3-4ca8-8020-59a810217ac4": "HOLD" }
-  }
+    "summary": {
+      "pass": 51,
+      "fail": 3,
+      "hold": 7,
+      "human": 2
+    },
+    "non_gating_holds": [
+      "base_q4 primary",
+      "signup-stage telemetry received"
+    ],
+    "human_observations": {
+      "open_mic_coaching_relevant": "pending",
+      "open_mic_uh_detected": "pending"
+    },
+    "readback": {
+      "6b29d535-c093-4969-a149-2018e6dafd74": "QUALIFIED",
+      "14bcb70c-b6f3-4ca8-8020-59a810217ac4": "HOLD"
+    }
+  },
+  "provenance_logs": "Seven per-journey *.readback.log files added in a second commit per PM decision 6109462346 (before artifact expiry); same download, original names and bytes. Each line was checked to be a closed-form evidence record: no transcript, coaching text, email or credential ('@' occurrences are family@attempt-id counter keys and model@revision)."
 }

@@ -2,9 +2,16 @@
 
 Historical record of RWT diagnostic run [38104864048](https://github.com/relativityE/speaksharp/actions/runs/38104864048),
 attempt 1, `rc-gates.yml` `gate-3-dast` with `tests/live/rwt-open-mic-first-session.live.spec.ts`, against
-`main@cc8e30b4710bf271d765d4bc549a0e534dedf53c`. The three files here are the original, unmodified content-free outputs from
-artifact `rwt-receipts-attempt-1` (id 11689650770), which expires 2026-10-12T02:21:02Z; `manifest.json` and `SHA256SUMS`
-record their identity. Placement: PM decision on #1258 (comment 6108892819).
+`main@cc8e30b4710bf271d765d4bc549a0e534dedf53c`. Every file from artifact `rwt-receipts-attempt-1` (id 11689650770, which
+expires 2026-10-12T02:21:02Z) is retained here, original and unmodified; `manifest.json` and `SHA256SUMS` record their identity.
+Placement: PM decision on #1258 (comment 6108892819).
+
+| Files | What they are |
+| --- | --- |
+| `open-mic-first-session.receipt.json` | the run's content-free receipt: every row, verdict and the readback plan |
+| `open-mic-first-session.readback-verdicts.json` | per-journey received-readback verdicts |
+| `open-mic-first-session.human-worksheet.md` | the run-bound human worksheet, still unfilled |
+| `*.readback.log` (7) | content-free per-journey qualification logs from the readback step: `USER_STAGE_RECEIPT`, `ACQUISITION_RECEIPT` and `TELEMETRY_READBACK_QUALIFICATION_EVIDENCE` records plus each journey's HOLD/QUALIFIED line. Added in a second commit per PM decision 6109462346 |
 
 ## Historical verdict — FAIL (unchanged)
 
