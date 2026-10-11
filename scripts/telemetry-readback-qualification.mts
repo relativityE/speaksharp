@@ -295,7 +295,7 @@ async function main(): Promise<void> {
         const coachingRows = await runQuery(`
             SELECT event, properties.diagnostic_request_id, properties.diagnostic_attempt_id, properties.outcome, properties.product,
                    properties.configured_model, properties.observed_model, properties.status, properties.provider_status,
-                   properties.client_release_id, properties.coaching_diagnostic_id
+                   properties.client_release_id, properties.coaching_diagnostic_id, properties.source, properties.provider_attempts
             FROM events
             WHERE event IN ('ai_coaching_diagnostic', 'feedback_submit')
               AND timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
@@ -311,6 +311,7 @@ async function main(): Promise<void> {
             return {
                 event: c[0], requestId: c[1], attemptId: c[2], outcome: c[3], product: c[4], configuredModel: c[5],
                 observedModel: c[6], status: c[7], providerStatus: c[8], clientReleaseId: c[9], coachingDiagnosticId: c[10],
+                source: c[11], providerAttempts: c[12],
             };
         });
         const sha256 = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');

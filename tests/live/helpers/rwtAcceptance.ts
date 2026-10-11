@@ -7,6 +7,7 @@
  * suite, deployed SHA, journey ids and observation set, requires a PASS/FAIL and an observer for every observation,
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
+import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -429,17 +430,27 @@ export interface ReadbackVerdicts {
     release: string;
     journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' | 'FAIL' }[];
     missingBindings: string[];
-    /** #1258 H1: the received coaching-diagnostic chain (`TELEMETRY_READBACK_COACHING_DIAGNOSTIC`), when the receipt asked for it. */
-    coachingDiagnostic?: { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: string[] };
+    /**
+     * #1258 H1: the received coaching-diagnostic chain (`TELEMETRY_READBACK_COACHING_DIAGNOSTIC`), when the receipt asked for
+     * it — with the exact release and binding it was computed for (PM RETURN 6115229273). A HOLD written when the readback
+     * produced no result carries no binding; it can never settle the row.
+     */
+    coachingDiagnostic?: { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: string[]; release?: string; expected?: Record<string, unknown> };
 }
 const RECEIVED_ROW = 'journey telemetry received';
 const FEEDBACK_CHAIN_ROW = 'feedback diagnostic chain';
-/** The closed received-chain reasons (`coachingDiagnosticReceipt.ts`); anything else in a readback file is a binding error. */
-const COACHING_RECEIPT_REASONS: ReadonlySet<string> = new Set([
-    'diagnostic_not_received', 'observed_model_missing', 'feedback_not_received', 'duplicate_terminal_diagnostic', 'attempt_mismatch',
-    'outcome_mismatch', 'product_mismatch', 'configured_model_mismatch', 'release_mismatch', 'status_incoherent',
-    'report_link_mismatch', 'report_link_missing',
-]);
+/** The row's sent-boundary binding, in the evaluator's expectation shape (compared field by field, exactly). */
+const rowBinding = (row: ReceiptRow): Record<string, unknown> | null => {
+    const e = row.evidence ?? {};
+    return typeof e.expectedRequestSha256 === 'string'
+        ? { requestSha256: e.expectedRequestSha256, attemptSha256: e.expectedAttemptSha256, product: e.expectedProduct,
+            configuredModel: e.expectedConfiguredModel, outcome: e.expectedOutcome }
+        : null;
+};
+const EXPECTATION_KEYS = ['requestSha256', 'attemptSha256', 'product', 'configuredModel', 'outcome'];
+const sameBinding = (a: Record<string, unknown> | undefined, b: Record<string, unknown> | null): boolean =>
+    !!a && !!b && typeof a === 'object' && Object.keys(a).sort().join() === [...EXPECTATION_KEYS].sort().join()
+    && EXPECTATION_KEYS.every((k) => typeof a[k] === 'string' && a[k] === b[k]);
 
 /**
  * #1258 H1 (PM 6115110576) — RECEIVED EVIDENCE SETTLES THE FEEDBACK DIAGNOSTIC CHAIN, AND ONLY IT.
@@ -451,7 +462,9 @@ const COACHING_RECEIPT_REASONS: ReadonlySet<string> = new Set([
  */
 function settleFeedbackChain(row: ReceiptRow, received: ReadbackVerdicts['coachingDiagnostic']): ReceiptRow {
     if (row.step !== FEEDBACK_CHAIN_ROW || row.verdict !== 'HOLD' || !received) return row;
-    if (row.evidence?.reasons !== 'telemetry_not_received' || typeof row.evidence?.expectedRequestSha256 !== 'string') return row;
+    if (row.evidence?.reasons !== 'telemetry_not_received' || !rowBinding(row)) return row;
+    // Only a result computed for THIS row's exact binding settles it (validated in applyReadback); an unbound HOLD cannot.
+    if (!sameBinding(received.expected, rowBinding(row))) return row;
     return {
         ...row,
         verdict: received.verdict,
@@ -510,9 +523,22 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     }
     if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
     const coaching = rb.coachingDiagnostic;
-    if (coaching !== undefined && (!coaching || typeof coaching !== 'object' || !['PASS', 'FAIL', 'HOLD'].includes(coaching.verdict)
-        || !Array.isArray(coaching.reasons) || coaching.reasons.some((r) => !COACHING_RECEIPT_REASONS.has(String(r))))) {
-        return bad('carry a malformed coaching diagnostic result');
+    if (coaching !== undefined) {
+        if (!coaching || typeof coaching !== 'object' || Array.isArray(coaching)
+            || !Object.keys(coaching).every((k) => ['verdict', 'reasons', 'release', 'expected'].includes(k))
+            || !coherentCoachingResult(coaching.verdict, coaching.reasons)) {
+            return bad('carry a malformed or incoherent coaching diagnostic result');
+        }
+        const bound = coaching.release !== undefined || coaching.expected !== undefined;
+        // A PASS or FAIL is evidence about a specific request, so it must name the release and binding it was computed for.
+        if (coaching.verdict !== 'HOLD' && !bound) return bad('carry a coaching diagnostic verdict with no binding');
+        if (bound) {
+            const chainRow = receipt.rows.find((r) => r.step === FEEDBACK_CHAIN_ROW);
+            if (coaching.release !== receipt.release) return bad('carry a coaching diagnostic result for a different release');
+            if (!chainRow || !sameBinding(coaching.expected, rowBinding(chainRow))) {
+                return bad('carry a coaching diagnostic result bound to a different request, attempt, product, model or outcome');
+            }
+        }
     }
     const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');

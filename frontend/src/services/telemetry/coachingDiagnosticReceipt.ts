@@ -34,6 +34,8 @@ export interface ReceivedCoachingRow {
     observedModel: unknown;
     status: unknown;
     providerStatus: unknown;
+    source: unknown;
+    providerAttempts: unknown;
     clientReleaseId: unknown;
     coachingDiagnosticId: unknown;
 }
@@ -41,24 +43,25 @@ export interface ReceivedCoachingRow {
 export type CoachingReceiptReason =
     | 'diagnostic_not_received' | 'observed_model_missing' | 'feedback_not_received'
     | 'duplicate_terminal_diagnostic' | 'attempt_mismatch' | 'outcome_mismatch' | 'product_mismatch'
-    | 'configured_model_mismatch' | 'release_mismatch' | 'status_incoherent'
+    | 'configured_model_mismatch' | 'release_mismatch' | 'status_incoherent' | 'provenance_incoherent'
     | 'report_link_mismatch' | 'report_link_missing';
 
 export const COACHING_RECEIPT_REASONS: readonly CoachingReceiptReason[] = [
     'diagnostic_not_received', 'observed_model_missing', 'feedback_not_received',
     'duplicate_terminal_diagnostic', 'attempt_mismatch', 'outcome_mismatch', 'product_mismatch',
-    'configured_model_mismatch', 'release_mismatch', 'status_incoherent',
+    'configured_model_mismatch', 'release_mismatch', 'status_incoherent', 'provenance_incoherent',
     'report_link_mismatch', 'report_link_missing',
 ];
-const HOLD_REASONS: ReadonlySet<CoachingReceiptReason> = new Set(['diagnostic_not_received', 'observed_model_missing', 'feedback_not_received']);
+/** Missing-evidence reasons: the only reasons a HOLD may carry. Every other reason is a contradiction (FAIL). */
+export const COACHING_RECEIPT_HOLD_REASONS: ReadonlySet<CoachingReceiptReason> = new Set(['diagnostic_not_received', 'observed_model_missing', 'feedback_not_received']);
+const HOLD_REASONS = COACHING_RECEIPT_HOLD_REASONS;
 const TERMINAL = new Set(['success', 'failure', 'network_failure']);
 const SHA64 = /^[0-9a-f]{64}$/;
 
-const statusClass = (v: unknown): '2xx' | '4xx' | '5xx' | 'none' => {
-    if (!Number.isInteger(v)) return 'none';
-    const s = Number(v);
-    return s >= 200 && s < 300 ? '2xx' : s >= 400 && s < 500 ? '4xx' : s >= 500 && s < 600 ? '5xx' : 'none';
-};
+/** A received HTTP status: an integer in 100–599, or `null` when absent. Anything else is malformed (never "none"). */
+const httpStatus = (v: unknown): number | null | 'malformed' =>
+    (v === null || v === undefined ? null : Number.isInteger(v) && Number(v) >= 100 && Number(v) <= 599 ? Number(v) : 'malformed');
+const is2xx = (v: number | null | 'malformed') => typeof v === 'number' && v >= 200 && v < 300;
 
 export function validExpectation(value: unknown): value is CoachingDiagnosticExpectation {
     const e = value as Partial<CoachingDiagnosticExpectation> | null;
@@ -75,7 +78,11 @@ export function evaluateCoachingDiagnosticReceipt(
     expected: CoachingDiagnosticExpectation,
     releaseSha: string,
     sha256: (value: string) => string,
-): { verdict: CoachingReceiptVerdict; reasons: CoachingReceiptReason[]; diagnosticsForRequest: number; feedbackOutcomes: number } {
+): {
+    verdict: CoachingReceiptVerdict; reasons: CoachingReceiptReason[]; diagnosticsForRequest: number; feedbackOutcomes: number;
+    /** The exact binding this verdict was computed for, so finalization can refuse a result about anything else. */
+    release: string; expected: CoachingDiagnosticExpectation;
+} {
     const reasons = new Set<CoachingReceiptReason>();
     const digest = (v: unknown) => (typeof v === 'string' && v.length > 0 ? sha256(v) : null);
 
@@ -90,10 +97,17 @@ export function evaluateCoachingDiagnosticReceipt(
         if (t.product !== expected.product) reasons.add('product_mismatch');
         if (t.configuredModel !== expected.configuredModel) reasons.add('configured_model_mismatch');
         if (typeof t.clientReleaseId === 'string' && t.clientReleaseId !== releaseSha) reasons.add('release_mismatch');
-        // Endpoint and provider classes stay separate: a success is a 2xx endpoint answer whose provider leg either
-        // answered 2xx (fresh) or was never called (cache: no provider status).
-        if (t.outcome === 'success' && (statusClass(t.status) !== '2xx' || !['2xx', 'none'].includes(statusClass(t.providerStatus)))) {
-            reasons.add('status_incoherent');
+        // Endpoint and provider stay separate: a success is a 2xx ENDPOINT answer, and its provider provenance must be
+        // coherent with its source — FRESH: at least one provider attempt and a 2xx provider response; CACHE: no provider
+        // call and no provider status. A malformed status or an unknown source is never read as "no provider".
+        const endpoint = httpStatus(t.status);
+        const provider = httpStatus(t.providerStatus);
+        if (t.outcome === 'success' && !is2xx(endpoint)) reasons.add('status_incoherent');
+        if (t.outcome === 'success') {
+            const attempts = Number.isInteger(t.providerAttempts) ? Number(t.providerAttempts) : null;
+            const fresh = t.source === 'fresh' && attempts !== null && attempts >= 1 && is2xx(provider);
+            const cache = t.source === 'cache' && attempts === 0 && provider === null;
+            if (!fresh && !cache) reasons.add('provenance_incoherent');
         }
         if (t.outcome === 'success' && !(typeof t.observedModel === 'string' && t.observedModel.length > 0)) reasons.add('observed_model_missing');
     }
@@ -106,5 +120,18 @@ export function evaluateCoachingDiagnosticReceipt(
 
     const list = [...reasons];
     const verdict: CoachingReceiptVerdict = list.length === 0 ? 'PASS' : list.some((r) => !HOLD_REASONS.has(r)) ? 'FAIL' : 'HOLD';
-    return { verdict, reasons: list, diagnosticsForRequest: forRequest.length, feedbackOutcomes: stored.length };
+    return { verdict, reasons: list, diagnosticsForRequest: forRequest.length, feedbackOutcomes: stored.length, release: releaseSha, expected: { ...expected } };
+}
+
+/**
+ * The verdict and its reasons must agree (PM RETURN 6115229273): PASS carries no reason; HOLD carries only
+ * missing-evidence reasons; FAIL carries at least one contradiction. Anything else is malformed.
+ */
+export function coherentCoachingResult(verdict: unknown, reasons: unknown): boolean {
+    if (!Array.isArray(reasons) || reasons.some((r) => !COACHING_RECEIPT_REASONS.includes(r as CoachingReceiptReason))) return false;
+    const list = reasons as CoachingReceiptReason[];
+    if (verdict === 'PASS') return list.length === 0;
+    if (verdict === 'HOLD') return list.length > 0 && list.every((r) => HOLD_REASONS.has(r));
+    if (verdict === 'FAIL') return list.some((r) => !HOLD_REASONS.has(r));
+    return false;
 }
