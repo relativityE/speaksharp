@@ -92,6 +92,16 @@ export interface PrivateSttConfig {
     acknowledgeNotProductionReady?: boolean;
 }
 
+/** The configured default identity, independent of the candidate currently acquired or running. */
+export function configuredCandidateExpectation(
+    config: PrivateSttConfig = privateSttConfig,
+): CandidateId | null {
+    const id = config?.candidate;
+    return typeof id === 'string' && Object.prototype.hasOwnProperty.call(CANDIDATES, id)
+        ? id as CandidateId
+        : null;
+}
+
 /**
  * The candidate this build runs, read from the config file.
  *

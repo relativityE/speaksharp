@@ -18,11 +18,22 @@ import type { Candidate } from './candidateRegistry';
 import type { PinnedAssetRef } from './modelAcquisitionTelemetry';
 import selfHostedPins from './selfHostedAssetPins.json';
 import moonshinePins from './moonshineAssetPins.json';
+import { TRANSFORMERS_V2_WASM_ASSET_URLS } from './engines/transformersV2WasmAssets';
 
 export interface CandidateAssetRequests {
     assets: PinnedAssetRef[];
     /** Why the list is empty, when it is. Never left unexplained, and never a silent zero. */
     unobservableReason: string | null;
+}
+
+/** A separately counted part of an acquisition, so one resource class cannot hide another's shortfall. */
+export interface AcquisitionComponentGroup {
+    prefixes: string[];
+    minimumUniqueCount: number;
+    /** Exact required identities when a loader uses a stable subset of the shipped pin inventory. */
+    expectedResourceUrls?: string[];
+    /** Allowed exact identities when a loader selects one of several mutually exclusive variants. */
+    allowedResourceUrls?: string[];
 }
 
 interface SelfHostedPinFile { servedFrom: string; files: Array<{ path: string; bytes: number }> }
@@ -37,6 +48,40 @@ function selfHostedAssets(): PinnedAssetRef[] {
         url: `${origin}${pins.servedFrom}/${f.path}`,
         bytes: f.bytes,
     }));
+}
+
+function selfHostedModelPrefix(): string {
+    const pins = selfHostedPins as SelfHostedPinFile;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${origin}${pins.servedFrom}/`;
+}
+
+// Real worker evidence: transformers.js' first whisper-base.en pipeline requests these seven
+// model resources, not every file shipped in the pin directory. Keep exact identities so a different
+// seven files cannot accidentally satisfy the cold-acquisition proof.
+const V2_PIPELINE_MODEL_PATHS = [
+    'config.json',
+    'generation_config.json',
+    'onnx/decoder_model_merged_quantized.onnx',
+    'onnx/encoder_model_quantized.onnx',
+    'preprocessor_config.json',
+    'tokenizer.json',
+    'tokenizer_config.json',
+] as const;
+
+function v2PipelineModelUrls(): string[] {
+    const pins = selfHostedPins as SelfHostedPinFile;
+    const available = new Set(pins.files.map((file) => file.path));
+    if (V2_PIPELINE_MODEL_PATHS.some((path) => !available.has(path))) return [];
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return V2_PIPELINE_MODEL_PATHS.map((path) => `${origin}${pins.servedFrom}/${path}`);
+}
+
+function v2RuntimeAssetUrls(): string[] {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return Object.values(TRANSFORMERS_V2_WASM_ASSET_URLS).map((assetUrl) =>
+        origin ? new URL(assetUrl, origin).href : assetUrl,
+    );
 }
 
 function moonshineAssets(): PinnedAssetRef[] {
@@ -109,9 +154,36 @@ export function acquisitionScopeFor(candidate: Candidate): string[] {
             const cut = a.url.lastIndexOf('/');
             prefixes.add(cut === -1 ? a.url : a.url.slice(0, cut + 1));
         }
+        // v2 runtime files are added below as exact emitted assets. Do not broaden this scope to the
+        // whole ORT directory: an unrelated same-directory request must remain visible as out-of-scope.
         return [...prefixes];
     }
     // No shipped pin table: scope by the repository the runtime resolves against.
     return candidate.model.id ? [candidate.model.id] : [];
+}
+
+/**
+ * Required resource classes for a complete first-use measurement.
+ *
+ * v2's seven model files requested by its first pipeline and one of four emitted ONNX Runtime WASM
+ * variants are separate groups. Exact model identities come from a real worker observation; runtime
+ * identities come from the emitted asset imports. Unknown files in the ORT directory remain out of
+ * scope. The full 12-file pin inventory remains the cache-probe candidate list.
+ */
+export function acquisitionComponentGroupsFor(candidate: Candidate): AcquisitionComponentGroup[] {
+    if (candidate.id === 'v2:base.en') {
+        return [
+            {
+                prefixes: [selfHostedModelPrefix()],
+                minimumUniqueCount: V2_PIPELINE_MODEL_PATHS.length,
+                expectedResourceUrls: v2PipelineModelUrls(),
+            },
+            { prefixes: [], minimumUniqueCount: 1, allowedResourceUrls: v2RuntimeAssetUrls() },
+        ];
+    }
+    const prefixes = acquisitionScopeFor(candidate);
+    return candidate.assets.componentCount !== null && candidate.assets.componentCount !== undefined
+        ? [{ prefixes, minimumUniqueCount: candidate.assets.componentCount }]
+        : [];
 }
 
