@@ -118,8 +118,12 @@ each run, any fault injection and any support lookup.
 
 1. Feedback diagnostic chain to the exact AI attempt: HOLD until CLI Dev's diagnostics land and the §6 proof PASSes.
 2. Production fault injection for AI failure: no authorized mechanism (§6 step 2).
-3. "Navigate away before Start finishes → mic must not start" (Open Mic step 3): no deployed row.
-4. Coaching heading copy reconciliation (§7). The length conflict is resolved.
-5. HUMAN rows: `real_microphone_permission_prompt`, `mobile_stop_confirmation_visible`, `open_mic_uh_detected`,
+3. Coaching prompt binding (PM 6111127684): the synthetic coaching evidence retains the exact saved inputs and output, but
+   binding the recorded prompt digest to the server's actual prompt is a **HOLD**. It closes only by independent server-prompt
+   recomputation matching the actual outgoing inputs, or by a deliberately scoped PM disposition; it is never promoted to a
+   qualified proof.
+4. "Navigate away before Start finishes → mic must not start" (Open Mic step 3): no deployed row.
+5. Coaching heading copy reconciliation (§7). The length conflict is resolved.
+6. HUMAN rows: `real_microphone_permission_prompt`, `mobile_stop_confirmation_visible`, `open_mic_uh_detected`,
    `open_mic_coaching_relevant`, `focus_coaching_covers_points`.
-6. Every DEPLOYED row above needs a PASS on the new frozen release. Run 1 (`38104864048`) remains historical FAIL.
+7. Every DEPLOYED row above needs a PASS on the new frozen release. Run 1 (`38104864048`) remains historical FAIL.
