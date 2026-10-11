@@ -35,7 +35,7 @@ describe('the envelope carries what a launch cannot be measured without', () => 
         });
         expect(e.release_sha).toBe('a19324610634b9e05a375fff8838f2bbbae3a4f1');
         expect(e.candidate_id).toBe('v4:base:int8');
-        expect(e.runtime_version).toBe('4.2.0');
+        expect(e.runtime_version).toBe('4.3.0');
         expect(e.asset_digest).toBeTruthy();
         expect(e.traffic_type).toBe('user');
         for (const k of ENVELOPE_KEYS) expect(e).toHaveProperty(k);
