@@ -1,8 +1,8 @@
 /**
  * #1258 D6 — the Progress filler-count model: COUNTS for the two newest measured sessions, never per-minute rates.
  *
- * Measured vs not measured: a valid `filler_counts` of `{}` is a measured zero; absent/null/invalid is not measured and
- * is skipped (never shown as 0, never picked as latest/previous). The headline is `getSessionAnalysisMetrics(...)
+ * Measured vs not measured (#1472): only OBSERVED filler evidence is measured. An empty `{}` over saved words is
+ * unobservable, and absent/null/invalid is unavailable; both are skipped (never shown as 0, never picked as latest/previous). The headline is `getSessionAnalysisMetrics(...)
  * .fillerCount` — the counting tier the session page shows (PO 2026-10-07 "true fillers only"; discourse markers only
  * when the reader opted in) — and the rows come from `countedFillerMap` with the same options, so the table always
  * adds up to the headline.

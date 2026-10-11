@@ -2,6 +2,7 @@ import type { PracticeSession } from '@/types/session';
 import { countFillerWords, type FillerCounts } from './fillerWordUtils';
 import { countedFillerTotal, countedFillerMap } from './fillerTiers';
 import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
+import { fillerEvidenceKind, validWordCount } from '@/contracts/fillerEvidence';
 
 export interface CoreSessionMetrics {
     wordCount: number;
@@ -20,9 +21,9 @@ export interface CoreSessionMetrics {
 
 /**
  * #1306 READ-path metrics. Identical to CoreSessionMetrics EXCEPT the filler headline is NULLABLE: `null` means
- * the filler metric is UNAVAILABLE (not measured, or invalid/malformed persisted data — never collapsed into a
- * flattering 0). A number (0 for a measured `{}`) means measured. Consumers must render `null` as N/A, and 0 as
- * "no fillers detected". The live path (CoreSessionMetrics) always carries a real number.
+ * the filler metric is UNAVAILABLE or UNVERIFIABLE (not measured, invalid/malformed persisted data, or — #1472 — an
+ * empty map that cannot prove a clean zero); never collapsed into a flattering 0. A number means observed filler
+ * evidence. Consumers render `null` as unverified. The live path (CoreSessionMetrics) always carries a real number.
  */
 export type SessionReadMetrics = Omit<CoreSessionMetrics, 'fillerCount'> & { fillerCount: number | null };
 
@@ -353,7 +354,7 @@ export const getClarityExplanation = ({
     // #1306 P1-4: filler evidence is UNAVAILABLE — do not assert "no filler words were detected". Speak only to
     // the evidence we have (pacing) and stay neutral about fillers.
     if (fillerCount === null) {
-        return 'Filler-word data wasn’t available for this session, so focus the next run on pacing and emphasis.';
+        return 'Filler words could not be verified for this session, so focus the next run on pacing and emphasis.';
     }
     // #1306 P1-4: measured-zero fillers. Only claim "no transcript errors" when a transcript was actually
     // inspected (live) — the saved-review reader has none, so it must not fabricate that clause.
@@ -365,7 +366,7 @@ export const getClarityExplanation = ({
 export const getFillerExplanation = (fillerCount: number | null, wordCount: number): string => {
     // #1306 P1-4: UNAVAILABLE (null) filler data must read as N/A — NEVER as a measured "no filler words".
     // A measured empty map (`{}`) arrives here as 0 and keeps the genuine measured-zero copy below.
-    if (fillerCount === null) return 'Filler-word data wasn’t available for this session.';
+    if (fillerCount === null) return 'Filler words could not be verified for this session.';
     if (wordCount <= 0) return 'No transcript was captured, so filler words cannot be verified yet.';
     if (wordCount < MIN_RELIABLE_SCORING_WORDS) return 'There is too little captured speech to verify filler words reliably.';
     if (fillerCount === 0) return `No filler words were detected. Keep using silence as your reset instead of filling the space. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
@@ -460,7 +461,18 @@ export const getSessionAnalysisMetrics = (
     // is NULLABLE: null = UNAVAILABLE (absent/invalid filler_counts), 0 = a measured `{}` (or discourse-only),
     // N = measured true fillers. This is DISTINCT from the aggregate avgFillerWordsPerMin, which sums all
     // approved keys. Never collapse unavailable/invalid into 0 (that would fabricate "zero fillers").
-    const fillerHeadline = fillerData === null ? null : metrics.fillerCount;
+    // #1472 (Browser PM 6102096434 / 6102458581): a saved headline is a number ONLY for observed evidence IN THE TIER IT
+    // COUNTS — the same input the live review gates on (its snapshot is tier-filtered before `fillerEvidenceKind`). A
+    // discourse-only map (`{ like: 2 }`) with the default true-filler tier is a ZERO in that tier, so like an empty map it
+    // is unobservable over saved words: observing an excluded discourse marker never authorizes a "no filler words"
+    // claim. With discourse markers opted in, the same map is an observed positive count. Zero words is no speech and a
+    // missing word count is unavailable — none of them may become a "0 fillers" headline, a clean sentence or a PDF zero.
+    const headlineEvidence = fillerEvidenceKind({
+        available: fillerData !== null,
+        total: fillerData === null ? 0 : metrics.fillerCount,
+        words: validWordCount(session.total_words),
+    });
+    const fillerHeadline = headlineEvidence === 'observed' ? metrics.fillerCount : null;
     const wordCount = Math.max(metrics.wordCount, session.total_words ?? 0);
     const wpm = session.wpm ?? calculateWpm(wordCount, session.duration || 0);
     // #1131 (preserved): the PERSISTED clarity score is authoritative when present — an expired session
