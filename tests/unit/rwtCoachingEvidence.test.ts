@@ -141,7 +141,9 @@ describe('RWT restricted synthetic coaching evidence', () => {
       .toThrow(/unexpected field.*authorization/i);
 
     const wrongModel = take('1');
-    wrongModel.configuredModel = 'gemini-3.8-flash';
+    wrongModel.configuredModel = `not-${coachingContract.model}`;
+    expect(wrongModel.configuredModel).not.toBe('gemini-3.6-flash');
+    expect(wrongModel.configuredModel).not.toBe('gemini-3.8-flash');
     expect(() => buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: wrongModel, repeatTake: take('2') }))
       .toThrow(/configured model does not match the active coaching contract/);
   });
