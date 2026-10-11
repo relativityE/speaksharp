@@ -12,18 +12,19 @@
  *     UUID; the double otherwise mints `session-…` ids);
  *   - `get-ai-suggestions` answers from a scripted queue: success, 503 unavailable, a transport failure, or a delayed
  *     success — and records each request's session id;
- *   - `user_issue_reports` inserts answer from a scripted queue: stored, a transport failure, or "stored but the reply was
+ *   - `user_issue_reports` inserts answer from a scripted queue: stored, a transport failure, a server rejection (row-level
+ *     security, 42501, the shape PostgREST returns), or "stored but the reply was
  *     lost" (the retry then meets the idempotency index exactly as the database does) — recording each row's session id and
  *     idempotency key. Report prose is never recorded.
  */
 import type { Page } from '@playwright/test';
 
 export type CoachingAnswer = 'success' | 'unavailable' | 'network' | `delayed:${number}`;
-export type StorageAnswer = 'stored' | 'failed' | 'stored_reply_lost';
+export type StorageAnswer = 'stored' | 'failed' | 'rejected' | 'stored_reply_lost';
 
 export interface BoundaryRecord {
     coachingRequests: Array<{ sessionId: string | null }>;
-    reportInserts: Array<{ sessionId: string | null; idempotencyKey: string | null; outcome: 'stored' | 'failed' | 'replayed' | 'stored_reply_lost' }>;
+    reportInserts: Array<{ sessionId: string | null; idempotencyKey: string | null; outcome: 'stored' | 'failed' | 'rejected' | 'replayed' | 'stored_reply_lost' }>;
     /** Rows actually stored (one per idempotency key). */
     storedReports: Array<{ sessionId: string | null; idempotencyKey: string | null }>;
 }
@@ -109,12 +110,16 @@ export async function installFeedbackDiagnosticsBoundary(page: Page): Promise<vo
                             }
                             const answer = s.storage.length > 0 ? s.storage.shift() as string : 'stored';
                             if (answer === 'failed') { s.record.reportInserts.push({ ...entry, outcome: 'failed' }); return 'failed'; }
+                            if (answer === 'rejected') { s.record.reportInserts.push({ ...entry, outcome: 'rejected' }); return 'rejected'; }
                             s.record.storedReports.push(entry);
                             s.record.reportInserts.push({ ...entry, outcome: answer === 'stored_reply_lost' ? 'stored_reply_lost' : 'stored' });
                             return answer;
                         });
                         if (outcome === 'replayed') {
                             return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "user_issue_reports_idempotency_key_unique"', details: '' } };
+                        }
+                        if (outcome === 'rejected') {
+                            return { data: null, error: { code: '42501', message: 'new row violates row-level security policy for table "user_issue_reports"' } };
                         }
                         // A transport failure: the request never reached storage (or its reply was lost after storing).
                         if (outcome === 'failed' || outcome === 'stored_reply_lost') throw new TypeError('Failed to fetch');

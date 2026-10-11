@@ -112,6 +112,30 @@ test.describe('#1258 MOCKED — coaching failure → Share Feedback journey', ()
         expect(record.storedReports.map((r) => r.sessionId)).toEqual([saved]);
     });
 
+    test('a SERVER-REJECTED insert (42501) is told truthfully, logged once, keeps the draft, and the retry stores one row', async ({ page }) => {
+        // The service logs a rejected insert with logger.error before throwing; the harness treats any console error as
+        // fatal. Replace that guard for THIS test with an equally strict one that tolerates only the service's own line.
+        page.removeAllListeners('console');
+        const serviceErrors: string[] = [];
+        page.on('console', (msg) => {
+            if (msg.type() !== 'error') return;
+            if (msg.text().includes('[issueReportService.submit]')) { serviceErrors.push(msg.text()); return; }
+            throw new Error(`[E2E_FATAL_CONSOLE_ERROR] ${msg.text()}`);
+        });
+        const saved = await saveTake(page, ['success']);
+        await scriptBoundary(page, { storage: ['rejected'] });
+        await sendFeedback(page, 'default', 'MOCKED journey: server refused the report.');
+        await expect(page.getByRole('alert')).toHaveText('That didn’t go through. Try again?', { timeout: 15_000 });
+        await expect(page.getByTestId('issue-report-description')).toHaveValue('MOCKED journey: server refused the report.');
+        await expect(acknowledged(page)).toHaveCount(0);
+        await page.getByTestId('issue-report-submit').click();
+        await expect(acknowledged(page)).toBeVisible({ timeout: 15_000 });
+        const record = await boundaryRecord(page);
+        expect(record.reportInserts.map((i) => i.outcome)).toEqual(['rejected', 'stored']);
+        expect(record.storedReports.map((r) => r.sessionId), 'one row, after the rejection').toEqual([saved]);
+        expect(serviceErrors, 'the rejection is logged exactly once').toHaveLength(1);
+    });
+
     test('a stored report whose reply was lost is not stored twice: the retry meets the idempotency index', async ({ page }) => {
         await saveTake(page, ['success']);
         await scriptBoundary(page, { storage: ['stored_reply_lost'] });
