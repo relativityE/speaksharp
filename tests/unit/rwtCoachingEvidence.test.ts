@@ -253,13 +253,30 @@ describe('RWT restricted synthetic coaching evidence', () => {
       (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.product = 'focus_points'; },
       (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.request_id = '70000000-0000-4000-8000-000000000001'; },
       (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.attempt_id = '80000000-0000-4000-8000-000000000001'; },
-      (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.configured_model = 'gemini-3.8-flash'; },
       (proof: NonNullable<RwtCoachingTakeEvidence['promptGenerationReceipt']>) => { proof.response.prompt_sha256 = 'b'.repeat(64); },
     ]) {
       const wrong = take('3');
       mutate(wrong.promptGenerationReceipt!);
       const result = buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: wrong, repeatTake: take('4') });
       expect(result.firstTake.promptBinding.verdict).toBe('FAIL');
+    }
+
+    const originalContractModel = coachingContract.model;
+    try {
+      for (const [index, contractModel] of ['gemini-3.6-flash', 'gemini-3.8-flash'].entries()) {
+        coachingContract.model = contractModel;
+        const wrongModel = take(String(31 + index * 2));
+        wrongModel.promptGenerationReceipt!.response.configured_model = `not-${coachingContract.model}`;
+        expect(wrongModel.promptGenerationReceipt!.response.configured_model).not.toBe(coachingContract.model);
+        const result = buildRwtCoachingEvidenceArtifact({
+          releaseSha: 'a'.repeat(40), firstTake: wrongModel, repeatTake: take(String(32 + index * 2)),
+        });
+        expect(result.firstTake.promptBinding).toMatchObject({
+          verdict: 'FAIL', reason: 'generation_request_or_session_binding_mismatch',
+        });
+      }
+    } finally {
+      coachingContract.model = originalContractModel;
     }
 
     const mismatchedCurrentAttempt = take('5');
