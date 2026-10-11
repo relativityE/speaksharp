@@ -339,6 +339,14 @@ jobs:
           echo "::warning::DIAGNOSTIC single-spec run — NOT a full Gate 3 pass. Release gate stays FAIL until a full Gate 3 run (no diagnostic input) passes."
           echo "spec=$DIAGNOSTIC_DAST_SPEC grep=${DIAGNOSTIC_DAST_GREP:-<none>}"
           node scripts/rc-dast-live-preflight.mjs
+          # #1258 (PM 6114547673): the restricted synthetic coaching artifact goes ONLY to a fresh private directory under
+          # RUNNER_TEMP — outside the checkout and every upload path. It is never uploaded and disappears with the runner;
+          # the receipt carries only its verdict and SHA-256.
+          if [[ "$DIAGNOSTIC_DAST_SPEC" == tests/live/rwt-* ]]; then
+            RWT_PRIVATE_EVIDENCE_DIR="$(mktemp -d "$RUNNER_TEMP/rwt-private.XXXXXX")"
+            chmod 700 "$RWT_PRIVATE_EVIDENCE_DIR"
+            export RWT_PRIVATE_EVIDENCE_DIR
+          fi
           if [ -n "$DIAGNOSTIC_DAST_GREP" ]; then
             VITE_USE_LIVE_DB=true pnpm exec playwright test "$DIAGNOSTIC_DAST_SPEC" --grep "$DIAGNOSTIC_DAST_GREP" --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
           else

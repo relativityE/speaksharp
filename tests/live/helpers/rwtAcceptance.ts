@@ -248,6 +248,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'saved product marker', 'next Start', 'next take stopped, microphone off', 'telemetry sent', 'coaching telemetry sent',
     'inventory events sent', 'revisit is not a generation', 'model download vs setup timing', 'feedback retention',
     'Practice again press → arrival (sent)', 'feedback outcome (sent)',
+    // #1258 (PM 6114590729): the report → exact coaching request chain, and real coaching provenance (prompt binding).
+    'feedback diagnostic chain', 'coaching prompt binding',
 ]);
 const FOCUS_PRODUCT_ROWS = Object.freeze([
     'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
@@ -264,8 +266,11 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'repeated take stopped, microphone off', 'saved product marker', 'next Start', 'next take stopped, microphone off',
     'coverage_evaluation sent', 'Focus coaching telemetry sent', 'revisit is not a generation', 'inventory events sent',
     'model download vs setup timing', 'Practice again press → arrival (sent)',
+    // #1258 (PM 6114590729): real coaching provenance (prompt binding), full and partial alike.
+    'coaching prompt binding',
 ]);
-const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean']);
+const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean',
+    'feedback diagnostic chain']);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
