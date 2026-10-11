@@ -1,8 +1,17 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { parse, resolve, sep } from 'node:path';
+import { lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, parse, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import fixtureManifest from '../../fixtures/rwt/rwt-fixtures.manifest.json';
-import coachingContract from '../../../backend/supabase/functions/get-ai-suggestions/contract.json';
+
+/**
+ * The pinned active coaching contract, read at RUNTIME rather than imported: a TS module import would pull the Deno Edge
+ * tree (`backend/supabase/functions/`) into the live typecheck, which `scripts/verify-live-typecheck-scope.mjs` forbids.
+ * Same file, same value — the configured-model check below is unchanged.
+ */
+const coachingContract = JSON.parse(readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../../../backend/supabase/functions/get-ai-suggestions/contract.json'), 'utf8',
+)) as { model: string };
 
 const SHA40 = /^[0-9a-f]{40}$/i;
 const SHA64 = /^[0-9a-f]{64}$/i;
