@@ -94,6 +94,7 @@ import {
     backFromProgressRows,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
+import { productFillerCount } from './helpers/rwtFillerOracle';
 
 const SUITE = 'open-mic-first-session';
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
@@ -139,9 +140,6 @@ const FILLER_KEY: Record<string, string> = { um: 'um', uh: 'uh', ah: 'ah', 'you 
  */
 const COACHABLE_KEYS = ['um', 'uh', 'ah'] as const;
 const normaliseKey = (word: string): string => word.trim().toLowerCase().replace(/\s+/g, '_');
-/** Occurrences of a spoken filler in text — counted in Node, never stored. */
-const occurrences = (text: string, spoken: string): number =>
-    (text.toLowerCase().match(new RegExp(`\\b${spoken.replace(/\s+/g, '\\s+')}\\b`, 'g')) ?? []).length;
 /** WebGPU runs need a GPU-capable runner; GitHub's hosted Linux runners have none. Declared, never inferred. */
 const WEBGPU = process.env.RWT_WEBGPU === '1';
 
@@ -492,7 +490,8 @@ test.describe('RWT — Open Mic first session @live', () => {
 
                 // Per word: what the transcript contains, what the live display showed, what was saved.
                 for (const [spoken, key] of Object.entries(FILLER_KEY)) {
-                    const inTranscript = occurrences(transcript, spoken);
+                    // #1258 F2: the product's own definition (variants included), the same recount the saved row came from.
+                    const inTranscript = productFillerCount(transcript, key);
                     const marked = liveMarks[key] ?? 0;
                     const saved = counts[key] ?? 0;
                     // #1550 Codex P1 r4161436378: the review (FillerBreakdown) renders only COACHABLE keys. A discourse
@@ -526,7 +525,8 @@ test.describe('RWT — Open Mic first session @live', () => {
 
                 // Against the corpus. Synthetic "uh" is a HOLD, never a pass; the run never claims all eight were heard.
                 for (const [spoken, expected] of Object.entries(fixture.entry.groundTruthFillers ?? {})) {
-                    const inTranscript = occurrences(transcript, spoken);
+                    const key = FILLER_KEY[spoken] ?? normaliseKey(spoken);
+                    const inTranscript = productFillerCount(transcript, key);
                     const limited = fixture.entry.kind === 'synthetic' && spoken === 'uh';
                     if (limited) {
                         // Synthetic audio cannot prove "uh"; the human-spoken take is the acceptance check (runbook row 4).
