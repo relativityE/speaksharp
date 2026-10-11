@@ -147,6 +147,7 @@ These dated proofs are retained under `evidence/retained/`. The current interpre
 | `evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | Dated entitlement audit: former Pro cap reconciliation, AI-quota verification and fail-closed guard checks. | `ENTITLEMENTS_AND_BILLING.md` (requirement) + `ROADMAP.md` (open ops) |
 | `product_release/SCA_EXCEPTIONS.md` — pinned-audit execution result (2026-07-15) | Dated SCA pinned-audit result + the single ignored advisory rationale. | `OPERATIONS_AND_SECURITY.md` |
 | `evidence/retained/RELEASE_CLOSEOUT_LEDGER.md` — dated proof rows (§B doc-gap closures, §E DB-hygiene closeout) | Dated documentation-gap and DB-hygiene closeout records. | `ROADMAP.md` (open) + this index (dated) |
+| `evidence/retained/2026-10-11-rwt-run1-38104864048-attempt-1/` (captured 2026-10-11) | Immutable historical **FAIL/HOLD** record of RWT Open Mic diagnostic run 38104864048, attempt 1, on release `cc8e30b4710bf271d765d4bc549a0e534dedf53c`: the original content-free receipt, readback verdicts, human worksheet and seven per-journey readback qualification logs from artifact 11689650770, with `SHA256SUMS`, `manifest.json` and a README linking the later findings. | #1258 + `RELEASE_STATUS.md` (current RWT status and interpretation) |
 | Manual hardware evidence logs (captured per the `TESTER_OPERATIONS.md` run; e.g. dated Chrome physical-mic proof) | Real-device Native/Private hardware run logs (browser/version, spoken sentence, stop/save/history/analytics). | `QUALITY.md` (protocol) + `TESTER_OPERATIONS.md` (run) |
 
 ---
