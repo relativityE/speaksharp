@@ -1,0 +1,33 @@
+{
+  "schema": "retained-rwt-evidence-v1",
+  "issue": 1258,
+  "suite": "open-mic-first-session",
+  "spec": "tests/live/rwt-open-mic-first-session.live.spec.ts",
+  "workflow": ".github/workflows/rc-gates.yml",
+  "run_id": 38104864048,
+  "run_attempt": 1,
+  "run_url": "https://github.com/relativityE/speaksharp/actions/runs/38104864048",
+  "release_sha": "cc8e30b4710bf271d765d4bc549a0e534dedf53c",
+  "artifact": {
+    "id": 11689650770,
+    "name": "rwt-receipts-attempt-1",
+    "size_in_bytes": 13121,
+    "digest": "sha256:2553a55b7837f56bfff8b78a4f82f42cec36df6b120b47c54c6d29da9de6a4d8",
+    "created_at": "2026-10-11T02:29:31Z",
+    "expires_at": "2026-10-12T02:21:02Z"
+  },
+  "provenance": "Downloaded with `gh run download 38104864048 -n rwt-receipts-attempt-1` on 2026-10-11 by App Dev; bytes are unmodified and match an independent earlier download. Original relative paths (artifact root) preserved.",
+  "files": [
+    { "path": "open-mic-first-session.receipt.json", "bytes": 21869, "sha256": "9db74a9765e824446472da11ab22dae4d78c76dbb9bc8db8ee2cf59fb88dcf73" },
+    { "path": "open-mic-first-session.readback-verdicts.json", "bytes": 582, "sha256": "5b55019ca0fd1020324edd065719807f07e4bd88a833d24be1eeb4bbd923f408" },
+    { "path": "open-mic-first-session.human-worksheet.md", "bytes": 1155, "sha256": "ea8b57f0762630c988b443872e82fe09fa4c2a8147a224c1f17cf20aa2d70b28" }
+  ],
+  "excluded_from_artifact": "Seven per-journey *.readback.log files in the same artifact are not retained here (PM placement 6108892819 lists the receipt, readback verdicts and worksheet only); their per-journey outcome is the readback-verdicts.json above.",
+  "historical_verdict": {
+    "acceptance": "FAIL",
+    "summary": { "pass": 51, "fail": 3, "hold": 7, "human": 2 },
+    "non_gating_holds": ["base_q4 primary", "signup-stage telemetry received"],
+    "human_observations": { "open_mic_coaching_relevant": "pending", "open_mic_uh_detected": "pending" },
+    "readback": { "6b29d535-c093-4969-a149-2018e6dafd74": "QUALIFIED", "14bcb70c-b6f3-4ca8-8020-59a810217ac4": "HOLD" }
+  }
+}
