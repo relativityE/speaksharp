@@ -14,7 +14,15 @@
  * the journey, so a renamed column changes one adapter, not this rule.
  */
 
-export type AiRequestOutcome = 'success' | 'provider_error' | 'transport_error' | 'invalid_response' | 'timeout' | 'rate_limited';
+/**
+ * Terminal outcome of one coaching request (PM 6111008437). `timeout` / `transport_error` are the PROVIDER leg failing after
+ * the Edge function was reached (the endpoint still answers, e.g. 502); `client_network` is the client never reaching the
+ * endpoint (no endpoint status at all); `server_error` is the endpoint refusing before/around the provider (auth, session,
+ * entitlement, quota availability, persistence, internal), with its exact closed `serverReason`.
+ */
+export type AiRequestOutcome = 'success' | 'provider_error' | 'timeout' | 'transport_error' | 'invalid_response' | 'rate_limited'
+    | 'server_error' | 'client_network';
+type StatusClass = '2xx' | '4xx' | '5xx' | 'none';
 export type ReportAssociation = 'current_take' | 'selected_older_session' | 'no_session';
 export type ReportStorage = 'stored_once' | 'stored_duplicate' | 'not_stored';
 
@@ -23,10 +31,14 @@ export interface AiRequestDiagnostic {
     attemptId: string;
     sessionId: string;
     outcome: AiRequestOutcome;
-    /** Closed product category for a failure (e.g. `unavailable`, `network`); null on success. */
+    /** The PRODUCT-facing failure category the user saw (AISuggestions' closed reasons); null on success. */
     failureCategory: string | null;
-    /** HTTP class of the final answer; `none` when nothing answered (timeout, transport). Must agree with `outcome`. */
-    statusClass: '2xx' | '4xx' | '5xx' | 'none';
+    /** The Edge function's closed diagnostic reason (`DIAGNOSTIC_REASONS`, `none` on success); null only for `client_network`. */
+    serverReason: string | null;
+    /** HTTP class of the ENDPOINT's answer to the client; `none` only when the client never reached it. */
+    statusClass: StatusClass;
+    /** HTTP class of the PROVIDER's answer; `none` when the provider was never reached or never answered. */
+    providerStatusClass: StatusClass;
     retryCount: number;
     totalMs: number;
     /** Provider leg only; null when the provider was never reached. */
@@ -34,7 +46,8 @@ export interface AiRequestDiagnostic {
     configuredModel: string;
     /** The provider-REPORTED model version; null unless the provider answered. Never the configured value copied over. */
     observedModel: string | null;
-    source: 'fresh' | 'cache';
+    /** `unknown` only for a validated pre-provider failure (no provider answer). */
+    source: 'fresh' | 'cache' | 'unknown';
 }
 
 export interface FeedbackReportDiagnostic {
@@ -62,6 +75,8 @@ export interface DiagnosticExpectation {
     attemptId: string | null;
     /** The product category the run provoked (e.g. `unavailable`), when a failure is expected. */
     failureCategory: string | null;
+    /** The exact server reason the run injected (e.g. `provider_http_5xx`), asserted independently of the category. */
+    serverReason: string | null;
     /** The configured target from the coaching contract (`get-ai-suggestions/contract.json`). */
     configuredModel: string;
     /** The current take's request, which a report about any OTHER session must never carry. */
@@ -71,20 +86,37 @@ export interface DiagnosticExpectation {
 export type DiagnosticReason =
     | 'report_not_found' | 'request_link_missing' | 'request_not_found' | 'telemetry_not_received' | 'observed_model_missing'
     | 'report_mismatch' | 'association_mismatch' | 'session_mismatch' | 'request_mismatch' | 'attempt_mismatch'
-    | 'failure_category_mismatch' | 'configured_model_mismatch' | 'request_session_mismatch' | 'outcome_mismatch'
+    | 'failure_category_mismatch' | 'server_reason_mismatch' | 'configured_model_mismatch' | 'request_session_mismatch' | 'outcome_mismatch'
     | 'current_attempt_attached_to_other_session' | 'invented_link' | 'storage_not_exactly_once' | 'acknowledgement_not_visible'
     | 'report_field_invalid' | 'request_field_invalid' | 'unexpected_field';
 
 export interface DiagnosticVerdict { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: DiagnosticReason[] }
 
 const HOLD_REASONS = new Set<DiagnosticReason>(['report_not_found', 'request_link_missing', 'request_not_found', 'telemetry_not_received', 'observed_model_missing']);
-const OUTCOMES: readonly string[] = ['success', 'provider_error', 'transport_error', 'invalid_response', 'timeout', 'rate_limited'];
+const OUTCOMES: readonly string[] = ['success', 'provider_error', 'timeout', 'transport_error', 'invalid_response', 'rate_limited',
+    'server_error', 'client_network'];
 const ASSOCIATIONS: readonly string[] = ['current_take', 'selected_older_session', 'no_session'];
 const STORAGE: readonly string[] = ['stored_once', 'stored_duplicate', 'not_stored'];
-/** The HTTP classes each outcome can truthfully carry; a mismatch (e.g. a timeout with a 2xx) is malformed evidence. */
-const STATUS_FOR_OUTCOME: Record<string, readonly string[]> = {
-    success: ['2xx'], provider_error: ['5xx'], invalid_response: ['2xx', '5xx'], rate_limited: ['4xx'],
-    timeout: ['none'], transport_error: ['none'],
+/**
+ * What each outcome can truthfully carry (PM 6111008437): endpoint status class, provider status class, the closed server
+ * reasons, and whether `source: 'unknown'` is honest. A combination outside this table is malformed evidence.
+ */
+const OUTCOME_SHAPE: Record<string, { status: readonly string[]; provider: readonly string[]; reasons: readonly (string | null)[]; unknownSource: boolean }> = {
+    // A cache hit makes no provider call (provider `none`); a fresh success must carry the provider's 2xx (see shapeHolds).
+    success: { status: ['2xx'], provider: ['2xx', 'none'], reasons: ['none'], unknownSource: false },
+    provider_error: { status: ['5xx'], provider: ['4xx', '5xx'], reasons: ['provider_http_4xx', 'provider_http_5xx'], unknownSource: false },
+    timeout: { status: ['5xx'], provider: ['none'], reasons: ['provider_timeout'], unknownSource: false },
+    transport_error: { status: ['5xx'], provider: ['none'], reasons: ['provider_transport'], unknownSource: false },
+    invalid_response: { status: ['5xx'], provider: ['2xx'], reasons: ['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version'], unknownSource: false },
+    rate_limited: { status: ['4xx'], provider: ['none'], reasons: ['quota_exceeded'], unknownSource: true },
+    server_error: {
+        status: ['4xx', '5xx'], provider: ['none', '2xx'],
+        reasons: ['invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch', 'focus_context_unavailable',
+            'transcript_unavailable', 'product_unknown', 'service_configuration', 'entitlement_unavailable', 'access_denied',
+            'quota_unavailable', 'authority_unverified', 'persist_failed', 'internal_error'],
+        unknownSource: true,
+    },
+    client_network: { status: ['none'], provider: ['none'], reasons: [null], unknownSource: true },
 };
 /** AISuggestions' closed failure reasons (#1473/#1486), plus `timeout` for a request that never answered. */
 const FAILURE_CATEGORIES: readonly string[] = ['unavailable', 'network', 'invalid_response', 'timeout', 'rate_limited', 'access_denied',
@@ -97,8 +129,8 @@ const FAILURE_CATEGORIES: readonly string[] = ['unavailable', 'network', 'invali
  */
 const LOOKUP_KEYS = ['report', 'requests'] as const;
 const REPORT_KEYS = ['reportId', 'sessionId', 'association', 'linkedRequestId', 'storage', 'acknowledgementVisible', 'telemetryReceived'] as const;
-const REQUEST_KEYS = ['requestId', 'attemptId', 'sessionId', 'outcome', 'failureCategory', 'statusClass', 'retryCount', 'totalMs',
-    'providerMs', 'configuredModel', 'observedModel', 'source'] as const;
+const REQUEST_KEYS = ['requestId', 'attemptId', 'sessionId', 'outcome', 'failureCategory', 'serverReason', 'statusClass',
+    'providerStatusClass', 'retryCount', 'totalMs', 'providerMs', 'configuredModel', 'observedModel', 'source'] as const;
 const isScalar = (v: unknown): boolean => v === null || ['string', 'number', 'boolean'].includes(typeof v);
 const exactShape = (value: unknown, keys: readonly string[]): boolean =>
     !!value && typeof value === 'object' && !Array.isArray(value)
@@ -123,13 +155,23 @@ function reportValid(r: FeedbackReportDiagnostic): boolean {
         && typeof r.acknowledgementVisible === 'boolean' && typeof r.telemetryReceived === 'boolean';
 }
 
+function shapeHolds(q: AiRequestDiagnostic): boolean {
+    const shape = OUTCOME_SHAPE[q.outcome];
+    if (!shape) return false;
+    // `unknown` is honest only when the provider never answered AND the outcome is a validated pre-provider failure.
+    const sourceOk = q.source !== 'unknown' || (shape.unknownSource && q.providerStatusClass === 'none');
+    const successLeg = q.outcome !== 'success' || (q.source === 'cache' ? q.providerStatusClass === 'none' : q.providerStatusClass === '2xx');
+    return successLeg && shape.status.includes(q.statusClass) && shape.provider.includes(q.providerStatusClass)
+        && shape.reasons.includes(q.serverReason) && sourceOk;
+}
+
 function requestValid(q: AiRequestDiagnostic): boolean {
     return nonEmpty(q.requestId) && nonEmpty(q.attemptId) && nonEmpty(q.sessionId) && OUTCOMES.includes(q.outcome)
         && (q.outcome === 'success' ? q.failureCategory === null : FAILURE_CATEGORIES.includes(q.failureCategory ?? ''))
-        && STATUS_FOR_OUTCOME[q.outcome]?.includes(q.statusClass)
+        && shapeHolds(q)
         && count(q.retryCount) && duration(q.totalMs) && (q.providerMs === null || duration(q.providerMs))
         && nonEmpty(q.configuredModel) && (q.observedModel === null || nonEmpty(q.observedModel))
-        && (q.source === 'fresh' || q.source === 'cache');
+        && ['fresh', 'cache', 'unknown'].includes(q.source);
 }
 
 export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | null, expected: DiagnosticExpectation): DiagnosticVerdict {
@@ -170,6 +212,7 @@ export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | n
                 if (expected.outcome !== null && q.outcome !== expected.outcome) reasons.add('outcome_mismatch');
                 if (expected.attemptId !== null && q.attemptId !== expected.attemptId) reasons.add('attempt_mismatch');
                 if (expected.failureCategory !== null && q.failureCategory !== expected.failureCategory) reasons.add('failure_category_mismatch');
+                if (expected.serverReason !== null && q.serverReason !== expected.serverReason) reasons.add('server_reason_mismatch');
                 if (q.configuredModel !== expected.configuredModel) reasons.add('configured_model_mismatch');
                 if (q.outcome === 'success' && !nonEmpty(q.observedModel)) reasons.add('observed_model_missing');
             }

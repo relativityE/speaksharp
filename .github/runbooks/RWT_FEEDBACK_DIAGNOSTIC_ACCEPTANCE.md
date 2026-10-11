@@ -88,7 +88,16 @@ each run, any fault injection and any support lookup.
 3. **Share Feedback from the take's page:** once about the current take, once about an older take, once with No session.
    Record the visible acknowledgement.
 4. **Authorized support lookup** (service role, scoped to the run-owned account and its report ids only): map it to the
-   contract fields and run `validateFeedbackDiagnostics` for each report. Required: PASS.
+   contract fields and run `validateFeedbackDiagnostics` for each report. Required: PASS. Binding rules (PM 6111008437):
+   - the request identity is captured **at the request boundary**: the run records the outgoing `get-ai-suggestions`
+     invocation's `diagnostic_request_id` / `diagnostic_attempt_id` together with the verified saved session it was sent for,
+     and the received `ai_coaching_diagnostic` record must carry the same ids. UI tap order or the report alone never binds
+     a request to a session;
+   - the report's stored link is `user_issue_reports.metadata.coaching_diagnostic_ref`; the feedback telemetry carries it as
+     `coaching_diagnostic_id`;
+   - the endpoint and provider HTTP classes are separate fields; `server_error` keeps its exact closed `serverReason`; the
+     product `failureCategory` and the server reason are asserted independently; `source: unknown` is accepted only for a
+     validated pre-provider failure.
 5. **Received telemetry:** `share_feedback` bound for each report through the F3-settled action binding
    (`captureActionBindingSettled`); readback QUALIFIED.
 6. **Cleanup:** run-owned account deleted with `residue=0`; reports retained by policy with the user link cleared

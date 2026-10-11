@@ -20,13 +20,13 @@ const valid = (): FeedbackDiagnosticLookup => ({
     },
     requests: [{
         requestId: CURRENT, attemptId: 'att-1', sessionId: 'ses-current', outcome: 'provider_error', failureCategory: 'unavailable',
-        statusClass: '5xx', retryCount: 1, totalMs: 4200, providerMs: 3900, configuredModel: 'gemini-3.8-flash',
+        serverReason: 'provider_http_5xx', statusClass: '5xx', providerStatusClass: '5xx', retryCount: 1, totalMs: 4200, providerMs: 3900, configuredModel: 'gemini-3.8-flash',
         observedModel: null, source: 'fresh',
     }],
 });
 const expectCurrent: DiagnosticExpectation = {
     reportId: 'rep-1', association: 'current_take', sessionId: 'ses-current', requestId: CURRENT, outcome: 'provider_error',
-    attemptId: 'att-1', failureCategory: 'unavailable', configuredModel: 'gemini-3.8-flash', currentRequestId: CURRENT,
+    attemptId: 'att-1', failureCategory: 'unavailable', serverReason: 'provider_http_5xx', configuredModel: 'gemini-3.8-flash', currentRequestId: CURRENT,
 };
 
 describe('#1258 feedback diagnostic contract — fail closed', () => {
@@ -36,8 +36,8 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
 
     it('a successful request must name the provider-reported model; configured alone is HOLD', () => {
         const lookup = valid();
-        Object.assign(lookup.requests[0], { outcome: 'success', failureCategory: null, statusClass: '2xx', observedModel: null });
-        const success = { ...expectCurrent, outcome: 'success' as const, failureCategory: null };
+        Object.assign(lookup.requests[0], { outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: null });
+        const success = { ...expectCurrent, outcome: 'success' as const, failureCategory: null, serverReason: 'none' };
         expect(validateFeedbackDiagnostics(lookup, success)).toEqual({ verdict: 'HOLD', reasons: ['observed_model_missing'] });
         lookup.requests[0].observedModel = 'gemini-3.8-flash-001';
         expect(validateFeedbackDiagnostics(lookup, success).verdict).toBe('PASS');
@@ -78,10 +78,50 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
         expect(result.reasons).toContain(reason);
     });
 
+    describe('PM 6111008437 — endpoint vs provider status, server_error, server reason, honest unknown source', () => {
+        const as = (patch: Record<string, unknown>, exp: Partial<DiagnosticExpectation> = {}) => {
+            const lookup = valid();
+            Object.assign(lookup.requests[0], patch);
+            return validateFeedbackDiagnostics(lookup, { ...expectCurrent, ...exp });
+        };
+        it('a provider timeout keeps the endpoint\'s answered 5xx; provider none', () => {
+            expect(as({ outcome: 'timeout', serverReason: 'provider_timeout', statusClass: '5xx', providerStatusClass: 'none', providerMs: null },
+                { outcome: 'timeout', serverReason: 'provider_timeout' }).verdict).toBe('PASS');
+            expect(as({ outcome: 'timeout', serverReason: 'provider_timeout', statusClass: 'none', providerStatusClass: 'none' },
+                { outcome: 'timeout', serverReason: 'provider_timeout' }).reasons, 'endpoint status must not be fabricated as none').toContain('request_field_invalid');
+        });
+        it('a client network loss genuinely has no endpoint status, no server reason, unknown source', () => {
+            expect(as({ outcome: 'client_network', failureCategory: 'network', serverReason: null, statusClass: 'none', providerStatusClass: 'none', providerMs: null, source: 'unknown' },
+                { outcome: 'client_network', failureCategory: 'network', serverReason: null }).verdict).toBe('PASS');
+        });
+        it('server_error keeps its exact closed reason; it is never coerced into provider_error', () => {
+            const pass = as({ outcome: 'server_error', failureCategory: 'access_denied', serverReason: 'auth_failed', statusClass: '4xx', providerStatusClass: 'none', providerMs: null, source: 'unknown' },
+                { outcome: 'server_error', failureCategory: 'access_denied', serverReason: 'auth_failed' });
+            expect(pass.verdict).toBe('PASS');
+            expect(as({ outcome: 'provider_error', serverReason: 'auth_failed' }).reasons).toContain('request_field_invalid');
+        });
+        it('the injected server reason and the visible category are asserted independently', () => {
+            expect(as({ serverReason: 'provider_http_4xx', providerStatusClass: '4xx' }).reasons).toEqual(['server_reason_mismatch']);
+            expect(as({ failureCategory: 'network' }).reasons).toEqual(['failure_category_mismatch']);
+        });
+        it('source unknown is refused once the provider answered, and on success', () => {
+            expect(as({ source: 'unknown' }).reasons).toContain('request_field_invalid');
+            expect(as({ outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: 'm', source: 'unknown' },
+                { outcome: 'success', failureCategory: null, serverReason: 'none' }).reasons).toContain('request_field_invalid');
+        });
+        it('a cache success made no provider call; a fresh success must show the provider 2xx', () => {
+            const ok = { outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', observedModel: 'gemini-3.8-flash-001' };
+            const exp = { outcome: 'success' as const, failureCategory: null, serverReason: 'none' };
+            expect(as({ ...ok, source: 'cache', providerStatusClass: 'none', providerMs: null }, exp).verdict).toBe('PASS');
+            expect(as({ ...ok, source: 'cache', providerStatusClass: '2xx' }, exp).reasons).toContain('request_field_invalid');
+            expect(as({ ...ok, source: 'fresh', providerStatusClass: 'none' }, exp).reasons).toContain('request_field_invalid');
+        });
+    });
+
     it('a report about an OLDER session must never carry the current take\'s request', () => {
         const lookup = valid();
         Object.assign(lookup.report, { sessionId: 'ses-older', association: 'selected_older_session' });
-        const older: DiagnosticExpectation = { ...expectCurrent, association: 'selected_older_session', sessionId: 'ses-older', requestId: null, outcome: null, attemptId: null, failureCategory: null };
+        const older: DiagnosticExpectation = { ...expectCurrent, association: 'selected_older_session', sessionId: 'ses-older', requestId: null, outcome: null, attemptId: null, failureCategory: null, serverReason: null };
         expect(validateFeedbackDiagnostics(lookup, older).reasons).toContain('current_attempt_attached_to_other_session');
         lookup.report.linkedRequestId = null;
         expect(validateFeedbackDiagnostics(lookup, older)).toEqual({ verdict: 'PASS', reasons: [] });
@@ -90,7 +130,7 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
     it('a no-session report must carry no session and no request link (no invented link)', () => {
         const lookup = valid();
         Object.assign(lookup.report, { sessionId: null, association: 'no_session' });
-        const none: DiagnosticExpectation = { ...expectCurrent, association: 'no_session', sessionId: null, requestId: null, outcome: null, attemptId: null, failureCategory: null };
+        const none: DiagnosticExpectation = { ...expectCurrent, association: 'no_session', sessionId: null, requestId: null, outcome: null, attemptId: null, failureCategory: null, serverReason: null };
         expect(validateFeedbackDiagnostics(lookup, none).reasons).toContain('invented_link');
         lookup.report.linkedRequestId = null;
         lookup.requests = [];
@@ -120,12 +160,12 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
 
     it('legitimate free-form values stay valid: a provider model string and opaque ids', () => {
         const lookup = valid();
-        Object.assign(lookup.requests[0], { outcome: 'success', failureCategory: null, statusClass: '2xx', observedModel: 'models/gemini-3.8-flash-preview-0925 (rev 7)' });
-        expect(validateFeedbackDiagnostics(lookup, { ...expectCurrent, outcome: 'success', failureCategory: null }).verdict).toBe('PASS');
+        Object.assign(lookup.requests[0], { outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: 'models/gemini-3.8-flash-preview-0925 (rev 7)' });
+        expect(validateFeedbackDiagnostics(lookup, { ...expectCurrent, outcome: 'success', failureCategory: null, serverReason: 'none' }).verdict).toBe('PASS');
     });
 
     describe('PM RETURN 6110940975 — an older-session report\'s link must resolve', () => {
-        const olderExpected = (): DiagnosticExpectation => ({ ...expectCurrent, association: 'selected_older_session', sessionId: 'ses-older', requestId: null, outcome: null, attemptId: null, failureCategory: null });
+        const olderExpected = (): DiagnosticExpectation => ({ ...expectCurrent, association: 'selected_older_session', sessionId: 'ses-older', requestId: null, outcome: null, attemptId: null, failureCategory: null, serverReason: null });
         const olderLookup = (): FeedbackDiagnosticLookup => {
             const l = valid();
             Object.assign(l.report, { sessionId: 'ses-older', association: 'selected_older_session', linkedRequestId: 'req-older' });
