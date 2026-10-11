@@ -3,9 +3,9 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 
-// #1416 — `gemini-3-flash-preview` is a PREVIEW endpoint and Google lists `gemini-3.6-flash` as its
-// successor. Preview shutdowns have run 14 days from announcement, so this is an availability risk in
-// production rather than a version-number preference: the endpoint can disappear inside a sprint.
+// #1416 — the original `gemini-3-flash-preview` endpoint was a PREVIEW channel and could disappear
+// inside a sprint. The selected stable model is pinned in contract.json; runtime URL construction uses
+// that single reviewed value rather than accepting a caller-supplied model ID.
 //
 // The prompt below was tuned against the preview model, so the risk of this change is a SHAPE shift,
 // not a quality one — `parseSuggestions` already rejects any object whose keys are not exactly

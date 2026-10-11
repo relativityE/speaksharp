@@ -26,9 +26,9 @@ export const REQUIRED_JOURNEYS = Object.freeze(['open_mic', 'focus_points']);
  * #1432 PM RETURN `5654016276` (Codex P1 `3999918672`) — ONE SOURCE OF TRUTH FOR THE GEMINI CONTRACT.
  *
  * The Edge function imports `get-ai-suggestions/contract.json` for its provider model and its uncached daily cap,
- * and the server-owned receipt the trusted readback reports records exactly those values. A copy here drifted
- * (the retired preview model and 20, against the deployed `gemini-3.6-flash` and 10), so every truthful Production
- * packet failed and the downselection could never PASS. The model and cap are therefore read from that same file;
+ * and the server-owned receipt the trusted readback reports records exactly those values. A copy here once drifted
+ * from the Edge contract, so truthful Production packets failed and the downselection could never PASS. The model
+ * and cap are therefore read from that same file;
  * a contract that does not declare both fails closed when this module loads.
  */
 export const EDGE_COACHING_CONTRACT_PATH = 'backend/supabase/functions/get-ai-suggestions/contract.json';
