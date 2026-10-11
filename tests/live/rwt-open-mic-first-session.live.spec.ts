@@ -577,7 +577,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
                     const offered = await button.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
                     if (!offered) { receipt.row('session PDF', 'FAIL', 'no PDF download offered for this session'); return; }
-                    tap.captureActionBinding('session_pdf_export', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '', page.url());
+                    await tap.captureActionBindingSettled(page, 'session_pdf_export', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '');
                     // Outside every uploaded path (#1532 Codex P1 r4126003354): a killed run skips `finally`.
                     const transient = transientPrivateDir('pdf');
                     const file = transient.file('rwt-session.pdf');

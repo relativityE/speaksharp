@@ -558,7 +558,9 @@ export class AnalyticsTap {
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
             const body = request.postDataBuffer();
-            if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); return; }
+            // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
+            if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest(); return; }
+            const before = this.events.length;
             for (const entry of this.decode(body)) {
                 const record = entry as { event?: unknown; properties?: Record<string, unknown> };
                 if (typeof record?.event !== 'string') continue;
@@ -585,6 +587,7 @@ export class AnalyticsTap {
                     } } : {}),
                 });
             }
+            if (this.events.length > before) this.notePosthogRequest();
         });
     }
 
@@ -616,6 +619,43 @@ export class AnalyticsTap {
 
     sent(event: string): SentEvent[] { return this.events.filter((e) => e.event === event); }
 
+    /** #1258 F3: when the page last sent a PostHog request (decoded or blind), so `settleQueuedTelemetry` sees a flush. */
+    lastPosthogRequestAt = 0;
+    notePosthogRequest(at = Date.now()): void { this.lastPosthogRequestAt = at; }
+
+    /**
+     * #1258 F3 (run 38104864048, PostHog readback 6108757201): PostHog batches events for ~3 s, so right after a reload
+     * the CURRENT boot's positive control and its latest route were still queued in the page when the PDF click and the
+     * feedback submit happened (control emitted 02:23:23.362, sent 02:23:26.307; both actions before that). The capture
+     * then found no current-boot control and refused. Before an action, wait — bounded — until PostHog has flushed
+     * whatever was queued: the first request sent after `started` carries the whole queue (plus a short grace for a
+     * sibling batch request of the same flush), or, when nothing was queued, a quiet period longer than the flush
+     * interval. Identity is still snapshotted BEFORE the action's own anchor exists.
+     */
+    async settleQueuedTelemetry(
+        wait: (ms: number) => Promise<unknown>,
+        opts: { quietMs?: number; graceMs?: number; pollMs?: number; now?: () => number } = {},
+    ): Promise<'flushed' | 'quiet'> {
+        const { quietMs = 5_000, graceMs = 500, pollMs = 100, now = Date.now } = opts;
+        const started = now();
+        while (now() - started < quietMs) {
+            if (this.lastPosthogRequestAt > started) {
+                await wait(graceMs);
+                return 'flushed';
+            }
+            await wait(pollMs);
+        }
+        return 'quiet';
+    }
+
+    /** `captureActionBinding` after `settleQueuedTelemetry` — what live call sites use before the feedback/PDF action. */
+    async captureActionBindingSettled(
+        page: Pick<Page, 'waitForTimeout' | 'url'>, stage: ReadbackActionStage, releaseSha: string, runId: string, runAttempt: string,
+    ): Promise<ReadbackActionBinding | null> {
+        await this.settleQueuedTelemetry((ms) => page.waitForTimeout(ms));
+        return this.captureActionBinding(stage, releaseSha, runId, runAttempt, page.url());
+    }
+
     /**
      * Snapshot the current Analytics journey immediately BEFORE the feedback/PDF event is serialized.
      * The identity must already be visible on decoded events of the CURRENT boot; the action anchor is deliberately not
@@ -626,7 +666,7 @@ export class AnalyticsTap {
      */
     captureActionBinding(stage: ReadbackActionStage, releaseSha: string, runId: string, runAttempt: string, pageUrl: string): ReadbackActionBinding | null {
         const refuse = (outcome: Exclude<ActionCaptureOutcome, 'captured'>): null => {
-            this.actionCaptures.push({ stage, outcome });
+            this.actionCaptures.push({ stage, outcome, at: Date.now() });
             return null;
         };
         if (!/^[a-f0-9]{40}$/.test(releaseSha) || !/^\d{1,20}$/.test(runId) || !/^\d{1,4}$/.test(runAttempt)) return refuse('invalid_identity_input');
@@ -655,7 +695,7 @@ export class AnalyticsTap {
             trafficType: 'canary', runId, runAttempt, entry, capturedAt: Date.now(),
         };
         this.actionBindings.push(binding);
-        this.actionCaptures.push({ stage, outcome: 'captured' });
+        this.actionCaptures.push({ stage, outcome: 'captured', at: binding.capturedAt });
         return binding;
     }
     /** Journeys to read back. With a class, only journeys whose events carried it (the pre-claim signup is `user`). */
@@ -739,7 +779,7 @@ export class RwtReceipt {
             // #1258 F3: the closed reason per missing binding (e.g. `share_feedback=no_capture/no_current_boot_control`).
             const reasons = plan.missingBindings.map((label) => `${label}=${plan.bindingReasons?.[label] ?? 'unknown'}`).join(',');
             this.row('readback journey binding', 'HOLD', `no journey emitted the anchor for: ${plan.missingBindings.join(', ')}`,
-                { missingBindings: plan.missingBindings.join(','), reasons });
+                { missingBindings: plan.missingBindings.join(','), reasons, sequence: plan.bindingSequence ?? '' });
         }
         const journeyIds = runJourneyIds(plan);
         const dir = path.resolve('test-results', 'rwt');
@@ -1424,7 +1464,7 @@ export async function shareFeedbackRows(
     await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('feedback-type-praise').click();
     await page.getByTestId('issue-report-description').fill('RWT automated journey check from a disposable account. Please ignore.');
-    tap?.captureActionBinding('share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '', page.url());
+    await tap?.captureActionBindingSettled(page, 'share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '');
     await page.getByTestId('issue-report-submit').click();
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);

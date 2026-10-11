@@ -38,7 +38,8 @@ describe('#1258 F3 — every missing readback binding says why (closed, content-
         tap.captureActionBinding('session_pdf_export', RELEASE, RUN_ID, RUN_ATTEMPT, `${ORIGIN}/analytics`);
         tap.captureActionBinding('share_feedback', RELEASE, RUN_ID, RUN_ATTEMPT, `${ORIGIN}/analytics`);
         expect(tap.actionCaptures).toEqual([
-            { stage: 'session_pdf_export', outcome: 'captured' }, { stage: 'share_feedback', outcome: 'captured' },
+            { stage: 'session_pdf_export', outcome: 'captured', at: expect.any(Number) },
+            { stage: 'share_feedback', outcome: 'captured', at: expect.any(Number) },
         ]);
         const result = plan(tap.events, { actionBindings: tap.actionBindings, actionCaptures: tap.actionCaptures });
         expect(result).toEqual({
@@ -54,7 +55,7 @@ describe('#1258 F3 — every missing readback binding says why (closed, content-
     ])('a refused capture is reported as no_capture/<outcome>: %s', (_label, events, url, outcome) => {
         const tap = reloadedTap(events as object[]);
         expect(tap.captureActionBinding('share_feedback', RELEASE, RUN_ID, RUN_ATTEMPT, url as string)).toBeNull();
-        expect(tap.actionCaptures).toEqual([{ stage: 'share_feedback', outcome }]);
+        expect(tap.actionCaptures).toEqual([{ stage: 'share_feedback', outcome, at: expect.any(Number) }]);
         const result = plan(tap.events, { pdfExport: false, actionBindings: tap.actionBindings, actionCaptures: tap.actionCaptures });
         expect(result.missingBindings).toEqual(['share_feedback']);
         expect(result.bindingReasons).toEqual({ share_feedback: `no_capture/${outcome}` });

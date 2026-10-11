@@ -153,12 +153,14 @@ export interface ReadbackPlan {
     missingBindings: string[];
     /** #1258 F3: one closed, content-free reason per missing binding label; present only when something is missing. */
     bindingReasons?: Record<string, BindingMissReason>;
+    /** #1258 F3 (PO 2026-10-11): the binding-relevant event order, ids relabelled; present only when something is missing. */
+    bindingSequence?: string;
 }
 
 /** #1258 F3 — why `AnalyticsTap.captureActionBinding` did or did not snapshot an action's identity (closed set). */
 export type ActionCaptureOutcome = 'captured' | 'invalid_identity_input' | 'not_analytics_page' | 'no_current_boot_control'
     | 'route_not_analytics' | 'boot_not_on_analytics' | 'no_journey';
-export interface ActionCaptureAttempt { stage: ReadbackActionStage; outcome: ActionCaptureOutcome }
+export interface ActionCaptureAttempt { stage: ReadbackActionStage; outcome: ActionCaptureOutcome; at?: number }
 /** #1258 F3 — why the oracle left a declared binding unbound (closed set; `no_capture/<outcome>` names the capture's refusal). */
 export type BindingMissReason = 'take_not_started' | 'anchor_not_sent' | 'duplicate_capture' | 'identity_mismatch'
     | 'boot_not_latest' | 'route_not_latest' | 'anchor_mismatch' | 'no_capture' | `no_capture/${Exclude<ActionCaptureOutcome, 'captured'>}`;
@@ -304,7 +306,47 @@ export function bindReadbackJourneys(
         ...(attemptIds.length > 0 ? { attemptIds } : {}),
     }));
     const reportedJourneyIds = [...new Set(canary.map((e) => e.journeyId as string))].filter((j) => !bound.has(j));
-    return { journeys, reportedJourneyIds, missingBindings, ...(missingBindings.length > 0 ? { bindingReasons } : {}) };
+    return {
+        journeys, reportedJourneyIds, missingBindings,
+        ...(missingBindings.length > 0 ? { bindingReasons, bindingSequence: bindingSequence(events, plan.actionCaptures ?? []) } : {}),
+    };
+}
+
+const SEQUENCE_EVENTS: Record<string, string> = {
+    telemetry_positive_control: 'control', feedback_submit: 'feedback', session_pdf_downloaded: 'pdf',
+    saved_review_practice_action: 'practice',
+};
+const SEQUENCE_MAX_TOKENS = 60;
+
+/**
+ * #1258 F3 (PO 2026-10-11): the order the tap SAW the binding-relevant events and capture attempts, so a missing binding
+ * is diagnosable from the receipt alone. Content-free by construction: boots and journeys become B1/J1… in order of first
+ * appearance (no ids), routes are the app's route classes, times are ms after the first token (tap send time), and
+ * non-canary traffic is marked `u:`. Only the last SEQUENCE_MAX_TOKENS tokens are kept.
+ */
+export function bindingSequence(
+    events: readonly { event: string; at: number; journeyId?: string; bootId?: string; trafficType?: string; journeyStep?: string; toRoute?: string }[],
+    captures: readonly ActionCaptureAttempt[],
+): string {
+    const labels = new Map<string, string>();
+    const label = (prefix: 'B' | 'J', id: string | undefined): string => {
+        if (!id) return `${prefix}?`;
+        const key = `${prefix}:${id}`;
+        if (!labels.has(key)) labels.set(key, `${prefix}${[...labels.keys()].filter((k) => k.startsWith(`${prefix}:`)).length + 1}`);
+        return labels.get(key) as string;
+    };
+    const raw: Array<{ at: number; describe: () => string }> = [];
+    for (const e of events) {
+        const name = e.event === 'journey_step' && e.journeyStep === 'route_change' ? `route>${e.toRoute ?? '?'}` : SEQUENCE_EVENTS[e.event];
+        if (!name) continue;
+        raw.push({ at: e.at, describe: () => `${e.trafficType === 'canary' ? '' : 'u:'}${label('B', e.bootId)}/${label('J', e.journeyId)} ${name}` });
+    }
+    for (const c of captures) if (typeof c.at === 'number') raw.push({ at: c.at, describe: () => `capture ${c.stage}=${c.outcome}` });
+    // Labels are assigned in time order, after sorting, so B1/J1 is always the earliest boot/journey shown.
+    raw.sort((a, b) => a.at - b.at);
+    const tokens = raw.map((t) => ({ at: t.at, text: t.describe() }));
+    const origin = tokens[0]?.at ?? 0;
+    return tokens.slice(-SEQUENCE_MAX_TOKENS).map((t) => `+${Math.max(0, t.at - origin)} ${t.text}`).join('; ');
 }
 
 export { runJourneyIds } from './rwtAcceptance';
