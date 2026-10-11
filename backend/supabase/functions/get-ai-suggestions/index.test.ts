@@ -94,7 +94,7 @@ let fetchStatusQueue: number[] = [];
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
 /** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
-let geminiModelVersion: string | null = 'gemini-3-flash-preview';
+let geminiModelVersion: string | null = 'gemini-3.8-flash';
 let fetchThrows = false;
 /** #1258: what a non-OK provider answer's body says, and what a transport error's message says. */
 let providerErrorBody = 'upstream unavailable';
@@ -285,7 +285,7 @@ function resetProvider() {
   fetchStatusQueue = [];
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
-  geminiModelVersion = 'gemini-3-flash-preview';
+  geminiModelVersion = 'gemini-3.8-flash';
   fetchThrows = false;
   providerErrorBody = 'upstream unavailable';
   fetchErrorMessage = 'network unreachable';
@@ -565,13 +565,11 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   await t.step('#1416 the model endpoint is not a preview channel', () => {
-    // The reason for the change, pinned. `gemini-3-flash-preview` is a preview endpoint, and preview
-    // shutdowns have run 14 days from announcement — the URL can stop resolving inside a sprint, and
-    // the failure would look like a provider outage rather than a deprecation we were told about.
+    // The selected stable model is pinned in the shared coaching contract; preview endpoints are not allowed.
     // Asserted on the exported constant rather than by reading the file: the edge suite runs without
     // `--allow-read`, and widening the sandbox for every edge test to satisfy one assertion trades a
     // real safety property for a convenience.
-    assertStringIncludes(GEMINI_API_URL, 'gemini-3.6-flash');
+    assertStringIncludes(GEMINI_API_URL, 'gemini-3.8-flash');
     assertEquals(GEMINI_API_URL.includes('-preview'), false);
   });
 
@@ -659,7 +657,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       p_user_id: 'pro-user',
       p_suggestions: suggestionA,
       p_provider: 'google_gemini',
-      p_model: 'gemini-3-flash-preview',
+      p_model: 'gemini-3.8-flash',
       p_quota_scope: 'user_utc_day',
       p_quota_utc_date: expectedUtcDate,
       p_quota_limit: 20,
@@ -1147,7 +1145,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
      * down-selection is exposed to, rather than passing them the way substring and body-search checks did.
      */
     // A lookalike host: a substring check for the approved host SUCCEEDS on it; the origin check refuses.
-    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.6-flash:generateContent';
+    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.8-flash:generateContent';
     assertEquals(lookalike.includes('generativelanguage.googleapis.com'), true);
     assertNotEquals(new URL(lookalike).origin, APPROVED_GEMINI_ORIGIN);
 

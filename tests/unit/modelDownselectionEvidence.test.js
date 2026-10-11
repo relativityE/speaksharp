@@ -1130,15 +1130,15 @@ describe('#1432 PM RETURN `5654016276` — the validator, schema and template fo
     });
   });
 
-  it('CASUALTY: a packet or observation carrying the retired preview contract is not truthful evidence', () => {
+  it('CASUALTY: a packet or observation carrying the previous 3.6 model is not truthful 3.8 evidence', () => {
     const stalePacket = validEvidence();
-    stalePacket.geminiContract = { ...LOCKED_GEMINI_CONTRACT, model: 'gemini-3-flash-preview', uncachedRequestsPerUserUtcDay: 20 };
+    stalePacket.geminiContract = { ...LOCKED_GEMINI_CONTRACT, model: 'gemini-3.6-flash', uncachedRequestsPerUserUtcDay: 20 };
     const packetProblems = holdProblems(stalePacket);
     expect(packetProblems).toMatch(/geminiContract\.model must be/);
     expect(packetProblems).toMatch(/geminiContract\.uncachedRequestsPerUserUtcDay must be/);
 
     const staleModel = validEvidence();
-    staleModel.geminiEvidence[0].model = 'gemini-3-flash-preview';
+    staleModel.geminiEvidence[0].model = 'gemini-3.6-flash';
     expect(holdProblems(staleModel)).toMatch(/geminiEvidence\[0\]\.model must be/);
 
     const staleLimit = validEvidence();
