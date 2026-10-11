@@ -741,6 +741,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 },
                 feedback: true, pdfExport: true, practiceAgain: true,
                 actionBindings: tap.actionBindings,
+                actionCaptures: tap.actionCaptures,
                 expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
                 expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
             }),

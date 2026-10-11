@@ -22,6 +22,7 @@ import { expect, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
+import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
     AUDIO_ARGS,
     expectBenchmarkRecordingStarted,
@@ -532,6 +533,8 @@ export function analyticsRoute(path: string | null | undefined): boolean {
 export class AnalyticsTap {
     readonly events: SentEvent[] = [];
     readonly actionBindings: ReadbackActionBinding[] = [];
+    /** #1258 F3: every capture attempt's closed outcome, so a missing binding says WHY in the receipt (content-free). */
+    readonly actionCaptures: ActionCaptureAttempt[] = [];
     undecodable = 0;
     /** PostHog POSTs whose body the browser does not expose (a Blob `sendBeacon` on page-hide). See `sentVerdict`. */
     blindBeacons = 0;
@@ -622,32 +625,37 @@ export class AnalyticsTap {
      * own positive control carries (entered directly on Analytics) — never to the pre-reload boot's route.
      */
     captureActionBinding(stage: ReadbackActionStage, releaseSha: string, runId: string, runAttempt: string, pageUrl: string): ReadbackActionBinding | null {
-        if (!/^[a-f0-9]{40}$/.test(releaseSha) || !/^\d{1,20}$/.test(runId) || !/^\d{1,4}$/.test(runAttempt)) return null;
+        const refuse = (outcome: Exclude<ActionCaptureOutcome, 'captured'>): null => {
+            this.actionCaptures.push({ stage, outcome });
+            return null;
+        };
+        if (!/^[a-f0-9]{40}$/.test(releaseSha) || !/^\d{1,20}$/.test(runId) || !/^\d{1,4}$/.test(runAttempt)) return refuse('invalid_identity_input');
         let pagePath: string | null = null;
         try { pagePath = new URL(pageUrl).pathname; } catch { pagePath = null; }
-        if (!analyticsRoute(pagePath)) return null;
+        if (!analyticsRoute(pagePath)) return refuse('not_analytics_page');
         const control = [...this.events].reverse().find((e) => e.event === 'telemetry_positive_control'
             && e.at >= this.documentAt && e.trafficType === 'canary' && e.releaseSha === releaseSha);
-        if (!control?.bootId || !control.journeyId) return null;
+        if (!control?.bootId || !control.journeyId) return refuse('no_current_boot_control');
         const route = [...this.events].reverse().find((e) => e.event === 'journey_step' && e.journeyStep === 'route_change'
             && e.bootId === control.bootId);
         let journeyId: string | undefined;
         let entry: ReadbackActionBinding['entry'];
         if (route) {
-            if (!analyticsRoute(route.toRoute) || route.releaseSha !== releaseSha || route.trafficType !== 'canary') return null;
+            if (!analyticsRoute(route.toRoute) || route.releaseSha !== releaseSha || route.trafficType !== 'canary') return refuse('route_not_analytics');
             journeyId = route.journeyId;
             entry = 'route_change';
         } else {
-            if (!analyticsRoute(this.documentPath)) return null;
+            if (!analyticsRoute(this.documentPath)) return refuse('boot_not_on_analytics');
             journeyId = control.journeyId;
             entry = 'boot_load';
         }
-        if (!journeyId) return null;
+        if (!journeyId) return refuse('no_journey');
         const binding: ReadbackActionBinding = {
             stage, journeyId, bootId: control.bootId, releaseSha,
             trafficType: 'canary', runId, runAttempt, entry, capturedAt: Date.now(),
         };
         this.actionBindings.push(binding);
+        this.actionCaptures.push({ stage, outcome: 'captured' });
         return binding;
     }
     /** Journeys to read back. With a class, only journeys whose events carried it (the pre-claim signup is `user`). */
@@ -728,8 +736,10 @@ export class RwtReceipt {
      */
     write(testInfo: TestInfo, plan: ReadbackPlan, trafficTypes: string[], userStageJourneyIds: string[] = []): void {
         if (plan.missingBindings.length > 0) {
+            // #1258 F3: the closed reason per missing binding (e.g. `share_feedback=no_capture/no_current_boot_control`).
+            const reasons = plan.missingBindings.map((label) => `${label}=${plan.bindingReasons?.[label] ?? 'unknown'}`).join(',');
             this.row('readback journey binding', 'HOLD', `no journey emitted the anchor for: ${plan.missingBindings.join(', ')}`,
-                { missingBindings: plan.missingBindings.join(',') });
+                { missingBindings: plan.missingBindings.join(','), reasons });
         }
         const journeyIds = runJourneyIds(plan);
         const dir = path.resolve('test-results', 'rwt');
