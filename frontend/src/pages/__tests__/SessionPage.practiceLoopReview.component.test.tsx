@@ -12,6 +12,22 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 
 /** #1538 Codex P1 r4118176188: every coaching request declares the closed capability. */
 const ACCEPTED_COACHING_VERSIONS = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
+/**
+ * #1589 diagnostics (accepted contract): every coaching invocation also carries an opaque UUIDv4 `diagnostic_request_id`
+ * (one per review lifecycle) and `diagnostic_attempt_id` (one per network invocation), plus `client_attempt`. The body is
+ * still matched EXACTLY — any other key fails — so the saved-session/product binding stays the assertion's subject.
+ * Within-lifecycle continuity across a retry is asserted in AISuggestions.component.test.tsx; here, cross-take isolation.
+ */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const coachingRequest = (sessionId: string, product: 'open_mic' | 'focus_points', clientAttempt = 1) => ({
+    body: {
+        sessionId, product, accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS,
+        diagnostic_request_id: expect.stringMatching(UUID_V4),
+        diagnostic_attempt_id: expect.stringMatching(UUID_V4),
+        client_attempt: clientAttempt,
+    },
+});
+type CoachingBody = { sessionId: string; diagnostic_request_id: string; diagnostic_attempt_id: string; client_attempt: number };
 
 vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }));
 vi.mock('@/hooks/useUnresolvedRecovery', () => ({ useUnresolvedRecovery: vi.fn() }));
@@ -133,9 +149,9 @@ describe('F-07 completed-session Practice Loop review', () => {
         // #1416 P2-4 — NO CLICK. The completed session reaches post-save readiness and the review
         // requests itself. This is the parent-level proof of the PO ruling: the whole journey, from a
         // finished session to a request, with nobody pressing anything.
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
+        const [first] = invoke.mock.calls.map((call) => (call[1] as { body: CoachingBody }).body);
+        expect(first.diagnostic_attempt_id, 'the attempt id identifies the invocation, not the lifecycle').not.toBe(first.diagnostic_request_id);
         expect(await screen.findAllByText('What went well')).toHaveLength(1);
         // The fix sits in the signature `TRY THIS NEXT RUN` block (S-12b). Still exactly one of each: the
         // 1+1 contract is unchanged, only the fix's label moved to the slot a future verdict will sit above.
@@ -483,9 +499,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         render(<SessionPage />);
 
         // The automatic post-save submission fires against the PERSISTED id.
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
     });
 
     it('CASUALTY: TWO CONSECUTIVE TAKES — the second must not review the first', async () => {
@@ -509,9 +523,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         });
 
         render(<SessionPage />);
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-one', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-take-one', 'open_mic')));
         invoke.mockClear();
 
         // Take two begins. The controller supersedes the previous take's finalized signal AND its
@@ -555,9 +567,7 @@ describe('F-07 completed-session Practice Loop review', () => {
 
         render(<SessionPage />);
 
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
     });
 
     it('MEASUREMENT: the whole two-attempt budget issues exactly two reads, never a third', async () => {
@@ -609,9 +619,8 @@ describe('F-07 completed-session Practice Loop review', () => {
         });
 
         render(<SessionPage />);
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-A', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-take-A', 'open_mic')));
+        const takeA = (invoke.mock.calls[invoke.mock.calls.length - 1][1] as { body: CoachingBody }).body;
 
         // ---- "Practice again": take B STARTS. The controller supersedes A's finalized signal and its
         // completed-session identity at the accepted-start boundary. Nothing unmounts the page.
@@ -632,9 +641,7 @@ describe('F-07 completed-session Practice Loop review', () => {
             publishCompletedSession(7, 'session-take-B');
         });
 
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-B', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-take-B', 'open_mic')));
 
         // THE CLAIM: after B started, every request belongs to B. Asserting only "B was requested"
         // would pass while A was requested too — which is the exact defect, because a duplicate
@@ -647,6 +654,12 @@ describe('F-07 completed-session Practice Loop review', () => {
         );
         expect(requestedIds, 'take A is never requested again').not.toContain('session-take-A');
         expect(requestedIds.length, 'B is reviewed exactly once').toBe(1);
+        // #1589: B is a NEW review lifecycle — its diagnostic identity is never A's, so a report about B cannot be
+        // correlated to A's request (and vice versa).
+        const takeB = (invoke.mock.calls[0][1] as { body: CoachingBody }).body;
+        expect(takeB.diagnostic_request_id, 'take B gets its own request id').not.toBe(takeA.diagnostic_request_id);
+        expect(takeB.diagnostic_attempt_id, 'take B gets its own attempt id').not.toBe(takeA.diagnostic_attempt_id);
+        expect(takeB.client_attempt, 'B starts its own lifecycle at attempt 1').toBe(1);
     });
 
     it('CASUALTY: a read RETIRED by a session change cannot publish under its old identity', async () => {
@@ -782,9 +795,7 @@ describe('F-07 completed-session Practice Loop review', () => {
                 { id: 'p2', label: 'Shared board', status: 'missing' },
             ]);
         });
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'focus_points', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'focus_points')));
         expect(invoke).toHaveBeenCalledTimes(1);
     });
 
@@ -806,8 +817,6 @@ describe('F-07 completed-session Practice Loop review', () => {
         useSessionStore.getState().setObjectiveCoverageFailed(); // irrelevant to Open Mic
         invoke.mockResolvedValue(PAIR);
         render(<SessionPage />);
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
     });
 });
