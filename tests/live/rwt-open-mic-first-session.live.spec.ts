@@ -630,7 +630,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
                     receipt, admin: admin as never, userId: capturedUid, reportId: feedbackReportId, currentSessionId: persistedId,
-                    exchanges: generations.exchanges, configuredModel: coachingContract.model,
+                    exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'open_mic',
                 });
             });
 

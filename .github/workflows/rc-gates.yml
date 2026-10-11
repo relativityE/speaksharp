@@ -413,8 +413,28 @@ jobs:
               else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi
               printf '%s %s %s\n' "$journey" "$stages" "$v" >> "$verdicts"
             done <<< "$bindings"
-            node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const lines=fs.readFileSync(process.argv[2],"utf8").split("\n").filter(Boolean); const journeys=lines.map((l)=>{const [journeyId,stages,verdict]=l.split(" "); return {journeyId, stages: stages.split(","), verdict};}); fs.writeFileSync(process.argv[3], JSON.stringify({suite:r.suite, release:process.env.RELEASE_SHA, journeys, missingBindings:r.readback.missingBindings||[]}, null, 2)+"\n");' "$receipt" "$verdicts" "${verdicts%.jsonl}.json"
-            rm -f "$verdicts"
+            # #1258 H1 (PM 6115110576): the RECEIVED coaching-diagnostic chain, once per receipt, only when its feedback diagnostic
+            # chain row carries the sent-boundary binding (SHA-256 digests, product, configured model). Bound to the same release,
+            # canary class and the identity of the receipt's first bound journey. exit 0 PASS / 3 FAIL (final, never retried) / 1 HOLD.
+            coaching_result="${verdicts%.jsonl}.coaching.json"
+            rm -f "$coaching_result"
+            expectation=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const row=(r.rows||[]).find((x)=>x.step==="feedback diagnostic chain"&&x.evidence&&typeof x.evidence.expectedRequestSha256==="string"); if (row) { const e=row.evidence; process.stdout.write(JSON.stringify({requestSha256:e.expectedRequestSha256, attemptSha256:e.expectedAttemptSha256, product:e.expectedProduct, configuredModel:e.expectedConfiguredModel, outcome:e.expectedOutcome})); }' "$receipt")
+            anchor=$(printf '%s\n' "$bindings" | awk 'NF{print $1; exit}')
+            if [ -n "$expectation" ] && [ -n "$anchor" ]; then
+              cv=HOLD
+              for attempt in 1 2 3; do
+                clog="test-results/rwt/$(basename "$receipt" .receipt.json).coaching-diagnostic.readback.log"
+                rc=0
+                TELEMETRY_READBACK_COACHING_DIAGNOSTIC=1 COACHING_DIAGNOSTIC_EXPECTATION="$expectation" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$anchor" --traffic-type canary 2>&1 | tee "$clog" || rc=${PIPESTATUS[0]}
+                if [ "$rc" -eq 0 ]; then cv=PASS; break; fi
+                if [ "$rc" -eq 3 ]; then cv=FAIL; break; fi
+                sleep 60
+              done
+              node -e 'const fs=require("fs"); const line=fs.readFileSync(process.argv[1],"utf8").split("\n").find((l)=>l.startsWith("COACHING_DIAGNOSTIC_RECEIPT ")); const o=line?JSON.parse(line.slice("COACHING_DIAGNOSTIC_RECEIPT ".length)):null; fs.writeFileSync(process.argv[2], JSON.stringify({verdict:process.argv[3], reasons:o&&Array.isArray(o.reasons)?o.reasons:["diagnostic_not_received"]}));' "$clog" "$coaching_result" "$cv"
+              [ "$cv" = PASS ] || { echo "::error::$cv: received coaching diagnostic chain for $(basename "$receipt")"; status=1; }
+            fi
+            node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const lines=fs.readFileSync(process.argv[2],"utf8").split("\n").filter(Boolean); const journeys=lines.map((l)=>{const [journeyId,stages,verdict]=l.split(" "); return {journeyId, stages: stages.split(","), verdict};}); const coaching=fs.existsSync(process.argv[4])?JSON.parse(fs.readFileSync(process.argv[4],"utf8")):undefined; fs.writeFileSync(process.argv[3], JSON.stringify({suite:r.suite, release:process.env.RELEASE_SHA, journeys, missingBindings:r.readback.missingBindings||[], ...(coaching?{coachingDiagnostic:coaching}:{})}, null, 2)+"\n");' "$receipt" "$verdicts" "${verdicts%.jsonl}.json" "$coaching_result"
+            rm -f "$verdicts" "$coaching_result"
           done
           exit $status
       # RWT receipts, readback outputs and human worksheets are content-free by construction (verdicts, counts, durations, ids,

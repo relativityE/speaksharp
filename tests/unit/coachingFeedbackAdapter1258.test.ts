@@ -4,6 +4,7 @@
  * feedback-diagnostic contract without deciding the verdict itself. The contract then PASSes only a complete chain,
  * HOLDs missing evidence and FAILs contradictions — including shapes the adapter cannot map.
  */
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
     buildFeedbackLookup, contractOutcome, echoMismatch, feedbackDiagnosticChainRow, currentTakeExpectation, reportAssociation, terminalRequests, toAiRequestDiagnostic,
@@ -127,17 +128,22 @@ describe('#1258 coaching → feedback adapter', () => {
             reads.push(`${t}:${c}:${k1}=${v1}:${k2}=${v2}`);
             return Promise.resolve({ data: [{ id: 'rep-1', session_id: SES, metadata: { coaching_diagnostic_ref: REQ } }], error: null });
         } }) }) }) };
-        await feedbackDiagnosticChainRow({ receipt, admin, userId: 'uid-1', reportId: 'rep-1', currentSessionId: SES, exchanges: [exchange()], configuredModel: MODEL });
+        await feedbackDiagnosticChainRow({ receipt, admin, userId: 'uid-1', reportId: 'rep-1', currentSessionId: SES, exchanges: [exchange()], configuredModel: MODEL, product: 'open_mic' });
         expect(reads).toEqual(['user_issue_reports:id, session_id, metadata:id=rep-1:user_id=uid-1']);
-        expect(rows[rows.length - 1]).toMatchObject({ step: 'feedback diagnostic chain', verdict: 'HOLD', evidence: { reasons: 'telemetry_not_received' } });
-        expect(JSON.stringify(rows[rows.length - 1])).not.toContain(SES);
+        const sha = (v: string) => createHash('sha256').update(v, 'utf8').digest('hex');
+        expect(rows[rows.length - 1]).toMatchObject({ step: 'feedback diagnostic chain', verdict: 'HOLD', evidence: {
+            reasons: 'telemetry_not_received', expectedRequestSha256: sha(REQ), expectedAttemptSha256: sha(ATT1),
+            expectedProduct: 'open_mic', expectedConfiguredModel: MODEL, expectedOutcome: 'success',
+        } });
+        // Digests only: neither the session nor the raw request/attempt ids reach the receipt.
+        for (const raw of [SES, REQ, ATT1]) expect(JSON.stringify(rows[rows.length - 1])).not.toContain(raw);
     });
 
     it('no stored report is HOLD report_not_found without a database read', async () => {
         const rows: Array<{ step: string; verdict: string; evidence?: unknown }> = [];
         const receipt = { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', _d: string, evidence?: Record<string, string | number | boolean | null>) => { rows.push({ step, verdict, evidence }); } };
         const admin = { from: () => { throw new Error('must not read'); } };
-        await feedbackDiagnosticChainRow({ receipt, admin: admin as never, userId: 'uid-1', reportId: null, currentSessionId: SES, exchanges: [], configuredModel: MODEL });
+        await feedbackDiagnosticChainRow({ receipt, admin: admin as never, userId: 'uid-1', reportId: null, currentSessionId: SES, exchanges: [], configuredModel: MODEL, product: 'open_mic' });
         expect(rows).toEqual([{ step: 'feedback diagnostic chain', verdict: 'HOLD', evidence: { reasons: 'report_not_found' } }]);
     });
 

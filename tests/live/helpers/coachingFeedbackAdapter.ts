@@ -8,6 +8,7 @@
  * unmappable record so the contract FAILs it, rather than being dropped.
  */
 import type { CoachingExchange } from './coachingGenerationTap';
+import { createHash } from 'node:crypto';
 import { validateFeedbackDiagnostics } from './feedbackDiagnosticContract';
 import type {
     AiRequestDiagnostic, AiRequestOutcome, DiagnosticExpectation, FeedbackDiagnosticLookup, FeedbackReportDiagnostic,
@@ -206,6 +207,7 @@ export async function feedbackDiagnosticChainRow(input: {
     currentSessionId: string | null;
     exchanges: readonly CoachingExchange[];
     configuredModel: string;
+    product: 'open_mic' | 'focus_points';
 }): Promise<void> {
     const { receipt } = input;
     if (!input.reportId || !input.currentSessionId) {
@@ -234,8 +236,20 @@ export async function feedbackDiagnosticChainRow(input: {
     const v = validateFeedbackDiagnostics(lookup, expected);
     // Echoed-id evidence is preserved as a count (content-free); a mismatch already FAILs the request's record.
     const echoMismatches = input.exchanges.filter((e) => echoMismatch(e) !== null).length;
+    // H1 (PM 6115110576): when ONLY received telemetry is missing, record what the PostHog readback must bind to — SHA-256
+    // digests of the SENT request and terminal attempt ids (never the ids), the product and the configured model.
+    // Finalization settles the row from that independent readback; any other HOLD or FAIL carries no binding.
+    const sha = (v: string) => createHash('sha256').update(v, 'utf8').digest('hex');
+    const settleable = v.verdict === 'HOLD' && v.reasons.length === 1 && v.reasons[0] === 'telemetry_not_received'
+        && expected.outcome === 'success' && expected.requestId !== null && expected.requestId !== '' && expected.attemptId !== null && expected.attemptId !== '';
     receipt.row('feedback diagnostic chain', v.verdict,
         v.verdict === 'PASS' ? 'the report resolves to the exact coaching request for this take'
             : v.verdict === 'FAIL' ? 'the report and the coaching request contradict each other' : 'the chain is incomplete',
-        { reasons: v.reasons.join(',') || 'none', echoMismatches });
+        {
+            reasons: v.reasons.join(',') || 'none', echoMismatches,
+            ...(settleable ? {
+                expectedRequestSha256: sha(expected.requestId!), expectedAttemptSha256: sha(expected.attemptId!),
+                expectedProduct: input.product, expectedConfiguredModel: input.configuredModel, expectedOutcome: 'success',
+            } : {}),
+        });
 }
