@@ -109,8 +109,8 @@ function validateTake(take: RwtCoachingTakeEvidence, releaseSha: string, label: 
   }
   if (!UUID_V4.test(take.diagnosticRequestId) || !UUID_V4.test(take.diagnosticAttemptId)
     || take.diagnosticStatus !== 200 || take.diagnosticOutcome !== 'success' || take.diagnosticReason !== 'none'
-    || !Number.isInteger(take.providerAttempts) || take.providerAttempts < 1 || take.providerAttempts > 2
-    || take.retryCount !== take.providerAttempts - 1
+    || !Number.isInteger(take.providerAttempts) || take.providerAttempts < 0 || take.providerAttempts > 2
+    || !Number.isInteger(take.retryCount) || take.retryCount < 0 || take.retryCount > 1
     || !MODEL_ID.test(take.configuredModel) || !Number.isFinite(take.providerDurationMs) || take.providerDurationMs < 0
     || !Number.isFinite(take.totalDurationMs) || take.totalDurationMs < take.providerDurationMs
     || !SHA64.test(take.promptSha256)) throw new Error(`${label}: model or timing evidence is incomplete`);
@@ -125,8 +125,14 @@ function validateTake(take: RwtCoachingTakeEvidence, releaseSha: string, label: 
   if (take.source === 'fresh' && receipt.cache_read_count && receipt.cache_read_count > 0) {
     throw new Error(`${label}: fresh generation conflicts with cache-read evidence`);
   }
+  if (take.source === 'fresh' && (take.providerAttempts < 1 || take.retryCount !== take.providerAttempts - 1)) {
+    throw new Error(`${label}: fresh generation lacks matching provider attempt/retry evidence`);
+  }
   if (take.source === 'cache' && (!Number.isInteger(receipt.cache_read_count) || Number(receipt.cache_read_count) < 1)) {
     throw new Error(`${label}: cache replay lacks a server-recorded cache read`);
+  }
+  if (take.source === 'cache' && (take.providerAttempts !== 0 || take.retryCount !== 0 || take.providerDurationMs !== 0)) {
+    throw new Error(`${label}: cache replay must not claim a provider attempt or provider latency`);
   }
   if (!exactPair(take.renderedSuggestions)
     || take.renderedSuggestions.version !== receipt.ai_suggestions.version

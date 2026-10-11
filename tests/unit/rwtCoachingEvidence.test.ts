@@ -27,9 +27,10 @@ const take = (suffix: string, source: 'fresh' | 'cache' = 'fresh'): RwtCoachingT
     configuredModel: 'gemini-3.8-flash',
     diagnosticRequestId: `30000000-0000-4000-8000-${suffix.padStart(12, '0')}`,
     diagnosticAttemptId: `40000000-0000-4000-8000-${suffix.padStart(12, '0')}`,
-    diagnosticStatus: 200, diagnosticOutcome: 'success', diagnosticReason: 'none', providerAttempts: 1, retryCount: 0,
+    diagnosticStatus: 200, diagnosticOutcome: 'success', diagnosticReason: 'none',
+    providerAttempts: source === 'fresh' ? 1 : 0, retryCount: 0,
     source,
-    providerDurationMs: 640, totalDurationMs: 920, promptSha256: 'a'.repeat(64),
+    providerDurationMs: source === 'fresh' ? 640 : 0, totalDurationMs: 920, promptSha256: 'a'.repeat(64),
     authorityReceipt: {
       session_id: sessionId, user_id: userId, provider: 'google_gemini', model: 'gemini-3.8-flash-001',
       provider_request_made: true, receipt_suggestion_sha256: 'b'.repeat(64), current_suggestion_sha256: 'b'.repeat(64),
