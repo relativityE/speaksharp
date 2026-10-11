@@ -1,4 +1,5 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../fixtures/rwt/rwt-fixtures.manifest.json';
@@ -174,7 +175,7 @@ describe('RWT restricted synthetic coaching evidence', () => {
   });
 
   it('writes exact synthetic evidence create-only with owner-only file permissions', () => {
-    const directory = mkdtempSync('/private/tmp/rwt-coaching-evidence-');
+    const directory = mkdtempSync(path.join(realpathSync(tmpdir()), 'rwt-coaching-evidence-'));
     try {
       const input = { releaseSha: 'a'.repeat(40), firstTake: take('1'), repeatTake: take('2', 'cache') };
       const result = writeRwtCoachingEvidenceArtifact(input, directory);
@@ -190,7 +191,7 @@ describe('RWT restricted synthetic coaching evidence', () => {
   });
 
   it('refuses an output directory accessible to group or other users', () => {
-    const directory = mkdtempSync('/private/tmp/rwt-coaching-evidence-');
+    const directory = mkdtempSync(path.join(realpathSync(tmpdir()), 'rwt-coaching-evidence-'));
     try {
       chmodSync(directory, 0o755);
       expect(() => writeRwtCoachingEvidenceArtifact({
@@ -203,7 +204,7 @@ describe('RWT restricted synthetic coaching evidence', () => {
   });
 
   it('rejects a symlink evidence destination without writing through it', () => {
-    const parent = mkdtempSync('/private/tmp/rwt-coaching-evidence-');
+    const parent = mkdtempSync(path.join(realpathSync(tmpdir()), 'rwt-coaching-evidence-'));
     const target = path.join(parent, 'target');
     const link = path.join(parent, 'linked');
     try {
@@ -222,7 +223,7 @@ describe('RWT restricted synthetic coaching evidence', () => {
   });
 
   it('rejects a group/world-writable non-sticky ancestor but permits the system temp ancestor', () => {
-    const parent = mkdtempSync('/private/tmp/rwt-coaching-evidence-');
+    const parent = mkdtempSync(path.join(realpathSync(tmpdir()), 'rwt-coaching-evidence-'));
     try {
       chmodSync(parent, 0o777);
       expect(() => writeRwtCoachingEvidenceArtifact({
