@@ -6,7 +6,7 @@
  * page stops the journey at once on a torn-down page. The receipt and cleanup still run (the spec's `finally`), and the
  * verdict stays FAIL.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -84,5 +84,29 @@ describe('wiring — the hang site is guarded, the stop reaches finally, and act
         const ms = Number(base.match(/RWT_ACTION_TIMEOUT_MS = ([\d_]+)/)?.[1].replace(/_/g, ''));
         expect(ms).toBe(90_000);
         expect(ms).toBeLessThan(5 * 60_000); // the shortest RWT test timeout (Products navigation, 5 min)
+    });
+});
+
+describe('the Products header is resolved after it renders (runs 38312744958 / 38313665238)', () => {
+    const liveRoot = path.join(ROOT, 'tests/live');
+    const sources = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? sources(path.join(dir, e.name)) : /\.ts$/.test(e.name) ? [path.join(dir, e.name)] : []);
+
+    it('no RWT file decides desktop vs mobile with an instant isVisible on the Products trigger', () => {
+        const offenders = sources(liveRoot)
+            .filter((f) => /rwt|productsMenu/.test(path.basename(f)))
+            .filter((f) => /getByTestId\('nav-products-button'\)[\s\S]{0,120}?\.isVisible\(\)\.catch/.test(readFileSync(f, 'utf8')))
+            .map((f) => path.relative(liveRoot, f));
+        expect(offenders).toEqual([]);
+    });
+
+    it('resolveProductsTrigger waits for a VISIBLE trigger before naming the header', () => {
+        const menu = readFileSync(path.join(liveRoot, 'helpers/productsMenu.ts'), 'utf8');
+        const body = menu.slice(menu.indexOf('export async function resolveProductsTrigger'), menu.indexOf('export async function openProductsItem'));
+        const wait = body.indexOf(".or(mobile).filter({ visible: true }).first().waitFor({ state: 'visible', timeout })");
+        const decide = body.indexOf('await desktop.isVisible()');
+        expect(wait).toBeGreaterThan(0);
+        expect(decide).toBeGreaterThan(wait);
+        expect(menu).toMatch(/const \{ trigger, isDesktop \} = await resolveProductsTrigger\(page, timeout\);/);
     });
 });

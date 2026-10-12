@@ -75,6 +75,7 @@ import {
     exactCountVerdict,
     stopIfPageTornDown,
 } from './rwtJourney';
+import { openProductsItem, resolveProductsTrigger } from './productsMenu';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -214,12 +215,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const switched = await performCandidateSwitch(page, run, JOURNEY);
             receipt.meta.switchOutcome = switched;
             if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
-            const desktop = page.getByTestId('nav-products-button');
-            if (await desktop.isVisible().catch(() => false)) {
-                await desktop.click();
+            const { trigger, isDesktop } = await resolveProductsTrigger(page);
+            await trigger.click();
+            if (isDesktop) {
                 await page.getByTestId('nav-products-focus-points').click();
             } else {
-                await page.getByTestId('nav-mobile-products-button').click();
                 await page.getByTestId('nav-mobile-products-focus-points').or(page.getByTestId('nav-mobile-focus-points-link')).first().click();
             }
             const opened = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
@@ -570,16 +570,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     return { product: (data?.product as string | null) ?? null, digest: data ? sha256Hex(data.transcript) : null, transcript: typeof data?.transcript === 'string' ? data.transcript : '' };
                 };
                 const lastSaved = () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
-                const openProduct = async (item: 'open-mic' | 'focus-points') => {
-                    const desktop = page.getByTestId('nav-products-button');
-                    if (await desktop.isVisible().catch(() => false)) {
-                        await desktop.click();
-                        await page.getByTestId(`nav-products-${item}`).click();
-                    } else {
-                        await page.getByTestId('nav-mobile-products-button').click();
-                        await page.getByTestId(`nav-mobile-products-${item}`).click();
-                    }
-                };
+                const openProduct = (item: 'open-mic' | 'focus-points') => openProductsItem(page, item);
                 // 1. A full Open Mic take: the replayed Focus fixture speaks all four points into it.
                 const before = await lastSaved();
                 await openProduct('open-mic');

@@ -99,6 +99,7 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { coachingPromptBindingRow } from './helpers/rwtCoachingCollector';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
+import { openProductsItem } from './helpers/productsMenu';
 
 const SUITE = 'open-mic-first-session';
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
@@ -284,14 +285,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
                 // The runbook's path: the header's Products → Open Mic (a client-side navigation, so the one-run
                 // switch made on this /practice document still governs the take).
-                const desktop = page.getByTestId('nav-products-button');
-                if (await desktop.isVisible().catch(() => false)) {
-                    await desktop.click();
-                    await page.getByTestId('nav-products-open-mic').click();
-                } else {
-                    await page.getByTestId('nav-mobile-products-button').click();
-                    await page.getByTestId('nav-mobile-products-open-mic').click();
-                }
+                await openProductsItem(page, 'open-mic');
                 const reached = await page.waitForURL(/\/session/, { timeout: 45_000 }).then(() => true).catch(() => false);
                 receipt.row('Products → Open Mic', reached ? 'PASS' : 'FAIL', reached ? 'the header Products menu opened Open Mic' : 'Products → Open Mic did not reach the session');
                 if (!reached) throw new Error('FAIL Products → Open Mic');
