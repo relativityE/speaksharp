@@ -73,6 +73,7 @@ import {
     sentDetail,
     readbackSettlement,
     exactCountVerdict,
+    stopIfPageTornDown,
 } from './rwtJourney';
 
 const JOURNEY = 'focus_points';
@@ -556,6 +557,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──
         if (fixtureKey === 'focus_points_tts') {
+            // Both steps drive the current page without navigating first: a page torn down by a failed Start stops here.
+            stopIfPageTornDown(receipt, page, 'next Start without a hold', 'Open Mic take, then a Focus take right after the product switch');
             // The switch step's saved Focus take is the completed review New Set / Edit starts from (Browser PM 6097978379).
             let switchFocusId: string | null = null;
             // ── #1258 (Browser PM 6089889070) — Open Mic → Focus Points: the take right after the switch hears only itself ──

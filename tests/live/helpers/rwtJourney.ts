@@ -983,6 +983,28 @@ async function boundedTeardown(page: Page, label: string): Promise<number | null
 }
 
 /**
+ * #1258 PM 6132878919 — FAIL FAST AFTER A FATAL START FAILURE. Alpha run 38304068207 hung for 32 minutes: the next
+ * Start failed, `boundedTeardown` left the page on about:blank, and the Focus-only product-switch step then waited
+ * forever for the Products menu on that blank page. A step that drives the CURRENT page (no fresh navigation of its own)
+ * first calls `stopIfPageTornDown`: on a torn-down page it records one FAIL row naming why and throws
+ * `RwtJourneyStopped`, so the spec's `finally` still writes the receipt and runs run-owned cleanup, and the test fails.
+ */
+export const JOURNEY_STOPPED_ROW = 'journey stopped after a fatal failure';
+export class RwtJourneyStopped extends Error {
+    constructor(readonly afterStep: string) {
+        super(`${JOURNEY_STOPPED_ROW}: the page was torn down after "${afterStep}"`);
+        this.name = 'RwtJourneyStopped';
+    }
+}
+export function stopIfPageTornDown(receipt: RwtReceipt, page: Page, afterStep: string, nextStep: string): void {
+    if (!page.isClosed() && page.url() !== 'about:blank') return;
+    receipt.row(JOURNEY_STOPPED_ROW, 'FAIL',
+        `the page was torn down after "${afterStep}", so "${nextStep}" and the steps after it did not run`,
+        { afterStep, nextStep });
+    throw new RwtJourneyStopped(afterStep);
+}
+
+/**
  * One entitlement row from the first `check-usage-limit` verdict the page received. `requiredSeconds` is the
  * recording time this journey needs; no observed verdict is a HOLD (the gate proves nothing), never a pass.
  */
