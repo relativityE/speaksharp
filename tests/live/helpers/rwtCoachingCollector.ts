@@ -360,7 +360,8 @@ export async function coachingPromptBindingRow(input: {
  *  - `browserRequests`: `get-ai-suggestions` POSTs the BROWSER sent (the tap's request count, including any unanswered);
  *  - `answered`: those that returned a response the tap could read;
  *  - `providerAttemptsReported`: the sum of `diagnostics.provider_attempts` the EDGE function reported for the answered
- *    requests — the server's own provider-invocation count, not something the browser can observe directly.
+ *    requests — the server's own provider-invocation count, not something the browser can observe directly. Only a
+ *    nonnegative safe-integer count is summed; a malformed count is reported (`malformedProviderAttempts`), never summed.
  * A browser count is not a provider-invocation count, and the client may retry, so both are bounded. FAIL when either
  * exceeds `maximum` or any listed take received more than one request; HOLD when a sent request has no readable Edge
  * diagnostics (provider invocations unprovable). PASS only when every sent request was answered with readable
@@ -372,11 +373,16 @@ export function coachingRequestBudgetRow(
     budget: { maximum: number; oneRequestPerSession?: readonly string[] },
 ): void {
     const answered = tap.exchanges.filter((e) => e.status !== null);
-    const readable = answered.filter((e) => Number.isInteger(e.diagnostics?.provider_attempts));
+    // PM RETURN 6121020210: only a nonnegative SAFE integer is a provider-attempt count. A malformed value (negative,
+    // fractional, unsafe, non-numeric) is never summed — so it can neither PASS nor offset a valid count above budget —
+    // and it makes the budget unprovable (HOLD) unless the valid counts already exceed it (FAIL).
+    const validCount = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) >= 0;
+    const readable = answered.filter((e) => validCount(e.diagnostics?.provider_attempts));
+    const malformed = answered.length - readable.length;
     const providerAttemptsReported = readable.reduce((sum, e) => sum + Number(e.diagnostics!.provider_attempts), 0);
     const perSession = (budget.oneRequestPerSession ?? []).map((id) => tap.exchanges.filter((e) => e.sent.sessionId === id).length);
     const exceeded = tap.sentCount > budget.maximum || providerAttemptsReported > budget.maximum || perSession.some((n) => n > 1);
-    const unprovable = !exceeded && (readable.length !== tap.sentCount || answered.length !== tap.sentCount);
+    const unprovable = !exceeded && (malformed > 0 || readable.length !== tap.sentCount || answered.length !== tap.sentCount);
     const verdict: Verdict = exceeded ? 'FAIL' : unprovable ? 'HOLD' : 'PASS';
     receipt.row('coaching request budget', verdict,
         verdict === 'PASS' ? `the whole scenario sent at most ${budget.maximum} coaching request(s) and the Edge reported at most ${budget.maximum} provider attempt(s)`
@@ -384,7 +390,7 @@ export function coachingRequestBudgetRow(
                 : 'a sent coaching request has no readable Edge diagnostics, so provider invocations are unproven',
         {
             maximum: budget.maximum, browserRequests: tap.sentCount, answered: answered.length,
-            withDiagnostics: readable.length, providerAttemptsReported,
+            withDiagnostics: readable.length, malformedProviderAttempts: malformed, providerAttemptsReported,
             maxRequestsForOneTake: perSession.length > 0 ? Math.max(...perSession) : 0,
         });
 }

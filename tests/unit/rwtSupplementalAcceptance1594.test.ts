@@ -187,6 +187,32 @@ describe('#1594 older-take expectation and request budget', () => {
         expect(last().verdict).toBe('HOLD');
     });
 
+    // PM RETURN 6121020210: malformed provider-attempt counts can never PASS, and never offset a valid count.
+    const withAttempts = (sessionId: string, requestId: string, attemptId: string, attempts: unknown) =>
+        ex(sessionId, requestId, attemptId, { diagnostics: { ...ex(sessionId, requestId, attemptId).diagnostics, provider_attempts: attempts } });
+
+    it('CASUALTY [3, -1] under maximum 2: the negative count cannot mask the valid 3 → FAIL (was PASS)', () => {
+        coachingRequestBudgetRow(receipt, { sentCount: 2, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, 3), withAttempts(NEW, NEW_REQ, NEW_ATT, -1)] },
+            { maximum: 2, oneRequestPerSession: [OLD, NEW] });
+        expect(last()).toMatchObject({ verdict: 'FAIL', evidence: { providerAttemptsReported: 3, malformedProviderAttempts: 1 } });
+    });
+
+    it.each([
+        ['a negative count alone', -1],
+        ['an unsafe integer', Number.MAX_SAFE_INTEGER + 2],
+        ['a fractional count', 0.5],
+        ['a numeric string', '1'],
+    ])('CASUALTY: %s is malformed → HOLD, never PASS', (_l, attempts) => {
+        coachingRequestBudgetRow(receipt, { sentCount: 1, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, attempts)] }, { maximum: 2 });
+        expect(last()).toMatchObject({ verdict: 'HOLD', evidence: { malformedProviderAttempts: 1, providerAttemptsReported: 0 } });
+    });
+
+    it('CONTROL: zero (a cache answer) and nonnegative counts within budget still PASS', () => {
+        coachingRequestBudgetRow(receipt, { sentCount: 2, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, 0), withAttempts(NEW, NEW_REQ, NEW_ATT, 2)] },
+            { maximum: 2, oneRequestPerSession: [OLD, NEW] });
+        expect(last()).toMatchObject({ verdict: 'PASS', evidence: { providerAttemptsReported: 2, malformedProviderAttempts: 0 } });
+    });
+
     it('budget PASS for a scenario that must send nothing, and sent nothing', () => {
         coachingRequestBudgetRow(receipt, { sentCount: 0, exchanges: [] }, { maximum: 0 });
         expect(last()).toMatchObject({ verdict: 'PASS', evidence: { browserRequests: 0, providerAttemptsReported: 0 } });
