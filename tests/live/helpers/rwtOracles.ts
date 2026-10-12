@@ -147,7 +147,23 @@ export function focusCoachingProvenanceVerdict(input: { savedVersion: string | n
 export type { ReadbackBinding } from './rwtAcceptance';
 import type { ReadbackActionBinding, ReadbackActionStage, ReadbackBinding } from './rwtAcceptance';
 import { correlateFeedbackAttempts, correlatePracticePresses, type CorrelationEvent } from '../../../frontend/src/services/telemetry/outcomeCorrelation';
-export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds: string[]; missingBindings: string[] }
+export interface ReadbackPlan {
+    journeys: ReadbackBinding[];
+    reportedJourneyIds: string[];
+    missingBindings: string[];
+    /** #1258 F3: one closed, content-free reason per missing binding label; present only when something is missing. */
+    bindingReasons?: Record<string, BindingMissReason>;
+    /** #1258 F3 (PO 2026-10-11): the binding-relevant event order, ids relabelled; present only when something is missing. */
+    bindingSequence?: string;
+}
+
+/** #1258 F3 — why `AnalyticsTap.captureActionBinding` did or did not snapshot an action's identity (closed set). */
+export type ActionCaptureOutcome = 'captured' | 'invalid_identity_input' | 'not_analytics_page' | 'no_current_boot_control'
+    | 'route_not_analytics' | 'boot_not_on_analytics' | 'no_journey';
+export interface ActionCaptureAttempt { stage: ReadbackActionStage; outcome: ActionCaptureOutcome; at?: number }
+/** #1258 F3 — why the oracle left a declared binding unbound (closed set; `no_capture/<outcome>` names the capture's refusal). */
+export type BindingMissReason = 'take_not_started' | 'anchor_not_sent' | 'duplicate_capture' | 'identity_mismatch'
+    | 'boot_not_latest' | 'route_not_latest' | 'anchor_mismatch' | 'no_capture' | `no_capture/${Exclude<ActionCaptureOutcome, 'captured'>}`;
 
 /** A recording take the RUN pressed and saw record, identified by the Start the page sent — never by its save. */
 export interface ExpectedTake { attemptId: string; journeyId: string }
@@ -198,6 +214,8 @@ export function bindReadbackJourneys(
         practiceAgain?: boolean;
         /** Present in live suites: strict action-time binding is mandatory, even if the decoded anchor exists. */
         actionBindings?: readonly ReadbackActionBinding[];
+        /** #1258 F3: the tap's capture outcomes, so an absent action binding reports the capture's own refusal. */
+        actionCaptures?: readonly ActionCaptureAttempt[];
         expectedReleaseSha?: string;
         expectedRunId?: string;
         expectedRunAttempt?: string;
@@ -208,8 +226,10 @@ export function bindReadbackJourneys(
         [...canary].filter((e) => e.event === name).sort((a, b) => a.at - b.at)[0]?.journeyId ?? null;
     const bound = new Map<string, { stages: string[]; attemptIds: string[] }>();
     const missingBindings: string[] = [];
+    const bindingReasons: Record<string, BindingMissReason> = {};
+    let miss: BindingMissReason = 'anchor_not_sent';
     const bind = (journeyId: string | null, stages: readonly string[], label: string, attemptId?: string) => {
-        if (!journeyId) { missingBindings.push(label); return; }
+        if (!journeyId) { missingBindings.push(label); bindingReasons[label] = miss; return; }
         const prev = bound.get(journeyId) ?? { stages: [], attemptIds: [] };
         bound.set(journeyId, {
             stages: [...new Set([...prev.stages, ...stages])],
@@ -219,9 +239,14 @@ export function bindReadbackJourneys(
     const actionJourney = (stage: ReadbackActionStage, anchorName: string): string | null => {
         // Keep legacy pure-oracle callers explicit: live RWT call sites always pass the array, including an empty one,
         // which makes independent action-time identity mandatory and prevents fallback to the anchor under review.
+        miss = 'anchor_not_sent';
         if (plan.actionBindings === undefined) return anchor(anchorName);
         const candidates = plan.actionBindings.filter((binding) => binding.stage === stage);
-        if (candidates.length !== 1) return null;
+        if (candidates.length !== 1) {
+            const refusal = [...(plan.actionCaptures ?? [])].reverse().find((attempt) => attempt.stage === stage && attempt.outcome !== 'captured');
+            miss = candidates.length > 1 ? 'duplicate_capture' : refusal && refusal.outcome !== 'captured' ? `no_capture/${refusal.outcome}` : 'no_capture';
+            return null;
+        }
         const binding = candidates[0];
         const expectedRelease = plan.expectedReleaseSha ?? '';
         const expectedRunId = plan.expectedRunId ?? '';
@@ -248,28 +273,32 @@ export function bindReadbackJourneys(
             && /^[a-f0-9]{40}$/.test(expectedRelease)
             && binding.releaseSha === expectedRelease
             && /^\d{1,20}$/.test(expectedRunId) && binding.runId === expectedRunId
-            && /^\d{1,4}$/.test(expectedRunAttempt) && binding.runAttempt === expectedRunAttempt
-            && routeWasObserved && bootWasObserved;
-        if (!identityIsValid) return null;
+            && /^\d{1,4}$/.test(expectedRunAttempt) && binding.runAttempt === expectedRunAttempt;
+        if (!identityIsValid) { miss = 'identity_mismatch'; return null; }
+        if (!bootWasObserved) { miss = 'boot_not_latest'; return null; }
+        if (!routeWasObserved) { miss = 'route_not_latest'; return null; }
         const sentAnchor = [...canary].filter((event) => event.event === anchorName).sort((a, b) => a.at - b.at)[0];
         if (sentAnchor && (sentAnchor.journeyId !== binding.journeyId
-            || sentAnchor.bootId !== binding.bootId || sentAnchor.releaseSha !== binding.releaseSha)) return null;
+            || sentAnchor.bootId !== binding.bootId || sentAnchor.releaseSha !== binding.releaseSha)) { miss = 'anchor_mismatch'; return null; }
         return binding.journeyId;
     };
     let firstRecording: string | null = null;
     if (plan.recording.length > 0) {
         const first = plan.takes ? plan.takes.first : null;
         firstRecording = plan.takes ? (first?.journeyId ?? null) : anchor('session_saved');
+        miss = plan.takes ? 'take_not_started' : 'anchor_not_sent';
         bind(firstRecording, plan.recording, 'recording', first?.attemptId);
     }
     if (plan.repeatRecording && plan.repeatRecording.length > 0) {
         // Declared repeat recording: the take the run pressed must be identified from its sent Start, or it is a HOLD.
         const repeat = plan.takes?.repeat ?? null;
+        miss = 'take_not_started';
         bind(repeat?.journeyId ?? null, plan.repeatRecording, 'repeat_recording', repeat?.attemptId);
     }
     if (plan.feedback) bind(actionJourney('share_feedback', 'feedback_submit'), ['share_feedback'], 'share_feedback');
     // The v12 PDF is downloaded after the detail reload (Back to Dashboard → Download PDF), so it binds to its own journey.
     if (plan.pdfExport) bind(actionJourney('session_pdf_export', 'session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
+    miss = 'anchor_not_sent';
     if (plan.practiceAgain) bind(anchor('saved_review_practice_action'), ['practice_again'], 'practice_again');
     const journeys = [...bound].map(([journeyId, { stages, attemptIds }]) => ({
         journeyId, stages,
@@ -277,7 +306,47 @@ export function bindReadbackJourneys(
         ...(attemptIds.length > 0 ? { attemptIds } : {}),
     }));
     const reportedJourneyIds = [...new Set(canary.map((e) => e.journeyId as string))].filter((j) => !bound.has(j));
-    return { journeys, reportedJourneyIds, missingBindings };
+    return {
+        journeys, reportedJourneyIds, missingBindings,
+        ...(missingBindings.length > 0 ? { bindingReasons, bindingSequence: bindingSequence(events, plan.actionCaptures ?? []) } : {}),
+    };
+}
+
+const SEQUENCE_EVENTS: Record<string, string> = {
+    telemetry_positive_control: 'control', feedback_submit: 'feedback', session_pdf_downloaded: 'pdf',
+    saved_review_practice_action: 'practice',
+};
+const SEQUENCE_MAX_TOKENS = 60;
+
+/**
+ * #1258 F3 (PO 2026-10-11): the order the tap SAW the binding-relevant events and capture attempts, so a missing binding
+ * is diagnosable from the receipt alone. Content-free by construction: boots and journeys become B1/J1… in order of first
+ * appearance (no ids), routes are the app's route classes, times are ms after the first token (tap send time), and
+ * non-canary traffic is marked `u:`. Only the last SEQUENCE_MAX_TOKENS tokens are kept.
+ */
+export function bindingSequence(
+    events: readonly { event: string; at: number; journeyId?: string; bootId?: string; trafficType?: string; journeyStep?: string; toRoute?: string }[],
+    captures: readonly ActionCaptureAttempt[],
+): string {
+    const labels = new Map<string, string>();
+    const label = (prefix: 'B' | 'J', id: string | undefined): string => {
+        if (!id) return `${prefix}?`;
+        const key = `${prefix}:${id}`;
+        if (!labels.has(key)) labels.set(key, `${prefix}${[...labels.keys()].filter((k) => k.startsWith(`${prefix}:`)).length + 1}`);
+        return labels.get(key) as string;
+    };
+    const raw: Array<{ at: number; describe: () => string }> = [];
+    for (const e of events) {
+        const name = e.event === 'journey_step' && e.journeyStep === 'route_change' ? `route>${e.toRoute ?? '?'}` : SEQUENCE_EVENTS[e.event];
+        if (!name) continue;
+        raw.push({ at: e.at, describe: () => `${e.trafficType === 'canary' ? '' : 'u:'}${label('B', e.bootId)}/${label('J', e.journeyId)} ${name}` });
+    }
+    for (const c of captures) if (typeof c.at === 'number') raw.push({ at: c.at, describe: () => `capture ${c.stage}=${c.outcome}` });
+    // Labels are assigned in time order, after sorting, so B1/J1 is always the earliest boot/journey shown.
+    raw.sort((a, b) => a.at - b.at);
+    const tokens = raw.map((t) => ({ at: t.at, text: t.describe() }));
+    const origin = tokens[0]?.at ?? 0;
+    return tokens.slice(-SEQUENCE_MAX_TOKENS).map((t) => `+${Math.max(0, t.at - origin)} ${t.text}`).join('; ');
 }
 
 export { runJourneyIds } from './rwtAcceptance';

@@ -819,6 +819,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 // #1258 (#1563, Codex r4197420116): the received press→arrival is required of Focus as of Open Mic.
                 practiceAgain: true,
                 actionBindings: tap.actionBindings,
+                actionCaptures: tap.actionCaptures,
                 expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
                 expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
             }),
