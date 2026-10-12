@@ -6,6 +6,7 @@ import { issueReportService } from '@/services/issueReportService';
 import { toast } from '@/lib/toast';
 import { clearLoginSessions, recordSavedSession, setCurrentLogin, LOGIN_SESSION_LOG_KEY } from '@/services/loginSessionLog';
 import { FEEDBACK_DRAFT_KEY } from '@/services/feedbackDraft';
+import { rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
 
 const emitted: Array<{ event: string; props: Record<string, unknown> }> = [];
 vi.mock('@/services/telemetry/safeEmit', () => ({
@@ -34,6 +35,7 @@ const open = async (route = '/session', userId = 'u1') => {
 
 describe('#1404 Share feedback redesign', () => {
   beforeEach(() => {
+    emitted.length = 0;
     submit.mockReset();
     submit.mockResolvedValue({ id: 'report-1' });
     vi.mocked(toast.success).mockClear();
@@ -93,6 +95,51 @@ describe('#1404 Share feedback redesign', () => {
     expect(value.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i);
     expect(JSON.stringify(value)).not.toContain('transcript');
     expect(toast.success).toHaveBeenCalledWith('Thanks — we’ve got it.');
+  });
+
+  it('attaches an exact-session coaching reference to feedback storage and telemetry only', async () => {
+    setCurrentLogin('u1', 1000);
+    recordSavedSession('u1', 1000, { key: UUID, product: 'open_mic', savedAt: Date.now() });
+    const diagnosticId = '230bbc6c-5d89-465d-91e6-51f5a5951e34';
+    rememberCoachingDiagnostic(UUID, diagnosticId);
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-broke'));
+    await user.type(screen.getByTestId('issue-report-description'), 'Coaching did not load.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].metadata.coaching_diagnostic_ref).toBe(diagnosticId);
+    const feedbackEvents = emitted.filter((row) => row.event === 'feedback_submit');
+    expect(feedbackEvents.map((row) => row.props.coaching_diagnostic_id)).toEqual([diagnosticId, diagnosticId]);
+    expect(JSON.stringify(feedbackEvents)).not.toContain(UUID);
+    expect(JSON.stringify(feedbackEvents)).not.toContain('Coaching did not load');
+  });
+
+  it('does not attach the current coaching reference to No session feedback', async () => {
+    rememberCoachingDiagnostic(UUID, '230bbc6c-5d89-465d-91e6-51f5a5951e34');
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-broke'));
+    await user.type(screen.getByTestId('issue-report-description'), 'A general comment.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].sessionId).toBeNull();
+    expect(submit.mock.calls[0][0].metadata.coaching_diagnostic_ref).toBeNull();
+    expect(emitted.filter((row) => row.event === 'feedback_submit').every((row) => !('coaching_diagnostic_id' in row.props))).toBe(true);
+  });
+
+  it('keeps the same diagnostic reference on a failed feedback storage attempt', async () => {
+    setCurrentLogin('u1', 1000);
+    recordSavedSession('u1', 1000, { key: UUID, product: 'open_mic', savedAt: Date.now() });
+    const diagnosticId = '230bbc6c-5d89-465d-91e6-51f5a5951e34';
+    rememberCoachingDiagnostic(UUID, diagnosticId);
+    submit.mockRejectedValueOnce(Object.assign(new Error('storage unavailable'), { code: 'XX000' }));
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-broke'));
+    await user.type(screen.getByTestId('issue-report-description'), 'The coaching card failed.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(screen.getByText('That didn’t go through. Try again?')).toBeInTheDocument());
+    expect(submit.mock.calls[0][0].metadata.coaching_diagnostic_ref).toBe(diagnosticId);
+    expect(emitted.filter((row) => row.event === 'feedback_submit').map((row) => row.props.coaching_diagnostic_id))
+      .toEqual([diagnosticId, diagnosticId]);
   });
 
   it.each([

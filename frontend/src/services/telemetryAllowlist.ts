@@ -100,6 +100,7 @@ export type FieldRule =
     | { kind: 'bool' }
     /** Constrained token: no spaces, no query strings, no control characters, no prose. */
     | { kind: 'slug'; maxLength: number }
+    | { kind: 'uuid' }
     | { kind: 'sha256' }
     /** In-app path such as `/analytics`. Rejects query strings and fragments, which carry data. */
     | { kind: 'route'; maxLength: number }
@@ -111,6 +112,7 @@ export type FieldRule =
 
 const enumOf = (values: readonly string[]): FieldRule => ({ kind: 'enum', values });
 const slug = (maxLength = 64): FieldRule => ({ kind: 'slug', maxLength });
+const uuid: FieldRule = { kind: 'uuid' };
 
 /** Shared fragments. Composed per event — never a global name→rule map. */
 const EXPERIMENT_FIELDS = {
@@ -489,6 +491,7 @@ export const EVENT_SCHEMAS = Object.freeze({
             'network', 'timeout', 'server_error', 'unknown']),
         elapsed_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
         submit_seq: { kind: 'int', min: 1, max: 100 } as FieldRule,
+        coaching_diagnostic_id: uuid,
     },
 
     /**
@@ -647,6 +650,37 @@ export const EVENT_SCHEMAS = Object.freeze({
     practice_loop_review_failed: {
         reason: enumOf(PRACTICE_LOOP_REVIEW_FAILURE_REASONS),
     },
+    // #1258 — a content-free request/attempt record. The opaque ids join the server diagnostic to the feedback row;
+    // transcripts, phrases, session UUIDs, provider error text and credentials stay out.
+    ai_coaching_diagnostic: {
+        diagnostic_request_id: uuid,
+        diagnostic_attempt_id: uuid,
+        client_attempt: { kind: 'int', min: 1, max: 2 } as FieldRule,
+        outcome: enumOf(['success', 'retrying', 'failure', 'superseded', 'network_failure']),
+        phase: enumOf(['request', 'auth', 'session', 'focus', 'cache', 'entitlement', 'quota', 'provider', 'persist', 'complete', 'client']),
+        reason: enumOf([
+            'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
+            'focus_context_unavailable', 'focus_results_pending', 'transcript_unavailable', 'product_unknown',
+            'service_configuration', 'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded',
+            'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
+            'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed',
+            'internal_error', 'network', 'invalid_response', 'unavailable',
+        ]),
+        status: { kind: 'int', min: 0, max: 599 } as FieldRule,
+        provider_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
+        provider: enumOf(['google_gemini', 'none']),
+        configured_model: slug(128),
+        observed_model: slug(128),
+        source: enumOf(['fresh', 'cache', 'unknown']),
+        provider_attempts: { kind: 'int', min: 0, max: 2 } as FieldRule,
+        retry_count: { kind: 'int', min: 0, max: 4 } as FieldRule,
+        provider_duration_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        total_duration_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        prompt_sha256: { kind: 'sha256' } as FieldRule,
+        product: enumOf(['open_mic', 'focus_points', 'unknown']),
+        has_session: { kind: 'bool' } as FieldRule,
+        client_release_id: slug(64),
+    },
 
     // ── live-coaching experiment ────────────────────────────────────────────
     // `target_label` is deliberately ABSENT: generated copy ("Next target 7.5"), not a dimension.
@@ -741,6 +775,9 @@ function matchesRule(rule: FieldRule, value: unknown): boolean {
         case 'slug':
             return typeof value === 'string' && value.length > 0
                 && value.length <= rule.maxLength && SLUG.test(value);
+        case 'uuid':
+            return typeof value === 'string'
+                && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
         case 'sha256':
             return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
         case 'route':

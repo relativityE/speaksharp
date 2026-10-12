@@ -378,8 +378,9 @@ describe('product-row inventory: a receipt missing any product outcome can never
 
     it('every product row name is one the suites actually write (the inventory cannot drift from the source)', () => {
         const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
+        // #1258 (PM 6114590729): the coaching diagnostic chain and prompt-binding rows are written by their shared helpers.
         const writers = ['live/helpers/rwtJourney.ts', 'live/rwt-open-mic-first-session.live.spec.ts', 'live/helpers/rwtFocusPointsJourney.ts',
-            'live/rwt-products-navigation.live.spec.ts'].map(src).join('\n');
+            'live/rwt-products-navigation.live.spec.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts'].map(src).join('\n');
         for (const s of SUITES) for (const step of requiredAutomatedRows(s.suite)!.product) {
             expect({ step, written: writers.includes(`'${step}'`) }).toEqual({ step, written: true });
         }
