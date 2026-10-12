@@ -16,6 +16,8 @@ import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPa
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
 import { FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
+import { trackAiCoachingDiagnostic, type AiCoachingDiagnosticTelemetry } from '@/services/practiceLoopTelemetry';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -111,6 +113,66 @@ const errorStatus = (err: unknown): number | null => {
 const isTransportFailure = (err: unknown): boolean => {
   const name = (err as { name?: unknown } | null)?.name;
   return name === 'FunctionsFetchError' || name === 'TypeError' || name === 'AbortError';
+};
+
+const readServerDiagnostic = async (value: unknown): Promise<Record<string, unknown> | null> => {
+  const direct = (value as { diagnostics?: unknown } | null)?.diagnostics;
+  if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct as Record<string, unknown>;
+  const context = (value as { context?: unknown } | null)?.context;
+  if (context instanceof Response) {
+    try {
+      const payload: unknown = await context.clone().json();
+      const diagnostic = (payload as { diagnostics?: unknown } | null)?.diagnostics;
+      return diagnostic && typeof diagnostic === 'object' && !Array.isArray(diagnostic)
+        ? diagnostic as Record<string, unknown> : null;
+    } catch { return null; }
+  }
+  return null;
+};
+
+const validUuid = (value: unknown): value is string => typeof value === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const diagnosticEvent = (
+  server: Record<string, unknown> | null,
+  input: { requestId: string | null; attemptId: string | null; clientAttempt: number; outcome: AiCoachingDiagnosticTelemetry['outcome']; reason: string; totalMs: number; product?: 'open_mic' | 'focus_points'; },
+): AiCoachingDiagnosticTelemetry => {
+  const release = typeof window !== 'undefined' ? window.__APP_RUNTIME_CONFIG__?.release : null;
+  const boundedInt = (value: unknown, max: number): number | null =>
+    Number.isInteger(value) && Number(value) >= 0 ? Math.min(max, Number(value)) : null;
+  const knownReason = new Set([
+    'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
+    'focus_context_unavailable', 'focus_results_pending', 'transcript_unavailable', 'product_unknown',
+    'service_configuration', 'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded',
+    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
+    'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed',
+    'internal_error', 'network', 'invalid_response', 'unavailable',
+  ]);
+  const phase = new Set(['request', 'auth', 'session', 'focus', 'cache', 'entitlement', 'quota', 'provider', 'persist', 'complete', 'client']);
+  return {
+    ...(validUuid(server?.request_id) || input.requestId
+      ? { diagnostic_request_id: validUuid(server?.request_id) ? server!.request_id as string : input.requestId! } : {}),
+    ...(validUuid(server?.attempt_id) || input.attemptId
+      ? { diagnostic_attempt_id: validUuid(server?.attempt_id) ? server!.attempt_id as string : input.attemptId! } : {}),
+    client_attempt: input.clientAttempt,
+    outcome: input.outcome,
+    phase: typeof server?.phase === 'string' && phase.has(server.phase) ? server.phase : 'client',
+    reason: typeof server?.reason === 'string' && knownReason.has(server.reason) ? server.reason : input.reason,
+    status: boundedInt(server?.status, 599),
+    provider_status: boundedInt(server?.provider_status, 599),
+    provider: server?.provider === 'google_gemini' ? 'google_gemini' : 'none',
+    configured_model: typeof server?.configured_model === 'string' ? server.configured_model : null,
+    observed_model: typeof server?.observed_model === 'string' ? server.observed_model : null,
+    source: server?.source === 'fresh' || server?.source === 'cache' ? server.source : 'unknown',
+    provider_attempts: boundedInt(server?.provider_attempts, 2) ?? 0,
+    retry_count: boundedInt(server?.retry_count, 4) ?? 0,
+    provider_duration_ms: boundedInt(server?.provider_duration_ms, 600_000),
+    total_duration_ms: boundedInt(server?.total_duration_ms, 600_000) ?? Math.min(600_000, Math.max(0, Math.round(input.totalMs))),
+    prompt_sha256: typeof server?.prompt_sha256 === 'string' && /^[0-9a-f]{64}$/i.test(server.prompt_sha256) ? server.prompt_sha256 : null,
+    product: input.product ?? 'unknown',
+    has_session: true,
+    client_release_id: typeof release === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(release) ? release : null,
+  };
 };
 
 /**
@@ -447,6 +509,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       && activeSessionRef.current === requestSessionId
       && requestGenerationRef.current === requestGeneration;
 
+    const diagnosticRequestId = createCoachingDiagnosticId();
+    if (diagnosticRequestId) rememberCoachingDiagnostic(requestSessionId, diagnosticRequestId);
+
     trackPracticeLoopReviewRequested();
 
     /**
@@ -463,6 +528,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
      */
     let pendingWaits = 0;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const diagnosticAttemptId = createCoachingDiagnosticId();
+      const attemptStartedAt = performance.now();
+      let serverDiagnostic: Record<string, unknown> | null = null;
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null, retrying: false });
       setFailureReasonFor(null);
       let failure: SafeSuggestionError;
@@ -474,8 +542,19 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
           // Never send caller-owned evidence that could be swapped between session ids.
           // #1538 Codex P1 r4118176188: `accepted_coaching_versions` is the closed capability that tells the server this
           // client reads Focus provenance. Without it (a tab on an older bundle) the server answers a v1-labelled copy.
-          body: { sessionId: sessionId || null, ...(product ? { product } : {}), accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
+          body: {
+            sessionId: requestSessionId,
+            ...(product ? { product } : {}),
+            accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS,
+            ...(diagnosticRequestId ? { diagnostic_request_id: diagnosticRequestId } : {}),
+            ...(diagnosticAttemptId ? { diagnostic_attempt_id: diagnosticAttemptId } : {}),
+            client_attempt: attempt,
+            ...(typeof window !== 'undefined' && typeof window.__APP_RUNTIME_CONFIG__?.release === 'string'
+              ? { client_release_id: window.__APP_RUNTIME_CONFIG__.release } : {}),
+          },
         });
+
+        serverDiagnostic = await readServerDiagnostic(data);
 
         if (invokeError) {
           throw invokeError;
@@ -488,6 +567,11 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
         const persistedSuggestions = parseAISuggestions(data?.suggestions, product);
         if (persistedSuggestions) {
+          trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+            requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+            outcome: isCurrentRequest() ? 'success' : 'superseded', reason: isCurrentRequest() ? 'none' : 'unavailable',
+            totalMs: performance.now() - attemptStartedAt, product,
+          }));
           if (isCurrentRequest()) {
             // Success from this endpoint means the exact result was persisted and read back server-side.
             trackPracticeLoopReviewCompleted();
@@ -498,9 +582,16 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         }
         failure = { reason: 'invalid_response', message: UNAVAILABLE_MESSAGE };
       } catch (err: unknown) {
+        serverDiagnostic = await readServerDiagnostic(err);
         // #1258 — Focus Points results not saved yet: nothing was spent, so wait and ask again (still "coming",
         // never an error), without consuming a lifecycle attempt. Bounded by FOCUS_RESULTS_PENDING_WAITS.
         if (errorStatus(err) === 425 && pendingWaits < FOCUS_RESULTS_PENDING_WAITS) {
+          serverDiagnostic = await readServerDiagnostic(err);
+          trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+            requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+            outcome: 'retrying', reason: 'focus_results_pending',
+            totalMs: performance.now() - attemptStartedAt, product,
+          }));
           pendingWaits += 1;
           if (!isCurrentRequest()) return;
           const proceed = await new Promise<boolean>((resolve) => {
@@ -517,9 +608,22 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         failure = getSafeAiSuggestionError(err, await readClosedCode(err));
       }
 
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) {
+        trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+          requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+          outcome: 'superseded', reason: 'unavailable', totalMs: performance.now() - attemptStartedAt, product,
+        }));
+        return;
+      }
 
-      if (attempt === 1 && !TERMINAL_REASONS.has(failure.reason)) {
+      const shouldRetry = attempt === 1 && !TERMINAL_REASONS.has(failure.reason);
+      trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+        requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+        outcome: shouldRetry ? 'retrying' : failure.reason === 'network' ? 'network_failure' : 'failure',
+        reason: failure.reason, totalMs: performance.now() - attemptStartedAt, product,
+      }));
+
+      if (shouldRetry) {
         setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: true });
         const proceed = await new Promise<boolean>((resolve) => {
           retryTimerRef.current = setTimeout(() => {

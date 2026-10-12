@@ -133,6 +133,8 @@ export function emitFeedbackSubmit(input: {
     elapsedMs?: number;
     /** #1258: which Send in this dialog opening; links `attempted` to its outcome inside the journey. */
     submitSeq?: number;
+    /** Exact opaque coaching request reference when the selected session has one. */
+    coachingDiagnosticId?: string | null;
 }): void {
     safeEmit('feedback_submit', {
         outcome: input.outcome,
@@ -142,6 +144,7 @@ export function emitFeedbackSubmit(input: {
         ...(input.errorCategory === undefined ? {} : { error_category: input.errorCategory }),
         ...(input.elapsedMs === undefined ? {} : { elapsed_ms: Math.max(0, Math.min(600_000, Math.round(input.elapsedMs))) }),
         ...(input.submitSeq === undefined ? {} : { submit_seq: input.submitSeq }),
+        ...(input.coachingDiagnosticId ? { coaching_diagnostic_id: input.coachingDiagnosticId } : {}),
     }, 'HIGH');
 }
 

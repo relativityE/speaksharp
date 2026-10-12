@@ -53,7 +53,7 @@ export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
  * cause in the receipt itself. Anything outside the closed set reads 'unrecognized', so no free text enters the receipt.
  */
 export const COACHING_FAILURE_REASONS = [
-    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'missing_text', 'invalid_shape',
+    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
     'over_character_ceiling', 'missing_model_version',
 ] as const;
 export function coachingFailureReason(body: unknown): string | null {

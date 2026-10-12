@@ -94,6 +94,11 @@ import {
     backFromProgressRows,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
+import { productFillerCount } from './helpers/rwtFillerOracle';
+import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
+import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
+import { coachingPromptBindingRow } from './helpers/rwtCoachingCollector';
+import { coachingContract } from './helpers/rwtCoachingEvidence';
 
 const SUITE = 'open-mic-first-session';
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
@@ -139,9 +144,6 @@ const FILLER_KEY: Record<string, string> = { um: 'um', uh: 'uh', ah: 'ah', 'you 
  */
 const COACHABLE_KEYS = ['um', 'uh', 'ah'] as const;
 const normaliseKey = (word: string): string => word.trim().toLowerCase().replace(/\s+/g, '_');
-/** Occurrences of a spoken filler in text — counted in Node, never stored. */
-const occurrences = (text: string, spoken: string): number =>
-    (text.toLowerCase().match(new RegExp(`\\b${spoken.replace(/\s+/g, '\\s+')}\\b`, 'g')) ?? []).length;
 /** WebGPU runs need a GPU-capable runner; GitHub's hosted Linux runners have none. Declared, never inferred. */
 const WEBGPU = process.env.RWT_WEBGPU === '1';
 
@@ -213,6 +215,10 @@ test.describe('RWT — Open Mic first session @live', () => {
         tap.attach(page);
         const entitlement = new EntitlementTap();
         entitlement.attach(page);
+        // #1258 (PM 6114590729): every coaching exchange at the request boundary — the ids the page sent and the Edge
+        // function's own answer — held in memory for the diagnostic chain and the restricted synthetic artifact only.
+        const generations = new CoachingGenerationTap();
+        generations.attach(page);
         await installMicAcquisitionCounter(page);
         await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
         const coaching: { status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null } = { status: null, requests: 0, reason: null, reasonRead: null };
@@ -247,6 +253,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         let shownNext = '';
         let savedWell = '';
         let savedNext = '';
+        // The Practice-again pass's saved take: the coaching evidence's repeat take.
+        let repeatSessionId: string | null = null;
         try {
             // ── Row 1 — sign up, then sign back in through the real form ────────────────────────────────
             await test.step('row 1 — sign up and sign in', async () => {
@@ -492,7 +500,8 @@ test.describe('RWT — Open Mic first session @live', () => {
 
                 // Per word: what the transcript contains, what the live display showed, what was saved.
                 for (const [spoken, key] of Object.entries(FILLER_KEY)) {
-                    const inTranscript = occurrences(transcript, spoken);
+                    // #1258 F2: the product's own definition (variants included), the same recount the saved row came from.
+                    const inTranscript = productFillerCount(transcript, key);
                     const marked = liveMarks[key] ?? 0;
                     const saved = counts[key] ?? 0;
                     // #1550 Codex P1 r4161436378: the review (FillerBreakdown) renders only COACHABLE keys. A discourse
@@ -526,7 +535,8 @@ test.describe('RWT — Open Mic first session @live', () => {
 
                 // Against the corpus. Synthetic "uh" is a HOLD, never a pass; the run never claims all eight were heard.
                 for (const [spoken, expected] of Object.entries(fixture.entry.groundTruthFillers ?? {})) {
-                    const inTranscript = occurrences(transcript, spoken);
+                    const key = FILLER_KEY[spoken] ?? normaliseKey(spoken);
+                    const inTranscript = productFillerCount(transcript, key);
                     const limited = fixture.entry.kind === 'synthetic' && spoken === 'uh';
                     if (limited) {
                         // Synthetic audio cannot prove "uh"; the human-spoken take is the acceptance check (runbook row 4).
@@ -613,6 +623,17 @@ test.describe('RWT — Open Mic first session @live', () => {
                 feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid, tap);
             });
 
+            // ── Row 7 (continued) — the stored report resolves to the exact coaching request (#1589 → #1590, PM 6114590729).
+            // The request → session binding is the request the page SENT for the saved take; the stored link is the report's
+            // metadata.coaching_diagnostic_ref. Closed reason codes only leave this step. ─────────────────────────────────
+            await test.step('row 7 — feedback diagnostic chain', async () => {
+                await generations.settle();
+                await feedbackDiagnosticChainRow({
+                    receipt, admin: admin as never, userId: capturedUid, reportId: feedbackReportId, currentSessionId: persistedId,
+                    exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'open_mic',
+                });
+            });
+
             // ── The next Start is not held behind the Progress evaluation (#1471) ───────────────────────
             // ── Progress: the saved session was evaluated and owes nothing (#1471 / #1521) ─────────────
             await test.step('Progress evaluation recorded; nothing owed', async () => {
@@ -655,6 +676,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
+                repeatSessionId = again.savedSessionId;
                 // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Open Mic.
                 await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', [persistedId, again.savedSessionId]);
             });
@@ -662,6 +684,21 @@ test.describe('RWT — Open Mic first session @live', () => {
             await test.step('next Start without a hold', async () => {
                 const next = await nextStartEvidence(page, `${SUITE}-next`);
                 nextStartRows(receipt, next);
+            });
+
+            // ── Real coaching provenance: the restricted synthetic artifact (PM 6114451615 / 6114547673) ──────────────
+            // Both takes' coaching is bound to their saved prompt inputs and the server generation receipt. The artifact
+            // goes ONLY to the explicitly configured private directory outside every checkout/output/upload tree; the
+            // receipt carries closed codes, the per-take binding verdicts and the artifact SHA-256.
+            await test.step('coaching prompt binding — restricted synthetic artifact', async () => {
+                await generations.settle();
+                await coachingPromptBindingRow({
+                    receipt, page, admin: admin as never, exchanges: generations.exchanges,
+                    fixture: { key: fixture.key, kind: fixture.entry.kind, sha256: fixture.entry.kind === 'synthetic' ? fixture.entry.sha256 : undefined },
+                    suiteId: SUITE, product: 'open_mic', userId: capturedUid, firstSessionId: persistedId, repeatSessionId,
+                    firstRendered: shownWell && shownNext ? { version: 'gemini_coaching_v1', what_worked: shownWell, what_to_try_next: shownNext } : null,
+                    releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
+                });
             });
         } finally {
             // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.

@@ -56,6 +56,8 @@ import {
  */
 const CONTROLLED_EVIDENCE_TRAFFIC: readonly (typeof TRAFFIC_TYPES[number])[] = ['canary', 'internal_test'];
 import { GOVERNED_EVENTS } from '../frontend/src/services/telemetryAllowlist';
+import { createHash } from 'node:crypto';
+import { evaluateCoachingDiagnosticReceipt, validExpectation } from '../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 
 /** #1258 (#1563): the exit code for an OBSERVED received failure, distinct from HOLD (1). rc-gates.yml records it as FAIL. */
 const READBACK_FAIL_EXIT = 3;
@@ -277,6 +279,46 @@ async function main(): Promise<void> {
     const identity = resolveQualifyingIdentity(identityRows);
     if (!identity.ok) hold(`journey ${journeyId}: ${identity.reason}`);
     const qualifyingIdentity = identity.distinctId;
+
+    /**
+     * #1258 H1 (PM 6115110576) — THE RECEIVED COACHING-DIAGNOSTIC CHAIN (opt-in, one run of this mode per receipt).
+     *
+     * The coaching request lands in the recording journey and Share Feedback in the post-reload journey, so this is not a
+     * per-journey stage: it reads both governed events for the SAME qualifying identity (derived above from the anchor
+     * journey) and release, and compares SHA-256 digests of the received ids with the digests the receipt recorded at the
+     * sent boundary. Named governed fields only; ids are hashed in memory and never printed. Exit 0 PASS, 3 FAIL, 1 HOLD.
+     */
+    if (process.env.TELEMETRY_READBACK_COACHING_DIAGNOSTIC === '1') {
+        let expected: unknown = null;
+        try { expected = JSON.parse(process.env.COACHING_DIAGNOSTIC_EXPECTATION ?? 'null'); } catch { expected = null; }
+        if (!validExpectation(expected)) hold('COACHING_DIAGNOSTIC_EXPECTATION is missing or malformed — the receipt named no sent request to bind');
+        const coachingRows = await runQuery(`
+            SELECT event, properties.diagnostic_request_id, properties.diagnostic_attempt_id, properties.outcome, properties.product,
+                   properties.configured_model, properties.observed_model, properties.status, properties.provider_status,
+                   properties.client_release_id, properties.coaching_diagnostic_id, properties.source, properties.provider_attempts
+            FROM events
+            WHERE event IN ('ai_coaching_diagnostic', 'feedback_submit')
+              AND timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
+              AND properties.release_sha = ${sql(releaseSha)}
+              AND properties.traffic_type = ${sql(trafficType)}
+              AND distinct_id = ${sql(qualifyingIdentity)}
+            ORDER BY timestamp ASC
+            LIMIT 500
+        `, 'the coaching diagnostic receipt');
+        if (coachingRows.length >= 500) hold('the coaching diagnostic receipt reached its row limit — absence cannot be proven');
+        const received = coachingRows.map((row) => {
+            const c = Array.isArray(row) ? row : [];
+            return {
+                event: c[0], requestId: c[1], attemptId: c[2], outcome: c[3], product: c[4], configuredModel: c[5],
+                observedModel: c[6], status: c[7], providerStatus: c[8], clientReleaseId: c[9], coachingDiagnosticId: c[10],
+                source: c[11], providerAttempts: c[12],
+            };
+        });
+        const sha256 = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
+        const outcome = evaluateCoachingDiagnosticReceipt(received, expected, releaseSha, sha256);
+        console.log(`COACHING_DIAGNOSTIC_RECEIPT ${JSON.stringify({ release_sha: releaseSha, anchor_journey_id: journeyId, traffic_type: trafficType, ...outcome })}`);
+        process.exit(outcome.verdict === 'PASS' ? 0 : outcome.verdict === 'FAIL' ? READBACK_FAIL_EXIT : 1);
+    }
 
     /**
      * #1421 P1 — TIMESTAMP AND JOURNEY COME BACK TOO, so the pre-journey receipts can be bound to the

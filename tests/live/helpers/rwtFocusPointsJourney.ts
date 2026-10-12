@@ -19,6 +19,10 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
+import { CoachingGenerationTap } from './coachingGenerationTap';
+import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
+import { coachingPromptBindingRow } from './rwtCoachingCollector';
+import { coachingContract } from './rwtCoachingEvidence';
 import {
     AnalyticsTap,
     RwtReceipt,
@@ -139,6 +143,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     tap.attach(page);
     const entitlement = new EntitlementTap();
     entitlement.attach(page);
+    // #1258 (PM 6114590729): every coaching exchange at the request boundary, in memory only (diagnostic chain + artifact).
+    const generations = new CoachingGenerationTap();
+    generations.attach(page);
     await installMicAcquisitionCounter(page);
     await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
     await suppressPageSnapshot(testInfo);
@@ -174,6 +181,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     // page sent (takeStartedAfter), independently of whether their saves arrive.
     let firstTakeFrom = 0;
     let repeatWindow: [number, number] | null = null;
+    // The Practice-again pass's saved take: the coaching evidence's repeat take.
+    let repeatSessionId: string | null = null;
     let claimed = false;
     // Codex r4199883470: step markers the finally-block "sent" rows read — a blind beacon sent before a step cannot carry
     // that step's events. Declared here because the rows run in `finally`, outside the steps' scope.
@@ -499,6 +508,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             await test.step('share feedback', async () => {
                 feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, owner.uid, tap);
             });
+            await test.step('feedback diagnostic chain', async () => {
+                await generations.settle();
+                await feedbackDiagnosticChainRow({
+                    receipt, admin: admin as never, userId: owner.uid, reportId: feedbackReportId, currentSessionId: persistedId,
+                    exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'focus_points',
+                });
+            });
         }
 
         // ── Practice again through the rendered controls: Analytics → the same set → the review's Retry (#1533) ──
@@ -516,6 +532,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
             repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
             practiceAgainRows(receipt, 'focus_points', again);
+            repeatSessionId = again.savedSessionId;
             // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Focus Points.
             await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', [persistedId, again.savedSessionId]);
         });
@@ -523,6 +540,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('next Start without a hold', async () => {
             const next = await nextStartEvidence(page, `${suite}-next`);
             nextStartRows(receipt, next);
+        });
+
+        // ── Real coaching provenance: the restricted synthetic artifact (PM 6114451615 / 6114547673). Both takes' pairs
+        // are read from their Analytics detail in a separate tab (the Focus review reader returns the saved pair). ─────
+        await test.step('coaching prompt binding — restricted synthetic artifact', async () => {
+            await generations.settle();
+            await coachingPromptBindingRow({
+                receipt, page, admin: admin as never, exchanges: generations.exchanges,
+                fixture: { key: fixture.key, kind: fixture.entry.kind, sha256: fixture.entry.sha256 },
+                suiteId: suite, product: 'focus_points', userId: owner.uid, firstSessionId: persistedId, repeatSessionId,
+                firstRendered: null, releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
+            });
         });
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──

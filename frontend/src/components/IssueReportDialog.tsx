@@ -27,6 +27,7 @@ import {
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { submitBlockers, lengthBand, emitFeedbackFieldState, emitFeedbackDialogOpened, emitFeedbackSubmit, type FeedbackField, classifyFeedbackStorageError } from '@/services/telemetry/feedbackTelemetry';
+import { coachingDiagnosticForSession } from '@/services/coachingDiagnosticLink';
 
 interface IssueReportDialogProps {
   userId?: string | null;
@@ -434,10 +435,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     setError(null);
     const submitSeq = Math.min(100, ++submitSeqRef.current);
     const attemptedAt = performance.now();
+    const coachingDiagnosticId = coachingDiagnosticForSession(selectedSessionId);
     // The ATTEMPT, recorded before anything can fail. Without it a submit that throws before reaching
     // storage is indistinguishable from a user who never pressed Send — and "I reported it and nothing
     // happened" is precisely the report this instrumentation exists to make legible.
-    emitFeedbackSubmit({ outcome: 'attempted', submitSeq });
+    emitFeedbackSubmit({ outcome: 'attempted', submitSeq, coachingDiagnosticId });
     try {
       const feedbackKind: FeedbackKind = type === 'broke' ? 'issue' : 'comment';
       // #1416 — NULL, NOT A GUESS.
@@ -457,7 +459,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
         title: deriveTitle(body),
         description: body,
         pageUrl: pageContext.canonicalRoute,
-        metadata: buildIssueReportMetadata({ context: pageContext, issueArea, feedbackKind, feedbackType: type, feedbackSeverity: severity, plan, sttMode, runtimeState }),
+        metadata: buildIssueReportMetadata({ context: pageContext, issueArea, feedbackKind, feedbackType: type, feedbackSeverity: severity, plan, sttMode, runtimeState, coachingDiagnosticRef: coachingDiagnosticId }),
         includeAudio: false,
         audioAttachmentNote: null,
         idempotencyKey,
@@ -478,7 +480,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       // the render rather than predicting it.
       emitFeedbackSubmit({
         outcome: 'storage_ok', acknowledgementVisible: true, hasSession: selectedSessionId !== null,
-        submitSeq, elapsedMs: performance.now() - attemptedAt,
+        submitSeq, elapsedMs: performance.now() - attemptedAt, coachingDiagnosticId,
       });
     } catch (err) {
       setAttempted({ key: idempotencyKey, signature: draftSignature });
@@ -487,7 +489,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       // can now see and do, and neither is knowable from the storage layer.
       emitFeedbackSubmit({
         outcome: 'storage_failed', acknowledgementVisible: true, errorCategory: classifyFeedbackStorageError(err),
-        submitSeq, elapsedMs: performance.now() - attemptedAt,
+        submitSeq, elapsedMs: performance.now() - attemptedAt, coachingDiagnosticId,
       });
     } finally {
       setIsSubmitting(false);
