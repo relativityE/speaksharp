@@ -340,7 +340,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(diagnostic.attempt_id, diagnosticAttemptId);
     assertEquals(diagnostic.client_attempt, 1);
     assertEquals(diagnostic.configured_model, coachingContract.model);
-    assertEquals(diagnostic.observed_model, 'gemini-3-flash-preview');
+    assertEquals(diagnostic.observed_model, geminiModelVersion);
     assertEquals(diagnostic.source, 'fresh');
     assertEquals(diagnostic.provider_attempts, 1);
     assertEquals(diagnostic.session_binding_sha256, await sessionBindingDigest('pro-user', 'session-a'));
