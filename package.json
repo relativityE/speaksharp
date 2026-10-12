@@ -27,7 +27,7 @@
     "preview:test": "node scripts/pnpm-only.mjs && cd frontend && pnpm vite preview --mode test",
     "serve:e2e": "node scripts/serve-e2e.mjs",
     "quality": "node scripts/host-interlock.mjs hold local -- pnpm quality:unguarded",
-    "lint": "eslint 'frontend/src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' 'backend/supabase/functions/**/*.ts' --no-cache --report-unused-disable-directives --max-warnings 0",
+    "lint": "node scripts/lint-in-bounded-batches.mjs",
     "typecheck": "cd frontend && pnpm tsc --noEmit",
     "typecheck:live": "node scripts/verify-live-typecheck-scope.mjs && pnpm tsc --noEmit -p tsconfig.live.json",
     "typecheck:evidence": "tsc --noEmit -p tsconfig.evidence.json",

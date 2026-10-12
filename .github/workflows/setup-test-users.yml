@@ -94,10 +94,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
+          set -euo pipefail
           echo "🔐 Generating new SOAK_TEST_PASSWORD..."
           
           # Generate a secure random password
-          NEW_PASSWORD=$(openssl rand -base64 16 | tr -d '/+=' | head -c 20)
+          RAW_PASSWORD=$(openssl rand -base64 32)
+          NEW_PASSWORD=$(printf '%s' "$RAW_PASSWORD" | tr -d '/+=' | head -c 20)
+          if [ "${#NEW_PASSWORD}" -ne 20 ]; then
+            echo "::error::generated password did not meet the required length"
+            exit 1
+          fi
+          unset RAW_PASSWORD
           
           # Set it as a GitHub secret
           gh secret set SOAK_TEST_PASSWORD --body "$NEW_PASSWORD"
