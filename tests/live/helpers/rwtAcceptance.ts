@@ -7,6 +7,7 @@
  * suite, deployed SHA, journey ids and observation set, requires a PASS/FAIL and an observer for every observation,
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
+import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -248,6 +249,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'saved product marker', 'next Start', 'next take stopped, microphone off', 'telemetry sent', 'coaching telemetry sent',
     'inventory events sent', 'revisit is not a generation', 'model download vs setup timing', 'feedback retention',
     'Practice again press → arrival (sent)', 'feedback outcome (sent)',
+    // #1258 (PM 6114590729): the report → exact coaching request chain, and real coaching provenance (prompt binding).
+    'feedback diagnostic chain', 'coaching prompt binding',
 ]);
 const FOCUS_PRODUCT_ROWS = Object.freeze([
     'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
@@ -264,8 +267,11 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'repeated take stopped, microphone off', 'saved product marker', 'next Start', 'next take stopped, microphone off',
     'coverage_evaluation sent', 'Focus coaching telemetry sent', 'revisit is not a generation', 'inventory events sent',
     'model download vs setup timing', 'Practice again press → arrival (sent)',
+    // #1258 (PM 6114590729): real coaching provenance (prompt binding), full and partial alike.
+    'coaching prompt binding',
 ]);
-const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean']);
+const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean',
+    'feedback diagnostic chain']);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
@@ -424,8 +430,50 @@ export interface ReadbackVerdicts {
     release: string;
     journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' | 'FAIL' }[];
     missingBindings: string[];
+    /**
+     * #1258 H1: the received coaching-diagnostic chain (`TELEMETRY_READBACK_COACHING_DIAGNOSTIC`), when the receipt asked for
+     * it — with the exact release and binding it was computed for (PM RETURN 6115229273). A HOLD written when the readback
+     * produced no result carries no binding; it can never settle the row.
+     */
+    coachingDiagnostic?: { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: string[]; release?: string; expected?: Record<string, unknown> };
 }
 const RECEIVED_ROW = 'journey telemetry received';
+const FEEDBACK_CHAIN_ROW = 'feedback diagnostic chain';
+/** The row's sent-boundary binding, in the evaluator's expectation shape (compared field by field, exactly). */
+const rowBinding = (row: ReceiptRow): Record<string, unknown> | null => {
+    const e = row.evidence ?? {};
+    return typeof e.expectedRequestSha256 === 'string'
+        ? { requestSha256: e.expectedRequestSha256, attemptSha256: e.expectedAttemptSha256, product: e.expectedProduct,
+            configuredModel: e.expectedConfiguredModel, outcome: e.expectedOutcome }
+        : null;
+};
+const EXPECTATION_KEYS = ['requestSha256', 'attemptSha256', 'product', 'configuredModel', 'outcome'];
+const sameBinding = (a: Record<string, unknown> | undefined, b: Record<string, unknown> | null): boolean =>
+    !!a && !!b && typeof a === 'object' && Object.keys(a).sort().join() === [...EXPECTATION_KEYS].sort().join()
+    && EXPECTATION_KEYS.every((k) => typeof a[k] === 'string' && a[k] === b[k]);
+
+/**
+ * #1258 H1 (PM 6115110576) — RECEIVED EVIDENCE SETTLES THE FEEDBACK DIAGNOSTIC CHAIN, AND ONLY IT.
+ *
+ * Eligible only when the in-run row is HOLD for exactly `telemetry_not_received` (the rest of the chain already held in
+ * the browser and the database) and carries the sent-boundary digests the readback was bound to. Then the independent
+ * received verdict replaces it: PASS → PASS, FAIL → FAIL, HOLD → HOLD. An in-run FAIL, a HOLD for any other reason, or a
+ * row without the binding is never rewritten — generic journey qualification can never promote it.
+ */
+function settleFeedbackChain(row: ReceiptRow, received: ReadbackVerdicts['coachingDiagnostic']): ReceiptRow {
+    if (row.step !== FEEDBACK_CHAIN_ROW || row.verdict !== 'HOLD' || !received) return row;
+    if (row.evidence?.reasons !== 'telemetry_not_received' || !rowBinding(row)) return row;
+    // Only a result computed for THIS row's exact binding settles it (validated in applyReadback); an unbound HOLD cannot.
+    if (!sameBinding(received.expected, rowBinding(row))) return row;
+    return {
+        ...row,
+        verdict: received.verdict,
+        detail: received.verdict === 'PASS' ? 'received: the coaching diagnostic and the feedback link arrived for the exact sent request (settled at finalization)'
+            : received.verdict === 'FAIL' ? 'received evidence contradicts the run\'s sent request (settled at finalization)'
+                : 'the received coaching diagnostic chain is still incomplete',
+        evidence: { ...row.evidence, receivedReasons: received.reasons.join(',') || 'none', settledByReadback: true },
+    };
+}
 
 /**
  * #1258 (#1570, Codex r4201644107; CLI PM option 1a, 6029321428) — RECEIVED EVIDENCE SETTLES A BLIND "SENT" HOLD.
@@ -474,9 +522,27 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
         return bad('do not match the receipt\'s missing bindings');
     }
     if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
+    const coaching = rb.coachingDiagnostic;
+    if (coaching !== undefined) {
+        if (!coaching || typeof coaching !== 'object' || Array.isArray(coaching)
+            || !Object.keys(coaching).every((k) => ['verdict', 'reasons', 'release', 'expected'].includes(k))
+            || !coherentCoachingResult(coaching.verdict, coaching.reasons)) {
+            return bad('carry a malformed or incoherent coaching diagnostic result');
+        }
+        const bound = coaching.release !== undefined || coaching.expected !== undefined;
+        // A PASS or FAIL is evidence about a specific request, so it must name the release and binding it was computed for.
+        if (coaching.verdict !== 'HOLD' && !bound) return bad('carry a coaching diagnostic verdict with no binding');
+        if (bound) {
+            const chainRow = receipt.rows.find((r) => r.step === FEEDBACK_CHAIN_ROW);
+            if (coaching.release !== receipt.release) return bad('carry a coaching diagnostic result for a different release');
+            if (!chainRow || !sameBinding(coaching.expected, rowBinding(chainRow))) {
+                return bad('carry a coaching diagnostic result bound to a different request, attempt, product, model or outcome');
+            }
+        }
+    }
     const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
-    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? settleBlindHold(receipt.suite, r, journeys) : {
+    return receipt.rows.map((r) => (r.step === FEEDBACK_CHAIN_ROW ? settleFeedbackChain(r, coaching) : r.step !== RECEIVED_ROW ? settleBlindHold(receipt.suite, r, journeys) : {
         ...r,
         verdict: failed > 0 ? 'FAIL' : qualified ? 'PASS' : 'HOLD',
         detail: failed > 0 ? 'the PostHog readback RECEIVED an observed failure for a bound journey (merged at finalization)'

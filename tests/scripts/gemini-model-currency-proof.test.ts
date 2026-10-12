@@ -9,7 +9,7 @@ import {
 } from '../../scripts/gemini-model-currency-proof.mjs';
 
 const contract = {
-  model: 'gemini-3.6-flash',
+  model: 'gemini-3.8-flash',
   version: 'gemini_coaching_v1',
   uncachedGenerationCapPerUtcDay: 10,
   wordTarget: { what_worked: 10, what_to_try_next: 10 },
@@ -28,7 +28,7 @@ const contract = {
   promptTemplate: 'about 8-10 words each\nTranscript: {{TRANSCRIPT}}\nMetrics: {{METRICS}}',
 };
 
-const providerBody = (suggestions: Record<string, unknown>, modelVersion = 'gemini-3.6-flash') => JSON.stringify({
+const providerBody = (suggestions: Record<string, unknown>, modelVersion = 'gemini-3.8-flash') => JSON.stringify({
   modelVersion,
   candidates: [{ content: { parts: [{ text: JSON.stringify(suggestions) }] } }],
 });
@@ -44,6 +44,7 @@ describe('trusted Gemini model proof', () => {
   it('accepts only the established model, daily cap, two fields, the 10-word soft target, and strict schema', () => {
     expect(validateContract(structuredClone(contract))).toEqual(contract);
     expect(() => validateContract({ ...contract, model: 'attacker-controlled' })).toThrow();
+    expect(() => validateContract({ ...contract, model: 'gemini-3.6-flash' })).toThrow();
     expect(() => validateContract({ ...contract, uncachedGenerationCapPerUtcDay: 11 })).toThrow();
     expect(() => validateContract({ ...contract, wordTarget: { ...contract.wordTarget, what_worked: 7 } })).toThrow();
     expect(() => validateContract({
@@ -106,9 +107,9 @@ describe('trusted Gemini model proof', () => {
 
   it('applies the exact production key, version, nonblank, and character-ceiling checks to every response, measuring words without refusing them', () => {
     expect(validateProviderBody(providerBody(validSuggestions), contract).valid).toBe(true);
-    expect(validateProviderBody(providerBody(validSuggestions, 'gemini-other-model'), contract)).toMatchObject({
+    expect(validateProviderBody(providerBody(validSuggestions, 'gemini-3.6-flash'), contract)).toMatchObject({
       valid: false,
-      reason: 'provider model version mismatch: "gemini-other-model"',
+      reason: 'provider model version mismatch: "gemini-3.6-flash"',
     });
     expect(validateProviderBody(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify(validSuggestions) }] } }],

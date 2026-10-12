@@ -3,9 +3,9 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 
-// #1416 — `gemini-3-flash-preview` is a PREVIEW endpoint and Google lists `gemini-3.6-flash` as its
-// successor. Preview shutdowns have run 14 days from announcement, so this is an availability risk in
-// production rather than a version-number preference: the endpoint can disappear inside a sprint.
+// #1416 — the original `gemini-3-flash-preview` endpoint was a PREVIEW channel and could disappear
+// inside a sprint. The selected stable model is pinned in contract.json; runtime URL construction uses
+// that single reviewed value rather than accepting a caller-supplied model ID.
 //
 // The prompt below was tuned against the preview model, so the risk of this change is a SHAPE shift,
 // not a quality one — `parseSuggestions` already rejects any object whose keys are not exactly
@@ -209,10 +209,47 @@ export type CoachingFailureReason =
   | 'provider_http_4xx'
   | 'provider_http_5xx'
   | 'provider_transport'
+  | 'provider_timeout'
   | 'missing_text'
   | 'invalid_shape'
   | 'over_character_ceiling'
   | 'missing_model_version';
+
+const DIAGNOSTIC_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SAFE_MODEL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+const SHA256_HEX = /^[0-9a-f]{64}$/i;
+const CLIENT_RELEASE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+const PROVIDER_TIMEOUT_MS = 20_000;
+const DIAGNOSTIC_REASONS = new Set([
+  'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
+  'focus_context_unavailable', 'focus_results_pending', 'transcript_unavailable', 'product_unknown', 'service_configuration',
+  'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded', 'provider_http_4xx',
+  'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
+  'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed', 'internal_error',
+]);
+
+type DiagnosticSource = 'fresh' | 'cache' | 'unknown';
+type DiagnosticPhase = 'request' | 'auth' | 'session' | 'focus' | 'cache' | 'entitlement' | 'quota' | 'provider' | 'persist' | 'complete';
+
+function closedDiagnosticReason(body: Record<string, unknown>, status: number, phase: DiagnosticPhase): string {
+  const candidate = typeof body.reason === 'string' ? body.reason : typeof body.code === 'string' ? body.code : '';
+  if (DIAGNOSTIC_REASONS.has(candidate)) return candidate;
+  if (status >= 200 && status < 300) return 'none';
+  if (status === 401) return 'auth_failed';
+  if (status === 400) return 'invalid_request';
+  if (status === 403) return 'access_denied';
+  if (status === 404) return 'session_not_found';
+  if (status === 409) return 'transcript_unavailable';
+  if (status === 429) return 'quota_exceeded';
+  if (status === 503) {
+    if (phase === 'auth') return 'profile_unavailable';
+    if (phase === 'focus') return 'focus_context_unavailable';
+    if (phase === 'entitlement') return 'entitlement_unavailable';
+    if (phase === 'quota') return 'quota_unavailable';
+    if (phase === 'persist') return 'persist_failed';
+  }
+  return 'internal_error';
+}
 
 /** Classify a provider answer's text: the parsed pair, or the reason it is unusable. The size ceiling is checked last. */
 export function classifyGeneratedSuggestions(rawText: unknown): { suggestions: AISuggestions } | { reason: CoachingFailureReason } {
@@ -409,8 +446,75 @@ export async function handler(
   if (corsRejection) return corsRejection;
 
   const responseHeaders = buildCorsHeaders(req);
+  const startedAt = performance.now();
+  let requestInput: Record<string, unknown> = {};
+  try {
+    const value: unknown = await req.clone().json();
+    if (value && typeof value === 'object' && !Array.isArray(value)) requestInput = value as Record<string, unknown>;
+  } catch {
+    // The request is still handled below as invalid; diagnostics never include parse error text/body.
+  }
+  const diagnosticRequestId = typeof requestInput.diagnostic_request_id === 'string'
+    && DIAGNOSTIC_UUID.test(requestInput.diagnostic_request_id)
+    ? requestInput.diagnostic_request_id : crypto.randomUUID();
+  const diagnosticAttemptId = typeof requestInput.diagnostic_attempt_id === 'string'
+    && DIAGNOSTIC_UUID.test(requestInput.diagnostic_attempt_id)
+    ? requestInput.diagnostic_attempt_id : crypto.randomUUID();
+  const clientAttempt = Number.isInteger(requestInput.client_attempt)
+    && Number(requestInput.client_attempt) >= 1 && Number(requestInput.client_attempt) <= 2
+    ? Number(requestInput.client_attempt) : null;
+  const clientReleaseId = typeof requestInput.client_release_id === 'string'
+    && CLIENT_RELEASE_ID.test(requestInput.client_release_id) ? requestInput.client_release_id : null;
+  let diagnosticPhase: DiagnosticPhase = 'request';
+  let diagnosticSource: DiagnosticSource = 'unknown';
+  let diagnosticProduct: SessionProduct | 'unknown' = asProduct(requestInput.product) ?? 'unknown';
+  let hasSession = typeof requestInput.sessionId === 'string' && DIAGNOSTIC_UUID.test(requestInput.sessionId);
+  let observedProviderModel: string | null = null;
+  let providerAttempts = 0;
+  let providerDurationMs = 0;
+  let providerStatus: number | null = null;
+  let promptSha256: string | null = null;
+  // Response-only binding for the private evidence collector. Do not include this in the content-free
+  // diagnostic log or any telemetry: it is a stable pseudonymous link to the selected authenticated row.
+  let sessionBindingSha256: string | null = null;
+  const finish = (payload: Record<string, unknown>, status: number): Response => {
+    const rawReason = closedDiagnosticReason(payload, status, diagnosticPhase);
+    const diagnostic = {
+      schema_version: 'coaching_diagnostic_v1',
+      request_id: diagnosticRequestId,
+      attempt_id: diagnosticAttemptId,
+      client_attempt: clientAttempt,
+      phase: diagnosticPhase,
+      outcome: status === 425 ? 'retrying' : status >= 200 && status < 300 ? 'success' : 'failure',
+      reason: rawReason,
+      status,
+      provider_status: providerStatus,
+      provider: providerAttempts > 0 || (diagnosticSource === 'cache' && observedProviderModel) ? 'google_gemini' : 'none',
+      configured_model: coachingContract.model,
+      observed_model: observedProviderModel,
+      source: diagnosticSource,
+      provider_attempts: providerAttempts,
+      retry_count: Math.max(0, providerAttempts - 1),
+      provider_duration_ms: Math.min(600_000, Math.max(0, Math.round(providerDurationMs))),
+      total_duration_ms: Math.min(600_000, Math.max(0, Math.round(performance.now() - startedAt))),
+      prompt_sha256: promptSha256,
+      product: diagnosticProduct,
+      has_session: hasSession,
+      client_release_id: clientReleaseId,
+    };
+    // Structured, content-free log line is the fallback diagnostic path when Sentry is absent.
+    console.info('AI_COACHING_DIAGNOSTIC', JSON.stringify(diagnostic));
+    const responseDiagnostic = sessionBindingSha256
+      ? { ...diagnostic, session_binding_sha256: sessionBindingSha256 }
+      : diagnostic;
+    return new Response(JSON.stringify({ ...payload, diagnostics: responseDiagnostic }), {
+      headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+      status,
+    });
+  };
 
   try {
+    diagnosticPhase = 'auth';
     // Production mode: Use RLS to enforce auth - no need for separate getUser() call
     const authHeader = req.headers.get('Authorization');
     const supabaseClient = createSupabase(authHeader);
@@ -425,10 +529,7 @@ export async function handler(
     if (profileError) {
       // PGRST116 = "No rows returned" which means no authenticated user (RLS blocked)
       if (profileError.code === 'PGRST116') {
-        return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-          status: 401,
-        });
+        return finish({ error: 'Authentication failed' }, 401);
       }
       // #1473 — 42501: the caller's role lacks the privilege to read its own profile. That is a SERVICE CONFIGURATION
       // failure, not the user's account and not a transient outage, so it gets one closed, allowlisted code the client
@@ -437,41 +538,30 @@ export async function handler(
       // forged-token PGRST301 — stays the generic fail-closed 500.
       if (profileError.code === '42501') {
         console.error('Profile read refused: service configuration (42501).');
-        return new Response(JSON.stringify({
+        return finish({
           error: 'AI coaching is unavailable right now.',
           code: 'service_configuration',
-        }), {
-          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-          status: 503,
-        });
+        }, 503);
       }
       console.error('Profile fetch error:', profileError);
-      return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 500,
-      });
+      return finish({ error: 'Failed to fetch user profile' }, 500);
     }
 
-    const body = await req.json() as { sessionId?: unknown; product?: unknown; accepted_coaching_versions?: unknown };
+    const body = requestInput as { sessionId?: unknown; product?: unknown; accepted_coaching_versions?: unknown };
     const sessionId = body.sessionId;
+    hasSession = typeof sessionId === 'string' && DIAGNOSTIC_UUID.test(sessionId);
     // #1258 / #1538 (PM RETURN 5849473254): the page's product is only a CONSISTENCY ASSERTION. The server-owned
     // `sessions.product` marker decides; the request can never downgrade or supply it.
     const requestedProduct = asProduct(body.product);
     const focusCapable = acceptsFocusCoaching(body.accepted_coaching_versions);
     if (typeof sessionId !== 'string' || !sessionId.trim()) {
-      return new Response(JSON.stringify({ error: 'Session ID is required' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 400,
-      });
+      return finish({ error: 'Session ID is required' }, 400);
     }
 
     const { data: userData, error: userError } = await supabaseClient.auth.getUser();
     const userId = userData?.user?.id ?? null;
     if (userError || !userId) {
-      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 401,
-      });
+      return finish({ error: 'Authentication failed' }, 401);
     }
 
     // The saved, RLS-owned session is the only coaching evidence authority. Caller-supplied
@@ -488,13 +578,17 @@ export async function handler(
     }
 
     if (sessionError || !sessionData) {
-      return new Response(JSON.stringify({ error: 'Session was not found' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 404,
-      });
+      return finish({ error: 'Session was not found' }, 404);
     }
 
+    // Bind the response digest to the authenticated owner and the exact selected session. This remains
+    // response-only: the raw IDs and their stable digest are excluded from logs and telemetry.
+    sessionBindingSha256 = [...new Uint8Array(await crypto.subtle.digest(
+      'SHA-256', new TextEncoder().encode(JSON.stringify({ user_id: userId, session_id: sessionId })),
+    ))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
     const session = sessionData as unknown as SessionEvidence;
+    diagnosticProduct = asProduct(session.product) ?? requestedProduct ?? 'unknown';
 
     // #1538 — THE STORED MARKER IS THE PRODUCT AUTHORITY.
     //  - open_mic: never reads the objective tables, so an objective-table failure cannot break Open Mic coaching;
@@ -506,10 +600,7 @@ export async function handler(
     // Codex P2 r4117187862), which would be false here; 422 is its truthful, terminal "unavailable".
     const marker = asProduct(session.product);
     if (marker && requestedProduct && marker !== requestedProduct) {
-      return new Response(JSON.stringify({ error: 'This session was saved as a different product.', code: 'product_mismatch' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 422,
-      });
+      return finish({ error: 'This session was saved as a different product.', code: 'product_mismatch' }, 422);
     }
     // Legacy rows keep the strictness the page's statement already had: it can only make the request stricter.
     const expectsFocusPoints = marker ? marker === 'focus_points' : requestedProduct === 'focus_points';
@@ -521,16 +612,10 @@ export async function handler(
       context.kind === 'pending' || (expectsFocusPoints && context.kind !== 'focus');
     const refuseFocusRead = (context: FocusContext): Response | null => {
       if (context.kind === 'error') {
-        return new Response(JSON.stringify({ error: 'AI coaching is unavailable right now. Please try again.' }), {
-          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-          status: 503,
-        });
+        return finish({ error: 'AI coaching is unavailable right now. Please try again.' }, 503);
       }
       if (focusResultsUnready(context)) {
-        return new Response(JSON.stringify({ error: 'Focus Points results are not ready yet. Please try again.', code: 'focus_results_pending' }), {
-          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-          status: 425,
-        });
+        return finish({ error: 'Focus Points results are not ready yet. Please try again.', code: 'focus_results_pending' }, 425);
       }
       return null;
     };
@@ -543,10 +628,7 @@ export async function handler(
       const refused = refuseFocusRead(focusContext);
       if (refused) return refused;
       if (!marker && requestedProduct === 'open_mic' && focusContext.kind === 'focus') {
-        return new Response(JSON.stringify({ error: 'This session was saved as a different product.', code: 'product_mismatch' }), {
-          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-          status: 422,
-        });
+        return finish({ error: 'This session was saved as a different product.', code: 'product_mismatch' }, 422);
       }
     }
 
@@ -559,6 +641,7 @@ export async function handler(
     // legacy row's Focus identity comes only from its durable evidence, read here before any replay.
     if (cachedSuggestions && cachedSuggestions.version === 'gemini_coaching_v1' && marker !== 'open_mic') {
       if (!focusContext) {
+        diagnosticPhase = 'focus';
         focusContext = await loadFocusContext(supabaseClient, sessionId);
         const refused = refuseFocusRead(focusContext);
         if (refused) return refused;
@@ -566,6 +649,8 @@ export async function handler(
       if (focusContext.kind === 'focus') cachedSuggestions = null;
     }
     if (cachedSuggestions) {
+      diagnosticPhase = 'cache';
+      diagnosticSource = 'cache';
       // A cache replay is evidence only when the server-owned receipt records that the request really
       // returned before quota/provider work. The browser packet cannot assert this fact for itself.
       const { data: cacheRecorded, error: cacheReceiptError } = await createServiceRoleSupabase().rpc(
@@ -577,17 +662,31 @@ export async function handler(
         // readable; the trusted evidence collector still HOLDs because no receipt/cache count exists.
         console.error('AI coaching cache authority was not recorded:', cacheReceiptError);
       }
-      return new Response(JSON.stringify({ suggestions: forClient(cachedSuggestions, focusCapable) }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      });
+      // Best-effort read of the existing immutable authority receipt. Cache replay makes no provider call, so its
+      // original model is named only when the server-owned saved value still matches that receipt.
+      try {
+        const { data: rows, error } = await createServiceRoleSupabase().rpc('read_ai_suggestion_authority_v1', {
+          p_session_ids: [sessionId],
+        });
+        const row = Array.isArray(rows) ? rows[0] as Record<string, unknown> | undefined : undefined;
+        if (!error && row?.session_id === sessionId && row?.user_id === userId
+          && row?.provider === 'google_gemini' && row?.provider_request_made === true
+          && typeof row?.receipt_suggestion_sha256 === 'string' && SHA256_HEX.test(row.receipt_suggestion_sha256)
+          && typeof row?.current_suggestion_sha256 === 'string' && SHA256_HEX.test(row.current_suggestion_sha256)
+          && row?.current_suggestion_sha256 === row?.receipt_suggestion_sha256
+          && typeof row?.model === 'string' && SAFE_MODEL_ID.test(row.model)) {
+          observedProviderModel = row.model;
+        }
+      } catch {
+        // Keep cached coaching readable; missing authority is represented as null model provenance.
+      }
+      return finish({ suggestions: forClient(cachedSuggestions, focusCapable) }, 200);
     }
 
+    diagnosticPhase = 'session';
+
     if (session.transcript_state !== 'available' || typeof session.transcript !== 'string' || !session.transcript.trim()) {
-      return new Response(JSON.stringify({ error: 'AI coaching requires an available saved transcript' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 409,
-      });
+      return finish({ error: 'AI coaching requires an available saved transcript' }, 409);
     }
 
     // #1258 — the session's saved Focus Points results, read BEFORE entitlement and quota so a refusal spends nothing.
@@ -596,6 +695,7 @@ export async function handler(
     // refused even when the request names no product (a tab loaded before this deploy), so no generic pair can be
     // cached for a Focus take and later replayed as its Focus coaching.
     if (!focusContext) {
+      diagnosticPhase = 'focus';
       focusContext = await loadFocusContext(supabaseClient, sessionId);
       const refused = refuseFocusRead(focusContext);
       if (refused) return refused;
@@ -603,28 +703,20 @@ export async function handler(
     // A legacy (unmarked) row with no durable Focus evidence is of UNKNOWN product: generating would guess Open Mic
     // from an absence and cache that guess on the row. Refused before entitlement, quota and provider work.
     if (!marker && focusContext.kind === 'none') {
-      return new Response(JSON.stringify({ error: 'Coaching isn’t available for this older session.', code: 'product_unknown' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 422,
-      });
+      return finish({ error: 'Coaching isn’t available for this older session.', code: 'product_unknown' }, 422);
     }
 
+    diagnosticPhase = 'entitlement';
     // Generating new coaching is an analysis operation, so it uses the same server-authoritative
     // commercial entitlement seam as recording. A marked active trial and a paid subscription both
     // pass; an expired/unpaid account fails closed. Cached coaching above remains readable after expiry.
     const { data: entitlement, error: entitlementError } = await supabaseClient.rpc('check_usage_limit');
     if (entitlementError) {
       console.error('Entitlement check failed:', entitlementError);
-      return new Response(JSON.stringify({ error: 'Unable to verify analysis access' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 503,
-      });
+      return finish({ error: 'Unable to verify analysis access' }, 503);
     }
     if (entitlement?.can_start !== true || entitlement?.is_pro !== true) {
-      return new Response(JSON.stringify({ error: 'Trial has ended' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 403,
-      });
+      return finish({ error: 'Trial has ended' }, 403);
     }
 
     const transcriptForPrompt = session.transcript.length > MAX_TRANSCRIPT_CHARS
@@ -634,56 +726,54 @@ export async function handler(
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
       console.error('GEMINI_API_KEY is not set.');
-      return new Response(JSON.stringify({ error: 'AI coaching is unavailable right now. Please try again.' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 503,
-      });
+      return finish({ error: 'AI coaching is unavailable right now. Please try again.', code: 'service_configuration' }, 503);
     }
 
+    diagnosticPhase = 'quota';
     const { data: quota, error: quotaError } = await supabaseClient.rpc('consume_ai_suggestion_quota', {
       p_limit: AI_SUGGESTION_DAILY_LIMIT,
     });
 
     if (quotaError) {
       console.error('AI suggestion quota check failed:', quotaError);
-      return new Response(JSON.stringify({ error: 'Unable to verify AI coaching quota. Please try again.' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 503,
-      });
+      return finish({ error: 'Unable to verify AI coaching quota. Please try again.' }, 503);
     }
 
     const quotaResult = quota as QuotaResult | null;
     if (quotaResult && quotaResult.allowed === false) {
-      return new Response(JSON.stringify({
+      return finish({
         error: 'Daily AI coaching limit reached. Try again tomorrow.',
         remaining: quotaResult.remaining ?? 0,
         limit: quotaResult.limit ?? AI_SUGGESTION_DAILY_LIMIT,
-      }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 429,
-      });
+      }, 429);
     }
 
     const metricsText = buildDeliverySignals(session, focusContext) + buildFocusCoachingText(focusContext);
 
     const prompt = buildCoachingPrompt(transcriptForPrompt, metricsText);
 
+    promptSha256 = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(prompt)))]
+      .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    diagnosticPhase = 'provider';
+    diagnosticSource = 'fresh';
+
     let suggestions: AISuggestions | null = null;
-    let observedProviderModel: string | null = null;
     let failureReason: CoachingFailureReason | null = null;
-    let providerStatus: number | null = null;
 
     for (let providerAttempt = 1; providerAttempt <= AI_PROVIDER_ATTEMPTS; providerAttempt += 1) {
+      providerAttempts = providerAttempt;
       // Only a transport error or a provider 5xx earns the second attempt. Set where the failure is known.
       let providerFailureIsRetryable = false;
       // Each attempt states its own outcome; the reason reported is the last attempt's.
       suggestions = null;
       failureReason = null;
       providerStatus = null;
+      const providerStartedAt = performance.now();
       try {
         const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: GEMINI_GENERATION_CONFIG,
@@ -714,9 +804,13 @@ export async function handler(
         }
       } catch (error) {
         // #1258: the error NAME only. A fetch error's message can carry the request URL, and this URL carries the API key.
-        console.error('Gemini API request failed.', JSON.stringify({ error: error instanceof Error ? error.name : 'unknown', attempt: providerAttempt }));
+        const errorName = error instanceof Error ? error.name : 'unknown';
+        const timedOut = errorName === 'TimeoutError' || errorName === 'AbortError';
+        console.error('Gemini API request failed.', JSON.stringify({ error: errorName, attempt: providerAttempt }));
         providerFailureIsRetryable = true;
-        failureReason = 'provider_transport';
+        failureReason = timedOut ? 'provider_timeout' : 'provider_transport';
+      } finally {
+        providerDurationMs += Math.max(0, performance.now() - providerStartedAt);
       }
 
       // A complete answer ends the loop. So does a failure a second ask cannot change.
@@ -733,10 +827,7 @@ export async function handler(
       const reason: CoachingFailureReason = failureReason ?? (suggestions ? 'missing_model_version' : 'invalid_shape');
       // Content-free: the closed reason and the provider's numeric status only (#1258).
       console.error('Gemini response did not contain valid suggestions JSON.', JSON.stringify({ reason, providerStatus }));
-      return new Response(JSON.stringify({ error: 'AI coaching could not be generated. Please try again.', reason }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 502,
-      });
+      return finish({ error: 'AI coaching could not be generated. Please try again.', reason }, 502);
     }
 
     const quotaLimit = quotaResult?.limit;
@@ -745,12 +836,10 @@ export async function handler(
       || Number(quotaLimit) <= 0 || Number(quotaRequestNumber) <= 0
       || Number(quotaRequestNumber) > Number(quotaLimit)) {
       console.error('AI suggestion quota receipt was incomplete.');
-      return new Response(JSON.stringify({ error: 'AI coaching authority could not be verified. Please try again.' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 503,
-      });
+      return finish({ error: 'AI coaching authority could not be verified. Please try again.', code: 'authority_unverified' }, 503);
     }
 
+    diagnosticPhase = 'persist';
     // Persist the coaching value and its provider/quota authority in one service-role transaction.
     // The browser's authenticated client cannot execute this RPC or write the receipt table.
     const { data: authoritySavedValue, error: authorityUpdateError } = await createServiceRoleSupabase().rpc(
@@ -791,27 +880,19 @@ export async function handler(
       : null;
     if (!savedSuggestions || JSON.stringify(savedSuggestions) !== JSON.stringify(suggestions)) {
       console.error('Failed to save and verify AI suggestions:', updateError);
-      return new Response(JSON.stringify({ error: 'AI coaching could not be saved. Please try again.' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 503,
-      });
+      return finish({ error: 'AI coaching could not be saved. Please try again.', code: 'persist_failed' }, 503);
     }
 
     // #1258 (PO 2026-10-02): every SERVED generation is measured, content-free — counts and flags, never phrases.
     // Emitted only here, after save verification (Codex r4189408877): a generation that ends in 503 was never served,
     // so it must not enter the served-answer quality measurement.
     console.log('AI coaching quality', JSON.stringify(measureCoachingQuality(savedSuggestions)));
-    return new Response(JSON.stringify({ suggestions: forClient(savedSuggestions, focusCapable) }), {
-      headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-      status: 200,
-    });
+    diagnosticPhase = 'complete';
+    return finish({ suggestions: forClient(savedSuggestions, focusCapable) }, 200);
 
   } catch (error) {
     console.error('Error getting AI suggestions:', error);
-    return new Response(JSON.stringify({ error: 'Failed to get AI suggestions. Please try again.' }), {
-      headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-      status: 500,
-    });
+    return finish({ error: 'Failed to get AI suggestions. Please try again.' }, 500);
   }
 }
 

@@ -53,6 +53,7 @@ interface MockOptions {
   readback?: unknown;
   authorityError?: unknown;
   authorityResult?: boolean;
+  authorityReadback?: Array<Record<string, unknown>>;
   /** #1258: the session's saved Focus Points results (objective tables). Absent = an Open Mic take. */
   focus?: {
     objective?: Record<string, unknown> | null;
@@ -93,7 +94,7 @@ let fetchStatusQueue: number[] = [];
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
 /** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
-let geminiModelVersion: string | null = 'gemini-3-flash-preview';
+let geminiModelVersion: string | null = 'gemini-3.8-flash';
 let fetchThrows = false;
 /** #1258: what a non-OK provider answer's body says, and what a transport error's message says. */
 let providerErrorBody = 'upstream unavailable';
@@ -111,6 +112,10 @@ let lastRequestUrl = '';
  */
 const outboundRequests: string[] = [];
 const APPROVED_GEMINI_ORIGIN = 'https://generativelanguage.googleapis.com';
+const sessionBindingDigest = async (userId: string, sessionId: string): Promise<string> =>
+  [...new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(JSON.stringify({ user_id: userId, session_id: sessionId })),
+  ))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 
 globalThis.fetch = async (url, init) => {
   const requested = url.toString();
@@ -146,6 +151,7 @@ function mockSupabase(options: MockOptions = {}) {
     filters: [] as Array<[string, unknown]>,
     rpcCount: 0,
     authorityRpcCount: 0,
+    authorityReadCount: 0,
     authorityArgs: null as Record<string, unknown> | null,
     quotaArgs: null as Record<string, unknown> | null,
     // #1486 — counted on its own. `rpcCount` also counts other rpc traffic, so it cannot answer
@@ -180,6 +186,10 @@ function mockSupabase(options: MockOptions = {}) {
           data: options.authorityResult ?? true,
           error: options.authorityError ?? null,
         });
+      }
+      if (name === 'read_ai_suggestion_authority_v1') {
+        state.authorityReadCount++;
+        return Promise.resolve({ data: options.authorityReadback ?? [], error: null });
       }
       if (name === 'persist_ai_suggestion_with_authority_v1') {
         state.authorityRpcCount++;
@@ -275,7 +285,7 @@ function resetProvider() {
   fetchStatusQueue = [];
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
-  geminiModelVersion = 'gemini-3-flash-preview';
+  geminiModelVersion = 'gemini-3.8-flash';
   fetchThrows = false;
   providerErrorBody = 'upstream unavailable';
   fetchErrorMessage = 'network unreachable';
@@ -306,6 +316,56 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     });
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertEquals(fetchCount, 1);
+  });
+
+  await t.step('#1258 diagnostics bind one provider attempt without returning prompt content', async () => {
+    resetProvider();
+    const diagnosticRequestId = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    const diagnosticAttemptId = '230bbc6c-5d89-465d-91e6-51f5a5951e34';
+    const logLines: string[] = [];
+    const originalInfo = console.info;
+    console.info = (...args: unknown[]) => { logLines.push(args.map(String).join(' ')); };
+    let response: Response;
+    try {
+      response = await handler(request({
+        sessionId: 'session-a', product: 'open_mic', diagnostic_request_id: diagnosticRequestId,
+        diagnostic_attempt_id: diagnosticAttemptId, client_attempt: 1, client_release_id: 'a'.repeat(40),
+      }), mockSupabase().create);
+    } finally {
+      console.info = originalInfo;
+    }
+    const body = await response.json() as Record<string, unknown>;
+    const diagnostic = body.diagnostics as Record<string, unknown>;
+    assertEquals(diagnostic.request_id, diagnosticRequestId);
+    assertEquals(diagnostic.attempt_id, diagnosticAttemptId);
+    assertEquals(diagnostic.client_attempt, 1);
+    assertEquals(diagnostic.configured_model, coachingContract.model);
+    assertEquals(diagnostic.observed_model, geminiModelVersion);
+    assertEquals(diagnostic.source, 'fresh');
+    assertEquals(diagnostic.provider_attempts, 1);
+    assertEquals(diagnostic.session_binding_sha256, await sessionBindingDigest('pro-user', 'session-a'));
+    assertEquals(JSON.stringify(diagnostic).includes('session-a'), false);
+    assertEquals(logLines.some((line) => line.includes('session_binding_sha256')), false);
+    assertEquals(logLines.some((line) => line.includes('session-a')), false);
+    assertEquals(typeof diagnostic.provider_duration_ms, 'number');
+    assertEquals(typeof diagnostic.total_duration_ms, 'number');
+    assertEquals(diagnostic.prompt_sha256, await crypto.subtle.digest('SHA-256', new TextEncoder().encode(lastPrompt))
+      .then((digest) => [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')));
+    const safeDiagnostic = JSON.stringify(diagnostic).toLowerCase();
+    assertEquals(safeDiagnostic.includes('support has no weekend coverage'), false);
+    assertEquals(safeDiagnostic.includes(suggestionA.what_worked.toLowerCase()), false);
+  });
+
+  await t.step('#1258 response session binding follows the selected authenticated row, not a caller-supplied owner', async () => {
+    resetProvider();
+    const response = await handler(request({
+      sessionId: 'session-b', user_id: 'forged-user', product: 'open_mic',
+    }), mockSupabase({ userId: 'actual-user' }).create);
+    const body = await response.json() as Record<string, unknown>;
+    const diagnostic = body.diagnostics as Record<string, unknown>;
+    assertEquals(response.status, 200);
+    assertEquals(diagnostic.session_binding_sha256, await sessionBindingDigest('actual-user', 'session-b'));
+    assertEquals(diagnostic.session_binding_sha256 === await sessionBindingDigest('forged-user', 'session-b'), false);
   });
 
   await t.step('fails closed when analysis entitlement is uncertain', async () => {
@@ -437,9 +497,49 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }) });
     const res = await handler(request(), mock.create);
     assertEquals(res.status, 200);
-    assertEquals((await res.json()).suggestions, suggestionA);
+    const body = await res.json() as Record<string, unknown>;
+    assertEquals(body.suggestions, suggestionA);
     assertEquals(fetchCount, 0);
     assertEquals(mock.state.rpcCount, 0);
+    assertEquals(mock.state.authorityReadCount, 1);
+    assertEquals((body.diagnostics as Record<string, unknown>).source, 'cache');
+  });
+
+  await t.step('#1258 cache provenance requires two valid SHA-256 digests; missing or malformed digests keep coaching readable but model unknown', async () => {
+    const baseReceipt = {
+      session_id: 'session-a', user_id: 'pro-user', provider: 'google_gemini', provider_request_made: true,
+      model: 'gemini-3.6-flash-001',
+    };
+    const rows = [
+      { ...baseReceipt },
+      { ...baseReceipt, receipt_suggestion_sha256: 'bad', current_suggestion_sha256: 'bad' },
+      { ...baseReceipt, receipt_suggestion_sha256: 'a'.repeat(64) },
+      { ...baseReceipt, current_suggestion_sha256: 'a'.repeat(64) },
+    ];
+    for (const authorityReadback of rows) {
+      resetProvider();
+      const mock = mockSupabase({
+        session: savedSession({ ai_suggestions: suggestionA }),
+        authorityReadback: [authorityReadback],
+      });
+      const response = await handler(request(), mock.create);
+      const body = await response.json() as Record<string, unknown>;
+      assertEquals(response.status, 200);
+      assertEquals(body.suggestions, suggestionA);
+      assertEquals((body.diagnostics as Record<string, unknown>).observed_model, null);
+      assertEquals(fetchCount, 0);
+    }
+
+    resetProvider();
+    const digest = 'c'.repeat(64);
+    const valid = mockSupabase({
+      session: savedSession({ ai_suggestions: suggestionA }),
+      authorityReadback: [{ ...baseReceipt, receipt_suggestion_sha256: digest, current_suggestion_sha256: digest }],
+    });
+    const response = await handler(request(), valid.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertEquals(response.status, 200);
+    assertEquals((body.diagnostics as Record<string, unknown>).observed_model, baseReceipt.model);
   });
 
   await t.step('returns unavailable when provider configuration is missing', async () => {
@@ -465,13 +565,11 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   await t.step('#1416 the model endpoint is not a preview channel', () => {
-    // The reason for the change, pinned. `gemini-3-flash-preview` is a preview endpoint, and preview
-    // shutdowns have run 14 days from announcement — the URL can stop resolving inside a sprint, and
-    // the failure would look like a provider outage rather than a deprecation we were told about.
+    // The selected stable model is pinned in the shared coaching contract; preview endpoints are not allowed.
     // Asserted on the exported constant rather than by reading the file: the edge suite runs without
     // `--allow-read`, and widening the sandbox for every edge test to satisfy one assertion trades a
     // real safety property for a convenience.
-    assertStringIncludes(GEMINI_API_URL, 'gemini-3.6-flash');
+    assertStringIncludes(GEMINI_API_URL, 'gemini-3.8-flash');
     assertEquals(GEMINI_API_URL.includes('-preview'), false);
   });
 
@@ -559,7 +657,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       p_user_id: 'pro-user',
       p_suggestions: suggestionA,
       p_provider: 'google_gemini',
-      p_model: 'gemini-3-flash-preview',
+      p_model: 'gemini-3.8-flash',
       p_quota_scope: 'user_utc_day',
       p_quota_utc_date: expectedUtcDate,
       p_quota_limit: 20,
@@ -1047,7 +1145,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
      * down-selection is exposed to, rather than passing them the way substring and body-search checks did.
      */
     // A lookalike host: a substring check for the approved host SUCCEEDS on it; the origin check refuses.
-    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.6-flash:generateContent';
+    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.8-flash:generateContent';
     assertEquals(lookalike.includes('generativelanguage.googleapis.com'), true);
     assertNotEquals(new URL(lookalike).origin, APPROVED_GEMINI_ORIGIN);
 

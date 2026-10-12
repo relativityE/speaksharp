@@ -20,7 +20,7 @@ import { pathToFileURL } from 'node:url';
 
 const REQUIRED_KEYS = ['version', 'what_to_try_next', 'what_worked'];
 const COACHING_FIELDS = ['what_worked', 'what_to_try_next'];
-const EXPECTED_MODEL = 'gemini-3.6-flash';
+const EXPECTED_MODEL = 'gemini-3.8-flash';
 const EXPECTED_VERSION = 'gemini_coaching_v1';
 const EXPECTED_REQUEST_CAP = 10;
 /** PO 2026-10-02: a SOFT length target — asked for in the prompt and measured, never a validity rule. */
