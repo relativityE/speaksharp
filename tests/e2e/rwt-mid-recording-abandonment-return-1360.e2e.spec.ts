@@ -25,14 +25,82 @@ async function optIntoSharedLease(page: Page): Promise<void> {
     }).catch(() => undefined);
 }
 
-const setHeartbeatHold = (page: Page, held: boolean) => page.evaluate((value) => {
-    const w = window as unknown as { __E2E_HOLD_RPC_1476__?: Record<string, boolean> };
-    w.__E2E_HOLD_RPC_1476__ = { ...(w.__E2E_HOLD_RPC_1476__ ?? {}), heartbeat_recording_lease: value };
-}, held);
+type HeartbeatControl = {
+    leaseAcquired: boolean;
+    obligationsResolved: boolean;
+    confirmationClaimed: boolean;
+    confirmationAt: number | null;
+    periodicSuccessAt: number | null;
+    heldStates: string[];
+};
 
-const heartbeatIsHeld = (page: Page) => page.evaluate(() =>
-    ((window as unknown as { __E2E_HELD_RPC_1476__?: string[] }).__E2E_HELD_RPC_1476__ ?? [])
-        .includes('heartbeat_recording_lease'));
+async function installHeartbeatControl(page: Page, mode: 'before-first-periodic' | 'after-one-periodic'): Promise<void> {
+    await page.evaluate((controlMode) => {
+        type RpcClient = { rpc: (fn: string, args?: Record<string, unknown>) => Promise<unknown> };
+        type Control = HeartbeatControl;
+        const w = window as unknown as {
+            supabase?: RpcClient;
+            __1360_HEARTBEAT_CONTROL__?: Control;
+        };
+        if (!w.supabase) throw new Error('E2E RPC client is missing');
+        const client = w.supabase;
+        const original = client.rpc.bind(client);
+        const control: Control = {
+            leaseAcquired: false,
+            obligationsResolved: false,
+            confirmationClaimed: false,
+            confirmationAt: null,
+            periodicSuccessAt: null,
+            heldStates: [],
+        };
+        w.__1360_HEARTBEAT_CONTROL__ = control;
+        const heartbeatAt = () => {
+            try {
+                const lease = JSON.parse(localStorage.getItem('__e2e_shared_lease_1476') || 'null') as Lease | null;
+                return lease?.heartbeat_at ?? null;
+            } catch { return null; }
+        };
+        client.rpc = async (fn, args) => {
+            if (fn === 'acquire_recording_lease') {
+                const result = await original(fn, args);
+                if ((result as { data?: { acquired?: boolean } } | null)?.data?.acquired === true) control.leaseAcquired = true;
+                return result;
+            }
+            if (fn === 'get_progress_obligations' && control.leaseAcquired) {
+                const result = await original(fn, args);
+                control.obligationsResolved = true;
+                return result;
+            }
+            if (fn === 'heartbeat_recording_lease' && control.leaseAcquired) {
+                const state = document.documentElement.getAttribute('data-runtime-state') ?? 'unknown';
+                // Permit the explicit Start confirmation, which follows the obligations read. All timer heartbeats are
+                // intercepted from before Start, so none can silently succeed around the pre-periodic baseline.
+                if (!control.confirmationClaimed && control.obligationsResolved && state !== 'RECORDING') {
+                    control.confirmationClaimed = true;
+                    const result = await original(fn, args);
+                    const valid = (result as { data?: { valid?: boolean } } | null)?.data?.valid === true;
+                    if (valid) control.confirmationAt = heartbeatAt();
+                    return result;
+                }
+                // For the post-heartbeat case, admit exactly one timer call after RECORDING is visible, then hold all
+                // later timer calls. For the first-periodic case, every timer call remains pending.
+                if (controlMode === 'after-one-periodic' && control.confirmationAt !== null
+                    && state === 'RECORDING' && control.periodicSuccessAt === null) {
+                    const result = await original(fn, args);
+                    const valid = (result as { data?: { valid?: boolean } } | null)?.data?.valid === true;
+                    if (valid) control.periodicSuccessAt = heartbeatAt();
+                    return result;
+                }
+                control.heldStates.push(state);
+                return new Promise(() => undefined);
+            }
+            return original(fn, args);
+        };
+    }, mode);
+}
+
+const heartbeatControl = (page: Page) => page.evaluate(() =>
+    (window as unknown as { __1360_HEARTBEAT_CONTROL__?: HeartbeatControl }).__1360_HEARTBEAT_CONTROL__ ?? null);
 
 const rpcCalls = (page: Page, name: string) => page.evaluate((fn) =>
     (window as unknown as { __E2E_RPC_CALLS_1476__?: Record<string, number> }).__E2E_RPC_CALLS_1476__?.[fn] ?? 0, name);
@@ -83,11 +151,12 @@ async function returnInSameAccount(page: Page, expectedUserId: string): Promise<
     return returned;
 }
 
-for (const checkpoint of ['before first periodic heartbeat', 'after a successful periodic heartbeat'] as const) {
+for (const checkpoint of ['held before first periodic success', 'after one successful periodic heartbeat'] as const) {
     test(`#1360: abandon during recording ${checkpoint}, return safely, recover stale lease, and save only the new take`, async ({ proPage: page }) => {
         test.setTimeout(120_000);
         await optIntoSharedLease(page);
         await navigateToRoute(page, '/session');
+        await installHeartbeatControl(page, checkpoint === 'held before first periodic success' ? 'before-first-periodic' : 'after-one-periodic');
         await captureSaveKeys(page);
         await startRecording(page);
         await mockLiveTranscript(page, [
@@ -108,19 +177,18 @@ for (const checkpoint of ['before first periodic heartbeat', 'after a successful
         const initialLease = await lease(page);
         expect(initialLease, 'Start owns a context-shared account lease').not.toBeNull();
 
-        if (checkpoint === 'before first periodic heartbeat') {
-            // Start has acquired and confirmed the lease. Hold the first timer-driven heartbeat, then abandon while it
-            // is genuinely pending. The timestamp must remain the acquisition/confirmation value.
-            const priorCalls = await rpcCalls(page, 'heartbeat_recording_lease');
-            await setHeartbeatHold(page, true);
-            await expect.poll(() => rpcCalls(page, 'heartbeat_recording_lease'), { timeout: 12_000 })
-                .toBeGreaterThan(priorCalls);
-            await expect.poll(() => heartbeatIsHeld(page), { timeout: 2_000 }).toBe(true);
-            expect((await lease(page))?.heartbeat_at, 'no periodic heartbeat has succeeded').toBe(initialLease?.heartbeat_at);
+        const control = await heartbeatControl(page);
+        expect(control?.confirmationAt, 'the explicit Start lease confirmation succeeded before the periodic boundary').not.toBeNull();
+        if (checkpoint === 'held before first periodic success') {
+            await expect.poll(async () => (await heartbeatControl(page))?.heldStates.includes('RECORDING'), { timeout: 12_000 })
+                .toBe(true);
+            expect((await lease(page))?.heartbeat_at, 'held periodic calls did not advance the lease after the Start confirmation')
+                .toBe(control?.confirmationAt);
         } else {
-            // Wait until the periodic heartbeat has actually advanced the shared lease timestamp before closing.
-            await expect.poll(async () => (await lease(page))?.heartbeat_at, { timeout: 12_000 })
-                .toBeGreaterThan(initialLease?.heartbeat_at ?? 0);
+            await expect.poll(async () => (await heartbeatControl(page))?.periodicSuccessAt, { timeout: 12_000 })
+                .toBeGreaterThan(control?.confirmationAt ?? 0);
+            await expect.poll(async () => (await heartbeatControl(page))?.heldStates.includes('RECORDING'), { timeout: 12_000 })
+                .toBe(true);
         }
 
         const abandonedLease = await lease(page);
@@ -137,6 +205,15 @@ for (const checkpoint of ['before first periodic heartbeat', 'after a successful
             await expect(returned.getByText(BLOCKED)).toBeVisible({ timeout: 15_000 });
             expect((await engine(returned)).controllerState).not.toBe('RECORDING');
             expect((await engine(returned)).micHeld).toBe(false);
+            // The UI's next explicit Start is a deliberate takeover, so keep this negative control to one blocked
+            // action and observe that the refusal persists while the original lease is still fresh.
+            for (let observation = 0; observation < 5; observation += 1) {
+                await returned.waitForTimeout(200);
+                expect((await engine(returned)).controllerState).not.toBe('RECORDING');
+                expect((await engine(returned)).micHeld).toBe(false);
+                await expect(returned.locator('html')).not.toHaveAttribute('data-session-persisted', 'true');
+                await expect(returned.locator('html')).not.toHaveAttribute('data-session-persisted-id', activeTakeId);
+            }
 
             const heartbeatAt = abandonedLease!.heartbeat_at;
             const remainingFreshMs = Math.max(0, 15_250 - (Date.now() - heartbeatAt));
