@@ -1,0 +1,426 @@
+--- a/server.py
++++ b/server.py
+@@ -91,8 +91,8 @@
+                                   "pull_request_review_comment", "workflow_run", "check_run", "check_suite", "push"})
+ CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1593"))
+ WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
+-BOARD_VERSION = "4.7.8"
+-BOARD_BUILD = "coordination.2"
++BOARD_VERSION = "4.7.9"
++BOARD_BUILD = "coordination.3"
+ GH_BACKOFF_UNTIL = 0.0
+ PR_DISPLAY_CACHE = {}
+ PR_DISPLAY_LOCK = threading.RLock()
+@@ -539,9 +539,40 @@
+     set_setting('dev_assignment_reconciled', '0')
+     with DB_LOCK, con() as c:
+         c.execute("UPDATE agents SET status='idle', updated_at=? WHERE status='running'", (now(),))
++        if not get_setting('pm_cleanup_unverified', ''):
++            c.execute("UPDATE agents SET status='idle',updated_at=? WHERE agent_id='pm' AND status='error' AND paused=0", (now(),))
++        # The Dev remains ineligible for WRITE until a fresh verified assignment.
++        # A stale preflight error must not block receipt/read-only reconciliation forever.
++        c.execute("UPDATE agents SET status='idle',updated_at=? WHERE agent_id='dev' AND status='error' AND paused=0 "
++                  "AND NOT EXISTS (SELECT 1 FROM queue WHERE recipient='dev' AND status IN ('failed','failed_uncertain','delivering') "
++                  "AND launch_attempted_at IS NOT NULL)", (now(),))
+         c.execute("UPDATE player_status SET status='unknown', task='Awaiting checkpoint reconciliation', blocker='Activity unverified after restart', source='startup', updated_at=?", (now(),))
+         # No task owner is displaced: PM must explicitly checkpoint/release a preserved lease.
+     add_activity('SYSTEM', 'Startup: preserved history and branch ownership; marked player activity unknown until reconciliation.', 'none', 'system')
++
++
++def establish_pm_startup_readiness(mode):
++    """Fresh verified transport health replaces stale configuration errors, not task history."""
++    set_setting('pm_runtime_ready', '0')
++    if get_setting('pm_cleanup_unverified', ''):
++        set_agent('pm', status='error')
++        return False
++    if mode == 'manual':
++        set_agent('pm', status='not_configured')
++        return False
++    if mode == 'codex' and not CODEX_AUTH_OK:
++        set_agent('pm', status='auth_required')
++        return False
++    agent = get_agent('pm') or {}
++    if agent.get('status') in ('idle', 'error', 'auth_required', 'not_configured'):
++        set_agent('pm', status='idle')
++    if mode == 'codex':
++        prior_session = (get_agent('pm') or {}).get('session_id')
++        if prior_session:
++            set_setting('previous_pm_readonly_session', prior_session)
++            set_agent('pm', session_id=None)  # all task/lease/journal truth lives in durable board context
++    set_setting('pm_runtime_ready', '1')
++    return True
+ 
+ 
+ def get_agent(agent_id="dev"):
+@@ -2359,32 +2390,34 @@
+     return qids
+ 
+ 
+-def persist_event_notifications(message, head='', event_key=''):
++def persist_event_notifications(message, head='', event_key='', notice_kind='event-observation'):
+     """Explicit role fanout; no keyword filters, action authority or fabricated pickup.
+ 
+     The existing PM queue remains the sole disposition writer. These copies are
+     awareness notices, even when a role has no transport yet.
+     """
+-    identity = hashlib.sha256(json.dumps([message, head, event_key]).encode()).hexdigest()
++    if notice_kind not in ('event-observation', 'version-handshake'):
++        raise ValueError('unknown notification kind')
++    identity = hashlib.sha256(json.dumps([message, head, event_key, notice_kind]).encode()).hexdigest()
+     with DB_LOCK, con() as c:
+         for actor in actor_channels.ACTORS:
+             action = f'github-event:{identity}:{actor}'
+             # Unsent awareness-only notices may be coalesced. Sent/uncertain tasks
+             # and their receipts are never replaced or replayed.
+             c.execute("UPDATE agent_notifications SET status='superseded',error='Newer event snapshot pending',updated_at=? "
+-                      "WHERE actor_id=? AND task_id='event-observation' AND attempts=0 AND status='blocked_transport' AND action_id<>?",
+-                      (now(), actor, action))
++                      "WHERE actor_id=? AND task_id=? AND attempts=0 AND status='blocked_transport' AND action_id<>?",
++                      (now(), actor, notice_kind, action))
+             instruction = ('EVENT OBSERVATION ONLY — addressed to ' + actor + '.\n' + message
+                            + '\nAcknowledge this notice and return a content-free observation. No repository, branch, PR lifecycle, lease, merge, deployment or Production operation is authorized by this notice. The owning PM disposition lane assigns any action separately. Do not echo this notice back to GitHub or create a new watcher event.')
+             c.execute("INSERT OR IGNORE INTO agent_notifications(notification_key,handoff_id,actor_id,task_id,action_id,target_transport,target_session_id,target_remote_url,head,instruction,status,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+-                      (action, 0, actor, 'event-observation', action, 'local_inbox', '', '', head,
++                      (action, 0, actor, notice_kind, action, 'local_inbox', '', '', head,
+                        instruction, 'blocked_transport', 'Recipient route not yet reconciled', now(), now()))
+     dispatch_event_notifications()
+ 
+ 
+ def dispatch_event_notifications():
+     with DB_LOCK, con() as c:
+-        rows = [dict(r) for r in c.execute("SELECT * FROM agent_notifications WHERE task_id='event-observation' AND attempts=0 AND status='blocked_transport' ORDER BY updated_at,rowid LIMIT 20")]
++        rows = [dict(r) for r in c.execute("SELECT * FROM agent_notifications WHERE task_id IN ('event-observation','version-handshake') AND attempts=0 AND status='blocked_transport' ORDER BY updated_at,rowid LIMIT 20")]
+     for row in rows:
+         try:
+             route = configured_actor_route(row['actor_id'])
+@@ -2399,7 +2432,7 @@
+         if not claimed:
+             continue
+         message = agent_transport.task_message(action_id=row['action_id'], actor_id=route.actor_id,
+-            task_id='event-observation', instruction=row['instruction'], target_head=row['head'] or 'not supplied', target_tree='',
++            task_id=row['task_id'], instruction=row['instruction'], target_head=row['head'] or 'not supplied', target_tree='',
+             callback_url=callback, callback_token=_notification_callback_token(row['action_id'], route.actor_id, route.session_id), session_id=route.session_id)
+         try:
+             result = agent_transport.queue_message(CODEX_BIN, route, message, timeout=AGENT_TRANSPORT_TIMEOUT)
+@@ -5273,7 +5306,7 @@
+         set_setting('pm_outbox_status','HOLD: PM outbox is scoped to the verified SpeakSharp acceptance/continuation issues')
+         return False
+     marker='rwt-board-pm:'+get_setting('board_instance_id')+':'+str(q['id'])
+-    body='<!-- '+marker+' -->\nCLI PM → APP DEV / BROWSER PM — automatic board response (delivery '+str(q['id'])+'). Coordination only; this is not new PO merge/deploy/Production authority.\n\n'+message
++    body='<!-- '+marker+' -->\nCLI PM → CLI DEV / APP DEV / BROWSER PM — automatic board response (delivery '+str(q['id'])+'). Coordination only; this is not new PO merge/deploy/Production authority.\n\n'+message
+     with DB_LOCK, con() as c:
+         row=c.execute('SELECT * FROM pm_outbox WHERE queue_id=?',(q['id'],)).fetchone()
+         if row and row['status']=='published':
+@@ -5502,8 +5535,8 @@
+             elif not (out and out['status'] == 'published') and not publish_pm_reply(q, plan['message']):
+                 error = get_setting('pm_outbox_error') or get_setting('pm_outbox_status')
+                 update_queue(qid, status='responded_unpublished', error=error, finished_at=now())
+-                set_agent('pm', status='error', session_id=plan.get('session_id'))
+-                update_player_status('cli_pm', status='blocked', blocker=error, task='Publish PM reply to #1258', source='outbox')
++                set_agent('pm', session_id=plan.get('session_id'))  # publication is a task hold, not a dead coordinator
++                update_player_status('cli_pm', status='blocked', blocker=error, task=f'Publish reply to #{CONTROL_ISSUE}', source='outbox')
+                 add_activity('SYSTEM', 'PM publication blocked: ' + error, 'none', 'error')
+                 return 'planned'  # owed effects wait for marker recovery; never a second POST
+             _save_turn_plan(qid, plan, 'published')
+@@ -6183,7 +6216,12 @@
+         a = agents.get(aid) or {}
+         ast = str(a.get("status") or "idle")
+         board_status = str(base.get('status') or 'unknown')
+-        if ast == 'running':
++        if pid == 'cli_pm' and ast in ('idle', 'available') and not a.get('paused') and get_setting('pm_runtime_ready', '0') == '1':
++            base['status'] = 'available'
++            base['task_blocker'] = base.get('blocker') or ''
++            base['blocker'] = ''
++            base['coordination_state'] = 'receiving_events'
++        elif ast == 'running':
+             base['status'] = 'active'
+         elif ast in ('auth_required', 'error'):
+             base['status'] = 'blocked'
+@@ -6852,6 +6890,33 @@
+         pass
+ 
+ 
++def announce_app_version():
++    key = f'orch-version:{BOARD_VERSION}:{BOARD_BUILD}'
++    message = (f'ORCH FIRST-LAUNCH NOTICE — ALL AGENTS: v{BOARD_VERSION} ({BOARD_BUILD}) started. '
++               f'Control issue #{CONTROL_ISSUE}; installed launcher {APP / "Install_Orch.command"}. '
++               'This is the app announcement, not a fabricated recipient ACK. Each actor must acknowledge the version '
++               'and actual launcher/runtime path. Update only your private local launcher reference at a safe idle boundary; '
++               'retain pairing/session, watcher cursor, seen IDs and action history. Stop the owned obsolete instance only '
++               'after active work settles; never replay an uncertain task. CLI PM coordinates missing receipts. '
++               'No repository, merge, deployment or Production operation is authorized.')
++    with DB_LOCK, con() as c:
++        row = c.execute('SELECT id FROM queue WHERE delivery_key=?', (key,)).fetchone()
++    if row:
++        qid = row['id']
++    else:
++        aid = add_activity('SYSTEM', message, 'pm', 'posted')
++        qid = enqueue(aid, 'pm', message, source_actor='SYSTEM', kind='version_announcement', delivery_key=key)
++        update_queue(qid, status='responded', finished_at=now())
++        plan = {'message': message, 'next': 'none', 'route_next': 'none', 'publish': True,
++                'results': [], 'blocking': [], 'dependent_hold': False, 'dispositions': [],
++                'review_handoffs': [], 'task_deliveries': [], 'assigned_item': '', 'parse_error': '',
++                'session_id': (get_agent('pm') or {}).get('session_id')}
++        _save_turn_plan(qid, plan, 'recording')
++    persist_event_notifications(message, event_key=key, notice_kind='version-handshake')
++    continue_pm_turn(qid)
++    return qid
++
++
+ def main():
+     # Lock the state directory before any startup migration can reclassify another
+     # process's running journal row. Binding also happens before any worker starts.
+@@ -6884,6 +6949,8 @@
+     if mode == "codex":
+         refresh_codex_auth()
+     set_agent("pm", provider=mode, cwd=BASE_REPO if mode == "codex" else "")
++    establish_pm_startup_readiness(mode)
++    announce_app_version()
+     threading.Thread(target=worker, args=("pm",), daemon=True).start()
+     threading.Thread(target=worker, args=("dev",), daemon=True).start()
+     threading.Thread(target=github_watcher, daemon=True).start()
+--- a/installed-service.py
++++ b/installed-service.py
+@@ -51,10 +51,19 @@
+     return pid, paths[0], command
+ 
+ 
++def agent_rows(live):
++    value = live.get('agents')
++    if isinstance(value, dict):
++        return list(value.values())
++    if isinstance(value, list):
++        return value
++    raise RuntimeError('Existing board agent state is unreadable')
++
++
+ def idle_reason(live, source):
+     if not isinstance(live, dict) or 'transport' not in live:
+         return 'Port owner is not an Orch board'
+-    if any(a.get('status') in ('running', 'claimed', 'delivering') for a in live.get('agents', [])):
++    if any(a.get('status') in ('running', 'claimed', 'delivering') for a in agent_rows(live)):
+         return 'Agent invocation active'
+     if any(q.get('status') in ('claimed', 'delivering') for q in live.get('deliveries', [])):
+         return 'Delivery invocation active'
+@@ -86,7 +95,7 @@
+     if not match:
+         raise RuntimeError('Existing board control authentication unavailable')
+     token = match.group(1)
+-    agents = live.get('agents', [])
++    agents = agent_rows(live)
+     paused = {a['agent_id']: bool(a.get('paused')) for a in agents if a.get('agent_id') in ('pm', 'dev')}
+     try:
+         for actor in ('pm', 'dev'):
+--- a/test_startup_readiness.py
++++ b/test_startup_readiness.py
+@@ -0,0 +1,79 @@
++"""Routine restart must restore coordination, while keeping task-level uncertainty."""
++from unittest.mock import patch
++import server
++from test_comms import CommsTests
++
++
++class StartupReadinessTests(CommsTests):
++    def test_first_launch_announces_version_once_and_requires_real_actor_acks(self):
++        self.enable_real_publication()
++        with patch.object(server, 'gh_json', return_value=({'id': 6129990000}, None)) as gh, patch.object(server, 'dispatch_event_notifications'):
++            first = server.announce_app_version()
++            self.assertEqual(server.announce_app_version(), first)
++        self.assertEqual(gh.call_count, 1)
++        self.assertIn('ALL AGENTS', gh.call_args.args[0][-1])
++        self.assertIn('4.7.9', gh.call_args.args[0][-1])
++        with server.con() as db:
++            notices = list(db.execute("SELECT actor_id,status,receipt_at,result_at FROM agent_notifications WHERE task_id='version-handshake'"))
++        self.assertEqual(len(notices), 4)
++        self.assertEqual({n['actor_id'] for n in notices}, {'cli_dev','app_dev','cli_pm','browser_pm'})
++        self.assertTrue(all(n['receipt_at'] is None and n['result_at'] is None for n in notices))
++
++    def test_version_publication_error_holds_notice_not_whole_coordinator(self):
++        self.enable_real_publication()
++        server.set_agent('pm', status='idle')
++        with patch.object(server, 'gh_json', return_value=(None, 'connection error')), patch.object(server, 'dispatch_event_notifications'):
++            qid = server.announce_app_version()
++        self.assertEqual(server.get_agent('pm')['status'], 'idle')
++        self.assertEqual(next(r for r in server.list_queue() if r['id'] == qid)['status'], 'responded_unpublished')
++
++    def test_verified_login_clears_stale_auth_error(self):
++        server.set_agent('pm', status='auth_required')
++        with patch.object(server, 'CODEX_AUTH_OK', True):
++            self.assertTrue(server.establish_pm_startup_readiness('codex'))
++        self.assertEqual(server.get_agent('pm')['status'], 'idle')
++
++    def test_real_auth_failure_remains_visible(self):
++        with patch.object(server, 'CODEX_AUTH_OK', False):
++            self.assertFalse(server.establish_pm_startup_readiness('codex'))
++        self.assertEqual(server.get_agent('pm')['status'], 'auth_required')
++
++    def test_old_pm_error_does_not_block_new_events_after_restart(self):
++        old = self.q()
++        server.update_queue(old['id'], status='failed', error='Board patch rejected atomically: stale ownership')
++        server.set_agent('pm', status='error')
++        server.reset_ephemeral_control_state_on_start()
++        fresh = self.q()
++        self.assertEqual(server.get_agent('pm')['status'], 'idle')
++        self.assertEqual(server.next_queue('pm')['id'], fresh['id'])
++        self.assertEqual(next(r for r in server.list_queue() if r['id'] == old['id'])['status'], 'failed')
++
++    def test_deliberate_pause_and_cleanup_hold_are_preserved(self):
++        server.set_agent('pm', status='error', paused=1)
++        server.reset_ephemeral_control_state_on_start()
++        self.assertEqual(server.get_agent('pm')['paused'], 1)
++        self.assertEqual(server.get_agent('pm')['status'], 'error')
++        server.set_agent('pm', paused=0)
++        server.set_setting('pm_cleanup_unverified', 'group identity not verified')
++        server.reset_ephemeral_control_state_on_start()
++        self.assertEqual(server.get_agent('pm')['status'], 'error')
++
++    def test_dev_preflight_error_can_reconcile_but_never_gains_write_authority(self):
++        server.set_agent('dev', status='error')
++        server.reset_ephemeral_control_state_on_start()
++        self.assertEqual(server.get_agent('dev')['status'], 'idle')
++        self.assertEqual(server.get_setting('dev_assignment_reconciled'), '0')
++
++    def test_invoked_uncertain_dev_is_not_reset(self):
++        q = self.q()
++        server.update_queue(q['id'], recipient='dev', status='failed', launch_attempted_at=server.now(), error='uncertain write')
++        server.set_agent('dev', status='error')
++        server.reset_ephemeral_control_state_on_start()
++        self.assertEqual(server.get_agent('dev')['status'], 'error')
++
++    def test_watching_survives_without_rewriting_preserved_task_owners(self):
++        prior = {w['item_key']: (w['owner'], w['branch']) for w in server.list_work_items()}
++        server.reset_ephemeral_control_state_on_start()
++        after = {w['item_key']: (w['owner'], w['branch']) for w in server.list_work_items()}
++        self.assertEqual(after, prior)
++        self.assertEqual(server.get_setting('github_watch_snapshot'), '')
+--- a/test_install_and_recovery.py
++++ b/test_install_and_recovery.py
+@@ -121,6 +121,11 @@
+         reason = service.idle_reason({'transport': {}, 'agents': [{'status': 'running'}]}, Path('/missing'))
+         self.assertEqual(reason, 'Agent invocation active')
+ 
++    def test_real_board_agent_dictionary_is_checked_before_upgrade(self):
++        service = module('installed-service')
++        reason = service.idle_reason({'transport': {}, 'agents': {'pm': {'status': 'running'}}}, Path('/missing'))
++        self.assertEqual(reason, 'Agent invocation active')
++
+     def test_private_state_not_in_install_manifest(self):
+         root = Path(__file__).parent
+         manifest = json.loads((root / 'PACKAGE-MANIFEST.json').read_text())
+--- a/test_coordination_patch.py
++++ b/test_coordination_patch.py
+@@ -64,7 +64,7 @@
+             server.run_pm(q)
+             run.assert_not_called()
+         self.assertFalse([x for x in server.list_queue() if x['recipient'] == 'dev'])
+-        self.assertEqual(server.get_agent('pm')['status'], 'error')
++        self.assertEqual(server.get_agent('pm')['status'], 'idle')
+         with patch.object(server, 'repo_slug', return_value='relativityE/speaksharp'), \
+              patch.object(server, 'resolve_dev_target', return_value={'ok': True}), \
+              patch.object(server, 'validate_worktree', return_value={'exists': True, 'is_git': True, 'branch': 'test/focus', 'head': 'a'*40, 'tree': 'b'*40}), \
+@@ -106,7 +106,7 @@
+         self.assertEqual(server.github_watch_events({'affected_reviews': {'1578': new}}, {'affected_reviews': {'1578': new}}, {'pm_github_review': True}), [])
+ 
+     def test_local_publication_recovery_respects_pause_backoff_and_budget(self):
+-        server.set_agent('pm', paused=1)
++        server.set_agent('pm', status='auth_required', paused=1)
+         with patch.object(server, 'continue_pm_turn') as resume:
+             self.assertIsNone(server.resume_deferred_pm_publication())
+             resume.assert_not_called()
+@@ -121,7 +121,7 @@
+         with patch.object(server, 'repo_slug', return_value='relativityE/speaksharp'), \
+              patch.object(server, 'gh_json', return_value=(None, 'timeout')):
+             self.assertEqual(server.continue_pm_turn(q['id']), 'planned')
+-        self.assertEqual(server.get_agent('pm')['status'], 'error')
++        self.assertEqual(server.get_agent('pm')['status'], 'idle')
+         marker = 'rwt-board-pm:' + server.get_setting('board_instance_id') + ':' + str(q['id'])
+         server.recover_pm_outbox([{'id': 99, 'body': marker}])
+         with patch.object(server, 'gh_json') as gh:
+@@ -141,12 +141,12 @@
+             server.continue_pm_turn(q['id'])
+         marker = 'rwt-board-pm:' + server.get_setting('board_instance_id') + ':' + str(q['id'])
+         server.recover_pm_outbox([{'id': 99, 'body': marker}])
+-        server.set_agent('pm', paused=1)
++        server.set_agent('pm', status='auth_required', paused=1)
+         server.update_player_status('cli_pm', status='blocked', blocker='Authentication failed', source='auth')
+         with patch.object(server, 'gh_json') as gh:
+             self.assertEqual(server.continue_pm_turn(q['id']), 'applied')
+             gh.assert_not_called()
+-        self.assertEqual(server.get_agent('pm')['status'], 'error')
++        self.assertEqual(server.get_agent('pm')['status'], 'auth_required')
+         self.assertEqual(server.get_agent('pm')['paused'], 1)
+ 
+     def test_marker_recovery_preserves_another_publication_blocker(self):
+@@ -166,7 +166,7 @@
+         with patch.object(server, 'gh_json') as gh:
+             self.assertEqual(server.continue_pm_turn(q['id']), 'applied')
+             gh.assert_not_called()
+-        self.assertEqual(server.get_agent('pm')['status'], 'error')
++        self.assertEqual(server.get_agent('pm')['status'], 'idle')
+ 
+     def test_deferred_recovery_respects_backoff_and_budget(self):
+         server.set_agent('pm', paused=0)
+--- a/static/index.html
++++ b/static/index.html
+@@ -1,6 +1,6 @@
+ <!doctype html>
+ <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<title>RWT Board v4.7.8</title>
++<title>RWT Board v4.7.9</title>
+ <style>
+ :root{
+   --line:#d9dde3;--muted:#667085;--soft:#f7f8fa;--text:#111827;
+@@ -22,7 +22,7 @@
+ @media(max-width:950px){#decisionGrid,#workGrid,#prColumns,.advancedGrid{grid-template-columns:1fr}#agents{grid-template-columns:repeat(2,1fr)}.sendButton{margin-left:0}}@media(max-width:560px){#agents{grid-template-columns:1fr}.sendRow{gap:9px}}
+ </style></head>
+ <body><main>
+-<header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.8 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
++<header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.9 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
+ 
+ <section class="card"><div class="sectionTitle">PM monitoring and reply health</div><div id="commsHealth" class="muted">Checking local runtime…</div></section>
+ <section class="card"><div class="sectionTitle">Coordination — local operator owns setup</div><div id="coordinationHealth" role="status">Checking routes…</div><button onclick="recoverPmCleanup()">Verify PM cleanup and resume safely</button><div id="coordinationResult" role="status" class="tiny"></div></section>
+@@ -88,9 +88,9 @@
+ function prState(pr,currentNum){if(pr.mergedAt||String(pr.state||'').toUpperCase()==='MERGED')return ['COMPLETED','s-done','Completed'];if(pr.closedAt||String(pr.state||'').toUpperCase()==='CLOSED')return ['CLOSED','s-idle','Closed'];if(currentNum&&Number(pr.number)===Number(currentNum)){let b=dashboard?.blocker||{};let txt=String(b.text||'').toLowerCase();let [t,c]=statusNorm(txt.includes('running')?'waiting':txt.includes('failed')?'blocked':'waiting');return [t,c,'CURRENT in RWT queue'];}if(pr.isDraft)return ['WAITING','s-waiting','Open · Draft · not current'];let ct=checksSummary(pr);if(ct.includes('failed'))return ['BLOCKED','s-blocked','Open · checks failed'];if(ct.includes('running'))return ['WORKING','s-working','Open · checks running'];return ['WAITING','s-waiting','Open · not current'];}
+ function closeDetail(){detail.style.display='none';delete detailBox.dataset.agent;document.querySelectorAll('.agent').forEach(x=>x.classList.remove('selected'));}
+ function routeDetails(id){const r=dashboard?.agent_routes?.[id];if(!r)return '';const d=r.last_task_delivery||r.last_delivery||{};const w=r.worker;return `${w?'<div class="k">Persistent worker</div><div>'+esc(w.worker_id)+' · thread '+esc(w.thread_id)+' · '+esc(w.status)+' · '+(w.recent?'heartbeat live':'heartbeat stale')+'</div><div>'+esc(w.error||'')+'</div>':''}<div class="k">Recipient route</div><div>${esc(r.configured?(r.transport+' · '+r.session_id):'Not paired')}</div><div class="k">Delivery ID / action</div><div>${esc([d.id?'#'+d.id:'',d.action_id||''].filter(Boolean).join(' · ')||'No delivery observed')}</div><div class="k">Receipt / result</div><div>${esc(d.status||'No delivery')} · ${d.receipt_at?'receipt recorded':'receipt missing'} · ${d.result_at?'result recorded':'result missing'}</div><div class="k">Exact delivery error</div><div>${esc(d.error||r.blocker||'No error recorded')}</div><div class="k">Host preflight</div><div>${esc(r.host_preflight||'Not verified on installed host')}</div>`;}
+-function showAgent(id,refresh=false){if(!refresh&&detail.style.display!=='none'&&detailBox.dataset.agent===id){closeDetail();return;}let p=dashboard?.players?.[id]||{};let w=p.work_item||{};detail.style.display='block';detailBox.dataset.agent=id;detailBox.innerHTML=`<div class="row spread"><div class="big">${esc(N[id]||id)}</div><span>${badge(p.status,p)} <button onclick="closeDetail()">Close</button></span></div><div class="detailGrid"><div class="k">Working on</div><div>${esc(w.title||p.task||'No current task')}</div><div class="k">Blocked?</div><div>${esc(p.blocker||w.blocker||'No')}</div><div class="k">Next action</div><div>${esc(w.next_action||p.opportunity||'No next action recorded')}</div><div class="k">Branch</div><div>${esc(w.branch||'—')}</div><div class="k">PO needed</div><div>${w.po_required?'YES':'NO'}</div><div class="k">Status age</div><div>${age(p.age_seconds)}${p.checkpoint_warning?' · '+esc(p.checkpoint_warning):''}</div>${routeDetails(id)}</div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.toggle('selected',x.dataset.id===id));}
++function showAgent(id,refresh=false){if(!refresh&&detail.style.display!=='none'&&detailBox.dataset.agent===id){closeDetail();return;}let p=dashboard?.players?.[id]||{};let w=p.work_item||{};detail.style.display='block';detailBox.dataset.agent=id;detailBox.innerHTML=`<div class="row spread"><div class="big">${esc(N[id]||id)}</div><span>${badge(p.status,p)} <button onclick="closeDetail()">Close</button></span></div><div class="detailGrid"><div class="k">Working on</div><div>${esc(w.title||p.task||'No current task')}</div><div class="k">Blocked?</div><div>${esc(p.blocker||p.task_blocker||w.blocker||'No')}</div><div class="k">Next action</div><div>${esc(w.next_action||p.opportunity||'No next action recorded')}</div><div class="k">Branch</div><div>${esc(w.branch||'—')}</div><div class="k">PO needed</div><div>${w.po_required?'YES':'NO'}</div><div class="k">Status age</div><div>${age(p.age_seconds)}${p.checkpoint_warning?' · '+esc(p.checkpoint_warning):''}</div>${routeDetails(id)}</div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.toggle('selected',x.dataset.id===id));}
+ function showPr(pr){let [st,cls,pos]=prState(pr,dashboard?.current?.number);detail.style.display='block';detailBox.removeAttribute('data-agent');detailBox.innerHTML=`<div class="row spread"><div class="big">PR #${esc(pr.number)} · ${esc(pr.title||'')}</div><span class="statusBadge ${cls}">${st}</span></div><div class="detailGrid"><div class="k">RWT position</div><div>${esc(pos)}</div><div class="k">Head</div><div>${esc((pr.headRefOid||pr.head||'').slice(0,12)||'—')}</div><div class="k">Checks</div><div>${esc(pr.checks?`${pr.checks.green||0}/${pr.checks.total||0} green${pr.checks.running?' · '+pr.checks.running+' running':''}${pr.checks.failed?' · '+pr.checks.failed+' failed':''}`:checksSummary(pr))}</div><div class="k">Review</div><div>${esc(pr.reviewDecision||'—')}</div><div class="k">Updated</div><div>${esc(pr.updatedAt||pr.closedAt||pr.mergedAt||'—')}</div><div class="k">GitHub</div><div><a href="${esc(pr.url)}" target="_blank">Open PR</a></div></div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.remove('selected'));}
+-function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||'No blocker';return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div><div class="agentTask">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
++function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||'No blocker';return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div><div class="agentTask">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
+ function renderQueue(q){queue.innerHTML=(q||[]).map(x=>`<div class="workItem"><div><div class="itemTitle">${esc(x.title||x.item_key||'Untitled')}</div><div class="itemMeta">${esc(x.sequence_blocker||x.dispatch_hold||x.blocker||x.next_action||'')}</div></div><div>${ownerTag(x.owner)} ${badge(x.state)}</div></div>`).join('')||'<div class="muted">Queue empty</div>'}
+ function prRow(pr,completed=false){let [st,cls,pos]=prState(pr,dashboard?.current?.number);let obj=encodeURIComponent(JSON.stringify(pr));return `<div class="prItem ${dashboard?.current&&Number(pr.number)===Number(dashboard.current.number)?'current':''} ${completed?'completed':''}" onclick="showPr(JSON.parse(decodeURIComponent('${obj}')))"><div><div class="prTitle"><span class="prNumber">#${pr.number}</span>${esc(pr.title||'')}</div><div class="prMeta">${esc(pos)} · ${esc(checksSummary(pr))}</div></div><span class="statusBadge ${cls}">${st}</span></div>`}
+ function renderPrs(d){let open=(d.open_prs||[]).slice(0,4);let closed=[...(d.recent_completed||[])].sort((a,b)=>String(b.mergedAt||b.closedAt||b.updatedAt||'').localeCompare(String(a.mergedAt||a.closedAt||a.updatedAt||''))).slice(0,4);openPrs.innerHTML=open.map(x=>prRow(x)).join('')||'<div class="muted">No open PRs</div>';closedPrs.innerHTML=closed.map(x=>prRow(x,true)).join('')||'<div class="muted">No recent closed PRs</div>';if(d.current){currentPr.innerHTML=prRow({...d.current,number:d.current.number,title:d.current.title,url:d.current.url,headRefOid:d.current.head,isDraft:d.current.draft,state:d.current.state,reviewDecision:d.current.reviewDecision,statusCheckRollup:d.current.statusCheckRollup||[]});}else currentPr.innerHTML='<div class="decision warn"><div class="big">No Current PR</div><div class="muted" style="margin-top:4px">PM should select the active release PR when one exists.</div></div>'}
+--- a/test_regressions.py
++++ b/test_regressions.py
+@@ -342,7 +342,7 @@
+ 
+     def test_version_labels_match(self):
+         root=Path(server.__file__).parent
+-        self.assertEqual(server.BOARD_VERSION,'4.7.8')
++        self.assertEqual(server.BOARD_VERSION,'4.7.9')
+         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
+             text=(root/file).read_text()
+             self.assertIn('v'+server.BOARD_VERSION,text)
+--- a/start-rwt-handoff.sh
++++ b/start-rwt-handoff.sh
+@@ -16,7 +16,7 @@
+ # Import one verified prior state only when it is the sole sibling; set RWT_MIGRATE_FROM for an explicit choice.
+ python3 migrate_state.py
+ 
+-echo "RWT Board v4.7.8 (coordination.2): $URL"
++echo "RWT Board v4.7.9 (coordination.3): $URL"
+ echo "Use 127.0.0.1, not localhost."
+ echo "Control issue: #${RWT_CONTROL_ISSUE}"
+ 
+--- a/install-orch.py
++++ b/install-orch.py
+@@ -12,7 +12,7 @@
+ import webbrowser
+ import package_integrity
+ 
+-VERSION = '4.7.8'
++VERSION = '4.7.9'
+ LABEL = 'com.speaksharp.orch'
+ 
+ 

@@ -1,0 +1,331 @@
+{
+  "version": "4.7.9",
+  "build": "coordination.3",
+  "files": [
+    {
+      "path": "COORDINATION-CHANGE.md",
+      "bytes": 1203,
+      "sha256": "7045f42815d5d4a542a7ed4fd3206730435a7781e6955c9758a94562959cae20"
+    },
+    {
+      "path": "FAILURE-SEQUENCES.md",
+      "bytes": 2063,
+      "sha256": "0a05bc91d9fb03b2db13e5d25aee9687207838adfe26f04004bedebe6392fc44"
+    },
+    {
+      "path": "INSTALL.md",
+      "bytes": 2198,
+      "sha256": "db637894aeba04d2ecb3c5f4a3c6ebe27ae4e34edd9377b5c1d2f52bea3854d5"
+    },
+    {
+      "path": "Install_Orch.command",
+      "bytes": 80,
+      "sha256": "cd6647d4e25d1ee725e680311e42f373cf2447d6f2c481bdc6bae420db295222"
+    },
+    {
+      "path": "PM-FIX.md",
+      "bytes": 5050,
+      "sha256": "ed28c4cace13ac20903cc69d3614e793bcb25ffbb42160fd2d83c0383e75f4de"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1981,
+      "sha256": "d0bcb7c7d4e242384e1850c4f826a20a57a65a27f9f37b841b2de286c2989c7e"
+    },
+    {
+      "path": "RECOVERY-CLI-DEV-20261011.json",
+      "bytes": 620,
+      "sha256": "62ea0315e9a6c1b8ff89237075a77c3c54b809a7ed8a7cf057467409d2db4dc3"
+    },
+    {
+      "path": "RELEASE-CANDIDATE.md",
+      "bytes": 857,
+      "sha256": "e179558cd22bdee3595749fa00223720713ecb3762b88454a5a53954739ca93d"
+    },
+    {
+      "path": "ROUTE-RECOVERY.md",
+      "bytes": 3660,
+      "sha256": "a1231e57ab2ce5bf6f62dbc2fc03819576f700e56fcf71dcd66be6a35599e894"
+    },
+    {
+      "path": "Start_Orch.command",
+      "bytes": 80,
+      "sha256": "6f2401b946e37f5cb376c1d38e41efaeb7b45c659c6f04fb188435f68b1d4f20"
+    },
+    {
+      "path": "TESTING.md",
+      "bytes": 8759,
+      "sha256": "bde676e34a5c8e759a70312d53ced287f47e71848c49bfba9634b28e44889b75"
+    },
+    {
+      "path": "UI-PATCH.md",
+      "bytes": 830,
+      "sha256": "7ee57641591190653320418d08d9a68eb806daacda9c51d7880d2c50fa23e830"
+    },
+    {
+      "path": "VALIDATION.md",
+      "bytes": 1267,
+      "sha256": "8a0acfeadb18b5efc383eecce818063c7715ff311273940cdac92a4872e5fd69"
+    },
+    {
+      "path": "actor_channels.py",
+      "bytes": 9674,
+      "sha256": "715136432d310956a67f1116a14721fed597ea058f03f7e0bd28c7aab868ecf6"
+    },
+    {
+      "path": "agent-routes.schema.json",
+      "bytes": 3052,
+      "sha256": "e9aa5d22a169792e05ddad7cc2e7c09c38e7ec0cf038b17d4a82a21bbd3e03bc"
+    },
+    {
+      "path": "agent_transport.py",
+      "bytes": 7221,
+      "sha256": "150ea4892b16764d0859eb13ef52373f3c42ee7bae8e94800d5ac17e8e7dba0c"
+    },
+    {
+      "path": "codex_rpc.py",
+      "bytes": 11593,
+      "sha256": "7f9f5c096e91a874ee89b26c932a83f9d9e6f6d4537870c93403a0027767faf1"
+    },
+    {
+      "path": "codex_sessions.py",
+      "bytes": 3931,
+      "sha256": "e6c8970753954aa9b3b72b0f603a3d73d2f8e67335d6f40cc1b43d051532ed45"
+    },
+    {
+      "path": "coordination_health.py",
+      "bytes": 3463,
+      "sha256": "e9545b3ce081d5e8a2ef8bb0c2b88d6b65d390bee6f4d8ec7d11076e30d8dbf6"
+    },
+    {
+      "path": "coordination_recovery.py",
+      "bytes": 4006,
+      "sha256": "fb302e5d6b8dce5dacafca268dae0f0d583f8b49f380d82635f2b475429a7afd"
+    },
+    {
+      "path": "github_budget_preload.cjs",
+      "bytes": 2115,
+      "sha256": "0f8589f5599933f82e1357f3a04e0ede2fa9dd3e6e5bf8955210c92c33a1dcea"
+    },
+    {
+      "path": "guarded_pm.py",
+      "bytes": 17758,
+      "sha256": "701af7478d2e240ec1736938afec74d802c776769aaa1bf70072068e9376d638"
+    },
+    {
+      "path": "install-orch.py",
+      "bytes": 5026,
+      "sha256": "de8ca70d76dada7094c6e4fdb15ac32e499b8aa53f446f4485c5cc9976615e1d"
+    },
+    {
+      "path": "installed-service.py",
+      "bytes": 7965,
+      "sha256": "9c0856a905ab24ae39b4516e0cf0ff9b1c9f765c87dc72d44a49d37828d93588"
+    },
+    {
+      "path": "migrate_state.py",
+      "bytes": 11203,
+      "sha256": "7992834a2401d9d89f6dd13349bc1e25ad480df0789ddab082f558d5f2d9cda0"
+    },
+    {
+      "path": "orch-callback.py",
+      "bytes": 3363,
+      "sha256": "d0ad977e66032993360732ea38200a693bd3910c2f156661e83771ae77aaa4e1"
+    },
+    {
+      "path": "orch-reconcile-route.py",
+      "bytes": 3696,
+      "sha256": "6495fe6844fbd48d065b58de0b55516983e9fa8a0a8a541bf523b06517c89bff"
+    },
+    {
+      "path": "orch-setup.py",
+      "bytes": 3393,
+      "sha256": "c6f775deef4fdee9f1e050633f751ac4a54e7b01d24d8d1f0c7c1e18754c2c75"
+    },
+    {
+      "path": "orch-worker.py",
+      "bytes": 11554,
+      "sha256": "f7555bb06865ba57bfcfccda9a1af1c2b89f2207f996cae41ed2bc09d7c46ebc"
+    },
+    {
+      "path": "package_integrity.py",
+      "bytes": 1568,
+      "sha256": "7fcf06ef83ebbad40dedc5a7f4aef2a03cfdaa8c97127c6876f5aab68fc97be7"
+    },
+    {
+      "path": "pm-instructions.md",
+      "bytes": 22961,
+      "sha256": "d1d70341251e28e7aa77b0b9a8052c58a8a44a266399ae306f5170056ad59a8d"
+    },
+    {
+      "path": "pm-route.schema.json",
+      "bytes": 13568,
+      "sha256": "a0b465047d44977d6af8e3c98c1385a5ea9d23b5ad0f7e0edf78fdc2e7d28fb6"
+    },
+    {
+      "path": "route_recovery.py",
+      "bytes": 5462,
+      "sha256": "c8ba8896e1e31b34cecc669934b3623fb28f09491f3104d5381222836b6aaddd"
+    },
+    {
+      "path": "server.py",
+      "bytes": 410120,
+      "sha256": "596c6ce31611fc5beedbe3cf400f8610b40503268d7265e1e0be51322a83298a"
+    },
+    {
+      "path": "start-rwt-handoff.sh",
+      "bytes": 2189,
+      "sha256": "298e60495906b89b9092bba89392553d67f593634df9af2a412b3f52304ea7a6"
+    },
+    {
+      "path": "static/index.html",
+      "bytes": 37131,
+      "sha256": "e1a8c779e403473dfd4c7240ba58203b7fad39812e36b26ae7035d8e8d786594"
+    },
+    {
+      "path": "test_actor_channels.py",
+      "bytes": 19756,
+      "sha256": "9e4f79739147b1e7c265bad3db6cc67fd33b8f1148f6c9e9beaeb527dd48f1e7"
+    },
+    {
+      "path": "test_agent_transport.py",
+      "bytes": 7617,
+      "sha256": "93eeaf586095dc66bfcc43ab1ad9d2490e7f5e29b84828c810d745b7f74da36f"
+    },
+    {
+      "path": "test_comms.py",
+      "bytes": 13401,
+      "sha256": "58a06b4bbc2dd14c97aa092ca74cbcc85aed359e3e497ce882339268cff1d2c5"
+    },
+    {
+      "path": "test_coordination_patch.py",
+      "bytes": 13393,
+      "sha256": "bd39e4f4fc1693d5d9a9d6bfe34418b989331ab8acc999583fb0070f13a4a506"
+    },
+    {
+      "path": "test_coordination_urgency.py",
+      "bytes": 13317,
+      "sha256": "fb5a54bac1452ee9018076bd39757bbe65ba913ed343d4444aa6ee3465ecadbe"
+    },
+    {
+      "path": "test_deadlock.py",
+      "bytes": 5946,
+      "sha256": "6045cf12f2d201ca8d7c5f2490bdbc717d34a586b4809959d628de2e6b9d2c4e"
+    },
+    {
+      "path": "test_deadlock5.py",
+      "bytes": 120242,
+      "sha256": "361909d2df575411178be50afe4abf4ac1132114d999e50ebf905d62514cf18c"
+    },
+    {
+      "path": "test_event_delivery.py",
+      "bytes": 8937,
+      "sha256": "222518ba61411b2d4529aa17d87a36f8fb69a86f00c4be0d01cd07b13c22f456"
+    },
+    {
+      "path": "test_handoffs.py",
+      "bytes": 6335,
+      "sha256": "709896a42f270d25ed6bd773a9f8d3a1a38a26a6ee189f2fb2871325496c33bc"
+    },
+    {
+      "path": "test_install_and_recovery.py",
+      "bytes": 7623,
+      "sha256": "a8dc001971f0103e4f2ec8e3a4809176ff7bcc90157ee2c58213133b0e39e2ac"
+    },
+    {
+      "path": "test_missing_full_ci.py",
+      "bytes": 2286,
+      "sha256": "462acd1b658e8e6ee52ad4694453a672a84d831e173eec611bb6f8bbef6dac3e"
+    },
+    {
+      "path": "test_orch_callback.py",
+      "bytes": 2882,
+      "sha256": "c1eaa456a551195984d9859670978bcc4a2997251ddbd807ac46e9cdc3c27a23"
+    },
+    {
+      "path": "test_package2a.py",
+      "bytes": 14052,
+      "sha256": "16cd77e2b94006bd76bfe6c6598dac81d6f30e991215b4727bff17dd574bbb58"
+    },
+    {
+      "path": "test_pm_cleanup.py",
+      "bytes": 4563,
+      "sha256": "a3d6562f3d4ea980abca48eae0451cc13c907398ffcc05e7adfe89a780466220"
+    },
+    {
+      "path": "test_poll_budget.py",
+      "bytes": 49579,
+      "sha256": "8f5532c17cb527da333f05485b39dac5ecbea88d150682008dd716d3f7d06003"
+    },
+    {
+      "path": "test_reconciliation.py",
+      "bytes": 7613,
+      "sha256": "004b1960785045ed692f26945c80c86699765fc39e2d86390e80e426fa721f4e"
+    },
+    {
+      "path": "test_refresh_reviews.py",
+      "bytes": 2415,
+      "sha256": "4d52de5a4763690903d0eaa7b2d84e323c1c2a36dceacafa172a1bac8c7e6f09"
+    },
+    {
+      "path": "test_regressions.py",
+      "bytes": 26053,
+      "sha256": "27c6dce0ee1c1e37061003ffb8c6c38e484fcacdf21c560f68e17d9e5177b9da"
+    },
+    {
+      "path": "test_route_recovery.py",
+      "bytes": 9146,
+      "sha256": "eed536123534c9fb07650caf5ba9ab75a6d67fd5caaae82799ed7a504d1d8537"
+    },
+    {
+      "path": "test_sequencing_status.py",
+      "bytes": 3099,
+      "sha256": "939fbca8f6e7f0b9cedf6f84f665ca44ac6488c23acbad64ef0ba1f3b2d149c2"
+    },
+    {
+      "path": "test_server.py",
+      "bytes": 38025,
+      "sha256": "e3ac2333335b6b7b1bd43d47d469c5c3287d5cfab18c3465e8c736832d4c6e60"
+    },
+    {
+      "path": "test_startup_readiness.py",
+      "bytes": 4598,
+      "sha256": "5528d9079b270aa91925df1211afa139a8987a590efcf5d03ce74d1475a4139b"
+    },
+    {
+      "path": "test_transport_permissions.py",
+      "bytes": 1859,
+      "sha256": "381ec2622699fe41509463c276db1388ced5ecec010c9379b92aa84702e4dcee"
+    },
+    {
+      "path": "test_ui.js",
+      "bytes": 7659,
+      "sha256": "b889f5c98f39070907ce8d3c54384e20113b50f07c295873c00de3a5b35e7b26"
+    },
+    {
+      "path": "test_watchdog.py",
+      "bytes": 2894,
+      "sha256": "7a7457984ec90a6edc17b7a698260841c6bb52afbf9b694214c6d35e7f437498"
+    },
+    {
+      "path": "test_worker_runtime.py",
+      "bytes": 17746,
+      "sha256": "959b6194eddd27dd92fa177ee53dfafdcfa4b3cc58d982a827b03df22672d118"
+    },
+    {
+      "path": "watch-orch-inbox.py",
+      "bytes": 3847,
+      "sha256": "1ab4a35eeee125bc570471bd7a0a191bea5160a2feefd83480db10770480d663"
+    },
+    {
+      "path": "worker_runtime.py",
+      "bytes": 12125,
+      "sha256": "8d910c749151f39aa499a9bd8770f55d7091c13bf547602449bf5526929ebbc1"
+    },
+    {
+      "path": "worker_supervisor.py",
+      "bytes": 3515,
+      "sha256": "e8c82291769642c6edebd84cb8919f64b5effeea6f1ca857b31c16ebda335768"
+    }
+  ]
+}
