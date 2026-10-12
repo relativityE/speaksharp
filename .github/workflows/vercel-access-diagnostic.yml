@@ -20,10 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Verify exact source and first attempt
+      - name: Verify main, exact source and first attempt
         env:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
+          test "$GITHUB_REF" = "refs/heads/main"
           test "$GITHUB_SHA" = "$EXPECTED_SHA"
           test "$GITHUB_RUN_ATTEMPT" = "1"
       - uses: actions/checkout@v6
