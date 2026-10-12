@@ -1,0 +1,678 @@
+--- v4.7.9/INSTALL.md
++++ v4.7.10/INSTALL.md
+@@ -1,26 +1,11 @@
+-# Orch v4.7.9 installation
++# Orch v4.7.10 installation
+ 
+-Run `Install_Orch.command` once, or `python3 install-orch.py`. There is no separate setup step.
+-The installer verifies its package, installs under ~/SW_Dev/rwt-pr-handoff-v4.7.9,
+-registers a user LaunchAgent, starts it, and opens http://127.0.0.1:4317/.
+-It restores at login and restarts after service exit. Closing the browser does not stop coordination.
++Only the PO downloads and extracts this package. From its folder, run `python3 orch-setup.py`, exactly as with the last working release. `Start_Orch.command` uses that same entry point. `install-orch.py` is a compatibility alias; it registers no service.
+ 
+-The service identifies an existing owned board through its listening process and state directory,
+-waits for a verified idle boundary, pauses dispatch, rechecks, stops that board, imports verified private
+-state and artifacts, restores the original pause preferences and starts the new board. Active or
+-uncertain operations are retained: no forced kill, silent route replacement or task replay.
+-If several inactive legacy boards exist with no verified running source, migration fails closed;
+-the local CLI PM must resolve the source. The PO does not choose UUIDs or run repair commands.
++Keep the terminal running. Browser launch waits for the v4.7.10 API to respond. Closing the browser does not stop the board; stopping this terminal does. No login background service is installed.
+ 
+-Existing gh/Codex subscription login must be available. No API key is installed. Existing recipient
+-pairing and registered worker threads are retained. Already registered eligible idle Dev workers
+-resume automatically; active, blocked or uncertain workers require local agent readback.
+-This does not invent a transport for a browser chat with no wake hook. Such a chat cannot be
+-promised automatic wake. Use the registered Codex app-server worker path, with real authenticated
+-receipt/result proof, for unattended execution. No setup is delegated to the PO.
++The verified last-serving v4.7.7-candidate state is selected automatically when the new folder has no state and no explicit migration override. Its database, private pairing and packet artifacts are copied with verification; the source remains intact. Existing target state is retained. Other ambiguous migrations remain a HOLD. The inactive owned v4.7.9 LaunchAgent registration is archived to prevent its failed startup at login; a loaded or unfamiliar service is preserved and blocks takeover.
+ 
+-Agent-operated acceptance on the Mac: capture installed version/control issue, startup and restart,
+-new PR/review/CI/merge transitions, intended actor receipt and actual result, then PM continuation.
+-Prove an uncertain action is not replayed. Package tests are not a substitute for that host proof.
++Existing GitHub and Codex subscription login are required. Recipient routes and registered workers are preserved; unsupported browser chats still have no automatic wake hook. Events and version handshakes require actual recipient ACK and result. No Dev downloads or installs this package.
+ 
+-Agents receive a version notice on first startup and must ACK the installed version/launcher path. Keep watcher cursors and seen IDs across launcher updates. An older LaunchAgent must be retired at a verified idle boundary by the local coordinator/operator; the installer does not overwrite another running service. The PO is not asked to perform that reconciliation.
++Offline checks do not establish Mac readiness. Acceptance requires HTTP readiness, an actual event delivery/ACK/result and CLI PM continuation on this host. Do not claim hands-off coordination until that proof exists.
+--- v4.7.9/README.md
++++ v4.7.10/README.md
+@@ -1,8 +1,8 @@
+-# RWT Orch v4.7.9 — coordination.3
++# RWT Orch v4.7.10 — coordination.4
+ 
+-One installer: Install_Orch.command. It installs and starts the persistent Mac service and browser;
+-no second orch-setup command or manually launched listener is required for already registered,
+-verified idle workers. Existing gh/Codex sign-in is required.
++Only the PO downloads the package. Installation flows into the same foreground setup and launch as v4.7.7;
++`Install_Orch.command` and `Start_Orch.command` both use that path. No LaunchAgent, login task or background
++service is installed. Keep the terminal running. Existing gh/Codex sign-in is required.
+ 
+ Fixes from the observed failure sequences:
+ - continuation #1593 is now the default and actual PM publication destination;
+@@ -11,12 +11,12 @@
+ - rejected ownership checkpoints receive one durable read-only recovery with route/journal context;
+ - unsent awareness events coalesce, while sent/uncertain actions remain immutable;
+ - old outbox publications are read back at their original issue, without blindly posting them again;
+-- one installation manages startup, verified idle migration, login and restart.
++- the verified last-serving v4.7.7-candidate migration is automatic, and browser launch waits for HTTP readiness.
+ 
+-These are source/test fixes. Installed-Mac wake and restart proof remains required. Browser-only chats
++These are source/test fixes. Installed-Mac wake and foreground restart proof remains required. Browser-only chats
+ without a wake hook are explicitly unsupported for automatic wake; GitHub posting is not delivery.
+ No merge/deployment/Production authority is created by event notifications or installation.
+ 
+-coordination.3 adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
++coordination.4 adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
+ 
+ First launch publishes one durable ALL AGENTS version/launcher notice to the control issue and queues version-specific recipient handshakes. Restart does not duplicate the post or invent ACKs. PM notification publication failures are task holds, not coordinator-wide errors. Healthy CLI PM is shown as available/receiving events, with task holds displayed separately. Existing native browser-chat wake limits are unchanged.
+--- v4.7.9/RELEASE-CANDIDATE.md
++++ v4.7.10/RELEASE-CANDIDATE.md
+@@ -1,12 +1,14 @@
+-# v4.7.9 release packet
++# v4.7.10 release packet
+ 
+-Build: coordination.3. This package replaces the capped-control/installation/checkpoint paths in
++Build: coordination.4. This package replaces the capped-control/installation/checkpoint paths in
+ v4.7.7-candidate. The full source is in the archive and independently hash-listed by PACKAGE-MANIFEST.json.
+ 
+ Offline regressions cover capped-thread routing and dedupe, new PR discovery, connection-error retention,
+ rejected ownership recovery, cleanup/paused safeguards, secret-free recovery context, notification coalescing,
+-persistent startup configuration and preservation of private state. Existing delivery/worker/lease/recovery
++foreground startup readiness and preservation of private state. Existing delivery/worker/lease/recovery
+ regressions remain mandatory. No live GitHub or provider requests occur in the offline tests.
+ 
+ Host acceptance is pending until the local operator installs and returns actual actor receipt/result and
+ PM continuation after a restart. No claim of automatic wake for an unsupported browser chat is made.
++
++The failed v4.7.9 background service entry point has been removed. No LaunchAgent is created; the inactive owned registration is archived. Both launch commands use the previous foreground setup method.
+--- v4.7.9/VALIDATION.md
++++ v4.7.10/VALIDATION.md
+@@ -1,14 +1,18 @@
+-# Validation — v4.7.9 coordination.3
++# Validation — v4.7.10 coordination.4
+ 
+-Full Python suite: 590 tests (the original delivery/lease/runtime suite plus installation/recovery regressions).
++Prior v4.7.9 Python suite: 590 tests (the original delivery/lease/runtime suite plus installation/recovery regressions).
+ Actual dashboard JavaScript smoke: passed. Python syntax and Bash launcher syntax: passed.
+ Capped-continuation publication regression: RED against v4.7.6 (valid #1593 publication rejected), GREEN here.
+ Private state is excluded from the source archive. Installation preservation is covered by a real temporary-directory test.
+ 
+-These tests use isolated SQLite and fake GitHub/runtime boundaries. They do not prove an installed Mac LaunchAgent,
++These tests use isolated SQLite and fake GitHub/runtime boundaries. They do not prove the installed Mac foreground launcher,
+ current recipient thread readiness, subscription login, Internet availability or real automatic wake.
+ The local agent must supply that host receipt and restart proof before Orch is accepted.
+ 
+ Startup readiness regression: RED against v4.7.6 (PM stays in error and cannot claim new events), GREEN here. Login recovery, pause/cleanup preservation, Dev uncertainty and ownership preservation are covered.
+ 
+ First-launch announcement/dedupe, four real-ACK-required version handshakes, task-scoped publication failures and real board agent-map shape are covered. v4.7.8 installer assumed a list where the actual API returns an agent dictionary; fixed here before installation.
++
++Foreground regressions exercise ten candidate states with verified source/pairing preservation, connection refusal and wrong-version readiness, early child exit, readiness timeout and inactive-versus-loaded service handling. Current release suite results are recorded after execution.
++
++Final v4.7.10: 592 Python tests passed; actual dashboard smoke passed; Python compile and Bash syntax passed. No installed-Mac delivery proof yet.
+--- v4.7.9/foreground_startup.py
++++ v4.7.10/foreground_startup.py
+@@ -0,0 +1,75 @@
++"""Foreground recovery for the verified last-serving board; open only after readiness."""
++import argparse
++import json
++import os
++from pathlib import Path
++import plistlib
++import subprocess
++import time
++import urllib.request
++import webbrowser
++
++
++def prepare_foreground(root, env, home=None, run=subprocess.run):
++    root = Path(root)
++    home = Path(home or Path.home())
++    source = root.parent / 'rwt-pr-handoff-v4.7.7-candidate' / '.agent-work' / 'state.db'
++    if not (root / '.agent-work' / 'state.db').exists() and not env.get('RWT_MIGRATE_FROM') and source.is_file():
++        # Confirmed by last-serving receipts and the owned Mac diagnostic 6124027101.
++        env['RWT_MIGRATE_FROM'] = str(source)
++    plist = home / 'Library' / 'LaunchAgents' / 'com.speaksharp.orch.plist'
++    if not plist.exists():
++        return
++    spec = plistlib.loads(plist.read_bytes())
++    args = spec.get('ProgramArguments', [])
++    owned = home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.9' / 'installed-service.py'
++    if spec.get('Label') != 'com.speaksharp.orch' or args[1:] != [str(owned)]:
++        raise RuntimeError('Unrecognized Orch service registration; source and service preserved')
++    state = run(['launchctl', 'print', f'gui/{os.getuid()}/com.speaksharp.orch'],
++                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
++    if state.returncode == 0:
++        raise RuntimeError('Existing Orch service is loaded; preserve it until verified idle recovery')
++    # Retain the inactive registration for audit, but prevent the failed v4.7.9 service at login.
++    backup = plist.with_suffix('.plist.disabled-v4.7.9')
++    if backup.exists():
++        raise RuntimeError('Prior service registration archive already exists; no overwrite')
++    plist.rename(backup)
++
++
++def wait_ready(pid, port, timeout=45, opener=None, alive=None, clock=time.monotonic, pause=time.sleep):
++    http = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++    opener = opener or http.open
++    def process_alive():
++        try:
++            os.kill(pid, 0)
++            return True
++        except ProcessLookupError:
++            return False
++    alive = alive or process_alive
++    deadline = clock() + timeout
++    while clock() < deadline:
++        if not alive():
++            raise RuntimeError('Orch exited before HTTP readiness; browser not opened')
++        try:
++            with opener(f'http://127.0.0.1:{port}/api/live', timeout=1) as response:
++                value = json.load(response)
++            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.10':
++                return value
++        except (OSError, ValueError):
++            pass
++        pause(0.2)
++    raise RuntimeError('Orch HTTP readiness timed out; browser not opened')
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument('--pid', type=int, required=True)
++    parser.add_argument('--port', type=int, required=True)
++    args = parser.parse_args()
++    wait_ready(args.pid, args.port)
++    print('Orch v4.7.10 HTTP ready. Keep this terminal running for coordination.', flush=True)
++    webbrowser.open(f'http://127.0.0.1:{args.port}/')
++
++
++if __name__ == '__main__':
++    main()
+--- v4.7.9/install-orch.py
++++ v4.7.10/install-orch.py
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Install once; launch and restart through the user's macOS LaunchAgent."""
++"""Compatibility installer: use the established foreground setup and launch."""
+ import argparse
+ import json
+ import os
+@@ -12,17 +12,8 @@
+ import webbrowser
+ import package_integrity
+ 
+-VERSION = '4.7.9'
++VERSION = '4.7.10'
+ LABEL = 'com.speaksharp.orch'
+-
+-
+-def launch_spec(root, python, path):
+-    return {'Label': LABEL, 'ProgramArguments': [python, str(root / 'installed-service.py')],
+-            'WorkingDirectory': str(root), 'RunAtLoad': True, 'KeepAlive': True,
+-            'ThrottleInterval': 30, 'EnvironmentVariables': {'PATH': path, 'RWT_CONTROL_ISSUE': '1593',
+-                                                           'RWT_WATCH_ISSUES': '1304,1360,1593'},
+-            'StandardOutPath': str(root / '.agent-work' / 'service.log'),
+-            'StandardErrorPath': str(root / '.agent-work' / 'service.log')}
+ 
+ 
+ def install_files(source, target):
+@@ -54,55 +45,8 @@
+ 
+ 
+ def main():
+-    parser = argparse.ArgumentParser(description=__doc__)
+-    parser.add_argument('--check', action='store_true')
+-    args = parser.parse_args()
+-    source = Path(__file__).resolve().parent
+-    if args.check:
+-        errors = package_integrity.verify(source)
+-        print(json.dumps({'version': VERSION, 'package_valid': not errors, 'errors': errors}))
+-        return bool(errors)
+-    if sys.platform != 'darwin':
+-        raise SystemExit('The persistent installer targets macOS. Offline tests run on any Python 3.10+ host.')
+-    target = Path.home() / 'SW_Dev' / ('rwt-pr-handoff-v' + VERSION)
+-    agents = Path.home() / 'Library' / 'LaunchAgents'
+-    plist = agents / (LABEL + '.plist')
+-    if plist.exists():
+-        existing = plistlib.loads(plist.read_bytes())
+-        if existing.get('ProgramArguments', [None, None])[1:] == [str(target / 'installed-service.py')]:
+-            webbrowser.open('http://127.0.0.1:4317/')
+-            print('Orch already installed; active source/state were not overwritten.')
+-            return 0
+-        raise RuntimeError('A different installed service requires an idle-boundary upgrade; no active source was overwritten')
+-    install_files(source, target)
+-    state = target / '.agent-work'
+-    state.mkdir(mode=0o700, exist_ok=True)
+-    os.chmod(state, 0o700)
+-    # Shell-derived executable locations survive launchd's minimal environment.
+-    executable_dirs = [str(Path(sys.executable).resolve().parent)]
+-    for name in ('gh', 'codex', 'claude'):
+-        found = shutil.which(name)
+-        if found:
+-            executable_dirs.append(str(Path(found).parent))
+-    path = ':'.join(dict.fromkeys(executable_dirs + ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']))
+-    agents = Path.home() / 'Library' / 'LaunchAgents'
+-    agents.mkdir(parents=True, exist_ok=True)
+-    plist = agents / (LABEL + '.plist')
+-    # A running installed instance is never replaced in-place by installer commands.
+-    if plist.exists():
+-        existing = plistlib.loads(plist.read_bytes())
+-        if existing.get('ProgramArguments') == launch_spec(target, sys.executable, path)['ProgramArguments']:
+-            webbrowser.open('http://127.0.0.1:4317/')
+-            print('Orch is already installed; its service owns startup and recovery.')
+-            return 0
+-        raise RuntimeError('Existing LaunchAgent requires the idle-boundary service upgrade; no active process was reset')
+-    fd = os.open(plist, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+-    with os.fdopen(fd, 'wb') as out:
+-        plistlib.dump(launch_spec(target, sys.executable, path), out)
+-    subprocess.run(['launchctl', 'bootstrap', f'gui/{os.getuid()}', str(plist)], check=True)
+-    webbrowser.open('http://127.0.0.1:4317/')
+-    print('Orch installed and started. Background service discovers the running board, migrates at idle, and restarts at login.')
+-    return 0
++    # Compatibility entry: the proven foreground setup owns startup and migration.
++    return subprocess.call([sys.executable, str(Path(__file__).resolve().parent / 'orch-setup.py'), *sys.argv[1:]])
+ 
+ 
+ if __name__ == '__main__':
+--- v4.7.9/orch-setup.py
++++ v4.7.10/orch-setup.py
+@@ -10,6 +10,7 @@
+ import urllib.request
+ import webbrowser
+ import package_integrity
++from foreground_startup import prepare_foreground
+ 
+ 
+ def running_board(port):
+@@ -73,6 +74,7 @@
+     if args.check:
+         print(json.dumps({'ready': True, 'board_running': False, 'next': 'Start Orch.command'}))
+         return 0
++    prepare_foreground(root, os.environ)
+     # Existing launcher owns verified migration, singleton locks and retained settings.
+     return subprocess.call(['bash', str(root / 'start-rwt-handoff.sh')], cwd=root)
+ 
+--- v4.7.9/server.py
++++ v4.7.10/server.py
+@@ -91,8 +91,8 @@
+                                   "pull_request_review_comment", "workflow_run", "check_run", "check_suite", "push"})
+ CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1593"))
+ WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
+-BOARD_VERSION = "4.7.9"
+-BOARD_BUILD = "coordination.3"
++BOARD_VERSION = "4.7.10"
++BOARD_BUILD = "coordination.4"
+ GH_BACKOFF_UNTIL = 0.0
+ PR_DISPLAY_CACHE = {}
+ PR_DISPLAY_LOCK = threading.RLock()
+@@ -1284,7 +1284,7 @@
+     GitHub watcher events. FIFO is preserved inside a priority class. The claim
+     closes the select-then-invoke race; startup returns only uninvoked claims.
+     """
+-    where = "q.status='queued' AND a.paused=0 AND a.status IN ('idle','available') AND q.available_after<=?"
++    where = "q.status='queued' AND q.kind<>'version_announcement' AND a.paused=0 AND a.status IN ('idle','available') AND q.available_after<=?"
+     if get_setting('pm_cleanup_unverified', ''):
+         where += " AND q.recipient<>'pm'"
+     args = [time.time()]
+@@ -6890,7 +6890,7 @@
+         pass
+ 
+ 
+-def announce_app_version():
++def prepare_app_version_notice():
+     key = f'orch-version:{BOARD_VERSION}:{BOARD_BUILD}'
+     message = (f'ORCH FIRST-LAUNCH NOTICE — ALL AGENTS: v{BOARD_VERSION} ({BOARD_BUILD}) started. '
+                f'Control issue #{CONTROL_ISSUE}; installed launcher {APP / "Install_Orch.command"}. '
+@@ -6912,6 +6912,11 @@
+                 'review_handoffs': [], 'task_deliveries': [], 'assigned_item': '', 'parse_error': '',
+                 'session_id': (get_agent('pm') or {}).get('session_id')}
+         _save_turn_plan(qid, plan, 'recording')
++    return qid, message, key
++
++
++def announce_app_version():
++    qid, message, key = prepare_app_version_notice()
+     persist_event_notifications(message, event_key=key, notice_kind='version-handshake')
+     continue_pm_turn(qid)
+     return qid
+@@ -6950,7 +6955,8 @@
+         refresh_codex_auth()
+     set_agent("pm", provider=mode, cwd=BASE_REPO if mode == "codex" else "")
+     establish_pm_startup_readiness(mode)
+-    announce_app_version()
++    prepare_app_version_notice()  # local journal only; never wait for GitHub before serving the page
++    threading.Thread(target=announce_app_version, daemon=True).start()
+     threading.Thread(target=worker, args=("pm",), daemon=True).start()
+     threading.Thread(target=worker, args=("dev",), daemon=True).start()
+     threading.Thread(target=github_watcher, daemon=True).start()
+--- v4.7.9/start-rwt-handoff.sh
++++ v4.7.10/start-rwt-handoff.sh
+@@ -14,9 +14,10 @@
+ URL="http://127.0.0.1:${RWT_PORT}/"
+ 
+ # Import one verified prior state only when it is the sole sibling; set RWT_MIGRATE_FROM for an explicit choice.
++python3 -c 'from pathlib import Path; import os; from foreground_startup import prepare_foreground; prepare_foreground(Path.cwd(), os.environ)'
+ python3 migrate_state.py
+ 
+-echo "RWT Board v4.7.9 (coordination.3): $URL"
++echo "RWT Board v4.7.10 (coordination.4): $URL"
+ echo "Use 127.0.0.1, not localhost."
+ echo "Control issue: #${RWT_CONTROL_ISSUE}"
+ 
+@@ -45,6 +46,5 @@
+ SERVER_PID=$!
+ cleanup(){ if kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; fi; }
+ trap cleanup EXIT INT TERM
+-sleep 0.7
+-if command -v open >/dev/null 2>&1; then open "$URL" >/dev/null 2>&1 || true; fi
++python3 foreground_startup.py --pid "$SERVER_PID" --port "$RWT_PORT"
+ wait "$SERVER_PID"
+--- v4.7.9/test_foreground_startup.py
++++ v4.7.10/test_foreground_startup.py
+@@ -0,0 +1,72 @@
++import io
++import json
++from pathlib import Path
++import plistlib
++import sqlite3
++import tempfile
++import unittest
++from types import SimpleNamespace
++from foreground_startup import prepare_foreground, wait_ready
++from migrate_state import migrate_state
++
++
++class ForegroundTests(unittest.TestCase):
++    def test_ten_sources_restore_verified_board_and_retain_private_pairing(self):
++        with tempfile.TemporaryDirectory() as directory:
++            home = Path(directory)
++            parent = home / 'SW_Dev'
++            for version in ['4.6.16', '4.6.17', '4.7.0', '4.7.1', '4.7.2', '4.7.3', '4.7.5', '4.7.6', '4.7.7-candidate', '4.7.9']:
++                state = parent / ('rwt-pr-handoff-v' + version) / '.agent-work'
++                state.mkdir(parents=True)
++                with sqlite3.connect(state / 'state.db') as db:
++                    db.execute('CREATE TABLE marker(value TEXT)')
++                    db.execute('INSERT INTO marker VALUES (?)', (version,))
++            source = parent / 'rwt-pr-handoff-v4.7.7-candidate' / '.agent-work'
++            pairing = source / 'agent-routes.json'
++            pairing.write_text('{"existing": "route"}')
++            pairing.chmod(0o600)
++            root = parent / 'rwt-pr-handoff-v4.7.10'
++            root.mkdir()
++            env = {}
++            prepare_foreground(root, env, home)
++            migrated = migrate_state(root, env['RWT_MIGRATE_FROM'])
++            self.assertEqual(migrated, source / 'state.db')
++            with sqlite3.connect(root / '.agent-work' / 'state.db') as db:
++                self.assertEqual(db.execute('SELECT value FROM marker').fetchone()[0], '4.7.7-candidate')
++            self.assertEqual((root / '.agent-work' / 'agent-routes.json').read_bytes(), pairing.read_bytes())
++            self.assertTrue((source / 'state.db').exists())
++            self.assertTrue(json.loads((root / '.agent-work' / 'migration-manifest.json').read_text())['completed'])
++
++    def test_browser_readiness_waits_through_connection_refusal_and_wrong_version(self):
++        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.10', 'transport': {}}]
++        def opener(*args, **kwargs):
++            value = responses.pop(0)
++            if isinstance(value, Exception):
++                raise value
++            return io.StringIO(json.dumps(value))
++        ready = wait_ready(1, 4317, opener=opener, alive=lambda: True, pause=lambda _: None)
++        self.assertEqual(ready['version'], '4.7.10')
++        self.assertFalse(responses)
++
++    def test_child_exit_and_timeout_do_not_report_ready(self):
++        with self.assertRaisesRegex(RuntimeError, 'exited'):
++            wait_ready(1, 4317, alive=lambda: False)
++        with self.assertRaisesRegex(RuntimeError, 'timed out'):
++            wait_ready(1, 4317, timeout=0)
++
++    def test_loaded_service_preserved_inactive_owned_registration_archived(self):
++        with tempfile.TemporaryDirectory() as directory:
++            home = Path(directory)
++            plist = home / 'Library' / 'LaunchAgents' / 'com.speaksharp.orch.plist'
++            plist.parent.mkdir(parents=True)
++            plist.write_bytes(plistlib.dumps({'Label': 'com.speaksharp.orch', 'ProgramArguments': ['python3', str(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.9' / 'installed-service.py')]}))
++            with self.assertRaisesRegex(RuntimeError, 'loaded'):
++                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.10', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
++            self.assertTrue(plist.exists())
++            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.10', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
++            self.assertFalse(plist.exists())
++            self.assertTrue(plist.with_suffix('.plist.disabled-v4.7.9').exists())
++
++
++if __name__ == '__main__':
++    unittest.main()
+--- v4.7.9/test_install_and_recovery.py
++++ v4.7.10/test_install_and_recovery.py
+@@ -108,23 +108,12 @@
+             self.assertEqual((state / 'state.db').read_bytes(), b'private state')
+             self.assertEqual((state / 'agent-routes.json').read_text(), 'private pairing')
+ 
+-    def test_launch_agent_is_automatic_and_contains_no_api_keys(self):
++    def test_install_entry_uses_foreground_setup_without_service_registration(self):
+         installer = module('install-orch')
+-        spec = installer.launch_spec(Path('/Users/test/SW_Dev/orch'), '/usr/bin/python3', '/usr/bin:/bin')
+-        self.assertTrue(spec['RunAtLoad'])
+-        self.assertTrue(spec['KeepAlive'])
+-        self.assertEqual(spec['EnvironmentVariables']['RWT_CONTROL_ISSUE'], '1593')
+-        self.assertNotIn('API_KEY', json.dumps(spec))
+-
+-    def test_active_invocation_prevents_service_upgrade(self):
+-        service = module('installed-service')
+-        reason = service.idle_reason({'transport': {}, 'agents': [{'status': 'running'}]}, Path('/missing'))
+-        self.assertEqual(reason, 'Agent invocation active')
+-
+-    def test_real_board_agent_dictionary_is_checked_before_upgrade(self):
+-        service = module('installed-service')
+-        reason = service.idle_reason({'transport': {}, 'agents': {'pm': {'status': 'running'}}}, Path('/missing'))
+-        self.assertEqual(reason, 'Agent invocation active')
++        with patch.object(installer.subprocess, 'call', return_value=0) as call, patch.object(installer.sys, 'argv', ['install-orch.py']):
++            self.assertEqual(installer.main(), 0)
++        self.assertEqual(Path(call.call_args.args[0][1]).name, 'orch-setup.py')
++        self.assertNotIn('launchctl', call.call_args.args[0])
+ 
+     def test_private_state_not_in_install_manifest(self):
+         root = Path(__file__).parent
+--- v4.7.9/test_regressions.py
++++ v4.7.10/test_regressions.py
+@@ -342,7 +342,7 @@
+ 
+     def test_version_labels_match(self):
+         root=Path(server.__file__).parent
+-        self.assertEqual(server.BOARD_VERSION,'4.7.9')
++        self.assertEqual(server.BOARD_VERSION,'4.7.10')
+         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
+             text=(root/file).read_text()
+             self.assertIn('v'+server.BOARD_VERSION,text)
+--- v4.7.9/test_startup_readiness.py
++++ v4.7.10/test_startup_readiness.py
+@@ -12,7 +12,7 @@
+             self.assertEqual(server.announce_app_version(), first)
+         self.assertEqual(gh.call_count, 1)
+         self.assertIn('ALL AGENTS', gh.call_args.args[0][-1])
+-        self.assertIn('4.7.9', gh.call_args.args[0][-1])
++        self.assertIn('4.7.10', gh.call_args.args[0][-1])
+         with server.con() as db:
+             notices = list(db.execute("SELECT actor_id,status,receipt_at,result_at FROM agent_notifications WHERE task_id='version-handshake'"))
+         self.assertEqual(len(notices), 4)
+--- v4.7.9/installed-service.py
++++ /dev/null
+@@ -1,180 +0,0 @@
+-#!/usr/bin/env python3
+-"""Own board startup/idle upgrade without asking the PO to operate scripts."""
+-import importlib.util
+-import json
+-import os
+-from pathlib import Path
+-import re
+-import signal
+-import sqlite3
+-import subprocess
+-import sys
+-import time
+-import urllib.request
+-import webbrowser
+-from migrate_state import migrate_state
+-
+-ROOT = Path(__file__).resolve().parent
+-
+-
+-def http(path, body=None, token=None, port=4317):
+-    # Local-only, no proxy, redirect or secret output.
+-    class NoRedirect(urllib.request.HTTPRedirectHandler):
+-        def redirect_request(self, *args):
+-            return None
+-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+-    headers = {'Content-Type': 'application/json'}
+-    if token:
+-        headers['X-RWT-Control-Token'] = token
+-    request = urllib.request.Request(f'http://127.0.0.1:{port}' + path,
+-                                     data=json.dumps(body).encode() if body is not None else None, headers=headers)
+-    with opener.open(request, timeout=3) as response:
+-        data = response.read()
+-    return data.decode() if path == '/' else json.loads(data)
+-
+-
+-def process_identity(port=4317, run=subprocess.run):
+-    result = run(['lsof', '-nP', '-a', '-iTCP:' + str(port), '-sTCP:LISTEN', '-Fp'],
+-                 capture_output=True, text=True, timeout=5)
+-    pids = {int(line[1:]) for line in result.stdout.splitlines() if re.fullmatch(r'p\d+', line)}
+-    if len(pids) != 1:
+-        raise RuntimeError('Cannot verify sole existing board process')
+-    pid = pids.pop()
+-    cmd = run(['ps', '-p', str(pid), '-o', 'uid=,command='], capture_output=True, text=True, timeout=5).stdout.strip()
+-    uid, _, command = cmd.partition(' ')
+-    if uid != str(os.getuid()) or not re.search(r'(?:^|[ /])server\.py(?:\s|$)', command):
+-        raise RuntimeError('Existing loopback server is not a verified owned Orch process')
+-    cwd = run(['lsof', '-a', '-p', str(pid), '-d', 'cwd', '-Fn'], capture_output=True, text=True, timeout=5).stdout
+-    paths = [Path(line[1:]) for line in cwd.splitlines() if line.startswith('n/')]
+-    if len(paths) != 1 or not (paths[0] / '.agent-work' / 'state.db').is_file():
+-        raise RuntimeError('Existing board state directory is unverified')
+-    return pid, paths[0], command
+-
+-
+-def agent_rows(live):
+-    value = live.get('agents')
+-    if isinstance(value, dict):
+-        return list(value.values())
+-    if isinstance(value, list):
+-        return value
+-    raise RuntimeError('Existing board agent state is unreadable')
+-
+-
+-def idle_reason(live, source):
+-    if not isinstance(live, dict) or 'transport' not in live:
+-        return 'Port owner is not an Orch board'
+-    if any(a.get('status') in ('running', 'claimed', 'delivering') for a in agent_rows(live)):
+-        return 'Agent invocation active'
+-    if any(q.get('status') in ('claimed', 'delivering') for q in live.get('deliveries', [])):
+-        return 'Delivery invocation active'
+-    state = Path(source) / '.agent-work'
+-    with sqlite3.connect(f'{(state / "state.db").as_uri()}?mode=ro', uri=True) as db:
+-        if db.execute("SELECT 1 FROM pm_action_journal WHERE status IN ('running','unconfirmed') LIMIT 1").fetchone():
+-            return 'Side-effect journal needs local agent readback before upgrade'
+-    inbox = state / 'actor-inbox.db'
+-    if inbox.exists():
+-        with sqlite3.connect(f'{inbox.as_uri()}?mode=ro', uri=True) as db:
+-            tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+-            if 'worker_actions' in tables and db.execute("SELECT 1 FROM worker_actions WHERE state<>'completed' LIMIT 1").fetchone():
+-                return 'Dev action still active or uncertain'
+-    return ''
+-
+-
+-def adopt_existing(port=4317):
+-    try:
+-        live = http('/api/live', port=port)
+-    except (OSError, ValueError):
+-        return None
+-    pid, source, command = process_identity(port)
+-    if source.resolve() == ROOT.resolve():
+-        return 'already_running'
+-    reason = idle_reason(live, source)
+-    if reason:
+-        raise RuntimeError(reason)
+-    match = re.search(r"const CONTROL_TOKEN='([A-Za-z0-9_-]{24,128})'", http('/', port=port))
+-    if not match:
+-        raise RuntimeError('Existing board control authentication unavailable')
+-    token = match.group(1)
+-    agents = agent_rows(live)
+-    paused = {a['agent_id']: bool(a.get('paused')) for a in agents if a.get('agent_id') in ('pm', 'dev')}
+-    try:
+-        for actor in ('pm', 'dev'):
+-            http('/api/pause', {'agent': actor, 'paused': True}, token, port)
+-        # Verify after pausing: queued work cannot race upgrade admission.
+-        reason = idle_reason(http('/api/live', port=port), source)
+-        if reason or process_identity(port) != (pid, source, command):
+-            raise RuntimeError(reason or 'Port process identity drifted')
+-        # Retain verified source before interrupt, so an interrupted installer can recover it.
+-        state = ROOT / '.agent-work'
+-        state.mkdir(mode=0o700, exist_ok=True)
+-        (state / 'upgrade-source.json').write_text(json.dumps({'source': str(source), 'paused': paused}))
+-        os.chmod(state / 'upgrade-source.json', 0o600)
+-        os.kill(pid, signal.SIGINT)
+-        for _ in range(50):
+-            try:
+-                os.kill(pid, 0)
+-            except ProcessLookupError:
+-                break
+-            time.sleep(.1)
+-        else:
+-            raise RuntimeError('Existing board did not exit; no forced kill or migration')
+-        return source
+-    except Exception:
+-        # Resume exactly the old pause states only if the same old process still owns the port.
+-        try:
+-            if process_identity(port) == (pid, source, command):
+-                for actor, value in paused.items():
+-                    http('/api/pause', {'agent': actor, 'paused': value}, token, port)
+-        except Exception:
+-            pass
+-        raise
+-
+-
+-def main():
+-    port = int(os.environ.get('RWT_PORT', '4317'))
+-    source = adopt_existing(port)
+-    if source == 'already_running':
+-        time.sleep(30)
+-        return 0
+-    note = ROOT / '.agent-work' / 'upgrade-source.json'
+-    if source is None and note.exists():
+-        source = Path(json.loads(note.read_text())['source'])
+-    migrate_state(ROOT, str(source / '.agent-work' / 'state.db') if source else None)
+-    # Paused states changed only for the upgrade boundary; restore original preferences in the imported DB.
+-    if note.exists():
+-        original = json.loads(note.read_text())
+-        with sqlite3.connect(ROOT / '.agent-work' / 'state.db') as db:
+-            for actor, paused in original.get('paused', {}).items():
+-                db.execute('UPDATE agents SET paused=? WHERE agent_id=?', (int(paused), actor))
+-    spec = importlib.util.spec_from_file_location('orch_setup', ROOT / 'orch-setup.py')
+-    setup = importlib.util.module_from_spec(spec)
+-    spec.loader.exec_module(setup)
+-    issues = setup.prerequisites(dict(os.environ))
+-    if issues:
+-        raise RuntimeError('; '.join(issues))
+-    env = dict(os.environ, RWT_CONTROL_ISSUE='1593', RWT_WATCH_ISSUES='1304,1360,1593')
+-    child = subprocess.Popen([sys.executable, str(ROOT / 'server.py')], cwd=ROOT, env=env)
+-    try:
+-        for _ in range(50):
+-            if child.poll() is not None:
+-                return child.returncode
+-            try:
+-                http('/api/live', port=port)
+-                webbrowser.open(f'http://127.0.0.1:{port}/')
+-                break
+-            except (OSError, ValueError):
+-                time.sleep(.1)
+-        return child.wait()
+-    except KeyboardInterrupt:
+-        child.send_signal(signal.SIGINT)
+-        return child.wait(timeout=10)
+-
+-
+-if __name__ == '__main__':
+-    try:
+-        raise SystemExit(main())
+-    except Exception as exc:
+-        print('Orch service recovery HOLD: ' + str(exc), flush=True)
+-        # LaunchAgent retries; no retry resets, credential or task replay.
+-        time.sleep(30)
+-        raise SystemExit(1)
