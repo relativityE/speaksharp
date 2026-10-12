@@ -1,6 +1,7 @@
 import { test as base, expect } from '@playwright/test';
 import { routeVercelBypass } from './deployedLiveTest';
 import { applyRwtIdentity, rwtIdentityFor } from './rwtBrowserIdentity';
+import { applyHumanReflex, resolveHumanReflexMs } from './rwtHumanReflex';
 
 /**
  * The RWT Production test base: a real user's page, with nothing injected.
@@ -23,7 +24,14 @@ export const test = base.extend({
     page: async ({ context, browser, page }, use) => {
         // The fixture page exists before `context.on('page')` could see it: apply here, and await it, before any navigation.
         await applyRwtIdentity(context, page, await rwtIdentityFor(browser));
-        await use(page);
+        // #1258 PO 2026-10-12: a person's think-time before every action (rwtHumanReflex.ts). Resolved here, so an invalid
+        // dispatch value fails before the test body makes any write.
+        const release = applyHumanReflex(page, resolveHumanReflexMs());
+        try {
+            await use(page);
+        } finally {
+            release();
+        }
     },
 });
 
