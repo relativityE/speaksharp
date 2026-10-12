@@ -37,6 +37,9 @@ import {
     CONVERSION_SOURCES, UTM_SOURCES, UTM_MEDIUMS, UTM_CAMPAIGNS, closedWith,
 } from './conversionVocabulary';
 import { PROGRESS_DEBT_PHASES, PROGRESS_DEBT_REASONS, PROGRESS_DEBT_TRIGGERS } from './progress/progressDebtVocabulary';
+import {
+    PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS, PROVIDER_TOKEN_MAX,
+} from './telemetry/providerCodes';
 
 /** The checked-in Report Issue vocabularies — the same slugs the database stores. */
 const ISSUE_CATEGORIES = [
@@ -680,6 +683,21 @@ export const EVENT_SCHEMAS = Object.freeze({
         product: enumOf(['open_mic', 'focus_points', 'unknown']),
         has_session: { kind: 'bool' } as FieldRule,
         client_release_id: slug(64),
+        // #1258 (PO 2026-10-12): the provider's own closed codes and each attempt's outcome — never its message text.
+        provider_error_status: enumOf(PROVIDER_ERROR_STATUSES),
+        provider_error_reason: slug(64),
+        provider_finish_reason: enumOf(PROVIDER_FINISH_REASONS),
+        provider_block_reason: enumOf(PROVIDER_BLOCK_REASONS),
+        provider_prompt_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,
+        provider_output_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,
+        provider_thinking_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,
+        provider_total_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,
+        attempt_1_reason: enumOf(PROVIDER_ATTEMPT_REASONS),
+        attempt_1_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
+        attempt_1_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        attempt_2_reason: enumOf(PROVIDER_ATTEMPT_REASONS),
+        attempt_2_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
+        attempt_2_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
     },
 
     // ── live-coaching experiment ────────────────────────────────────────────

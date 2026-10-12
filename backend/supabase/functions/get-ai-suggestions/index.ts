@@ -2,6 +2,9 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 import coachingContract from './contract.json' with { type: 'json' };
+import {
+  decodeProviderAnswer, decodeProviderError, readBoundedBody, type ProviderAnswerCodes, type ProviderErrorCodes,
+} from './providerDecode.ts';
 
 // #1416 — the original `gemini-3-flash-preview` endpoint was a PREVIEW channel and could disappear
 // inside a sprint. The selected stable model is pinned in contract.json; runtime URL construction uses
@@ -473,6 +476,10 @@ export async function handler(
   let providerAttempts = 0;
   let providerDurationMs = 0;
   let providerStatus: number | null = null;
+  // #1258 (PO 2026-10-12): the provider's own closed codes for the last attempt, and every attempt's outcome.
+  let providerErrorCodes: ProviderErrorCodes | null = null;
+  let providerAnswerCodes: ProviderAnswerCodes | null = null;
+  const providerAttemptLog: Array<{ reason: string; status: number | null; ms: number }> = [];
   let promptSha256: string | null = null;
   // Response-only binding for the private evidence collector. Do not include this in the content-free
   // diagnostic log or any telemetry: it is a stable pseudonymous link to the selected authenticated row.
@@ -501,6 +508,22 @@ export async function handler(
       product: diagnosticProduct,
       has_session: hasSession,
       client_release_id: clientReleaseId,
+      // #1258 (PO 2026-10-12): the provider's own closed codes (last attempt) and each attempt's outcome. Flat scalars,
+      // so the client's telemetry allowlist can carry every field (nested values are dropped there).
+      provider_error_status: providerErrorCodes?.error_status ?? null,
+      provider_error_reason: providerErrorCodes?.error_reason ?? null,
+      provider_finish_reason: providerAnswerCodes?.finish_reason ?? null,
+      provider_block_reason: providerAnswerCodes?.block_reason ?? null,
+      provider_prompt_tokens: providerAnswerCodes?.prompt_tokens ?? null,
+      provider_output_tokens: providerAnswerCodes?.output_tokens ?? null,
+      provider_thinking_tokens: providerAnswerCodes?.thinking_tokens ?? null,
+      provider_total_tokens: providerAnswerCodes?.total_tokens ?? null,
+      attempt_1_reason: providerAttemptLog[0]?.reason ?? null,
+      attempt_1_status: providerAttemptLog[0]?.status ?? null,
+      attempt_1_ms: providerAttemptLog[0]?.ms ?? null,
+      attempt_2_reason: providerAttemptLog[1]?.reason ?? null,
+      attempt_2_status: providerAttemptLog[1]?.status ?? null,
+      attempt_2_ms: providerAttemptLog[1]?.ms ?? null,
     };
     // Structured, content-free log line is the fallback diagnostic path when Sentry is absent.
     console.info('AI_COACHING_DIAGNOSTIC', JSON.stringify(diagnostic));
@@ -768,6 +791,8 @@ export async function handler(
       suggestions = null;
       failureReason = null;
       providerStatus = null;
+      providerErrorCodes = null;
+      providerAnswerCodes = null;
       const providerStartedAt = performance.now();
       try {
         const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
@@ -781,15 +806,20 @@ export async function handler(
         });
 
         if (!geminiResponse.ok) {
-          // #1258 (PM 5953504835): the provider's error BODY is never read or logged — the closed reason and the
-          // numeric status classify the failure; the body can echo anything the provider chose to return.
-          await geminiResponse.body?.cancel().catch(() => undefined);
-          console.error('Gemini API request failed.', JSON.stringify({ status: geminiResponse.status, attempt: providerAttempt }));
+          // #1258 (PM 5953504835): the provider's error body can echo anything, so it is never logged or returned.
+          // PO 2026-10-12: it is DECODED instead — only `error.status` and the ErrorInfo `reason`, each kept only when
+          // it belongs to its closed vocabulary (providerDecode.ts); the message and every other field are not read.
+          providerErrorCodes = decodeProviderError(await readBoundedBody(geminiResponse));
+          console.error('Gemini API request failed.', JSON.stringify({
+            status: geminiResponse.status, attempt: providerAttempt,
+            error_status: providerErrorCodes.error_status, error_reason: providerErrorCodes.error_reason,
+          }));
           providerFailureIsRetryable = geminiResponse.status >= 500;
           providerStatus = geminiResponse.status;
           failureReason = geminiResponse.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
         } else {
           const responseData = await geminiResponse.json();
+          providerAnswerCodes = decodeProviderAnswer(responseData);
           const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
           observedProviderModel = typeof responseData?.modelVersion === 'string'
             && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
@@ -810,7 +840,13 @@ export async function handler(
         providerFailureIsRetryable = true;
         failureReason = timedOut ? 'provider_timeout' : 'provider_transport';
       } finally {
-        providerDurationMs += Math.max(0, performance.now() - providerStartedAt);
+        const attemptMs = Math.max(0, performance.now() - providerStartedAt);
+        providerDurationMs += attemptMs;
+        providerAttemptLog.push({
+          reason: failureReason ?? (suggestions ? 'none' : 'invalid_shape'),
+          status: providerStatus,
+          ms: Math.min(600_000, Math.round(attemptMs)),
+        });
       }
 
       // A complete answer ends the loop. So does a failure a second ask cannot change.
@@ -826,7 +862,12 @@ export async function handler(
     if (!suggestions || !observedProviderModel) {
       const reason: CoachingFailureReason = failureReason ?? (suggestions ? 'missing_model_version' : 'invalid_shape');
       // Content-free: the closed reason and the provider's numeric status only (#1258).
-      console.error('Gemini response did not contain valid suggestions JSON.', JSON.stringify({ reason, providerStatus }));
+      console.error('Gemini response did not contain valid suggestions JSON.', JSON.stringify({
+        reason, providerStatus,
+        error_status: providerErrorCodes?.error_status ?? null, error_reason: providerErrorCodes?.error_reason ?? null,
+        finish_reason: providerAnswerCodes?.finish_reason ?? null, block_reason: providerAnswerCodes?.block_reason ?? null,
+        attempts: providerAttemptLog.map((a) => `${a.reason}:${a.status ?? 'none'}:${a.ms}`).join(','),
+      }));
       return finish({ error: 'AI coaching could not be generated. Please try again.', reason }, 502);
     }
 

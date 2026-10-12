@@ -18,6 +18,7 @@ import { deriveReviewState } from './reviewState';
 import { FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
 import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
 import { trackAiCoachingDiagnostic, type AiCoachingDiagnosticTelemetry } from '@/services/practiceLoopTelemetry';
+import { providerCodeFields } from '@/services/telemetry/providerCodes';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -172,6 +173,8 @@ const diagnosticEvent = (
     product: input.product ?? 'unknown',
     has_session: true,
     client_release_id: typeof release === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(release) ? release : null,
+    // #1258 (PO 2026-10-12): the provider's decoded codes and each attempt's outcome, re-validated here.
+    ...providerCodeFields(server),
   };
 };
 

@@ -1,0 +1,69 @@
+/**
+ * #1258 (PO 2026-10-12) — the coaching provider's own closed codes, as the Edge diagnostic reports them
+ * (`backend/supabase/functions/get-ai-suggestions/providerDecode.ts`). The client re-checks every value against the same
+ * vocabularies before it reaches analytics, so a server bug can never forward free text. Parity with the Edge lists is
+ * pinned by `providerCodes.test.ts`.
+ */
+export const PROVIDER_ERROR_STATUSES = [
+    'CANCELLED', 'UNKNOWN', 'INVALID_ARGUMENT', 'DEADLINE_EXCEEDED', 'NOT_FOUND', 'ALREADY_EXISTS', 'PERMISSION_DENIED',
+    'RESOURCE_EXHAUSTED', 'FAILED_PRECONDITION', 'ABORTED', 'OUT_OF_RANGE', 'UNIMPLEMENTED', 'INTERNAL', 'UNAVAILABLE',
+    'DATA_LOSS', 'UNAUTHENTICATED', 'other', 'unparseable',
+] as const;
+export const PROVIDER_FINISH_REASONS = [
+    'FINISH_REASON_UNSPECIFIED', 'STOP', 'MAX_TOKENS', 'SAFETY', 'RECITATION', 'LANGUAGE', 'OTHER', 'BLOCKLIST',
+    'PROHIBITED_CONTENT', 'SPII', 'MALFORMED_FUNCTION_CALL', 'IMAGE_SAFETY', 'other',
+] as const;
+export const PROVIDER_BLOCK_REASONS = [
+    'BLOCK_REASON_UNSPECIFIED', 'SAFETY', 'OTHER', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY', 'other',
+] as const;
+/** One provider attempt's outcome: the server's closed failure reason, or `none` for an attempt that answered. */
+export const PROVIDER_ATTEMPT_REASONS = [
+    'none', 'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
+    'invalid_shape', 'over_character_ceiling', 'missing_model_version',
+] as const;
+/** An ErrorInfo reason (e.g. RATE_LIMIT_EXCEEDED); anything else is `other`. */
+const ERROR_INFO_REASON = /^(?:[A-Z][A-Z0-9_]{1,63}|other)$/;
+export const PROVIDER_TOKEN_MAX = 10_000_000;
+
+export interface ProviderCodeFields {
+    provider_error_status: (typeof PROVIDER_ERROR_STATUSES)[number] | null;
+    provider_error_reason: string | null;
+    provider_finish_reason: (typeof PROVIDER_FINISH_REASONS)[number] | null;
+    provider_block_reason: (typeof PROVIDER_BLOCK_REASONS)[number] | null;
+    provider_prompt_tokens: number | null;
+    provider_output_tokens: number | null;
+    provider_thinking_tokens: number | null;
+    provider_total_tokens: number | null;
+    attempt_1_reason: (typeof PROVIDER_ATTEMPT_REASONS)[number] | null;
+    attempt_1_status: number | null;
+    attempt_1_ms: number | null;
+    attempt_2_reason: (typeof PROVIDER_ATTEMPT_REASONS)[number] | null;
+    attempt_2_status: number | null;
+    attempt_2_ms: number | null;
+}
+
+const oneOf = <T extends string>(list: readonly T[], value: unknown): T | null =>
+    typeof value === 'string' && (list as readonly string[]).includes(value) ? value as T : null;
+const int = (value: unknown, min: number, max: number): number | null =>
+    Number.isInteger(value) && Number(value) >= min && Number(value) <= max ? Number(value) : null;
+
+/** Every provider code field, re-validated; an unknown or malformed value is null, never forwarded. */
+export function providerCodeFields(server: Record<string, unknown> | null): ProviderCodeFields {
+    const reason = server?.provider_error_reason;
+    return {
+        provider_error_status: oneOf(PROVIDER_ERROR_STATUSES, server?.provider_error_status),
+        provider_error_reason: typeof reason === 'string' && ERROR_INFO_REASON.test(reason) ? reason : null,
+        provider_finish_reason: oneOf(PROVIDER_FINISH_REASONS, server?.provider_finish_reason),
+        provider_block_reason: oneOf(PROVIDER_BLOCK_REASONS, server?.provider_block_reason),
+        provider_prompt_tokens: int(server?.provider_prompt_tokens, 0, PROVIDER_TOKEN_MAX),
+        provider_output_tokens: int(server?.provider_output_tokens, 0, PROVIDER_TOKEN_MAX),
+        provider_thinking_tokens: int(server?.provider_thinking_tokens, 0, PROVIDER_TOKEN_MAX),
+        provider_total_tokens: int(server?.provider_total_tokens, 0, PROVIDER_TOKEN_MAX),
+        attempt_1_reason: oneOf(PROVIDER_ATTEMPT_REASONS, server?.attempt_1_reason),
+        attempt_1_status: int(server?.attempt_1_status, 100, 599),
+        attempt_1_ms: int(server?.attempt_1_ms, 0, 600_000),
+        attempt_2_reason: oneOf(PROVIDER_ATTEMPT_REASONS, server?.attempt_2_reason),
+        attempt_2_status: int(server?.attempt_2_status, 100, 599),
+        attempt_2_ms: int(server?.attempt_2_ms, 0, 600_000),
+    };
+}
