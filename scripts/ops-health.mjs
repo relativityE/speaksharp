@@ -4,7 +4,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { evaluateGithubRow } from './lib/github-ops-row.mjs';
 import { summarize, renderMarkdown, renderPublicSummary, exitCodeForRows } from './lib/ops-health-report.mjs';
-import { vercelErrorEvidence } from './lib/vercel-ops-error.mjs';
+import { evaluateVercelRow } from './lib/vercel-ops-row.mjs';
 
 const repo = process.env.GITHUB_REPOSITORY || 'relativityE/speaksharp';
 const baseUrl = (process.env.BASE_URL || 'https://speaksharp-public.vercel.app').replace(/\/$/, '');
@@ -25,28 +25,7 @@ await row('Vercel API', 'Can we read the latest production deployment?', async (
   const token = env('VERCEL_ACCESS_TOKEN');
   const projectId = env('VERCEL_PROJECT_ID');
   const teamId = optionalEnv('VERCEL_TEAM_ID', ['VERCEL_ORG_ID']);
-  let response = await vercelDeployments(projectId, token, teamId);
-  let teamScopeRejected = false;
-  let teamScopeEvidence = '';
-
-  if (teamId && response.status === 403) {
-    teamScopeRejected = true;
-    teamScopeEvidence = vercelErrorEvidence(await response.text());
-    response = await vercelDeployments(projectId, token, null);
-  }
-
-  const rawBody = await response.text();
-  const body = json(rawBody);
-  const deployment = body?.deployments?.[0];
-  const ready = response.ok && deployment?.state === 'READY';
-  const inProgress = response.ok && ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(deployment?.state);
-  return {
-    status: ready ? (teamScopeRejected ? 'warn' : 'pass') : inProgress ? 'warn' : 'fail',
-    detail: deployment?.state
-      ? `latest=${deployment.state}; url=${deployment.url ?? 'unknown'}${teamScopeRejected ? `; teamScope=403; teamScopeError=${teamScopeEvidence}; used=unscoped` : ''}`
-      : `http=${response.status}; ${vercelErrorEvidence(rawBody)}${teamScopeRejected ? `; teamScope=403; teamScopeError=${teamScopeEvidence}; unscoped-retry-failed` : ''}`,
-    drilldownUrl: 'https://vercel.com/dashboard',
-  };
+  return evaluateVercelRow({ projectId, token, teamId }, http);
 });
 
 await row('Supabase API', 'Can clients reach Auth and SpeakSharp Edge Functions?', async () => {
@@ -210,14 +189,6 @@ async function statusPage(url) {
     ok: response.ok && indicator === 'none',
     detail: `status=${indicator}`,
   };
-}
-
-async function vercelDeployments(projectId, token, teamId) {
-  const params = new URLSearchParams({ projectId, target: 'production', limit: '1' });
-  if (teamId) params.set('teamId', teamId);
-  return http(`https://api.vercel.com/v6/deployments?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
 }
 
 async function edgePreflight(functionName) {
