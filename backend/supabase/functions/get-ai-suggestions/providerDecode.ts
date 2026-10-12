@@ -6,8 +6,9 @@
  * drawn from CLOSED vocabularies: `error.status` (the google.rpc canonical code), `error.details[].reason`
  * (google.rpc.ErrorInfo), `candidates[0].finishReason`, `promptFeedback.blockReason`, and the numeric `usageMetadata`.
  *
- * Only those fields are read, and each is kept only when it is a member of its vocabulary (or, for ErrorInfo reasons,
- * an UPPER_SNAKE token): anything else becomes `other`. The free-text `error.message` and every other body field are
+ * Only those fields are read, and each is kept only when it is a member of its CLOSED vocabulary; anything else becomes
+ * `other`. (PM RETURN 6134462030: an UPPER_SNAKE shape check let a provider-chosen token such as SECRET_TRANSCRIPT_WORDS
+ * through unchanged, so ErrorInfo reasons are admitted only from the documented list below.) The free-text `error.message` and every other body field are
  * never read into a variable, logged or returned — the #1258 rule that the provider's body can echo anything stands.
  */
 
@@ -25,8 +26,20 @@ export const PROVIDER_BLOCK_REASONS = [
   'BLOCK_REASON_UNSPECIFIED', 'SAFETY', 'OTHER', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'IMAGE_SAFETY',
 ] as const;
 
-/** An ErrorInfo reason is an UPPER_SNAKE identifier (e.g. RATE_LIMIT_EXCEEDED, API_KEY_INVALID). Nothing else passes. */
-const ERROR_INFO_REASON = /^[A-Z][A-Z0-9_]{1,63}$/;
+/**
+ * The documented `google.api.ErrorReason` values (googleapis/google/api/error_reason.proto), which Google APIs, Gemini
+ * included, report as the ErrorInfo `reason`. Only these pass; any other reason, whatever its shape, becomes `other`.
+ */
+export const PROVIDER_ERROR_INFO_REASONS = [
+  'SERVICE_DISABLED', 'BILLING_DISABLED', 'API_KEY_INVALID', 'API_KEY_SERVICE_BLOCKED', 'API_KEY_HTTP_REFERRER_BLOCKED',
+  'API_KEY_IP_ADDRESS_BLOCKED', 'API_KEY_ANDROID_APP_BLOCKED', 'API_KEY_IOS_APP_BLOCKED', 'RATE_LIMIT_EXCEEDED',
+  'RESOURCE_QUOTA_EXCEEDED', 'LOCATION_TAX_POLICY_VIOLATION', 'USER_PROJECT_DENIED', 'CONSUMER_SUSPENDED',
+  'CONSUMER_INVALID', 'SECURITY_POLICY_VIOLATED', 'ACCESS_TOKEN_EXPIRED', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT',
+  'ACCOUNT_STATE_INVALID', 'ACCESS_TOKEN_TYPE_UNSUPPORTED', 'CREDENTIALS_MISSING', 'RESOURCE_PROJECT_INVALID',
+  'SESSION_COOKIE_INVALID', 'USER_BLOCKED_BY_ADMIN', 'RESOURCE_USAGE_RESTRICTION_VIOLATED', 'SYSTEM_PARAMETER_UNSUPPORTED',
+  'ORG_RESTRICTION_VIOLATION', 'ORG_RESTRICTION_HEADER_INVALID', 'SERVICE_NOT_VISIBLE', 'GCP_SUSPENDED',
+  'LOCATION_POLICY_VIOLATED', 'MISSING_ORIGIN', 'OVERLOADED_CREDENTIALS',
+] as const;
 const ERROR_INFO_TYPE = 'type.googleapis.com/google.rpc.ErrorInfo';
 /** Bound the bytes read from an error body before parsing; Gemini's error JSON is far smaller. */
 export const PROVIDER_ERROR_BODY_MAX_BYTES = 16_384;
@@ -35,8 +48,8 @@ const TOKEN_COUNT_MAX = 10_000_000;
 export interface ProviderErrorCodes {
   /** The canonical code, `other` when present but unknown, `unparseable` when the body is not Gemini's error JSON. */
   error_status: (typeof PROVIDER_ERROR_STATUSES)[number] | 'other' | 'unparseable';
-  /** The first ErrorInfo reason, `other` when it is not an UPPER_SNAKE token, null when none is given. */
-  error_reason: string | null;
+  /** The first ErrorInfo reason, `other` when it is not a documented ErrorReason, null when none is given. */
+  error_reason: (typeof PROVIDER_ERROR_INFO_REASONS)[number] | 'other' | null;
 }
 
 export interface ProviderAnswerCodes {
@@ -68,11 +81,10 @@ export function decodeProviderError(bodyText: string | null): ProviderErrorCodes
   if (!error || typeof error !== 'object') return { error_status: 'unparseable', error_reason: null };
   const status = member(PROVIDER_ERROR_STATUSES, (error as { status?: unknown }).status);
   const details = (error as { details?: unknown }).details;
-  let reason: string | null = null;
+  let reason: ProviderErrorCodes['error_reason'] = null;
   if (Array.isArray(details)) {
     const info = details.find((d) => d && typeof d === 'object' && (d as { '@type'?: unknown })['@type'] === ERROR_INFO_TYPE);
-    const raw = info ? (info as { reason?: unknown }).reason : undefined;
-    if (raw !== undefined && raw !== null) reason = typeof raw === 'string' && ERROR_INFO_REASON.test(raw) ? raw : 'other';
+    reason = member(PROVIDER_ERROR_INFO_REASONS, info ? (info as { reason?: unknown }).reason : undefined);
   }
   return { error_status: status ?? 'unparseable', error_reason: reason };
 }

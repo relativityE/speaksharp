@@ -38,7 +38,8 @@ import {
 } from './conversionVocabulary';
 import { PROGRESS_DEBT_PHASES, PROGRESS_DEBT_REASONS, PROGRESS_DEBT_TRIGGERS } from './progress/progressDebtVocabulary';
 import {
-    PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS, PROVIDER_TOKEN_MAX,
+    PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_INFO_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS,
+    PROVIDER_TOKEN_MAX,
 } from './telemetry/providerCodes';
 
 /** The checked-in Report Issue vocabularies — the same slugs the database stores. */
@@ -685,7 +686,7 @@ export const EVENT_SCHEMAS = Object.freeze({
         client_release_id: slug(64),
         // #1258 (PO 2026-10-12): the provider's own closed codes and each attempt's outcome — never its message text.
         provider_error_status: enumOf(PROVIDER_ERROR_STATUSES),
-        provider_error_reason: slug(64),
+        provider_error_reason: enumOf(PROVIDER_ERROR_INFO_REASONS),
         provider_finish_reason: enumOf(PROVIDER_FINISH_REASONS),
         provider_block_reason: enumOf(PROVIDER_BLOCK_REASONS),
         provider_prompt_tokens: { kind: 'int', min: 0, max: PROVIDER_TOKEN_MAX } as FieldRule,

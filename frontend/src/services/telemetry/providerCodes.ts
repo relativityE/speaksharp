@@ -21,13 +21,22 @@ export const PROVIDER_ATTEMPT_REASONS = [
     'none', 'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
     'invalid_shape', 'over_character_ceiling', 'missing_model_version',
 ] as const;
-/** An ErrorInfo reason (e.g. RATE_LIMIT_EXCEEDED); anything else is `other`. */
-const ERROR_INFO_REASON = /^(?:[A-Z][A-Z0-9_]{1,63}|other)$/;
+/** The documented google.api.ErrorReason values (PM RETURN 6134462030: a closed list, never a shape check). */
+export const PROVIDER_ERROR_INFO_REASONS = [
+    'SERVICE_DISABLED', 'BILLING_DISABLED', 'API_KEY_INVALID', 'API_KEY_SERVICE_BLOCKED', 'API_KEY_HTTP_REFERRER_BLOCKED',
+    'API_KEY_IP_ADDRESS_BLOCKED', 'API_KEY_ANDROID_APP_BLOCKED', 'API_KEY_IOS_APP_BLOCKED', 'RATE_LIMIT_EXCEEDED',
+    'RESOURCE_QUOTA_EXCEEDED', 'LOCATION_TAX_POLICY_VIOLATION', 'USER_PROJECT_DENIED', 'CONSUMER_SUSPENDED',
+    'CONSUMER_INVALID', 'SECURITY_POLICY_VIOLATED', 'ACCESS_TOKEN_EXPIRED', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT',
+    'ACCOUNT_STATE_INVALID', 'ACCESS_TOKEN_TYPE_UNSUPPORTED', 'CREDENTIALS_MISSING', 'RESOURCE_PROJECT_INVALID',
+    'SESSION_COOKIE_INVALID', 'USER_BLOCKED_BY_ADMIN', 'RESOURCE_USAGE_RESTRICTION_VIOLATED', 'SYSTEM_PARAMETER_UNSUPPORTED',
+    'ORG_RESTRICTION_VIOLATION', 'ORG_RESTRICTION_HEADER_INVALID', 'SERVICE_NOT_VISIBLE', 'GCP_SUSPENDED',
+    'LOCATION_POLICY_VIOLATED', 'MISSING_ORIGIN', 'OVERLOADED_CREDENTIALS', 'other',
+] as const;
 export const PROVIDER_TOKEN_MAX = 10_000_000;
 
 export interface ProviderCodeFields {
     provider_error_status: (typeof PROVIDER_ERROR_STATUSES)[number] | null;
-    provider_error_reason: string | null;
+    provider_error_reason: (typeof PROVIDER_ERROR_INFO_REASONS)[number] | null;
     provider_finish_reason: (typeof PROVIDER_FINISH_REASONS)[number] | null;
     provider_block_reason: (typeof PROVIDER_BLOCK_REASONS)[number] | null;
     provider_prompt_tokens: number | null;
@@ -49,10 +58,9 @@ const int = (value: unknown, min: number, max: number): number | null =>
 
 /** Every provider code field, re-validated; an unknown or malformed value is null, never forwarded. */
 export function providerCodeFields(server: Record<string, unknown> | null): ProviderCodeFields {
-    const reason = server?.provider_error_reason;
     return {
         provider_error_status: oneOf(PROVIDER_ERROR_STATUSES, server?.provider_error_status),
-        provider_error_reason: typeof reason === 'string' && ERROR_INFO_REASON.test(reason) ? reason : null,
+        provider_error_reason: oneOf(PROVIDER_ERROR_INFO_REASONS, server?.provider_error_reason),
         provider_finish_reason: oneOf(PROVIDER_FINISH_REASONS, server?.provider_finish_reason),
         provider_block_reason: oneOf(PROVIDER_BLOCK_REASONS, server?.provider_block_reason),
         provider_prompt_tokens: int(server?.provider_prompt_tokens, 0, PROVIDER_TOKEN_MAX),

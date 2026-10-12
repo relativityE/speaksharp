@@ -32,6 +32,15 @@ Deno.test('#1258 decodeProviderError — closed codes in, free text out', async 
     assertEquals(codes, { error_status: 'other', error_reason: 'other' });
   });
 
+  await t.step('PM RETURN 6134462030: an UPPER_SNAKE reason outside the documented list is `other`, never echoed', () => {
+    const codes = decodeProviderError(JSON.stringify({ error: {
+      status: 'INVALID_ARGUMENT',
+      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'SECRET_TRANSCRIPT_WORDS' }],
+    } }));
+    assertEquals(codes, { error_status: 'INVALID_ARGUMENT', error_reason: 'other' });
+    assertEquals(JSON.stringify(codes).includes('SECRET_TRANSCRIPT_WORDS'), false);
+  });
+
   await t.step('a non-JSON or non-Gemini body is `unparseable`', () => {
     assertEquals(decodeProviderError('upstream unavailable'), { error_status: 'unparseable', error_reason: null });
     assertEquals(decodeProviderError(JSON.stringify({ message: ECHO })), { error_status: 'unparseable', error_reason: null });

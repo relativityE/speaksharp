@@ -7,7 +7,8 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { projectEventProps } from '@/services/telemetryAllowlist';
 import {
-    PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS, providerCodeFields,
+    PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_INFO_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS,
+    providerCodeFields,
 } from '../providerCodes';
 
 const EDGE_DIR = path.resolve(__dirname, '../../../../../backend/supabase/functions/get-ai-suggestions');
@@ -33,6 +34,7 @@ describe('provider code vocabularies match the Edge decoder', () => {
         expect(PROVIDER_ERROR_STATUSES).toEqual([...edgeList('PROVIDER_ERROR_STATUSES'), 'other', 'unparseable']);
         expect(PROVIDER_FINISH_REASONS).toEqual([...edgeList('PROVIDER_FINISH_REASONS'), 'other']);
         expect(PROVIDER_BLOCK_REASONS).toEqual([...edgeList('PROVIDER_BLOCK_REASONS'), 'other']);
+        expect(PROVIDER_ERROR_INFO_REASONS).toEqual([...edgeList('PROVIDER_ERROR_INFO_REASONS'), 'other']);
     });
     it('every attempt reason is `none` or one of the Edge CoachingFailureReason members', () => {
         const union = edgeIndex.match(/export type CoachingFailureReason =([\s\S]*?);/)?.[1] ?? '';
@@ -65,8 +67,10 @@ describe('the governed ai_coaching_diagnostic event carries the codes', () => {
         expect(projected.props).toMatchObject(Object.fromEntries(Object.entries(decoded).filter(([, v]) => v !== null)));
         expect(projected.dropped).toEqual(['provider_error_message']);
     });
-    it('an error reason with spaces (free text) fails the slug rule', () => {
-        const projected = projectEventProps('ai_coaching_diagnostic', { provider_error_reason: ECHO });
-        expect(projected.dropped).toEqual(['provider_error_reason']);
+    it('an error reason outside the closed list is dropped, including an UPPER_SNAKE content-shaped token (PM 6134462030)', () => {
+        for (const value of [ECHO, 'SECRET_TRANSCRIPT_WORDS']) {
+            expect(projectEventProps('ai_coaching_diagnostic', { provider_error_reason: value }).dropped).toEqual(['provider_error_reason']);
+            expect(providerCodeFields({ provider_error_reason: value }).provider_error_reason).toBeNull();
+        }
     });
 });
