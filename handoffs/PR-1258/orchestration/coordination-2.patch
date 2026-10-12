@@ -1,0 +1,730 @@
+--- a/server.py
++++ b/server.py
+@@ -34,6 +34,7 @@
+ import route_recovery
+ import coordination_health
+ import worker_supervisor
++import coordination_recovery
+ 
+ APP = Path(__file__).resolve().parent
+ DB = APP / ".agent-work" / "state.db"
+@@ -88,10 +89,10 @@
+ GITHUB_WEBHOOK_MAX_BYTES = 1024 * 1024
+ GITHUB_WEBHOOK_EVENTS = frozenset({"issues", "issue_comment", "pull_request", "pull_request_review",
+                                   "pull_request_review_comment", "workflow_run", "check_run", "check_suite", "push"})
+-CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1258"))
++CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1593"))
+ WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
+-BOARD_VERSION = "4.7.7-candidate"
+-BOARD_BUILD = "coordination.1"
++BOARD_VERSION = "4.7.8"
++BOARD_BUILD = "coordination.2"
+ GH_BACKOFF_UNTIL = 0.0
+ PR_DISPLAY_CACHE = {}
+ PR_DISPLAY_LOCK = threading.RLock()
+@@ -1918,9 +1919,38 @@
+         return float('inf')
+ 
+ 
++def discover_coordination_prs(repo):
++    """Discover new RWT PRs without assigning a writer or selecting a product branch."""
++    stamp = time.time()
++    raw = get_setting('coordination_discovered_prs', '{}')
++    try:
++        cached = json.loads(raw)
++    except (ValueError, TypeError):
++        cached = {}
++    if stamp - float(cached.get('at') or 0) < 60:
++        return cached.get('numbers') or []
++    rows, error = gh_json(['api', f'repos/{repo}/pulls?state=open&per_page=100'])
++    if error or not isinstance(rows, list) or len(rows) >= 100:
++        set_setting('coordination_discovery_error', str(error or 'Open PR discovery incomplete; cursor not advanced'))
++        return cached.get('numbers') or []
++    numbers = sorted({int(x['number']) for x in rows if isinstance(x, dict) and x.get('number')
++                      and re.search(r'\brwt\b|#1258|#1593', str(x.get('title') or '') + ' ' + str(x.get('body') or ''), re.I)})
++    set_setting('coordination_discovered_prs', json.dumps({'at': stamp, 'numbers': numbers}))
++    set_setting('coordination_discovery_error', '')
++    return numbers
++
++
++def cached_coordination_prs():
++    try:
++        value = json.loads(get_setting('coordination_discovered_prs', '{}'))
++        return [int(n) for n in value.get('numbers', [])]
++    except (ValueError, TypeError, AttributeError):
++        return []
++
++
+ def affected_review_snapshot(repo, current_number=''):
+     """Read a bounded, fair slice of affected PRs and serve the shared durable cache between reads."""
+-    targets = affected_review_targets()
++    targets = sorted(set(affected_review_targets()) | set(cached_coordination_prs()))
+     if current_number and str(current_number).isdigit():
+         targets = [n for n in targets if n != int(current_number)]
+     try:
+@@ -2091,6 +2121,12 @@
+         set_setting('control_checkpoint_context', json.dumps([{'id':r.get('id'),'url':r.get('html_url'),'at':r.get('updated_at') or r.get('created_at'),'body':str(r.get('body') or '')[:12000]} for r in control_comments[-12:]], ensure_ascii=False))
+     if not control_err:
+         recover_pm_outbox(control_comments)
++        with DB_LOCK, con() as c:
++            old_pending = c.execute("SELECT 1 FROM pm_outbox WHERE status IN ('publishing','unconfirmed') LIMIT 1").fetchone()
++        if old_pending and CONTROL_ISSUE != 1258:
++            previous, old_error = fetch_latest_watch_comments(repo, 1258)
++            if not old_error:
++                recover_pm_outbox(previous or [])
+     # Automatic PM replies are context/outbox receipts, not fresh PM work — even
+     # after a restart changes instance ID. Real Dev/PO/Browser PM posts still wake.
+     incoming_comments = [c for c in control_comments if 'rwt-board-pm:' not in str(c.get('body') or '')]
+@@ -2333,6 +2369,11 @@
+     with DB_LOCK, con() as c:
+         for actor in actor_channels.ACTORS:
+             action = f'github-event:{identity}:{actor}'
++            # Unsent awareness-only notices may be coalesced. Sent/uncertain tasks
++            # and their receipts are never replaced or replayed.
++            c.execute("UPDATE agent_notifications SET status='superseded',error='Newer event snapshot pending',updated_at=? "
++                      "WHERE actor_id=? AND task_id='event-observation' AND attempts=0 AND status='blocked_transport' AND action_id<>?",
++                      (now(), actor, action))
+             instruction = ('EVENT OBSERVATION ONLY — addressed to ' + actor + '.\n' + message
+                            + '\nAcknowledge this notice and return a content-free observation. No repository, branch, PR lifecycle, lease, merge, deployment or Production operation is authorized by this notice. The owning PM disposition lane assigns any action separately. Do not echo this notice back to GitHub or create a new watcher event.')
+             c.execute("INSERT OR IGNORE INTO agent_notifications(notification_key,handoff_id,actor_id,task_id,action_id,target_transport,target_session_id,target_remote_url,head,instruction,status,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+@@ -3310,6 +3351,7 @@
+                         add_activity('SYSTEM', 'Resuming existing registered Dev worker: ' + resumed_worker['actor']
+                                      + '; actual thread/receipt/result verification still required', 'none', 'posted')
+                 dispatch_event_notifications()
++                coordination_recovery.recover_preexecution_failures(sys.modules[__name__])
+                 pending_ask_watchdog()
+                 pending_handoff_watchdog()
+                 resume_deferred_pm_publication()
+@@ -3339,6 +3381,7 @@
+                 # A webhook that arrives during the read leaves the event set for
+                 # the next pass; the durable inbox also recovers it after restart.
+                 webhook_highwater = github_webhook_inbox_highwater() if GITHUB_WEBHOOK_SECRET else 0
++                discover_coordination_prs(repo_slug(BASE_REPO))
+                 snap, err = github_watch_snapshot(prioritize_latest=True)
+                 set_setting('github_watch_last_poll', now())
+                 set_setting('github_watch_last_error', str(err or ''))
+@@ -3893,11 +3936,13 @@
+         f"{compact_pr_context()}\n\n"
+         "RECORDED BOARD (preserve leases; reconcile from checkpoint evidence):\n"
+         + json.dumps({"work_items": list_work_items(), "players": list_player_status()}, ensure_ascii=False)
++        + "\nDELIVERY/ROUTE/JOURNAL RECOVERY CONTEXT (observations only; never invent ownership):\n"
++        + json.dumps(coordination_recovery.context(con, actor_channels), ensure_ascii=False)
+         + "\nLATEST CONTROL CHECKPOINTS (reported facts, not process observations):\n"
+         + get_setting("control_checkpoint_context", "No checkpoint fetched; leave external activity unknown") + "\n\n"
+         "FIVE-PLAYER RWT PROTOCOL:\n"
+         "- PO: one decision owner; provides product decisions and bounded delegation. Do not re-ask for an action already covered by PO delegation.\n"
+-        "- CLI PM (you): READ-ONLY observer/reconciler in this bundled Codex transport. Do not call GitHub mutation tools in your read-only Codex process. Return typed pm_actions for the separate bounded executor when existing scope authorizes them: " + ', '.join(sorted(PM_ACTION_KINDS)) + ". It rechecks source packet/head/base/concurrency and qualifier. No merge/deploy/Production action is exposed. Actionable reconciled messages are published to #1258 so App Dev can read them; routine status remains on the board. Never tell PO to relay messages.\n"
++        "- CLI PM (you): READ-ONLY observer/reconciler in this bundled Codex transport. Do not call GitHub mutation tools in your read-only Codex process. Return typed pm_actions for the separate bounded executor when existing scope authorizes them: " + ', '.join(sorted(PM_ACTION_KINDS)) + ". It rechecks source packet/head/base/concurrency and qualifier. No merge/deploy/Production action is exposed. Actionable reconciled messages are published to the configured continuation issue so App Dev can read them; routine status remains on the board. Never tell PO to relay messages.\n"
+         "- CLI Dev: engineering worker. One branch/task WRITE lease at a time. If its owned release task is externally blocked, it may claim the highest-priority independent READY RWT task unless another Dev owns it; current release repair preempts lower-priority work.\n"
+         "- Browser PM: PM/research worker. May own any non-conflicting PM task, audit GitHub, preflight upcoming gates, prepare acceptance/merge packets, and detect stalls. Never duplicate a CLI PM mutation lease.\n"
+         "- App Dev: engineering worker. May claim any independent READY RWT task in an isolated worktree. It is read-only on branches leased to CLI Dev. No push/merge without the appropriate PM/PO authority.\n"
+@@ -5217,26 +5262,27 @@
+             c.execute("UPDATE pm_outbox SET status='published',comment_id=? WHERE queue_id=?",(found['id'],row['queue_id']))
+             c.execute("UPDATE queue SET status='responded',error=NULL WHERE id=? AND status='responded_unpublished'",(row['queue_id'],))
+             c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('pm_outbox_status',?)",
+-                      (f"Recovered published #1258 comment {found['id']}; awaiting recipient ACK",))
++                      (f"Recovered published #{CONTROL_ISSUE} comment {found['id']}; awaiting recipient ACK",))
+ 
+ 
+ def publish_pm_reply(q, message):
+     if not bool_setting('pm_publish_control', True):
+         set_setting('pm_outbox_status','PM reply publishing disabled; Dev not notified')
+         return False
+-    if repo_slug(BASE_REPO)!='relativityE/speaksharp' or CONTROL_ISSUE!=1258:
+-        set_setting('pm_outbox_status','HOLD: PM outbox is scoped to SpeakSharp #1258')
++    if repo_slug(BASE_REPO)!='relativityE/speaksharp' or CONTROL_ISSUE not in (1258, 1593):
++        set_setting('pm_outbox_status','HOLD: PM outbox is scoped to the verified SpeakSharp acceptance/continuation issues')
+         return False
+     marker='rwt-board-pm:'+get_setting('board_instance_id')+':'+str(q['id'])
+     body='<!-- '+marker+' -->\nCLI PM → APP DEV / BROWSER PM — automatic board response (delivery '+str(q['id'])+'). Coordination only; this is not new PO merge/deploy/Production authority.\n\n'+message
+     with DB_LOCK, con() as c:
+         row=c.execute('SELECT * FROM pm_outbox WHERE queue_id=?',(q['id'],)).fetchone()
+         if row and row['status']=='published':
+-            set_setting('pm_outbox_status',f"Published #1258 comment {row['comment_id']}; awaiting recipient ACK")
++            set_setting('pm_outbox_status',f"Published #{CONTROL_ISSUE} comment {row['comment_id']}; awaiting recipient ACK")
+             return True
+     if row and row['status'] != 'deferred':
+         # Recover a possibly completed POST by its unique marker, never by repeating it.
+-        comments, read_error, _staged_cursor = fetch_watch_comments('relativityE/speaksharp', CONTROL_ISSUE)
++        target_issue = int(get_setting('pm_outbox_target:' + str(q['id']), '1258'))
++        comments, read_error, _staged_cursor = fetch_watch_comments('relativityE/speaksharp', target_issue)
+         comments = comments or []
+         found=next((x for x in comments if marker in str(x.get('body') or '')),None)
+         if read_error or not found:
+@@ -5252,7 +5298,8 @@
+                 # Another caller already claimed/sent this post. Never replace its uncertain journal.
+                 return latest['status'] == 'published'
+             c.execute('INSERT OR REPLACE INTO pm_outbox VALUES(?,?,?,?)',(q['id'],'publishing',None,body))
+-        obj,err=gh_json(['api','-X','POST','repos/relativityE/speaksharp/issues/1258/comments','-f',f'body={body}'])
++            c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", ('pm_outbox_target:' + str(q['id']), str(CONTROL_ISSUE)))
++        obj,err=gh_json(['api','-X','POST',f'repos/relativityE/speaksharp/issues/{CONTROL_ISSUE}/comments','-f',f'body={body}'])
+         if err or not isinstance(obj,dict) or not obj.get('id'):
+             if isinstance(err, GithubRequestNotStarted):
+                 with DB_LOCK, con() as c:
+@@ -5269,7 +5316,7 @@
+     with DB_LOCK, con() as c:
+         c.execute("UPDATE pm_outbox SET status='published',comment_id=? WHERE queue_id=?",(obj['id'],q['id']))
+     set_setting('pm_outbox_error','')
+-    set_setting('pm_outbox_status',f"Published #1258 comment {obj['id']}; awaiting recipient ACK")
++    set_setting('pm_outbox_status',f"Published #{CONTROL_ISSUE} comment {obj['id']}; awaiting recipient ACK")
+     return True
+ 
+ 
+--- a/guarded_pm.py
++++ b/guarded_pm.py
+@@ -8,7 +8,7 @@
+ SHA = re.compile(r'^[0-9a-f]{40}$')
+ # The combined Rev 2 candidate has an explicit source-authorized branch. Keep
+ # it as a single exact exception; do not broaden the feature namespace.
+-BRANCH = re.compile(r'^(?:(?:fix|test|telemetry)/1258-[A-Za-z0-9._/-]+|feat/1258-design-pr[1-5]-[A-Za-z0-9._/-]+|feat/1258-design-rev2-combined)$')
++BRANCH = re.compile(r'^(?:(?:fix|test|telemetry)/1258-[A-Za-z0-9._/-]+|feat/1258-design-pr[1-5]-[A-Za-z0-9._/-]+|feat/1258-design-rev2-combined|cli-dev/rwt-edge-scenarios-20261012-r2)$')
+ 
+ class Hold(RuntimeError):
+     pass
+@@ -61,7 +61,7 @@
+         source=int(action.get('source_comment_id') or 0)
+         need(source>0, 'Source packet/checkpoint required')
+         comment=self.read(f'issues/comments/{source}')
+-        need(comment.get('issue_url','').endswith('/issues/1258'), 'Source must belong to #1258')
++        need(comment.get('issue_url','') in (f'https://api.github.com/repos/{REPO}/issues/1258', f'https://api.github.com/repos/{REPO}/issues/1593'), 'Source must belong to the verified #1258/#1593 control plane')
+         need(comment.get('user',{}).get('login')=='relativityE', 'Source actor is not the approved repository owner account')
+         # Freeze the candidate from a source record; a model cannot nominate another SHA.
+         need(head in comment.get('body',''), 'Source does not name the full candidate head')
+--- a/coordination_recovery.py
++++ b/coordination_recovery.py
+@@ -0,0 +1,67 @@
++"""Read-only failed-checkpoint recovery; no side effects or assignment replay."""
++import json
++import hashlib
++
++
++def context(connection, actors):
++    with connection() as db:
++        journal = [dict(r) for r in db.execute(
++            "SELECT action_key,status,kind,pr_number,head,phase,result FROM pm_action_journal "
++            "WHERE status IN ('running','unconfirmed','held','failed') ORDER BY updated_at DESC LIMIT 20")]
++        deliveries = [dict(r) for r in db.execute(
++            "SELECT id,recipient,status,work_item_key,target_branch,target_head,error FROM queue "
++            "WHERE status NOT IN ('responded','superseded') ORDER BY id DESC LIMIT 20")]
++    try:
++        # No inbox bearer tokens, callback secrets or private instruction bodies.
++        routes = {actor: {key: route.get(key) for key in ('provider', 'session_id')}
++                  for actor, route in actors.read_config()['routes'].items()}
++    except Exception as exc:
++        routes = {'error': type(exc).__name__}
++    return {'routes': routes, 'action_journal': journal, 'deliveries': deliveries,
++            'instructions': 'Use actual work_item_key and owner. Null preserves a field; never infer ownership from a display task. '
++                            'Do not replay sent or uncertain actions. A blocked historical template is not a current assignment.'}
++
++
++def recover_preexecution_failures(board):
++    """One read-only recovery for a provably unexecuted rejected board patch.
++
++    Never clear an uncertain invocation, cleanup block, active executor or side-effect
++    journal. The failed queue entry is retained and dedupe survives process restart.
++    """
++    if board.get_setting('pm_cleanup_unverified', ''):
++        return None
++    with board.PROC_LOCK:
++        if board.ACTIVE_PM_PROC is not None and board.ACTIVE_PM_PROC.poll() is None:
++            return None
++    with board.DB_LOCK, board.con() as db:
++        db.execute('BEGIN IMMEDIATE')
++        if db.execute("SELECT 1 FROM pm_action_journal WHERE status IN ('running','unconfirmed') LIMIT 1").fetchone():
++            return None
++        if db.execute("SELECT 1 FROM queue WHERE recipient='pm' AND status IN ('claimed','delivering') LIMIT 1").fetchone():
++            return None
++        row = db.execute("SELECT * FROM queue WHERE recipient='pm' AND status='failed' "
++                         "AND error LIKE 'Board patch rejected atomically:%' ORDER BY id DESC LIMIT 1").fetchone()
++        if not row:
++            return None
++        tuples = [dict(r) for r in db.execute(
++            'SELECT item_key,owner,branch,state,lease_generation,assignment_generation FROM work_items ORDER BY item_key')]
++        signature = json.dumps([row['error'], tuples], sort_keys=True)
++        key = 'checkpoint-recovery:' + hashlib.sha256(signature.encode()).hexdigest()
++        if db.execute('SELECT 1 FROM queue WHERE delivery_key=?', (key,)).fetchone():
++            return None
++        # reserve before enqueue: an exception leaves explicit recovery_pending state,
++        # not a fabricated successful recovery or mutation replay.
++        agent = db.execute("SELECT status,paused FROM agents WHERE agent_id='pm'").fetchone()
++        if not agent or agent['paused'] or agent['status'] not in ('idle', 'error'):
++            return None
++        message = ('CHECKPOINT RECONCILIATION ONLY. Prior board update was rejected before any executor ran. '
++                   'Read current control checkpoints plus route/delivery/journal context; return a valid task/player '
++                   'patch using the recorded owner. No mutation replay, no historical task replay. Original queue '
++                   + str(row['id']) + ': ' + str(row['error'])[:800])
++        prior = dict(row)
++    aid = board.add_activity('SYSTEM', message, 'pm', 'posted')
++    qid = board.enqueue(aid, 'pm', message, source_actor='SYSTEM', auto_handoff=True,
++                        delivery_key=key, parent_queue_id=prior['id'])
++    if qid:
++        board.set_agent('pm', status='idle')
++    return qid
+--- a/install-orch.py
++++ b/install-orch.py
+@@ -0,0 +1,109 @@
++#!/usr/bin/env python3
++"""Install once; launch and restart through the user's macOS LaunchAgent."""
++import argparse
++import json
++import os
++from pathlib import Path
++import plistlib
++import shutil
++import subprocess
++import sys
++import tempfile
++import webbrowser
++import package_integrity
++
++VERSION = '4.7.8'
++LABEL = 'com.speaksharp.orch'
++
++
++def launch_spec(root, python, path):
++    return {'Label': LABEL, 'ProgramArguments': [python, str(root / 'installed-service.py')],
++            'WorkingDirectory': str(root), 'RunAtLoad': True, 'KeepAlive': True,
++            'ThrottleInterval': 30, 'EnvironmentVariables': {'PATH': path, 'RWT_CONTROL_ISSUE': '1593',
++                                                           'RWT_WATCH_ISSUES': '1304,1360,1593'},
++            'StandardOutPath': str(root / '.agent-work' / 'service.log'),
++            'StandardErrorPath': str(root / '.agent-work' / 'service.log')}
++
++
++def install_files(source, target):
++    errors = package_integrity.verify(source)
++    if errors:
++        raise RuntimeError('; '.join(errors))
++    if source.resolve() == target.resolve():
++        return
++    target.mkdir(parents=True, exist_ok=True)
++    # Never overwrite or delete private state, pairing, receipts, uploads or handoffs.
++    manifest = json.loads((source / 'PACKAGE-MANIFEST.json').read_text())
++    for entry in manifest['files'] + [{'path': 'PACKAGE-MANIFEST.json'}]:
++        rel = Path(entry['path'])
++        dst = target / rel
++        dst.parent.mkdir(parents=True, exist_ok=True)
++        if dst.is_symlink():
++            raise RuntimeError('Installed source path redirected: ' + str(rel))
++        fd, temp = tempfile.mkstemp(dir=dst.parent, prefix='.install-')
++        try:
++            with os.fdopen(fd, 'wb') as out:
++                out.write((source / rel).read_bytes())
++            os.chmod(temp, (source / rel).stat().st_mode & 0o777)
++            os.replace(temp, dst)
++        finally:
++            if os.path.exists(temp):
++                os.unlink(temp)
++    if package_integrity.verify(target):
++        raise RuntimeError('Installed package readback failed')
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--check', action='store_true')
++    args = parser.parse_args()
++    source = Path(__file__).resolve().parent
++    if args.check:
++        errors = package_integrity.verify(source)
++        print(json.dumps({'version': VERSION, 'package_valid': not errors, 'errors': errors}))
++        return bool(errors)
++    if sys.platform != 'darwin':
++        raise SystemExit('The persistent installer targets macOS. Offline tests run on any Python 3.10+ host.')
++    target = Path.home() / 'SW_Dev' / ('rwt-pr-handoff-v' + VERSION)
++    agents = Path.home() / 'Library' / 'LaunchAgents'
++    plist = agents / (LABEL + '.plist')
++    if plist.exists():
++        existing = plistlib.loads(plist.read_bytes())
++        if existing.get('ProgramArguments', [None, None])[1:] == [str(target / 'installed-service.py')]:
++            webbrowser.open('http://127.0.0.1:4317/')
++            print('Orch already installed; active source/state were not overwritten.')
++            return 0
++        raise RuntimeError('A different installed service requires an idle-boundary upgrade; no active source was overwritten')
++    install_files(source, target)
++    state = target / '.agent-work'
++    state.mkdir(mode=0o700, exist_ok=True)
++    os.chmod(state, 0o700)
++    # Shell-derived executable locations survive launchd's minimal environment.
++    executable_dirs = [str(Path(sys.executable).resolve().parent)]
++    for name in ('gh', 'codex', 'claude'):
++        found = shutil.which(name)
++        if found:
++            executable_dirs.append(str(Path(found).parent))
++    path = ':'.join(dict.fromkeys(executable_dirs + ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']))
++    agents = Path.home() / 'Library' / 'LaunchAgents'
++    agents.mkdir(parents=True, exist_ok=True)
++    plist = agents / (LABEL + '.plist')
++    # A running installed instance is never replaced in-place by installer commands.
++    if plist.exists():
++        existing = plistlib.loads(plist.read_bytes())
++        if existing.get('ProgramArguments') == launch_spec(target, sys.executable, path)['ProgramArguments']:
++            webbrowser.open('http://127.0.0.1:4317/')
++            print('Orch is already installed; its service owns startup and recovery.')
++            return 0
++        raise RuntimeError('Existing LaunchAgent requires the idle-boundary service upgrade; no active process was reset')
++    fd = os.open(plist, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
++    with os.fdopen(fd, 'wb') as out:
++        plistlib.dump(launch_spec(target, sys.executable, path), out)
++    subprocess.run(['launchctl', 'bootstrap', f'gui/{os.getuid()}', str(plist)], check=True)
++    webbrowser.open('http://127.0.0.1:4317/')
++    print('Orch installed and started. Background service discovers the running board, migrates at idle, and restarts at login.')
++    return 0
++
++
++if __name__ == '__main__':
++    raise SystemExit(main())
+--- a/installed-service.py
++++ b/installed-service.py
+@@ -0,0 +1,171 @@
++#!/usr/bin/env python3
++"""Own board startup/idle upgrade without asking the PO to operate scripts."""
++import importlib.util
++import json
++import os
++from pathlib import Path
++import re
++import signal
++import sqlite3
++import subprocess
++import sys
++import time
++import urllib.request
++import webbrowser
++from migrate_state import migrate_state
++
++ROOT = Path(__file__).resolve().parent
++
++
++def http(path, body=None, token=None, port=4317):
++    # Local-only, no proxy, redirect or secret output.
++    class NoRedirect(urllib.request.HTTPRedirectHandler):
++        def redirect_request(self, *args):
++            return None
++    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
++    headers = {'Content-Type': 'application/json'}
++    if token:
++        headers['X-RWT-Control-Token'] = token
++    request = urllib.request.Request(f'http://127.0.0.1:{port}' + path,
++                                     data=json.dumps(body).encode() if body is not None else None, headers=headers)
++    with opener.open(request, timeout=3) as response:
++        data = response.read()
++    return data.decode() if path == '/' else json.loads(data)
++
++
++def process_identity(port=4317, run=subprocess.run):
++    result = run(['lsof', '-nP', '-a', '-iTCP:' + str(port), '-sTCP:LISTEN', '-Fp'],
++                 capture_output=True, text=True, timeout=5)
++    pids = {int(line[1:]) for line in result.stdout.splitlines() if re.fullmatch(r'p\d+', line)}
++    if len(pids) != 1:
++        raise RuntimeError('Cannot verify sole existing board process')
++    pid = pids.pop()
++    cmd = run(['ps', '-p', str(pid), '-o', 'uid=,command='], capture_output=True, text=True, timeout=5).stdout.strip()
++    uid, _, command = cmd.partition(' ')
++    if uid != str(os.getuid()) or not re.search(r'(?:^|[ /])server\.py(?:\s|$)', command):
++        raise RuntimeError('Existing loopback server is not a verified owned Orch process')
++    cwd = run(['lsof', '-a', '-p', str(pid), '-d', 'cwd', '-Fn'], capture_output=True, text=True, timeout=5).stdout
++    paths = [Path(line[1:]) for line in cwd.splitlines() if line.startswith('n/')]
++    if len(paths) != 1 or not (paths[0] / '.agent-work' / 'state.db').is_file():
++        raise RuntimeError('Existing board state directory is unverified')
++    return pid, paths[0], command
++
++
++def idle_reason(live, source):
++    if not isinstance(live, dict) or 'transport' not in live:
++        return 'Port owner is not an Orch board'
++    if any(a.get('status') in ('running', 'claimed', 'delivering') for a in live.get('agents', [])):
++        return 'Agent invocation active'
++    if any(q.get('status') in ('claimed', 'delivering') for q in live.get('deliveries', [])):
++        return 'Delivery invocation active'
++    state = Path(source) / '.agent-work'
++    with sqlite3.connect(f'{(state / "state.db").as_uri()}?mode=ro', uri=True) as db:
++        if db.execute("SELECT 1 FROM pm_action_journal WHERE status IN ('running','unconfirmed') LIMIT 1").fetchone():
++            return 'Side-effect journal needs local agent readback before upgrade'
++    inbox = state / 'actor-inbox.db'
++    if inbox.exists():
++        with sqlite3.connect(f'{inbox.as_uri()}?mode=ro', uri=True) as db:
++            tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
++            if 'worker_actions' in tables and db.execute("SELECT 1 FROM worker_actions WHERE state<>'completed' LIMIT 1").fetchone():
++                return 'Dev action still active or uncertain'
++    return ''
++
++
++def adopt_existing(port=4317):
++    try:
++        live = http('/api/live', port=port)
++    except (OSError, ValueError):
++        return None
++    pid, source, command = process_identity(port)
++    if source.resolve() == ROOT.resolve():
++        return 'already_running'
++    reason = idle_reason(live, source)
++    if reason:
++        raise RuntimeError(reason)
++    match = re.search(r"const CONTROL_TOKEN='([A-Za-z0-9_-]{24,128})'", http('/', port=port))
++    if not match:
++        raise RuntimeError('Existing board control authentication unavailable')
++    token = match.group(1)
++    agents = live.get('agents', [])
++    paused = {a['agent_id']: bool(a.get('paused')) for a in agents if a.get('agent_id') in ('pm', 'dev')}
++    try:
++        for actor in ('pm', 'dev'):
++            http('/api/pause', {'agent': actor, 'paused': True}, token, port)
++        # Verify after pausing: queued work cannot race upgrade admission.
++        reason = idle_reason(http('/api/live', port=port), source)
++        if reason or process_identity(port) != (pid, source, command):
++            raise RuntimeError(reason or 'Port process identity drifted')
++        # Retain verified source before interrupt, so an interrupted installer can recover it.
++        state = ROOT / '.agent-work'
++        state.mkdir(mode=0o700, exist_ok=True)
++        (state / 'upgrade-source.json').write_text(json.dumps({'source': str(source), 'paused': paused}))
++        os.chmod(state / 'upgrade-source.json', 0o600)
++        os.kill(pid, signal.SIGINT)
++        for _ in range(50):
++            try:
++                os.kill(pid, 0)
++            except ProcessLookupError:
++                break
++            time.sleep(.1)
++        else:
++            raise RuntimeError('Existing board did not exit; no forced kill or migration')
++        return source
++    except Exception:
++        # Resume exactly the old pause states only if the same old process still owns the port.
++        try:
++            if process_identity(port) == (pid, source, command):
++                for actor, value in paused.items():
++                    http('/api/pause', {'agent': actor, 'paused': value}, token, port)
++        except Exception:
++            pass
++        raise
++
++
++def main():
++    port = int(os.environ.get('RWT_PORT', '4317'))
++    source = adopt_existing(port)
++    if source == 'already_running':
++        time.sleep(30)
++        return 0
++    note = ROOT / '.agent-work' / 'upgrade-source.json'
++    if source is None and note.exists():
++        source = Path(json.loads(note.read_text())['source'])
++    migrate_state(ROOT, str(source / '.agent-work' / 'state.db') if source else None)
++    # Paused states changed only for the upgrade boundary; restore original preferences in the imported DB.
++    if note.exists():
++        original = json.loads(note.read_text())
++        with sqlite3.connect(ROOT / '.agent-work' / 'state.db') as db:
++            for actor, paused in original.get('paused', {}).items():
++                db.execute('UPDATE agents SET paused=? WHERE agent_id=?', (int(paused), actor))
++    spec = importlib.util.spec_from_file_location('orch_setup', ROOT / 'orch-setup.py')
++    setup = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(setup)
++    issues = setup.prerequisites(dict(os.environ))
++    if issues:
++        raise RuntimeError('; '.join(issues))
++    env = dict(os.environ, RWT_CONTROL_ISSUE='1593', RWT_WATCH_ISSUES='1304,1360,1593')
++    child = subprocess.Popen([sys.executable, str(ROOT / 'server.py')], cwd=ROOT, env=env)
++    try:
++        for _ in range(50):
++            if child.poll() is not None:
++                return child.returncode
++            try:
++                http('/api/live', port=port)
++                webbrowser.open(f'http://127.0.0.1:{port}/')
++                break
++            except (OSError, ValueError):
++                time.sleep(.1)
++        return child.wait()
++    except KeyboardInterrupt:
++        child.send_signal(signal.SIGINT)
++        return child.wait(timeout=10)
++
++
++if __name__ == '__main__':
++    try:
++        raise SystemExit(main())
++    except Exception as exc:
++        print('Orch service recovery HOLD: ' + str(exc), flush=True)
++        # LaunchAgent retries; no retry resets, credential or task replay.
++        time.sleep(30)
++        raise SystemExit(1)
+--- a/Install_Orch.command
++++ b/Install_Orch.command
+@@ -0,0 +1,4 @@
++#!/bin/bash
++set -euo pipefail
++cd "$(dirname "$0")"
++exec python3 install-orch.py
+--- a/test_install_and_recovery.py
++++ b/test_install_and_recovery.py
+@@ -0,0 +1,131 @@
++"""Actual regression sequences from capped control, new PR and checkpoint deadlocks."""
++import importlib.util
++import hashlib
++import json
++from pathlib import Path
++import tempfile
++from unittest.mock import patch
++import unittest
++import server
++import coordination_recovery
++from test_comms import CommsTests
++
++
++def module(name):
++    spec = importlib.util.spec_from_file_location(name, Path(__file__).parent / (name + '.py'))
++    value = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(value)
++    return value
++
++
++class InstalledRecoveryTests(CommsTests):
++    def test_capped_acceptance_routes_publication_to_continuation_once(self):
++        self.enable_real_publication()
++        q = self.q()
++        with patch.object(server, 'CONTROL_ISSUE', 1593), patch.object(server, 'gh_json', return_value=({'id': 6120000000}, None)) as gh:
++            self.assertTrue(server.publish_pm_reply(q, 'SOURCE ACCEPT; CLI Dev proceed'))
++            self.assertTrue(server.publish_pm_reply(q, 'duplicate turn'))
++        self.assertEqual(gh.call_count, 1)
++        self.assertTrue(any(str(arg).endswith('issues/1593/comments') for arg in gh.call_args.args[0]))
++
++    def test_new_pr_discovered_without_selected_pr_or_task_assignment(self):
++        rows = [{'number': 1594, 'title': 'test(rwt): feedback', 'body': ''},
++                {'number': 2000, 'title': 'unrelated feature', 'body': ''}]
++        with patch.object(server, 'gh_json', return_value=(rows, None)) as gh:
++            self.assertEqual(server.discover_coordination_prs('relativityE/speaksharp'), [1594])
++            self.assertEqual(server.discover_coordination_prs('relativityE/speaksharp'), [1594])
++        self.assertEqual(gh.call_count, 1)
++        self.assertIn(1594, server.cached_coordination_prs())
++        self.assertFalse(any(w.get('pr_number') == 1594 for w in server.list_work_items()))
++
++    def test_connection_error_does_not_erase_discovered_prs(self):
++        server.set_setting('coordination_discovered_prs', json.dumps({'at': 1, 'numbers': [1594]}))
++        with patch.object(server, 'gh_json', return_value=(None, 'connection error')):
++            self.assertEqual(server.discover_coordination_prs('relativityE/speaksharp'), [1594])
++        self.assertEqual(json.loads(server.get_setting('coordination_discovered_prs'))['at'], 1)
++
++    def test_atomic_patch_failure_gets_one_readonly_recovery_across_restart(self):
++        q = self.q()
++        server.update_queue(q['id'], status='failed', error='Board patch rejected atomically: app_dev ownership does not match DEADLOCK-5')
++        server.set_agent('pm', status='error')
++        recovery = coordination_recovery.recover_preexecution_failures(server)
++        self.assertIsNotNone(recovery)
++        self.assertEqual(server.get_agent('pm')['status'], 'idle')
++        self.assertIsNone(coordination_recovery.recover_preexecution_failures(server))
++        old = next(x for x in server.list_queue() if x['id'] == q['id'])
++        self.assertEqual(old['status'], 'failed')
++        new = next(x for x in server.list_queue() if x['id'] == recovery)
++        self.assertIn('No mutation replay', new['content'])
++
++    def test_cleanup_or_paused_actor_is_not_reset(self):
++        q = self.q()
++        server.update_queue(q['id'], status='failed', error='Board patch rejected atomically: bad owner')
++        server.set_agent('pm', status='error', paused=1)
++        self.assertIsNone(coordination_recovery.recover_preexecution_failures(server))
++        server.set_agent('pm', paused=0)
++        server.set_setting('pm_cleanup_unverified', 'permission denied')
++        self.assertIsNone(coordination_recovery.recover_preexecution_failures(server))
++        self.assertEqual(server.get_agent('pm')['status'], 'error')
++
++    def test_recovery_prompt_contains_journal_and_never_inbox_tokens(self):
++        class Actors:
++            @staticmethod
++            def read_config():
++                return {'routes': {'cli_dev': {'provider': 'local_inbox', 'session_id': 'known', 'inbox_token': 'SECRET'}}}
++        result = coordination_recovery.context(server.con, Actors)
++        self.assertEqual(result['routes']['cli_dev']['session_id'], 'known')
++        self.assertNotIn('SECRET', json.dumps(result))
++        self.assertIn('action_journal', result)
++
++    def test_unsent_event_notices_coalesce_but_sent_notices_are_retained(self):
++        with patch.object(server, 'dispatch_event_notifications'):
++            server.persist_event_notifications('CI started', event_key='start')
++            with server.con() as db:
++                db.execute("UPDATE agent_notifications SET attempts=1,status='awaiting_receipt' WHERE actor_id='cli_dev'")
++            server.persist_event_notifications('CI complete', event_key='end')
++            server.persist_event_notifications('review required', event_key='review')
++        with server.con() as db:
++            self.assertEqual(db.execute("SELECT count(*) FROM agent_notifications WHERE actor_id='browser_pm' AND attempts=0 AND status='blocked_transport'").fetchone()[0], 1)
++            self.assertEqual(db.execute("SELECT count(*) FROM agent_notifications WHERE actor_id='cli_dev' AND status='awaiting_receipt'").fetchone()[0], 1)
++
++
++class InstallerTests(unittest.TestCase):
++    def test_install_copies_verified_code_and_preserves_private_state(self):
++        installer = module('install-orch')
++        with tempfile.TemporaryDirectory() as temporary:
++            source, target = Path(temporary) / 'source', Path(temporary) / 'target'
++            source.mkdir()
++            code = b'print("fixture")\n'
++            (source / 'example.py').write_bytes(code)
++            (source / 'PACKAGE-MANIFEST.json').write_text(json.dumps({'files': [
++                {'path': 'example.py', 'bytes': len(code), 'sha256': hashlib.sha256(code).hexdigest()}]}))
++            state = target / '.agent-work'
++            state.mkdir(parents=True)
++            (state / 'state.db').write_bytes(b'private state')
++            (state / 'agent-routes.json').write_text('private pairing')
++            installer.install_files(source, target)
++            self.assertEqual((target / 'example.py').read_bytes(), code)
++            self.assertEqual((state / 'state.db').read_bytes(), b'private state')
++            self.assertEqual((state / 'agent-routes.json').read_text(), 'private pairing')
++
++    def test_launch_agent_is_automatic_and_contains_no_api_keys(self):
++        installer = module('install-orch')
++        spec = installer.launch_spec(Path('/Users/test/SW_Dev/orch'), '/usr/bin/python3', '/usr/bin:/bin')
++        self.assertTrue(spec['RunAtLoad'])
++        self.assertTrue(spec['KeepAlive'])
++        self.assertEqual(spec['EnvironmentVariables']['RWT_CONTROL_ISSUE'], '1593')
++        self.assertNotIn('API_KEY', json.dumps(spec))
++
++    def test_active_invocation_prevents_service_upgrade(self):
++        service = module('installed-service')
++        reason = service.idle_reason({'transport': {}, 'agents': [{'status': 'running'}]}, Path('/missing'))
++        self.assertEqual(reason, 'Agent invocation active')
++
++    def test_private_state_not_in_install_manifest(self):
++        root = Path(__file__).parent
++        manifest = json.loads((root / 'PACKAGE-MANIFEST.json').read_text())
++        self.assertFalse(any('.agent-work' in f['path'] for f in manifest['files']))
++
++
++if __name__ == '__main__':
++    unittest.main()
+--- a/test_regressions.py
++++ b/test_regressions.py
+@@ -342,7 +342,7 @@
+ 
+     def test_version_labels_match(self):
+         root=Path(server.__file__).parent
+-        self.assertEqual(server.BOARD_VERSION,'4.7.7-candidate')
++        self.assertEqual(server.BOARD_VERSION,'4.7.8')
+         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
+             text=(root/file).read_text()
+             self.assertIn('v'+server.BOARD_VERSION,text)
+--- a/test_actor_channels.py
++++ b/test_actor_channels.py
+@@ -220,7 +220,7 @@
+         self.assertEqual(len(reminders), 1)
+         self.assertIn('CLI DEV — ACTION REQUIRED', reminders[0]['content'])
+         self.assertIn(probe['action_id'], reminders[0]['content'])
+-        self.assertIn('issue #1258', reminders[0]['content'])
++        self.assertIn(f'issue #{server.CONTROL_ISSUE}', reminders[0]['content'])
+ 
+     def test_received_notification_has_no_fallback(self):
+         self.pair()
+--- a/start-rwt-handoff.sh
++++ b/start-rwt-handoff.sh
+@@ -9,14 +9,14 @@
+ export CLAUDE_MODEL="${CLAUDE_MODEL:-}"
+ export CODEX_MODEL="${CODEX_MODEL:-}"
+ export PM_MODE="${PM_MODE:-auto}"
+-export RWT_CONTROL_ISSUE="${RWT_CONTROL_ISSUE:-1258}"
++export RWT_CONTROL_ISSUE="${RWT_CONTROL_ISSUE:-1593}"
+ 
+ URL="http://127.0.0.1:${RWT_PORT}/"
+ 
+ # Import one verified prior state only when it is the sole sibling; set RWT_MIGRATE_FROM for an explicit choice.
+ python3 migrate_state.py
+ 
+-echo "RWT Board v4.7.7-candidate (coordination.1): $URL"
++echo "RWT Board v4.7.8 (coordination.2): $URL"
+ echo "Use 127.0.0.1, not localhost."
+ echo "Control issue: #${RWT_CONTROL_ISSUE}"
+ 
