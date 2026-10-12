@@ -36,9 +36,9 @@
  First launch publishes one durable ALL AGENTS version/launcher notice to the control issue and queues version-specific recipient handshakes. Restart does not duplicate the post or invent ACKs. PM notification publication failures are task holds, not coordinator-wide errors. Healthy CLI PM is shown as available/receiving events, with task holds displayed separately. Existing native browser-chat wake limits are unchanged.
 --- a/RELEASE-CANDIDATE.md
 +++ b/RELEASE-CANDIDATE.md
-@@ -1,16 +1,7 @@
+@@ -1,16 +1,9 @@
 -# v4.7.11 release packet
-+# v4.7.12 coordination.6
++# v4.7.12 coordination.6 — interim improvements
  
 -Build: coordination.5. This package replaces the capped-control/installation/checkpoint paths in
 -v4.7.7-candidate. The full source is in the archive and independently hash-listed by PACKAGE-MANIFEST.json.
@@ -52,15 +52,16 @@
  
 -Host acceptance is pending until the local operator installs and returns actual actor receipt/result and
 -PM continuation after a restart. No claim of automatic wake for an unsupported browser chat is made.
--
++Source tests and package checks are recorded in VALIDATION.md. Mac end-to-end wake acceptance remains pending installation. Unsupported Browser PM ChatGPT sessions have no session-wake hook; the native CLI PM is the supported unattended coordinator. Never claim a GitHub post alone delivered or executed a task.
+ 
 -The failed v4.7.9 background service entry point has been removed. No LaunchAgent is created; the inactive owned registration is archived. Both launch commands use the previous foreground setup method.
 -
 -v4.7.11 fixes the actual API/launcher contract mismatch in v4.7.10. HTTP readiness uses the real live handler version/build; prior migrated state is retained.
-+Source tests and package checks are recorded in VALIDATION.md. Mac end-to-end wake acceptance remains pending installation. Unsupported Browser PM ChatGPT sessions have no session-wake hook; the native CLI PM is the supported unattended coordinator. Never claim a GitHub post alone delivered or executed a task.
---- a/RESEARCH-AND-ACCEPTANCE.md
++HELD: PO paused the interim release to prioritize wake/notification repairs. Remaining gaps: existing one-shot watchers still need rearming; unsupported browser chats cannot be awakened; missing recipient routes are not automatically invented. Registered persistent workers retain their existing owned threads only. This upgrade does not eliminate all copy-paste coordination. Only PO installs. No Dev installation assignment.
+--- /dev/null
 +++ b/RESEARCH-AND-ACCEPTANCE.md
 @@ -0,0 +1,11 @@
-+# Established-pattern review and release hold
++# Established-pattern review and interim release limits
 +
 +Design references: GitHub queued webhook processing and stable delivery IDs (https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks); durable NATS consumers and explicit acknowledgment (https://docs.nats.io/learn/jetstream/pull-consumers); Temporal separate signal delivery from tracked request completion (https://docs.temporal.io/encyclopedia/workflow-message-passing); Codex owned thread/turn protocol (https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
 +
@@ -70,7 +71,7 @@
 +
 +Unsolved installation-boundary requirement: legacy local-inbox watchers in existing chats still require runtime rearming; there is no supported hook to force a separate ChatGPT browser chat awake. A registered persistent worker avoids rearming but owns its own existing registered Codex thread. The bundle must not silently create a new writer or replace the user's existing Dev session. A verified safe handoff/connection is required before claiming hands-off delivery for those actors.
 +
-+PO directed release HOLD until recurring copy-paste/awareness symptoms are proven resolved. No bundle publication or installation request. Installed end-to-end proof still required: current event → native CLI PM → intended recipient → authenticated ACK/result → correct PM continuation, including outage/reconnect and restart; absence of obsolete task revival; no duplicated writers. Source tests cannot substitute for supported host capability.
++On 2026-10-12 PO briefly requested an interim release, then paused release and directed work on wake/notification gaps. Package publication remains held. Full hands-off coordination is not release-qualified. Installed end-to-end proof still required: current event → native CLI PM → intended recipient → authenticated ACK/result → correct PM continuation, including outage/reconnect and restart; absence of obsolete task revival; no duplicated writers. Source tests cannot substitute for supported host capability.
 --- a/VALIDATION.md
 +++ b/VALIDATION.md
 @@ -1,5 +1,5 @@
@@ -492,11 +493,10 @@
      return 200, {'ok': True, 'action_id': action_id, 'stage': stage}
  
  
-@@ -4314,6 +4389,23 @@
-         except agent_transport.RouteError:
+@@ -4315,16 +4390,36 @@
              continue
          if route.provider != 'local_inbox':
-+            continue
+             continue
 +        import worker_runtime
 +        registered = worker_runtime.status(actor, route.session_id)
 +        if registered:
@@ -513,10 +513,27 @@
 +                               "never resend a claimed/sent/uncertain action or create a replacement writer.")
 +                    aid = add_activity('SYSTEM', message, 'pm', 'blocker')
 +                    enqueue(aid, 'pm', message, source_actor='SYSTEM', auto_handoff=True, delivery_key=key)
-             continue
++            continue
          health = actor_channels.listener_status(actor, route.session_id)
          seen = health['listener_last_seen']
-@@ -6974,6 +7066,9 @@
+-        if seen is None or at - seen < 60:
++        if seen is not None and at - seen < 60:
+             continue
+-        key = f"listener-rearm:{actor}:{route.session_id}:{seen}"
++        # A paired route that never polled used to be silently skipped forever.
++        # Wake the native PM once for this session, without pretending it is live.
++        listener_state = 'never_started' if seen is None else health['listener_state']
++        key = f"listener-rearm:{actor}:{route.session_id}:{seen if seen is not None else 'never_started'}"
+         with DB_LOCK, con() as c:
+             already = c.execute('SELECT 1 FROM queue WHERE delivery_key=?', (key,)).fetchone()
+         if already:
+             continue
+-        msg = f"{actor.upper().replace('_',' ')} — LISTENER NOT REARMED/STALE: paired session {route.session_id}, state {health['listener_state']}. CLI PM must obtain rearmed background-task heartbeat or record blocked_transport; cross-post on #{CONTROL_ISSUE} if direct wake is unavailable. Do not create another writer or pretend GitHub publication wakes CLI Dev."
++        msg = f"{actor.upper().replace('_',' ')} — LISTENER NOT REARMED/STALE: paired session {route.session_id}, state {listener_state}. CLI PM must obtain rearmed background-task heartbeat or record blocked_transport; cross-post on #{CONTROL_ISSUE} if direct wake is unavailable. Do not create another writer or pretend GitHub publication wakes CLI Dev."
+         aid = add_activity('SYSTEM', msg, 'pm', 'blocker')
+         enqueue(aid, 'pm', msg, source_actor='SYSTEM', auto_handoff=True, delivery_key=key)
+     with DB_LOCK, con() as c:
+@@ -6974,6 +7069,9 @@
      print(f"Dev transport: Claude CLI ({CLAUDE_MODEL or 'CLI default model'}; permission={PERMISSION_MODE}); API-key overrides are stripped from child env")
      if mode == "manual":
          print("PM transport is not configured. Install/sign in to Codex CLI, or configure PM_COMMAND / legacy API fallback.")
@@ -526,7 +543,7 @@
      try:
          srv.serve_forever()
      except KeyboardInterrupt:
-@@ -6981,6 +7076,10 @@
+@@ -6981,6 +7079,10 @@
      finally:
          STOP.set()
          GITHUB_WATCH_WAKE.set()
@@ -589,7 +606,7 @@
  function renderQueue(q){queue.innerHTML=(q||[]).map(x=>`<div class="workItem"><div><div class="itemTitle">${esc(x.title||x.item_key||'Untitled')}</div><div class="itemMeta">${esc(x.sequence_blocker||x.dispatch_hold||x.blocker||x.next_action||'')}</div></div><div>${ownerTag(x.owner)} ${badge(x.state)}</div></div>`).join('')||'<div class="muted">Queue empty</div>'}
  function prRow(pr,completed=false){let [st,cls,pos]=prState(pr,dashboard?.current?.number);let obj=encodeURIComponent(JSON.stringify(pr));return `<div class="prItem ${dashboard?.current&&Number(pr.number)===Number(dashboard.current.number)?'current':''} ${completed?'completed':''}" onclick="showPr(JSON.parse(decodeURIComponent('${obj}')))"><div><div class="prTitle"><span class="prNumber">#${pr.number}</span>${esc(pr.title||'')}</div><div class="prMeta">${esc(pos)} · ${esc(checksSummary(pr))}</div></div><span class="statusBadge ${cls}">${st}</span></div>`}
  function renderPrs(d){let open=(d.open_prs||[]).slice(0,4);let closed=[...(d.recent_completed||[])].sort((a,b)=>String(b.mergedAt||b.closedAt||b.updatedAt||'').localeCompare(String(a.mergedAt||a.closedAt||a.updatedAt||''))).slice(0,4);openPrs.innerHTML=open.map(x=>prRow(x)).join('')||'<div class="muted">No open PRs</div>';closedPrs.innerHTML=closed.map(x=>prRow(x,true)).join('')||'<div class="muted">No recent closed PRs</div>';if(d.current){currentPr.innerHTML=prRow({...d.current,number:d.current.number,title:d.current.title,url:d.current.url,headRefOid:d.current.head,isDraft:d.current.draft,state:d.current.state,reviewDecision:d.current.reviewDecision,statusCheckRollup:d.current.statusCheckRollup||[]});}else currentPr.innerHTML='<div class="decision warn"><div class="big">No Current PR</div><div class="muted" style="margin-top:4px">PM should select the active release PR when one exists.</div></div>'}
---- a/task-status-repair.patch
+--- /dev/null
 +++ b/task-status-repair.patch
 @@ -0,0 +1,88 @@
 +--- a/server.py
@@ -692,6 +709,23 @@
          self.assertTrue(any(q['delivery_key'] == 'task-result:' + probe['action_id'] for q in server.list_queue()))
  
      def test_pairing_and_inbox_reads_never_claim_wake_proof(self):
+@@ -228,6 +227,16 @@
+         self.callback(probe, 'receipt', 'seen')
+         server.sweep_agent_delivery_stalls(at=time.time() + 1800)
+         self.assertFalse(any(q['delivery_key'].startswith('notification-board-fallback:') for q in server.list_queue()))
++
++    def test_never_started_listener_wakes_pm_once_without_fabricated_receipt(self):
++        self.pair()
++        self.assertIsNone(channels.listener_status('app_dev', SESSION)['listener_last_seen'])
++        server.sweep_agent_delivery_stalls(at=time.time())
++        server.sweep_agent_delivery_stalls(at=time.time() + 120)
++        rows = [q for q in server.list_queue() if q['delivery_key'].startswith('listener-rearm:')]
++        self.assertEqual(len(rows), 1)
++        self.assertIn('never_started', rows[0]['content'])
++        self.assertIsNone(channels.listener_status('app_dev', SESSION)['listener_last_seen'])
+ 
+     def test_listener_exit_stale_and_rearm_health_are_explicit(self):
+         self.pair()
 --- a/test_coordination_urgency.py
 +++ b/test_coordination_urgency.py
 @@ -103,7 +103,7 @@
@@ -703,7 +737,7 @@
          self.assertTrue(all(not n['receipt_at'] and not n['result_at'] for n in notices))
  
  
---- a/test_durable_checkpoints.py
+--- /dev/null
 +++ b/test_durable_checkpoints.py
 @@ -0,0 +1,47 @@
 +"""Checkpoint retention across polling gaps and historical event replay."""
@@ -753,7 +787,7 @@
 +        rows = json.loads(server.get_setting('control_checkpoint_context'))
 +        self.assertEqual(rows[-1]['body'], 'authorization superseded')
 +        self.assertEqual(rows[-1]['at'], newer['updated_at'])
---- a/test_event_queue_recovery.py
+--- /dev/null
 +++ b/test_event_queue_recovery.py
 @@ -0,0 +1,80 @@
 +from unittest.mock import patch
@@ -916,7 +950,7 @@
              self.assertFalse(plist.exists())
              self.assertTrue(plist.with_suffix('.plist.disabled-v4.7.9').exists())
  
---- a/test_foreground_worker_lifecycle.py
+--- /dev/null
 +++ b/test_foreground_worker_lifecycle.py
 @@ -0,0 +1,45 @@
 +import subprocess
@@ -992,7 +1026,7 @@
          self.assertTrue(all(n['receipt_at'] is None and n['result_at'] is None for n in notices))
  
      def test_version_publication_error_holds_notice_not_whole_coordinator(self):
---- a/test_task_checkpoint_preservation.py
+--- /dev/null
 +++ b/test_task_checkpoint_preservation.py
 @@ -0,0 +1,23 @@
 +from test_actor_channels import ActorChannelTests

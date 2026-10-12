@@ -1,7 +1,7 @@
-Orch v4.7.12 source repair — RELEASE HELD by PO.
+# Orch repair held
 
-740 Python test executions PASS (36.076s); actual dashboard smoke PASS. Three actual-watcher RED/GREEN regressions prove empty polls, bot chatter and older edits previously displaced current checkpoints. Added durable checkpoint merge, original-action recovery, current-event priority, unread-only awareness coalescing with claimed/uncertain deliveries preserved, idle read reconnection to the same saved worker thread, persistent-consumer health, and foreground-owned child shutdown. Real local HTTP + worker subprocess + simulated Codex recipient covers authenticated callbacks, same-thread restart and no repeated turn. No real model/Mac wake proof is claimed.
+PO paused interim release on2026-10-12 to prioritize wake/notification repairs. No installable package is published. Patch applies to4.7.11 source; PACKAGE-MANIFEST must be regenerated before any release.
 
-No ZIP release or installation request. Existing one-shot listeners still need runtime rearm; unsupported Browser PM ChatGPT wake has no hook. A registered persistent consumer works through its own verified saved thread; never silently replace an existing Dev session or create a concurrent writer. Installed end-to-end event/wake/ACK/result/PM continuation acceptance remains OPEN. Dev reviews/RWT requests take precedence.
+Prior complete suite:740 test executions PASS, dashboard smoke PASS. Latest additional regression proves never-started paired listener silently escaped watchdog; baseline RED, fixed GREEN. Related24 actor-channel tests pass. Native PM now receives one deduplicated recovery alert for a never-started session; this is detection, not recipient wake proof.
 
-This patch is source review/checkpoint only, applies to v4.7.11 source, and is not an installable package (manifest must be regenerated after final acceptance). No production app change, merge, deployment, model activation or live-run authority.
+Remaining: legacy watcher rearm, existing-session supported persistent transport/handoff, actual Mac wake→authenticated receipt/result→PM continuation. Browser ChatGPT has no supported inbound wake hook. Read-only installed-host capability packet requested directly on1593 comment6132390286; no new writer, watcher termination or Dev bundle install authorized.
