@@ -931,13 +931,14 @@ export async function performCandidateSwitch(page: Page, run: RunTarget, journey
  */
 export async function nextStartEvidence(page: Page, label: string): Promise<{
     holdSeen: boolean; nextStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
+    startFailure: StartFailureState | null;
 }> {
     const FINISHING_UP = /Finishing up your last session/;
     await page.goto('/session');
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
     } catch {
-        return { holdSeen: false, nextStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'the session page did not reach rest (mic-status)' };
+        return { holdSeen: false, nextStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'the session page did not reach rest (mic-status)', startFailure: null };
     }
     let holdSeen = (await page.getByText(FINISHING_UP).count()) > 0;
     const watch = setInterval(() => {
@@ -951,18 +952,19 @@ export async function nextStartEvidence(page: Page, label: string): Promise<{
         nextStartMs = Date.now() - startedAt;
     } catch {
         clearInterval(watch);
+        const startFailure = await readStartFailureState(page);
         const tracks = await boundedTeardown(page, label);
-        return { holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording' };
+        return { holdSeen, nextStartMs: null, stopped: false, liveTracksAfterStop: tracks, reason: 'the next Start did not begin recording', startFailure };
     }
     clearInterval(watch);
     try {
         await stopBenchmarkRecording(page, label);
     } catch {
         const tracks = await boundedTeardown(page, label);
-        return { holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped' };
+        return { holdSeen, nextStartMs, stopped: false, liveTracksAfterStop: tracks, reason: 'the next take could not be stopped', startFailure: null };
     }
     const live = await expect.poll(() => liveMicTracks(page), { timeout: 10_000 }).toBe(0).then(() => 0).catch(async () => liveMicTracks(page));
-    return { holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? null : 'the microphone stayed live after Stop' };
+    return { holdSeen, nextStartMs, stopped: true, liveTracksAfterStop: live, reason: live === 0 ? null : 'the microphone stayed live after Stop', startFailure: null };
 }
 
 /**
@@ -1010,6 +1012,77 @@ export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, r
 const STEP_DIAGNOSTIC_BOUND_MS = 10_000;
 const STEP_DIAGNOSTIC_READ_MS = 3_000;
 
+/**
+ * #1258 alpha run 38298685079: the review's repeat Start and a fresh next Start both failed to begin recording, and the
+ * helper's catch swallowed WHY. When a Start does not begin, the page's visible state is classified into a closed enum.
+ * The status text is read only to classify it and is never recorded. Product copy: `ENGINE_RETIRE_UNCONFIRMED_MESSAGE`
+ * (useSessionLifecycle.ts), the lease block (recordingLeasePolicy.ts) and the Progress hold.
+ */
+export type StartRefusalClass = 'engine_unconfirmed' | 'lease_blocked' | 'finishing_up' | 'start_error' | 'none_visible';
+const START_REFUSAL_PATTERNS: ReadonlyArray<readonly [StartRefusalClass, RegExp]> = [
+    ['engine_unconfirmed', /could not confirm the last recording stopped/i],
+    ['lease_blocked', /A recording is active on .*press Start again to take over/i],
+    ['finishing_up', /Finishing up your last session/i],
+    ['start_error', /(?:could ?n[o']t|unable to|failed to) (?:start|record|save)|microphone (?:access )?(?:is )?(?:blocked|denied)/i],
+];
+export function classifyStartRefusal(texts: readonly string[]): StartRefusalClass {
+    for (const [kind, pattern] of START_REFUSAL_PATTERNS) if (texts.some((t) => pattern.test(t))) return kind;
+    return 'none_visible';
+}
+
+/** Content-free page state when a Start did not begin recording: closed enums, booleans and the controller's own states. */
+export interface StartFailureState {
+    refusalClass: StartRefusalClass | null; runtimeState: string | null; sessionState: string | null;
+    persisted: boolean | null; modelStatus: string | null;
+    micStartPresent: boolean | null; micStartDisabled: boolean | null; recorderStopPresent: boolean | null;
+    repeatActionPresent: boolean | null; repeatActionDisabled: boolean | null;
+    controllerState: string | null; serviceState: string | null; readTimedOut: boolean;
+}
+const UNREAD_START_FAILURE: StartFailureState = {
+    refusalClass: null, runtimeState: null, sessionState: null, persisted: null, modelStatus: null,
+    micStartPresent: null, micStartDisabled: null, recorderStopPresent: null, repeatActionPresent: null, repeatActionDisabled: null,
+    controllerState: null, serviceState: null, readTimedOut: true,
+};
+export async function readStartFailureState(page: Page): Promise<StartFailureState> {
+    const read = page.evaluate(() => {
+        const root = document.documentElement;
+        const node = (tid: string) => document.querySelector(`[data-testid="${tid}"]`) as HTMLElement | null;
+        const control = (tid: string) => { const n = node(tid); return { present: !!n, disabled: n ? n.hasAttribute('disabled') : null }; };
+        const short = (v: unknown) => (typeof v === 'string' && /^[A-Za-z_-]{1,40}$/.test(v) ? v : null);
+        const debug = (window as unknown as { __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown> }).__SPEECH_RUNTIME_DEBUG__?.() ?? {};
+        const texts = Array.from(document.querySelectorAll('[role="alert"],[role="status"],[data-testid="mic-status"]'))
+            .map((el) => (el.textContent ?? '').replace(/\s+/g, ' ').slice(0, 400));
+        const start = control('mic-start'); const repeat = control('verdict-practice-again');
+        return {
+            texts,
+            runtimeState: short(root.getAttribute('data-runtime-state')),
+            sessionState: short(document.querySelector('[data-testid="session-shell"]')?.getAttribute('data-session-state')),
+            persisted: root.hasAttribute('data-session-persisted') ? root.getAttribute('data-session-persisted') === 'true' : null,
+            modelStatus: short(document.querySelector('[data-model-status]')?.getAttribute('data-model-status')),
+            micStartPresent: start.present, micStartDisabled: start.disabled, recorderStopPresent: !!node('recorder-stop'),
+            repeatActionPresent: repeat.present, repeatActionDisabled: repeat.disabled,
+            controllerState: short(debug.controllerState), serviceState: short(debug.serviceState),
+        };
+    });
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), STEP_DIAGNOSTIC_READ_MS));
+    const raw = await Promise.race([read, timeout]).catch(() => null);
+    if (!raw) return UNREAD_START_FAILURE;
+    // The status texts are classified here and dropped: only the closed enum leaves this function.
+    const { texts, ...state } = raw;
+    return { ...state, refusalClass: classifyStartRefusal(texts), readTimedOut: false };
+}
+
+/** Flat receipt evidence for a Start that did not begin; every field null when the Start was not a failure. */
+export function startFailureEvidence(s: StartFailureState | null): Record<string, string | boolean | null> {
+    const v = s ?? { ...UNREAD_START_FAILURE, readTimedOut: false };
+    return {
+        refusalClass: v.refusalClass, runtimeState: v.runtimeState, sessionState: v.sessionState, persisted: v.persisted,
+        modelStatus: v.modelStatus, micStartPresent: v.micStartPresent, micStartDisabled: v.micStartDisabled,
+        recorderStopPresent: v.recorderStopPresent, repeatActionPresent: v.repeatActionPresent, repeatActionDisabled: v.repeatActionDisabled,
+        controllerState: v.controllerState, serviceState: v.serviceState, startFailureReadTimedOut: s ? s.readTimedOut : null,
+    };
+}
+
 export interface PracticeAgainEvidence {
     analyticsActionOpened: boolean | null; sameSetPending: boolean | null;
     reviewReached: boolean | null; afterActionEnabledMs: number | null; holdSeen: boolean;
@@ -1018,6 +1091,10 @@ export interface PracticeAgainEvidence {
     afterStartMs: number | null; stopped: boolean; liveTracksAfterStop: number | null; reason: string | null;
     /** #1258 (PM 5944997435): the practice action's content-free state before the click, and after a click that did not open /session. */
     actionBefore: PracticeActionState | null; actionAfter: PracticeActionState | null;
+    /** #1258 run 38298685079: did the short (save) take persist as a NEW session, read from the page's own attributes. */
+    saveTakePersisted: boolean | null; saveTakeNewSession: boolean | null;
+    /** Content-free page state when the review's repeat Start did not begin recording; null when it began or was not tried. */
+    startFailure: StartFailureState | null;
 }
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
@@ -1028,7 +1105,7 @@ export async function practiceAgainEvidence(
     const ev: PracticeAgainEvidence = {
         analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null,
         holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null, savedSessionId: null,
-        actionBefore: null, actionAfter: null,
+        actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null,
     };
     await page.goto(`/analytics/${sessionId}`);
     const practice = page.getByTestId('saved-review-practice');
@@ -1068,6 +1145,8 @@ export async function practiceAgainEvidence(
         await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
         ev.reviewReached = true;
         ev.savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+        ev.saveTakePersisted = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted') === 'true');
+        ev.saveTakeNewSession = ev.savedSessionId !== null ? ev.savedSessionId !== sessionId : null;
     } catch {
         ev.reviewReached = false;
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-save`);
@@ -1090,6 +1169,8 @@ export async function practiceAgainEvidence(
         ev.afterStartMs = Date.now() - pressedAt;
     } catch {
         clearInterval(watch);
+        // Read WHY before teardown navigates away (#1258 run 38298685079: the reason was swallowed here).
+        if (ev.afterActionEnabledMs !== null) ev.startFailure = await readStartFailureState(page);
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-again`);
         ev.reason = ev.afterActionEnabledMs === null ? 'the review\'s repeat action was not enabled within 15 s' : 'the repeat action did not begin recording';
         return ev;
@@ -1170,7 +1251,10 @@ export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'fo
             : ev.holdSeen ? '"Finishing up" was shown after the take saved'
                 : ev.afterStartMs === null ? (ev.reason ?? 'recording did not begin')
                     : (ev.afterActionEnabledMs ?? Infinity) >= 5_000 ? 'the repeat action stayed disabled after the take saved' : 'recording exceeded the 15 s ceiling',
-        { afterActionEnabledMs: ev.afterActionEnabledMs, afterStartMs: ev.afterStartMs, holdSeen: ev.holdSeen });
+        {
+            afterActionEnabledMs: ev.afterActionEnabledMs, afterStartMs: ev.afterStartMs, holdSeen: ev.holdSeen,
+            saveTakePersisted: ev.saveTakePersisted, saveTakeNewSession: ev.saveTakeNewSession, ...startFailureEvidence(ev.startFailure),
+        });
     const offOk = ev.stopped && ev.liveTracksAfterStop === 0;
     receipt.row('repeated take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
         offOk ? 'the take stopped and every microphone track ended' : (ev.reason ?? 'the take could not be stopped'),
@@ -1184,7 +1268,7 @@ export function nextStartRows(receipt: RwtReceipt, next: Awaited<ReturnType<type
     receipt.row('next Start', startOk ? 'PASS' : 'FAIL',
         startOk ? 'the next take started without "Finishing up"'
             : !started ? (next.reason ?? 'the next Start did not begin') : next.holdSeen ? '"Finishing up" was shown' : 'the next Start exceeded the 15 s ceiling',
-        { nextStartMs: next.nextStartMs, holdSeen: next.holdSeen });
+        { nextStartMs: next.nextStartMs, holdSeen: next.holdSeen, ...startFailureEvidence(next.startFailure) });
     const offOk = next.stopped && next.liveTracksAfterStop === 0;
     receipt.row('next take stopped, microphone off', offOk ? 'PASS' : 'FAIL',
         offOk ? 'the take stopped and every microphone track ended'
