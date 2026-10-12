@@ -125,19 +125,23 @@ test('leaving during a cold Start does not leave a recording or session behind @
         // This is the normal product CTA, not a synthetic network delay. Navigate away as soon as the real UI
         // reports its acquisition phase; the route change is the user's cancellation action under test.
         await page.getByTestId('mic-download').click({ timeout: 15_000 });
-        const pendingObserved = await page.waitForFunction(() => {
-            const status = document.documentElement.getAttribute('data-model-status');
-            return status === 'downloading' || status === 'initializing';
-        }, undefined, { timeout: 15_000 }).then(() => true).catch(() => false);
+        // Codex P1 r4247193674: TranscriptionService publishes BOTH DOWNLOADING and ENGINE_INITIALIZING as the root
+        // `data-model-status="loading"`; `downloading`/`initializing` are never written, so only `loading` is the pending Start.
+        const pendingObserved = await page.waitForFunction(
+            () => document.documentElement.getAttribute('data-model-status') === 'loading',
+            undefined, { timeout: 15_000 }).then(() => true).catch(() => false);
         receipt.row('Start transition observed', pendingObserved ? 'PASS' : 'HOLD', pendingObserved
             ? 'the user-triggered Start left the cold waiting state before navigation'
             : 'the pending Start transition was too brief or could not be observed; cancellation is not qualified');
         const micAtLeave = await readMicEvidence(page);
         await openProductsItem(page, 'focus-points');
         await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 });
+        // Codex P1 r4247193687: a correctly CANCELLED Start retires the engine on unmount and publishes `idle` (or returns
+        // to `download-required`); completion publishes `ready`, failure `error`/`init-failed`. Any readable status other
+        // than `loading` is a settled abandoned Start — requiring completion or failure would HOLD every good cancellation.
         const startSettledAfterLeave = await page.waitForFunction(() => {
             const status = document.documentElement.getAttribute('data-model-status');
-            return status === 'ready' || status === 'error' || status === 'init-failed';
+            return status !== null && status !== 'loading';
         }, undefined, { timeout: 600_000 }).then(() => true).catch(() => false);
         receipt.row('abandoned Start settles after leaving', startSettledAfterLeave ? 'PASS' : 'HOLD', startSettledAfterLeave
             ? 'the pending model/start operation reached a terminal state after navigation'

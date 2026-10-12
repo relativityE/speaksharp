@@ -23,7 +23,7 @@ import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import {
-    preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
+    expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
     stopBenchmarkRecording, waitForBenchmarkSaveCandidate, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 
@@ -97,7 +97,13 @@ async function createSavedOpenMicTake(
             await startBenchmarkRecording(page, `feedback-boundary-${index}`);
         }
     } else {
-        await startBenchmarkRecording(page, `feedback-boundary-${index}`);
+        // Codex P1 r4247193659: after the first save the page is in its AFTER state, where the before-state `mic-start`
+        // is not rendered. The person starts the next take with the completed review's own repeat action — the same
+        // control the core journeys use (`practiceAgainEvidence`).
+        const again = page.getByTestId('verdict-practice-again');
+        await expect(again).toBeEnabled({ timeout: 120_000 });
+        await again.click();
+        await expectBenchmarkRecordingStarted(page, `feedback-boundary-${index}`);
     }
     await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
     await stopBenchmarkRecording(page, `feedback-boundary-${index}`, 180_000);

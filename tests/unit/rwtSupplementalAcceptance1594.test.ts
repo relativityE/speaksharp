@@ -116,6 +116,24 @@ describe('#1594 supplemental suites in acceptance and finalization', () => {
         }
     });
 
+    it('Codex P1s r4247193659/674/687: the specs use the product\'s real controls and status values', () => {
+        const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
+        const feedback = src('live/rwt-feedback-association-boundaries.live.spec.ts');
+        const pending = src('live/rwt-pending-start-navigation.live.spec.ts');
+        const service = src('../frontend/src/services/transcription/TranscriptionService.ts');
+        // The second take starts from the after-state review's own repeat action, never the before-state mic-start.
+        expect(feedback).toContain("page.getByTestId('verdict-practice-again')");
+        expect(feedback.match(/startBenchmarkRecording\(/g)?.length).toBe(1);
+        // The pending Start is the published `loading` value; `downloading`/`initializing` are never written.
+        expect(service).toContain("DOWNLOADING: 'loading'");
+        expect(service).toContain("ENGINE_INITIALIZING: 'loading'");
+        expect(pending).toContain("=== 'loading'");
+        expect(pending).not.toMatch(/status === '(downloading|initializing)'/);
+        // A cancelled Start settles to `idle`: settlement is any readable status other than `loading`.
+        expect(service).toContain("TERMINATED: 'idle'");
+        expect(pending).toContain("status !== null && status !== 'loading'");
+    });
+
     it('drift guard: suite ids and every required product row name are written by the specs or their helpers', () => {
         const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
         const feedback = src('live/rwt-feedback-association-boundaries.live.spec.ts');
