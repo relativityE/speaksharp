@@ -74,6 +74,8 @@ export function readSuggestionPair(payload: unknown): CoachingSuggestionPair | n
 
 export class CoachingGenerationTap {
     readonly exchanges: CoachingExchange[] = [];
+    /** Coaching POSTs the BROWSER sent (including any still unanswered). Not a provider-invocation count. */
+    sentCount = 0;
     private readonly pending: Promise<void>[] = [];
     private readonly startedAt = new WeakMap<Request, number>();
 
@@ -83,7 +85,11 @@ export class CoachingGenerationTap {
             const start = this.startedAt.get(request);
             return start === undefined ? null : Math.max(0, Date.now() - start);
         };
-        page.on('request', (request: Request) => { if (isCoaching(request)) this.startedAt.set(request, Date.now()); });
+        page.on('request', (request: Request) => {
+            if (!isCoaching(request)) return;
+            this.sentCount += 1;
+            this.startedAt.set(request, Date.now());
+        });
         page.on('response', (response: Response) => {
             const request = response.request();
             if (!isCoaching(request)) return;
