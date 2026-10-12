@@ -1,4 +1,5 @@
 import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
+import { recordingFailureCode, withFailureCode } from './recordingFailureCode';
 import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './loginSessionLog';
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
@@ -2614,7 +2615,8 @@ export class SpeechRuntimeController {
                      * the correct outcome — recording did not cleanly terminate, so nothing is claimed.
                      */
                 }
-                emitRecordingState(previousState, newState, error?.name ?? null);
+                emitRecordingState(previousState, newState, error?.name ?? null,
+                    newState === 'FAILED' ? recordingFailureCode(error) : null);
             } catch {
                 /* telemetry must never affect the state machine */
             }
@@ -3040,7 +3042,8 @@ export class SpeechRuntimeController {
         store.setSTTStatus({ type: 'error', message: displayMessage });
 
         void this.enqueue(async (token) => {
-            await this.transition('FAILED', new Error(displayMessage), token);
+            // #1258: an engine-reported message is not authored text, so the code is tagged here, at its source.
+            await this.transition('FAILED', withFailureCode(new Error(displayMessage), isMicPermissionError ? 'mic_permission' : 'engine_error'), token);
         });
     }
 

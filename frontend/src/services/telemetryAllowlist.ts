@@ -37,6 +37,7 @@ import {
     CONVERSION_SOURCES, UTM_SOURCES, UTM_MEDIUMS, UTM_CAMPAIGNS, closedWith,
 } from './conversionVocabulary';
 import { PROGRESS_DEBT_PHASES, PROGRESS_DEBT_REASONS, PROGRESS_DEBT_TRIGGERS } from './progress/progressDebtVocabulary';
+import { RECORDING_FAILURE_CODES } from './recordingFailureCode';
 
 /** The checked-in Report Issue vocabularies — the same slugs the database stores. */
 const ISSUE_CATEGORIES = [
@@ -341,6 +342,8 @@ export const EVENT_SCHEMAS = Object.freeze({
         to_state: enumOf(RUNTIME_STATES),
         transition_cause: slug(),
         ms_since_intent: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        // #1258 (PO 2026-10-12): which failure, as a closed code — never the error message.
+        failure_code: enumOf(RECORDING_FAILURE_CODES),
     },
     /** One stage per row. A single stop-to-review total answers none of F16's six questions. */
     stage_latency: {
