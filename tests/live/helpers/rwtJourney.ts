@@ -37,6 +37,7 @@ import {
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 import { readFeedbackUiState, readPracticeActionState, type PracticeActionState } from './rwtStepDiagnostics';
 import { activeHumanReflexMs } from './rwtHumanReflex';
+import { resolveProductsTrigger } from './productsMenu';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -1501,9 +1502,8 @@ export function backFromProgressRows(receipt: RwtReceipt, b: Awaited<ReturnType<
  * recording journey where the `analytics_inventory` stage proves it was received. Navigates nowhere.
  */
 export async function openProductsMenuInPlace(page: Page): Promise<boolean> {
-    const desktop = page.getByTestId('nav-products-button');
-    const trigger = (await desktop.isVisible().catch(() => false)) ? desktop : page.getByTestId('nav-mobile-products-button');
-    const opened = await trigger.click({ timeout: 20_000 }).then(() => true).catch(() => false);
+    const resolved = await resolveProductsTrigger(page).catch(() => null);
+    const opened = resolved ? await resolved.trigger.click({ timeout: 20_000 }).then(() => true).catch(() => false) : false;
     await page.keyboard.press('Escape').catch(() => undefined);
     return opened;
 }
