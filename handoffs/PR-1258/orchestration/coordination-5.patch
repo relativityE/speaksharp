@@ -1,0 +1,263 @@
+--- v4.7.10/INSTALL.md
++++ v4.7.11/INSTALL.md
+@@ -1,10 +1,10 @@
+-# Orch v4.7.10 installation
++# Orch v4.7.11 installation
+ 
+ Only the PO downloads and extracts this package. From its folder, run `python3 orch-setup.py`, exactly as with the last working release. `Start_Orch.command` uses that same entry point. `install-orch.py` is a compatibility alias; it registers no service.
+ 
+-Keep the terminal running. Browser launch waits for the v4.7.10 API to respond. Closing the browser does not stop the board; stopping this terminal does. No login background service is installed.
++Keep the terminal running. Browser launch waits for the v4.7.11 API to respond. Closing the browser does not stop the board; stopping this terminal does. No login background service is installed.
+ 
+-The verified last-serving v4.7.7-candidate state is selected automatically when the new folder has no state and no explicit migration override. Its database, private pairing and packet artifacts are copied with verification; the source remains intact. Existing target state is retained. Other ambiguous migrations remain a HOLD. The inactive owned v4.7.9 LaunchAgent registration is archived to prevent its failed startup at login; a loaded or unfamiliar service is preserved and blocks takeover.
++A completed v4.7.10 migration is selected first, retaining its latest action journal; otherwise the verified last-serving v4.7.7-candidate state is selected automatically when the new folder has no state and no explicit migration override. Its database, private pairing and packet artifacts are copied with verification; the source remains intact. Existing target state is retained. Other ambiguous migrations remain a HOLD. The inactive owned v4.7.9 LaunchAgent registration is archived to prevent its failed startup at login; a loaded or unfamiliar service is preserved and blocks takeover.
+ 
+ Existing GitHub and Codex subscription login are required. Recipient routes and registered workers are preserved; unsupported browser chats still have no automatic wake hook. Events and version handshakes require actual recipient ACK and result. No Dev downloads or installs this package.
+ 
+--- v4.7.10/README.md
++++ v4.7.11/README.md
+@@ -1,4 +1,4 @@
+-# RWT Orch v4.7.10 — coordination.4
++# RWT Orch v4.7.11 — coordination.5
+ 
+ Only the PO downloads the package. Installation flows into the same foreground setup and launch as v4.7.7;
+ `Install_Orch.command` and `Start_Orch.command` both use that path. No LaunchAgent, login task or background
+@@ -17,6 +17,6 @@
+ without a wake hook are explicitly unsupported for automatic wake; GitHub posting is not delivery.
+ No merge/deployment/Production authority is created by event notifications or installation.
+ 
+-coordination.4 adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
++coordination.5 adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
+ 
+ First launch publishes one durable ALL AGENTS version/launcher notice to the control issue and queues version-specific recipient handshakes. Restart does not duplicate the post or invent ACKs. PM notification publication failures are task holds, not coordinator-wide errors. Healthy CLI PM is shown as available/receiving events, with task holds displayed separately. Existing native browser-chat wake limits are unchanged.
+--- v4.7.10/RELEASE-CANDIDATE.md
++++ v4.7.11/RELEASE-CANDIDATE.md
+@@ -1,6 +1,6 @@
+-# v4.7.10 release packet
++# v4.7.11 release packet
+ 
+-Build: coordination.4. This package replaces the capped-control/installation/checkpoint paths in
++Build: coordination.5. This package replaces the capped-control/installation/checkpoint paths in
+ v4.7.7-candidate. The full source is in the archive and independently hash-listed by PACKAGE-MANIFEST.json.
+ 
+ Offline regressions cover capped-thread routing and dedupe, new PR discovery, connection-error retention,
+@@ -12,3 +12,5 @@
+ PM continuation after a restart. No claim of automatic wake for an unsupported browser chat is made.
+ 
+ The failed v4.7.9 background service entry point has been removed. No LaunchAgent is created; the inactive owned registration is archived. Both launch commands use the previous foreground setup method.
++
++v4.7.11 fixes the actual API/launcher contract mismatch in v4.7.10. HTTP readiness uses the real live handler version/build; prior migrated state is retained.
+--- v4.7.10/VALIDATION.md
++++ v4.7.11/VALIDATION.md
+@@ -1,18 +1,5 @@
+-# Validation — v4.7.10 coordination.4
++# Validation — v4.7.11 coordination.5
+ 
+-Prior v4.7.9 Python suite: 590 tests (the original delivery/lease/runtime suite plus installation/recovery regressions).
+-Actual dashboard JavaScript smoke: passed. Python syntax and Bash launcher syntax: passed.
+-Capped-continuation publication regression: RED against v4.7.6 (valid #1593 publication rejected), GREEN here.
+-Private state is excluded from the source archive. Installation preservation is covered by a real temporary-directory test.
++The real /api/live HTTP handler now supplies version/build metadata. The new HTTP-handler readiness test fails against v4.7.10 with the observed timeout and passes on v4.7.11. It does not use a made-up response schema. Migration also tests retaining the completed v4.7.10 action journal rather than rolling back to v4.7.7-candidate.
+ 
+-These tests use isolated SQLite and fake GitHub/runtime boundaries. They do not prove the installed Mac foreground launcher,
+-current recipient thread readiness, subscription login, Internet availability or real automatic wake.
+-The local agent must supply that host receipt and restart proof before Orch is accepted.
+-
+-Startup readiness regression: RED against v4.7.6 (PM stays in error and cannot claim new events), GREEN here. Login recovery, pause/cleanup preservation, Dev uncertainty and ownership preservation are covered.
+-
+-First-launch announcement/dedupe, four real-ACK-required version handshakes, task-scoped publication failures and real board agent-map shape are covered. v4.7.8 installer assumed a list where the actual API returns an agent dictionary; fixed here before installation.
+-
+-Foreground regressions exercise ten candidate states with verified source/pairing preservation, connection refusal and wrong-version readiness, early child exit, readiness timeout and inactive-versus-loaded service handling. Current release suite results are recorded after execution.
+-
+-Final v4.7.10: 592 Python tests passed; actual dashboard smoke passed; Python compile and Bash syntax passed. No installed-Mac delivery proof yet.
++Final suite: 594 Python tests PASS; actual dashboard smoke PASS; Python/Bash syntax and package integrity PASS. Existing delivery, outbox, uncertainty, ownership and startup regressions remain required. No installed-Mac wake proof is claimed: acceptance still needs real version/API readiness, recipient event/ACK/result and PM continuation. No LaunchAgent or login task is installed.
+--- v4.7.10/foreground_startup.py
++++ v4.7.11/foreground_startup.py
+@@ -14,6 +14,13 @@
+     root = Path(root)
+     home = Path(home or Path.home())
+     source = root.parent / 'rwt-pr-handoff-v4.7.7-candidate' / '.agent-work' / 'state.db'
++    migrated = root.parent / 'rwt-pr-handoff-v4.7.10' / '.agent-work'
++    receipt = migrated / 'migration-manifest.json'
++    if receipt.is_file() and (migrated / 'state.db').is_file():
++        manifest = json.loads(receipt.read_text())
++        if manifest.get('completed') is True and manifest.get('source_db') == str(source.resolve()) and manifest.get('target_db') == str(migrated / 'state.db'):
++            # Keep any delivery/action journal changes made by the successfully migrated v4.7.10.
++            source = migrated / 'state.db'
+     if not (root / '.agent-work' / 'state.db').exists() and not env.get('RWT_MIGRATE_FROM') and source.is_file():
+         # Confirmed by last-serving receipts and the owned Mac diagnostic 6124027101.
+         env['RWT_MIGRATE_FROM'] = str(source)
+@@ -53,7 +60,7 @@
+         try:
+             with opener(f'http://127.0.0.1:{port}/api/live', timeout=1) as response:
+                 value = json.load(response)
+-            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.10':
++            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.11':
+                 return value
+         except (OSError, ValueError):
+             pass
+@@ -67,7 +74,7 @@
+     parser.add_argument('--port', type=int, required=True)
+     args = parser.parse_args()
+     wait_ready(args.pid, args.port)
+-    print('Orch v4.7.10 HTTP ready. Keep this terminal running for coordination.', flush=True)
++    print('Orch v4.7.11 HTTP ready. Keep this terminal running for coordination.', flush=True)
+     webbrowser.open(f'http://127.0.0.1:{args.port}/')
+ 
+ 
+--- v4.7.10/install-orch.py
++++ v4.7.11/install-orch.py
+@@ -12,7 +12,7 @@
+ import webbrowser
+ import package_integrity
+ 
+-VERSION = '4.7.10'
++VERSION = '4.7.11'
+ LABEL = 'com.speaksharp.orch'
+ 
+ 
+--- v4.7.10/server.py
++++ v4.7.11/server.py
+@@ -91,8 +91,8 @@
+                                   "pull_request_review_comment", "workflow_run", "check_run", "check_suite", "push"})
+ CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1593"))
+ WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
+-BOARD_VERSION = "4.7.10"
+-BOARD_BUILD = "coordination.4"
++BOARD_VERSION = "4.7.11"
++BOARD_BUILD = "coordination.5"
+ GH_BACKOFF_UNTIL = 0.0
+ PR_DISPLAY_CACHE = {}
+ PR_DISPLAY_LOCK = threading.RLock()
+@@ -6592,6 +6592,8 @@
+             return
+         if u.path == "/api/live":
+             return self.sendj(200, {
++                "version": BOARD_VERSION,
++                "build": BOARD_BUILD,
+                 "agents": list_agents(),
+                 "activity": list_activity(),
+                 "deliveries": list_queue(),
+--- v4.7.10/start-rwt-handoff.sh
++++ v4.7.11/start-rwt-handoff.sh
+@@ -17,7 +17,7 @@
+ python3 -c 'from pathlib import Path; import os; from foreground_startup import prepare_foreground; prepare_foreground(Path.cwd(), os.environ)'
+ python3 migrate_state.py
+ 
+-echo "RWT Board v4.7.10 (coordination.4): $URL"
++echo "RWT Board v4.7.11 (coordination.5): $URL"
+ echo "Use 127.0.0.1, not localhost."
+ echo "Control issue: #${RWT_CONTROL_ISSUE}"
+ 
+--- v4.7.10/test_foreground_startup.py
++++ v4.7.11/test_foreground_startup.py
+@@ -6,11 +6,30 @@
+ import tempfile
+ import unittest
+ from types import SimpleNamespace
++from unittest.mock import patch
++import threading
++from http.server import ThreadingHTTPServer
++import server
+ from foreground_startup import prepare_foreground, wait_ready
+ from migrate_state import migrate_state
+ 
+ 
+ class ForegroundTests(unittest.TestCase):
++    def test_actual_live_handler_satisfies_launcher_readiness(self):
++        # Exercise the real HTTP shape, not a hand-invented version fixture.
++        with patch.object(server, 'list_agents', return_value={}), patch.object(server, 'list_activity', return_value=[]), patch.object(server, 'list_queue', return_value=[]), patch.object(server, 'transport_status', return_value={}), patch.object(server, 'list_packet_verifications', return_value=[]), patch.object(server, 'automation_settings', return_value={}):
++            http = ThreadingHTTPServer(('127.0.0.1', 0), server.H)
++            thread = threading.Thread(target=http.serve_forever, daemon=True)
++            thread.start()
++            try:
++                ready = wait_ready(1, http.server_address[1], timeout=1, alive=lambda: True)
++                self.assertEqual(ready['version'], server.BOARD_VERSION)
++                self.assertEqual(ready['build'], server.BOARD_BUILD)
++            finally:
++                http.shutdown()
++                http.server_close()
++                thread.join(timeout=2)
++
+     def test_ten_sources_restore_verified_board_and_retain_private_pairing(self):
+         with tempfile.TemporaryDirectory() as directory:
+             home = Path(directory)
+@@ -25,7 +44,7 @@
+             pairing = source / 'agent-routes.json'
+             pairing.write_text('{"existing": "route"}')
+             pairing.chmod(0o600)
+-            root = parent / 'rwt-pr-handoff-v4.7.10'
++            root = parent / 'rwt-pr-handoff-v4.7.11'
+             root.mkdir()
+             env = {}
+             prepare_foreground(root, env, home)
+@@ -38,15 +57,33 @@
+             self.assertTrue(json.loads((root / '.agent-work' / 'migration-manifest.json').read_text())['completed'])
+ 
+     def test_browser_readiness_waits_through_connection_refusal_and_wrong_version(self):
+-        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.10', 'transport': {}}]
++        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.11', 'transport': {}}]
+         def opener(*args, **kwargs):
+             value = responses.pop(0)
+             if isinstance(value, Exception):
+                 raise value
+             return io.StringIO(json.dumps(value))
+         ready = wait_ready(1, 4317, opener=opener, alive=lambda: True, pause=lambda _: None)
+-        self.assertEqual(ready['version'], '4.7.10')
++        self.assertEqual(ready['version'], '4.7.11')
+         self.assertFalse(responses)
++
++    def test_verified_v4710_migration_retains_new_delivery_journal(self):
++        with tempfile.TemporaryDirectory() as directory:
++            parent = Path(directory)
++            root = parent / 'rwt-pr-handoff-v4.7.11'
++            state = parent / 'rwt-pr-handoff-v4.7.10' / '.agent-work'
++            state.mkdir(parents=True)
++            with sqlite3.connect(state / 'state.db') as db:
++                db.execute('CREATE TABLE journal(value TEXT)')
++                db.execute("INSERT INTO journal VALUES ('retained new delivery')")
++            source = parent / 'rwt-pr-handoff-v4.7.7-candidate' / '.agent-work' / 'state.db'
++            (state / 'migration-manifest.json').write_text(json.dumps({'completed': True, 'source_db': str(source), 'target_db': str(state / 'state.db')}))
++            env = {}
++            prepare_foreground(root, env, parent)
++            self.assertEqual(env['RWT_MIGRATE_FROM'], str(state / 'state.db'))
++            migrate_state(root, env['RWT_MIGRATE_FROM'])
++            with sqlite3.connect(root / '.agent-work' / 'state.db') as db:
++                self.assertEqual(db.execute('SELECT value FROM journal').fetchone()[0], 'retained new delivery')
+ 
+     def test_child_exit_and_timeout_do_not_report_ready(self):
+         with self.assertRaisesRegex(RuntimeError, 'exited'):
+@@ -61,9 +98,9 @@
+             plist.parent.mkdir(parents=True)
+             plist.write_bytes(plistlib.dumps({'Label': 'com.speaksharp.orch', 'ProgramArguments': ['python3', str(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.9' / 'installed-service.py')]}))
+             with self.assertRaisesRegex(RuntimeError, 'loaded'):
+-                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.10', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
++                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.11', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
+             self.assertTrue(plist.exists())
+-            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.10', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
++            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.11', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
+             self.assertFalse(plist.exists())
+             self.assertTrue(plist.with_suffix('.plist.disabled-v4.7.9').exists())
+ 
+--- v4.7.10/test_regressions.py
++++ v4.7.11/test_regressions.py
+@@ -342,7 +342,7 @@
+ 
+     def test_version_labels_match(self):
+         root=Path(server.__file__).parent
+-        self.assertEqual(server.BOARD_VERSION,'4.7.10')
++        self.assertEqual(server.BOARD_VERSION,'4.7.11')
+         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
+             text=(root/file).read_text()
+             self.assertIn('v'+server.BOARD_VERSION,text)
+--- v4.7.10/test_startup_readiness.py
++++ v4.7.11/test_startup_readiness.py
+@@ -12,7 +12,7 @@
+             self.assertEqual(server.announce_app_version(), first)
+         self.assertEqual(gh.call_count, 1)
+         self.assertIn('ALL AGENTS', gh.call_args.args[0][-1])
+-        self.assertIn('4.7.10', gh.call_args.args[0][-1])
++        self.assertIn('4.7.11', gh.call_args.args[0][-1])
+         with server.con() as db:
+             notices = list(db.execute("SELECT actor_id,status,receipt_at,result_at FROM agent_notifications WHERE task_id='version-handshake'"))
+         self.assertEqual(len(notices), 4)
