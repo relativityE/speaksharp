@@ -180,6 +180,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        let providerCallCount = 0;
+        page.on('request', (request) => {
+            if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/get-ai-suggestions')) providerCallCount++;
+        });
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
@@ -198,6 +202,13 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 olderId !== newerId ? 'two distinct takes were saved in this login' : 'the two saves reused one session identity');
             const olderRequests = generations.forSession(olderId).map((e) => e.sent.requestId).filter((id): id is string => Boolean(id));
             const newerRequests = generations.forSession(newerId).map((e) => e.sent.requestId).filter((id): id is string => Boolean(id));
+            const withinProviderBudget = providerCallCount <= 2 && generations.exchanges.length <= 2
+                && generations.forSession(olderId).length <= 1 && generations.forSession(newerId).length <= 1;
+            receipt.row('coaching provider-call budget', withinProviderBudget ? 'PASS' : 'FAIL', withinProviderBudget
+                ? 'the two-take older-association case made no more than one coaching request per saved take'
+                : 'coaching requests exceeded the two-take budget or duplicated a take request',
+            { providerCalls: providerCallCount, totalResponses: generations.exchanges.length, olderTakeRequests: generations.forSession(olderId).length,
+                newerTakeRequests: generations.forSession(newerId).length, maximum: 2 });
             receipt.row('older take coaching request observed', olderRequests.length > 0 ? 'PASS' : 'HOLD',
                 olderRequests.length > 0 ? 'the browser sent a coaching request bound to the older saved take' : 'no older-take coaching request was captured');
             const stored = await submitFeedback(page, tap, owner.uid, 'selected_older_session', olderId, newerId);
@@ -245,7 +256,12 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const owner: Owner = { email: '', uid: '' };
         const receipt = new RwtReceipt(`${SUITE}-no-session`);
         const tap = new AnalyticsTap();
-        tap.attach(page);
+        const generations = new CoachingGenerationTap();
+        tap.attach(page); generations.attach(page);
+        let providerCallCount = 0;
+        page.on('request', (request) => {
+            if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/get-ai-suggestions')) providerCallCount++;
+        });
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
@@ -256,6 +272,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             if (!ready) return;
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null);
             reportId = stored.id;
+            await generations.settle();
+            receipt.row('coaching provider-call budget', providerCallCount === 0 ? 'PASS' : 'FAIL',
+                providerCallCount === 0 ? 'No session feedback made no coaching-provider request'
+                    : 'No session feedback unexpectedly triggered coaching-provider traffic',
+                { providerCalls: providerCallCount, responses: generations.exchanges.length, maximum: 0 });
             receipt.row('no-session report stored once', stored.storedRows === 1 && stored.id ? 'PASS' : 'FAIL',
                 stored.storedRows === 1 && stored.id ? 'one no-session feedback report was acknowledged and read back' : 'feedback was not stored exactly once',
                 { storedRows: stored.storedRows });
@@ -267,6 +288,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
+            await generations.settle();
             if (owner.uid && reportId) {
                 accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
                     () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));

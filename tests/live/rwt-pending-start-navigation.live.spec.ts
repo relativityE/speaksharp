@@ -16,6 +16,7 @@ import {
     rwtPreconditionFailures, runOwnedIdentityFailures, signUpDisposableAccount, telemetryClassRows, suppressPageSnapshot,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
+import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
 
@@ -67,7 +68,12 @@ test('leaving during a cold Start does not leave a recording or session behind @
     test.setTimeout(1_500_000);
     const receipt = new RwtReceipt(SUITE);
     const tap = new AnalyticsTap();
-    tap.attach(page);
+    const generations = new CoachingGenerationTap();
+    tap.attach(page); generations.attach(page);
+    let providerCallCount = 0;
+    page.on('request', (request) => {
+        if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/get-ai-suggestions')) providerCallCount++;
+    });
     let email = '';
     let uid = '';
     let claimed = false;
@@ -105,6 +111,10 @@ test('leaving during a cold Start does not leave a recording or session behind @
         }));
         receipt.row('canary claim in fresh login', claimVisible ? 'PASS' : 'FAIL', claimVisible
             ? 'fresh sign-in carries the run-owned server-issued canary claim' : 'fresh sign-in lacks the run-owned canary claim');
+        if (!claimVisible) {
+            receipt.halt('canary claim', 'HOLD before navigation scenario: the fresh-login canary claim was absent');
+            return;
+        }
 
         await page.goto('/practice');
         await openProductsItem(page, 'open-mic');
@@ -190,6 +200,11 @@ test('leaving during a cold Start does not leave a recording or session behind @
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
+        await generations.settle();
+        receipt.row('coaching provider-call budget', providerCallCount === 0 ? 'PASS' : 'FAIL',
+            providerCallCount === 0 ? 'pending-Start abandonment and return made no coaching-provider request'
+                : 'pending-Start abandonment unexpectedly triggered coaching-provider traffic',
+            { providerCalls: providerCallCount, responses: generations.exchanges.length, maximum: 0 });
         if (uid && !accountDeleted) {
             try {
                 await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
