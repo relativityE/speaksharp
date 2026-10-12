@@ -165,23 +165,45 @@ export function currentTakeExpectation(input: {
     exchanges: readonly CoachingExchange[];
     configuredModel: string;
 }): DiagnosticExpectation | null {
-    const forTake = input.exchanges.filter((e) => e.sent.sessionId === input.currentSessionId && contractOutcome(e) !== null);
-    const terminal = forTake[forTake.length - 1];
+    return takeExpectation({ ...input, reportedSessionId: input.currentSessionId });
+}
+
+/** The take's last terminal exchange in the order the page sent them (`retrying` is intermediate). */
+const terminalFor = (exchanges: readonly CoachingExchange[], sessionId: string): CoachingExchange | undefined => {
+    const forTake = exchanges.filter((e) => e.sent.sessionId === sessionId && contractOutcome(e) !== null);
+    return forTake[forTake.length - 1];
+};
+
+/**
+ * #1594 (PM 6120326867): what a report about ANY saved take of the run must resolve to — the reported take's own terminal
+ * request, from the request the page SENT for that take. A report about an older take is `selected_older_session`, and the
+ * CURRENT (newest) take's sent request is named so the contract can refuse a report that borrowed it. Null when the run
+ * sent no request for the reported take (the caller HOLDs; it never guesses).
+ */
+export function takeExpectation(input: {
+    reportId: string;
+    reportedSessionId: string;
+    currentSessionId: string;
+    exchanges: readonly CoachingExchange[];
+    configuredModel: string;
+}): DiagnosticExpectation | null {
+    const terminal = terminalFor(input.exchanges, input.reportedSessionId);
     if (!terminal) return null;
     const outcome = contractOutcome(terminal);
     // The expectation is the independently captured boundary: the ids the page SENT, never the response's echo.
     const requestId = terminal.sent.requestId ?? '';
+    const current = input.reportedSessionId === input.currentSessionId ? terminal : terminalFor(input.exchanges, input.currentSessionId);
     return {
         reportId: input.reportId,
-        association: 'current_take',
-        sessionId: input.currentSessionId,
+        association: input.reportedSessionId === input.currentSessionId ? 'current_take' : 'selected_older_session',
+        sessionId: input.reportedSessionId,
         requestId,
         outcome: outcome === 'unmappable' || outcome === null ? null : outcome,
         attemptId: terminal.sent.attemptId ?? '',
         failureCategory: null,
         serverReason: null,
         configuredModel: input.configuredModel,
-        currentRequestId: requestId,
+        currentRequestId: current?.sent.requestId ?? '',
     };
 }
 
@@ -205,19 +227,35 @@ export async function feedbackDiagnosticChainRow(input: {
     userId: string;
     reportId: string | null;
     currentSessionId: string | null;
+    /** The take the person selected in Share Feedback; defaults to the current (newest) take. */
+    reportedSessionId?: string | null;
+    /**
+     * Codex P1 r4247280690: whether THIS submission's acknowledgement was observed. A caller that records it under its own
+     * row passes it explicitly; otherwise it falls back to the core journeys' `feedback` row, which PASSes only when the
+     * acknowledgement was shown AND the report stored exactly once.
+     */
+    acknowledgementVisible?: boolean;
     exchanges: readonly CoachingExchange[];
     configuredModel: string;
     product: 'open_mic' | 'focus_points';
 }): Promise<void> {
     const { receipt } = input;
-    if (!input.reportId || !input.currentSessionId) {
+    const reportedSessionId = input.reportedSessionId === undefined ? input.currentSessionId : input.reportedSessionId;
+    if (!input.reportId || !input.currentSessionId || !reportedSessionId) {
         receipt.row('feedback diagnostic chain', 'HOLD', 'no stored report or no saved take to resolve',
             { reasons: input.reportId ? 'no_saved_take' : 'report_not_found' });
         return;
     }
-    const expected = currentTakeExpectation({ reportId: input.reportId, currentSessionId: input.currentSessionId, exchanges: input.exchanges, configuredModel: input.configuredModel });
+    const expected = takeExpectation({ reportId: input.reportId, reportedSessionId, currentSessionId: input.currentSessionId, exchanges: input.exchanges, configuredModel: input.configuredModel });
     if (!expected) {
         receipt.row('feedback diagnostic chain', 'HOLD', 'the run sent no coaching request for the reported take', { reasons: 'request_not_found' });
+        return;
+    }
+    // Codex P1 r4247450898: a report about an OLDER take proves it did not borrow the newer take's request only if the run
+    // actually observed the newer take's request. Without it the exclusion is vacuous — HOLD, and carry no settlement binding.
+    if (expected.association === 'selected_older_session' && !expected.currentRequestId) {
+        receipt.row('feedback diagnostic chain', 'HOLD', 'the newer take sent no observed coaching request, so not borrowing it is unproven',
+            { reasons: 'current_request_not_observed' });
         return;
     }
     const { data, error } = await input.admin.from('user_issue_reports').select('id, session_id, metadata').eq('id', input.reportId).eq('user_id', input.userId);
@@ -227,8 +265,7 @@ export async function feedbackDiagnosticChainRow(input: {
     const lookup = row ? buildFeedbackLookup({
         report: { id: String(row.id), sessionId: typeof row.session_id === 'string' ? row.session_id : null, coachingDiagnosticRef: typeof ref === 'string' ? ref : null, storedRows: (data ?? []).length },
         currentSessionId: input.currentSessionId,
-        // The existing `feedback` row PASSes only when the acknowledgement was shown AND the report stored exactly once.
-        acknowledgementVisible: receipt.rows.some((r) => r.step === 'feedback' && r.verdict === 'PASS'),
+        acknowledgementVisible: input.acknowledgementVisible ?? receipt.rows.some((r) => r.step === 'feedback' && r.verdict === 'PASS'),
         telemetryReceived: false,
         exchanges: input.exchanges,
         failureCategory: () => null,
