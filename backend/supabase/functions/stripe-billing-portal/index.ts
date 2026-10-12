@@ -160,7 +160,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     const session = await stripeClient.billingPortal.sessions.create({
       customer: customerId,
       return_url: returnUrl,
-      ...(flow === "cancel" ? {
+      ...(flow === "cancel" && subscriptionId ? {
         flow_data: {
           type: "subscription_cancel",
           subscription_cancel: { subscription: subscriptionId },
