@@ -36,6 +36,7 @@ import {
     type AcquisitionTiming, type ReadbackPlan, isNewPersistedSession } from './rwtOracles';
 import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 import { readFeedbackUiState, readPracticeActionState, type PracticeActionState } from './rwtStepDiagnostics';
+import { activeHumanReflexMs } from './rwtHumanReflex';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -749,7 +750,10 @@ export class RwtReceipt {
     /** Values this receipt must never publish (#1532 Codex P1 r4125567004); registered as soon as each exists. */
     private readonly forbidden = new Set<string>();
 
-    constructor(readonly suite: string) {}
+    constructor(readonly suite: string) {
+        // #1258 PO 2026-10-12: the think-time this journey pressed with, so a reader knows human vs machine timing.
+        this.meta.humanReflexMs = activeHumanReflexMs();
+    }
 
     forbid(...values: Array<string | null | undefined>): void {
         for (const value of values) if (typeof value === 'string' && value.length > 3) this.forbidden.add(value);
