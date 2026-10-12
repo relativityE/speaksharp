@@ -19,6 +19,7 @@ import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { __resetPracticeLoopTelemetryForTests } from '@/services/telemetry/practiceLoopTelemetry';
 import { __resetJourneyIdentityForTests, beginJourney } from '@/services/telemetry/journeyIdentity';
 import { reachedStages, __resetCompletionStagesForTests } from '@/services/telemetry/completionStages';
+import { coachingDiagnosticForSession } from '@/services/coachingDiagnosticLink';
 
 
 const mockSupabaseClient = {
@@ -620,7 +621,12 @@ describe('AISuggestions Integration', () => {
             await waitFor(() => {
                 expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
                     // #1538 Codex P1 r4118176188: the closed capability declaring this client reads Focus provenance.
-                    body: { sessionId: 'session-test', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'] },
+                    body: expect.objectContaining({
+                        sessionId: 'session-test', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'],
+                        client_attempt: 1,
+                        diagnostic_request_id: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+                        diagnostic_attempt_id: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+                    }),
                 });
             });
         });
@@ -634,8 +640,29 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(screen.getByText('Named the price first.')).toBeInTheDocument());
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-                body: { sessionId: 'session-focus', product: 'focus_points', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'] },
+                body: expect.objectContaining({
+                    sessionId: 'session-focus', product: 'focus_points',
+                    accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'],
+                    client_attempt: 1,
+                    diagnostic_request_id: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+                    diagnostic_attempt_id: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+                }),
             });
+        });
+
+        it('stores the returned request identity against only the exact saved session', async () => {
+            const savedSessionId = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+            mockSupabaseClient.functions.invoke.mockResolvedValue({
+                data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'The opening stated the decision.', what_to_try_next: 'Pause after the key point.' } },
+                error: null,
+            });
+            render(<AISuggestions transcript="Hello world" sessionId={savedSessionId} />);
+            await waitFor(() => expect(screen.getByText('The opening stated the decision.')).toBeInTheDocument());
+            const requestId = coachingDiagnosticForSession(savedSessionId);
+            expect(requestId).toMatch(/^[0-9a-f-]{36}$/i);
+            const body = mockSupabaseClient.functions.invoke.mock.calls[0][1].body;
+            expect(body.diagnostic_request_id).toBe(requestId);
+            expect(coachingDiagnosticForSession('230bbc6c-5d89-465d-91e6-51f5a5951e34')).toBeNull();
         });
     });
 

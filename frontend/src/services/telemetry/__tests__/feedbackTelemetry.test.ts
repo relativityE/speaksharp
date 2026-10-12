@@ -69,6 +69,16 @@ describe('F09 — which condition kept Send grey, on the form that ships', () =>
             outcome: 'storage_failed', acknowledgement_visible: false,
         });
     });
+
+    it('carries only the opaque coaching UUID when the selected session has an exact link', () => {
+        const ref = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+        emitFeedbackSubmit({ outcome: 'attempted', submitSeq: 1, coachingDiagnosticId: ref });
+        drain();
+        expect(rows('feedback_submit')[0]).toMatchObject({ coaching_diagnostic_id: ref });
+        expect(projectEventProps('feedback_submit', { coaching_diagnostic_id: ref }).dropped).toEqual([]);
+        expect(projectEventProps('feedback_submit', { coaching_diagnostic_id: 'transcript words' }).dropped)
+            .toEqual(['coaching_diagnostic_id']);
+    });
 });
 
 describe('F09 — a field that empties itself', () => {

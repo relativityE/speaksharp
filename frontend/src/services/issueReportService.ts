@@ -58,6 +58,8 @@ export interface IssueReportMetadata {
   feedback_kind?: FeedbackKind | null;
   feedback_type?: FeedbackType | null;
   feedback_severity?: FeedbackSeverity | null;
+  /** Opaque exact coaching attempt reference; never a session id or generated content. */
+  coaching_diagnostic_ref?: string | null;
   /** Build/release id (git SHA in production) so a report pins to a build, when available. */
   releaseId?: string | null;
   releaseProofEligible?: boolean;
@@ -179,6 +181,7 @@ export const buildIssueReportMetadata = (input: {
   plan?: string | null;
   sttMode?: TranscriptionMode | null;
   runtimeState?: string | null;
+  coachingDiagnosticRef?: string | null;
 }): IssueReportMetadata => {
   const runtimeConfig = typeof window !== 'undefined' ? window.__APP_RUNTIME_CONFIG__ : undefined;
   const sentry = typeof window !== 'undefined'
@@ -209,6 +212,9 @@ export const buildIssueReportMetadata = (input: {
     feedback_kind: input.feedbackKind && FEEDBACK_KINDS.includes(input.feedbackKind) ? input.feedbackKind : null,
     feedback_type: input.feedbackType ?? null,
     feedback_severity: input.feedbackType === 'broke' ? (input.feedbackSeverity ?? null) : null,
+    coaching_diagnostic_ref: input.coachingDiagnosticRef
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.coachingDiagnosticRef)
+      ? input.coachingDiagnosticRef : null,
     releaseId: runtimeConfig?.release ?? null,
     plan: input.plan ?? null,
     sttMode: input.sttMode ?? null,
