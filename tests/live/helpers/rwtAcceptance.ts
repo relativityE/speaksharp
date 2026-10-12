@@ -187,6 +187,11 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         case 'returning-user-navigation':
             // #1532 Codex P1 r4127572196: the two release-level device checks this suite always emits.
             return ['real_microphone_permission_prompt', 'mobile_stop_confirmation_visible'];
+        // #1594 (PM 6120326867): the supplemental boundary scenarios are fully automated; they carry no human check.
+        case FEEDBACK_OLDER_TAKE_SUITE:
+        case FEEDBACK_NO_SESSION_SUITE:
+        case PENDING_START_SUITE:
+            return [];
         default:
             return null; // not an RWT suite this finalizer knows
     }
@@ -272,6 +277,36 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
 ]);
 const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean',
     'feedback diagnostic chain']);
+/**
+ * #1594 (PM 6120326867) — the supplemental boundary scenarios (`rwt-feedback-association-boundaries`,
+ * `rwt-pending-start-navigation`). Each list is what that suite writes on its success path; a receipt missing any of them
+ * can never finalize PASS. Rows a scenario must NEVER carry are listed as absent, so it cannot borrow evidence it has no
+ * basis for:
+ *  - older take: the selected OLDER take's own request, proven by the #1590 contract and settled only by the received
+ *    coaching-diagnostic readback (`feedback diagnostic chain`); the newer take is named as current so a borrowed link FAILs;
+ *  - no session: no take and no coaching result exist, so no coaching chain or prompt-binding row may appear;
+ *  - pending Start: a navigation/abandonment check that saves nothing and qualifies no journey (like returning-user), so it
+ *    carries no journey readback rows and no recording stages are ever guessed for it; its own cleanup row is required.
+ * Every scenario ends with the whole-scenario `coaching request budget`.
+ */
+export const FEEDBACK_OLDER_TAKE_SUITE = 'feedback-association-boundaries-older-take';
+export const FEEDBACK_NO_SESSION_SUITE = 'feedback-association-boundaries-no-session';
+export const PENDING_START_SUITE = 'pending-start-navigation';
+const SUPPLEMENTAL_ACCOUNT_ROWS = Object.freeze(['run-owned signup', 'canary claim in fresh login']);
+const FEEDBACK_OLDER_TAKE_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'two saved takes', 'older take coaching request observed', 'older-take report stored once',
+    'older-take association', 'older-take diagnostic binding', 'feedback diagnostic chain', 'coaching request budget', 'feedback retention',
+]);
+const FEEDBACK_NO_SESSION_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'no-session report stored once', 'no-session association', 'no-session diagnostic binding',
+    'coaching request budget', 'feedback retention',
+]);
+const PENDING_START_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'cold Start is pending', 'Start transition observed', 'abandoned Start settles after leaving',
+    'leaving pending Start releases microphone', 'leaving pending Start creates no session',
+    'return to Open Mic exposes truthful Start state', 'return does not resume abandoned recording', 'coaching request budget',
+]);
+const NO_COACHING_RESULT_ROWS = Object.freeze(['feedback diagnostic chain', 'coaching prompt binding']);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
@@ -288,6 +323,13 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], product: FOCUS_PRODUCT_ROWS, absent: [] };
         case 'returning-user-navigation':
             return { required: ALWAYS_AUTOMATED_ROWS, product: RETURNING_USER_PRODUCT_ROWS, absent: JOURNEY_READBACK_ROWS };
+        case FEEDBACK_OLDER_TAKE_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_OLDER_TAKE_PRODUCT_ROWS, absent: ['coaching prompt binding'] };
+        case FEEDBACK_NO_SESSION_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_NO_SESSION_PRODUCT_ROWS, absent: NO_COACHING_RESULT_ROWS };
+        case PENDING_START_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: PENDING_START_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         default:
             return null;
     }

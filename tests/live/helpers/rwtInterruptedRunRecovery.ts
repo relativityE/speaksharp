@@ -31,7 +31,9 @@ const DOMAIN_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z
  * `local`): `newDisposableEmail` (rwtJourney.ts) → `rwt-journey-<label>-<ms>-<run>`; private-recording-proof and
  * three-session-retention-proof → `<prefix><ms>-<run>`. A unit test pins every labelled `newDisposableEmail` call to this list.
  */
-export const RWT_JOURNEY_LABELS = ['open-mic', 'focus-points'] as const;
+// #1594 (PM 6120326867): the supplemental boundary scenarios mint `feedback-boundary` and `pending-start` disposable accounts;
+// registering them lets interrupted-run recovery recognize (and only then, under its own exact ack, delete) their residue.
+export const RWT_JOURNEY_LABELS = ['open-mic', 'focus-points', 'feedback-boundary', 'pending-start'] as const;
 const MS = '\\d{13}';
 const RUN = '(?:\\d+|local)';
 const OWNED_LOCAL_PARTS: ReadonlyArray<readonly [string, RegExp]> = [
