@@ -139,6 +139,18 @@ describe('#1258 coaching → feedback adapter', () => {
         for (const raw of [SES, REQ, ATT1]) expect(JSON.stringify(rows[rows.length - 1])).not.toContain(raw);
     });
 
+    it('Codex P1 r4247280690: an explicitly observed acknowledgement counts without a core `feedback` row', async () => {
+        const rows: Array<{ step: string; verdict: string; detail: string; evidence?: Record<string, unknown> }> = [];
+        const receipt = { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>) => { rows.push({ step, verdict, detail, evidence }); } };
+        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ id: 'rep-1', session_id: SES, metadata: { coaching_diagnostic_ref: REQ } }], error: null }) }) }) }) };
+        await feedbackDiagnosticChainRow({ receipt, admin, userId: 'uid-1', reportId: 'rep-1', currentSessionId: SES, exchanges: [exchange()], configuredModel: MODEL, product: 'open_mic', acknowledgementVisible: true });
+        expect(rows[rows.length - 1]).toMatchObject({ verdict: 'HOLD', evidence: { reasons: 'telemetry_not_received', expectedRequestSha256: expect.any(String) } });
+        // Explicitly NOT observed is a contradiction (FAIL) and carries no settlement binding.
+        await feedbackDiagnosticChainRow({ receipt, admin, userId: 'uid-1', reportId: 'rep-1', currentSessionId: SES, exchanges: [exchange()], configuredModel: MODEL, product: 'open_mic', acknowledgementVisible: false });
+        expect(rows[rows.length - 1]).toMatchObject({ verdict: 'FAIL' });
+        expect(rows[rows.length - 1].evidence?.expectedRequestSha256).toBeUndefined();
+    });
+
     it('no stored report is HOLD report_not_found without a database read', async () => {
         const rows: Array<{ step: string; verdict: string; evidence?: unknown }> = [];
         const receipt = { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', _d: string, evidence?: Record<string, string | number | boolean | null>) => { rows.push({ step, verdict, evidence }); } };

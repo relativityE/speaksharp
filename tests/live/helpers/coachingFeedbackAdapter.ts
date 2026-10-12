@@ -229,6 +229,12 @@ export async function feedbackDiagnosticChainRow(input: {
     currentSessionId: string | null;
     /** The take the person selected in Share Feedback; defaults to the current (newest) take. */
     reportedSessionId?: string | null;
+    /**
+     * Codex P1 r4247280690: whether THIS submission's acknowledgement was observed. A caller that records it under its own
+     * row passes it explicitly; otherwise it falls back to the core journeys' `feedback` row, which PASSes only when the
+     * acknowledgement was shown AND the report stored exactly once.
+     */
+    acknowledgementVisible?: boolean;
     exchanges: readonly CoachingExchange[];
     configuredModel: string;
     product: 'open_mic' | 'focus_points';
@@ -252,8 +258,7 @@ export async function feedbackDiagnosticChainRow(input: {
     const lookup = row ? buildFeedbackLookup({
         report: { id: String(row.id), sessionId: typeof row.session_id === 'string' ? row.session_id : null, coachingDiagnosticRef: typeof ref === 'string' ? ref : null, storedRows: (data ?? []).length },
         currentSessionId: input.currentSessionId,
-        // The existing `feedback` row PASSes only when the acknowledgement was shown AND the report stored exactly once.
-        acknowledgementVisible: receipt.rows.some((r) => r.step === 'feedback' && r.verdict === 'PASS'),
+        acknowledgementVisible: input.acknowledgementVisible ?? receipt.rows.some((r) => r.step === 'feedback' && r.verdict === 'PASS'),
         telemetryReceived: false,
         exchanges: input.exchanges,
         failureCategory: () => null,

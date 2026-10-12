@@ -132,6 +132,8 @@ describe('#1594 supplemental suites in acceptance and finalization', () => {
         // A cancelled Start settles to `idle`: settlement is any readable status other than `loading`.
         expect(service).toContain("TERMINATED: 'idle'");
         expect(pending).toContain("status !== null && status !== 'loading'");
+        // Codex P1 r4247280690: the older-take chain receives THIS submission's observed acknowledgement explicitly.
+        expect(feedback).toContain('acknowledgementVisible: stored.acknowledged,');
     });
 
     it('drift guard: suite ids and every required product row name are written by the specs or their helpers', () => {

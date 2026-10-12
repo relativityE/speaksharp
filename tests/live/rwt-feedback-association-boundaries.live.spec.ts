@@ -127,7 +127,7 @@ async function submitFeedback(
     association: 'selected_older_session' | 'no_session',
     sessionId: string | null,
     newerSessionId?: string,
-): Promise<{ id: string | null; sessionId: string | null; diagnosticRef: string | null; storedRows: number }> {
+): Promise<{ id: string | null; sessionId: string | null; diagnosticRef: string | null; storedRows: number; acknowledged: boolean }> {
     await page.goto('/analytics');
     await expect(page.getByTestId('nav-report-issue-button').first()).toBeVisible({ timeout: 45_000 });
     await page.getByTestId('nav-report-issue-button').first().click();
@@ -155,7 +155,9 @@ async function submitFeedback(
     // A missing action-time binding is retained as HOLD by bindReadbackJourneys; it must never be
     // guessed from a same-number or unrelated journey.
     await page.getByTestId('issue-report-submit').click();
-    await expect(page.getByText('Thanks — we’ve got it.').first()).toBeVisible({ timeout: 30_000 });
+    const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
+        .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+    if (!acknowledged) throw new Error('the feedback acknowledgement was not shown');
     const { data, error } = await admin!.from('user_issue_reports')
         .select('id,session_id,metadata').eq('user_id', uid).gte('created_at', since);
     if (error) throw new Error(`feedback row read failed (fail closed): ${error.code ?? 'unknown'}`);
@@ -164,7 +166,7 @@ async function submitFeedback(
     const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
     const storedSession = typeof row?.session_id === 'string' ? row.session_id : null;
     const diagnosticRef = typeof metadata.coaching_diagnostic_ref === 'string' ? metadata.coaching_diagnostic_ref : null;
-    return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length };
+    return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length, acknowledged };
 }
 
 async function finishReceipt(
@@ -225,6 +227,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             await generations.settle();
             await feedbackDiagnosticChainRow({
                 receipt, admin: admin as never, userId: owner.uid, reportId, currentSessionId: newerId, reportedSessionId: olderId,
+                acknowledgementVisible: stored.acknowledged,
                 exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'open_mic',
             });
             const exactOlderRequest = Boolean(stored.diagnosticRef && olderRequests.includes(stored.diagnosticRef));
