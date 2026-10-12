@@ -73,7 +73,11 @@ async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner):
     }));
     receipt.row('canary claim in fresh login', hasClaim ? 'PASS' : 'FAIL', hasClaim
         ? 'fresh sign-in carries the run-owned server-issued canary claim' : 'fresh sign-in lacks the run-owned canary claim');
-    return hasClaim;
+    if (!hasClaim) {
+        receipt.halt('canary claim', 'HOLD before scenario traffic: the fresh-login canary claim was absent');
+        return false;
+    }
+    return true;
 }
 
 async function createSavedOpenMicTake(
@@ -136,8 +140,8 @@ async function submitFeedback(
     }
     await page.getByTestId('feedback-type-broke').click();
     await page.getByTestId('issue-report-description').fill('Automated RWT feedback-association boundary check.');
-    tap.captureActionBinding('share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '',
-        process.env.GITHUB_RUN_ATTEMPT ?? '', page.url());
+    await tap.captureActionBindingSettled(page, 'share_feedback', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '',
+        process.env.GITHUB_RUN_ATTEMPT ?? '');
     const since = new Date(Date.now() - 60_000).toISOString();
     // A missing action-time binding is retained as HOLD by bindReadbackJourneys; it must never be
     // guessed from a same-number or unrelated journey.

@@ -6,12 +6,13 @@
  * or session survives. Preparation only; execution requires a fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import { test } from './helpers/rwtProductionTest';
+import type { Page } from '@playwright/test';
+import { expect, test } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
     AnalyticsTap, RWT_ACCOUNT_PREFIX, RWT_CANARY_CLAIM_ACK_VALUE, RwtReceipt, canaryClaimAuthorized,
     installMicAcquisitionCounter, loadRwtFixture, markRunOwnedAccountCanary,
-    micAcquisitions, newDisposableEmail, liveMicTracks, requireApprovedSurface, rwtLaunchArgs,
+    newDisposableEmail, requireApprovedSurface, rwtLaunchArgs,
     rwtPreconditionFailures, runOwnedIdentityFailures, signUpDisposableAccount, telemetryClassRows, suppressPageSnapshot,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
@@ -25,6 +26,37 @@ const admin = SUPABASE_URL && SERVICE_ROLE
     ? createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } })
     : null;
 const fixture = loadRwtFixture('open_mic_tts');
+
+async function readMicEvidence(page: Page): Promise<{ acquisitions: number; liveTracks: number }> {
+    const state = await page.evaluate(() => {
+        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[] };
+        const acquisitions = w.__rwtMicAcquisitions__;
+        const streams = w.__rwtMicStreams__;
+        const media = navigator.mediaDevices;
+        const originalGetUserMedia = media ? Object.getPrototypeOf(media)?.getUserMedia : undefined;
+        const counterInstalled = Boolean(media && Object.prototype.hasOwnProperty.call(media, 'getUserMedia')
+            && media.getUserMedia !== originalGetUserMedia);
+        if (!media || typeof media.getUserMedia !== 'function' || !counterInstalled
+            || !Array.isArray(acquisitions) || !Array.isArray(streams)
+            || !acquisitions.every((at) => Number.isFinite(at))) return null;
+        const tracks = streams.flatMap((stream) => stream.getAudioTracks());
+        if (tracks.some((track) => track.readyState !== 'live' && track.readyState !== 'ended')) return null;
+        return {
+            acquisitions: acquisitions.length,
+            liveTracks: tracks.filter((track) => track.readyState === 'live').length,
+        };
+    });
+    if (!state) throw new Error('microphone acquisition/track evidence was unavailable or malformed');
+    return state;
+}
+
+async function readSessionIds(uid: string): Promise<string[]> {
+    const { data, error } = await admin!.from('sessions').select('id').eq('user_id', uid).order('id');
+    if (error || !Array.isArray(data) || data.some((row) => typeof row.id !== 'string')) {
+        throw new Error(`session identity read failed (fail closed): ${error?.code ?? 'unreadable'}`);
+    }
+    return data.map((row) => String(row.id));
+}
 
 test.use({
     permissions: ['microphone'], trace: 'off', video: 'off', screenshot: 'off',
@@ -79,9 +111,9 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await selectBenchmarkMode(page, 'private');
         await page.waitForFunction(() => document.documentElement.getAttribute('data-model-status') === 'download-required', undefined, { timeout: 60_000 });
-        const { count: before, error: beforeError } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
-        if (beforeError) throw new Error(`pre-start session read failed (fail closed): ${beforeError.code ?? 'unknown'}`);
-        receipt.row('cold Start is pending', 'PASS', 'the cold private model is waiting for the person’s Start action', { priorSessions: before ?? 0 });
+        const sessionIdentityBefore = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+        const sessionIdsBefore = await readSessionIds(uid);
+        receipt.row('cold Start is pending', 'PASS', 'the cold private model is waiting for the person’s Start action', { priorSessions: sessionIdsBefore.length });
 
         // This is the normal product CTA, not a synthetic network delay. Navigate away as soon as the real UI
         // reports its acquisition phase; the route change is the user's cancellation action under test.
@@ -93,7 +125,7 @@ test('leaving during a cold Start does not leave a recording or session behind @
         receipt.row('Start transition observed', pendingObserved ? 'PASS' : 'HOLD', pendingObserved
             ? 'the user-triggered Start left the cold waiting state before navigation'
             : 'the pending Start transition was too brief or could not be observed; cancellation is not qualified');
-        const countAtLeave = (await micAcquisitions(page)).length;
+        const micAtLeave = await readMicEvidence(page);
         await openProductsItem(page, 'focus-points');
         await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 });
         const startSettledAfterLeave = await page.waitForFunction(() => {
@@ -104,20 +136,56 @@ test('leaving during a cold Start does not leave a recording or session behind @
             ? 'the pending model/start operation reached a terminal state after navigation'
             : 'the operation did not reach a readable terminal state; delayed Start remains unproven');
         if (startSettledAfterLeave) await page.waitForTimeout(2_000);
-        const recorderStillVisible = await page.getByTestId('recorder-stop').count().then((n) => n > 0).catch(() => false);
-        const activeTracks = await liveMicTracks(page).catch(() => null);
-        const afterAcquisitions = (await micAcquisitions(page).catch(() => []));
-        const noLateAcquisition = afterAcquisitions.length === countAtLeave;
-        const released = !recorderStillVisible && activeTracks === 0 && noLateAcquisition;
+        const recorderStillVisible = await page.getByTestId('recorder-stop').count().then((n) => n > 0);
+        const micAfterLeave = await readMicEvidence(page);
+        const noLateAcquisition = micAfterLeave.acquisitions === micAtLeave.acquisitions;
+        const released = !recorderStillVisible && micAfterLeave.liveTracks === 0 && noLateAcquisition;
         receipt.row('leaving pending Start releases microphone', released ? 'PASS' : 'FAIL',
             released ? 'after leaving Open Mic, no recorder, live microphone track, or later acquisition remained'
-                : 'a recorder remained, microphone state was live/unreadable, or acquisition continued after leaving',
-            { recorderVisible: recorderStillVisible, liveTracks: activeTracks, acquisitionsAtLeave: countAtLeave, acquisitionsAfterLeave: afterAcquisitions.length });
-        const { count: after, error: afterError } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
-        if (afterError) throw new Error(`post-navigation session read failed (fail closed): ${afterError.code ?? 'unknown'}`);
-        receipt.row('leaving pending Start creates no session', (after ?? 0) === (before ?? 0) ? 'PASS' : 'FAIL',
-            (after ?? 0) === (before ?? 0) ? 'no session row was left by the abandoned Start' : 'the abandoned Start left a session row',
-            { priorSessions: before ?? 0, sessionsAfterLeave: after ?? 0 });
+                : 'a recorder remained, a mic track stayed live, or acquisition continued after leaving',
+            { recorderVisible: recorderStillVisible, liveTracks: micAfterLeave.liveTracks, acquisitionsAtLeave: micAtLeave.acquisitions, acquisitionsAfterLeave: micAfterLeave.acquisitions });
+        const sessionIdsAfterLeave = await readSessionIds(uid);
+        const sameSessionIdentityAfterLeave = JSON.stringify(sessionIdsAfterLeave) === JSON.stringify(sessionIdsBefore);
+        receipt.row('leaving pending Start creates no session', sameSessionIdentityAfterLeave ? 'PASS' : 'FAIL',
+            sameSessionIdentityAfterLeave ? 'abandonment left the account session identities unchanged' : 'abandonment created or changed a session identity',
+            { priorSessions: sessionIdsBefore.length, sessionsAfterLeave: sessionIdsAfterLeave.length });
+
+        // Return through the real Products navigation. The previously abandoned operation must not resume recording,
+        // reopen the microphone, or leave stale session state; the visible primary action must match the model state.
+        await openProductsItem(page, 'open-mic');
+        await page.waitForURL(/\/session/, { timeout: 45_000 });
+        await expect(page.getByTestId('mic-card')).toBeVisible({ timeout: 30_000 });
+        const modelStatus = await page.getByTestId('mic-card').getAttribute('data-model-status');
+        const controlForStatus: Record<string, string> = {
+            'download-required': 'mic-download',
+            ready: 'mic-start',
+            idle: 'mic-start',
+            warming: 'mic-start',
+            error: 'mic-retry',
+            'init-failed': 'mic-retry',
+        };
+        const expectedControl = modelStatus ? controlForStatus[modelStatus] : undefined;
+        const startControl = expectedControl ? page.getByTestId(expectedControl) : null;
+        const startAvailable = Boolean(startControl)
+            && await startControl!.isVisible().catch(() => false)
+            && await startControl!.isEnabled().catch(() => false);
+        receipt.row('return to Open Mic exposes truthful Start state', startAvailable ? 'PASS' : 'FAIL',
+            startAvailable ? `return shows the ${expectedControl} action for model state ${modelStatus}`
+                : `return did not expose an enabled Start/retry action consistent with model state ${modelStatus ?? 'unreadable'}`);
+        const recorderAfterReturn = await page.getByTestId('recorder-stop').count().then((n) => n > 0);
+        const micAfterReturn = await readMicEvidence(page);
+        const sessionIdsAfterReturn = await readSessionIds(uid);
+        const sessionIdentityAfterReturn = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+        const noUnexpectedResume = !recorderAfterReturn && micAfterReturn.liveTracks === 0
+            && micAfterReturn.acquisitions === micAtLeave.acquisitions
+            && sessionIdentityAfterReturn === sessionIdentityBefore
+            && JSON.stringify(sessionIdsAfterReturn) === JSON.stringify(sessionIdsBefore);
+        receipt.row('return does not resume abandoned recording', noUnexpectedResume ? 'PASS' : 'FAIL',
+            noUnexpectedResume ? 'return left the recorder stopped, mic evidence unchanged and saved session identities unchanged'
+                : 'return resumed/acquired the mic or changed saved session identity after abandonment',
+            { recorderVisible: recorderAfterReturn, liveTracks: micAfterReturn.liveTracks, acquisitions: micAfterReturn.acquisitions,
+                priorSessions: sessionIdsBefore.length, sessionsAfterReturn: sessionIdsAfterReturn.length,
+                sessionIdentityUnchanged: sessionIdentityAfterReturn === sessionIdentityBefore });
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
