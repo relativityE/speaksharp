@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, parse, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import fixtureManifest from '../../fixtures/rwt/rwt-fixtures.manifest.json';
 
 /**
  * The pinned active coaching contract, read at RUNTIME rather than imported: a TS module import would pull the Deno Edge
@@ -17,7 +16,14 @@ const SHA40 = /^[0-9a-f]{40}$/i;
 const SHA64 = /^[0-9a-f]{64}$/i;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MODEL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
-const FIXTURES = fixtureManifest.fixtures as Record<string, { sha256: string; kind: string }>;
+/**
+ * #1258 alpha run 38288222695: read at RUNTIME, never as an ESM JSON import. The repo is `"type": "module"`, so
+ * Playwright on Node 22 refuses a bare `.json` import ("needs an import attribute of type: json") and every spec that
+ * reaches this helper fails to load. Vitest accepts the import, so unit CI never saw it. Same pattern as rwtJourney.ts.
+ */
+const FIXTURES = (JSON.parse(readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../../fixtures/rwt/rwt-fixtures.manifest.json'), 'utf8',
+)) as { fixtures: Record<string, { sha256: string; kind: string }> }).fixtures;
 
 export interface CoachingPair {
   version: 'gemini_coaching_v1' | 'gemini_coaching_focus_v1';

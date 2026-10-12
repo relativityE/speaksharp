@@ -8,9 +8,15 @@ import {
 // clicks had no target. `live-release-matrix` still invokes this spec, so it is migrated rather than
 // left in a known-broken ledger.
 import { MIC_CONTROL_BY_STATUS } from '../helpers/micControls';
-import privateSttConfig from '../../frontend/src/config/private-stt.config.json';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { CANDIDATES, candidateForRuntime } from '../../frontend/src/services/transcription/candidateRegistry';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
+
+// #1258: read at runtime — a bare ESM `.json` import fails to load under Playwright on Node 22 ("type": "module").
+const privateSttConfig = JSON.parse(readFileSync(
+  fileURLToPath(new URL('../../frontend/src/config/private-stt.config.json', import.meta.url)), 'utf8',
+)) as { candidate: string };
 
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
