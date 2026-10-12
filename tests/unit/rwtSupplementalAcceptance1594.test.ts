@@ -13,7 +13,7 @@ import {
     FEEDBACK_NO_SESSION_SUITE, FEEDBACK_OLDER_TAKE_SUITE, PENDING_START_SUITE, finalizeReceipt, humanWorksheet,
     parseHumanWorksheet, requiredAutomatedRows, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
-import { buildFeedbackLookup, takeExpectation } from '../live/helpers/coachingFeedbackAdapter';
+import { buildFeedbackLookup, feedbackDiagnosticChainRow, takeExpectation } from '../live/helpers/coachingFeedbackAdapter';
 import type { CoachingExchange } from '../live/helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from '../live/helpers/rwtCoachingCollector';
 import { validateFeedbackDiagnostics } from '../live/helpers/feedbackDiagnosticContract';
@@ -134,6 +134,8 @@ describe('#1594 supplemental suites in acceptance and finalization', () => {
         expect(pending).toContain("status !== null && status !== 'loading'");
         // Codex P1 r4247280690: the older-take chain receives THIS submission's observed acknowledgement explicitly.
         expect(feedback).toContain('acknowledgementVisible: stored.acknowledged,');
+        // Codex P1 r4247450898: the spec's own binding row HOLDs without an observed newer-take request.
+        expect(feedback).toContain('olderRequests.length === 0 || newerRequests.length === 0 || stored.diagnosticRef === null');
     });
 
     it('drift guard: suite ids and every required product row name are written by the specs or their helpers', () => {
@@ -184,6 +186,20 @@ describe('#1594 older-take expectation and request budget', () => {
     const rows: ReceiptRow[] = [];
     const receipt = { rows, row: (step: string, verdict: 'PASS' | 'FAIL' | 'HOLD', detail: string, evidence?: Record<string, string | number | boolean | null>) => { rows.push({ step, verdict, detail, evidence }); } };
     const last = () => rows[rows.length - 1];
+
+    it('Codex P1 r4247450898: an older-take chain with NO observed newer-take request HOLDs with no settlement binding', async () => {
+        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ id: 'rep-1', session_id: OLD, metadata: { coaching_diagnostic_ref: OLD_REQ } }], error: null }) }) }) }) };
+        const onlyOlder = [ex(OLD, OLD_REQ, OLD_ATT)];
+        expect(takeExpectation({ reportId: 'rep-1', reportedSessionId: OLD, currentSessionId: NEW, exchanges: onlyOlder, configuredModel: MODEL })!.currentRequestId).toBe('');
+        await feedbackDiagnosticChainRow({ receipt, admin: admin as never, userId: 'u', reportId: 'rep-1', currentSessionId: NEW, reportedSessionId: OLD,
+            acknowledgementVisible: true, exchanges: onlyOlder, configuredModel: MODEL, product: 'open_mic' });
+        expect(last()).toMatchObject({ step: 'feedback diagnostic chain', verdict: 'HOLD', evidence: { reasons: 'current_request_not_observed' } });
+        expect(last().evidence?.expectedRequestSha256).toBeUndefined();
+        // CONTROL: with the newer take's request observed, the same report reaches the settleable HOLD (binding carried).
+        await feedbackDiagnosticChainRow({ receipt, admin: admin as never, userId: 'u', reportId: 'rep-1', currentSessionId: NEW, reportedSessionId: OLD,
+            acknowledgementVisible: true, exchanges, configuredModel: MODEL, product: 'open_mic' });
+        expect(last()).toMatchObject({ verdict: 'HOLD', evidence: { reasons: 'telemetry_not_received', expectedRequestSha256: sha(OLD_REQ) } });
+    });
 
     it('budget PASS: every sent request answered with Edge diagnostics, within budget, one per take', () => {
         coachingRequestBudgetRow(receipt, { sentCount: 2, exchanges }, { maximum: 2, oneRequestPerSession: [OLD, NEW] });

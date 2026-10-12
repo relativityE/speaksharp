@@ -232,12 +232,16 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             });
             const exactOlderRequest = Boolean(stored.diagnosticRef && olderRequests.includes(stored.diagnosticRef));
             const excludesCurrent = stored.diagnosticRef === null || !newerRequests.includes(stored.diagnosticRef);
-            const bindingVerdict = olderRequests.length === 0 || stored.diagnosticRef === null ? 'HOLD'
+            // Codex P1 r4247450898: "not the newer take" is proven only against an OBSERVED newer-take request; with none, HOLD.
+            const bindingVerdict = olderRequests.length === 0 || newerRequests.length === 0 || stored.diagnosticRef === null ? 'HOLD'
                 : exactOlderRequest && excludesCurrent ? 'PASS' : 'FAIL';
             receipt.row('older-take diagnostic binding', bindingVerdict,
                 bindingVerdict === 'PASS' ? 'the report references a request sent for the older take and not the newer take'
-                    : bindingVerdict === 'HOLD' ? 'the older take has no captured request link, so binding is unproven'
-                        : 'the report references an unrelated or newer-take diagnostic request');
+                    : bindingVerdict === 'HOLD' ? (newerRequests.length === 0 && olderRequests.length > 0 && stored.diagnosticRef !== null
+                        ? 'the newer take sent no observed coaching request, so excluding it is unproven'
+                        : 'the older take has no captured request link, so binding is unproven')
+                        : 'the report references an unrelated or newer-take diagnostic request',
+                { olderRequests: olderRequests.length, newerRequests: newerRequests.length });
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;

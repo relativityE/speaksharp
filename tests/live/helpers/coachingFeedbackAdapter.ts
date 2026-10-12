@@ -251,6 +251,13 @@ export async function feedbackDiagnosticChainRow(input: {
         receipt.row('feedback diagnostic chain', 'HOLD', 'the run sent no coaching request for the reported take', { reasons: 'request_not_found' });
         return;
     }
+    // Codex P1 r4247450898: a report about an OLDER take proves it did not borrow the newer take's request only if the run
+    // actually observed the newer take's request. Without it the exclusion is vacuous — HOLD, and carry no settlement binding.
+    if (expected.association === 'selected_older_session' && !expected.currentRequestId) {
+        receipt.row('feedback diagnostic chain', 'HOLD', 'the newer take sent no observed coaching request, so not borrowing it is unproven',
+            { reasons: 'current_request_not_observed' });
+        return;
+    }
     const { data, error } = await input.admin.from('user_issue_reports').select('id, session_id, metadata').eq('id', input.reportId).eq('user_id', input.userId);
     if (error) throw new Error(`feedback report read failed (fail closed): ${error.code ?? 'unknown'}`);
     const row = (data ?? [])[0];
