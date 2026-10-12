@@ -3,14 +3,15 @@
 **Status:** Unvalidated financial-planning artifact  
 **As of:** 2026-10-12  
 **Workbook:** `SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx`  
-**SHA-256:** `880fe2baedee82b54c6e83850e05ebdc255896aeddf2bd55b07d5aa84f3ff8a7`  
+**SHA-256:** `3c08c02b1820a4678eb894a358bf874fed69737e8f1ff7f5a7f323c1ab83f582`  
 **Supersedes:** `FINANCIAL_MODEL_REVIEW_2026-09-05.md` and its workbook, which are kept unchanged
 as the prior point-in-time record.
 
 This workbook is an unvalidated planning forecast, not retained evidence, a product promise,
-release-status authority, or authorization to change price or activate billing. The $7 and $5
-columns are sensitivity cases, not proposed prices. Trial volume, conversion, paid lifetime,
-usage, CAC, willingness to pay, and revenue remain unmeasured hypotheses.
+release-status authority, or authorization to change price, activate billing, or set a tester
+cohort size. The $7 and $5 columns are sensitivity cases, not proposed prices. Trial volume,
+conversion, paid lifetime, usage, CAC, willingness to pay, and revenue remain unmeasured
+hypotheses.
 
 ## What changed from 2026-09-05
 
@@ -24,25 +25,34 @@ usage, CAC, willingness to pay, and revenue remain unmeasured hypotheses.
      monthly cash payment.
    - Private STT runs on the device, so there is no hosted per-audio inference charge. Model
      download, storage and CDN overages are excluded.
-2. **AI coding tools added as a fixed cost.** The prior model left out the founder's development
-   subscriptions. `Assumptions!B43:F51` adds Codex Pro ($100) and Claude Max 5x ($100), as
-   reported by the Product Owner, with reduced options of two $20 plans ($40) or one ($20).
-   - A dropdown in `B50` selects the level, and `B51` holds the result.
-   - `Selected fixed OpEx` (`B28`) is now the selected stack plus `B51`, so the forecast and all
-     "all-in" figures include it.
-   - The base case is the current $200, making all-in fixed OpEx $245/month.
+2. **AI coding tools added as a fixed cost (Product Owner direction).** `Assumptions!B43:F51` records
+   the pre-launch spend of Codex Pro ($100) + Claude Max 5x ($100) and the post-launch options of
+   one $20 plan or two ($40).
+   - The PO stated that the $200 applies before launch only and drops to $20–$40 at launch. The
+     forecast therefore uses the **$20 base** and treats $40 as a sensitivity. The $200 is shown
+     for reference and is not in the forecast.
+   - A dropdown in `B50` selects the level, `B51` holds the result, and `Selected fixed OpEx`
+     (`B28`) is the selected stack plus `B51`, giving $65/month all-in in the base case.
    - Stack-only figures (`Unit Economics` break-even, the Summary history table) are kept for
      like-for-like comparison with earlier models.
-3. **New `Key` sheet** explaining each term in plain English next to its live number: price,
-   trial, Stripe fee, contribution, contribution margin, break-even, LTV, CAC, the 3:1 CAC
-   ceiling, payback, timing, and the main assumptions and exclusions.
-4. **Coaching model relabeled to Gemini 3.8 Flash.** `contract.json` on `main` names
+3. **New `Launch Cap Plan` sheet (Product Owner direction).**
+   - At most **100 active users (trial + paid) for months 1–3**, then a gradual linear rise to
+     **250 by month 12**.
+   - Free slots under the cap are filled with 30-day trials. Trial users who do not convert leave
+     the active count. Conversion, lifetime, usage and fixed OpEx come from `Assumptions`.
+   - It also states how many paying users, and what conversion, the cap needs in order to break
+     even.
+   - `Forecast 12M` and `Price Sensitivity` remain the uncapped 500-trials/month case.
+4. **New `Key` sheet** explaining each term in plain English next to its live number: price,
+   trial, user cap, Stripe fee, contribution, contribution margin, break-even, LTV, CAC, the 3:1
+   CAC ceiling, payback, timing, and the main assumptions and exclusions.
+5. **Coaching model relabeled to Gemini 3.8 Flash.** `contract.json` on `main` names
    `gemini-3.8-flash` (#1586, merged 2026-10-11). Its published price is identical to the
    Gemini 3.6 Flash schedule the prior model already used ($0.75/$3.75 per 1M tokens through
    2026-12-31, then $1.50/$7.50), so no cost output changes.
-5. **New `Price Sensitivity` sheet** comparing $10 with $7 and $5 under the same ramp, including a
-   break-even table by AI-tools spend.
-6. **New assumptions:**
+6. **New `Price Sensitivity` sheet** comparing $10 with $7 and $5 under the uncapped ramp,
+   including a break-even table by AI-tools spend.
+7. **New assumptions:**
    - `Assumptions!B32`: coaching cap of 10 uncached **generations** per user per UTC day, from
      `contract.json`.
    - `Assumptions!B33`: thinking tokens per call, an illustrative 1,000; unmeasured.
@@ -52,79 +62,98 @@ usage, CAC, willingness to pay, and revenue remain unmeasured hypotheses.
      `AI_PROVIDER_ATTEMPTS = 2`, with a second attempt only after a transport error, timeout or
      provider 5xx. Whether failed attempts are billed is unknown, so retries are a separate
      sensitivity and are not in the headline results.
-7. **Forecast month-index repair.** Every `Forecast 12M` formula depends on row 3 (`Month #`
+8. **Forecast month-index repair.** Every `Forecast 12M` formula depends on row 3 (`Month #`
    1–12), but that row sat inside the subtitle merge `A2:M3`. Opening and saving the 2026-09-05
    workbook with a merge-respecting writer (reproduced with openpyxl) dropped the row and
    recalculated active paid users to 0 in every month. Row 3 is now visible and unmerged.
    `Checks!F24` requires the row to be exactly 1–12 in order, so a missing, duplicated or
    permuted month fails even when the sum stays 78.
-8. **Checks completed and hardened.**
+9. **Checks completed and hardened.**
    - Row 20 had no status because its cells sat inside the `D18:G20` note merge; the note now spans
      `D18:G19`.
-   - Summary timing cells now show "none in 12" instead of `#N/A` when a scenario never turns
-     positive within the year.
-   - `MODEL STATUS` covers `F20:F32`.
-9. **Thinking companion rows (PM correction, #1599).** The headline results exclude Gemini
-   thinking tokens and provider retries, and are labelled that way. `Price Sensitivity` rows 65–76
-   apply the illustrative 1,000 thinking tokens to paid **and** trial users together. This adds
-   $37.50/month of trial coaching cost alone, which is material next to the $45 stack.
+   - Summary timing cells show "none in 12" instead of `#N/A`.
+   - `Checks!F33:F35` cover the cap plan: it never exceeds the active-user cap, the one-month
+     trial its slot logic assumes, and a month-1 tie.
+   - `MODEL STATUS` covers `F20:F35`.
+10. **Thinking companion rows (PM correction, #1599).** Headline results exclude Gemini thinking
+    tokens and provider retries, and are labelled that way. `Price Sensitivity` rows 65–76 apply
+    the illustrative 1,000 thinking tokens to paid **and** trial users together. In the uncapped
+    case this adds $37.50/month of trial coaching cost alone.
 
 ## Results
 
-Contribution uses the higher 2027 Gemini price. "Trial coaching" is the $26.25/month coaching cost
-of 500 trial users, who pay nothing. "All-in" means stack + AI coding tools + trial coaching.
-Unless a row says "with thinking", results **exclude Gemini thinking tokens and provider retries**.
-Thinking rows are scenarios at an illustrative 1,000 tokens per call, not measured profitability.
+Contribution uses the higher 2027 Gemini price. "All-in" means stack + AI coding tools + coaching
+for trial users. Unless a row says "with thinking", results **exclude Gemini thinking tokens and
+provider retries**. Thinking rows are scenarios at an illustrative 1,000 tokens per call, not
+measured profitability.
+
+### Launch Cap Plan (100 active users for 3 months, linear rise to 250 by month 12; AI tools $20)
+
+| Output | $10 | $7 | $5 |
+| --- | ---: | ---: | ---: |
+| Paying users at month 12 (2% conversion) | 21.2 | 21.2 | 21.2 |
+| Operating profit in month 12 | $119.63 | $58.40 | $17.58 |
+| 12-month cumulative cash | $365.75 | −$17.33 | −$272.71 |
+| First profitable month / cumulative cash ≥ $0 | 5 / 9 | 7 / none in 12 | 10 / none in 12 |
+| Same, with AI tools at $40 | 6 / 11 | 9 / none | none / none |
+| Paying users needed to break even at the 100-user cap | 7.5 (7.5%) | 10.9 (10.9%) | 15.5 (15.5%) |
+| Conversion needed to hold that at the 100-user cap (steady state) | 1.36% | 2.04% | 3.07% |
+| Paying users needed to break even at the 250-user cap | 8.4 (3.3%) | 12.1 (4.8%) | 17.3 (6.9%) |
+
+At 2% conversion the 100-user cap settles at about 10.7 paying users and the 250-user cap at about
+26.8, but only if the cap is held long enough; the 12-month ramp does not get there.
+
+### Uncapped case (500 trials/month; AI tools $20)
 
 | Output | $10 | $7 | $5 |
 | --- | ---: | ---: | ---: |
 | Stripe Payments + Billing per charge | $0.66 (6.6%) | $0.552 (7.9%) | $0.48 (9.6%) |
 | Contribution per paid user | $9.2875 | $6.3955 | $4.4675 |
-| Break-even paid users — lean stack + trial coaching (no AI tools) | 8 | 12 | 16 |
-| **Break-even paid users — all-in, AI tools $200** | **30** | **43** | **61** |
+| Break-even paid users — lean + trial coaching (no AI tools) | 8 | 12 | 16 |
+| **Break-even paid users — all-in, AI tools $20** | **10** | **15** | **21** |
 | Break-even paid users — all-in, AI tools $40 | 12 | 18 | 25 |
-| Break-even paid users — all-in, AI tools $20 | 10 | 15 | 21 |
-| **Steady-state monthly profit, 60 paid, AI tools $200** | **$286.00** | **$112.48** | **−$3.20** |
-| Steady-state monthly profit, 60 paid, AI tools $40 | $446.00 | $272.48 | $156.80 |
-| Steady-state monthly profit, 60 paid, AI tools $20 | $466.00 | $292.48 | $176.80 |
-| Break-even paid users — lean + trial coaching, **with illustrative thinking** | 12 | 18 | 25 |
-| Break-even paid users — all-in, AI tools $200, **with illustrative thinking** | 34 | 49 | 71 |
-| Monthly profit at 60 paid — lean stack only, no thinking / **with thinking** | $486.00 / $444.00 | $312.48 / $270.48 | $196.80 / $154.80 |
-| Monthly profit at 60 paid — all-in, AI tools $200, with thinking | $244.00 | $70.48 | −$45.20 |
-| Trial-to-paid conversion needed to match $10 profit (no thinking, any tool level) | 2.00% | 2.90% | 4.16% |
+| Break-even paid users — lean + trial coaching, with thinking | 12 | 18 | 25 |
+| Break-even paid users — all-in, AI tools $20, with thinking | 14 | 21 | 30 |
+| Monthly profit at 60 paid — all-in, AI tools $20 | $466.00 | $292.48 | $176.80 |
+| Monthly profit at 60 paid — lean only, no thinking / with thinking | $486.00 / $444.00 | $312.48 / $270.48 | $196.80 / $154.80 |
+| Monthly profit at 60 paid — all-in, AI tools $20, with thinking | $424.00 | $250.48 | $134.80 |
+| Organic: first profitable month / cumulative cash ≥ $0 | 2 / 3 | 3 / 4 | 3 / 5 |
+| Paid CAC at own ceiling: first profitable month / cumulative ≥ $0 | 4 / 7 | 5 / 8 | 6 / 11 |
+| Trial-to-paid conversion needed to match $10 profit (no thinking) | 2.00% | 2.90% | 4.16% |
 | 3:1 CAC ceiling | $18.58 | $12.79 | $8.94 |
-| Organic, AI tools $200: first profitable month / cumulative cash ≥ $0 | 4 / 7 | 6 / 12 | none in 12 |
-| Paid CAC at own ceiling, AI tools $200: first profitable month / cumulative ≥ $0 | 6 / none in 12 | none / none | none / none |
 | Thinking tokens per call where a paid user at the cap (310 generations) turns negative | 3,317 | 2,073 | 1,244 |
 | Same, if both provider attempts are billed for every generation (retry worst case) | 1,309 | 687 | 272 |
 
-All-in break-even price with AI tools at $200: $28.50 at 10 paid users, $14.43 at 20, $9.74 at
-30, and $5.06 at 60. Under these assumptions, $5 does not cover current costs even at the full
-60-user steady state. $5 becomes profitable once AI tools drop to $40 or less.
+For reference, the $200 pre-launch tool spend would make uncapped all-in break-even 30 / 43 / 61
+paid users.
 
 ## Open risk recorded, not resolved
 
 The coaching function sets no `thinking_level`, so Gemini 3.8 Flash uses its default (`medium`),
 and thinking tokens are billed at the output rate. No code path records `usageMetadata` or
-`thoughtsTokenCount`, so the real cost per coaching call is unmeasured. At the modeled 10 calls
-per month the per-user amount is small. Across 500 trial users, though, it adds $37.50/month,
-and for a paid user at the cap (310 generations in a 31-day month) it decides whether that user is
-contribution-positive at lower prices. The thinking cost is unknown and is not treated as
-negligible. Measurement is deferred under #1259/#1491. No pricing or `thinking_level` change is
-assigned.
+`thoughtsTokenCount`, so the real cost per coaching call is unmeasured.
+- At the modeled 10 calls per month the per-user amount is small.
+- Across trial users it adds up: $37.50/month at 500 trials.
+- For a paid user at the cap (310 generations in a 31-day month), it decides whether that user is
+  contribution-positive at lower prices.
+
+The thinking cost is unknown and is not treated as negligible. Measurement is deferred under
+#1259/#1491. No pricing, cohort-size or `thinking_level` change is assigned.
 
 ## Verification performed
 
-- LibreOffice recalculation: 1,210 formulas, 0 errors; all checks `OK`; `MODEL STATUS: PASS`.
-- Price Sensitivity ties to `Forecast 12M` (organic and paid-CAC profit rows, steady-state
-  profit, paid-CAC cash month) and to `Unit Economics` (`Checks!F25:F30`). `Checks!F32` ties the
-  companion added trial thinking cost to trials × calls × thinking tokens × output price.
+- LibreOffice recalculation: 1,517 formulas, 0 errors; all checks `OK`; `MODEL STATUS: PASS`.
+- Price Sensitivity ties to `Forecast 12M` and `Unit Economics` (`Checks!F25:F30`).
   - `Checks!F31` ties the forecast's fixed cost to stack + AI tools.
-  - With AI tools excluded, the outputs equal the stack-only figures, which reproduce the
-    2026-09-05 model.
-- All $10/$7/$5 outputs at each AI-tools level match an independent script recomputation.
-- Input propagation: changing Codex Pro to $150 moves all-in fixed OpEx to $295 and $10 all-in
-  break-even to 35, with `MODEL STATUS: PASS`.
+  - `Checks!F32` ties the companion added trial thinking cost.
+- Launch Cap Plan:
+  - Its profit rows, timing, and $40 sensitivity match an independent script recomputation of
+    the same cohort logic.
+  - Lowering the year-end cap below the paying base turns `Checks!F33` and `MODEL STATUS` to
+    `FAIL`.
+  - Setting a two-month trial turns `Checks!F34` to `FAIL`.
+- With AI tools excluded, the outputs equal the stack-only figures, which reproduce the
+  2026-09-05 model.
 - Negative controls on the month index all turn `Checks!F24` and `MODEL STATUS` to `FAIL`:
   - swapping months 1 and 2 (sum stays 78);
   - duplicating one month and dropping another (sum stays 78);
@@ -132,9 +161,9 @@ assigned.
 - The companion rows reproduce PM's independent figures: 12/18/25 users, $444.00/$270.48/$154.80,
   and $37.50.
 - Round-trip control: opening and re-saving the workbook with openpyxl, then recalculating,
-  preserves the forecast (`Active paid users` 0, 10, 20 … 60).
+  preserves both forecasts.
 
 Taxes, refunds, founder compensation, one-time legal/accounting costs, and usage overages beyond
 vendor allowances remain excluded. The forecast start date (2026-09-01) is unchanged. Month
-numbers count from the forecast start, whose first month is the trial month; they are not
-calendar dates.
+numbers count from the forecast start, which is treated as launch; its first month is the trial
+month. They are not calendar dates.
