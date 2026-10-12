@@ -17,6 +17,7 @@ import {
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
+import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
 
@@ -70,10 +71,6 @@ test('leaving during a cold Start does not leave a recording or session behind @
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     tap.attach(page); generations.attach(page);
-    let providerCallCount = 0;
-    page.on('request', (request) => {
-        if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/get-ai-suggestions')) providerCallCount++;
-    });
     let email = '';
     let uid = '';
     let claimed = false;
@@ -201,10 +198,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
         throw error;
     } finally {
         await generations.settle();
-        receipt.row('coaching provider-call budget', providerCallCount === 0 ? 'PASS' : 'FAIL',
-            providerCallCount === 0 ? 'pending-Start abandonment and return made no coaching-provider request'
-                : 'pending-Start abandonment unexpectedly triggered coaching-provider traffic',
-            { providerCalls: providerCallCount, responses: generations.exchanges.length, maximum: 0 });
+        // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
+        coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
         if (uid && !accountDeleted) {
             try {
                 await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });

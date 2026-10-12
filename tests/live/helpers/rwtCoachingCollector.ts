@@ -353,3 +353,38 @@ export async function coachingPromptBindingRow(input: {
     const outcome = coachingEvidenceOutcome({ releaseSha: input.releaseSha, destination, firstTake, repeatTake });
     receipt.row('coaching prompt binding', outcome.verdict, outcome.detail, outcome.evidence);
 }
+
+/**
+ * #1594 (PM 6120326867) — THE WHOLE-SCENARIO COACHING REQUEST BUDGET, evaluated once at the END of a scenario (after
+ * feedback/navigation, before cleanup), never sampled mid-flow. Its evidence, stated exactly:
+ *  - `browserRequests`: `get-ai-suggestions` POSTs the BROWSER sent (the tap's request count, including any unanswered);
+ *  - `answered`: those that returned a response the tap could read;
+ *  - `providerAttemptsReported`: the sum of `diagnostics.provider_attempts` the EDGE function reported for the answered
+ *    requests — the server's own provider-invocation count, not something the browser can observe directly.
+ * A browser count is not a provider-invocation count, and the client may retry, so both are bounded. FAIL when either
+ * exceeds `maximum` or any listed take received more than one request; HOLD when a sent request has no readable Edge
+ * diagnostics (provider invocations unprovable). PASS only when every sent request was answered with readable
+ * diagnostics within budget. No retry is executed or hidden here; a retry the page made is simply counted.
+ */
+export function coachingRequestBudgetRow(
+    receipt: ReceiptLike,
+    tap: { sentCount: number; exchanges: readonly CoachingExchange[] },
+    budget: { maximum: number; oneRequestPerSession?: readonly string[] },
+): void {
+    const answered = tap.exchanges.filter((e) => e.status !== null);
+    const readable = answered.filter((e) => Number.isInteger(e.diagnostics?.provider_attempts));
+    const providerAttemptsReported = readable.reduce((sum, e) => sum + Number(e.diagnostics!.provider_attempts), 0);
+    const perSession = (budget.oneRequestPerSession ?? []).map((id) => tap.exchanges.filter((e) => e.sent.sessionId === id).length);
+    const exceeded = tap.sentCount > budget.maximum || providerAttemptsReported > budget.maximum || perSession.some((n) => n > 1);
+    const unprovable = !exceeded && (readable.length !== tap.sentCount || answered.length !== tap.sentCount);
+    const verdict: Verdict = exceeded ? 'FAIL' : unprovable ? 'HOLD' : 'PASS';
+    receipt.row('coaching request budget', verdict,
+        verdict === 'PASS' ? `the whole scenario sent at most ${budget.maximum} coaching request(s) and the Edge reported at most ${budget.maximum} provider attempt(s)`
+            : verdict === 'FAIL' ? 'the scenario exceeded its coaching request or Edge-reported provider-attempt budget, or a take was requested twice'
+                : 'a sent coaching request has no readable Edge diagnostics, so provider invocations are unproven',
+        {
+            maximum: budget.maximum, browserRequests: tap.sentCount, answered: answered.length,
+            withDiagnostics: readable.length, providerAttemptsReported,
+            maxRequestsForOneTake: perSession.length > 0 ? Math.max(...perSession) : 0,
+        });
+}

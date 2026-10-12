@@ -18,6 +18,9 @@ import {
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
+import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
+import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
+import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
@@ -180,13 +183,11 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
-        let providerCallCount = 0;
-        page.on('request', (request) => {
-            if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/get-ai-suggestions')) providerCallCount++;
-        });
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
+        // #1594: the takes this scenario saved, for the end-of-scenario one-request-per-take budget.
+        const takes: string[] = [];
         try {
             await suppressPageSnapshot(testInfo);
             const ready = await prepareDisposable(page, receipt, owner);
@@ -197,18 +198,12 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             await page.waitForURL(/\/session/, { timeout: 45_000 });
             const olderId = await createSavedOpenMicTake(page, 1, true);
             const newerId = await createSavedOpenMicTake(page, 2, false);
+            takes.push(olderId, newerId);
             await generations.settle();
             receipt.row('two saved takes', olderId !== newerId ? 'PASS' : 'FAIL',
                 olderId !== newerId ? 'two distinct takes were saved in this login' : 'the two saves reused one session identity');
             const olderRequests = generations.forSession(olderId).map((e) => e.sent.requestId).filter((id): id is string => Boolean(id));
             const newerRequests = generations.forSession(newerId).map((e) => e.sent.requestId).filter((id): id is string => Boolean(id));
-            const withinProviderBudget = providerCallCount <= 2 && generations.exchanges.length <= 2
-                && generations.forSession(olderId).length <= 1 && generations.forSession(newerId).length <= 1;
-            receipt.row('coaching provider-call budget', withinProviderBudget ? 'PASS' : 'FAIL', withinProviderBudget
-                ? 'the two-take older-association case made no more than one coaching request per saved take'
-                : 'coaching requests exceeded the two-take budget or duplicated a take request',
-            { providerCalls: providerCallCount, totalResponses: generations.exchanges.length, olderTakeRequests: generations.forSession(olderId).length,
-                newerTakeRequests: generations.forSession(newerId).length, maximum: 2 });
             receipt.row('older take coaching request observed', olderRequests.length > 0 ? 'PASS' : 'HOLD',
                 olderRequests.length > 0 ? 'the browser sent a coaching request bound to the older saved take' : 'no older-take coaching request was captured');
             const stored = await submitFeedback(page, tap, owner.uid, 'selected_older_session', olderId, newerId);
@@ -219,6 +214,13 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             const correctSession = stored.sessionId === olderId;
             receipt.row('older-take association', correctSession ? 'PASS' : 'FAIL',
                 correctSession ? 'the persisted report references the selected older take' : 'the persisted report does not reference the selected older take');
+            // #1594 (PM 6120326867): the #1590 contract on the SELECTED OLDER take — its own sent request, never the newer
+            // take's (named as current so the contract refuses a borrowed link). Settled only by the received readback.
+            await generations.settle();
+            await feedbackDiagnosticChainRow({
+                receipt, admin: admin as never, userId: owner.uid, reportId, currentSessionId: newerId, reportedSessionId: olderId,
+                exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'open_mic',
+            });
             const exactOlderRequest = Boolean(stored.diagnosticRef && olderRequests.includes(stored.diagnosticRef));
             const excludesCurrent = stored.diagnosticRef === null || !newerRequests.includes(stored.diagnosticRef);
             const bindingVerdict = olderRequests.length === 0 || stored.diagnosticRef === null ? 'HOLD'
@@ -232,6 +234,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             throw error;
         } finally {
             await generations.settle();
+            // The WHOLE scenario, after feedback and navigation: at most one request per saved take (two in all).
+            coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes });
             if (owner.uid && reportId) {
                 accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
                     () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
@@ -258,10 +262,6 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
-        let providerCallCount = 0;
-        page.on('request', (request) => {
-            if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/get-ai-suggestions')) providerCallCount++;
-        });
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
@@ -272,11 +272,6 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             if (!ready) return;
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null);
             reportId = stored.id;
-            await generations.settle();
-            receipt.row('coaching provider-call budget', providerCallCount === 0 ? 'PASS' : 'FAIL',
-                providerCallCount === 0 ? 'No session feedback made no coaching-provider request'
-                    : 'No session feedback unexpectedly triggered coaching-provider traffic',
-                { providerCalls: providerCallCount, responses: generations.exchanges.length, maximum: 0 });
             receipt.row('no-session report stored once', stored.storedRows === 1 && stored.id ? 'PASS' : 'FAIL',
                 stored.storedRows === 1 && stored.id ? 'one no-session feedback report was acknowledged and read back' : 'feedback was not stored exactly once',
                 { storedRows: stored.storedRows });
@@ -289,6 +284,8 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             throw error;
         } finally {
             await generations.settle();
+            // No session links no take, so the whole scenario must send no coaching request at all.
+            coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
             if (owner.uid && reportId) {
                 accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
                     () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
