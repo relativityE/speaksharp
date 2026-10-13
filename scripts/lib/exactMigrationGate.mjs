@@ -159,6 +159,17 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1258 P0 follow-up — 20261013120000's apply (run 38428832342) deployed the reviewed definitions but failed the
+        // lint-delta gate on one plpgsql_check 42804 warning (untyped empty-array literal). This types the two literals.
+        // Applied AFTER 20261013120000, before the held commercial-activation entry. Its pre-apply gate refuses anything
+        // but the deployed 20261013120000 bodies; its postflight proves the typed expiry and unchanged ACLs/grants table.
+        // Allowlisting is implementation, not authorization: applying it needs the PO's exact dispatch with the phrase.
+        version: '20261013140000',
+        file: '20261013140000_retention_expiry_typed_empty_array_1258.sql',
+        sha256: 'a0116bf92e81f0a87c7bbc2528f6cc60c78b2f32a55253fcf49bbadc5eb4c6b1',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -586,6 +597,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20260928120000', targetFile: '20260928120000_focus_points_trial_capability' }),
     // #1258 P0 retention expiry: two-routine function identity + ACLs + the closed, empty grants table, read-only.
     Object.freeze({ id: 'postflight_20261013120000', targetFile: '20261013120000_retention_expiry_without_superuser_1258' }),
+    // #1258 P0 follow-up: typed expiry identity + unchanged trigger/ACLs/grants table, read-only.
+    Object.freeze({ id: 'postflight_20261013140000', targetFile: '20261013140000_retention_expiry_typed_empty_array_1258' }),
 ]);
 
 /**
