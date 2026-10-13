@@ -76,6 +76,7 @@ import {
     stopIfPageTornDown,
 } from './rwtJourney';
 import { openProductsItem, resolveProductsTrigger } from './productsMenu';
+import { PACE_GUIDE_DEFAULT_SECONDS, parsePaceGuideSeconds } from './rwtPaceGuide';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -237,8 +238,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 if ((await page.getByTestId(`objective-point-label-${i}`).count()) === 0) await page.getByTestId('objective-add-point').click();
                 await page.getByTestId(`objective-point-label-${i}`).fill(points[i]);
             }
-            const pace = parseClock(await page.getByTestId('objective-pace-value').innerText());
-            receipt.row('pace guide', pace === GUIDE_SECONDS ? 'PASS' : 'FAIL', pace === GUIDE_SECONDS ? 'the default guide is 1:00 per point' : 'the guide is not 1:00', { paceSeconds: pace });
+            // #1258 R5: the guide is minutes per point ("1 min"), compared as seconds; a missing guide is read, not awaited.
+            const paceValue = page.getByTestId('objective-pace-value');
+            const paceShown = (await paceValue.count()) > 0;
+            const pace = paceShown ? parsePaceGuideSeconds(await paceValue.innerText({ timeout: 5_000 }).catch(() => null)) : null;
+            receipt.row('pace guide', pace === PACE_GUIDE_DEFAULT_SECONDS ? 'PASS' : 'FAIL',
+                pace === PACE_GUIDE_DEFAULT_SECONDS ? 'the default guide is 1 min per point'
+                    : paceShown ? 'the guide is not 1 min per point' : 'no pace guide was shown',
+                { paceSeconds: pace, paceShown });
             await page.getByTestId('objective-setup-submit').click();
             const arrived = await page.waitForURL(/\/session/, { timeout: 45_000 }).then(() => true).catch(() => false);
             const mic = (await micAcquisitions(page)).length;

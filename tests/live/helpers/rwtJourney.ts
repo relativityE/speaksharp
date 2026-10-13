@@ -18,7 +18,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
-import { expect, type Page, type TestInfo } from '@playwright/test';
+import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
@@ -1035,6 +1035,16 @@ export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, r
  * A step the page never reached is a HOLD with its reason — never a PASS. The detail is opened by URL; the list path
  * into it is proven by the reopen rows.
  */
+/**
+ * #1258 R6 (PM 6134474736) — the reopened Focus set is the SAME set, in the SAME order, every point pending again:
+ * exactly as many rows as points, each row's own label equal to its point, and every status `pending`.
+ */
+export function sameOrderedPendingSet(labels: readonly string[], statuses: readonly (string | null)[], points: readonly string[]): boolean {
+    return labels.length === points.length && statuses.length === points.length
+        && points.every((point, i) => labels[i].trim() === point.trim())
+        && statuses.every((status) => status === 'pending');
+}
+
 /** #1258 (PM 5944997435): one outer bound per diagnostic read, and a short per-call timeout inside it. */
 const STEP_DIAGNOSTIC_BOUND_MS = 10_000;
 const STEP_DIAGNOSTIC_READ_MS = 3_000;
@@ -1157,11 +1167,11 @@ export async function practiceAgainEvidence(
         const rail = page.getByTestId('focus-points-rail');
         const shown = await rail.waitFor({ timeout: 30_000 }).then(async () => {
             const rows = await rail.getByTestId(/^focus-point-\d+$/).all();
-            const labels = await Promise.all(rows.map(async (r) => (await r.innerText()).trim()));
+            // #1258 R6: the row's text starts with its numbered marker ("1", "2", …), so the label is read from the row's
+            // own label paragraph, never the whole row (run 38304068207 failed the same pending set on that prefix).
+            const labels = await Promise.all(rows.map((r) => r.locator('p').first().innerText({ timeout: 5_000 }).catch(() => '')));
             const statuses = await Promise.all(rows.map((r) => r.getAttribute('data-status')));
-            return rows.length === pointLabels.length
-                && pointLabels.every((l, i) => labels[i]?.startsWith(l))
-                && statuses.every((st) => st === 'pending');
+            return sameOrderedPendingSet(labels, statuses, pointLabels);
         }).catch(() => false);
         ev.sameSetPending = shown;
     }
@@ -1666,6 +1676,14 @@ const OMISSION_CLAIM = /\b(miss(ed|ing)?|skip(ped)?|forg(o|e)t|left out|didn'?t 
  * request is marked focus_points, and neither phrase claims a point was missed or skipped. Relevance to the chosen
  * points stays a human judgement (HOLD). Text is compared in Node and returned only for the Analytics comparison.
  */
+/** #1258 R3b: one coaching phrase by its test id, inside the card, bounded; '' when it is not there. */
+export const COACHING_PHRASE_READ_MS = 5_000;
+export async function readCoachingPhrase(card: Locator, testId: 'review-what-went-well' | 'review-try-next'): Promise<string> {
+    const node = card.getByTestId(testId).first();
+    if ((await node.count().catch(() => 0)) === 0) return '';
+    return (await node.innerText({ timeout: COACHING_PHRASE_READ_MS }).catch(() => '')).trim();
+}
+
 export async function focusCoachingRows(
     page: Page,
     receipt: RwtReceipt,
@@ -1681,16 +1699,12 @@ export async function focusCoachingRows(
     // The failure response arrives during the terminal wait above, so its reason is settled HERE, after that wait and
     // before any row is written (Codex r4189408865). A read still pending at the bound is UNKNOWN, never `null`.
     if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
-    const phrase = async (headings: readonly string[]): Promise<string> => {
-        for (const heading of headings) {
-            const title = card.getByRole('heading', { name: heading, exact: true });
-            if ((await title.count()) === 0) continue;
-            return (await card.locator('div', { has: title }).last().locator('p').first().innerText().catch(() => '')).trim();
-        }
-        return '';
-    };
-    const well = await phrase(['What went well']);
-    const next = await phrase(['Try this next run', 'What to try next']);
+    // #1258 R3b (run 38308997906 hung 24 min here): read each phrase from the review pair's own test id, bounded. The old
+    // heading → div → <p> walk waited without limit when its structure did not resolve. A phrase that is absent reads as
+    // '' and the row below FAILs; the rendered-vs-saved check is unchanged.
+    const phrase = (testId: 'review-what-went-well' | 'review-try-next') => readCoachingPhrase(card, testId);
+    const well = await phrase('review-what-went-well');
+    const next = await phrase('review-try-next');
     const two = terminal && state === 'ready' && well !== '' && next !== '';
     receipt.row('Focus coaching rendered', two ? 'PASS' : 'FAIL',
         two ? 'two coaching phrases rendered after Stop without any click' : `coaching did not render (state=${String(state)}, http=${String(request.status)})`,
