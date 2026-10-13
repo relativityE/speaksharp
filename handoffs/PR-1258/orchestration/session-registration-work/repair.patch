@@ -20,7 +20,15 @@
  GH_BACKOFF_UNTIL = 0.0
  PR_DISPLAY_CACHE = {}
  PR_DISPLAY_LOCK = threading.RLock()
-@@ -2436,17 +2438,19 @@
+@@ -1297,6 +1299,7 @@
+         "CASE "
+         "WHEN q.source_actor='PO' THEN 0 "
+         "WHEN q.source_actor IN ('PM','DEV') THEN 1 "
++        "WHEN q.kind='session_negotiation' THEN 1 "
+         "WHEN q.delivery_key LIKE 'notification-board-fallback:%' OR q.delivery_key LIKE 'notification-observation-%' THEN 4 "
+         "WHEN q.kind='actor_result_review' AND EXISTS (SELECT 1 FROM agent_notifications n "
+         "WHERE q.delivery_key='task-result:' || n.action_id AND n.task_id IN ('event-observation','wake-probe','version-handshake')) THEN 4 "
+@@ -2436,17 +2439,19 @@
      return qids
  
  
@@ -42,7 +50,7 @@
              if actor == 'cli_pm':
                  # This native coordinator already receives the durable PM event queue.
                  continue
-@@ -2479,12 +2483,13 @@
+@@ -2479,12 +2484,13 @@
                      if actor_channels.retire_unpresented_notice(old['action_id'], actor, old['target_session_id']):
                          c.execute("UPDATE agent_notifications SET status='superseded',error=?,updated_at=? WHERE action_id=?",
                                    ('Newer awareness snapshot; unread inbox notice retired, not acknowledged', now(), old['action_id']))
@@ -58,7 +66,18 @@
      for row in rows:
          try:
              route = configured_actor_route(row['actor_id'])
-@@ -4282,6 +4287,17 @@
+@@ -4030,6 +4036,10 @@
+ 
+ 
+ def compose_for_pm(q):
++    if q.get('kind') == 'session_negotiation':
++        # Startup identity must not wait for GitHub reads or a large old task
++        # ledger before the native coordinator can acknowledge its own runtime.
++        return 'ORCH_IDENTITY_ONLY\n' + q['content']
+     return (
+         f"Incoming orchestrator message from {q.get('source_actor','UNKNOWN')}.\n"
+         f"Delivery id: {q['id']}; handoff depth: {q.get('handoff_depth',0)}.\n"
+@@ -4282,6 +4292,17 @@
                  c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · receipt notification:' || ? WHERE handoff_id=? AND state='dispatched'",
                            (action_id, n['handoff_id']))
              else:
@@ -76,7 +95,30 @@
                  if n['status'] == 'responded' and n['result_digest'] == digest:
                      return 200, {'ok': True, 'duplicate': True}
                  if n['status'] != 'received' or not n['receipt_at']:
-@@ -5070,6 +5086,7 @@
+@@ -4708,6 +4729,13 @@
+ 
+ 
+ def _codex_prompt(content):
++    if content.startswith('ORCH_IDENTITY_ONLY\n'):
++        return ('Identity-only coordinator bootstrap. No tools, repository inspection, '
++                'task ownership updates, external publication or mutation. Acknowledge the '
++                'SESSION_HELLO and return the output-schema object with message set to your ACK; '
++                'next=none, board_updates=null, pm_actions=[], publish=false, ask_dispositions=[], '
++                'review_handoffs=[], task_deliveries=[], dev_action_id=null, dev_depends_on_actions=false. '
++                'The host verifies your actual thread identity from runtime output.\n' + content)
+     return (
+         "PM OPERATING CONTRACT:\n" + load_pm_instructions().strip() +
+         "\n\nCURRENT TURN:\n" + content.strip() +
+@@ -4818,7 +4846,7 @@
+     cmd = _codex_command(content, session_id, output_file)
+     prompt = _codex_prompt(content)
+     env = subscription_env("codex")
+-    cwd = BASE_REPO if Path(BASE_REPO).exists() else str(APP)
++    cwd = str(APP) if content.startswith('ORCH_IDENTITY_ONLY\n') else (BASE_REPO if Path(BASE_REPO).exists() else str(APP))
+     try:
+         with PROC_LOCK:
+             try:
+@@ -5070,6 +5098,7 @@
              sweep_preflight_recoveries()
              sweep_invocation_recoveries()
              sweep_agent_delivery_stalls()
@@ -84,7 +126,7 @@
              players = list_player_status()
              p = players.get('cli_dev') or {}
              key = str(p.get('work_item_key') or '')
-@@ -5574,6 +5591,21 @@
+@@ -5574,6 +5603,21 @@
          add_activity("SYSTEM", "Cancelled PM response was discarded; no automatic handoff occurred.", "none", "system")
          return
  
@@ -106,7 +148,7 @@
      updates = routed.get("board_updates")
      if (not isinstance(updates, dict) or not updates.get('work_items') or not updates.get('players')):
          detail = 'PM replied without task AND player reconciliation; no executable handoff'
-@@ -5604,6 +5636,12 @@
+@@ -5604,6 +5648,12 @@
          return
      update_queue(q["id"], status="responded", finished_at=now(), session_id=sid)
      set_agent("pm", status="idle", session_id=sid)
@@ -119,7 +161,7 @@
      patch_errors = []
      accepted = apply_board_updates(updates, errors=patch_errors)
      if not accepted:
-@@ -6377,7 +6415,14 @@
+@@ -6377,7 +6427,14 @@
          a = agents.get(aid) or {}
          ast = str(a.get("status") or "idle")
          board_status = str(base.get('status') or 'unknown')
@@ -135,7 +177,33 @@
              base['status'] = 'available'
              base['task_blocker'] = base.get('blocker') or ''
              base['blocker'] = ''
-@@ -6600,6 +6645,46 @@
+@@ -6408,6 +6465,16 @@
+         if base['checkpoint_stale']:
+             base['checkpoint_warning'] = 'Task checkpoint stale; process activity is not a fresh task report' 
+ 
++    identities = registration_snapshot()
++    for actor in session_registration.ACTORS:
++        player = players.setdefault(actor, {'player_id':actor})
++        identity = identities.get(actor, {})
++        player['connection_state'] = identity.get('state','not_requested')
++        player['runtime_session_id'] = identity.get('session')
++        player['connection_binding'] = identity.get('binding', {})
++        if identity.get('state') == 'awaiting_ack':
++            player['connection_state'] = 'ack_overdue' if time.time()-identity['requested']>300 else 'negotiating'
++
+     po_needed = next((x for x in active_items if x.get("po_required")), None)
+     po = players.setdefault("po", {"player_id":"po"})
+     if po_needed:
+@@ -6424,7 +6491,7 @@
+             base['status'] = 'unknown'
+             base['task'] = 'No fresh verified checkpoint'
+             base['work_item_key'] = ''
+-            base['blocker'] = 'External activity unverified; read the latest #1258 checkpoint'
++            base['blocker'] = 'External task activity unverified; read the latest #1593 checkpoint'
+ 
+     # Attach the concrete owned work item so the UI can answer: working on what,
+     # blocked why, and what happens next without exposing routing internals.
+@@ -6600,6 +6667,46 @@
      return [r['action_id'] for r in notices + tasks]
  
  
@@ -182,7 +250,7 @@
  def transport_status():
      mode = pm_transport_mode()
      codex_binary = resolved_bin(CODEX_BIN)
-@@ -6615,6 +6700,16 @@
+@@ -6615,6 +6722,16 @@
          pm_label = "not configured"
      actors = {}
      for actor_id in ('cli_dev', 'app_dev', 'browser_pm', 'cli_pm'):
@@ -199,7 +267,7 @@
          try:
              route = configured_actor_route(actor_id)
              with DB_LOCK, con() as c:
-@@ -6666,6 +6761,7 @@
+@@ -6666,6 +6783,7 @@
          "claude_worker_configured": bool(resolved_bin(CLAUDE_BIN)),
          "claude_subscription_mode": True,
          "claude_permission_mode": PERMISSION_MODE,
@@ -207,7 +275,7 @@
          "agent_routes": actors,
          "external_notification_configured": external_ready,
          "external_notification_status": ("Recipient routes configured; inspect each route's automatic-wake receipt proof"
-@@ -6860,6 +6956,9 @@
+@@ -6860,6 +6978,9 @@
          except Exception:
              return self.sendj(400, {"error": "invalid json"})
  
@@ -217,7 +285,7 @@
          if self.path == '/api/agent-route-retire':
              if not isinstance(b, dict):
                  return self.sendj(400, {'error': 'JSON object required'})
-@@ -7054,6 +7153,61 @@
+@@ -7054,6 +7175,61 @@
  
      def log_message(self, *args):
          pass
@@ -281,12 +349,29 @@
  def prepare_app_version_notice():
 --- a/static/index.html
 +++ b/static/index.html
+@@ -1,6 +1,6 @@
+ <!doctype html>
+ <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<title>RWT Board v4.7.13</title>
++<title>RWT Board v4.7.14</title>
+ <style>
+ :root{
+   --line:#d9dde3;--muted:#667085;--soft:#f7f8fa;--text:#111827;
+@@ -22,7 +22,7 @@
+ @media(max-width:950px){#decisionGrid,#workGrid,#prColumns,.advancedGrid{grid-template-columns:1fr}#agents{grid-template-columns:repeat(2,1fr)}.sendButton{margin-left:0}}@media(max-width:560px){#agents{grid-template-columns:1fr}.sendRow{gap:9px}}
+ </style></head>
+ <body><main>
+-<header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.13 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
++<header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.14 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
+ 
+ <section class="card"><div class="sectionTitle">PM monitoring and reply health</div><div id="commsHealth" class="muted">Checking local runtime…</div></section>
+ <section class="card"><div class="sectionTitle">Coordination — local operator owns setup</div><div id="coordinationHealth" role="status">Checking routes…</div><button onclick="recoverPmCleanup()">Verify PM cleanup and resume safely</button><div id="coordinationResult" role="status" class="tiny"></div></section>
 @@ -90,7 +90,7 @@
  function routeDetails(id){const r=dashboard?.agent_routes?.[id];if(!r)return '';const d=r.last_task_delivery||r.last_delivery||{};const w=r.worker;return `${w?'<div class="k">Persistent worker</div><div>'+esc(w.worker_id)+' · thread '+esc(w.thread_id)+' · '+esc(w.status)+' · '+(w.recent?'heartbeat live':'heartbeat stale')+'</div><div>'+esc(w.error||'')+'</div>':''}<div class="k">Recipient route</div><div>${esc(r.configured?(r.transport+' · '+r.session_id):'Not paired')}</div><div class="k">Delivery ID / action</div><div>${esc([d.id?'#'+d.id:'',d.action_id||''].filter(Boolean).join(' · ')||'No delivery observed')}</div><div class="k">Receipt / result</div><div>${esc(d.status||'No delivery')} · ${d.receipt_at?'receipt recorded':'receipt missing'} · ${d.result_at?'result recorded':'result missing'}</div><div class="k">Exact delivery error</div><div>${esc(d.error||r.blocker||'No error recorded')}</div><div class="k">Host preflight</div><div>${esc(r.host_preflight||'Not verified on installed host')}</div>`;}
  function showAgent(id,refresh=false){if(!refresh&&detail.style.display!=='none'&&detailBox.dataset.agent===id){closeDetail();return;}let p=dashboard?.players?.[id]||{};let w=p.work_item||{};detail.style.display='block';detailBox.dataset.agent=id;detailBox.innerHTML=`<div class="row spread"><div class="big">${esc(N[id]||id)}</div><span>${badge(p.status,p)} <button onclick="closeDetail()">Close</button></span></div><div class="detailGrid"><div class="k">Working on</div><div>${esc(w.title||p.task||'No current task')}</div><div class="k">Blocked?</div><div>${esc(p.blocker||p.task_blocker||w.sequence_blocker||w.dispatch_hold||w.blocker||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status has no current explanation; CLI PM must reconcile':'No'))}</div><div class="k">Next action</div><div>${esc(w.next_action||p.opportunity||'No next action recorded')}</div><div class="k">Branch</div><div>${esc(w.branch||'—')}</div><div class="k">PO needed</div><div>${w.po_required?'YES':'NO'}</div><div class="k">Status age</div><div>${age(p.age_seconds)}${p.checkpoint_warning?' · '+esc(p.checkpoint_warning):''}</div>${routeDetails(id)}</div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.toggle('selected',x.dataset.id===id));}
  function showPr(pr){let [st,cls,pos]=prState(pr,dashboard?.current?.number);detail.style.display='block';detailBox.removeAttribute('data-agent');detailBox.innerHTML=`<div class="row spread"><div class="big">PR #${esc(pr.number)} · ${esc(pr.title||'')}</div><span class="statusBadge ${cls}">${st}</span></div><div class="detailGrid"><div class="k">RWT position</div><div>${esc(pos)}</div><div class="k">Head</div><div>${esc((pr.headRefOid||pr.head||'').slice(0,12)||'—')}</div><div class="k">Checks</div><div>${esc(pr.checks?`${pr.checks.green||0}/${pr.checks.total||0} green${pr.checks.running?' · '+pr.checks.running+' running':''}${pr.checks.failed?' · '+pr.checks.failed+' failed':''}`:checksSummary(pr))}</div><div class="k">Review</div><div>${esc(pr.reviewDecision||'—')}</div><div class="k">Updated</div><div>${esc(pr.updatedAt||pr.closedAt||pr.mergedAt||'—')}</div><div class="k">GitHub</div><div><a href="${esc(pr.url)}" target="_blank">Open PR</a></div></div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.remove('selected'));}
 -function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div><div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
-+function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(p.coordination_state==='negotiating_sessions'?'Starting coordinator · requesting agent session ACKs':null)||(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div><div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
++function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(p.coordination_state==='negotiating_sessions'?'Starting coordinator · requesting agent session ACKs':null)||(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div>${id!=='po'?`<div class="agentWhy">Connection: ${esc(p.connection_state||'starting')}${p.connection_binding?.error?' · '+esc(p.connection_binding.error):''}</div>`:''}<div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
  function renderQueue(q){queue.innerHTML=(q||[]).map(x=>`<div class="workItem"><div><div class="itemTitle">${esc(x.title||x.item_key||'Untitled')}</div><div class="itemMeta">${esc(x.sequence_blocker||x.dispatch_hold||x.blocker||x.next_action||'')}</div></div><div>${ownerTag(x.owner)} ${badge(x.state)}</div></div>`).join('')||'<div class="muted">Queue empty</div>'}
  function prRow(pr,completed=false){let [st,cls,pos]=prState(pr,dashboard?.current?.number);let obj=encodeURIComponent(JSON.stringify(pr));return `<div class="prItem ${dashboard?.current&&Number(pr.number)===Number(dashboard.current.number)?'current':''} ${completed?'completed':''}" onclick="showPr(JSON.parse(decodeURIComponent('${obj}')))"><div><div class="prTitle"><span class="prNumber">#${pr.number}</span>${esc(pr.title||'')}</div><div class="prMeta">${esc(pos)} · ${esc(checksSummary(pr))}</div></div><span class="statusBadge ${cls}">${st}</span></div>`}
  function renderPrs(d){let open=(d.open_prs||[]).slice(0,4);let closed=[...(d.recent_completed||[])].sort((a,b)=>String(b.mergedAt||b.closedAt||b.updatedAt||'').localeCompare(String(a.mergedAt||a.closedAt||a.updatedAt||''))).slice(0,4);openPrs.innerHTML=open.map(x=>prRow(x)).join('')||'<div class="muted">No open PRs</div>';closedPrs.innerHTML=closed.map(x=>prRow(x,true)).join('')||'<div class="muted">No recent closed PRs</div>';if(d.current){currentPr.innerHTML=prRow({...d.current,number:d.current.number,title:d.current.title,url:d.current.url,headRefOid:d.current.head,isDraft:d.current.draft,state:d.current.state,reviewDecision:d.current.reviewDecision,statusCheckRollup:d.current.statusCheckRollup||[]});}else currentPr.innerHTML='<div class="decision warn"><div class="big">No Current PR</div><div class="muted" style="margin-top:4px">PM should select the active release PR when one exists.</div></div>'}
@@ -353,7 +438,7 @@
 +    return {r['actor']: dict(r) for r in c.execute('SELECT * FROM session_registration WHERE boot=?', (boot,))}
 --- /dev/null
 +++ b/test_session_registration.py
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,109 @@
 +import json
 +import sqlite3
 +import unittest
@@ -394,6 +479,15 @@
 +        self.assertEqual(registration.snapshot(self.db,'boot')['cli_dev']['state'],'awaiting_ack')
 +
 +class IntegrationTests(CommsTests):
++    def test_bootstrap_does_not_wait_for_github_or_task_ledger(self):
++        with patch.object(server,'compact_pr_context',side_effect=AssertionError('startup must not fetch GitHub')),patch.object(server,'list_work_items',side_effect=AssertionError('startup must not load task ledger')):
++            content=server.compose_for_pm({'kind':'session_negotiation','content':'SESSION_HELLO bounded challenge'})
++        self.assertTrue(content.startswith('ORCH_IDENTITY_ONLY\n'))
++        with patch.object(server,'load_pm_instructions',side_effect=AssertionError('no task protocol in identity turn')):
++            prompt=server._codex_prompt(content)
++        self.assertIn('No tools',prompt)
++        self.assertIn('board_updates=null',prompt)
++
 +    def test_native_coordinator_needs_no_external_actor_pairing(self):
 +        server.PM_MODE='codex'
 +        server.CODEX_AUTH_OK=True
@@ -548,3 +642,286 @@
 +        self.assertEqual(identity_decision(self.route,dict(self.report,provider='claude'))['state'],'provider_mismatch')
 +
 +if __name__=='__main__':unittest.main()
+--- a/codex_rpc.py
++++ b/codex_rpc.py
+@@ -187,7 +187,7 @@
+     try:
+         client = Client(route.remote_url, token=env.get(route.auth_token_env, '') if route.auth_token_env else '',
+                         timeout=timeout, env=env)
+-        client.rpc('initialize', {'clientInfo': {'name': 'orch-actor-delivery', 'version': '4.7.6'}})
++        client.rpc('initialize', {'clientInfo': {'name': 'orch-actor-delivery', 'version': '4.7.14'}, 'capabilities': {'experimentalApi': True}})
+         client.send({'method': 'initialized', 'params': {}})
+         cursor, seen, loaded = None, set(), False
+         for _ in range(8):
+@@ -205,7 +205,7 @@
+             seen.add(cursor)
+         if not loaded:
+             raise RPCError('Paired session is not loaded in the existing Codex server; no writer was started')
+-        thread = client.rpc('thread/read', {'threadId': route.session_id, 'includeTurns': True}).get('thread')
++        thread = client.rpc('thread/read', {'threadId': route.session_id, 'includeTurns': False}).get('thread')
+         if not isinstance(thread, dict) or thread.get('id') != route.session_id:
+             raise RPCError('Codex thread readback does not match pairing')
+         status = thread.get('status') or {}
+@@ -218,7 +218,12 @@
+             if not turn_id or turn.get('status') not in ('inProgress', 'completed'):
+                 raise RPCError('Codex did not confirm the requested turn')
+         elif state == 'active':
+-            active = [t for t in thread.get('turns', []) if t.get('status') == 'inProgress']
++            # Do not fetch years of item text merely to identify the current turn.
++            # One newest turn with items omitted is sufficient; unsupported servers
++            # reject before mutation rather than falling back to unbounded history.
++            recent = client.rpc('thread/turns/list', {'threadId': route.session_id,
++                'limit': 1, 'sortDirection': 'desc', 'itemsView': 'notLoaded'})
++            active = [t for t in recent.get('data', []) if isinstance(t, dict) and t.get('status') == 'inProgress']
+             if len(active) != 1 or not active[0].get('id') or status.get('activeFlags'):
+                 raise RPCError('Active paired turn cannot be safely steered; wait for its owner')
+             params['expectedTurnId'] = active[0]['id']
+--- a/test_agent_transport.py
++++ b/test_agent_transport.py
+@@ -13,9 +13,10 @@
+ SESSION = '11111111-1111-4111-8111-111111111111'
+ 
+ class FakeServer:
+-    def __init__(self, path, state='idle', loaded=True, lose_reply=False, reject=False):
++    def __init__(self, path, state='idle', loaded=True, lose_reply=False, reject=False, oversized_history=False):
+         self.path, self.state, self.loaded = path, state, loaded
+         self.lose_reply, self.reject = lose_reply, reject
++        self.oversized_history = oversized_history
+         self.methods, self.params, self.errors = [], [], []
+         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+         self.socket.bind(('127.0.0.1', 0)); self.socket.listen(1); self.socket.settimeout(3)
+@@ -49,7 +50,15 @@
+                     if method == 'initialized': continue
+                     if method == 'initialize': result = {}
+                     elif method == 'thread/loaded/list': result = {'data': [SESSION] if self.loaded else []}
+-                    elif method == 'thread/read': result = {'thread': {'id': SESSION, 'status': {'type': self.state}, 'turns': [{'id': 'existing-turn', 'status': 'inProgress'}] if self.state == 'active' else []}}
++                    elif method == 'thread/read':
++                        if self.oversized_history and params.get('includeTurns'):
++                            # The old client fails before reading payload, exactly
++                            # as a full-history response over its frame cap does.
++                            conn.sendall(bytes([129,127])+struct.pack('!Q',8*1024*1024+1))
++                            return
++                        result = {'thread': {'id': SESSION, 'status': {'type': self.state}, 'turns': []}}
++                    elif method == 'thread/turns/list':
++                        result = {'data':[{'id':'existing-turn','status':'inProgress'}]}
+                     elif method == 'turn/start': result = {'turn': {'id': 'new-turn', 'status': 'inProgress'}}
+                     elif method == 'turn/steer': result = {'turnId': 'existing-turn'}
+                     else: raise AssertionError('unexpected ' + method)
+@@ -82,10 +91,19 @@
+         self.assertTrue(result['accepted']); self.assertEqual(result['session_id'], SESSION)
+         self.assertEqual(s.methods, ['initialize', 'initialized', 'thread/loaded/list', 'thread/read', 'turn/start'])
+         self.assertEqual(s.params[-1], {'threadId': SESSION, 'input': [{'type': 'text', 'text': 'read task'}]})
++    def test_large_history_cannot_block_idle_delivery(self):
++        result,s=self.send(oversized_history=True)
++        self.assertTrue(result['accepted'])
++        read=s.params[s.methods.index('thread/read')]
++        self.assertFalse(read['includeTurns'])
++        self.assertNotIn('thread/turns/list',s.methods)
++
+     def test_active_thread_uses_exact_turn_steer(self):
+         result, s = self.send(state='active')
+         self.assertEqual(result['turn_id'], 'existing-turn'); self.assertNotIn('turn/start', s.methods)
+         self.assertEqual(s.params[-1]['expectedTurnId'], 'existing-turn')
++        turns=s.params[s.methods.index('thread/turns/list')]
++        self.assertEqual(turns,{'threadId':SESSION,'limit':1,'sortDirection':'desc','itemsView':'notLoaded'})
+     def test_unloaded_thread_never_resumed_as_second_writer(self):
+         with self.assertRaisesRegex(transport.QueueRejected, 'not loaded'): self.send(loaded=False)
+     def test_lost_mutation_reply_is_uncertain_without_retry(self):
+--- a/foreground_startup.py
++++ b/foreground_startup.py
+@@ -47,6 +47,17 @@
+         if (manifest.get('completed') is True and manifest.get('source_db') in approved_sources
+                 and manifest.get('target_db') == str((trial / 'state.db').resolve())):
+             source = trial / 'state.db'
++    current = root.parent / 'rwt-pr-handoff-v4.7.13' / '.agent-work'
++    current_receipt = current / 'migration-manifest.json'
++    if current_receipt.is_file() and (current / 'state.db').is_file():
++        manifest = json.loads(current_receipt.read_text())
++        approved_sources = {
++            str((root.parent / name / '.agent-work' / 'state.db').resolve())
++            for name in ('rwt-pr-handoff-v4.7.12','rwt-pr-handoff-v4.7.11','rwt-pr-handoff-v4.7.10','rwt-pr-handoff-v4.7.7-candidate')
++        }
++        if (manifest.get('completed') is True and manifest.get('source_db') in approved_sources
++                and manifest.get('target_db') == str((current / 'state.db').resolve())):
++            source = current / 'state.db'
+     if not (root / '.agent-work' / 'state.db').exists() and not env.get('RWT_MIGRATE_FROM') and source.is_file():
+         # Confirmed by last-serving receipts and the owned Mac diagnostic 6124027101.
+         env['RWT_MIGRATE_FROM'] = str(source)
+@@ -86,7 +97,7 @@
+         try:
+             with opener(f'http://127.0.0.1:{port}/api/live', timeout=5) as response:
+                 value = json.load(response)
+-            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.13':
++            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.14':
+                 return value
+         except (OSError, ValueError):
+             pass
+@@ -100,7 +111,7 @@
+     parser.add_argument('--port', type=int, required=True)
+     args = parser.parse_args()
+     wait_ready(args.pid, args.port)
+-    print('Orch v4.7.13 HTTP ready. Keep this terminal running for coordination.', flush=True)
++    print('Orch v4.7.14 HTTP ready. Keep this terminal running for coordination.', flush=True)
+     webbrowser.open(f'http://127.0.0.1:{args.port}/')
+ 
+ 
+--- a/orch-setup.py
++++ b/orch-setup.py
+@@ -59,10 +59,10 @@
+         # Keep existing installation and its work/leases; never create a second PM executor.
+         health = live['transport'].get('coordination', {})
+         print(json.dumps({'existing_board': True, 'coordination': health,
+-                          'running_version': live.get('version'), 'requested_version': '4.7.13',
+-                          'next': ('CLI PM handles listed route/recovery work' if live.get('version') == '4.7.13'
++                          'running_version': live.get('version'), 'requested_version': '4.7.14',
++                          'next': ('CLI PM handles listed route/recovery work' if live.get('version') == '4.7.14'
+                                    else 'The older foreground board is still running. Stop its terminal with Ctrl-C when idle, then run this installer again; no upgrade has occurred.')}))
+-        if not args.check and live.get('version') == '4.7.13':
++        if not args.check and live.get('version') == '4.7.14':
+             webbrowser.open(f'http://127.0.0.1:{port}/')
+         return 0
+     issues = package_integrity.verify(root)
+--- a/start-rwt-handoff.sh
++++ b/start-rwt-handoff.sh
+@@ -17,7 +17,7 @@
+ python3 -c 'from pathlib import Path; import os; from foreground_startup import prepare_foreground; prepare_foreground(Path.cwd(), os.environ)'
+ python3 migrate_state.py
+ 
+-echo "RWT Board v4.7.13 (coordination.7): $URL"
++echo "RWT Board v4.7.14 (coordination.8-work): $URL"
+ echo "Use 127.0.0.1, not localhost."
+ echo "Control issue: #${RWT_CONTROL_ISSUE}"
+ 
+--- a/test_foreground_startup.py
++++ b/test_foreground_startup.py
+@@ -44,7 +44,7 @@
+             pairing = source / 'agent-routes.json'
+             pairing.write_text('{"existing": "route"}')
+             pairing.chmod(0o600)
+-            root = parent / 'rwt-pr-handoff-v4.7.13'
++            root = parent / 'rwt-pr-handoff-v4.7.14'
+             root.mkdir()
+             env = {}
+             prepare_foreground(root, env, home)
+@@ -57,20 +57,20 @@
+             self.assertTrue(json.loads((root / '.agent-work' / 'migration-manifest.json').read_text())['completed'])
+ 
+     def test_browser_readiness_waits_through_connection_refusal_and_wrong_version(self):
+-        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.13', 'transport': {}}]
++        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.14', 'transport': {}}]
+         def opener(*args, **kwargs):
+             value = responses.pop(0)
+             if isinstance(value, Exception):
+                 raise value
+             return io.StringIO(json.dumps(value))
+         ready = wait_ready(1, 4317, opener=opener, alive=lambda: True, pause=lambda _: None)
+-        self.assertEqual(ready['version'], '4.7.13')
++        self.assertEqual(ready['version'], '4.7.14')
+         self.assertFalse(responses)
+ 
+     def test_verified_v4710_migration_retains_new_delivery_journal(self):
+         with tempfile.TemporaryDirectory() as directory:
+             parent = Path(directory)
+-            root = parent / 'rwt-pr-handoff-v4.7.13'
++            root = parent / 'rwt-pr-handoff-v4.7.14'
+             state = parent / 'rwt-pr-handoff-v4.7.10' / '.agent-work'
+             state.mkdir(parents=True)
+             with sqlite3.connect(state / 'state.db') as db:
+@@ -94,7 +94,7 @@
+     def test_verified_v4712_trial_journal_is_preferred(self):
+         with tempfile.TemporaryDirectory() as directory:
+             parent = Path(directory)
+-            root = parent / 'rwt-pr-handoff-v4.7.13'
++            root = parent / 'rwt-pr-handoff-v4.7.14'
+             state = parent / 'rwt-pr-handoff-v4.7.12' / '.agent-work'
+             state.mkdir(parents=True)
+             with sqlite3.connect(state / 'state.db') as db:
+@@ -113,7 +113,7 @@
+     def test_verified_v4711_journal_is_preferred_without_overwriting_existing_target(self):
+         with tempfile.TemporaryDirectory() as directory:
+             parent = Path(directory)
+-            root = parent / 'rwt-pr-handoff-v4.7.13'
++            root = parent / 'rwt-pr-handoff-v4.7.14'
+             state = parent / 'rwt-pr-handoff-v4.7.11' / '.agent-work'
+             state.mkdir(parents=True)
+             with sqlite3.connect(state / 'state.db') as db:
+@@ -143,9 +143,9 @@
+             plist.parent.mkdir(parents=True)
+             plist.write_bytes(plistlib.dumps({'Label': 'com.speaksharp.orch', 'ProgramArguments': ['python3', str(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.9' / 'installed-service.py')]}))
+             with self.assertRaisesRegex(RuntimeError, 'loaded'):
+-                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.13', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
++                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.14', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
+             self.assertTrue(plist.exists())
+-            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.13', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
++            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.14', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
+             self.assertFalse(plist.exists())
+             self.assertTrue(plist.with_suffix('.plist.disabled-v4.7.9').exists())
+ 
+--- a/test_regressions.py
++++ b/test_regressions.py
+@@ -342,7 +342,7 @@
+ 
+     def test_version_labels_match(self):
+         root=Path(server.__file__).parent
+-        self.assertEqual(server.BOARD_VERSION,'4.7.13')
++        self.assertEqual(server.BOARD_VERSION,'4.7.14')
+         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
+             text=(root/file).read_text()
+             self.assertIn('v'+server.BOARD_VERSION,text)
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,4 @@
+-# RWT Orch v4.7.13 — coordination.7
++# RWT Orch v4.7.14 — coordination.8-work
+ 
+ Only the PO downloads the package. Installation flows into the same foreground setup and launch as v4.7.7;
+ `Install_Orch.command` and `Start_Orch.command` both use that path. No LaunchAgent, login task or background
+@@ -17,8 +17,10 @@
+ without a wake hook are explicitly unsupported for automatic wake; GitHub posting is not delivery.
+ No merge/deployment/Production authority is created by event notifications or installation.
+ 
+-coordination.7 adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
++coordination.8-work adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
+ 
+ First launch publishes one durable ALL AGENTS version/launcher notice to the control issue and queues version-specific recipient handshakes. Restart does not duplicate the post or invent ACKs. PM notification publication failures are task holds, not coordinator-wide errors. Healthy CLI PM is shown as available/receiving events, with task holds displayed separately. Existing native browser-chat wake limits are unchanged.
+ 
+-Released for PO-authorized Mac trial. See MAC-ACCEPTANCE.md. Ops/Beta review lifecycles no longer require special PO authorization-string setup. Historical observation reminders consolidate per route; actual task actions and uncertain deliveries remain separate.
++HELD source candidate; no download ZIP released yet. See MAC-ACCEPTANCE.md. Ops/Beta review lifecycles no longer require special PO authorization-string setup. Historical observation reminders consolidate per route; actual task actions and uncertain deliveries remain separate.
++
++coordination.8-work: browser launch initiates per-boot UUID/nonce negotiation; native CLI PM boot identity skips GitHub/history loading and task ownership patches. Stale listeners/sleep gaps trigger negotiation. Identity and task/wake proof remain separate. Direct Codex route recovery distinguishes runtime UUID from inbox aliases and respects pending actions. Codex control reads summaries/newest active-turn metadata instead of full history, eliminating the reproduced >8 MiB history-frame rejection. HTTP disconnect handling is retained. Native Mac idle proof and legacy watcher recovery remain open.
+--- a/INSTALL.md
++++ b/INSTALL.md
+@@ -1,11 +1,13 @@
+-# Orch v4.7.13 installation
++HELD SOURCE: do not use old download/checksum references to install this working tree. No replacement ZIP is published.
+ 
+-Only PO downloads and installs. Install under ~/SW_Dev/rwt-pr-handoff-v4.7.13 using the same gh blob download, checksum verification, unzip and python3 orch-setup.py flow as v4.7.11. It starts in this terminal and opens http://127.0.0.1:4317/ after the actual API confirms version 4.7.13. Keep the terminal running. No LaunchAgent or login service is installed.
++# Orch v4.7.14 installation
++
++Only PO downloads and installs. Install under ~/SW_Dev/rwt-pr-handoff-v4.7.14 using the same gh blob download, checksum verification, unzip and python3 orch-setup.py flow as v4.7.11. It starts in this terminal and opens http://127.0.0.1:4317/ after the actual API confirms version 4.7.14. Keep the terminal running. No LaunchAgent or login service is installed.
+ 
+ Before upgrading, stop the old foreground board with Ctrl-C in its terminal when no worker action is in flight. The installer preserves a running board instead of killing active work, explicitly reports an old version, and does not pretend the upgrade occurred. Run the installation block in any directory; it changes into the extracted absolute folder itself.
+ 
+-On a fresh v4.7.13 folder, automatically prefer a verified v4.7.12 migration journal, then v4.7.11, then verified v4.7.10, then the known v4.7.7-candidate source. Preserve database, private pairing and artifacts. Existing target state and an explicit migration override are retained; unknown ambiguous history is not guessed. Original installations remain intact.
++On a fresh v4.7.14 folder, automatically prefer a verified v4.7.12 migration journal, then v4.7.11, then verified v4.7.10, then the known v4.7.7-candidate source. Preserve database, private pairing and artifacts. Existing target state and an explicit migration override are retained; unknown ambiguous history is not guessed. Original installations remain intact.
+ 
+ Existing gh/Codex login and paired routes remain prerequisites, not repeated setup. First launch announces the new app version through the supported routes and requires real recipient receipts/results. Devs do not install this bundle. Native CLI PM receives current events in its PM queue; an unsupported browser chat cannot be automatically awakened. A stale/unrearmed listener remains an explicit transport blocker, never a fabricated ACK.
+ 
+-Accept the installed upgrade only after the board reports 4.7.13 coordination.7, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
++Accept the installed upgrade only after the board reports 4.7.14 coordination.7, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
+--- a/RELEASE-CANDIDATE.md
++++ b/RELEASE-CANDIDATE.md
+@@ -1,11 +1,3 @@
+-# v4.7.13 coordination.7 — Mac trial
++# v4.7.14 — HELD source candidate
+ 
+-PO authorized publication for real-world Mac testing on 2026-10-13. This supersedes the hold on distributing the latest source. It is a trial, not a claim that all recipients have passed installed wake acceptance. Only PO downloads/installs; Devs do not download this bundle.
+-
+-Includes all saved v4.7.12 repairs plus routine PM review/CI follow-through using pinned PM source acceptance, current-PR provenance and Ops/Beta lifecycle support, and durable observation-outage incidents instead of one historical reminder per event. Original deliveries, callback identities and active writers are preserved. See MAC-ACCEPTANCE.md for the reported-issue matrix and real-host checks.
+-
+-Foreground install/launch, HTTP-readiness browser opening and verified predecessor migration. No LaunchAgent, login task or service. Keep the launcher terminal running. Existing recipient pairing and CLI sign-in are reused. First launch announces this version through GitHub and supported recipient routes.
+-
+-Open host proofs: GitHub event to idle-agent wake and matching receipt/result; watcher survival/rearm after runtime compaction; stale/replaced recipient routing; Browser PM inbound delivery. Unsupported browser chats cannot be awakened by a GitHub comment. CLI PM is the unattended coordinator and must handle eligible source review/qualification without PO relay. Missing runtime capability is explicit, not fabricated success.
+-
+-Migration, merge, deployment, credentials and Production runs retain separate authority. This package changes the coordination tool only.
++No replacement ZIP is released. Startup handshake, native coordinator registration, bounded Codex summary/turn reads and guarded route recovery are implemented. Local regressions prove the old full-history frame rejection and its correction. Actual Mac idle wake, legacy Claude tracked-task rearm and reconciliation of old uncertain actions remain unverified. No LaunchAgent/login service or Dev bundle download. No Production authority.
