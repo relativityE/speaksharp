@@ -8,6 +8,16 @@ if (!match) throw new Error('missing diagnostic authority guard');
 const guard = match[1].replace(/^ {10}/gm, '');
 const sha = 'a'.repeat(40);
 
+it.each(['ops-health.yml', 'vercel-access-diagnostic.yml', 'service-level-evidence.yml'])('%s reads the nonsecret team ID from repository variables', (filename) => {
+  const source = readFileSync(`.github/workflows/${filename}`, 'utf8');
+  const team = source.match(/^\s+VERCEL_TEAM_ID: \$\{\{\s*(.*?)\s*\}\}/m)?.[1];
+  expect(team).toContain('vars.VERCEL_TEAM_ID');
+  expect(team).toContain('vars.VERCEL_ORG_ID');
+  expect(team).not.toContain('secrets.');
+  expect(source).toMatch(/VERCEL_ACCESS_TOKEN: \$\{\{\s*secrets\.VERCEL_ACCESS_TOKEN\s*\}\}/);
+  expect(source).toMatch(/VERCEL_PROJECT_ID: \$\{\{\s*vars\.VERCEL_PROJECT_ID\s*\}\}/);
+});
+
 it.each([
   ['matching main, first attempt', 'refs/heads/main', sha, '1', 0],
   ['non-main with matching SHA', 'refs/heads/other', sha, '1', 1],
