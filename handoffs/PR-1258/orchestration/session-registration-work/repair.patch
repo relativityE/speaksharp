@@ -1,0 +1,368 @@
+--- a/server.py
++++ b/server.py
+@@ -35,6 +35,7 @@
+ import coordination_health
+ import worker_supervisor
+ import coordination_recovery
++import session_registration
+ 
+ APP = Path(__file__).resolve().parent
+ DB = APP / ".agent-work" / "state.db"
+@@ -91,8 +92,8 @@
+                                   "pull_request_review_comment", "workflow_run", "check_run", "check_suite", "push"})
+ CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1593"))
+ WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
+-BOARD_VERSION = "4.7.13"
+-BOARD_BUILD = "coordination.7"
++BOARD_VERSION = "4.7.14"
++BOARD_BUILD = "coordination.8-work"
+ GH_BACKOFF_UNTIL = 0.0
+ PR_DISPLAY_CACHE = {}
+ PR_DISPLAY_LOCK = threading.RLock()
+@@ -2436,17 +2437,19 @@
+     return qids
+ 
+ 
+-def persist_event_notifications(message, head='', event_key='', notice_kind='event-observation'):
++def persist_event_notifications(message, head='', event_key='', notice_kind='event-observation', target_actor=None, dispatch=True):
+     """Explicit role fanout; no keyword filters, action authority or fabricated pickup.
+ 
+     The existing PM queue remains the sole disposition writer. These copies are
+     awareness notices, even when a role has no transport yet.
+     """
+-    if notice_kind not in ('event-observation', 'version-handshake'):
++    if notice_kind not in ('event-observation', 'version-handshake', 'session-handshake'):
+         raise ValueError('unknown notification kind')
+     identity = hashlib.sha256(json.dumps([message, head, event_key, notice_kind]).encode()).hexdigest()
+     with DB_LOCK, con() as c:
+         for actor in actor_channels.ACTORS:
++            if target_actor is not None and actor != target_actor:
++                continue
+             if actor == 'cli_pm':
+                 # This native coordinator already receives the durable PM event queue.
+                 continue
+@@ -2479,12 +2482,13 @@
+                     if actor_channels.retire_unpresented_notice(old['action_id'], actor, old['target_session_id']):
+                         c.execute("UPDATE agent_notifications SET status='superseded',error=?,updated_at=? WHERE action_id=?",
+                                   ('Newer awareness snapshot; unread inbox notice retired, not acknowledged', now(), old['action_id']))
+-    dispatch_event_notifications()
++    if dispatch:
++        dispatch_event_notifications()
+ 
+ 
+ def dispatch_event_notifications():
+     with DB_LOCK, con() as c:
+-        rows = [dict(r) for r in c.execute("SELECT * FROM agent_notifications WHERE task_id IN ('event-observation','version-handshake') AND attempts=0 AND status='blocked_transport' ORDER BY updated_at,rowid LIMIT 20")]
++        rows = [dict(r) for r in c.execute("SELECT * FROM agent_notifications WHERE task_id IN ('event-observation','version-handshake','session-handshake') AND attempts=0 AND status='blocked_transport' ORDER BY updated_at,rowid LIMIT 20")]
+     for row in rows:
+         try:
+             route = configured_actor_route(row['actor_id'])
+@@ -4282,6 +4286,17 @@
+                 c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · receipt notification:' || ? WHERE handoff_id=? AND state='dispatched'",
+                           (action_id, n['handoff_id']))
+             else:
++                if n['task_id'] == 'session-handshake':
++                    if n['status'] not in ('received','responded') or not n['receipt_at']:
++                        return 409, {'error': 'identity receipt required before result'}
++                    try:
++                        ack = json.loads(evidence)
++                        if not isinstance(ack, dict):
++                            raise ValueError('identity ACK object required')
++                        session_registration.report(c, SESSION_BOOT_ID, actor_id,
++                            ack['nonce'], ack['runtime_session_id'], ack['runtime_provider'], time.time())
++                    except (ValueError, KeyError, TypeError, AttributeError):
++                        return 400, {'error': 'invalid/stale runtime identity ACK'}
+                 if n['status'] == 'responded' and n['result_digest'] == digest:
+                     return 200, {'ok': True, 'duplicate': True}
+                 if n['status'] != 'received' or not n['receipt_at']:
+@@ -5070,6 +5085,7 @@
+             sweep_preflight_recoveries()
+             sweep_invocation_recoveries()
+             sweep_agent_delivery_stalls()
++            sweep_session_registration()
+             players = list_player_status()
+             p = players.get('cli_dev') or {}
+             key = str(p.get('work_item_key') or '')
+@@ -5574,6 +5590,21 @@
+         add_activity("SYSTEM", "Cancelled PM response was discarded; no automatic handoff occurred.", "none", "system")
+         return
+ 
++    if q.get('kind') == 'session_negotiation':
++        if routed.get('parse_error'):
++            update_queue(q['id'], status='failed', error=routed['parse_error'], finished_at=now())
++            set_agent('pm', status='idle', session_id=sid)
++            return
++        with DB_LOCK, con() as c:
++            current = session_registration.snapshot(c, SESSION_BOOT_ID).get('cli_pm')
++            if current and sid and ('"nonce": "' + current['nonce'] + '"') in q.get('content', ''):
++                session_registration.report(c, SESSION_BOOT_ID, 'cli_pm', current['nonce'], sid,
++                                            'codex' if mode == 'codex' else 'claude', time.time())
++        update_queue(q['id'], status='responded', session_id=sid, finished_at=now())
++        set_agent('pm', status='idle', session_id=sid)
++        add_activity('PM', routed.get('message','Identity negotiation returned'), 'none', 'reported', trigger_queue_id=q['id'])
++        # Identity-only turns never patch repository task ownership or execute actions.
++        return
+     updates = routed.get("board_updates")
+     if (not isinstance(updates, dict) or not updates.get('work_items') or not updates.get('players')):
+         detail = 'PM replied without task AND player reconciliation; no executable handoff'
+@@ -5604,6 +5635,12 @@
+         return
+     update_queue(q["id"], status="responded", finished_at=now(), session_id=sid)
+     set_agent("pm", status="idle", session_id=sid)
++    if q.get('kind') == 'session_negotiation' and sid and pm_transport_mode() in ('codex','claude'):
++        with DB_LOCK, con() as c:
++            current = session_registration.snapshot(c, SESSION_BOOT_ID).get('cli_pm')
++            if current and ('"nonce": "' + current['nonce'] + '"') in q.get('content', ''):
++                session_registration.report(c, SESSION_BOOT_ID, 'cli_pm', current['nonce'], sid,
++                                            pm_transport_mode(), time.time())
+     patch_errors = []
+     accepted = apply_board_updates(updates, errors=patch_errors)
+     if not accepted:
+@@ -6600,6 +6637,11 @@
+     return [r['action_id'] for r in notices + tasks]
+ 
+ 
++def registration_snapshot():
++    with DB_LOCK, con() as c:
++        return session_registration.snapshot(c, SESSION_BOOT_ID)
++
++
+ def transport_status():
+     mode = pm_transport_mode()
+     codex_binary = resolved_bin(CODEX_BIN)
+@@ -6666,6 +6708,7 @@
+         "claude_worker_configured": bool(resolved_bin(CLAUDE_BIN)),
+         "claude_subscription_mode": True,
+         "claude_permission_mode": PERMISSION_MODE,
++        "session_registration": registration_snapshot(),
+         "agent_routes": actors,
+         "external_notification_configured": external_ready,
+         "external_notification_status": ("Recipient routes configured; inspect each route's automatic-wake receipt proof"
+@@ -6860,6 +6903,9 @@
+         except Exception:
+             return self.sendj(400, {"error": "invalid json"})
+ 
++        if self.path == '/api/dashboard-open':
++            request_session_registration('dashboard-open')
++            return self.sendj(200, {'ok': True, 'registration': registration_snapshot()})
+         if self.path == '/api/agent-route-retire':
+             if not isinstance(b, dict):
+                 return self.sendj(400, {'error': 'JSON object required'})
+@@ -7054,6 +7100,60 @@
+ 
+     def log_message(self, *args):
+         pass
++
++
++SESSION_BOOT_ID = uuid.uuid4().hex
++SESSION_LAST_TICK = None
++
++
++def request_session_registration(reason, actors=None):
++    """Dashboard/startup/stale recovery runs in the foreground board, not a Mac daemon."""
++    challenges = []
++    with DB_LOCK, con() as c:
++        for actor in actors or session_registration.ACTORS:
++            challenge = session_registration.request(c, SESSION_BOOT_ID, actor, reason, time.time())
++            if challenge:
++                challenges.append(challenge)
++    for challenge in challenges:
++        message = ('SESSION_HELLO ' + json.dumps(challenge, sort_keys=True) +
++                   ' — Read your CURRENT runtime session UUID, not the persisted recipient route. '
++                   'Return result evidence as JSON {"nonce":"' + challenge['nonce'] +
++                   '","runtime_session_id":"<actual UUID>","runtime_provider":"codex or claude"}. '
++                   'Use this notice authenticated receipt/result callback. Identity ACK is not idle-wake proof. '
++                   'CLI PM must reconcile any changed route and restore a supported tracked watcher or owned '
++                   'registered consumer; do not create another writer, replay uncertain actions or claim unsupported wake.')
++        # CLI PM uses the sole executor; the other roles receive authenticated
++        # awareness notices, never repository tasks. The challenge names its actor.
++        aid = add_activity('SYSTEM', message, 'pm', 'posted')
++        enqueue(aid, 'pm', message, source_actor='SYSTEM', kind='session_negotiation',
++                delivery_key='session-hello:' + challenge['nonce'])
++        if challenge['actor'] != 'cli_pm':
++            persist_event_notifications(message, event_key=challenge['nonce'], notice_kind='session-handshake',
++                                        target_actor=challenge['actor'], dispatch=False)
++    return challenges
++
++
++def sweep_session_registration(at=None):
++    global SESSION_LAST_TICK
++    at = time.time() if at is None else float(at)
++    if SESSION_LAST_TICK is not None and (at - SESSION_LAST_TICK > 120 or at < SESSION_LAST_TICK):
++        request_session_registration('host-resume:' + str(int(at)))
++    SESSION_LAST_TICK = at
++    for actor in ('app_dev', 'cli_dev'):
++        try:
++            route = configured_actor_route(actor)
++        except agent_transport.RouteError:
++            continue
++        if route.provider != 'local_inbox':
++            continue
++        health = actor_channels.listener_status(actor, route.session_id)
++        seen = health['listener_last_seen']
++        if seen is None or at - seen >= 60 or health['listener_state'] not in ('listening','working'):
++            import worker_runtime
++            worker = worker_runtime.status(actor, route.session_id)
++            if worker and worker.get('recent') and worker.get('status') in ('listening','working'):
++                continue
++            request_session_registration('listener-loss:' + route.session_id + ':' + str(seen), (actor,))
+ 
+ 
+ def prepare_app_version_notice():
+--- a/static/index.html
++++ b/static/index.html
+@@ -98,11 +98,11 @@
+ function renderDashboard(d){dashboard=d;document.querySelector('.version').textContent='Board v'+d.version+' ('+(d.build||'original')+') · MAIN GOAL: RWT CLOSED · observed '+(d.observed_at||'unknown')+' · GitHub checked '+(d.github_observed_at||'unknown')+(d.github_error?' · GitHub error: '+d.github_error:'')+' · '+(d.reconciliation||'Reconciliation unknown')+' · '+(d.comms?.outbox||'Outbox pending')+(d.comms?.error?' · Watcher error: '+d.comms.error:'');let b=d.blocker||{};let po=Object.values(d.players||{}).find(x=>x.player_id==='po')||{};let poNeed=!!b.po_required||String(po.status||'').toLowerCase()==='action-needed';blockerTitle.textContent=b.text||'No blocker recorded';blockerMeta.textContent=`Owner: ${N[b.owner]||b.owner||'Unassigned'} · blocked ${age(b.age_seconds)} · ${b.cause||'No cause recorded'}`;blockerNext.innerHTML=`<span class="strong">Next:</span> ${esc(b.next_action||'No next action recorded')}`;blocker.className='decision '+(String(b.text||'').toLowerCase().includes('failed')?'bad':'warn');poDecisionTitle.textContent=poNeed?'ACTION NEEDED':'NO ACTION NEEDED';poDecisionMeta.textContent=poNeed?(po.task||b.next_action||'Decision requested'):'No PO decision is currently recorded; execution gates still apply.';poDecision.className='decision '+(poNeed?'warn':'good');renderAgents(d.players||{});renderQueue(d.priority_queue||[]);renderPrs(d);renderLedger(d);const selectedAgent=detailBox.dataset.agent;if(selectedAgent)showAgent(selectedAgent,true)}
+ async function refreshDashboard(){try{renderDashboard(await api('/api/dashboard'))}catch(e){blockerTitle.textContent='Dashboard error';blockerMeta.textContent=e.message}}
+ function deliveryHtml(d){let [t,c]=statusNorm(d.status);let task=d.work_item_key?` · task ${esc(d.work_item_key)} · ${esc(d.target_branch||'branch unknown')} · ${esc(d.target_worktree||'worktree unknown')}`:'';return `<div class="delivery"><strong>#${d.id}</strong> ${esc(d.source_actor)}→${esc(d.recipient)} <span class="statusBadge ${c}">${esc(d.delivery_label||t)}</span> · attempt ${d.attempts||0} · ${d.historical?'history':'current'} · ${age(d.age_seconds)}<div class="muted">${esc(d.delivery_stage||t)}${task}</div>${d.target_actor_id?`<div class="tiny">Recipient: ${esc(d.target_actor_id)} · ${esc(d.target_transport||'route unknown')} · session ${esc(d.target_session_id||'unknown')} · action ${esc(d.task_action_id||'not assigned')} · ${d.task_receipt_at?'receipt recorded':'receipt missing'} · ${d.task_result_at?'result recorded':'result missing'}</div>`:''}${d.github_comment_id&&d.status!=='responded'?`<div class="muted">Prior publication: GitHub comment ${esc(d.github_comment_id)} · current attempt ${esc(d.status)}</div>`:''}${d.dispatch_blocker?`<div class="warn">${esc(d.dispatch_blocker)}</div>`:''}${d.error?`<div class="error">${esc(d.error)}</div>`:''}${d.recovery_action?`<div class="muted">${esc(d.recovery_action)}</div>`:''}${String(d.status).startsWith('failed')&&!d.recovery_action?.startsWith('PM recovery queued')?`<button onclick="retryDelivery(${d.id})">retry</button>`:''}</div>`}
+-async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(!r.configured?'not paired'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'paired; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;const selectedRoute=t.agent_routes?.[pairActor.value];if(selectedRoute?.worker){const w=selectedRoute.worker;pairResult.textContent='Worker '+w.worker_id+' · thread '+w.thread_id+' · '+w.status+(w.recent?' · heartbeat live':' · heartbeat stale')+(w.error?' · '+w.error:'')+' · '+(w.actions||[]).map(a=>a.action_id+': '+a.state+(a.error?' ('+a.error+')':'')).join('; ')}else if(selectedRoute?.last_delivery){const l=selectedRoute.last_delivery;pairResult.textContent=l.action_id+' · '+l.status+(l.receipt_at?' · recipient receipt recorded':' · no recipient receipt')+(l.result_at?' · result recorded':'')+(l.error?' · '+l.error:'')+(l.fallback_queue_id?' · PM fallback reminder queued #'+l.fallback_queue_id:'')+' · '+(selectedRoute.live_delivery_proven?'automatic wake proven':'automatic wake unproven')};activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
++async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const identities=t.session_registration||{};const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(identities[id]?.state||'identity not requested')+' · '+(!r.configured?'not paired'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'paired; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;const selectedRoute=t.agent_routes?.[pairActor.value];if(selectedRoute?.worker){const w=selectedRoute.worker;pairResult.textContent='Worker '+w.worker_id+' · thread '+w.thread_id+' · '+w.status+(w.recent?' · heartbeat live':' · heartbeat stale')+(w.error?' · '+w.error:'')+' · '+(w.actions||[]).map(a=>a.action_id+': '+a.state+(a.error?' ('+a.error+')':'')).join('; ')}else if(selectedRoute?.last_delivery){const l=selectedRoute.last_delivery;pairResult.textContent=l.action_id+' · '+l.status+(l.receipt_at?' · recipient receipt recorded':' · no recipient receipt')+(l.result_at?' · result recorded':'')+(l.error?' · '+l.error:'')+(l.fallback_queue_id?' · PM fallback reminder queued #'+l.fallback_queue_id:'')+' · '+(selectedRoute.live_delivery_proven?'automatic wake proven':'automatic wake unproven')};activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
+ async function refreshPr(){try{let s=await api('/api/pr-state');wtStatus.textContent=s.worktree&&s.worktree.is_git?`CLI Dev worktree: ${s.worktree.path} · ${(s.worktree.head||'').slice(0,9)} · ${s.worktree.clean?'clean':'DIRTY'}`:'CLI Dev worktree not selected/ready'}catch(e){wtStatus.textContent='Worktree error: '+e.message}}
+ async function readFiles(){let out=[];let el=document.getElementById('files');if(!el)return out;for(const f of el.files){let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});out.push({name:f.name,data})}return out}
+ async function send(){let selected=document.querySelector('input[name=route]:checked');let route=selected?selected.value:'pm';sessionStorage.setItem('rwtSendRoute',route);let text=msg.value.trim();if(!text&&!document.getElementById('files').files.length){sendStatus.textContent='Type a message or attach files first.';return}sendStatus.textContent='Sending…';try{let fs=await readFiles();let sent=await api('/api/send',{method:'POST',body:JSON.stringify({actor:'PO',route,message:text,files:fs,handoff_pr:handoffPr.value,handoff_topic:handoffTopic.value})});msg.value='';let f=document.getElementById('files');if(f)f.value='';sendStatus.textContent=route==='none'?'Posted to GitHub #1258.':'Queued deliveries '+(sent.delivery_ids||[]).join(', ')+'; acknowledgment appears in Delivery queue';if(sent.handoff_manifest)sendStatus.textContent+=' · Handoff: '+sent.handoff_manifest;await refreshAll()}catch(e){sendStatus.textContent='Not sent: '+e.message}}
+ function initComposer(){let saved=sessionStorage.getItem('rwtSendRoute')||'pm';let r=document.querySelector(`input[name=route][value="${saved}"]`)||document.querySelector('input[name=route][value="pm"]');if(r)r.checked=true;document.querySelectorAll('input[name=route]').forEach(x=>x.addEventListener('change',()=>sessionStorage.setItem('rwtSendRoute',x.value)));}
+ async function pause(agent,v){await api('/api/pause',{method:'POST',body:JSON.stringify({agent,paused:v})});await refreshLive()}async function killAgent(agent){await api('/api/kill',{method:'POST',body:JSON.stringify({agent})});await refreshLive()}async function resetDev(){await api('/api/reset-dev',{method:'POST',body:'{}'});await refreshLive()}async function resetPm(){await api('/api/reset-pm',{method:'POST',body:'{}'});await refreshLive()}async function retryDelivery(id){await api('/api/retry-delivery',{method:'POST',body:JSON.stringify({id})});await refreshLive()}async function saveAutomation(){let body={pm_github_review:a_pm_review.checked,pm_github_ci:a_pm_ci.checked,pm_github_head:a_pm_head.checked,pm_github_deploy:a_pm_deploy.checked,dev_github:a_dev_github.checked,dev_to_pm:a_dev_pm.checked,pm_to_dev:a_pm_dev.checked,watch_interval_seconds:Number(a_interval.value||20)};await api('/api/automation',{method:'POST',body:JSON.stringify(body)});automationSaved.textContent='saved '+new Date().toLocaleTimeString();await refreshLive()}
+-async function refreshAll(){await Promise.all([refreshDashboard(),refreshLive(),refreshPr()])}initComposer();refreshAll();setInterval(refreshLive,2500);setInterval(refreshDashboard,10000);setInterval(refreshPr,30000);
++async function refreshAll(){await Promise.all([refreshDashboard(),refreshLive(),refreshPr()])}initComposer();api('/api/dashboard-open',{method:'POST',body:'{}'}).then(refreshAll).catch(e=>{transport.textContent='Registration startup error: '+e.message;refreshAll()});setInterval(refreshLive,2500);setInterval(refreshDashboard,10000);setInterval(refreshPr,30000);
+ </script></main></body></html>
+--- /dev/null
++++ b/session_registration.py
+@@ -0,0 +1,44 @@
++"""Per-launch identity challenges. Identity reports never imply idle wake proof."""
++import uuid
++
++ACTORS = ('cli_pm', 'cli_dev', 'app_dev', 'browser_pm')
++
++def schema(c):
++    c.execute('CREATE TABLE IF NOT EXISTS session_registration(actor TEXT PRIMARY KEY, boot TEXT, nonce TEXT, reason TEXT, requested REAL, reported REAL, session TEXT, provider TEXT, state TEXT)')
++
++def request(c, boot, actor, reason, at):
++    schema(c)
++    if actor not in ACTORS:
++        raise ValueError('unknown actor')
++    old = c.execute('SELECT * FROM session_registration WHERE actor=?', (actor,)).fetchone()
++    if old and old['boot'] == boot:
++        # Reloads and repeated stale polls share one pending challenge. A reported
++        # identity can be challenged again only for a new health incident.
++        if old['state'] == 'awaiting_ack' and at - old['requested'] < 300:
++            return None
++        if old['reason'] == reason:
++            return None
++    nonce = uuid.uuid4().hex
++    c.execute('INSERT OR REPLACE INTO session_registration VALUES(?,?,?,?,?,NULL,NULL,NULL,?)',
++              (actor, boot, nonce, reason, at, 'awaiting_ack'))
++    return {'actor': actor, 'boot': boot, 'nonce': nonce, 'reason': reason}
++
++def report(c, boot, actor, nonce, session, provider, at):
++    schema(c)
++    row = c.execute('SELECT * FROM session_registration WHERE actor=?', (actor,)).fetchone()
++    if not row or row['boot'] != boot or row['nonce'] != nonce:
++        raise ValueError('stale or mismatched identity challenge')
++    session = str(uuid.UUID(session))
++    if provider not in ('codex', 'claude'):
++        raise ValueError('unsupported runtime identity provider')
++    if row['reported'] is not None:
++        if row['session'] != session or row['provider'] != provider:
++            raise ValueError('conflicting identity ACK')
++        return False
++    c.execute("UPDATE session_registration SET reported=?,session=?,provider=?,state='identity_reported' WHERE actor=?",
++              (at, session, provider, actor))
++    return True
++
++def snapshot(c, boot):
++    schema(c)
++    return {r['actor']: dict(r) for r in c.execute('SELECT * FROM session_registration WHERE boot=?', (boot,))}
+--- /dev/null
++++ b/test_session_registration.py
+@@ -0,0 +1,91 @@
++import json
++import sqlite3
++import unittest
++from unittest.mock import patch
++import session_registration as registration
++import server
++from test_comms import CommsTests
++
++SESSION = '01a0f83f-a51b-76e3-ae4f-e45aec3c6980'
++
++class LedgerTests(unittest.TestCase):
++    def setUp(self):
++        self.db = sqlite3.connect(':memory:')
++        self.db.row_factory = sqlite3.Row
++    def tearDown(self):
++        self.db.close()
++    def test_reload_coalesces_and_boot_replaces_nonce(self):
++        first = registration.request(self.db,'boot','cli_dev','dashboard-open',100)
++        self.assertIsNone(registration.request(self.db,'boot','cli_dev','dashboard-open',101))
++        second = registration.request(self.db,'next','cli_dev','dashboard-open',102)
++        self.assertNotEqual(first['nonce'],second['nonce'])
++        with self.assertRaises(ValueError):
++            registration.report(self.db,'next','cli_dev',first['nonce'],SESSION,'codex',103)
++    def test_actor_nonce_uuid_and_duplicate_validation(self):
++        first = registration.request(self.db,'boot','cli_dev','dashboard-open',100)
++        for actor,nonce,sid in [('app_dev',first['nonce'],SESSION),('cli_dev','wrong',SESSION),('cli_dev',first['nonce'],'invalid')]:
++            with self.assertRaises(ValueError):
++                registration.report(self.db,'boot',actor,nonce,sid,'codex',101)
++        self.assertTrue(registration.report(self.db,'boot','cli_dev',first['nonce'],SESSION,'codex',102))
++        self.assertFalse(registration.report(self.db,'boot','cli_dev',first['nonce'],SESSION,'codex',103))
++        self.assertEqual(registration.snapshot(self.db,'boot')['cli_dev']['state'],'identity_reported')
++    def test_listener_loss_new_challenge_never_implies_wake(self):
++        first = registration.request(self.db,'boot','cli_dev','dashboard-open',100)
++        registration.report(self.db,'boot','cli_dev',first['nonce'],SESSION,'codex',101)
++        second = registration.request(self.db,'boot','cli_dev','listener-loss',102)
++        self.assertNotEqual(first['nonce'],second['nonce'])
++        self.assertIsNone(registration.request(self.db,'boot','cli_dev','listener-loss',103))
++        self.assertEqual(registration.snapshot(self.db,'boot')['cli_dev']['state'],'awaiting_ack')
++
++class IntegrationTests(CommsTests):
++    def test_authenticated_callback_records_identity_but_not_wake(self):
++        challenge=server.request_session_registration('dashboard-open',('cli_dev',))[0]
++        with server.con() as c:
++            notice=c.execute("SELECT * FROM agent_notifications WHERE task_id='session-handshake'").fetchone()
++            action=notice['action_id']
++            c.execute("UPDATE agent_notifications SET target_session_id=?,status='awaiting_receipt' WHERE action_id=?",(SESSION,action))
++        token=server._notification_callback_token(action,'cli_dev',SESSION)
++        payload={'action_id':action,'actor_id':'cli_dev','session_id':SESSION,'stage':'result',
++                 'evidence':json.dumps({'nonce':challenge['nonce'],'runtime_session_id':SESSION,'runtime_provider':'codex'})}
++        self.assertEqual(server.record_agent_task_callback(payload,token)[0],409)
++        self.assertEqual(server.record_agent_task_callback(dict(payload,stage='receipt',evidence='identity request received'),token)[0],200)
++        self.assertEqual(server.record_agent_task_callback(payload,token)[0],200)
++        self.assertEqual(server.registration_snapshot()['cli_dev']['state'],'identity_reported')
++
++    def test_native_pm_handshake_does_not_require_task_ownership_patch(self):
++        server.PM_MODE='codex'
++        server.request_session_registration('dashboard-open',('cli_pm',))
++        q=next(q for q in server.list_queue() if q['kind']=='session_negotiation')
++        with patch.object(server,'_run_pm_codex',return_value=({'message':'ACK current runtime','next':'none'},SESSION)):
++            server.run_pm(q)
++        self.assertEqual(server.registration_snapshot()['cli_pm']['session'],SESSION)
++        self.assertEqual(server.list_queue()[0]['status'],'responded')
++
++    def test_startup_addresses_each_role_without_fanout_duplicates(self):
++        with patch.object(server,'dispatch_event_notifications') as dispatch:
++            first = server.request_session_registration('dashboard-open')
++            self.assertEqual(len(first),4)
++            self.assertEqual(len(server.request_session_registration('dashboard-open')),0)
++            dispatch.assert_not_called()
++        with server.con() as c:
++            notices=list(c.execute("SELECT actor_id,instruction FROM agent_notifications WHERE task_id='session-handshake'"))
++        self.assertEqual(len(notices),3)
++        for row in notices:
++            challenge=next(x for x in first if x['actor']==row['actor_id'])
++            self.assertIn(challenge['nonce'],row['instruction'])
++        self.assertEqual(len([q for q in server.list_queue() if q['kind']=='session_negotiation']),4)
++    def test_watcher_loss_requests_registration_once(self):
++        route=type('Route',(),{'provider':'local_inbox','session_id':SESSION})()
++        with patch.object(server,'configured_actor_route',return_value=route),patch.object(server.actor_channels,'listener_status',return_value={'listener_last_seen':100,'listener_state':'waiting_for_rearm'}),patch('worker_runtime.status',return_value=None):
++            server.SESSION_LAST_TICK=150
++            server.sweep_session_registration(160)
++            server.sweep_session_registration(161)
++        self.assertEqual(len([q for q in server.list_queue() if q['kind']=='session_negotiation']),2)
++    def test_sleep_gap_negotiates_all_roles(self):
++        with patch.object(server,'configured_actor_route',side_effect=server.agent_transport.RouteError('unpaired')):
++            server.SESSION_LAST_TICK=100
++            server.sweep_session_registration(900)
++        self.assertEqual(len(server.registration_snapshot()),4)
++
++if __name__=='__main__':
++    unittest.main()
