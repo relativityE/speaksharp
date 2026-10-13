@@ -39,7 +39,7 @@ import {
 import { PROGRESS_DEBT_PHASES, PROGRESS_DEBT_REASONS, PROGRESS_DEBT_TRIGGERS } from './progress/progressDebtVocabulary';
 import {
     PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_INFO_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS,
-    PROVIDER_TOKEN_MAX,
+    PROVIDER_TOKEN_MAX, PROVIDER_WAIT_MS_MAX, RETRY_AFTER_S_MAX,
 } from './telemetry/providerCodes';
 import { RECORDING_FAILURE_CODES } from './recordingFailureCode';
 
@@ -702,6 +702,15 @@ export const EVENT_SCHEMAS = Object.freeze({
         attempt_2_reason: enumOf(PROVIDER_ATTEMPT_REASONS),
         attempt_2_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
         attempt_2_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        // #1258 option A: the third attempt and content-free retry facts — never the Retry-After header's raw value.
+        attempt_3_reason: enumOf(PROVIDER_ATTEMPT_REASONS),
+        attempt_3_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
+        attempt_3_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        provider_wait_ms_total: { kind: 'int', min: 0, max: PROVIDER_WAIT_MS_MAX } as FieldRule,
+        retry_after_present: { kind: 'bool' } as FieldRule,
+        retry_after_malformed: { kind: 'bool' } as FieldRule,
+        retry_after_s: { kind: 'int', min: 0, max: RETRY_AFTER_S_MAX } as FieldRule,
+        stopped_over_budget: { kind: 'bool' } as FieldRule,
     },
 
     // ── live-coaching experiment ────────────────────────────────────────────

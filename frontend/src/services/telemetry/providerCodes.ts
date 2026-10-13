@@ -19,8 +19,11 @@ export const PROVIDER_BLOCK_REASONS = [
 /** One provider attempt's outcome: the server's closed failure reason, or `none` for an attempt that answered. */
 export const PROVIDER_ATTEMPT_REASONS = [
     'none', 'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
-    'invalid_shape', 'over_character_ceiling', 'missing_model_version',
+    'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'request_cancelled',
 ] as const;
+/** #1258 option A: the retry wait ceiling the Edge budget allows, and the clamp the Edge applies to `retry_after_s`. */
+export const PROVIDER_WAIT_MS_MAX = 600_000;
+export const RETRY_AFTER_S_MAX = 60;
 /** The documented google.api.ErrorReason values (PM RETURN 6134462030: a closed list, never a shape check). */
 export const PROVIDER_ERROR_INFO_REASONS = [
     'SERVICE_DISABLED', 'BILLING_DISABLED', 'API_KEY_INVALID', 'API_KEY_SERVICE_BLOCKED', 'API_KEY_HTTP_REFERRER_BLOCKED',
@@ -49,10 +52,20 @@ export interface ProviderCodeFields {
     attempt_2_reason: (typeof PROVIDER_ATTEMPT_REASONS)[number] | null;
     attempt_2_status: number | null;
     attempt_2_ms: number | null;
+    attempt_3_reason: (typeof PROVIDER_ATTEMPT_REASONS)[number] | null;
+    attempt_3_status: number | null;
+    attempt_3_ms: number | null;
+    /** #1258 option A — content-free retry facts; never the Retry-After header's raw value. */
+    provider_wait_ms_total: number | null;
+    retry_after_present: boolean | null;
+    retry_after_malformed: boolean | null;
+    retry_after_s: number | null;
+    stopped_over_budget: boolean | null;
 }
 
 const oneOf = <T extends string>(list: readonly T[], value: unknown): T | null =>
     typeof value === 'string' && (list as readonly string[]).includes(value) ? value as T : null;
+const bool = (value: unknown): boolean | null => (typeof value === 'boolean' ? value : null);
 const int = (value: unknown, min: number, max: number): number | null =>
     Number.isInteger(value) && Number(value) >= min && Number(value) <= max ? Number(value) : null;
 
@@ -73,5 +86,13 @@ export function providerCodeFields(server: Record<string, unknown> | null): Prov
         attempt_2_reason: oneOf(PROVIDER_ATTEMPT_REASONS, server?.attempt_2_reason),
         attempt_2_status: int(server?.attempt_2_status, 100, 599),
         attempt_2_ms: int(server?.attempt_2_ms, 0, 600_000),
+        attempt_3_reason: oneOf(PROVIDER_ATTEMPT_REASONS, server?.attempt_3_reason),
+        attempt_3_status: int(server?.attempt_3_status, 100, 599),
+        attempt_3_ms: int(server?.attempt_3_ms, 0, 600_000),
+        provider_wait_ms_total: int(server?.provider_wait_ms_total, 0, PROVIDER_WAIT_MS_MAX),
+        retry_after_present: bool(server?.retry_after_present),
+        retry_after_malformed: bool(server?.retry_after_malformed),
+        retry_after_s: int(server?.retry_after_s, 0, RETRY_AFTER_S_MAX),
+        stopped_over_budget: bool(server?.stopped_over_budget),
     };
 }
