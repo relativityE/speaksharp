@@ -189,10 +189,14 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             receipt.row('navigation writes nothing', (after ?? 0) === sessionsBefore ? 'PASS' : 'FAIL',
                 'navigation alone created no session', { sessionsBefore, sessionsAfter: after ?? null });
 
+            // #1258 R9 (run 38312345563): the journey takes seconds; wait (bounded) until its navigation telemetry is
+            // observed leaving the page before signing out, or the queued events are lost when the page goes.
+            receipt.meta.navigationTelemetryObserved = (await tap.awaitObserved(page, { journey_step: 1 })).observed;
             // Leave the shared account signed out through the product's own control; it is never deleted.
             await page.getByTestId('sign-out-button').or(page.getByTestId('nav-sign-out-button')).first().click({ timeout: 10_000 }).catch(() => undefined);
             if (historyUnproven) throw new Error('HOLD returning history: the returning-user account has no saved session, so returning history is unproven');
         } finally {
+            await tap.awaitObserved(page, { journey_step: 1 });
             receipt.row('journey_step sent', tap.sent('journey_step').length > 0 ? 'PASS' : 'HOLD',
                 'journey_step left the page (sent, not yet received)', { sent: tap.sent('journey_step').length });
             // A maintained account is never given the canary claim, so its telemetry is not readback-eligible here.

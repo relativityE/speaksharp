@@ -520,7 +520,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
                     receipt, admin: admin as never, userId: owner.uid, reportId: feedbackReportId, currentSessionId: persistedId,
-                    exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'focus_points',
+                    exchanges: generations.exchanges, reportedFailures: tap.sent('practice_loop_review_failed'), configuredModel: coachingContract.model, product: 'focus_points',
                 });
             });
         }
@@ -747,6 +747,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             });
         }
     } finally {
+        // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
+        receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { coverage_evaluation: 1 })).observed;
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         const coverageSeen = tap.sent('coverage_evaluation').length > 0;
         const coverageReceivedBy = ['session_after_focus_points'] as const;

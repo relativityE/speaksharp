@@ -624,7 +624,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
                     receipt, admin: admin as never, userId: capturedUid, reportId: feedbackReportId, currentSessionId: persistedId,
-                    exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'open_mic',
+                    exchanges: generations.exchanges, reportedFailures: tap.sent('practice_loop_review_failed'), configuredModel: coachingContract.model, product: 'open_mic',
                 });
             });
 
@@ -695,6 +695,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                 });
             });
         } finally {
+            // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
+            receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 })).observed;
             // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.
             sampler.stop();
             activeSampler = null;

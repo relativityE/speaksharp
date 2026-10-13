@@ -650,6 +650,27 @@ export class AnalyticsTap {
         return 'quiet';
     }
 
+    /**
+     * #1258 R8/R9 (PM review): before a journey leaves the page or ends, wait — BOUNDED — until the tap has OBSERVED the
+     * events this step must have sent, and say whether it did. One elapsed batching interval is not delivery proof.
+     * PostHog batches for ~3 s; scenario 1 navigated 0.9 s after Share Feedback and scenario 4 ended under 7 s after
+     * sign-in, before their events were seen. An offline Chromium + posthog-js 1.298.1 run showed events captured < 3 s
+     * before a page or context close were never sent. Staying until the events are observed lets them leave on the
+     * ordinary flush this tap decodes. `observed` false is reported, never converted into PASS. Never throws.
+     */
+    async awaitObserved(
+        page: Pick<Page, 'waitForTimeout' | 'isClosed'>, expected: Readonly<Record<string, number>>, opts: { timeoutMs?: number; pollMs?: number } = {},
+    ): Promise<{ observed: boolean; missing: string[] }> {
+        const { timeoutMs = 8_000, pollMs = 100 } = opts;
+        const missing = () => Object.entries(expected).filter(([event, count]) => this.sent(event).length < count).map(([event]) => event);
+        const deadline = Date.now() + timeoutMs;
+        while (missing().length > 0 && Date.now() < deadline && !page.isClosed()) {
+            try { await page.waitForTimeout(pollMs); } catch { break; }
+        }
+        const left = missing();
+        return { observed: left.length === 0, missing: left };
+    }
+
     /** `captureActionBinding` after `settleQueuedTelemetry` — what live call sites use before the feedback/PDF action. */
     async captureActionBindingSettled(
         page: Pick<Page, 'waitForTimeout' | 'url'>, stage: ReadbackActionStage, releaseSha: string, runId: string, runAttempt: string,
@@ -1583,6 +1604,7 @@ export async function shareFeedbackRows(
     tap?: AnalyticsTap,
 ): Promise<string | null> {
     const since = new Date(Date.now() - 1_000).toISOString();
+    const feedbackBefore = tap?.sent('feedback_submit').length ?? 0;
     await page.getByTestId('nav-report-issue-button').first().click();
     await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('feedback-type-praise').click();
@@ -1591,6 +1613,10 @@ export async function shareFeedbackRows(
     await page.getByTestId('issue-report-submit').click();
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
+    // #1258 R8: before the next step navigates away, wait (bounded) until the tap has observed this submission's
+    // feedback_submit events — `attempted` plus its outcome — so they leave on an ordinary flush, not at unload.
+    const settled = tap ? await tap.awaitObserved(page, { feedback_submit: feedbackBefore + (acknowledged ? 2 : 1) }) : null;
+    if (settled) receipt.meta.feedbackTelemetryObserved = settled.observed;
     const { data, error } = await admin.from('user_issue_reports').select('id').eq('user_id', uid).gte('created_at', since);
     if (error) throw new Error(`feedback read failed (fail closed): ${error.code ?? 'unknown'}`);
     const storedOnce = data?.length === 1;

@@ -88,11 +88,14 @@ export type DiagnosticReason =
     | 'report_mismatch' | 'association_mismatch' | 'session_mismatch' | 'request_mismatch' | 'attempt_mismatch'
     | 'failure_category_mismatch' | 'server_reason_mismatch' | 'configured_model_mismatch' | 'request_session_mismatch' | 'outcome_mismatch'
     | 'current_attempt_attached_to_other_session' | 'invented_link' | 'storage_not_exactly_once' | 'acknowledgement_not_visible'
-    | 'report_field_invalid' | 'request_field_invalid' | 'unexpected_field';
+    | 'report_field_invalid' | 'request_field_invalid' | 'unexpected_field' | 'failure_category_not_observed';
 
 export interface DiagnosticVerdict { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: DiagnosticReason[] }
 
-const HOLD_REASONS = new Set<DiagnosticReason>(['report_not_found', 'request_link_missing', 'request_not_found', 'telemetry_not_received', 'observed_model_missing']);
+// #1258 R11 (PM 6143804613-review): a failed request whose page-reported category was not CAPTURED is unproven (HOLD) —
+// never guessed, and never a field contradiction. A captured category outside FAILURE_CATEGORIES still FAILs.
+const HOLD_REASONS = new Set<DiagnosticReason>(['report_not_found', 'request_link_missing', 'request_not_found', 'telemetry_not_received', 'observed_model_missing',
+    'failure_category_not_observed']);
 const OUTCOMES: readonly string[] = ['success', 'provider_error', 'timeout', 'transport_error', 'invalid_response', 'rate_limited',
     'server_error', 'client_network'];
 const ASSOCIATIONS: readonly string[] = ['current_take', 'selected_older_session', 'no_session'];
@@ -179,7 +182,7 @@ function shapeHolds(q: AiRequestDiagnostic): boolean {
 
 function requestValid(q: AiRequestDiagnostic): boolean {
     return nonEmpty(q.requestId) && nonEmpty(q.attemptId) && nonEmpty(q.sessionId) && OUTCOMES.includes(q.outcome)
-        && (q.outcome === 'success' ? q.failureCategory === null : FAILURE_CATEGORIES.includes(q.failureCategory ?? ''))
+        && (q.outcome === 'success' ? q.failureCategory === null : q.failureCategory === null || FAILURE_CATEGORIES.includes(q.failureCategory))
         && shapeHolds(q)
         && count(q.retryCount) && duration(q.totalMs)
         // The provider leg is part of the request, so it can never exceed the total (PM RETURN 6111565683).
@@ -222,6 +225,7 @@ export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | n
             else {
                 const q = linked[0];
                 if (!requestValid(q)) reasons.add('request_field_invalid');
+                if (q.outcome !== 'success' && q.failureCategory === null) reasons.add('failure_category_not_observed');
                 if (q.sessionId !== report.sessionId) reasons.add('request_session_mismatch');
                 if (expected.outcome !== null && q.outcome !== expected.outcome) reasons.add('outcome_mismatch');
                 if (expected.attemptId !== null && q.attemptId !== expected.attemptId) reasons.add('attempt_mismatch');

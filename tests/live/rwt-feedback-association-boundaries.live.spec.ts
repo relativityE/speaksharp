@@ -228,7 +228,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             await feedbackDiagnosticChainRow({
                 receipt, admin: admin as never, userId: owner.uid, reportId, currentSessionId: newerId, reportedSessionId: olderId,
                 acknowledgementVisible: stored.acknowledged,
-                exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'open_mic',
+                exchanges: generations.exchanges, reportedFailures: tap.sent('practice_loop_review_failed'), configuredModel: coachingContract.model, product: 'open_mic',
             });
             const exactOlderRequest = Boolean(stored.diagnosticRef && olderRequests.includes(stored.diagnosticRef));
             const excludesCurrent = stored.diagnosticRef === null || !newerRequests.includes(stored.diagnosticRef);

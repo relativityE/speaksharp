@@ -63,6 +63,24 @@ export function echoMismatch(exchange: CoachingExchange): 'request' | 'attempt' 
     return null;
 }
 
+/** The page's closed failure reasons (AISuggestions `PracticeLoopReviewFailureReason`, telemetry `practice_loop_review_failed`). */
+export const PAGE_FAILURE_REASONS: readonly string[] = [
+    'access_denied', 'invalid_response', 'network', 'not_found', 'rate_limited', 'service_configuration', 'transcript_unavailable', 'unavailable',
+];
+/** A `practice_loop_review_failed` the tap observed leaving the page: when, and the page's own closed reason. */
+export interface ReportedReviewFailure { at: number; reason?: string }
+
+/**
+ * #1258 R11 (PM review): the category the PAGE REPORTED for a failed exchange — captured, never derived. It is the first
+ * `practice_loop_review_failed` the tap observed at or after the exchange's answer. A success carries none; a failure
+ * with no captured report returns null, which the contract holds as `failure_category_not_observed`.
+ */
+export function capturedFailureCategory(exchange: CoachingExchange, reported: readonly ReportedReviewFailure[]): string | null {
+    if (exchange.status !== null && exchange.status >= 200 && exchange.status < 300) return null;
+    const report = reported.find((r) => r.at >= exchange.at && typeof r.reason === 'string' && PAGE_FAILURE_REASONS.includes(r.reason));
+    return report?.reason ?? null;
+}
+
 /** One exchange as the contract's request record. `failureCategory` is the product category the page reported. */
 export function toAiRequestDiagnostic(exchange: CoachingExchange, failureCategory: string | null, poisoned = echoMismatch(exchange) !== null): AiRequestDiagnostic {
     const outcome = contractOutcome(exchange);
@@ -236,6 +254,8 @@ export async function feedbackDiagnosticChainRow(input: {
      */
     acknowledgementVisible?: boolean;
     exchanges: readonly CoachingExchange[];
+    /** #1258 R11: the page's `practice_loop_review_failed` reports the tap observed (closed reasons, times only). */
+    reportedFailures?: readonly ReportedReviewFailure[];
     configuredModel: string;
     product: 'open_mic' | 'focus_points';
 }): Promise<void> {
@@ -268,7 +288,9 @@ export async function feedbackDiagnosticChainRow(input: {
         acknowledgementVisible: input.acknowledgementVisible ?? receipt.rows.some((r) => r.step === 'feedback' && r.verdict === 'PASS'),
         telemetryReceived: false,
         exchanges: input.exchanges,
-        failureCategory: () => null,
+        // #1258 R11 (run 38304068207): this was `() => null`, which the contract rejected for EVERY failed request
+        // (`request_field_invalid`), so a coaching timeout read as a contradiction. The page's own report is used now.
+        failureCategory: (e) => capturedFailureCategory(e, input.reportedFailures ?? []),
     }) : null;
     const v = validateFeedbackDiagnostics(lookup, expected);
     // Echoed-id evidence is preserved as a count (content-free); a mismatch already FAILs the request's record.
