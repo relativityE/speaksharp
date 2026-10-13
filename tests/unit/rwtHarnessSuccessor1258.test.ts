@@ -223,6 +223,43 @@ describe('R11 — a failure report is bound to ITS request by the page\'s emissi
             expect(r.reasons).not.toContain('provider_timeout');
         });
 
+        it('RETURN 6149274471: a PROVEN invalid report stays FAIL even when another report in the boot cannot be placed', async () => {
+            // A's failure and its own same-payload report (out of vocabulary); B's failure and an unplaceable report elsewhere.
+            const events = [
+                ...inBatch(1, [noTime(diag('A', 0)), noTime(report('provider_timeout', 0))]),
+                ...inBatch(2, [noTime(diag('B', 0))]),
+                ...inBatch(3, [noTime(report('network', 0))]),
+            ];
+            const b = bindFailureReports(events as never);
+            expect(b.get('A')).toEqual({ state: 'observed_invalid' });
+            expect(b.get('B')).toEqual({ state: 'ambiguous' });
+            expect(JSON.stringify([...b.values()])).not.toContain('provider_timeout');
+            const r = await chain({ exchanges: [failed('A', 's1', 0), failed('B', 's2', 0)], events, reportSession: 's1', currentSession: 's1', ref: 'A' });
+            expect(r.verdict).toBe('FAIL');
+            expect(r.reasons.split(',')).toContain('request_field_invalid');
+            expect(r.reasons).not.toContain('provider_timeout');
+        });
+
+        it('CONTROLS: a proven VALID report under the same ambiguity is HOLD (ambiguous); ambiguity alone is HOLD', async () => {
+            const valid = [
+                ...inBatch(1, [noTime(diag('A', 0)), noTime(report('unavailable', 0))]),
+                ...inBatch(2, [noTime(diag('B', 0))]),
+                ...inBatch(3, [noTime(report('network', 0))]),
+            ];
+            expect(bindFailureReports(valid as never).get('A')).toEqual({ state: 'ambiguous' });
+            expect(await chain({ exchanges: [failed('A', 's1', 0), failed('B', 's2', 0)], events: valid, reportSession: 's1', currentSession: 's1', ref: 'A' }))
+                .toEqual({ verdict: 'HOLD', reasons: 'telemetry_not_received,failure_category_ambiguous' });
+            const only = [...inBatch(1, [noTime(diag('A', 0))]), ...inBatch(2, [noTime(report('network', 0))])];
+            expect(bindFailureReports(only as never).get('A')).toEqual({ state: 'ambiguous' });
+        });
+
+        it('two PROVEN reports for one request: any invalid one makes it FAIL; two valid ones stay ambiguous (HOLD)', () => {
+            const mixed = inBatch(1, [diag('A', 1), report('unavailable', 2), diag('A', 3), report('provider_timeout', 4)]);
+            expect(bindFailureReports(mixed as never).get('A')).toEqual({ state: 'observed_invalid' });
+            const twoValid = inBatch(1, [diag('A', 1), report('unavailable', 2), diag('A', 3), report('network', 4)]);
+            expect(bindFailureReports(twoValid as never).get('A')).toEqual({ state: 'ambiguous' });
+        });
+
         it('the tap stamps every decoded event with its payload and position, in memory only', async () => {
             const { AnalyticsTap, OUTCOME_FIELDS } = await import('../live/helpers/rwtJourney');
             const tap = new AnalyticsTap();

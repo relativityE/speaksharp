@@ -76,7 +76,13 @@ export interface ObservedEvent {
     batch?: number; batchIndex?: number;
     diagnosticRequestId?: string; diagnosticOutcome?: string;
 }
-export type FailureReportBinding = { state: 'bound'; reason: string | undefined } | { state: 'ambiguous' };
+/**
+ * `bound`: exactly one provable report, with a reason in the page vocabulary. `observed_invalid`: at least one report
+ * provably bound to this request carried a reason OUTSIDE that vocabulary (or none) — a contradiction that no other
+ * report's ambiguity can erase; the raw reason is not kept. `ambiguous`: otherwise, more than one report could be this
+ * request's.
+ */
+export type FailureReportBinding = { state: 'bound'; reason: string } | { state: 'observed_invalid' } | { state: 'ambiguous' };
 
 const TERMINAL_FAILURE_OUTCOMES: ReadonlySet<string> = new Set(['failure', 'network_failure']);
 const UNPROVABLE = Symbol('unprovable');
@@ -115,7 +121,9 @@ function provablePredecessor(report: ObservedEvent, boot: readonly ObservedEvent
  * provably immediately before it is X's terminal failure. A report with any other provable predecessor binds to nothing; a
  * request that collects more than one report is `ambiguous`. A report whose predecessor CANNOT be proven (missing or tied
  * capture times across payloads) is placed nowhere, and every terminal failure in that boot becomes `ambiguous` — it may
- * have been theirs. No report serves two requests, and nothing binds by timestamp proximity or arrival order.
+ * have been theirs — except that a PROVEN out-of-vocabulary report stays `observed_invalid` (FAIL) whatever else is
+ * ambiguous (Browser PM RETURN 6149274471). No report serves two requests, and nothing binds by timestamp proximity or
+ * arrival order.
  */
 export function bindFailureReports(events: readonly ObservedEvent[]): Map<string, FailureReportBinding> {
     const byBoot = new Map<string, ObservedEvent[]>();
@@ -123,7 +131,9 @@ export function bindFailureReports(events: readonly ObservedEvent[]): Map<string
         if ((e.event !== 'ai_coaching_diagnostic' && e.event !== 'practice_loop_review_failed') || !e.bootId) continue;
         byBoot.set(e.bootId, [...(byBoot.get(e.bootId) ?? []), e]);
     }
-    const bindings = new Map<string, FailureReportBinding>();
+    // Per request: whether any provably bound report was invalid, how many were bound, the valid reason, and ambiguity.
+    const evidence = new Map<string, { invalid: boolean; count: number; reason?: string; ambiguous: boolean }>();
+    const of = (id: string) => evidence.get(id) ?? (evidence.set(id, { invalid: false, count: 0, ambiguous: false }), evidence.get(id)!);
     const isTerminalFailure = (e: ObservedEvent) => e.event === 'ai_coaching_diagnostic'
         && typeof e.diagnosticRequestId === 'string' && e.diagnosticRequestId !== ''
         && typeof e.diagnosticOutcome === 'string' && TERMINAL_FAILURE_OUTCOMES.has(e.diagnosticOutcome);
@@ -133,10 +143,18 @@ export function bindFailureReports(events: readonly ObservedEvent[]): Map<string
             const prev = provablePredecessor(report, boot);
             if (prev === UNPROVABLE) { unplaced = true; continue; }
             if (!prev || !isTerminalFailure(prev)) continue;
-            const id = prev.diagnosticRequestId!;
-            bindings.set(id, bindings.has(id) ? { state: 'ambiguous' } : { state: 'bound', reason: report.reason });
+            const record = of(prev.diagnosticRequestId!);
+            record.count += 1;
+            if (typeof report.reason === 'string' && PAGE_FAILURE_REASONS.includes(report.reason)) record.reason = report.reason;
+            else record.invalid = true;
         }
-        if (unplaced) for (const e of boot) if (isTerminalFailure(e)) bindings.set(e.diagnosticRequestId!, { state: 'ambiguous' });
+        if (unplaced) for (const e of boot) if (isTerminalFailure(e)) of(e.diagnosticRequestId!).ambiguous = true;
+    }
+    const bindings = new Map<string, FailureReportBinding>();
+    for (const [id, r] of evidence) {
+        bindings.set(id, r.invalid ? { state: 'observed_invalid' }
+            : r.count === 1 && !r.ambiguous && r.reason !== undefined ? { state: 'bound', reason: r.reason }
+                : { state: 'ambiguous' });
     }
     return bindings;
 }
@@ -151,7 +169,8 @@ export function capturedFailureCategory(exchange: CoachingExchange, bindings: Re
     const binding = exchange.sent.requestId ? bindings.get(exchange.sent.requestId) : undefined;
     if (!binding) return null;
     if (binding.state === 'ambiguous') return FAILURE_CATEGORY_AMBIGUOUS;
-    return typeof binding.reason === 'string' && PAGE_FAILURE_REASONS.includes(binding.reason) ? binding.reason : FAILURE_CATEGORY_OBSERVED_INVALID;
+    if (binding.state === 'observed_invalid') return FAILURE_CATEGORY_OBSERVED_INVALID;
+    return binding.reason;
 }
 
 /** One exchange as the contract's request record. `failureCategory` is the product category the page reported. */
