@@ -1,0 +1,42 @@
+name: Vercel Access Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact PO-authorized source commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-access-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify main, exact source and first attempt
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: One read-only Vercel request
+        env:
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID || vars.VERCEL_ORG_ID }}
+        run: node scripts/probe-vercel-access.mjs
