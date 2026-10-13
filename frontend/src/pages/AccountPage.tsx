@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
@@ -7,11 +8,14 @@ import { hasPaidProEntitlement } from '@/constants/subscriptionTiers';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
+import { profileService } from '@/services/domainServices';
 import { membershipPresentation } from './membershipPresentation';
 
 export default function AccountPage() {
   const location = useLocation();
-  const { data: profile, isLoading, isError, refetch } = useUserProfile();
+  const { data: profile, isLoading, isError } = useUserProfile();
+  const queryClient = useQueryClient();
+  const profileId = profile?.id;
   const [opening, setOpening] = useState<'manage' | 'cancel' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -25,14 +29,32 @@ export default function AccountPage() {
   // then retry briefly while Stripe's real webhook may still be in flight. Keep the last confirmed
   // membership visible throughout and stop after a bounded window if nothing changed.
   useEffect(() => {
-    if (!returned) return;
+    if (!returned || !profileId) return;
     let active = true;
+    let retry: ReturnType<typeof window.setTimeout> | undefined;
     setRefreshing(true);
-    void refetch();
-    const interval = window.setInterval(() => { if (active) void refetch(); }, 2000);
-    const timeout = window.setTimeout(() => { setRefreshing(false); window.clearInterval(interval); }, 12000);
-    return () => { active = false; window.clearInterval(interval); window.clearTimeout(timeout); };
-  }, [returned, refetch]);
+    // A failed refetch on the shared userProfile query poisons ProfileGuard even
+    // when its confirmed data remains cached. Poll independently; publish only
+    // a successful owner-matching snapshot, never an error or optimistic state.
+    const poll = async () => {
+      try {
+        const snapshot = await profileService.getById(profileId);
+        if (active && snapshot?.id === profileId) {
+          queryClient.setQueryData(['userProfile', profileId], snapshot);
+        }
+      } catch {
+        // Retain the last confirmed profile and the bounded delay message.
+      }
+      if (active) retry = window.setTimeout(() => { void poll(); }, 2000);
+    };
+    const timeout = window.setTimeout(() => {
+      active = false;
+      window.clearTimeout(retry);
+      setRefreshing(false);
+    }, 12000);
+    void poll();
+    return () => { active = false; window.clearTimeout(retry); window.clearTimeout(timeout); };
+  }, [returned, profileId, queryClient]);
 
   const openPortal = async (flow: 'manage' | 'cancel') => {
     if ((flow === 'cancel' ? !canCancel : !canManage) || opening) return;
