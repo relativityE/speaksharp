@@ -163,3 +163,51 @@ describe('#1533 — after-session Practice again / Retry are fenced by the live 
         expect(screen.getByTestId('verdict-practice-again')).toBeDisabled();
     });
 });
+
+/**
+ * #1258 R1 (runs 38298685079 / 38304068207) — the review's repeat actions were live while the take was still STOPPING /
+ * finalizing, when the mic beside them was already disabled; a press 87–97 ms after Stop became a second Stop. They now
+ * share the mic's own gate (`isButtonDisabled`), with no Progress-gate reason attached when the gate is not the cause.
+ */
+describe('#1258 R1 — repeat actions are disabled while the take is still saving', () => {
+    const after = {
+        ...base,
+        showAnalyticsPrompt: true,
+        reviewTranscript: { kind: 'available' as const, text: 'I will name the price now.' },
+    };
+    const focus = {
+        objectivePoints: ['Name the price', 'State the guarantee'],
+        objectiveCoverage: [{ id: 'p1', label: 'Name the price', status: 'covered' as const }, { id: 'p2', label: 'State the guarantee', status: 'missing' as const }],
+    };
+    beforeEach(() => {
+        useSessionStore.getState().setProgressGateResolvedFor('user-1');
+        useSessionStore.getState().setProgressGate(null);
+    });
+
+    it('Open Mic: "Practice again?" is disabled while saving, without the Progress reason, and enabled once the mic is', () => {
+        const onStartStop = vi.fn();
+        const { rerender } = render(<SessionOverhaulView {...after} isButtonDisabled onStartStop={onStartStop} />);
+        const practice = screen.getByTestId('verdict-practice-again');
+        expect(practice).toBeDisabled();
+        expect(practice).not.toHaveAttribute('aria-describedby');
+        fireEvent.click(practice);
+        expect(onStartStop, 'a press while saving reaches nothing').not.toHaveBeenCalled();
+
+        rerender(<SessionOverhaulView {...after} isButtonDisabled={false} onStartStop={onStartStop} />);
+        expect(screen.getByTestId('verdict-practice-again')).toBeEnabled();
+        fireEvent.click(screen.getByTestId('verdict-practice-again'));
+        expect(onStartStop).toHaveBeenCalledTimes(1);
+    });
+
+    it('Focus Points: "Retry this set" is disabled while saving and enabled once the mic is', () => {
+        const onRetryPoints = vi.fn();
+        const { rerender } = render(<SessionOverhaulView {...after} {...focus} isButtonDisabled onRetryPoints={onRetryPoints} />);
+        expect(screen.getByTestId('focus-points-retry')).toBeDisabled();
+        expect(screen.getByTestId('focus-points-retry')).not.toHaveAttribute('aria-describedby');
+
+        rerender(<SessionOverhaulView {...after} {...focus} isButtonDisabled={false} onRetryPoints={onRetryPoints} />);
+        expect(screen.getByTestId('focus-points-retry')).toBeEnabled();
+        fireEvent.click(screen.getByTestId('focus-points-retry'));
+        expect(onRetryPoints).toHaveBeenCalledTimes(1);
+    });
+});
