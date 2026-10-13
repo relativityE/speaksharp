@@ -20,7 +20,8 @@
 --   2. a row in transcript_retention_expiry_grants names THIS transaction and THIS session. Only
 --      expire_transcripts_newest_one writes that table (no role holds any privilege on it), and it deletes its
 --      grants as soon as its UPDATE is done, so a grant never outlives the statement it authorizes and a
---      rollback takes it with everything else. A custom setting was rejected: any caller can set one, and a
+--      rollback takes it with everything else. The UPDATE itself selects only granted rows, so ranking drift
+--      between its statements can never expire an ungranted row. A custom setting was rejected: any caller can set one, and a
 --      nested SECURITY DEFINER write would then satisfy condition 1;
 --   3. the new row has no text, and the old row's exact text is already preserved in
 --      transcript_retention_tombstones for that user — the same proof the mutation's own UPDATE requires.
@@ -203,6 +204,10 @@ BEGIN
   )
   ON CONFLICT DO NOTHING;
 
+  -- Expire ONLY rows granted above in this transaction, and of those only the ones that are still not the user's newest
+  -- and still carry exactly their tombstoned text. Each statement here reads its own READ COMMITTED snapshot, so the
+  -- UPDATE must never re-rank its way to a row this transaction did not grant: the trigger would refuse `expired` for it
+  -- and the row would lose its text as `not_captured` (PM review 6148401799). The grant set already honours p_batch_size.
   WITH ranked AS (
     SELECT id, user_id, transcript,
            row_number() OVER (PARTITION BY user_id ORDER BY created_at DESC, id DESC) AS rn
@@ -213,7 +218,11 @@ BEGIN
       AND (p_user_id IS NULL OR user_id = p_user_id)
   ),
   batch AS MATERIALIZED (
-    SELECT id, user_id, transcript FROM ranked WHERE rn > 1 ORDER BY id LIMIT p_batch_size
+    SELECT r.id, r.user_id, r.transcript
+    FROM ranked r
+    JOIN public.transcript_retention_expiry_grants g
+      ON g.session_id = r.id AND g.txid = pg_catalog.txid_current()
+    WHERE r.rn > 1
   )
   UPDATE public.sessions s
   SET transcript = NULL,

@@ -173,7 +173,7 @@ describe('the postflight script is read-only and pins the digests the integratio
     it('reads only: every statement it sends is a SELECT — no write, DDL, function call or session read', () => {
         // The SQL actually sent: every argument of the script's q "…" helper, and nothing reaches psql any other way.
         const sql = [...code.matchAll(/\bq "((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
-        expect(sql.length).toBeGreaterThanOrEqual(14); // existence, two digests, grants presence, and the ten after-mode checks
+        expect(sql.length).toBeGreaterThanOrEqual(16); // existence, two digests, grants presence, the before ownership check and the eleven after-mode checks
         for (const statement of sql) {
             expect(statement.trim()).toMatch(/^SELECT\b/i);
             expect(statement).not.toMatch(/\b(INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|GRANT|REVOKE|NOTIFY|COPY|SET)\b|;/i);

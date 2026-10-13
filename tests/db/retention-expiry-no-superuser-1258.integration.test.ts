@@ -280,6 +280,42 @@ describe('#1258 P0 — retention expiry runs without superuser rights', () => {
     });
 });
 
+describe('#1258 P0 — the UPDATE expires exactly this transaction\'s grants (PM review 6148401799)', () => {
+    it('ranking drift between the grant and the UPDATE never nulls an ungranted row or leaves it `not_captured`', async () => {
+        // Each statement in the expiry reads its own READ COMMITTED snapshot. Stand-in for a concurrent writer: right after
+        // the grants are written, a newer take lands and another expiry run has tombstoned the current take's exact text.
+        // A re-ranking UPDATE would now see the current take at rank 2 with an exact tombstone but no grant.
+        const db = await freshDb(true);
+        const first = await firstSaveSettled(db);
+        const second = await activeTake(db, '2026-10-02T10:00:00Z');
+        await db.exec(`
+          CREATE TABLE public.test_drift_fired (done boolean);
+          CREATE FUNCTION public.test_drift() RETURNS trigger LANGUAGE plpgsql AS $f$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM public.test_drift_fired) THEN RETURN NULL; END IF;
+            INSERT INTO public.test_drift_fired VALUES (true);
+            INSERT INTO public.sessions (user_id, created_at, transcript, total_words, duration, status)
+              VALUES ('${U}', '2026-10-09T10:00:00Z', 'a concurrent newer take', 100, 600, 'completed');
+            INSERT INTO public.transcript_retention_tombstones (session_id, user_id, transcript, policy_version)
+              VALUES ('${second}', '${U}', 'the second take', public.transcript_retention_policy_version());
+            RETURN NULL;
+          END $f$;
+          ALTER TABLE public.test_drift_fired OWNER TO ${OWNER};
+          ALTER FUNCTION public.test_drift() OWNER TO ${OWNER};
+          CREATE TRIGGER test_drift AFTER INSERT ON public.transcript_retention_expiry_grants
+            FOR EACH STATEMENT EXECUTE FUNCTION public.test_drift();`);
+
+        expect((await save(db, second, 'the second take')).rows[0].r.transcript_outcome).toBe('retained');
+        expect((await db.query('SELECT 1 FROM public.test_drift_fired')).rows, 'the drift really happened mid-expiry').toHaveLength(1);
+        expect(await row(db, second), 'the ungranted current take keeps its words and its state')
+            .toEqual({ transcript_state: 'available', transcript: 'the second take', ai_suggestions: null });
+        expect((await row(db, first)).transcript_state, 'the granted row is still expired').toBe('expired');
+        expect((await db.query(`SELECT 1 FROM public.sessions WHERE transcript IS NULL AND transcript_state = 'not_captured'`)).rows,
+            'no row was nulled without a grant').toEqual([]);
+        await db.close();
+    });
+});
+
 /** A row whose exact text is already tombstoned, which is the most a forger could have to work with. */
 async function tombstonedRow(db: PGlite): Promise<string> {
     const id = await activeTake(db, '2026-10-01T10:00:00Z');
@@ -363,7 +399,7 @@ describe('#1258 P0 — the exemption cannot be reached by anyone else', () => {
  */
 const EXPIRE_BEFORE_MD5 = 'b69060cd8e903e4f51870034557be1e8';
 const TRIGGER_BEFORE_MD5 = '794bf7c4e293ed215152d56d706a44a7';
-const EXPIRE_AFTER_MD5 = 'da188c4dcd5f3faa8fc8a20db8d674c9';
+const EXPIRE_AFTER_MD5 = '4e6a0f141e031bddc94e78803205c54d';
 const TRIGGER_AFTER_MD5 = '400700738ca78de10d259b550499b5ac';
 const DIGESTS = `SELECT md5(pg_get_functiondef('public.expire_transcripts_newest_one(uuid, integer)'::regprocedure)) AS expire,
                         md5(pg_get_functiondef('public.sessions_set_transcript_state()'::regprocedure)) AS trigger`;

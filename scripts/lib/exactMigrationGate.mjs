@@ -155,7 +155,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // needs the PO's exact dispatch with the derived phrase.
         version: '20261013120000',
         file: '20261013120000_retention_expiry_without_superuser_1258.sql',
-        sha256: '15d2ceb5934d895c2ab122d7ffe4568130c9fdc2c1a8c33989671c0e1bb1b3aa',
+        sha256: '65639935f4e2efcdb40463b5f10fa4e9ad2239996d6ea9fad7535402e25762bc',
         classification: 'staged',
     }),
     Object.freeze({
