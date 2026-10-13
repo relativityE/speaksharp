@@ -104,4 +104,25 @@ describe('Membership on Account', () => {
     render(<AccountPage />, { route: '/account' });
     expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
   });
+
+  it('a lapsed subscriber can manage their linked billing without gaining Pro access or cancellation eligibility', async () => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free' }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    invoke.mockResolvedValue({ data: { portalUrl: 'https://billing.stripe.com/session/test' }, error: null });
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText('Free · Free')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage billing' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('stripe-billing-portal', { body: { flow: 'manage' } }));
+  });
+
+  it.each(['unlinked', 'payments-disabled'] as const)('does not expose billing management when %s', (boundary) => {
+    vi.mocked(arePaymentsEnabled).mockReturnValue(boundary !== 'payments-disabled');
+    vi.mocked(useUserProfile).mockReturnValue({ data: {
+      ...paid, subscription_status: 'free', stripe_customer_id: boundary === 'unlinked' ? null : paid.stripe_customer_id,
+    }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.queryByRole('button', { name: 'Manage billing' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalled();
+  });
 });

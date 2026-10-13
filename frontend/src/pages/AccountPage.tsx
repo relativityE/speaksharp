@@ -22,8 +22,10 @@ export default function AccountPage() {
   const returned = new URLSearchParams(location.search).get('billing') === 'returned';
   const membership = membershipPresentation(profile);
   const hasPaidAccount = hasPaidProEntitlement(profile);
-  const canManage = arePaymentsEnabled() && hasPaidAccount && Boolean(profile?.stripe_customer_id);
-  const canCancel = canManage && Boolean(profile?.stripe_subscription_id) && membership.status === 'Active';
+  // A recoverable payment lapse removes product entitlement, not the ability to
+  // repair billing for an already linked Stripe customer.
+  const canManage = arePaymentsEnabled() && Boolean(profile?.stripe_customer_id);
+  const canCancel = canManage && hasPaidAccount && Boolean(profile?.stripe_subscription_id) && membership.status === 'Active';
 
   // The return URL is not proof that a cancellation occurred. Read the webhook-backed profile now,
   // then retry briefly while Stripe's real webhook may still be in flight. Keep the last confirmed
