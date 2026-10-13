@@ -179,11 +179,13 @@ describe('#1258 P0 — retention expiry runs without superuser rights', () => {
         const db = await freshDb(true);
         const first = await firstSaveSettled(db);
         const second = await activeTake(db, '2026-10-02T10:00:00Z');
+        // The retained take's own suggestions must survive: the purge reaches only rows that become expired.
+        await db.query(`UPDATE public.sessions SET ai_suggestions = '["keep me"]'::jsonb WHERE id = $1`, [second]);
 
         const saved = (await save(db, second, 'the second take')).rows[0].r;
         expect(saved.transcript_outcome, 'the words the user just spoke are kept').toBe('retained');
 
-        expect(await row(db, second)).toEqual({ transcript_state: 'available', transcript: 'the second take', ai_suggestions: null });
+        expect(await row(db, second)).toEqual({ transcript_state: 'available', transcript: 'the second take', ai_suggestions: ['keep me'] });
         expect(await row(db, first), 'expired, text gone, and the 20260810120000 purge now fires').toEqual(
             { transcript_state: 'expired', transcript: null, ai_suggestions: null });
         expect((await db.query<{ transcript: string }>(
