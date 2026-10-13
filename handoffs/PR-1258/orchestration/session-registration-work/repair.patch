@@ -1,27 +1,96 @@
 diff --git a/INSTALL.md b/INSTALL.md
-index c7dab9c..626e498 100644
+index c7dab9c..4a0736a 100644
 --- a/INSTALL.md
 +++ b/INSTALL.md
-@@ -1,11 +1,13 @@
+@@ -1,11 +1,35 @@
 -# Orch v4.7.13 installation
-+HELD SOURCE: do not use old download/checksum references to install this working tree. No replacement ZIP is published.
++# Orch v4.7.14 installation and acceptance candidate
  
 -Only PO downloads and installs. Install under ~/SW_Dev/rwt-pr-handoff-v4.7.13 using the same gh blob download, checksum verification, unzip and python3 orch-setup.py flow as v4.7.11. It starts in this terminal and opens http://127.0.0.1:4317/ after the actual API confirms version 4.7.13. Keep the terminal running. No LaunchAgent or login service is installed.
-+# Orch v4.7.14 installation
-+
-+Only PO downloads and installs. Install under ~/SW_Dev/rwt-pr-handoff-v4.7.14 using the same gh blob download, checksum verification, unzip and python3 orch-setup.py flow as v4.7.11. It starts in this terminal and opens http://127.0.0.1:4317/ after the actual API confirms version 4.7.14. Keep the terminal running. No LaunchAgent or login service is installed.
++Build: coordination.8-work. This candidate is installable, but automatic idle wake, legacy watcher restoration and stuck-delivery recovery are NOT accepted on the Mac. It is not a release receipt or a claim that copy-paste is eliminated. Keep the v4.7.13 installation intact.
  
- Before upgrading, stop the old foreground board with Ctrl-C in its terminal when no worker action is in flight. The installer preserves a running board instead of killing active work, explicitly reports an old version, and does not pretend the upgrade occurred. Run the installation block in any directory; it changes into the extracted absolute folder itself.
+-Before upgrading, stop the old foreground board with Ctrl-C in its terminal when no worker action is in flight. The installer preserves a running board instead of killing active work, explicitly reports an old version, and does not pretend the upgrade occurred. Run the installation block in any directory; it changes into the extracted absolute folder itself.
++## Install using the established foreground flow
  
 -On a fresh v4.7.13 folder, automatically prefer a verified v4.7.12 migration journal, then v4.7.11, then verified v4.7.10, then the known v4.7.7-candidate source. Preserve database, private pairing and artifacts. Existing target state and an explicit migration override are retained; unknown ambiguous history is not guessed. Original installations remain intact.
-+On a fresh v4.7.14 folder, automatically prefer a verified v4.7.12 migration journal, then v4.7.11, then verified v4.7.10, then the known v4.7.7-candidate source. Preserve database, private pairing and artifacts. Existing target state and an explicit migration override are retained; unknown ambiguous history is not guessed. Original installations remain intact.
++Only the Product Owner downloads this ZIP. Devs do not install Orch. Existing Python 3.10+, gh and Codex logins are reused. No LaunchAgent or login service is installed.
  
- Existing gh/Codex login and paired routes remain prerequisites, not repeated setup. First launch announces the new app version through the supported routes and requires real recipient receipts/results. Devs do not install this bundle. Native CLI PM receives current events in its PM queue; an unsupported browser chat cannot be automatically awakened. A stale/unrearmed listener remains an explicit transport blocker, never a fabricated ACK.
+-Existing gh/Codex login and paired routes remain prerequisites, not repeated setup. First launch announces the new app version through the supported routes and requires real recipient receipts/results. Devs do not install this bundle. Native CLI PM receives current events in its PM queue; an unsupported browser chat cannot be automatically awakened. A stale/unrearmed listener remains an explicit transport blocker, never a fabricated ACK.
++1. Download rwt-pr-handoff-v4.7.14-candidate.zip to ~/Downloads.
++2. When the old board and its workers are idle, stop its foreground terminal with Ctrl-C. A running old board is preserved by setup; the candidate will not kill it or pretend it upgraded.
++3. If ~/SW_Dev/rwt-pr-handoff-v4.7.14 already exists, preserve it and inspect it before extracting; do not overwrite private state or merge two package versions.
++4. In Terminal, run:
  
 -Accept the installed upgrade only after the board reports 4.7.13 coordination.7, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
-+Accept the installed upgrade only after the board reports 4.7.14 coordination.7, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
++```bash
++mkdir -p "$HOME/SW_Dev"
++unzip -n "$HOME/Downloads/rwt-pr-handoff-v4.7.14-candidate.zip" -d "$HOME/SW_Dev"
++cd "$HOME/SW_Dev/rwt-pr-handoff-v4.7.14"
++python3 orch-setup.py
++```
++
++Keep this terminal running. Setup validates the manifest, reuses existing logins and routes, migrates verified state, starts in the foreground and opens http://127.0.0.1:4317/ after the actual API reports v4.7.14. Later starts use the same python3 orch-setup.py command, or Start_Orch.command from this installed folder.
++
++## State and agent setup
++
++A fresh target prefers the completed, verified v4.7.13 migration journal, then verified v4.7.12/11/10/7.7-candidate. Existing target state and an explicit migration override are preserved. Database, receipts/cursor/dedupe, private routes and artifacts are copied without altering the source installation. Missing or ambiguous provenance is a hold; do not reset agents to get around it.
++
++Recipient pairing UI has been removed. CLI PM owns nonce-bound identity negotiation on launch and recovery. This reuses existing supported routes; it does not silently invent a missing app-server connection, restore a Claude tracked task by detached polling, or grant a browser chat an unsupported inbound wake. An identity ACK is separate from a real idle wake/receipt/result.
++
++## Accept or hold
++
++Confirm the board reports v4.7.14 / coordination.8-work, expected prior tasks/receipts and read-only agent diagnostics. A real PM event must wake the verified idle recipient, produce matching authenticated receipt/result and survive an idle foreground restart without duplicate execution. Mac sleep/resume and compaction/watcher restoration remain required. A poll-only/blocked/uncertain route is HOLD, not connected proof.
++
++Known open work: real idle delivery; automatic legacy tracked-watcher restoration; stuck-route/owned-process cleanup reconciliation; dependency-aware CI qualification as a separate repository increment. The bounded Codex summary-read correction is tested locally, but recovery2160's Mac cause is not established.
++
++To return to v4.7.13, first settle or reconcile any candidate action and stop the candidate when idle, then run python3 orch-setup.py in the retained v4.7.13 folder. Its old state is preserved; new candidate receipts are not automatically reverse-migrated. Do not run both boards or replay uncertain tasks.
+diff --git a/MAC-ACCEPTANCE.md b/MAC-ACCEPTANCE.md
+index f4e690e..d17dea2 100644
+--- a/MAC-ACCEPTANCE.md
++++ b/MAC-ACCEPTANCE.md
+@@ -1,28 +1,12 @@
+-# Reported issues and Mac acceptance — v4.7.13
+-
+-| Reported issue | Included repair / test evidence | Mac acceptance |
+-|---|---|---|
+-| Browser failed to launch / readiness timed out | Actual API readiness and version check, explicit old-board detection | New board13/build7 responds before browser opens |
+-| Separate setup/launch, directory confusion | One orch-setup.py entry; script-relative paths; foreground launcher | Download/install block works from any folder |
+-| Migration ambiguous across old folders | Completed journals choose verified12/11/10/7.7 predecessor, retaining private routes/state | Expected old tasks and receipts retained |
+-| Unwanted LaunchAgent/background login service | Foreground only; no service registration | No new LaunchAgent or login task |
+-| CLI PM blocked after old error/auth state | Startup readiness distinguishes stale errors from real auth/cleanup holds | CLI PM picks up fresh events |
+-| Wrong owner/DEADLOCK-5 atomic rejection | Durable source checkpoint and owner/lease reconciliation; read-only recovery | No repeated identical patch failure |
+-| CI start/end, review required/complete, merged event missed | Durable events, registered/open PR discovery and fingerprints | One real CI/review event enters CLI PM queue |
+-| PM repeatedly asks PO for Ready/review setup | Delegated ordinary review/CI from exact PM source ACCEPT; same-PR source and Ops/Beta branch support | PM performs eligible next step without PO relay |
+-| Flood of old wake reminders | Per-recipient/session observation outage incidents; fresh reviews outrank reminders | Old backlog produces bounded escalation, not one post per event |
+-| Status overwritten by probe/version result | Awareness callbacks cannot change task ownership/checkpoint | Actual work status stays intact |
+-| Long UUID/action crosses other cards | Wrapping/overflow controls and task-aware labels | Agent cards/details stay readable |
+-| Listener dies on compaction / session changes | Liveness watchdog, verified saved-consumer resume; explicit outage | Idle wake, compaction and current-recipient identity still require host proof |
+-| Copy-paste, CLI PM to Browser PM relay | Supported transports + delivery/receipt/result ledger; CLI PM owns eligible follow-through | Full Dev packet to PM disposition to Dev ACK without PO copy-paste |
+-| Existing Dev watchers need update awareness | First-launch version notice/handshake; no Dev bundle download | Agents observe version and update their own supported listener route |
+-
+-## One acceptance cycle
+-
+-1. Install and launch this candidate; board must report4.7.13/coordination.7. Existing logins and preserved routes are reused; no additional PO script setup is requested.
+-2. CLI PM consumes a real current review/terminal-CI event and reads exact PR head/base. Confirm that the required next review/qualification step executes, or a precise justified blocker is reported.
+-3. Intended Dev receives the event while idle and returns an event-bound authenticated receipt and result. Submission/issue publication alone is not success.
+-4. Stop/restart the foreground launcher only at idle; verify state/cursor retained, no duplicate tasks and no old writer replaced. Exercise watcher compaction/rearm and verify recent liveness.
+-5. Record PASS/FAIL and the concrete route/error. No Production/provider/test run, merge or migration is authorized merely to test the tool.
+-
+-This matrix records all known complaint classes. Offline tests establish included source behavior; host-only rows remain unproved until exercised on the owned Mac.
++# v4.7.14 candidate Mac acceptance — not executed here
++
++- Actual HTTP version/build before browser opens; foreground-only operation.
++- Verified v4.7.13 state, routes, cursor/dedupe, pending deliveries and receipts retained.
++- Recipient pairing controls absent; CLI PM requests each current runtime identity with a nonce.
++- One real PM event wakes the verified idle existing recipient; matching event/action/runtime ACK, authenticated receipt and result follow.
++- Idle restart retains cursor/seen IDs without duplicate actions or replacement writers.
++- Sleep/resume and watcher compaction recover through supported adapters, without PO relay/rearm.
++- Owned timeout/uncertain delivery is reconciled before any retry; denied/unverified cleanup stays held.
++- Unsupported Browser PM wake is disclosed; polling/identity alone never claims delivery.
++
++No provider/RWT/Production operation, source merge, deployment, model change, migration or agent reset is authorized by installing this candidate. Host-only rows remain open.
 diff --git a/PACKAGE-MANIFEST.json b/PACKAGE-MANIFEST.json
-index 87b788b..fa0e921 100644
+index 87b788b..f58a6c1 100644
 --- a/PACKAGE-MANIFEST.json
 +++ b/PACKAGE-MANIFEST.json
 @@ -1,6 +1,6 @@
@@ -39,11 +108,22 @@ index 87b788b..fa0e921 100644
        "path": "INSTALL.md",
 -      "bytes": 1843,
 -      "sha256": "15ad3712491ec202cf11fb0db303d7c9c57bc6cfde62bd7aba80936b87e6d1ae"
-+      "bytes": 1964,
-+      "sha256": "fc4316b86afb8efedad9785c1719720559fc8eb20f4f74d00a0153bcac85a474"
++      "bytes": 3350,
++      "sha256": "aba1e04e303677fcb2f72adbb8f55a5d954d4b49e2fafea94b00eade139238ec"
      },
      {
        "path": "Install_Orch.command",
+@@ -24,8 +24,8 @@
+     },
+     {
+       "path": "MAC-ACCEPTANCE.md",
+-      "bytes": 3565,
+-      "sha256": "d9c2eb275e749b7a4e6c86131806b4a8d8ed526810c3c870e9991be5540ac1cb"
++      "bytes": 1021,
++      "sha256": "3a54067c3fc78944499d7df2bd62711afd8d15cc891f277a5262a63d7354ed91"
+     },
+     {
+       "path": "PM-FIX.md",
 @@ -34,8 +34,8 @@
      },
      {
@@ -61,8 +141,8 @@ index 87b788b..fa0e921 100644
        "path": "RELEASE-CANDIDATE.md",
 -      "bytes": 1595,
 -      "sha256": "122bd6a00ed856f6aa101b636ca63c21671de5d33b6753d06db6596909a671bf"
-+      "bytes": 475,
-+      "sha256": "ea6e522694248660e4c1aa0582f7e8c9e64db12a1538ff643e3805232592b7af"
++      "bytes": 666,
++      "sha256": "90665c1a16376fe0defbeee3fcc827c4d50fa60f4b5a7c993cbed1b9609d4e32"
      },
      {
        "path": "RESEARCH-AND-ACCEPTANCE.md",
@@ -88,6 +168,15 @@ index 87b788b..fa0e921 100644
      },
      {
        "path": "github_budget_preload.cjs",
+@@ -130,7 +130,7 @@
+     {
+       "path": "install-orch.py",
+       "bytes": 1790,
+-      "sha256": "5c41958daf5ab738e049cdbea919b557ccfca3dccf9584ffe922f19f59291462"
++      "sha256": "01c22d3954bd75e29cfaa8e195c710cb6f6fccdd80d2b5bc47f3e94b1be0b06b"
+     },
+     {
+       "path": "migrate_state.py",
 @@ -150,7 +150,7 @@
      {
        "path": "orch-setup.py",
@@ -143,12 +232,14 @@ index 87b788b..fa0e921 100644
      },
      {
        "path": "test_comms.py",
-@@ -250,7 +260,7 @@
+@@ -249,8 +259,8 @@
+     },
      {
        "path": "test_foreground_startup.py",
-       "bytes": 8978,
+-      "bytes": 8978,
 -      "sha256": "868b59d4dd7b055b1a09c45fea72149fe20cb92509220af0e268c1b5ca43af34"
-+      "sha256": "45538ef6114f8a5ad4e89d2f351cc37c2ff25a3627ff9cabf529945495b9dc31"
++      "bytes": 11078,
++      "sha256": "a0cec9751681c6605c230e0ef7b2a6b7e521e5c8b3bfd568a04f9bf7977f0abe"
      },
      {
        "path": "test_foreground_worker_lifecycle.py",
@@ -231,15 +322,16 @@ index 05369c0..2183b26 100644
 +
 +coordination.8-work: browser launch initiates per-boot UUID/nonce negotiation; native CLI PM boot identity skips GitHub/history loading and task ownership patches. Stale listeners/sleep gaps trigger negotiation. Identity and task/wake proof remain separate. Direct Codex route recovery distinguishes runtime UUID from inbox aliases and respects pending actions. Codex control reads summaries/newest active-turn metadata instead of full history, eliminating the reproduced >8 MiB history-frame rejection. HTTP disconnect handling is retained. Native Mac idle proof and legacy watcher recovery remain open.
 diff --git a/RELEASE-CANDIDATE.md b/RELEASE-CANDIDATE.md
-index 629569d..419a3f0 100644
+index 629569d..1e86ad8 100644
 --- a/RELEASE-CANDIDATE.md
 +++ b/RELEASE-CANDIDATE.md
-@@ -1,11 +1,3 @@
+@@ -1,11 +1,5 @@
 -# v4.7.13 coordination.7 — Mac trial
-+# v4.7.14 — HELD source candidate
++# v4.7.14 — installation/acceptance candidate
  
 -PO authorized publication for real-world Mac testing on 2026-10-13. This supersedes the hold on distributing the latest source. It is a trial, not a claim that all recipients have passed installed wake acceptance. Only PO downloads/installs; Devs do not download this bundle.
--
++Build coordination.8-work. Recovered immutable v4.7.13 baseline blob81095837c581ad55af46b8697513f05c9b35916f, consolidated HTTP-disconnect/session negotiation/native PM/rebinding/summary-only Codex repairs, removed manual recipient UI. Added verified-v4.7.13 migration regression and corrected installation/build instructions.
+ 
 -Includes all saved v4.7.12 repairs plus routine PM review/CI follow-through using pinned PM source acceptance, current-PR provenance and Ops/Beta lifecycle support, and durable observation-outage incidents instead of one historical reminder per event. Original deliveries, callback identities and active writers are preserved. See MAC-ACCEPTANCE.md for the reported-issue matrix and real-host checks.
 -
 -Foreground install/launch, HTTP-readiness browser opening and verified predecessor migration. No LaunchAgent, login task or service. Keep the launcher terminal running. Existing recipient pairing and CLI sign-in are reused. First launch announces this version through GitHub and supported recipient routes.
@@ -247,7 +339,7 @@ index 629569d..419a3f0 100644
 -Open host proofs: GitHub event to idle-agent wake and matching receipt/result; watcher survival/rearm after runtime compaction; stale/replaced recipient routing; Browser PM inbound delivery. Unsupported browser chats cannot be awakened by a GitHub comment. CLI PM is the unattended coordinator and must handle eligible source review/qualification without PO relay. Missing runtime capability is explicit, not fabricated success.
 -
 -Migration, merge, deployment, credentials and Production runs retain separate authority. This package changes the coordination tool only.
-+No replacement ZIP is released. Startup handshake, native coordinator registration, bounded Codex summary/turn reads and guarded route recovery are implemented. Local regressions prove the old full-history frame rejection and its correction. Actual Mac idle wake, legacy Claude tracked-task rearm and reconciliation of old uncertain actions remain unverified. No LaunchAgent/login service or Dev bundle download. No Production authority.
++Not an accepted Mac release. Idle event->wake->receipt/result, tracked-watcher restoration, restart/sleep recovery and stuck-route cleanup remain open. No claim copy-paste is eliminated. See INSTALL.md and MAC-ACCEPTANCE.md. PM is the sole Orch implementation owner; devs supply feedback.
 diff --git a/codex_rpc.py b/codex_rpc.py
 index 58e60e0..e7ec9d0 100644
 --- a/codex_rpc.py
@@ -325,6 +417,19 @@ index 753f7ee..8a43008 100644
 -    print('Orch v4.7.13 HTTP ready. Keep this terminal running for coordination.', flush=True)
 +    print('Orch v4.7.14 HTTP ready. Keep this terminal running for coordination.', flush=True)
      webbrowser.open(f'http://127.0.0.1:{args.port}/')
+ 
+ 
+diff --git a/install-orch.py b/install-orch.py
+index e78d129..c1c98d2 100644
+--- a/install-orch.py
++++ b/install-orch.py
+@@ -12,7 +12,7 @@ import tempfile
+ import webbrowser
+ import package_integrity
+ 
+-VERSION = '4.7.13'
++VERSION = '4.7.14'
+ LABEL = 'com.speaksharp.orch'
  
  
 diff --git a/orch-setup.py b/orch-setup.py
@@ -980,7 +1085,7 @@ index 461ad4e..1468424 100644
          with self.assertRaisesRegex(transport.QueueRejected, 'not loaded'): self.send(loaded=False)
      def test_lost_mutation_reply_is_uncertain_without_retry(self):
 diff --git a/test_foreground_startup.py b/test_foreground_startup.py
-index 245e0b1..0440edc 100644
+index 245e0b1..0d9a3eb 100644
 --- a/test_foreground_startup.py
 +++ b/test_foreground_startup.py
 @@ -44,7 +44,7 @@ class ForegroundTests(unittest.TestCase):
@@ -1034,7 +1139,45 @@ index 245e0b1..0440edc 100644
              state = parent / 'rwt-pr-handoff-v4.7.11' / '.agent-work'
              state.mkdir(parents=True)
              with sqlite3.connect(state / 'state.db') as db:
-@@ -143,9 +143,9 @@ class ForegroundTests(unittest.TestCase):
+@@ -136,6 +136,37 @@ class ForegroundTests(unittest.TestCase):
+             prepare_foreground(root, retained, parent)
+             self.assertNotIn('RWT_MIGRATE_FROM', retained)
+ 
++    def test_verified_v4713_retains_newer_cursor_receipts_and_routes(self):
++        with tempfile.TemporaryDirectory() as directory:
++            parent = Path(directory)
++            root = parent / 'rwt-pr-handoff-v4.7.14'
++            for version in ('4.7.12', '4.7.13'):
++                state = parent / ('rwt-pr-handoff-v' + version) / '.agent-work'
++                state.mkdir(parents=True)
++                with sqlite3.connect(state / 'state.db') as db:
++                    db.execute('CREATE TABLE journal(cursor INTEGER, receipt TEXT)')
++                    db.execute('INSERT INTO journal VALUES (?,?)', (13 if version == '4.7.13' else 12, version))
++                previous = '4.7.11' if version == '4.7.12' else '4.7.12'
++                source = parent / ('rwt-pr-handoff-v' + previous) / '.agent-work' / 'state.db'
++                (state / 'migration-manifest.json').write_text(json.dumps(
++                    {'completed': True, 'source_db': str(source), 'target_db': str(state / 'state.db')}))
++            latest = parent / 'rwt-pr-handoff-v4.7.13' / '.agent-work'
++            (latest / 'agent-routes.json').write_text('{"retained":true}')
++            (latest / 'agent-routes.json').chmod(0o600)
++            env = {}
++            prepare_foreground(root, env, parent)
++            self.assertEqual(env['RWT_MIGRATE_FROM'], str(latest / 'state.db'))
++            migrate_state(root, env['RWT_MIGRATE_FROM'])
++            with sqlite3.connect(root / '.agent-work' / 'state.db') as db:
++                self.assertEqual(db.execute('SELECT * FROM journal').fetchone(), (13, '4.7.13'))
++            self.assertEqual((root / '.agent-work' / 'agent-routes.json').read_bytes(), (latest / 'agent-routes.json').read_bytes())
++            retained = {}
++            prepare_foreground(root, retained, parent)
++            self.assertNotIn('RWT_MIGRATE_FROM', retained)
++            explicit = {'RWT_MIGRATE_FROM': '/operator-selected/state.db'}
++            prepare_foreground(parent / 'fresh-target', explicit, parent)
++            self.assertEqual(explicit['RWT_MIGRATE_FROM'], '/operator-selected/state.db')
++
+     def test_loaded_service_preserved_inactive_owned_registration_archived(self):
+         with tempfile.TemporaryDirectory() as directory:
+             home = Path(directory)
+@@ -143,9 +174,9 @@ class ForegroundTests(unittest.TestCase):
              plist.parent.mkdir(parents=True)
              plist.write_bytes(plistlib.dumps({'Label': 'com.speaksharp.orch', 'ProgramArguments': ['python3', str(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.9' / 'installed-service.py')]}))
              with self.assertRaisesRegex(RuntimeError, 'loaded'):
