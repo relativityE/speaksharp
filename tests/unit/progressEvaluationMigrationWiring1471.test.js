@@ -29,6 +29,8 @@ const MARKER = '20260926190000';
 const TRIAL = '20260928120000';
 /** #1258 P0 retention-expiry fix, allowlisted after the trial capability: one more later, pending entry here. */
 const EXPIRY_FIX = '20261013120000';
+/** #1258 P0 typed-expiry follow-up, allowlisted after the retention-expiry fix: one more later, pending entry here. */
+const TYPED_FIX = '20261013140000';
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
 const WORKFLOW = readFileSync(resolve(ROOT, '.github/workflows/apply-exact-allowlisted-migration.yml'), 'utf8');
@@ -54,7 +56,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'b'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version), 'static: later allowlist entries (#1258 marker, trial capability, retention-expiry fix, then activation)').toEqual([MARKER, TRIAL, EXPIRY_FIX, ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version), 'static: later allowlist entries (#1258 marker, trial capability, retention-expiry fix, then activation)').toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -75,6 +77,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
         ` ${MARKER} |                | x`,
         ` ${TRIAL} |                | x`,
         ` ${EXPIRY_FIX} |                | x`,
+        ` ${TYPED_FIX} |                | x`,
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while #1476 is still pending — named, not hidden', () => {
@@ -83,7 +86,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
 
     it('EXECUTABLE once #1476 is applied: admitted; target-only; the applied activation file stays; nothing pending after', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, MARKER, TRIAL, EXPIRY_FIX], excludedVersions: [MARKER, TRIAL, EXPIRY_FIX] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX], excludedVersions: [MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX] });
         const root = mkdtempSync(join(tmpdir(), 'exact-1471-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -93,10 +96,11 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
             expect(isolated.some((f) => f.startsWith(MARKER)), 'the later #1258 marker migration is NOT applied with this target').toBe(false);
             expect(isolated.some((f) => f.startsWith(TRIAL)), 'nor the later trial-capability migration').toBe(false);
             expect(isolated.some((f) => f.startsWith(EXPIRY_FIX)), 'nor the later retention-expiry fix').toBe(false);
+            expect(isolated.some((f) => f.startsWith(TYPED_FIX)), 'nor the later typed-expiry follow-up').toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([MARKER, TRIAL, EXPIRY_FIX]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX]);
     });
 });

@@ -29,6 +29,8 @@ const VERSION = '20261013120000';
 const FILE = `${VERSION}_retention_expiry_without_superuser_1258.sql`;
 const TARGET = FILE.replace(/\.sql$/, '');
 const PREVIOUS = '20260928120000'; // Focus Points trial capability
+/** #1258 P0 typed-expiry follow-up, allowlisted after the retention-expiry fix: one more later, pending entry here. */
+const TYPED_FIX = '20261013140000';
 const GATE = `postflight_${VERSION}`;
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
@@ -62,7 +64,7 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'd'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([TYPED_FIX, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -83,15 +85,16 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
         ` 20260926190000 | 20260926190000 | x`,
         applied.includes(PREVIOUS) ? ` ${PREVIOUS} | ${PREVIOUS} | x` : ` ${PREVIOUS} |                | x`,
         ` ${VERSION} |                | x`,
+        ` ${TYPED_FIX} |                | x`,
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while the trial capability is still pending — named, not hidden', () => {
         expect(() => assertBeforeApply(ledger(), config)).toThrow(new RegExp(PREVIOUS));
     });
 
-    it('EXECUTABLE once the trial capability is applied: admitted; target-only; the applied activation file stays; nothing pending after', () => {
+    it('EXECUTABLE once the trial capability is applied: admitted; target-only; the applied activation file stays; only the later typed-expiry follow-up pending after', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION], excludedVersions: [] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, TYPED_FIX], excludedVersions: [TYPED_FIX] });
         const root = mkdtempSync(join(tmpdir(), 'exact-retention-expiry-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -102,7 +105,7 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([TYPED_FIX]);
     });
 });
 
