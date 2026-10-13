@@ -59,6 +59,7 @@ const { wireProgressEvaluationOnSave, reconcileProgressEvaluations, attemptProgr
 const { evaluateDurableStartGate } = await import('../progressStartGate');
 const { getQueuedSessionIdsForUser, PROGRESS_QUEUE_V2_PREFIX, PROGRESS_QUEUE_STORAGE_KEY } = await import('../progressReconcileQueue');
 const { setOpenAttempt, getOpenAttemptForUser } = await import('../openAttempt');
+const { recordRecommendationObligation } = await import('../progressRecommendationObligation');
 
 const USER = 'user-1';
 const N = 'sess-n';
@@ -70,7 +71,15 @@ const SAVE = (sessionId: string, userId: string | null = USER) =>
     ({ sessionId, status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId });
 
 const obligationKeys = () => Object.keys(localStorage).filter((k) => k.startsWith(OBLIGATION_PREFIX));
-const obligationFor = (sessionId: string) => obligationKeys().find((k) => k.endsWith(`|${encodeURIComponent(sessionId)}`));
+/** Every generation key this owner holds for one take (`…|<owner>|<session>|<generation>`). */
+const obligationsFor = (sessionId: string, userId = USER) => {
+    const base = `${OBLIGATION_PREFIX}${encodeURIComponent(userId)}|${encodeURIComponent(sessionId)}`;
+    return obligationKeys().filter((k) => k === base || k.startsWith(`${base}|`));
+};
+/** The generations still owed for one take, read from the stored values (independent of the key layout). */
+const generationsFor = (sessionId: string) =>
+    obligationsFor(sessionId).map((k) => (JSON.parse(localStorage.getItem(k) ?? '{}') as { generation?: string }).generation);
+const obligationFor = (sessionId: string) => obligationsFor(sessionId)[0];
 const callsTo = (fn: string) => rpc.mock.calls.filter((c) => c[0] === fn);
 const settle = async () => { for (let i = 0; i < 25; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); };
 /** Resolves with the outcome, or with 'HELD' when the call is still waiting after `ms` — i.e. downstream held the gate. */
@@ -283,17 +292,56 @@ describe('B7 — a late result never erases another owner\'s or a newer attempt'
         expect(getOpenAttemptForUser('user-2')?.attemptId).toBe('att-b');
     });
 
-    it('a late recommendation result does not retire a NEWER obligation generation for the same session', async () => {
+    // PM 6156497917 (P1): a TERMINAL late result for generation G1 reaches its clear exactly when another context publishes
+    // G2 for the same take. A read-check-remove of one shared key deleted G2 here. G2 must survive and be recoverable.
+    it.each([
+        ['an ordinary terminal success', (args: Record<string, unknown>) => {
+            recRows.add(String(args.p_source_session_id));
+            return { data: `rec-${String(args.p_source_session_id)}`, error: null };
+        }],
+        ['a lost success (RPC error, row present on readback)', (args: Record<string, unknown>) => {
+            recRows.add(String(args.p_source_session_id));
+            return { data: null, error: { message: 'connection reset' } };
+        }],
+    ])('G2 published at G1\'s clear boundary survives %s and is recovered on the next load', async (_label, answer) => {
+        const g1 = deferred();
+        rpcImpl.set('record_progress_recommendation', async (args) => { await g1.promise; return answer(args); });
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N)))).toEqual({ kind: 'recorded' });
+        const [g1Key] = obligationsFor(N);
+        expect(g1Key).toBeDefined();
+
+        // At the instant G1's settlement retires its obligation, another context writes G2 for the same take.
+        let g2: string | undefined;
+        let g2Published = false;
+        const realRemove = Storage.prototype.removeItem;
+        vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (this: Storage, k: string) {
+            if (k.startsWith(OBLIGATION_PREFIX) && !g2Published) {
+                g2Published = true;
+                const written = recordRecommendationObligation(USER, N, new Date().toISOString());
+                g2 = written.ok ? written.generation : undefined;
+            }
+            return realRemove.call(this, k);
+        });
+        g1.resolve({ data: null, error: null });
+        await settle();
+
+        expect(g2, 'G2 was published at the clear boundary').toBeDefined();
+        expect(generationsFor(N), 'G1 retired itself and nothing else: G2 is still owed').toEqual([g2]);
+
+        vi.restoreAllMocks();
+        recommendationSucceeds();
+        await reconcileProgressEvaluations(USER, []);
+        expect(obligationsFor(N), 'G2 recovered and retired by the next load').toEqual([]);
+    });
+
+    it('a late FAILED result for G1 clears nothing; both generations stay owed', async () => {
         const held = holdRecommendation();
         await wireProgressEvaluationOnSave(SAVE(N));
-        const first = localStorage.getItem(obligationFor(N)!);
-        // A later save of the same session (retry path) writes a newer generation.
-        await wireProgressEvaluationOnSave(SAVE(N));
-        const second = localStorage.getItem(obligationFor(N)!);
-        expect(second).not.toBe(first);
-        held[0].resolve({ data: null, error: { message: 'lost' } }); // the first generation's result arrives late, failed
+        await wireProgressEvaluationOnSave(SAVE(N)); // a later save of the same take publishes a newer generation
+        expect(obligationsFor(N)).toHaveLength(2);
+        held[0].resolve({ data: null, error: { message: 'lost' } });
         await settle();
-        expect(localStorage.getItem(obligationFor(N)!)).toBe(second);
+        expect(obligationsFor(N)).toHaveLength(2);
     });
 });
 

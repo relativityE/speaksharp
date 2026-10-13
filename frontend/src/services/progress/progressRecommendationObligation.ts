@@ -11,8 +11,13 @@
  * namespace (`ss_progress_recommendation_owed_v1|<owner>|<session>`) is one no shipped client enumerates, rewrites or
  * removes — and it never blocks Start, so an older client's gate is unaffected by it as well.
  *
- * GENERATIONS. Every write carries a fresh generation. A late result may retire only the generation it was started for,
- * so it can never retire a newer obligation for the same owner+session.
+ * ONE IMMUTABLE KEY PER GENERATION (PM 6156497917). Every write mints a fresh generation and stores it under its OWN key,
+ * `ss_progress_recommendation_owed_v1|<owner>|<session>|<generation>`, which is written once and never rewritten.
+ * localStorage has no compare-and-delete, so a read-check-remove of one shared key lets a late settlement delete a newer
+ * generation another tab wrote in between. With a key per generation there is nothing to compare: a settlement removes
+ * exactly the key it was started for, and a newer generation lives under a key no other settlement ever names. Several
+ * generations for one take may coexist; each is settled on its own (the server's recommendation is unique per take, so
+ * the second settlement is an idempotent readback).
  *
  * Every write is confirmed by readback; a write that cannot be confirmed is reported, never assumed.
  */
@@ -28,7 +33,8 @@ export interface RecommendationObligation {
 }
 
 const enc = (s: string) => encodeURIComponent(s);
-const keyFor = (userId: string, sessionId: string) => `${RECOMMENDATION_OBLIGATION_PREFIX}${enc(userId)}|${enc(sessionId)}`;
+const keyFor = (userId: string, sessionId: string, generation: string) =>
+    `${RECOMMENDATION_OBLIGATION_PREFIX}${enc(userId)}|${enc(sessionId)}|${enc(generation)}`;
 
 const isObligation = (v: unknown): v is RecommendationObligation =>
     !!v && typeof v === 'object'
@@ -42,18 +48,20 @@ function newGeneration(): string {
     return typeof c?.randomUUID === 'function' ? c.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-/** Write (or supersede) the obligation for this owner+session. `ok` only when readback returns exactly what was written. */
+/** Write a NEW generation for this owner+session under its own key. `ok` only when readback returns exactly what was written. */
 export function recordRecommendationObligation(
     userId: string,
     sessionId: string,
     nowIso: string,
 ): { ok: true; generation: string } | { ok: false } {
     if (typeof localStorage === 'undefined') return { ok: false };
-    const value = JSON.stringify({ userId, sessionId, generation: newGeneration(), createdAtIso: nowIso } satisfies RecommendationObligation);
+    const generation = newGeneration();
+    const key = keyFor(userId, sessionId, generation);
+    const value = JSON.stringify({ userId, sessionId, generation, createdAtIso: nowIso } satisfies RecommendationObligation);
     try {
-        localStorage.setItem(keyFor(userId, sessionId), value);
-        if (localStorage.getItem(keyFor(userId, sessionId)) !== value) return { ok: false };
-        return { ok: true, generation: (JSON.parse(value) as RecommendationObligation).generation };
+        localStorage.setItem(key, value);
+        if (localStorage.getItem(key) !== value) return { ok: false };
+        return { ok: true, generation };
     } catch (err) {
         logger.warn({ err }, '[progress] recommendation obligation could not be written');
         return { ok: false };
@@ -76,7 +84,7 @@ export function listRecommendationObligations(userId: string): { ok: true; entri
             if (raw === null) continue;
             let parsed: unknown;
             try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
-            if (isObligation(parsed) && parsed.userId === userId && keyFor(parsed.userId, parsed.sessionId) === k) entries.push(parsed);
+            if (isObligation(parsed) && parsed.userId === userId && keyFor(parsed.userId, parsed.sessionId, parsed.generation) === k) entries.push(parsed);
             else logger.warn('[progress] malformed recommendation obligation skipped');
         }
         return { ok: true, entries };
@@ -87,18 +95,13 @@ export function listRecommendationObligations(userId: string): { ok: true; entri
 }
 
 /**
- * Retire the obligation ONLY if it is still the generation the caller settled. A newer generation, or one already
- * gone, is left alone. `true` only when the matching obligation is confirmed absent afterwards.
+ * Retire exactly the generation the caller settled: its own immutable key, and nothing else. A newer generation for the
+ * same take is a different key and cannot be touched. `true` only when that key is confirmed absent afterwards.
  */
 export function clearRecommendationObligationIfMatches(userId: string, sessionId: string, generation: string): boolean {
     if (typeof localStorage === 'undefined') return false;
-    const key = keyFor(userId, sessionId);
+    const key = keyFor(userId, sessionId, generation);
     try {
-        const raw = localStorage.getItem(key);
-        if (raw === null) return true;
-        let parsed: unknown;
-        try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
-        if (!isObligation(parsed) || parsed.generation !== generation) return false;
         localStorage.removeItem(key);
         return localStorage.getItem(key) === null;
     } catch (err) {
