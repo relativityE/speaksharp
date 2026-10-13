@@ -603,6 +603,7 @@ jobs:
 
       - name: Organize Canonical Artifacts
         run: |
+          set -o pipefail
           mkdir -p artifacts/coverage artifacts/playwright artifacts/lighthouse artifacts/metrics frontend
 
           if [ -d "artifacts/build-artifacts" ]; then
