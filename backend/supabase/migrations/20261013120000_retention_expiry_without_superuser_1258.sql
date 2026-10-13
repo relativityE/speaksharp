@@ -20,8 +20,9 @@
 --   2. a row in transcript_retention_expiry_grants names THIS transaction and THIS session. Only
 --      expire_transcripts_newest_one writes that table (no role holds any privilege on it), and it deletes its
 --      grants as soon as its UPDATE is done, so a grant never outlives the statement it authorizes and a
---      rollback takes it with everything else. The UPDATE itself selects only granted rows, so ranking drift
---      between its statements can never expire an ungranted row. A custom setting was rejected: any caller can set one, and a
+--      rollback takes it with everything else. The UPDATE itself selects only granted rows that still hold the
+--      exact selected text, so neither ranking drift nor a concurrent edit can expire an ungranted or changed row;
+--      a tombstone this run wrote for a row it did not expire is withdrawn. A custom setting was rejected: any caller can set one, and a
 --      nested SECURITY DEFINER write would then satisfy condition 1;
 --   3. the new row has no text, and the old row's exact text is already preserved in
 --      transcript_retention_tombstones for that user — the same proof the mutation's own UPDATE requires.
@@ -124,6 +125,7 @@ DECLARE
   v_viol     record;
   v_affected integer := 0;
   v_has_more boolean := false;
+  v_new_tombstones uuid[] := '{}';
 BEGIN
   -- Argument bounds (fail closed), IDENTICAL to newest-two. p_batch_size = 1 is the exact minimum
   -- boundary and MUST succeed; the 5000 ceiling bounds how much this destructive statement can scrub
@@ -174,12 +176,17 @@ BEGIN
   ),
   batch AS MATERIALIZED (
     SELECT id, user_id, transcript FROM ranked WHERE rn > 1 ORDER BY id LIMIT p_batch_size
+  ),
+  inserted AS (
+    INSERT INTO public.transcript_retention_tombstones
+      (session_id, user_id, transcript, policy_version)
+    SELECT id, user_id, transcript, public.transcript_retention_policy_version()
+    FROM batch
+    ON CONFLICT (session_id) DO NOTHING
+    RETURNING session_id
   )
-  INSERT INTO public.transcript_retention_tombstones
-    (session_id, user_id, transcript, policy_version)
-  SELECT id, user_id, transcript, public.transcript_retention_policy_version()
-  FROM batch
-  ON CONFLICT (session_id) DO NOTHING;
+  -- Remember which tombstones THIS run wrote, so any whose row it does not expire can be withdrawn below.
+  SELECT coalesce(array_agg(session_id), '{}') INTO v_new_tombstones FROM inserted;
 
   -- The sessions state transition is the only write the derivation trigger must let through: grant exactly the
   -- rows the UPDATE below will expire (same ranking, same tombstone proof), for this transaction only.
@@ -224,16 +231,31 @@ BEGIN
       ON g.session_id = r.id AND g.txid = pg_catalog.txid_current()
     WHERE r.rn > 1
   )
+  -- The row being updated must still BE the selected version (PM review 6148753844): under READ COMMITTED a row edited
+  -- and committed after `batch` was read is re-checked against these predicates on its newer version. Matching by id
+  -- alone would null the newer text, which has no tombstone, and the trigger would label it `not_captured`.
   UPDATE public.sessions s
   SET transcript = NULL,
       transcript_state = 'expired'
   FROM batch b
   WHERE s.id = b.id
+    AND s.user_id = b.user_id
+    AND s.transcript = b.transcript
+    AND s.status = 'completed'
     AND EXISTS (
       SELECT 1 FROM public.transcript_retention_tombstones t
       WHERE t.session_id = b.id AND t.user_id = b.user_id AND t.transcript = b.transcript
     );
   GET DIAGNOSTICS v_affected = ROW_COUNT;
+
+  -- A row this run tombstoned but did not expire (edited after selection, or no longer ranked for expiry) keeps its own
+  -- text. Its new tombstone holds text the user no longer has there and would make every later expiry for that user
+  -- refuse as a contradiction, so it is withdrawn. Tombstones of expired rows, and any written by earlier runs, stay.
+  DELETE FROM public.transcript_retention_tombstones t
+  USING public.sessions s
+  WHERE t.session_id = ANY (v_new_tombstones)
+    AND s.id = t.session_id
+    AND s.transcript_state <> 'expired';
 
   -- The grants authorized that one statement and nothing after it.
   DELETE FROM public.transcript_retention_expiry_grants WHERE txid = pg_catalog.txid_current();

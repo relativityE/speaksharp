@@ -399,7 +399,7 @@ describe('#1258 P0 — the exemption cannot be reached by anyone else', () => {
  */
 const EXPIRE_BEFORE_MD5 = 'b69060cd8e903e4f51870034557be1e8';
 const TRIGGER_BEFORE_MD5 = '794bf7c4e293ed215152d56d706a44a7';
-const EXPIRE_AFTER_MD5 = '4e6a0f141e031bddc94e78803205c54d';
+const EXPIRE_AFTER_MD5 = 'e966ca4e86e1be90e95b708baa2da836';
 const TRIGGER_AFTER_MD5 = '400700738ca78de10d259b550499b5ac';
 const DIGESTS = `SELECT md5(pg_get_functiondef('public.expire_transcripts_newest_one(uuid, integer)'::regprocedure)) AS expire,
                         md5(pg_get_functiondef('public.sessions_set_transcript_state()'::regprocedure)) AS trigger`;
@@ -426,6 +426,18 @@ describe('#1258 P0 — structure', () => {
         expect(body.indexOf('out of bounds (1..5000)')).toBeLessThan(grant);
         expect(body.indexOf('transcript_retention_invariant_violations')).toBeLessThan(grant);
         expect(body.indexOf('tombstone contradiction in scope')).toBeLessThan(grant);
+    });
+
+    it('the UPDATE is bound to the selected row version, and tombstones of unexpired rows are withdrawn (PM 6148753844)', () => {
+        // A concurrent edit cannot be interleaved in PGlite; tests/db/run-retention-expiry-edit-race-realpg.sh drives it on
+        // real PostgreSQL. These pin the two predicates that proof depends on.
+        const update = body.slice(body.indexOf('UPDATE public.sessions s'), body.indexOf('GET DIAGNOSTICS v_affected'));
+        for (const p of ['s.user_id = b.user_id', 's.transcript = b.transcript', "s.status = 'completed'", 'g.txid = pg_catalog.txid_current()']) {
+            expect({ p, present: (body.slice(body.indexOf('-- Expire ONLY rows granted'), body.indexOf('GET DIAGNOSTICS v_affected'))).includes(p) }).toEqual({ p, present: true });
+        }
+        expect(update).toContain('FROM batch b');
+        expect(body).toMatch(/DELETE FROM public\.transcript_retention_tombstones t\s+USING public\.sessions s\s+WHERE t\.session_id = ANY \(v_new_tombstones\)/);
+        expect(readdirSync(resolve(process.cwd(), 'tests', 'db'))).toContain('run-retention-expiry-edit-race-realpg.sh');
     });
 
     it('no migration after the fix reintroduces session_replication_role into a function body', () => {

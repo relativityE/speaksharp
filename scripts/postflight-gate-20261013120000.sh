@@ -28,7 +28,7 @@ MODE="${1:-}"
 # Reviewed definition digests (PostgreSQL 17; recomputed by the integration test, which fails if any drifts).
 EXPIRE_BEFORE_MD5=b69060cd8e903e4f51870034557be1e8   # 20260908120000 expire_transcripts_newest_one (session_replication_role)
 TRIGGER_BEFORE_MD5=794bf7c4e293ed215152d56d706a44a7  # 20260801000000 sessions_set_transcript_state
-EXPIRE_AFTER_MD5=4e6a0f141e031bddc94e78803205c54d    # 20261013120000 expiry with per-transaction grants
+EXPIRE_AFTER_MD5=e966ca4e86e1be90e95b708baa2da836    # 20261013120000 expiry with per-transaction grants
 TRIGGER_AFTER_MD5=400700738ca78de10d259b550499b5ac   # 20261013120000 derivation trigger with the owner+grant+tombstone exemption
 
 if [ -n "${DB_URL:-}" ]; then PSQL=(psql "$DB_URL" -v ON_ERROR_STOP=1 -qAt)
