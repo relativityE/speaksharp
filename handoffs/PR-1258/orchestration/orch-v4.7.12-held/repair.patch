@@ -18,6 +18,284 @@
  
 -Offline checks do not establish Mac readiness. Acceptance requires HTTP readiness, an actual event delivery/ACK/result and CLI PM continuation on this host. Do not claim hands-off coordination until that proof exists.
 +Accept the installed upgrade only after the board reports 4.7.12 coordination.6, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
+--- a/PACKAGE-MANIFEST.json
++++ b/PACKAGE-MANIFEST.json
+@@ -1,6 +1,6 @@
+ {
+-  "version": "4.7.11",
+-  "build": "coordination.5",
++  "version": "4.7.12",
++  "build": "coordination.6",
+   "files": [
+     {
+       "path": "COORDINATION-CHANGE.md",
+@@ -14,8 +14,8 @@
+     },
+     {
+       "path": "INSTALL.md",
+-      "bytes": 1584,
+-      "sha256": "06bde5777d1c07b88961623b3b95a03f8bb21086e2d9ac826ccd44fcb6032e34"
++      "bytes": 1831,
++      "sha256": "1d671c6e50629a510b2780db10919ae4db312870a424d007e8d040580ed7aba5"
+     },
+     {
+       "path": "Install_Orch.command",
+@@ -30,7 +30,7 @@
+     {
+       "path": "README.md",
+       "bytes": 2074,
+-      "sha256": "bc7b622aec95a6d594bf95018d5de34ac9adfe69accdd254caab8e59e19fa4e3"
++      "sha256": "405a54d2aef8c20cdc397a4837b313fb475473ee37c33ea5ed9e3c74aec7130e"
+     },
+     {
+       "path": "RECOVERY-CLI-DEV-20261011.json",
+@@ -39,8 +39,8 @@
+     },
+     {
+       "path": "RELEASE-CANDIDATE.md",
+-      "bytes": 1217,
+-      "sha256": "d5ceac65224471f0f75d24408b5f4705583c8a552ed1cce2c3034b17d4f80f53"
++      "bytes": 1631,
++      "sha256": "27fa052737251c4b91396fee06874ca134f53c329cd1192cc6fb5a2994f11e11"
+     },
+     {
+       "path": "ROUTE-RECOVERY.md",
+@@ -64,13 +64,13 @@
+     },
+     {
+       "path": "VALIDATION.md",
+-      "bytes": 760,
+-      "sha256": "d73c5bc50ed6c7e3cc66d5c734623a8e267e085f0694e77ea6b635eb5fa63d8c"
++      "bytes": 1238,
++      "sha256": "f011b0c9b023eb87ab67e54dcb3f02d87bc38ad9bb093b3eccf8ddedf7f8f26e"
+     },
+     {
+       "path": "actor_channels.py",
+-      "bytes": 9674,
+-      "sha256": "715136432d310956a67f1116a14721fed597ea058f03f7e0bd28c7aab868ecf6"
++      "bytes": 10760,
++      "sha256": "cbdbbc4b3fc99a33c04f02db67f71227eb0fbeeea73c1871ba8f8e0f0fc97f91"
+     },
+     {
+       "path": "agent-routes.schema.json",
+@@ -94,18 +94,18 @@
+     },
+     {
+       "path": "coordination_health.py",
+-      "bytes": 3463,
+-      "sha256": "e9545b3ce081d5e8a2ef8bb0c2b88d6b65d390bee6f4d8ec7d11076e30d8dbf6"
++      "bytes": 3768,
++      "sha256": "c9e563452619e0896d96255c0ce443c477d277f62ea4f528f55e87860e22d583"
+     },
+     {
+       "path": "coordination_recovery.py",
+-      "bytes": 4006,
+-      "sha256": "fb302e5d6b8dce5dacafca268dae0f0d583f8b49f380d82635f2b475429a7afd"
++      "bytes": 7670,
++      "sha256": "7f6c97b7b54679b3adea3119308ea0900e94f481292f1b0da18a17c0fefa8907"
+     },
+     {
+       "path": "foreground_startup.py",
+-      "bytes": 3720,
+-      "sha256": "98d4b80bcf3ef4ef1d3428c17efcf75a7ccb8b7990b6302aa06af30bceb1fdec"
++      "bytes": 4507,
++      "sha256": "6832d6f11742e256b353826e0feea68bcadcd3e773bad39ca178180749301f85"
+     },
+     {
+       "path": "github_budget_preload.cjs",
+@@ -114,13 +114,13 @@
+     },
+     {
+       "path": "guarded_pm.py",
+-      "bytes": 17758,
+-      "sha256": "701af7478d2e240ec1736938afec74d802c776769aaa1bf70072068e9376d638"
++      "bytes": 20478,
++      "sha256": "9490841663249389a9f9ebc51b25c312bd434cf12f6d21059f18672c1d26a3ef"
+     },
+     {
+       "path": "install-orch.py",
+       "bytes": 1790,
+-      "sha256": "757413d7c78265f57866eec5277d28a900c571046c6b8d6f26b0b43a2043adcc"
++      "sha256": "98e25304f1fe946843790db89499052a325e05a8cd1b1bfee27f59adb4327392"
+     },
+     {
+       "path": "migrate_state.py",
+@@ -139,13 +139,13 @@
+     },
+     {
+       "path": "orch-setup.py",
+-      "bytes": 3484,
+-      "sha256": "e863d258a572cad3c92eea3d3aa770a98d86b716d2c964c9fce60d0ff010b06e"
++      "bytes": 3806,
++      "sha256": "f9d40e85cc9da87482637c5747ff6d43b8c33f5c9d9cd7c3621130ced8b9dcd9"
+     },
+     {
+       "path": "orch-worker.py",
+-      "bytes": 11554,
+-      "sha256": "f7555bb06865ba57bfcfccda9a1af1c2b89f2207f996cae41ed2bc09d7c46ebc"
++      "bytes": 11841,
++      "sha256": "f3ec7a175d068c29540dfde4d4092e3926e13a9a3d26ec9bc4494c625a8ce2f7"
+     },
+     {
+       "path": "package_integrity.py",
+@@ -154,8 +154,8 @@
+     },
+     {
+       "path": "pm-instructions.md",
+-      "bytes": 22961,
+-      "sha256": "d1d70341251e28e7aa77b0b9a8052c58a8a44a266399ae306f5170056ad59a8d"
++      "bytes": 24704,
++      "sha256": "683003328ad145601ca187fce4f37e4cc52addbd1ce5dcce9239ae68b4eb5e8a"
+     },
+     {
+       "path": "pm-route.schema.json",
+@@ -169,23 +169,28 @@
+     },
+     {
+       "path": "server.py",
+-      "bytes": 410500,
+-      "sha256": "06acaa563c62bf06af5a39871392526b17b736b85906202a8e288d1c7eb88f2d"
++      "bytes": 421081,
++      "sha256": "d016749ad45e89e5fd213e03eff3f86b6a88b2d0569f5827152ae3af20c753d9"
+     },
+     {
+       "path": "start-rwt-handoff.sh",
+       "bytes": 2312,
+-      "sha256": "ab6637e8f5a1ea504e7ca0d4a32d2115743beca6ae619fea40efc63c966d1925"
++      "sha256": "bcea6e17c647218463fcb727aa22c35d22ea5fe3048d1afd5b612d4c82a8c501"
+     },
+     {
+       "path": "static/index.html",
+-      "bytes": 37133,
+-      "sha256": "2d15754ba9bfa087a30dbbdedcd310fea793be1e3554495b6fce5f7744477f8e"
++      "bytes": 37626,
++      "sha256": "7c506c0de6dba3123aa8fcdc7959254dfebd3439ce89efafbdec012861fcaaeb"
++    },
++    {
++      "path": "task-status-repair.patch",
++      "bytes": 19892,
++      "sha256": "6bd08cffbb3120b01c5914cff6c5ea54ccd931a2c4a1bc38db7876da70a24a81"
+     },
+     {
+       "path": "test_actor_channels.py",
+-      "bytes": 19756,
+-      "sha256": "9e4f79739147b1e7c265bad3db6cc67fd33b8f1148f6c9e9beaeb527dd48f1e7"
++      "bytes": 20292,
++      "sha256": "949e7fb7acf993c260b0facbce409fa3e6fe120dcab195a08ad01a5f9720c63a"
+     },
+     {
+       "path": "test_agent_transport.py",
+@@ -194,8 +199,8 @@
+     },
+     {
+       "path": "test_comms.py",
+-      "bytes": 13401,
+-      "sha256": "58a06b4bbc2dd14c97aa092ca74cbcc85aed359e3e497ce882339268cff1d2c5"
++      "bytes": 16788,
++      "sha256": "20e3d4f3610e61bc70c25f41979cc15ff3b79bc3682f52719ff454ffa60c552d"
+     },
+     {
+       "path": "test_coordination_patch.py",
+@@ -204,8 +209,8 @@
+     },
+     {
+       "path": "test_coordination_urgency.py",
+-      "bytes": 13317,
+-      "sha256": "fb5a54bac1452ee9018076bd39757bbe65ba913ed343d4444aa6ee3465ecadbe"
++      "bytes": 13330,
++      "sha256": "205e9f32a01a24d388b4e55d9bfbe8edc8ff2922950ca79c0abeeea20778d638"
+     },
+     {
+       "path": "test_deadlock.py",
+@@ -223,9 +228,14 @@
+       "sha256": "222518ba61411b2d4529aa17d87a36f8fb69a86f00c4be0d01cd07b13c22f456"
+     },
+     {
++      "path": "test_event_queue_recovery.py",
++      "bytes": 9573,
++      "sha256": "f2f6f39856a637ecc7a47973173c2792628af0cd3ab1d0bc126c533dccdbbd5a"
++    },
++    {
+       "path": "test_foreground_startup.py",
+-      "bytes": 6201,
+-      "sha256": "4ea5eae814151321ac1e67d5bf9027f479ca6b2dc93fdc112a2c735fc86a1dcd"
++      "bytes": 7804,
++      "sha256": "3ce5b8fef5db305935b12220b3b57ce806a66f28b6855c0377a5ef770f2330c2"
+     },
+     {
+       "path": "test_handoffs.py",
+@@ -269,13 +279,13 @@
+     },
+     {
+       "path": "test_refresh_reviews.py",
+-      "bytes": 2415,
+-      "sha256": "4d52de5a4763690903d0eaa7b2d84e323c1c2a36dceacafa172a1bac8c7e6f09"
++      "bytes": 2777,
++      "sha256": "dd965d87851cb6acdd29f6237a3f1f6f486e1a5320b1837f62fa1e1ecfd3973d"
+     },
+     {
+       "path": "test_regressions.py",
+       "bytes": 26054,
+-      "sha256": "d7521ee1ee020ecdfe8b36229be237a24f3d825685d34a67e0d70d841de0bf6a"
++      "sha256": "21beee71c38b51ad415cbc07852ab95674c6c5df39cb8f697af869d14b882eb7"
+     },
+     {
+       "path": "test_route_recovery.py",
+@@ -294,8 +304,13 @@
+     },
+     {
+       "path": "test_startup_readiness.py",
+-      "bytes": 4599,
+-      "sha256": "9a1f8aa4532350af868e8cd465942af1ae35497b03f94d948ed44a9c91244354"
++      "bytes": 4590,
++      "sha256": "b3adef07fbfe862c47ba4abd6ee39d934aa31246e7c4730cca27b6f9cb16e63e"
++    },
++    {
++      "path": "test_task_checkpoint_preservation.py",
++      "bytes": 1501,
++      "sha256": "f4a6e1a09d8375a8823598356b8f83fdc6d440c90bedc88791a426ecc536d043"
+     },
+     {
+       "path": "test_transport_permissions.py",
+@@ -314,8 +329,8 @@
+     },
+     {
+       "path": "test_worker_runtime.py",
+-      "bytes": 17746,
+-      "sha256": "959b6194eddd27dd92fa177ee53dfafdcfa4b3cc58d982a827b03df22672d118"
++      "bytes": 20917,
++      "sha256": "34a37804616b1cf8b42e0fa4a9d4636eceb320209672607557ac82019efe326b"
+     },
+     {
+       "path": "watch-orch-inbox.py",
+@@ -324,13 +339,23 @@
+     },
+     {
+       "path": "worker_runtime.py",
+-      "bytes": 12125,
+-      "sha256": "8d910c749151f39aa499a9bd8770f55d7091c13bf547602449bf5526929ebbc1"
++      "bytes": 13269,
++      "sha256": "7436bdbff5a54b464917343634fb0c049fc3d7441c15eac52b07d8527634173e"
+     },
+     {
+       "path": "worker_supervisor.py",
+-      "bytes": 3515,
+-      "sha256": "e8c82291769642c6edebd84cb8919f64b5effeea6f1ca857b31c16ebda335768"
++      "bytes": 5200,
++      "sha256": "c15f3ef4116f8800233849fd69924162603cc4358d7ca5143ba84552fb46b1d3"
++    },
++    {
++      "path": "test_durable_checkpoints.py",
++      "bytes": 2201,
++      "sha256": "ff435bf23e00c69989b19bb9e86fad6cfe753292df88bc3873b18f646ebc5ac1"
++    },
++    {
++      "path": "test_foreground_worker_lifecycle.py",
++      "bytes": 2816,
++      "sha256": "5ddacc31f9f68db858198ad666575ddc7ae7257ab74eb3e25098a319b8177407"
+     }
+   ]
+ }
 --- a/README.md
 +++ b/README.md
 @@ -1,4 +1,4 @@
@@ -133,7 +411,7 @@
          support.append({'actor': actor, 'state': state,
 --- a/coordination_recovery.py
 +++ b/coordination_recovery.py
-@@ -3,8 +3,26 @@
+@@ -3,8 +3,45 @@
  import hashlib
  
  
@@ -146,6 +424,25 @@
 +        if key.startswith(prefix):
 +            action_id = key[len(prefix):]
      with connection() as db:
++        observation_incident = None
++        for prefix in ('notification-observation-fallback:', 'notification-observation-receipt:'):
++            if key.startswith(prefix):
++                incident = db.execute('SELECT incident_id,anchor_action FROM observation_recovery_incidents WHERE incident_id=?',
++                                      (key[len(prefix):],)).fetchone()
++                if incident:
++                    action_id = incident['anchor_action']
++                    anchor = db.execute('SELECT actor_id,target_session_id,target_transport,target_remote_url FROM agent_notifications WHERE action_id=?',
++                                        (action_id,)).fetchone()
++                    if anchor:
++                        where = ("actor_id=? AND target_session_id=? AND target_transport=? AND target_remote_url=? "
++                                 "AND task_id='event-observation' AND handoff_id=0 AND status NOT IN ('responded','superseded')")
++                        args = tuple(anchor)
++                        count = db.execute('SELECT count(*) FROM agent_notifications WHERE ' + where, args).fetchone()[0]
++                        outstanding = [dict(r) for r in db.execute('SELECT action_id,status,receipt_at,result_at,error FROM agent_notifications WHERE '
++                            + where + ' ORDER BY rowid LIMIT 20', args)]
++                        observation_incident = {'incident_id': incident['incident_id'], 'anchor_action': action_id,
++                                                'outstanding_count': count, 'outstanding': outstanding,
++                                                'has_more': count > len(outstanding)}
 +        # Exact source lookup is independent of recent-list limits and settlement status.
 +        original_notification = db.execute(
 +            "SELECT action_id,actor_id,task_id,status,target_transport,target_session_id,head,attempts,"
@@ -161,7 +458,7 @@
          journal = [dict(r) for r in db.execute(
              "SELECT action_key,status,kind,pr_number,head,phase,result FROM pm_action_journal "
              "WHERE status IN ('running','unconfirmed','held','failed') ORDER BY updated_at DESC LIMIT 20")]
-@@ -15,9 +33,20 @@
+@@ -15,9 +52,21 @@
          # No inbox bearer tokens, callback secrets or private instruction bodies.
          routes = {actor: {key: route.get(key) for key in ('provider', 'session_id')}
                    for actor, route in actors.read_config()['routes'].items()}
@@ -176,6 +473,7 @@
          routes = {'error': type(exc).__name__}
 +        consumers = {}
      return {'routes': routes, 'action_journal': journal, 'deliveries': deliveries,
++            'observation_incident': observation_incident,
 +            'notifications': notifications, 'original_notification': dict(original_notification) if original_notification else None,
 +            'worker_consumers': consumers,
 +            'original_delivery': dict(original_delivery) if original_delivery else None,
@@ -222,6 +520,116 @@
      webbrowser.open(f'http://127.0.0.1:{args.port}/')
  
  
+--- a/guarded_pm.py
++++ b/guarded_pm.py
+@@ -9,6 +9,20 @@
+ # The combined Rev 2 candidate has an explicit source-authorized branch. Keep
+ # it as a single exact exception; do not broaden the feature namespace.
+ BRANCH = re.compile(r'^(?:(?:fix|test|telemetry)/1258-[A-Za-z0-9._/-]+|feat/1258-design-pr[1-5]-[A-Za-z0-9._/-]+|feat/1258-design-rev2-combined|cli-dev/rwt-edge-scenarios-20261012-r2)$')
++LIFECYCLE_BRANCH = re.compile(r'^(?:fix|test|telemetry|feat|build|docs|cli-dev)/[A-Za-z0-9._/-]+$')
++
++
++def valid_lifecycle_branch(branch):
++    """Existing repository PR only, explicitly named in its source authorization.
++
++    This expands no operation or Draft-creation authority. Reject ref/query syntax
++    rather than interpolating an arbitrary branch into GitHub read URLs.
++    """
++    return (isinstance(branch, str) and len(branch) <= 200
++            and bool(LIFECYCLE_BRANCH.fullmatch(branch))
++            and '..' not in branch and '//' not in branch
++            and all(part and not part.startswith('.') and not part.endswith(('.', '.lock'))
++                    for part in branch.split('/')))
+ 
+ class Hold(RuntimeError):
+     pass
+@@ -45,8 +59,9 @@
+         raise Hold(message)
+ 
+ class Executor:
+-    def __init__(self, request, qualify, phase=None):
++    def __init__(self, request, qualify, phase=None, *, standing_review_authority=False):
+         self.request, self.qualify = request, qualify
++        self.standing_review_authority = standing_review_authority
+         # Journals a lifecycle step before/after each write so a restart can resume it.
+         self.phase = phase or (lambda _name: None)
+ 
+@@ -61,7 +76,12 @@
+         source=int(action.get('source_comment_id') or 0)
+         need(source>0, 'Source packet/checkpoint required')
+         comment=self.read(f'issues/comments/{source}')
+-        need(comment.get('issue_url','') in (f'https://api.github.com/repos/{REPO}/issues/1258', f'https://api.github.com/repos/{REPO}/issues/1593'), 'Source must belong to the verified #1258/#1593 control plane')
++        source_urls = {f'https://api.github.com/repos/{REPO}/issues/1258',
++                       f'https://api.github.com/repos/{REPO}/issues/1593'}
++        if action['kind'] != 'open_draft_pr' and int(action.get('pr_number') or 0) > 0:
++            source_urls.add(f'https://api.github.com/repos/{REPO}/issues/{int(action["pr_number"])}')
++        need(comment.get('issue_url','') in source_urls,
++             'Source must belong to the verified control plane or this exact PR')
+         need(comment.get('user',{}).get('login')=='relativityE', 'Source actor is not the approved repository owner account')
+         # Freeze the candidate from a source record; a model cannot nominate another SHA.
+         need(head in comment.get('body',''), 'Source does not name the full candidate head')
+@@ -79,7 +99,12 @@
+             branch=pr['head']['ref']
+         else:
+             branch=action.get('branch','')
+-        need(BRANCH.fullmatch(branch or ''), 'Branch outside RWT scope')
++        if action.get('branch'):
++            need(action['branch'] == branch, 'Authorized branch differs from the current PR')
++        explicit_lifecycle = (kind != 'open_draft_pr'
++                              and (action.get('branch') == branch or self.standing_review_authority)
++                              and valid_lifecycle_branch(branch))
++        need(BRANCH.fullmatch(branch or '') or explicit_lifecycle, 'Branch outside RWT scope')
+         # Both dispatch and PR-event concurrency groups must be idle.
+         runs=self.read(f'actions/workflows/ci.yml/runs?branch={branch}&per_page=100')['workflow_runs']
+         need(len(runs)<100, 'Run pagination incomplete; use a reviewed larger read')
+@@ -91,8 +116,7 @@
+             self.qualify(pr['number'],head)
+         return pr,related,branch
+ 
+-    @staticmethod
+-    def _require_action_authorization(action, body):
++    def _require_action_authorization(self, action, body):
+         """Require an affirmative, source-authored authorization for this exact operation.
+ 
+         Mentioning candidate SHAs or discussing a possible action is not authorization.
+@@ -121,11 +145,26 @@
+                 continue
+             lines.append(line)
+         if expected not in lines:
+-            raise Hold(f'Source lacks exact affirmative authorization: {expected}')
++            # PO delegated routine review/CI follow-through to CLI PM. Once the
++            # pinned source is accepted, do not invent an extra PO setup step.
++            # Draft creation still needs its explicit authority; merge and
++            # Production actions are not executable kinds in the first place.
++            plain = '\n'.join(lines).replace('*', '').replace('`', '')
++            accepted = re.search(r'\b(?:Browser\s+)?PM\s+source(?:\s+disposition)?\s*[—:-]?\s*ACCEPT\b', plain, re.I)
++            need(self.standing_review_authority and kind != 'open_draft_pr' and accepted,
++                 f'Source lacks exact affirmative authorization or PM source acceptance: {expected}')
++            if re.search(r'\b(?:READY\s+HOLD|HOLD[^\n]*(?:Ready|review|qualification)|'
++                         r'(?:DO\s+NOT|NOT\s+AUTHORIZED)[^\n]*(?:mark_ready|refresh_reviews|rerun_failed_jobs|dispatch_full_ci)|'
++                         r'Keep[^\n]*\bDraft)\b', plain, re.I):
++                raise Hold('Accepted source still holds review/qualification lifecycle')
+         action_ref = re.compile(rf"\b{re.escape(kind)}\b", re.I)
+         for line in lines:
+             blocks = re.search(r'\b(HOLD|BLOCKED|DO\s+NOT|NOT\s+AUTHORIZED|CANCEL(?:LED)?)\b', line, re.I)
+             scope_ref = action_ref.search(line) or re.search(r'\b(PM\s+)?(actions?|executor|mutation)\b', line, re.I)
++            if expected not in lines and not action_ref.search(line):
++                # A separate merge/Production prohibition must not become a
++                # prohibition of delegated ordinary review/CI operations.
++                scope_ref = False
+             if blocks and scope_ref:
+                 raise Hold(f'Source contradicts {kind} authorization with a hold/revocation')
+ 
+@@ -208,7 +247,8 @@
+         kind=action['kind'];head=action['head'];base=action['base']
+         if kind=='refresh_reviews':
+             source=self.read(f"issues/comments/{int(action['source_comment_id'])}")
+-            need(re.search(r'Draft\s*(?:→|->|to)\s*Ready',source.get('body',''),re.I), 'Source does not request a review lifecycle refresh')
++            if not self.standing_review_authority:
++                need(re.search(r'Draft\s*(?:→|->|to)\s*Ready',source.get('body',''),re.I), 'Source does not request a review lifecycle refresh')
+             reviews=self.read(f"pulls/{pr['number']}/reviews?per_page=100")
+             need(len(reviews)<100, 'Review pagination incomplete')
+             if any(r.get('commit_id')==head and 'codex' in r.get('user',{}).get('login','').lower() for r in reviews):
 --- a/install-orch.py
 +++ b/install-orch.py
 @@ -12,7 +12,7 @@
@@ -304,16 +712,18 @@
  # RWT Board PM contract — v4.7.6
  
  You are CLI PM, collaborating with PO, Browser PM, CLI Dev and App Dev to close the agreed RWT journey. GitHub #1258 and exact-head evidence establish authority; the board displays coordination state and grants no permission by itself.
-@@ -61,7 +71,7 @@
+@@ -61,7 +71,9 @@
  
  Register accepted pre-PR work too: FEEDBACK-FIX (App Dev, FIX NOW before first v2 RWT), PR-1561 (App Dev telemetry issue until a PR exists), and PR-1560 (CLI Dev navigation, currently conflicted). Keep waiting items owned; ownership is not a claim of active writing. Preserve the explicit core merge order. Set release_blocker truthfully for the required deployed Feedback/telemetry entry evidence; Focus navigation can be independent of first Open Mic entry. Use latest scope records, not these initial labels, if scope has changed.
  
 -Your Codex process stays read-only with approval=never. Do not invoke mutation tools there. Instead return typed pm_actions for the bounded host executor when the current scope permits them. It validates the source packet, exact head/base and concurrency; CI recovery also must pass the repo collector. Merge/deploy/Production operations are absent from the allowlist. Message publication to #1258 is automatic for the record. App Dev must also receive the task through its paired route; return a typed review_handoffs entry and inspect its delivery/receipt, rather than claiming publication woke the session. A source packet naming candidate hashes is not itself action authorization. Before returning a typed action, verify the repository-owner source contains its exact affirmative authorization line with every applicable field: `ACTION AUTHORIZATION: kind=<kind> pr=<number> branch=<branch> head=<full-sha> base=<full-sha>` (omit `pr` for open_draft_pr; rerun_failed_jobs also includes exact run_id and run_attempt). HOLD, BLOCKED, DO NOT, or NOT AUTHORIZED for that action invalidates the line. Never infer the line from discussion or add it yourself.
-+Your Codex process stays read-only with approval=never. Do not invoke mutation tools there. Instead return typed pm_actions for the bounded host executor when the current scope permits them. It validates the source packet, exact head/base and concurrency; CI recovery also must pass the repo collector. Merge/deploy/Production operations are absent from the allowlist. Message publication to the configured control issue (#1593) is automatic for the record. App Dev must also receive the task through its paired route; return a typed review_handoffs entry and inspect its delivery/receipt, rather than claiming publication woke the session. A source packet naming candidate hashes is not itself action authorization. Before returning a typed action, verify the repository-owner source contains its exact affirmative authorization line with every applicable field: `ACTION AUTHORIZATION: kind=<kind> pr=<number> branch=<branch> head=<full-sha> base=<full-sha>` (omit `pr` for open_draft_pr; rerun_failed_jobs also includes exact run_id and run_attempt). HOLD, BLOCKED, DO NOT, or NOT AUTHORIZED for that action invalidates the line. Never infer the line from discussion or add it yourself.
++Your Codex process stays read-only with approval=never. Use typed pm_actions through the host executor. Routine review/qualification follow-through is delegated to CLI PM: a repository-owner PM source ACCEPT naming the exact full head/base, on the actual PR or the control issue, is sufficient for mark_ready, refresh_reviews, rerun_failed_jobs and dispatch_full_ci. Do not ask PO for another Ready or review approval or require them to format a magic authorization string. Explicit source RETURN, Ready/review HOLD, drift, active conflicting CI and another writer's lease still stop the operation. Draft creation retains its existing explicit source authorization. The explicit ACTION AUTHORIZATION form remains supported for narrow exceptions and strict-mode hosts. No merge, deployment, migration, credential change or Production action is executable by this adapter.
++
++CLI PM owns follow-through when Browser PM cannot be awakened. Publish directly and use the recipient's supported transport; track delivery separately from authenticated receipt/result. Never claim that a GitHub comment woke a chat. Observation outage recovery is grouped by recipient/session; reconcile the durable original delivery ledger rather than producing one fallback reminder for every historical event.
  
  Before any failed-job rerun recommendation, inspect the actual exact-head qualifier evidence. Clean Manual-request-only summaries cannot substitute for accepted lifecycle-bound evidence. Ready reviews are qualified only when the collector passes; a rendered completed badge alone is insufficient.
  
-@@ -69,9 +79,9 @@
+@@ -69,9 +81,9 @@
  
  ## Automatic PM → App Dev return path
  
@@ -321,11 +731,11 @@
 +Every externally actionable reconciled response is posted automatically to the configured control issue (#1593) under a durable delivery marker. Do not post the same reply yourself. A published reply means available to Dev, not acknowledged; ask Dev to ACK its comment ID with the action/result. Board-emitted replies are excluded from self-wakes by marker/instance, while incoming Dev and Browser PM comments always wake you independently of the PR-review toggle. Do not ask PO to copy messages. The local worker is the unattended PM; it does not invoke this separate Browser PM chat session.
  
 -Return pm_actions=[] when no action is needed. The executor actions are mark_ready, refresh_reviews, open_draft_pr, rerun_failed_jobs and dispatch_full_ci. Any other kind is reported as a named unsupported-action blocker; it is never executed. Each requires source_comment_id from #1258 containing the FULL pinned head AND base; exact head/base must match live state. Supply pr_number for existing PRs, run_id + current run_attempt for failed-job recovery, and branch/title/body for Draft creation. Other nullable action fields must be null. Execute at most two proposed actions; never propose merge, deployment, migration, secrets, model activation or Production tests. Existing exact scope still governs; the typed proposal grants no authority by itself.
-+Return pm_actions=[] when no action is needed. The executor actions are mark_ready, refresh_reviews, open_draft_pr, rerun_failed_jobs and dispatch_full_ci. Any other kind is reported as a named unsupported-action blocker; it is never executed. Each requires source_comment_id from #1258 or #1593 containing the FULL pinned head AND base; exact head/base must match live state. Supply pr_number for existing PRs, run_id + current run_attempt for failed-job recovery, and branch/title/body for Draft creation. Other nullable action fields must be null. Execute at most two proposed actions; never propose merge, deployment, migration, secrets, model activation or Production tests. Existing exact scope still governs; the typed proposal grants no authority by itself.
++Return pm_actions=[] when no action is needed. The executor actions are mark_ready, refresh_reviews, open_draft_pr, rerun_failed_jobs and dispatch_full_ci. Any other kind is reported as a named unsupported-action blocker; it is never executed. Each requires source_comment_id from the actual PR, #1593 or historical #1258 containing the FULL pinned head AND base; exact head/base must match live state. Supply pr_number for existing PRs, run_id + current run_attempt for failed-job recovery, and branch/title/body for Draft creation. Other nullable action fields must be null. Execute at most two proposed actions; never propose merge, deployment, migration, secrets, model activation or Production tests. Existing exact scope still governs; the typed proposal grants no authority by itself.
  
  For Ready/open-Draft/push-pin operation already owned by Browser PM or App Dev, observe rather than duplicate it. A live changed state/attempt must be checkpointed, not forced. For CI: wait for all related CI and reviews terminal, use the repo collector; a Draft-only report cannot justify failed-job recovery. dispatch_full_ci supplies the complete lane only when no full dispatch already exists for this head. Report a real full-run failure rather than repeatedly dispatching. For a push pin, the reconciliation message must name the accepted exact packet, head/tree/base, expected remote and lease; it must explicitly exclude merge/deploy/Production authority.
  
-@@ -115,6 +125,6 @@
+@@ -115,6 +127,6 @@
  
  ## Published packets and unattended review
  
@@ -346,13 +756,22 @@
  GH_BACKOFF_UNTIL = 0.0
  PR_DISPLAY_CACHE = {}
  PR_DISPLAY_LOCK = threading.RLock()
-@@ -1295,8 +1295,12 @@
+@@ -257,6 +257,8 @@
+         c.execute("INSERT OR IGNORE INTO settings(key,value) VALUES('board_instance_id',?)", (uuid.uuid4().hex,))
+         _add_column(c, 'agent_notifications', "result_evidence TEXT NOT NULL DEFAULT ''")
+         _add_column(c, 'agent_notifications', "fallback_queue_id INTEGER")
++        c.execute("""CREATE TABLE IF NOT EXISTS observation_recovery_incidents(
++          route_key TEXT PRIMARY KEY, incident_id TEXT NOT NULL, anchor_action TEXT NOT NULL)""")
+         # v4.5.x delivery metadata. ALTER keeps v4.4.x state readable.
+         _add_column(c, "queue", "source_actor TEXT NOT NULL DEFAULT 'PO'")
+         _add_column(c, "queue", "parent_queue_id INTEGER")
+@@ -1295,8 +1297,12 @@
          "CASE "
          "WHEN q.source_actor='PO' THEN 0 "
          "WHEN q.source_actor IN ('PM','DEV') THEN 1 "
 -        "WHEN q.source_actor='GITHUB' THEN 3 "
 -        "ELSE 2 END"
-+        "WHEN q.delivery_key LIKE 'notification-board-fallback:%' THEN 4 "
++        "WHEN q.delivery_key LIKE 'notification-board-fallback:%' OR q.delivery_key LIKE 'notification-observation-%' THEN 4 "
 +        "WHEN q.kind='actor_result_review' AND EXISTS (SELECT 1 FROM agent_notifications n "
 +        "WHERE q.delivery_key='task-result:' || n.action_id AND n.task_id IN ('event-observation','wake-probe','version-handshake')) THEN 4 "
 +        "WHEN q.kind='actor_result_review' THEN 1 "
@@ -361,7 +780,7 @@
      )
      with DB_LOCK, con() as c:
          r = c.execute(
-@@ -2111,6 +2115,46 @@
+@@ -2111,6 +2117,46 @@
      return list({int(x['id']): x for x in rows}.values()), None
  
  
@@ -408,7 +827,7 @@
  def github_watch_snapshot(prioritize_latest=False):
      """Snapshot the shared RWT control issue even when no Current PR exists.
  
-@@ -2149,7 +2193,7 @@
+@@ -2149,7 +2195,7 @@
      control_comments = list({int(x['id']): x for x in control_comments if isinstance(x, dict) and x.get('id')}.values())
      control_comments.sort(key=lambda x: int(x.get('id') or 0))
      if not control_err:
@@ -417,7 +836,7 @@
      if not control_err:
          recover_pm_outbox(control_comments)
          with DB_LOCK, con() as c:
-@@ -2401,6 +2445,9 @@
+@@ -2401,6 +2447,9 @@
      identity = hashlib.sha256(json.dumps([message, head, event_key, notice_kind]).encode()).hexdigest()
      with DB_LOCK, con() as c:
          for actor in actor_channels.ACTORS:
@@ -427,7 +846,7 @@
              action = f'github-event:{identity}:{actor}'
              # Unsent awareness-only notices may be coalesced. Sent/uncertain tasks
              # and their receipts are never replaced or replayed.
-@@ -2412,6 +2459,24 @@
+@@ -2412,6 +2461,24 @@
              c.execute("INSERT OR IGNORE INTO agent_notifications(notification_key,handoff_id,actor_id,task_id,action_id,target_transport,target_session_id,target_remote_url,head,instruction,status,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (action, 0, actor, notice_kind, action, 'local_inbox', '', '', head,
                         instruction, 'blocked_transport', 'Recipient route not yet reconciled', now(), now()))
@@ -452,7 +871,7 @@
      dispatch_event_notifications()
  
  
-@@ -3970,7 +4035,7 @@
+@@ -3970,7 +4037,7 @@
          "RECORDED BOARD (preserve leases; reconcile from checkpoint evidence):\n"
          + json.dumps({"work_items": list_work_items(), "players": list_player_status()}, ensure_ascii=False)
          + "\nDELIVERY/ROUTE/JOURNAL RECOVERY CONTEXT (observations only; never invent ownership):\n"
@@ -461,18 +880,22 @@
          + "\nLATEST CONTROL CHECKPOINTS (reported facts, not process observations):\n"
          + get_setting("control_checkpoint_context", "No checkpoint fetched; leave external activity unknown") + "\n\n"
          "FIVE-PLAYER RWT PROTOCOL:\n"
-@@ -4268,6 +4333,10 @@
+@@ -4268,6 +4335,14 @@
                                (q['id'], q['id']))
          if stage == 'result':
              _persist_actor_result_wake(c, action_id, actor_id, evidence, q['id'] if row else None)
 +            # A real result settles only an uninvoked reminder; never cancel an active turn.
 +            c.execute("UPDATE queue SET status='superseded',finished_at=? WHERE id="
 +                      "(SELECT fallback_queue_id FROM agent_notifications WHERE action_id=?) "
-+                      "AND status='queued' AND attempts=0 AND started_at IS NULL", (now(), action_id))
++                      "AND status='queued' AND attempts=0 AND started_at IS NULL "
++                      "AND NOT EXISTS (SELECT 1 FROM agent_notifications other WHERE other.fallback_queue_id=queue.id "
++                      "AND other.status NOT IN ('responded','superseded'))", (now(), action_id))
++            if notification:
++                _close_observation_incident(c, n)
      if (q if row else n)['target_transport'] == 'local_inbox':
          try:
              actor_channels.received(action_id)
-@@ -4276,10 +4345,16 @@
+@@ -4276,11 +4351,77 @@
      if stage == 'receipt':
          trigger_id = q['id'] if row else None
          add_activity(f"AGENT:{actor_id}", f"TASK-RECEIPT {action_id}: {evidence}", 'none', 'received', trigger_queue_id=trigger_id)
@@ -491,9 +914,81 @@
 +                                 task=owned['title'], work_item_key=owned['item_key'],
 +                                 blocker=owned['blocker'], source='authenticated_actor_callback', checkpoint_at=now())
      return 200, {'ok': True, 'action_id': action_id, 'stage': stage}
++
++
++def _observation_route_key(notice):
++    if notice.get('task_id') != 'event-observation' or notice.get('handoff_id') != 0:
++        return None
++    route = [notice[k] for k in ('actor_id', 'target_session_id', 'target_transport', 'target_remote_url')]
++    return hashlib.sha256(json.dumps(route).encode()).hexdigest()
++
++
++def _close_observation_incident(c, notice):
++    key = _observation_route_key(notice)
++    if key is None:
++        return
++    outstanding = c.execute("SELECT 1 FROM agent_notifications WHERE actor_id=? AND target_session_id=? "
++        "AND target_transport=? AND target_remote_url=? AND task_id='event-observation' AND handoff_id=0 "
++        "AND status NOT IN ('responded','superseded') LIMIT 1",
++        tuple(notice[k] for k in ('actor_id', 'target_session_id', 'target_transport', 'target_remote_url'))).fetchone()
++    if outstanding:
++        return
++    incident = c.execute('SELECT incident_id FROM observation_recovery_incidents WHERE route_key=?', (key,)).fetchone()
++    if incident:
++        for phase in ('fallback', 'receipt'):
++            c.execute("UPDATE queue SET status='superseded',finished_at=? WHERE delivery_key=? "
++                      "AND status='queued' AND attempts=0 AND started_at IS NULL",
++                      (now(), f'notification-observation-{phase}:{incident["incident_id"]}'))
++        c.execute('DELETE FROM observation_recovery_incidents WHERE route_key=?', (key,))
++
++
++def _enqueue_notification_recovery(notice, phase, detail):
++    """One outage incident per observation route, not one PM turn per old event.
++
++    Delivery rows, their uncertainty and callbacks remain untouched. Real work and
++    wake/version probes keep their own per-action recovery. Active PM turns are
++    immutable; only never-invoked legacy observation reminders may be retired.
++    """
++    route_key = _observation_route_key(notice)
++    prefix = 'notification-board-fallback:' if phase == 'fallback' else 'notification-receipt-recovery:'
++    delivery_key = prefix + notice['action_id']
++    with DB_LOCK, con() as c:
++        if route_key:
++            c.execute('INSERT OR IGNORE INTO observation_recovery_incidents VALUES(?,?,?)',
++                      (route_key, uuid.uuid4().hex, notice['action_id']))
++            incident = c.execute('SELECT * FROM observation_recovery_incidents WHERE route_key=?', (route_key,)).fetchone()
++            delivery_key = f'notification-observation-{phase}:{incident["incident_id"]}'
++            # Upgrade recovery metadata only: never retire an actor delivery or a
++            # reminder already being processed by CLI PM.
++            c.execute("UPDATE queue SET status='superseded',finished_at=? WHERE status='queued' "
++                      "AND attempts=0 AND started_at IS NULL AND EXISTS (SELECT 1 FROM agent_notifications n "
++                      "WHERE n.task_id='event-observation' AND n.handoff_id=0 AND n.actor_id=? "
++                      "AND n.target_session_id=? AND n.target_transport=? AND n.target_remote_url=? "
++                      "AND (queue.delivery_key='notification-board-fallback:' || n.action_id "
++                      "OR queue.delivery_key='notification-receipt-recovery:' || n.action_id))",
++                      (now(), *(notice[k] for k in ('actor_id', 'target_session_id', 'target_transport', 'target_remote_url'))))
++            detail += (' One recipient/session observation outage: reconcile ALL outstanding observation actions in '
++                       'the durable ledger, not one new reminder per event. No originals were acknowledged or replayed.')
++        existing = c.execute('SELECT id FROM queue WHERE delivery_key=?', (delivery_key,)).fetchone()
++        if existing:
++            return existing['id']
++    aid = add_activity('SYSTEM', detail, 'pm', 'blocker')
++    return enqueue(aid, 'pm', detail, source_actor='SYSTEM', auto_handoff=True, delivery_key=delivery_key)
  
  
-@@ -4315,16 +4390,36 @@
+ def sweep_agent_delivery_stalls(at=None):
+@@ -4300,9 +4441,7 @@
+             continue
+         directive = (f"{notice['actor_id'].upper().replace('_', ' ')} — ACTION REQUIRED: CLI PM must publish ONE role-addressed fallback reminder on issue #{CONTROL_ISSUE} for the ORIGINAL action {notice['action_id']}, task {notice['task_id']}, candidate {notice['head'] or 'non-writing probe'}, source PR {notice.get('pr_number') or 'not applicable'} / {notice.get('reviewed_ref') or notice['action_id']}. "
+                      "No task-bound recipient ACK after 15 minutes. Preserve the existing assignment and lease; obtain the intended actor/session receipt or report blocked_transport. Do not replay uncertain delivery or start another writer. GitHub fallback is not Orch wake proof.")
+-        aid = add_activity('SYSTEM', directive, 'pm', 'blocker')
+-        qid = enqueue(aid, 'pm', directive, source_actor='SYSTEM', auto_handoff=True,
+-                      delivery_key='notification-board-fallback:' + notice['action_id'])
++        qid = _enqueue_notification_recovery(notice, 'fallback', directive)
+         with DB_LOCK, con() as c:
+             c.execute('UPDATE agent_notifications SET fallback_queue_id=? WHERE action_id=? AND fallback_queue_id IS NULL', (qid, notice['action_id']))
+         actions.append({'action_id': notice['action_id'], 'fallback_queue_id': qid})
+@@ -4315,16 +4454,36 @@
              continue
          if route.provider != 'local_inbox':
              continue
@@ -533,7 +1028,30 @@
          aid = add_activity('SYSTEM', msg, 'pm', 'blocker')
          enqueue(aid, 'pm', msg, source_actor='SYSTEM', auto_handoff=True, delivery_key=key)
      with DB_LOCK, con() as c:
-@@ -6974,6 +7069,9 @@
+@@ -4339,9 +4498,10 @@
+                                 (level, now(), 'Recipient receipt overdue; no duplicate sent', now(), notice['action_id'], level)).rowcount
+         if changed:
+             detail = f"Recipient receipt overdue for {notice['action_id']} to {notice['actor_id']} session {notice['target_session_id']}; reconcile the existing delivery, do not send a second writer/message."
+-            aid = add_activity('SYSTEM', detail, 'pm' if level == 2 else 'none', 'blocker')
+             if level == 2:
+-                enqueue(aid, 'pm', detail, source_actor='SYSTEM', auto_handoff=True, delivery_key='notification-receipt-recovery:' + notice['action_id'])
++                _enqueue_notification_recovery(notice, 'receipt', detail)
++            else:
++                add_activity('SYSTEM', detail, 'none', 'blocker')
+             actions.append({'action_id': notice['action_id'], 'warning_level': level})
+     with DB_LOCK, con() as c:
+         notices = [dict(r) for r in c.execute(
+@@ -5019,7 +5179,8 @@
+ 
+ 
+ def _executor_for(key):
+-    return Executor(_pm_request, _pm_qualify, phase=_journal_phase(key))
++    return Executor(_pm_request, _pm_qualify, phase=_journal_phase(key),
++                    standing_review_authority=bool_setting('pm_standing_review_authority', True))
+ 
+ 
+ def _pm_action_scope(action):
+@@ -6974,6 +7135,9 @@
      print(f"Dev transport: Claude CLI ({CLAUDE_MODEL or 'CLI default model'}; permission={PERMISSION_MODE}); API-key overrides are stripped from child env")
      if mode == "manual":
          print("PM transport is not configured. Install/sign in to Codex CLI, or configure PM_COMMAND / legacy API fallback.")
@@ -543,7 +1061,7 @@
      try:
          srv.serve_forever()
      except KeyboardInterrupt:
-@@ -6981,6 +7079,10 @@
+@@ -6981,6 +7145,10 @@
      finally:
          STOP.set()
          GITHUB_WATCH_WAKE.set()
@@ -726,6 +1244,74 @@
  
      def test_listener_exit_stale_and_rearm_health_are_explicit(self):
          self.pair()
+--- a/test_comms.py
++++ b/test_comms.py
+@@ -153,6 +153,65 @@
+         with self.assertRaises(Hold):self.e.execute(self.action())
+         self.assertEqual(self.writes(),[])
+ 
++    def test_ops_review_action_accepts_exact_authorized_branch_on_its_own_pr(self):
++        branch = 'fix/ops-health-team-variable-cli-dev-20261013'
++        self.pr['head']['ref'] = branch
++        self.source['issue_url'] = 'https://api.github.com/repos/relativityE/speaksharp/issues/1554'
++        self.e.execute(self.action(branch=branch))
++        self.assertEqual(len(self.writes()), 1)
++
++    def test_explicit_beta_branch_still_requires_authorization_and_same_pr_source(self):
++        branch = 'fix/1526-workflow-failures-cli-dev-20261012'
++        self.pr['head']['ref'] = branch
++        action = self.action(branch=branch)
++        self.e.guard(action)
++        self.source['issue_url'] = 'https://api.github.com/repos/relativityE/speaksharp/issues/1605'
++        with self.assertRaises(Hold):
++            self.e.guard(action)
++        self.source['issue_url'] = 'https://api.github.com/repos/relativityE/speaksharp/issues/1554'
++        self.source['body'] = HEAD + ' ' + BASE
++        with self.assertRaises(Hold):
++            self.e.guard(action)
++        self.assertEqual(self.writes(), [])
++
++    def test_explicit_branch_drift_or_invalid_ref_cannot_expand_lifecycle_scope(self):
++        for branch, actual in [('fix/ops-approved', 'fix/ops-other'), ('fix/a?b', 'fix/a?b'),
++                               ('fix/a..b', 'fix/a..b'), ('fix/a.lock', 'fix/a.lock'),
++                               ('fix/a//b', 'fix/a//b')]:
++            self.pr['head']['ref'] = actual
++            with self.subTest(branch=branch), self.assertRaises(Hold):
++                self.e.guard(self.action(branch=branch))
++        self.assertEqual(self.writes(), [])
++
++    def test_explicit_non_rwt_draft_creation_keeps_existing_creation_boundary(self):
++        branch = 'fix/ops-new-design'
++        with self.assertRaisesRegex(Hold, 'Branch outside RWT scope'):
++            self.e.guard(self.action('open_draft_pr', branch=branch))
++        self.assertEqual(self.writes(), [])
++
++    def test_standing_review_authority_does_not_need_po_canonical_setup(self):
++        self.pr['head']['ref'] = 'fix/ops-health-team-variable-cli-dev-20261013'
++        self.source['issue_url'] = 'https://api.github.com/repos/relativityE/speaksharp/issues/1554'
++        action = self.action()
++        self.source['body'] = f'PM source disposition — **ACCEPT** head {HEAD} on base {BASE}. Fresh reviews required. No merge or Production action authorized.'
++        executor = Executor(self.request, lambda *_: None, standing_review_authority=True)
++        executor.execute(action)
++        self.assertEqual(len(self.writes()), 1)
++
++    def test_standing_review_authority_keeps_source_return_hold_and_exact_pins(self):
++        executor = Executor(self.request, lambda *_: None, standing_review_authority=True)
++        action = self.action()
++        for disposition in ('PM source RETURN', 'PM source ACCEPT\nREADY HOLD',
++                            'PM source ACCEPT\nKeep this PR Draft', 'App Dev completed tests'):
++            self.source['body'] = f'{disposition}\nhead {HEAD} base {BASE}'
++            with self.subTest(disposition=disposition), self.assertRaises(Hold):
++                executor.guard(action)
++        self.source['body'] = f'PM source ACCEPT head {HEAD} base {BASE}'
++        self.pr['head']['sha'] = 'c' * 40
++        with self.assertRaises(Hold):
++            executor.guard(action)
++        self.assertEqual(self.writes(), [])
++
+     def test_source_cannot_nominate_different_candidate(self):
+         action=self.action()
+         self.source['body']='another candidate'
 --- a/test_coordination_urgency.py
 +++ b/test_coordination_urgency.py
 @@ -103,7 +103,7 @@
@@ -789,11 +1375,80 @@
 +        self.assertEqual(rows[-1]['at'], newer['updated_at'])
 --- /dev/null
 +++ b/test_event_queue_recovery.py
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,149 @@
 +from unittest.mock import patch
 +from test_actor_channels import ActorChannelTests
 +import server
 +import coordination_recovery
++import time
++
++
++class ObservationIncidentTests(ActorChannelTests):
++    def notice(self, action, task='event-observation', session='same-route'):
++        with server.con() as db:
++            db.execute("INSERT INTO agent_notifications(notification_key,handoff_id,actor_id,task_id,action_id,target_transport,target_session_id,head,instruction,status,attempts,accepted_at,created_at,updated_at) VALUES(?,0,'cli_dev',?,?,'codex_app_server',?,'','observation','awaiting_receipt',1,?,?,?)",
++                       (action, task, action, session, server.now(), server.now(), server.now()))
++
++    def test_historical_observation_burst_has_one_route_recovery_per_phase(self):
++        for i in range(20):
++            self.notice(f'github-event:{i}:cli_dev')
++        server.sweep_agent_delivery_stalls(at=time.time() + 1000)
++        server.init_db()
++        self.notice('github-event:later:cli_dev')
++        server.sweep_agent_delivery_stalls(at=time.time() + 2000)
++        with server.con() as db:
++            recovery = db.execute("SELECT count(*) FROM queue WHERE delivery_key LIKE 'notification-%' AND recipient='pm'").fetchone()[0]
++            notices = db.execute("SELECT status,receipt_at,result_at FROM agent_notifications").fetchall()
++        self.assertEqual(recovery, 2)
++        self.assertEqual(len(notices), 21)
++        self.assertTrue(all(r['status'] == 'awaiting_receipt' and not r['receipt_at'] and not r['result_at'] for r in notices))
++
++    def test_other_session_and_actual_task_keep_separate_recovery(self):
++        self.notice('event-a')
++        self.notice('event-b', session='other-route')
++        self.notice('real-task', task='review-task')
++        server.sweep_agent_delivery_stalls(at=time.time() + 1000)
++        with server.con() as db:
++            self.assertEqual(db.execute("SELECT count(*) FROM queue WHERE delivery_key LIKE 'notification-%'").fetchone()[0], 6)
++
++    def test_partial_result_never_settles_other_unacknowledged_delivery(self):
++        self.notice('event-a')
++        self.notice('event-b')
++        server.sweep_agent_delivery_stalls(at=time.time() + 1000)
++        token = server._notification_callback_token('event-a', 'cli_dev', 'same-route')
++        payload = {'action_id': 'event-a', 'actor_id': 'cli_dev', 'session_id': 'same-route', 'evidence': 'seen'}
++        self.assertEqual(server.record_agent_task_callback({**payload, 'stage': 'receipt'}, token)[0], 200)
++        self.assertEqual(server.record_agent_task_callback({**payload, 'stage': 'result'}, token)[0], 200)
++        with server.con() as db:
++            ids = [r[0] for r in db.execute('SELECT DISTINCT fallback_queue_id FROM agent_notifications')]
++            self.assertEqual(len(ids), 1)
++            self.assertEqual(db.execute('SELECT status FROM queue WHERE id=?', (ids[0],)).fetchone()[0], 'queued')
++            self.assertEqual(db.execute("SELECT status FROM agent_notifications WHERE action_id='event-b'").fetchone()[0], 'awaiting_receipt')
++
++    def test_fully_reconciled_incident_can_report_a_later_outage(self):
++        self.notice('event-a')
++        server.sweep_agent_delivery_stalls(at=time.time() + 1000)
++        token = server._notification_callback_token('event-a', 'cli_dev', 'same-route')
++        payload = {'action_id': 'event-a', 'actor_id': 'cli_dev', 'session_id': 'same-route', 'evidence': 'seen'}
++        server.record_agent_task_callback({**payload, 'stage': 'receipt'}, token)
++        server.record_agent_task_callback({**payload, 'stage': 'result'}, token)
++        self.notice('event-new-outage')
++        server.sweep_agent_delivery_stalls(at=time.time() + 2000)
++        with server.con() as db:
++            self.assertEqual(db.execute("SELECT count(*) FROM queue WHERE delivery_key LIKE 'notification-%'").fetchone()[0], 4)
++
++    def test_grouped_recovery_retains_original_context_and_yields_to_real_reviews(self):
++        self.notice('original')
++        self.notice('other')
++        server.sweep_agent_delivery_stalls(at=time.time() + 1000)
++        reminder = next(q for q in server.list_queue() if q['delivery_key'].startswith('notification-observation-fallback:'))
++        context = coordination_recovery.context(server.con, server.actor_channels, reminder)
++        self.assertEqual(context['original_notification']['action_id'], 'original')
++        self.assertEqual(context['observation_incident']['outstanding_count'], 2)
++        server.set_agent('pm', status='idle')
++        aid = server.add_activity('GITHUB', 'new review', 'pm')
++        review = server.enqueue(aid, 'pm', 'new review', source_actor='GITHUB')
++        self.assertEqual(server.next_queue('pm')['id'], review)
 +
 +
 +class EventQueueRecoveryTests(ActorChannelTests):
@@ -998,6 +1653,39 @@
 +        self.assertTrue(worker_supervisor.restart_reason(worker, 1, route, lambda _: False))
 +        self.assertTrue(worker_supervisor.restart_reason(worker, 0, route, lambda pid: pid == 101))
 +        self.assertTrue(worker_supervisor.restart_reason({**worker, 'seen': time.time()}, 0, route, lambda _: False))
+--- a/test_refresh_reviews.py
++++ b/test_refresh_reviews.py
+@@ -2,7 +2,7 @@
+ from guarded_pm import Executor, Hold
+ 
+ class ReviewRefreshTests(unittest.TestCase):
+-    def setup_executor(self, existing=False, drift=False):
++    def setup_executor(self, existing=False, drift=False, standing=False):
+         self.head='a'*40; self.base='b'*40; self.writes=[]
+         pr={'number':1559,'node_id':'PR_node','state':'open','draft':False,'head':{'sha':self.head,'ref':'fix/1258-coaching-failure-reason','repo':{'full_name':'relativityE/speaksharp'}},'base':{'sha':self.base}}
+         def request(args):
+@@ -15,14 +15,19 @@
+                     pr['draft']=False  # GitHub's real effect; deadlock.5 reads it back
+                 return {}
+             path=args[1]
+-            if 'issues/comments/' in path:return {'issue_url':'https://api.github.com/repos/relativityE/speaksharp/issues/1258','user':{'login':'relativityE'},'body':self.head+' '+self.base+' Draft→Ready\nACTION AUTHORIZATION: kind=refresh_reviews pr=1559 head='+self.head+' base='+self.base}
++            if 'issues/comments/' in path:return {'issue_url':'https://api.github.com/repos/relativityE/speaksharp/issues/1258','user':{'login':'relativityE'},'body':('PM source ACCEPT '+self.head+' '+self.base) if standing else self.head+' '+self.base+' Draft→Ready\nACTION AUTHORIZATION: kind=refresh_reviews pr=1559 head='+self.head+' base='+self.base}
+             if path.endswith('branches/main'):return {'commit':{'sha':self.base}}
+             if 'ci.yml/runs' in path:return {'workflow_runs':[]}
+             if '/reviews?' in path:return [{'commit_id':self.head,'user':{'login':'chatgpt-codex-connector[bot]'}}] if existing else []
+             if path.endswith('pulls/1559'):return pr
+             raise AssertionError(path)
+         self.action={'kind':'refresh_reviews','source_comment_id':123,'pr_number':1559,'head':self.head,'base':self.base}
+-        return Executor(request,lambda *_:None)
++        return Executor(request,lambda *_:None,standing_review_authority=standing)
++
++    def test_accepted_source_uses_delegated_review_authority_without_magic_instruction(self):
++        ex = self.setup_executor(standing=True)
++        self.assertIn('EXECUTED', ex.execute(self.action))
++        self.assertEqual(len(self.writes), 2)
+ 
+     def test_new_head_cycles_with_fresh_read(self):
+         ex=self.setup_executor();result=ex.execute(self.action);self.assertIn('EXECUTED',result);self.assertIn('PENDING',result);self.assertEqual(len(self.writes),2)
 --- a/test_regressions.py
 +++ b/test_regressions.py
 @@ -342,7 +342,7 @@
