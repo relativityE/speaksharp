@@ -436,6 +436,18 @@ describe('#1259 F01 — every intent reaches analytics through the real hook', (
         expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
     });
 
+    it('#1258 R1: a Stop pressed while the take is already STOPPING is suppressed — no second Stop, no status overwrite', async () => {
+        // Runs 38298685079 / 38304068207: the review's repeat action landed 87–97 ms after Stop, during STOPPING. The hook
+        // took it as a second Stop, which also reaches the "too short" branch and replaces the status the user sees.
+        const { result } = mountWith({ runtimeState: 'STOPPING' });
+        const statusBefore = useSessionStore.getState().sttStatus;
+        await act(async () => { await result.current.handleStartStop(); });
+
+        expect(intents().map((i) => [i.intent_kind, i.intent_outcome])).toEqual([['stop', 'suppressed_finalizing']]);
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
+        expect(useSessionStore.getState().sttStatus, 'the visible status is left alone').toEqual(statusBefore);
+    });
+
     it('a start refused by the usage limit is distinguishable from one refused for any other reason', async () => {
         vi.mocked(useUsageLimit).mockReturnValue({
             ...mockUsageLimitQuery,
