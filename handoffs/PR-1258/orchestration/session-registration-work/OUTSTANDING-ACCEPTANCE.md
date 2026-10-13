@@ -1,21 +1,19 @@
 # v4.7.14 outstanding acceptance requirements
 
-Not a release receipt. v4.7.13 remains installed; idle wake is not proven.
+Not a release receipt. v4.7.13 remains installed; Mac idle wake is not proven.
 
-## Internal recipient negotiation
+## Completed in the IDE PM continuity checkpoint
 
-Remove the Advanced Recipient pairing pane, UUID/provider inputs, session picker, Connect/test actions and their JavaScript handlers. Remove refreshLive references to deleted controls. Replace the server instruction 'Pair each recipient in Advanced' with coordinator-owned negotiation status. Keep read-only per-agent connection diagnostics.
+The manual Recipient pairing pane, UUID/provider inputs, session picker, Connect/test actions and their JavaScript handlers are removed. refreshLive references to deleted controls are removed. Server guidance now names CLI PM as recipient negotiation owner. Existing per-agent route, worker, delivery/receipt/result diagnostics remain. Dashboard smoke asserts identity acknowledgment alone never claims automatic wake.
 
-CLI PM initiates nonce-bound current-runtime UUID handshakes on dashboard launch and after stale watcher, sleep/resume or route change. A UUID acknowledgment proves identity only; it does not prove an idle wake. Keep inbox-channel UUIDs distinct from runtime-thread UUIDs. Never silently retarget an outstanding delivery.
+repair.patch is consolidated directly against immutable v4.7.13 ZIP blob81095837c581ad55af46b8697513f05c9b35916f, including the prior HTTP-disconnect and session-registration work. Do not apply the former separate patches first. Full discovery818 tests and actual dashboard script smoke passed in the continuity environment; STATUS records exact validation and limitations.
 
-The previous working-session UI removal passed node test_ui.js, but is not included in the saved repair.patch at commit 4049eef. Recover and persist the UI/test changes before packaging. The current execution environment cannot start the shell process, so this checkpoint does not assert a new test execution.
+## Remaining requirements retained from both devs
 
-## App Dev feedback incorporated
+1. Idle Codex wake: host dispatcher to an independently verified existing thread. Demonstrate real PM comment -> idle turn -> ACK naming comment/delivery ID and runtime UUID -> result. Repeat after Mac sleep and Orch restart. No replacement session or concurrent driver; an inbox channel UUID is distinct from the runtime UUID.
+2. Watchers: separate poll-only, negotiating, identity-reported, wake-proven and stale states. Monitor heartbeats and automatically restore the supported existing watcher/consumer after loss/compaction. Successful polling or a handshake request is not delivery proof. Claude tracked-task completion and Codex app-server delivery require different adapters. Preserve cursor and seen-ID dedupe.
+3. Qualification: implement a separate bounded CI increment that runs only after verified Code and Security completion evidence matches the exact head. Persist/coalesce head-bound triggers, tolerate reordered/duplicate events and invalidate on head advance. No racing qualification before reviews; absent evidence remains fail-closed.
+4. Child cleanup: create and record owned process groups, PID/start identity. Bound invocation. Denied or unverified cleanup remains a hold and uncertain delivery. Reconcile by original delivery ID before retry; never kill a reused/unrelated process or start a competing writer. Mac recovery2160/group98081 ownership is unverified; no cleanup bypass.
+5. Copy-paste: prove complete event -> coordinator -> recipient -> receipt -> result for reviews, CI and status without PO relay or manual pairing. Native Browser PM inbound wake remains unsupported and must be disclosed. CLI PM uses its sole native queue/executor and must not require an external pairing/second writer.
 
-1. Idle Codex wake: host dispatcher to an independently verified existing thread. Demonstrate real PM comment -> idle turn -> ACK naming comment ID. Repeat after Mac sleep and Orch restart. No replacement session or concurrent driver.
-2. Watchers: separate poll-only, negotiating, identity-reported, wake-proven and stale states. Monitor heartbeats and automatically negotiate recovery; successful polling is not delivery proof. Claude tracked-task completion and Codex app-server delivery require different adapters.
-3. Qualification: run only after both Code and Security completion evidence matches exact head. Persist/coalesce head-bound triggers, tolerate reordered/duplicate events, invalidate on head advance. Preserve fail-closed gates when evidence is absent; review completion must be verified, not inferred from a generic event.
-4. Child cleanup: create and record owned process groups, PID and start identity. Bound invocation. Cleanup permission can still fail; record unresolved cleanup and uncertain delivery. Reconcile by delivery ID before retry; never kill an unrelated or reused process, or start a competing writer.
-5. Copy-paste: remove PO relay and manual pairing from normal startup. Prove a complete event -> coordinator -> recipient -> receipt -> result path for review, CI and status updates. Native Browser PM inbound wake remains unsupported and must be disclosed.
-
-Foreground installation only. No LaunchAgent, login service, silent background installer or Dev bundle download. No claim of complete repair or release until the Mac acceptance path is demonstrated.
+Foreground installation only. No LaunchAgent, login service, silent background installer or Dev bundle download. No release or claim of complete repair until actual Mac acceptance is demonstrated. Existing dev reviews preempt tool work; App Dev RWT/Alpha and CLI Dev MVP/Beta ownership and serial landing gates remain protected.
