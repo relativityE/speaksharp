@@ -1,6 +1,355 @@
+diff --git a/INSTALL.md b/INSTALL.md
+index c7dab9c..626e498 100644
+--- a/INSTALL.md
++++ b/INSTALL.md
+@@ -1,11 +1,13 @@
+-# Orch v4.7.13 installation
++HELD SOURCE: do not use old download/checksum references to install this working tree. No replacement ZIP is published.
+ 
+-Only PO downloads and installs. Install under ~/SW_Dev/rwt-pr-handoff-v4.7.13 using the same gh blob download, checksum verification, unzip and python3 orch-setup.py flow as v4.7.11. It starts in this terminal and opens http://127.0.0.1:4317/ after the actual API confirms version 4.7.13. Keep the terminal running. No LaunchAgent or login service is installed.
++# Orch v4.7.14 installation
++
++Only PO downloads and installs. Install under ~/SW_Dev/rwt-pr-handoff-v4.7.14 using the same gh blob download, checksum verification, unzip and python3 orch-setup.py flow as v4.7.11. It starts in this terminal and opens http://127.0.0.1:4317/ after the actual API confirms version 4.7.14. Keep the terminal running. No LaunchAgent or login service is installed.
+ 
+ Before upgrading, stop the old foreground board with Ctrl-C in its terminal when no worker action is in flight. The installer preserves a running board instead of killing active work, explicitly reports an old version, and does not pretend the upgrade occurred. Run the installation block in any directory; it changes into the extracted absolute folder itself.
+ 
+-On a fresh v4.7.13 folder, automatically prefer a verified v4.7.12 migration journal, then v4.7.11, then verified v4.7.10, then the known v4.7.7-candidate source. Preserve database, private pairing and artifacts. Existing target state and an explicit migration override are retained; unknown ambiguous history is not guessed. Original installations remain intact.
++On a fresh v4.7.14 folder, automatically prefer a verified v4.7.12 migration journal, then v4.7.11, then verified v4.7.10, then the known v4.7.7-candidate source. Preserve database, private pairing and artifacts. Existing target state and an explicit migration override are retained; unknown ambiguous history is not guessed. Original installations remain intact.
+ 
+ Existing gh/Codex login and paired routes remain prerequisites, not repeated setup. First launch announces the new app version through the supported routes and requires real recipient receipts/results. Devs do not install this bundle. Native CLI PM receives current events in its PM queue; an unsupported browser chat cannot be automatically awakened. A stale/unrearmed listener remains an explicit transport blocker, never a fabricated ACK.
+ 
+-Accept the installed upgrade only after the board reports 4.7.13 coordination.7, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
++Accept the installed upgrade only after the board reports 4.7.14 coordination.7, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
+diff --git a/PACKAGE-MANIFEST.json b/PACKAGE-MANIFEST.json
+index 87b788b..fa0e921 100644
+--- a/PACKAGE-MANIFEST.json
++++ b/PACKAGE-MANIFEST.json
+@@ -1,6 +1,6 @@
+ {
+-  "version": "4.7.13",
+-  "build": "coordination.7",
++  "version": "4.7.14",
++  "build": "coordination.8-work",
+   "files": [
+     {
+       "path": "COORDINATION-CHANGE.md",
+@@ -14,8 +14,8 @@
+     },
+     {
+       "path": "INSTALL.md",
+-      "bytes": 1843,
+-      "sha256": "15ad3712491ec202cf11fb0db303d7c9c57bc6cfde62bd7aba80936b87e6d1ae"
++      "bytes": 1964,
++      "sha256": "fc4316b86afb8efedad9785c1719720559fc8eb20f4f74d00a0153bcac85a474"
+     },
+     {
+       "path": "Install_Orch.command",
+@@ -34,8 +34,8 @@
+     },
+     {
+       "path": "README.md",
+-      "bytes": 2376,
+-      "sha256": "d8e797566f3e30b5e4ad8c022357011e36095317bdc5c8fa2753e5e262e69a1e"
++      "bytes": 3007,
++      "sha256": "f47e6ab053793eeb9a08872fb981c0d97c2ac81d8c6c3f07707c880e6d514997"
+     },
+     {
+       "path": "RECOVERY-CLI-DEV-20261011.json",
+@@ -44,8 +44,8 @@
+     },
+     {
+       "path": "RELEASE-CANDIDATE.md",
+-      "bytes": 1595,
+-      "sha256": "122bd6a00ed856f6aa101b636ca63c21671de5d33b6753d06db6596909a671bf"
++      "bytes": 475,
++      "sha256": "ea6e522694248660e4c1aa0582f7e8c9e64db12a1538ff643e3805232592b7af"
+     },
+     {
+       "path": "RESEARCH-AND-ACCEPTANCE.md",
+@@ -94,8 +94,8 @@
+     },
+     {
+       "path": "codex_rpc.py",
+-      "bytes": 11593,
+-      "sha256": "7f9f5c096e91a874ee89b26c932a83f9d9e6f6d4537870c93403a0027767faf1"
++      "bytes": 12076,
++      "sha256": "a4ddb1338babe8d253f9365860173343fb5cb568876121ea1acb6de531315ab0"
+     },
+     {
+       "path": "codex_sessions.py",
+@@ -114,8 +114,8 @@
+     },
+     {
+       "path": "foreground_startup.py",
+-      "bytes": 5360,
+-      "sha256": "6b2eda4fa1a21f8f1a3d2453e420389b032184ce9eb5e85fae0099518b9009b9"
++      "bytes": 6095,
++      "sha256": "28139fb6eb2d4ef7157422bf2e144feb9e2ff108da757eed2f7ba571c4787798"
+     },
+     {
+       "path": "github_budget_preload.cjs",
+@@ -150,7 +150,7 @@
+     {
+       "path": "orch-setup.py",
+       "bytes": 3806,
+-      "sha256": "02800490b3e7ab3e11761d0cd54da02158569f3ae0ac99107f976725cf0b0ad4"
++      "sha256": "8bfc59f3bf5f0fd5de7680a4ccbfc9b3a1d608aaa358f95fdd6e3d3e30671d08"
+     },
+     {
+       "path": "orch-worker.py",
+@@ -179,18 +179,28 @@
+     },
+     {
+       "path": "server.py",
+-      "bytes": 421081,
+-      "sha256": "5edd98ba5decd7b66401da141fddde743ab3b8e27fb447890cf7d34cbf739fdf"
++      "bytes": 432236,
++      "sha256": "9b388c88e82aff83d7d68c580e9f4eab3f572b7492c3e9f1ad0ec13df5c1f49f"
++    },
++    {
++      "path": "session_rebinding.py",
++      "bytes": 2285,
++      "sha256": "95b8821ae35fa983c922ab57c81403d43f4c6cfa81ec58703c32d9f8d2452bdd"
++    },
++    {
++      "path": "session_registration.py",
++      "bytes": 2164,
++      "sha256": "7e669cc0e3ee48ffda253cb14cef3bf7a986fc1c199a71321e74bf31f8899936"
+     },
+     {
+       "path": "start-rwt-handoff.sh",
+-      "bytes": 2312,
+-      "sha256": "5247f6d0f941aaab19ced54e1b12ebef36bd8b73858c055a2fdc688df77a4aa6"
++      "bytes": 2317,
++      "sha256": "a0688787dfe12c1c083122ec2b0ce210f4d487d049959bd7c767568a759e4d9e"
+     },
+     {
+       "path": "static/index.html",
+-      "bytes": 37626,
+-      "sha256": "6b8fb6e81c75701a69caf7eecd3efcf023f460482d67ef44b725b205a8b9ff84"
++      "bytes": 34167,
++      "sha256": "3db55e9b0c35228935eaaba5e4ba5accf25ba5c44d54b14430b524dddf4bca2d"
+     },
+     {
+       "path": "task-status-repair.patch",
+@@ -204,8 +214,8 @@
+     },
+     {
+       "path": "test_agent_transport.py",
+-      "bytes": 7617,
+-      "sha256": "93eeaf586095dc66bfcc43ab1ad9d2490e7f5e29b84828c810d745b7f74da36f"
++      "bytes": 8639,
++      "sha256": "6adebbaa4d65fdae7ef7b35c94f3891a90f90876d489d5829973e88f56e6e09d"
+     },
+     {
+       "path": "test_comms.py",
+@@ -250,7 +260,7 @@
+     {
+       "path": "test_foreground_startup.py",
+       "bytes": 8978,
+-      "sha256": "868b59d4dd7b055b1a09c45fea72149fe20cb92509220af0e268c1b5ca43af34"
++      "sha256": "45538ef6114f8a5ad4e89d2f351cc37c2ff25a3627ff9cabf529945495b9dc31"
+     },
+     {
+       "path": "test_foreground_worker_lifecycle.py",
+@@ -262,6 +272,11 @@
+       "bytes": 6335,
+       "sha256": "709896a42f270d25ed6bd773a9f8d3a1a38a26a6ee189f2fb2871325496c33bc"
+     },
++    {
++      "path": "test_http_disconnect.py",
++      "bytes": 3493,
++      "sha256": "2f5979f4996b182991ee51e687c4bf2f225c0a8fe90a918fb5af795f0006111e"
++    },
+     {
+       "path": "test_install_and_recovery.py",
+       "bytes": 7062,
+@@ -305,7 +320,7 @@
+     {
+       "path": "test_regressions.py",
+       "bytes": 26054,
+-      "sha256": "3fa910d8ae6af252f3bbbaf38a28a522851c1d60fb92555787deb531004638e5"
++      "sha256": "ef17cb4e0246756cd5d9d85de2e4e1da30b478ebb3cc7e343d993431f05377cb"
+     },
+     {
+       "path": "test_route_recovery.py",
+@@ -322,10 +337,20 @@
+       "bytes": 38025,
+       "sha256": "e3ac2333335b6b7b1bd43d47d469c5c3287d5cfab18c3465e8c736832d4c6e60"
+     },
++    {
++      "path": "test_session_rebinding.py",
++      "bytes": 2377,
++      "sha256": "3f7ff952103085c7939796803dd9a6635191017fe2a8cebaecef261940b00dc5"
++    },
++    {
++      "path": "test_session_registration.py",
++      "bytes": 7217,
++      "sha256": "408efce3664bac47086438c8fcb492be9db2d6dcb2c201d5f9f01b6e2e36e648"
++    },
+     {
+       "path": "test_startup_readiness.py",
+-      "bytes": 4590,
+-      "sha256": "0a4a7e5cdb1417473f3e7125fc5a58bd38ddf685037fc76917baef7ef84625ac"
++      "bytes": 4602,
++      "sha256": "4977fbab31638264fee9642b00c5f9cad137f48531a4049d8dba937249a8bd03"
+     },
+     {
+       "path": "test_task_checkpoint_preservation.py",
+@@ -339,8 +364,8 @@
+     },
+     {
+       "path": "test_ui.js",
+-      "bytes": 7659,
+-      "sha256": "b889f5c98f39070907ce8d3c54384e20113b50f07c295873c00de3a5b35e7b26"
++      "bytes": 9250,
++      "sha256": "477d2eea1d081c9576d51d343ac65d5267c0c49437592c123dbbc633791b28ea"
+     },
+     {
+       "path": "test_watchdog.py",
+diff --git a/README.md b/README.md
+index 05369c0..2183b26 100644
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,4 @@
+-# RWT Orch v4.7.13 — coordination.7
++# RWT Orch v4.7.14 — coordination.8-work
+ 
+ Only the PO downloads the package. Installation flows into the same foreground setup and launch as v4.7.7;
+ `Install_Orch.command` and `Start_Orch.command` both use that path. No LaunchAgent, login task or background
+@@ -17,8 +17,10 @@ These are source/test fixes. Installed-Mac wake and foreground restart proof rem
+ without a wake hook are explicitly unsupported for automatic wake; GitHub posting is not delivery.
+ No merge/deployment/Production authority is created by event notifications or installation.
+ 
+-coordination.7 adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
++coordination.8-work adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
+ 
+ First launch publishes one durable ALL AGENTS version/launcher notice to the control issue and queues version-specific recipient handshakes. Restart does not duplicate the post or invent ACKs. PM notification publication failures are task holds, not coordinator-wide errors. Healthy CLI PM is shown as available/receiving events, with task holds displayed separately. Existing native browser-chat wake limits are unchanged.
+ 
+-Released for PO-authorized Mac trial. See MAC-ACCEPTANCE.md. Ops/Beta review lifecycles no longer require special PO authorization-string setup. Historical observation reminders consolidate per route; actual task actions and uncertain deliveries remain separate.
++HELD source candidate; no download ZIP released yet. See MAC-ACCEPTANCE.md. Ops/Beta review lifecycles no longer require special PO authorization-string setup. Historical observation reminders consolidate per route; actual task actions and uncertain deliveries remain separate.
++
++coordination.8-work: browser launch initiates per-boot UUID/nonce negotiation; native CLI PM boot identity skips GitHub/history loading and task ownership patches. Stale listeners/sleep gaps trigger negotiation. Identity and task/wake proof remain separate. Direct Codex route recovery distinguishes runtime UUID from inbox aliases and respects pending actions. Codex control reads summaries/newest active-turn metadata instead of full history, eliminating the reproduced >8 MiB history-frame rejection. HTTP disconnect handling is retained. Native Mac idle proof and legacy watcher recovery remain open.
+diff --git a/RELEASE-CANDIDATE.md b/RELEASE-CANDIDATE.md
+index 629569d..419a3f0 100644
+--- a/RELEASE-CANDIDATE.md
++++ b/RELEASE-CANDIDATE.md
+@@ -1,11 +1,3 @@
+-# v4.7.13 coordination.7 — Mac trial
++# v4.7.14 — HELD source candidate
+ 
+-PO authorized publication for real-world Mac testing on 2026-10-13. This supersedes the hold on distributing the latest source. It is a trial, not a claim that all recipients have passed installed wake acceptance. Only PO downloads/installs; Devs do not download this bundle.
+-
+-Includes all saved v4.7.12 repairs plus routine PM review/CI follow-through using pinned PM source acceptance, current-PR provenance and Ops/Beta lifecycle support, and durable observation-outage incidents instead of one historical reminder per event. Original deliveries, callback identities and active writers are preserved. See MAC-ACCEPTANCE.md for the reported-issue matrix and real-host checks.
+-
+-Foreground install/launch, HTTP-readiness browser opening and verified predecessor migration. No LaunchAgent, login task or service. Keep the launcher terminal running. Existing recipient pairing and CLI sign-in are reused. First launch announces this version through GitHub and supported recipient routes.
+-
+-Open host proofs: GitHub event to idle-agent wake and matching receipt/result; watcher survival/rearm after runtime compaction; stale/replaced recipient routing; Browser PM inbound delivery. Unsupported browser chats cannot be awakened by a GitHub comment. CLI PM is the unattended coordinator and must handle eligible source review/qualification without PO relay. Missing runtime capability is explicit, not fabricated success.
+-
+-Migration, merge, deployment, credentials and Production runs retain separate authority. This package changes the coordination tool only.
++No replacement ZIP is released. Startup handshake, native coordinator registration, bounded Codex summary/turn reads and guarded route recovery are implemented. Local regressions prove the old full-history frame rejection and its correction. Actual Mac idle wake, legacy Claude tracked-task rearm and reconciliation of old uncertain actions remain unverified. No LaunchAgent/login service or Dev bundle download. No Production authority.
+diff --git a/codex_rpc.py b/codex_rpc.py
+index 58e60e0..e7ec9d0 100644
+--- a/codex_rpc.py
++++ b/codex_rpc.py
+@@ -187,7 +187,7 @@ def deliver(route, message, *, timeout=15, env=None):
+     try:
+         client = Client(route.remote_url, token=env.get(route.auth_token_env, '') if route.auth_token_env else '',
+                         timeout=timeout, env=env)
+-        client.rpc('initialize', {'clientInfo': {'name': 'orch-actor-delivery', 'version': '4.7.6'}})
++        client.rpc('initialize', {'clientInfo': {'name': 'orch-actor-delivery', 'version': '4.7.14'}, 'capabilities': {'experimentalApi': True}})
+         client.send({'method': 'initialized', 'params': {}})
+         cursor, seen, loaded = None, set(), False
+         for _ in range(8):
+@@ -205,7 +205,7 @@ def deliver(route, message, *, timeout=15, env=None):
+             seen.add(cursor)
+         if not loaded:
+             raise RPCError('Paired session is not loaded in the existing Codex server; no writer was started')
+-        thread = client.rpc('thread/read', {'threadId': route.session_id, 'includeTurns': True}).get('thread')
++        thread = client.rpc('thread/read', {'threadId': route.session_id, 'includeTurns': False}).get('thread')
+         if not isinstance(thread, dict) or thread.get('id') != route.session_id:
+             raise RPCError('Codex thread readback does not match pairing')
+         status = thread.get('status') or {}
+@@ -218,7 +218,12 @@ def deliver(route, message, *, timeout=15, env=None):
+             if not turn_id or turn.get('status') not in ('inProgress', 'completed'):
+                 raise RPCError('Codex did not confirm the requested turn')
+         elif state == 'active':
+-            active = [t for t in thread.get('turns', []) if t.get('status') == 'inProgress']
++            # Do not fetch years of item text merely to identify the current turn.
++            # One newest turn with items omitted is sufficient; unsupported servers
++            # reject before mutation rather than falling back to unbounded history.
++            recent = client.rpc('thread/turns/list', {'threadId': route.session_id,
++                'limit': 1, 'sortDirection': 'desc', 'itemsView': 'notLoaded'})
++            active = [t for t in recent.get('data', []) if isinstance(t, dict) and t.get('status') == 'inProgress']
+             if len(active) != 1 or not active[0].get('id') or status.get('activeFlags'):
+                 raise RPCError('Active paired turn cannot be safely steered; wait for its owner')
+             params['expectedTurnId'] = active[0]['id']
+diff --git a/foreground_startup.py b/foreground_startup.py
+index 753f7ee..8a43008 100644
+--- a/foreground_startup.py
++++ b/foreground_startup.py
+@@ -47,6 +47,17 @@ def prepare_foreground(root, env, home=None, run=subprocess.run):
+         if (manifest.get('completed') is True and manifest.get('source_db') in approved_sources
+                 and manifest.get('target_db') == str((trial / 'state.db').resolve())):
+             source = trial / 'state.db'
++    current = root.parent / 'rwt-pr-handoff-v4.7.13' / '.agent-work'
++    current_receipt = current / 'migration-manifest.json'
++    if current_receipt.is_file() and (current / 'state.db').is_file():
++        manifest = json.loads(current_receipt.read_text())
++        approved_sources = {
++            str((root.parent / name / '.agent-work' / 'state.db').resolve())
++            for name in ('rwt-pr-handoff-v4.7.12','rwt-pr-handoff-v4.7.11','rwt-pr-handoff-v4.7.10','rwt-pr-handoff-v4.7.7-candidate')
++        }
++        if (manifest.get('completed') is True and manifest.get('source_db') in approved_sources
++                and manifest.get('target_db') == str((current / 'state.db').resolve())):
++            source = current / 'state.db'
+     if not (root / '.agent-work' / 'state.db').exists() and not env.get('RWT_MIGRATE_FROM') and source.is_file():
+         # Confirmed by last-serving receipts and the owned Mac diagnostic 6124027101.
+         env['RWT_MIGRATE_FROM'] = str(source)
+@@ -84,9 +95,9 @@ def wait_ready(pid, port, timeout=45, opener=None, alive=None, clock=time.monoto
+         if not alive():
+             raise RuntimeError('Orch exited before HTTP readiness; browser not opened')
+         try:
+-            with opener(f'http://127.0.0.1:{port}/api/live', timeout=1) as response:
++            with opener(f'http://127.0.0.1:{port}/api/live', timeout=5) as response:
+                 value = json.load(response)
+-            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.13':
++            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.14':
+                 return value
+         except (OSError, ValueError):
+             pass
+@@ -100,7 +111,7 @@ def main():
+     parser.add_argument('--port', type=int, required=True)
+     args = parser.parse_args()
+     wait_ready(args.pid, args.port)
+-    print('Orch v4.7.13 HTTP ready. Keep this terminal running for coordination.', flush=True)
++    print('Orch v4.7.14 HTTP ready. Keep this terminal running for coordination.', flush=True)
+     webbrowser.open(f'http://127.0.0.1:{args.port}/')
+ 
+ 
+diff --git a/orch-setup.py b/orch-setup.py
+index 78bb988..49da777 100644
+--- a/orch-setup.py
++++ b/orch-setup.py
+@@ -59,10 +59,10 @@ def main():
+         # Keep existing installation and its work/leases; never create a second PM executor.
+         health = live['transport'].get('coordination', {})
+         print(json.dumps({'existing_board': True, 'coordination': health,
+-                          'running_version': live.get('version'), 'requested_version': '4.7.13',
+-                          'next': ('CLI PM handles listed route/recovery work' if live.get('version') == '4.7.13'
++                          'running_version': live.get('version'), 'requested_version': '4.7.14',
++                          'next': ('CLI PM handles listed route/recovery work' if live.get('version') == '4.7.14'
+                                    else 'The older foreground board is still running. Stop its terminal with Ctrl-C when idle, then run this installer again; no upgrade has occurred.')}))
+-        if not args.check and live.get('version') == '4.7.13':
++        if not args.check and live.get('version') == '4.7.14':
+             webbrowser.open(f'http://127.0.0.1:{port}/')
+         return 0
+     issues = package_integrity.verify(root)
+diff --git a/server.py b/server.py
+index bcbcab2..a1893a0 100644
 --- a/server.py
 +++ b/server.py
-@@ -35,6 +35,8 @@
+@@ -35,6 +35,8 @@ import route_recovery
  import coordination_health
  import worker_supervisor
  import coordination_recovery
@@ -9,7 +358,7 @@
  
  APP = Path(__file__).resolve().parent
  DB = APP / ".agent-work" / "state.db"
-@@ -91,8 +93,8 @@
+@@ -91,8 +93,8 @@ GITHUB_WEBHOOK_EVENTS = frozenset({"issues", "issue_comment", "pull_request", "p
                                    "pull_request_review_comment", "workflow_run", "check_run", "check_suite", "push"})
  CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1593"))
  WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
@@ -20,7 +369,7 @@
  GH_BACKOFF_UNTIL = 0.0
  PR_DISPLAY_CACHE = {}
  PR_DISPLAY_LOCK = threading.RLock()
-@@ -1297,6 +1299,7 @@
+@@ -1297,6 +1299,7 @@ def next_queue(recipient=None):
          "CASE "
          "WHEN q.source_actor='PO' THEN 0 "
          "WHEN q.source_actor IN ('PM','DEV') THEN 1 "
@@ -28,7 +377,7 @@
          "WHEN q.delivery_key LIKE 'notification-board-fallback:%' OR q.delivery_key LIKE 'notification-observation-%' THEN 4 "
          "WHEN q.kind='actor_result_review' AND EXISTS (SELECT 1 FROM agent_notifications n "
          "WHERE q.delivery_key='task-result:' || n.action_id AND n.task_id IN ('event-observation','wake-probe','version-handshake')) THEN 4 "
-@@ -2436,17 +2439,19 @@
+@@ -2436,17 +2439,19 @@ def emit_github_event(events, snap, cfg):
      return qids
  
  
@@ -50,7 +399,7 @@
              if actor == 'cli_pm':
                  # This native coordinator already receives the durable PM event queue.
                  continue
-@@ -2479,12 +2484,13 @@
+@@ -2479,12 +2484,13 @@ def persist_event_notifications(message, head='', event_key='', notice_kind='eve
                      if actor_channels.retire_unpresented_notice(old['action_id'], actor, old['target_session_id']):
                          c.execute("UPDATE agent_notifications SET status='superseded',error=?,updated_at=? WHERE action_id=?",
                                    ('Newer awareness snapshot; unread inbox notice retired, not acknowledged', now(), old['action_id']))
@@ -66,7 +415,7 @@
      for row in rows:
          try:
              route = configured_actor_route(row['actor_id'])
-@@ -4030,6 +4036,10 @@
+@@ -4030,6 +4036,10 @@ def pm_ledger_context():
  
  
  def compose_for_pm(q):
@@ -77,7 +426,7 @@
      return (
          f"Incoming orchestrator message from {q.get('source_actor','UNKNOWN')}.\n"
          f"Delivery id: {q['id']}; handoff depth: {q.get('handoff_depth',0)}.\n"
-@@ -4282,6 +4292,17 @@
+@@ -4282,6 +4292,17 @@ def record_agent_task_callback(payload, token):
                  c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · receipt notification:' || ? WHERE handoff_id=? AND state='dispatched'",
                            (action_id, n['handoff_id']))
              else:
@@ -95,7 +444,7 @@
                  if n['status'] == 'responded' and n['result_digest'] == digest:
                      return 200, {'ok': True, 'duplicate': True}
                  if n['status'] != 'received' or not n['receipt_at']:
-@@ -4708,6 +4729,13 @@
+@@ -4708,6 +4729,13 @@ def parse_pm_route(raw):
  
  
  def _codex_prompt(content):
@@ -109,7 +458,7 @@
      return (
          "PM OPERATING CONTRACT:\n" + load_pm_instructions().strip() +
          "\n\nCURRENT TURN:\n" + content.strip() +
-@@ -4818,7 +4846,7 @@
+@@ -4818,7 +4846,7 @@ def _run_pm_codex(content, session_id):
      cmd = _codex_command(content, session_id, output_file)
      prompt = _codex_prompt(content)
      env = subscription_env("codex")
@@ -118,7 +467,7 @@
      try:
          with PROC_LOCK:
              try:
-@@ -5070,6 +5098,7 @@
+@@ -5070,6 +5098,7 @@ def anti_idle_reconciler():
              sweep_preflight_recoveries()
              sweep_invocation_recoveries()
              sweep_agent_delivery_stalls()
@@ -126,7 +475,7 @@
              players = list_player_status()
              p = players.get('cli_dev') or {}
              key = str(p.get('work_item_key') or '')
-@@ -5574,6 +5603,21 @@
+@@ -5574,6 +5603,21 @@ def run_pm(q):
          add_activity("SYSTEM", "Cancelled PM response was discarded; no automatic handoff occurred.", "none", "system")
          return
  
@@ -148,7 +497,7 @@
      updates = routed.get("board_updates")
      if (not isinstance(updates, dict) or not updates.get('work_items') or not updates.get('players')):
          detail = 'PM replied without task AND player reconciliation; no executable handoff'
-@@ -5604,6 +5648,12 @@
+@@ -5604,6 +5648,12 @@ def run_pm(q):
          return
      update_queue(q["id"], status="responded", finished_at=now(), session_id=sid)
      set_agent("pm", status="idle", session_id=sid)
@@ -161,7 +510,7 @@
      patch_errors = []
      accepted = apply_board_updates(updates, errors=patch_errors)
      if not accepted:
-@@ -6377,7 +6427,14 @@
+@@ -6377,7 +6427,14 @@ def dashboard_snapshot():
          a = agents.get(aid) or {}
          ast = str(a.get("status") or "idle")
          board_status = str(base.get('status') or 'unknown')
@@ -177,7 +526,7 @@
              base['status'] = 'available'
              base['task_blocker'] = base.get('blocker') or ''
              base['blocker'] = ''
-@@ -6408,6 +6465,16 @@
+@@ -6408,6 +6465,16 @@ def dashboard_snapshot():
          if base['checkpoint_stale']:
              base['checkpoint_warning'] = 'Task checkpoint stale; process activity is not a fresh task report' 
  
@@ -194,7 +543,7 @@
      po_needed = next((x for x in active_items if x.get("po_required")), None)
      po = players.setdefault("po", {"player_id":"po"})
      if po_needed:
-@@ -6424,7 +6491,7 @@
+@@ -6424,7 +6491,7 @@ def dashboard_snapshot():
              base['status'] = 'unknown'
              base['task'] = 'No fresh verified checkpoint'
              base['work_item_key'] = ''
@@ -203,7 +552,7 @@
  
      # Attach the concrete owned work item so the UI can answer: working on what,
      # blocked why, and what happens next without exposing routing internals.
-@@ -6600,6 +6667,46 @@
+@@ -6600,6 +6667,46 @@ def worker_settled_actions(actor, session):
      return [r['action_id'] for r in notices + tasks]
  
  
@@ -250,7 +599,7 @@
  def transport_status():
      mode = pm_transport_mode()
      codex_binary = resolved_bin(CODEX_BIN)
-@@ -6615,6 +6722,16 @@
+@@ -6615,6 +6722,16 @@ def transport_status():
          pm_label = "not configured"
      actors = {}
      for actor_id in ('cli_dev', 'app_dev', 'browser_pm', 'cli_pm'):
@@ -267,7 +616,7 @@
          try:
              route = configured_actor_route(actor_id)
              with DB_LOCK, con() as c:
-@@ -6666,6 +6783,7 @@
+@@ -6666,10 +6783,11 @@ def transport_status():
          "claude_worker_configured": bool(resolved_bin(CLAUDE_BIN)),
          "claude_subscription_mode": True,
          "claude_permission_mode": PERMISSION_MODE,
@@ -275,7 +624,58 @@
          "agent_routes": actors,
          "external_notification_configured": external_ready,
          "external_notification_status": ("Recipient routes configured; inspect each route's automatic-wake receipt proof"
-@@ -6860,6 +6978,9 @@
+-                                         if external_ready else "Pair each recipient in Advanced; GitHub publication is not delivery"),
++                                         if external_ready else "CLI PM owns recipient negotiation; identity acknowledgment and automatic wake are verified separately"),
+         "max_handoff_depth": MAX_HANDOFF_DEPTH,
+     }
+     result['coordination'] = coordination_health.summarize(result, list_agents(), automation_settings(),
+@@ -6714,14 +6832,23 @@ class H(BaseHTTPRequestHandler):
+             return 403, "missing or invalid control token"
+         return None
+ 
++    def send_bytes(self, code, content_type, data):
++        try:
++            self.send_response(code)
++            self.send_header("Content-Type", content_type)
++            self.send_header("Content-Length", str(len(data)))
++            self.send_header("Cache-Control", "no-store")
++            self.end_headers()
++            self.wfile.write(data)
++        except (BrokenPipeError, ConnectionResetError):
++            # A timed-out readiness poll or closed browser is not a server crash.
++            # Never undo/replay an already committed action because its response
++            # could not reach the client. Other application/I/O errors propagate.
++            return False
++        return True
++
+     def sendj(self, code, obj):
+-        data = json.dumps(obj).encode()
+-        self.send_response(code)
+-        self.send_header("Content-Type", "application/json")
+-        self.send_header("Content-Length", str(len(data)))
+-        self.send_header("Cache-Control", "no-store")
+-        self.end_headers()
+-        self.wfile.write(data)
++        return self.send_bytes(code, "application/json", json.dumps(obj).encode())
+ 
+     def body(self):
+         n = int(self.headers.get("Content-Length", "0"))
+@@ -6744,13 +6871,7 @@ class H(BaseHTTPRequestHandler):
+                 return self.sendj(403, {'error': str(exc)})
+         if u.path == "/":
+             data = (STATIC / "index.html").read_bytes().replace(TOKEN_PLACEHOLDER, CONTROL_TOKEN.encode())
+-            self.send_response(200)
+-            self.send_header("Content-Type", "text/html; charset=utf-8")
+-            self.send_header("Content-Length", str(len(data)))
+-            self.send_header("Cache-Control", "no-store")
+-            self.end_headers()
+-            self.wfile.write(data)
+-            return
++            return self.send_bytes(200, "text/html; charset=utf-8", data)
+         if u.path == "/api/live":
+             return self.sendj(200, {
+                 "version": BOARD_VERSION,
+@@ -6857,6 +6978,9 @@ class H(BaseHTTPRequestHandler):
          except Exception:
              return self.sendj(400, {"error": "invalid json"})
  
@@ -285,12 +685,10 @@
          if self.path == '/api/agent-route-retire':
              if not isinstance(b, dict):
                  return self.sendj(400, {'error': 'JSON object required'})
-@@ -7054,6 +7175,61 @@
- 
-     def log_message(self, *args):
+@@ -7053,6 +7177,61 @@ class H(BaseHTTPRequestHandler):
          pass
-+
-+
+ 
+ 
 +SESSION_BOOT_ID = uuid.uuid4().hex
 +SESSION_LAST_TICK = None
 +
@@ -344,51 +742,60 @@
 +            if worker and worker.get('recent') and worker.get('status') in ('listening','working'):
 +                continue
 +            request_session_registration('listener-loss:' + route.session_id + ':' + str(seen), (actor,))
- 
- 
++
++
  def prepare_app_version_notice():
---- a/static/index.html
-+++ b/static/index.html
-@@ -1,6 +1,6 @@
- <!doctype html>
- <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
--<title>RWT Board v4.7.13</title>
-+<title>RWT Board v4.7.14</title>
- <style>
- :root{
-   --line:#d9dde3;--muted:#667085;--soft:#f7f8fa;--text:#111827;
-@@ -22,7 +22,7 @@
- @media(max-width:950px){#decisionGrid,#workGrid,#prColumns,.advancedGrid{grid-template-columns:1fr}#agents{grid-template-columns:repeat(2,1fr)}.sendButton{margin-left:0}}@media(max-width:560px){#agents{grid-template-columns:1fr}.sendRow{gap:9px}}
- </style></head>
- <body><main>
--<header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.13 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
-+<header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.14 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
- 
- <section class="card"><div class="sectionTitle">PM monitoring and reply health</div><div id="commsHealth" class="muted">Checking local runtime…</div></section>
- <section class="card"><div class="sectionTitle">Coordination — local operator owns setup</div><div id="coordinationHealth" role="status">Checking routes…</div><button onclick="recoverPmCleanup()">Verify PM cleanup and resume safely</button><div id="coordinationResult" role="status" class="tiny"></div></section>
-@@ -90,7 +90,7 @@
- function routeDetails(id){const r=dashboard?.agent_routes?.[id];if(!r)return '';const d=r.last_task_delivery||r.last_delivery||{};const w=r.worker;return `${w?'<div class="k">Persistent worker</div><div>'+esc(w.worker_id)+' · thread '+esc(w.thread_id)+' · '+esc(w.status)+' · '+(w.recent?'heartbeat live':'heartbeat stale')+'</div><div>'+esc(w.error||'')+'</div>':''}<div class="k">Recipient route</div><div>${esc(r.configured?(r.transport+' · '+r.session_id):'Not paired')}</div><div class="k">Delivery ID / action</div><div>${esc([d.id?'#'+d.id:'',d.action_id||''].filter(Boolean).join(' · ')||'No delivery observed')}</div><div class="k">Receipt / result</div><div>${esc(d.status||'No delivery')} · ${d.receipt_at?'receipt recorded':'receipt missing'} · ${d.result_at?'result recorded':'result missing'}</div><div class="k">Exact delivery error</div><div>${esc(d.error||r.blocker||'No error recorded')}</div><div class="k">Host preflight</div><div>${esc(r.host_preflight||'Not verified on installed host')}</div>`;}
- function showAgent(id,refresh=false){if(!refresh&&detail.style.display!=='none'&&detailBox.dataset.agent===id){closeDetail();return;}let p=dashboard?.players?.[id]||{};let w=p.work_item||{};detail.style.display='block';detailBox.dataset.agent=id;detailBox.innerHTML=`<div class="row spread"><div class="big">${esc(N[id]||id)}</div><span>${badge(p.status,p)} <button onclick="closeDetail()">Close</button></span></div><div class="detailGrid"><div class="k">Working on</div><div>${esc(w.title||p.task||'No current task')}</div><div class="k">Blocked?</div><div>${esc(p.blocker||p.task_blocker||w.sequence_blocker||w.dispatch_hold||w.blocker||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status has no current explanation; CLI PM must reconcile':'No'))}</div><div class="k">Next action</div><div>${esc(w.next_action||p.opportunity||'No next action recorded')}</div><div class="k">Branch</div><div>${esc(w.branch||'—')}</div><div class="k">PO needed</div><div>${w.po_required?'YES':'NO'}</div><div class="k">Status age</div><div>${age(p.age_seconds)}${p.checkpoint_warning?' · '+esc(p.checkpoint_warning):''}</div>${routeDetails(id)}</div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.toggle('selected',x.dataset.id===id));}
- function showPr(pr){let [st,cls,pos]=prState(pr,dashboard?.current?.number);detail.style.display='block';detailBox.removeAttribute('data-agent');detailBox.innerHTML=`<div class="row spread"><div class="big">PR #${esc(pr.number)} · ${esc(pr.title||'')}</div><span class="statusBadge ${cls}">${st}</span></div><div class="detailGrid"><div class="k">RWT position</div><div>${esc(pos)}</div><div class="k">Head</div><div>${esc((pr.headRefOid||pr.head||'').slice(0,12)||'—')}</div><div class="k">Checks</div><div>${esc(pr.checks?`${pr.checks.green||0}/${pr.checks.total||0} green${pr.checks.running?' · '+pr.checks.running+' running':''}${pr.checks.failed?' · '+pr.checks.failed+' failed':''}`:checksSummary(pr))}</div><div class="k">Review</div><div>${esc(pr.reviewDecision||'—')}</div><div class="k">Updated</div><div>${esc(pr.updatedAt||pr.closedAt||pr.mergedAt||'—')}</div><div class="k">GitHub</div><div><a href="${esc(pr.url)}" target="_blank">Open PR</a></div></div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.remove('selected'));}
--function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div><div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
-+function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(p.coordination_state==='negotiating_sessions'?'Starting coordinator · requesting agent session ACKs':null)||(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div>${id!=='po'?`<div class="agentWhy">Connection: ${esc(p.connection_state||'starting')}${p.connection_binding?.error?' · '+esc(p.connection_binding.error):''}</div>`:''}<div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
- function renderQueue(q){queue.innerHTML=(q||[]).map(x=>`<div class="workItem"><div><div class="itemTitle">${esc(x.title||x.item_key||'Untitled')}</div><div class="itemMeta">${esc(x.sequence_blocker||x.dispatch_hold||x.blocker||x.next_action||'')}</div></div><div>${ownerTag(x.owner)} ${badge(x.state)}</div></div>`).join('')||'<div class="muted">Queue empty</div>'}
- function prRow(pr,completed=false){let [st,cls,pos]=prState(pr,dashboard?.current?.number);let obj=encodeURIComponent(JSON.stringify(pr));return `<div class="prItem ${dashboard?.current&&Number(pr.number)===Number(dashboard.current.number)?'current':''} ${completed?'completed':''}" onclick="showPr(JSON.parse(decodeURIComponent('${obj}')))"><div><div class="prTitle"><span class="prNumber">#${pr.number}</span>${esc(pr.title||'')}</div><div class="prMeta">${esc(pos)} · ${esc(checksSummary(pr))}</div></div><span class="statusBadge ${cls}">${st}</span></div>`}
- function renderPrs(d){let open=(d.open_prs||[]).slice(0,4);let closed=[...(d.recent_completed||[])].sort((a,b)=>String(b.mergedAt||b.closedAt||b.updatedAt||'').localeCompare(String(a.mergedAt||a.closedAt||a.updatedAt||''))).slice(0,4);openPrs.innerHTML=open.map(x=>prRow(x)).join('')||'<div class="muted">No open PRs</div>';closedPrs.innerHTML=closed.map(x=>prRow(x,true)).join('')||'<div class="muted">No recent closed PRs</div>';if(d.current){currentPr.innerHTML=prRow({...d.current,number:d.current.number,title:d.current.title,url:d.current.url,headRefOid:d.current.head,isDraft:d.current.draft,state:d.current.state,reviewDecision:d.current.reviewDecision,statusCheckRollup:d.current.statusCheckRollup||[]});}else currentPr.innerHTML='<div class="decision warn"><div class="big">No Current PR</div><div class="muted" style="margin-top:4px">PM should select the active release PR when one exists.</div></div>'}
-@@ -98,11 +98,11 @@
- function renderDashboard(d){dashboard=d;document.querySelector('.version').textContent='Board v'+d.version+' ('+(d.build||'original')+') · MAIN GOAL: RWT CLOSED · observed '+(d.observed_at||'unknown')+' · GitHub checked '+(d.github_observed_at||'unknown')+(d.github_error?' · GitHub error: '+d.github_error:'')+' · '+(d.reconciliation||'Reconciliation unknown')+' · '+(d.comms?.outbox||'Outbox pending')+(d.comms?.error?' · Watcher error: '+d.comms.error:'');let b=d.blocker||{};let po=Object.values(d.players||{}).find(x=>x.player_id==='po')||{};let poNeed=!!b.po_required||String(po.status||'').toLowerCase()==='action-needed';blockerTitle.textContent=b.text||'No blocker recorded';blockerMeta.textContent=`Owner: ${N[b.owner]||b.owner||'Unassigned'} · blocked ${age(b.age_seconds)} · ${b.cause||'No cause recorded'}`;blockerNext.innerHTML=`<span class="strong">Next:</span> ${esc(b.next_action||'No next action recorded')}`;blocker.className='decision '+(String(b.text||'').toLowerCase().includes('failed')?'bad':'warn');poDecisionTitle.textContent=poNeed?'ACTION NEEDED':'NO ACTION NEEDED';poDecisionMeta.textContent=poNeed?(po.task||b.next_action||'Decision requested'):'No PO decision is currently recorded; execution gates still apply.';poDecision.className='decision '+(poNeed?'warn':'good');renderAgents(d.players||{});renderQueue(d.priority_queue||[]);renderPrs(d);renderLedger(d);const selectedAgent=detailBox.dataset.agent;if(selectedAgent)showAgent(selectedAgent,true)}
- async function refreshDashboard(){try{renderDashboard(await api('/api/dashboard'))}catch(e){blockerTitle.textContent='Dashboard error';blockerMeta.textContent=e.message}}
- function deliveryHtml(d){let [t,c]=statusNorm(d.status);let task=d.work_item_key?` · task ${esc(d.work_item_key)} · ${esc(d.target_branch||'branch unknown')} · ${esc(d.target_worktree||'worktree unknown')}`:'';return `<div class="delivery"><strong>#${d.id}</strong> ${esc(d.source_actor)}→${esc(d.recipient)} <span class="statusBadge ${c}">${esc(d.delivery_label||t)}</span> · attempt ${d.attempts||0} · ${d.historical?'history':'current'} · ${age(d.age_seconds)}<div class="muted">${esc(d.delivery_stage||t)}${task}</div>${d.target_actor_id?`<div class="tiny">Recipient: ${esc(d.target_actor_id)} · ${esc(d.target_transport||'route unknown')} · session ${esc(d.target_session_id||'unknown')} · action ${esc(d.task_action_id||'not assigned')} · ${d.task_receipt_at?'receipt recorded':'receipt missing'} · ${d.task_result_at?'result recorded':'result missing'}</div>`:''}${d.github_comment_id&&d.status!=='responded'?`<div class="muted">Prior publication: GitHub comment ${esc(d.github_comment_id)} · current attempt ${esc(d.status)}</div>`:''}${d.dispatch_blocker?`<div class="warn">${esc(d.dispatch_blocker)}</div>`:''}${d.error?`<div class="error">${esc(d.error)}</div>`:''}${d.recovery_action?`<div class="muted">${esc(d.recovery_action)}</div>`:''}${String(d.status).startsWith('failed')&&!d.recovery_action?.startsWith('PM recovery queued')?`<button onclick="retryDelivery(${d.id})">retry</button>`:''}</div>`}
--async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(!r.configured?'not paired'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'paired; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;const selectedRoute=t.agent_routes?.[pairActor.value];if(selectedRoute?.worker){const w=selectedRoute.worker;pairResult.textContent='Worker '+w.worker_id+' · thread '+w.thread_id+' · '+w.status+(w.recent?' · heartbeat live':' · heartbeat stale')+(w.error?' · '+w.error:'')+' · '+(w.actions||[]).map(a=>a.action_id+': '+a.state+(a.error?' ('+a.error+')':'')).join('; ')}else if(selectedRoute?.last_delivery){const l=selectedRoute.last_delivery;pairResult.textContent=l.action_id+' · '+l.status+(l.receipt_at?' · recipient receipt recorded':' · no recipient receipt')+(l.result_at?' · result recorded':'')+(l.error?' · '+l.error:'')+(l.fallback_queue_id?' · PM fallback reminder queued #'+l.fallback_queue_id:'')+' · '+(selectedRoute.live_delivery_proven?'automatic wake proven':'automatic wake unproven')};activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
-+async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const identities=t.session_registration||{};const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(identities[id]?.state||'identity not requested')+' · '+(r.transport==='native_pm_executor'?'native coordinator':!r.configured?'not paired'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'paired; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;const selectedRoute=t.agent_routes?.[pairActor.value];if(selectedRoute?.worker){const w=selectedRoute.worker;pairResult.textContent='Worker '+w.worker_id+' · thread '+w.thread_id+' · '+w.status+(w.recent?' · heartbeat live':' · heartbeat stale')+(w.error?' · '+w.error:'')+' · '+(w.actions||[]).map(a=>a.action_id+': '+a.state+(a.error?' ('+a.error+')':'')).join('; ')}else if(selectedRoute?.last_delivery){const l=selectedRoute.last_delivery;pairResult.textContent=l.action_id+' · '+l.status+(l.receipt_at?' · recipient receipt recorded':' · no recipient receipt')+(l.result_at?' · result recorded':'')+(l.error?' · '+l.error:'')+(l.fallback_queue_id?' · PM fallback reminder queued #'+l.fallback_queue_id:'')+' · '+(selectedRoute.live_delivery_proven?'automatic wake proven':'automatic wake unproven')};activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
- async function refreshPr(){try{let s=await api('/api/pr-state');wtStatus.textContent=s.worktree&&s.worktree.is_git?`CLI Dev worktree: ${s.worktree.path} · ${(s.worktree.head||'').slice(0,9)} · ${s.worktree.clean?'clean':'DIRTY'}`:'CLI Dev worktree not selected/ready'}catch(e){wtStatus.textContent='Worktree error: '+e.message}}
- async function readFiles(){let out=[];let el=document.getElementById('files');if(!el)return out;for(const f of el.files){let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});out.push({name:f.name,data})}return out}
- async function send(){let selected=document.querySelector('input[name=route]:checked');let route=selected?selected.value:'pm';sessionStorage.setItem('rwtSendRoute',route);let text=msg.value.trim();if(!text&&!document.getElementById('files').files.length){sendStatus.textContent='Type a message or attach files first.';return}sendStatus.textContent='Sending…';try{let fs=await readFiles();let sent=await api('/api/send',{method:'POST',body:JSON.stringify({actor:'PO',route,message:text,files:fs,handoff_pr:handoffPr.value,handoff_topic:handoffTopic.value})});msg.value='';let f=document.getElementById('files');if(f)f.value='';sendStatus.textContent=route==='none'?'Posted to GitHub #1258.':'Queued deliveries '+(sent.delivery_ids||[]).join(', ')+'; acknowledgment appears in Delivery queue';if(sent.handoff_manifest)sendStatus.textContent+=' · Handoff: '+sent.handoff_manifest;await refreshAll()}catch(e){sendStatus.textContent='Not sent: '+e.message}}
- function initComposer(){let saved=sessionStorage.getItem('rwtSendRoute')||'pm';let r=document.querySelector(`input[name=route][value="${saved}"]`)||document.querySelector('input[name=route][value="pm"]');if(r)r.checked=true;document.querySelectorAll('input[name=route]').forEach(x=>x.addEventListener('change',()=>sessionStorage.setItem('rwtSendRoute',x.value)));}
- async function pause(agent,v){await api('/api/pause',{method:'POST',body:JSON.stringify({agent,paused:v})});await refreshLive()}async function killAgent(agent){await api('/api/kill',{method:'POST',body:JSON.stringify({agent})});await refreshLive()}async function resetDev(){await api('/api/reset-dev',{method:'POST',body:'{}'});await refreshLive()}async function resetPm(){await api('/api/reset-pm',{method:'POST',body:'{}'});await refreshLive()}async function retryDelivery(id){await api('/api/retry-delivery',{method:'POST',body:JSON.stringify({id})});await refreshLive()}async function saveAutomation(){let body={pm_github_review:a_pm_review.checked,pm_github_ci:a_pm_ci.checked,pm_github_head:a_pm_head.checked,pm_github_deploy:a_pm_deploy.checked,dev_github:a_dev_github.checked,dev_to_pm:a_dev_pm.checked,pm_to_dev:a_pm_dev.checked,watch_interval_seconds:Number(a_interval.value||20)};await api('/api/automation',{method:'POST',body:JSON.stringify(body)});automationSaved.textContent='saved '+new Date().toLocaleTimeString();await refreshLive()}
--async function refreshAll(){await Promise.all([refreshDashboard(),refreshLive(),refreshPr()])}initComposer();refreshAll();setInterval(refreshLive,2500);setInterval(refreshDashboard,10000);setInterval(refreshPr,30000);
-+async function refreshAll(){await Promise.all([refreshDashboard(),refreshLive(),refreshPr()])}initComposer();api('/api/dashboard-open',{method:'POST',body:'{}'}).then(refreshAll).catch(e=>{transport.textContent='Registration startup error: '+e.message;refreshAll()});setInterval(refreshLive,2500);setInterval(refreshDashboard,10000);setInterval(refreshPr,30000);
- </script></main></body></html>
+     key = f'orch-version:{BOARD_VERSION}:{BOARD_BUILD}'
+     message = (f'ORCH FIRST-LAUNCH NOTICE — ALL AGENTS: v{BOARD_VERSION} ({BOARD_BUILD}) started. '
+diff --git a/session_rebinding.py b/session_rebinding.py
+new file mode 100644
+index 0000000..36b833c
+--- /dev/null
++++ b/session_rebinding.py
+@@ -0,0 +1,40 @@
++"""Distinguish a runtime thread UUID from an inbox pairing UUID before recovery."""
++from agent_transport import RouteError
++
++
++def identity_decision(route, reported, worker=None):
++    runtime = reported.get('session')
++    if not runtime or reported.get('state') != 'identity_reported':
++        return {'state': 'awaiting_identity', 'rebind': False}
++    if route.get('provider') == 'local_inbox':
++        # Inbox UUID is a channel identity, deliberately NOT the Codex thread UUID.
++        # Never overwrite it with CODEX_THREAD_ID merely because the strings differ.
++        if worker and worker.get('session') == route.get('session_id'):
++            expected = worker.get('thread_id')
++            if expected == runtime:
++                return {'state': 'identity_matches_worker', 'rebind': False}
++            return {'state': 'runtime_changed', 'rebind': False,
++                    'error': 'Registered worker thread differs; reconcile owned worker before resume'}
++        return {'state': 'identity_reported_inbox', 'rebind': False,
++                'error': 'Inbox identity retained; runtime consumer registration still required'}
++    if route.get('provider') == 'codex_app_server':
++        if reported.get('provider') != 'codex':
++            return {'state': 'provider_mismatch', 'rebind': False}
++        return {'state': 'identity_matches_route' if runtime == route.get('session_id') else 'route_rebind_pending',
++                'rebind': runtime != route.get('session_id')}
++    return {'state': 'unsupported_route', 'rebind': False}
++
++
++def rebind_clear_route(actor, route, reported, *, outstanding, busy, pair):
++    decision = identity_decision(route, reported)
++    if not decision.get('rebind'):
++        return decision
++    if outstanding or busy:
++        return {'state': 'route_rebind_pending', 'rebind': False,
++                'error': 'Old route has pending actions or live writer; no task replay or duplicate turn'}
++    try:
++        # Existing pairing operation rechecks durable pending state and role uniqueness.
++        pair(actor, route['provider'], reported['session'])
++    except RouteError as exc:
++        return {'state': 'route_rebind_pending', 'rebind': False, 'error': str(exc)}
++    return {'state': 'route_rebound', 'rebind': True, 'session_id': reported['session']}
+diff --git a/session_registration.py b/session_registration.py
+new file mode 100644
+index 0000000..a5057bf
 --- /dev/null
 +++ b/session_registration.py
 @@ -0,0 +1,44 @@
@@ -436,6 +843,355 @@
 +def snapshot(c, boot):
 +    schema(c)
 +    return {r['actor']: dict(r) for r in c.execute('SELECT * FROM session_registration WHERE boot=?', (boot,))}
+diff --git a/start-rwt-handoff.sh b/start-rwt-handoff.sh
+index c49db7e..15e1469 100644
+--- a/start-rwt-handoff.sh
++++ b/start-rwt-handoff.sh
+@@ -17,7 +17,7 @@ URL="http://127.0.0.1:${RWT_PORT}/"
+ python3 -c 'from pathlib import Path; import os; from foreground_startup import prepare_foreground; prepare_foreground(Path.cwd(), os.environ)'
+ python3 migrate_state.py
+ 
+-echo "RWT Board v4.7.13 (coordination.7): $URL"
++echo "RWT Board v4.7.14 (coordination.8-work): $URL"
+ echo "Use 127.0.0.1, not localhost."
+ echo "Control issue: #${RWT_CONTROL_ISSUE}"
+ 
+diff --git a/static/index.html b/static/index.html
+index 3a08caa..83ffbf5 100644
+--- a/static/index.html
++++ b/static/index.html
+@@ -1,6 +1,6 @@
+ <!doctype html>
+ <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<title>RWT Board v4.7.13</title>
++<title>RWT Board v4.7.14</title>
+ <style>
+ :root{
+   --line:#d9dde3;--muted:#667085;--soft:#f7f8fa;--text:#111827;
+@@ -22,7 +22,7 @@ details.advanced{border:1px solid var(--line);border-radius:10px;background:#fff
+ @media(max-width:950px){#decisionGrid,#workGrid,#prColumns,.advancedGrid{grid-template-columns:1fr}#agents{grid-template-columns:repeat(2,1fr)}.sendButton{margin-left:0}}@media(max-width:560px){#agents{grid-template-columns:1fr}.sendRow{gap:9px}}
+ </style></head>
+ <body><main>
+-<header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.13 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
++<header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.14 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
+ 
+ <section class="card"><div class="sectionTitle">PM monitoring and reply health</div><div id="commsHealth" class="muted">Checking local runtime…</div></section>
+ <section class="card"><div class="sectionTitle">Coordination — local operator owns setup</div><div id="coordinationHealth" role="status">Checking routes…</div><button onclick="recoverPmCleanup()">Verify PM cleanup and resume safely</button><div id="coordinationResult" role="status" class="tiny"></div></section>
+@@ -59,7 +59,6 @@ details.advanced{border:1px solid var(--line);border-radius:10px;background:#fff
+ <section class="card"><div class="pane"><div class="strong">Delivery queue</div><div id="deliveries" class="scroll"></div></div></section>
+   <div class="pane"><div class="strong">PR/task handoff files (optional)</div><label>PR/task number <input id="handoffPr" value="1258" inputmode="numeric" size="9"></label> <label>Folder <input id="handoffTopic" value="designer" size="15"></label><input id="files" type="file" multiple style="margin-top:6px"><div class="muted">Saved under handoffs/PR-number/folder/packet-id with a checksum manifest. ZIP files are unpacked. PM and Dev both receive the paths.</div></div>
+ <details class="advanced"><summary>Advanced</summary><div class="advancedBody">
+-  <div class="pane"><div class="strong">Recipient pairing</div><div class="autoLine" style="margin-top:6px"><select id="pairActor"><option value="cli_dev">CLI Dev</option><option value="app_dev">App Dev</option><option value="browser_pm">Browser PM</option><option value="cli_pm">CLI PM</option></select><select id="pairProvider"><option value="codex_app_server">Codex existing-session queue</option><option value="local_inbox">Local inbox / persistent worker</option></select><input id="pairSession" list="pairSessionList" placeholder="Verified Orch recipient UUID" size="38"><datalist id="pairSessionList"></datalist><button onclick="listRecipientSessions()">List Codex sessions</button><button onclick="connectRecipient()">Connect + test once</button></div><div class="tiny muted">Pair once with the recipient's verified session UUID. App Dev: use the background-task listener. CLI Dev: use orch-worker.py in its own Terminal with a new verified worker identity; its saved Codex thread is separate. Saving or queueing alone does not prove a wake.</div><select id="pairSessionPicker" aria-label="Verified Codex session candidates" size="4" style="display:none;max-height:110px;width:100%;overflow:auto" onchange="pairSession.value=this.value"></select><div id="pairResult" class="tiny" role="status"></div></div>
+   <div class="advancedGrid"><div class="pane"><div class="strong">Conversation / activity</div><div id="activity" class="scroll"></div></div></div>
+   <div class="pane"><div class="strong">Automation</div><div class="autoLine" style="margin-top:6px">
+     <label><input id="a_pm_review" type="checkbox"> review</label><label><input id="a_pm_ci" type="checkbox"> CI</label><label><input id="a_pm_head" type="checkbox"> head</label><label><input id="a_pm_deploy" type="checkbox"> deploy</label><label><input id="a_dev_pm" type="checkbox"> Dev→PM</label><label><input id="a_pm_dev" type="checkbox"> PM→Dev</label><label><input id="a_dev_github" type="checkbox"> raw GH→Dev</label><label>watch <input id="a_interval" type="number" min="5" max="300">s</label><button onclick="saveAutomation()">Save</button><span id="automationSaved" class="muted"></span>
+@@ -73,12 +72,8 @@ const ORIGIN='http://127.0.0.1:'+location.port; if(location.hostname==='localhos
+ const N={po:'PO',cli_pm:'CLI PM',cli_dev:'CLI Dev',app_dev:'App Dev',browser_pm:'Browser PM',external:'External',unassigned:'Unassigned'};
+ let dashboard=null;
+ const CONTROL_TOKEN='__RWT_CONTROL_TOKEN__';async function api(p,o={}){let r=await fetch(p,{headers:{'Content-Type':'application/json','X-RWT-Control-Token':CONTROL_TOKEN},...o});let j=await r.json();if(!r.ok)throw Error(j.error||'request failed');return j}
+-async function pairRecipient(){try{const r=await api('/api/agent-pair',{method:'POST',body:JSON.stringify({actor_id:pairActor.value,provider:pairProvider.value,session_id:pairSession.value.trim()})});pairResult.textContent='Paired '+r.actor_id+' to '+r.session_id+'; wake not yet proven.'}catch(e){pairResult.textContent=e.message}}
+-async function connectRecipient(){try{const r=await api('/api/agent-connect',{method:'POST',body:JSON.stringify({actor_id:pairActor.value,provider:pairProvider.value,session_id:pairSession.value.trim()})});pairResult.textContent='Pairing retained · '+r.probe.action_id+' · '+r.probe.status+' · awaiting actual receipt/result; no task-text relay needed';await refreshLive()}catch(e){pairResult.textContent=e.message}}
+ async function recoverPmCleanup(){try{const r=await api('/api/pm-cleanup-recover',{method:'POST',body:'{}'});coordinationResult.textContent=r.detail;await refreshLive()}catch(e){coordinationResult.textContent=e.message}}
+-function renderCoordination(h){const issues=h?.issues||[];coordinationHealth.innerHTML=`<div>${h?.core_ready?'Local PM/Dev channels verified':'Coordination has concrete blockers'} · owner: CLI PM</div>`+issues.map(x=>`<div class="tiny warn">${esc(N[x.actor]||x.actor)}: ${esc(x.code)} · ${esc(x.action)}</div>`).join('')+`<div class="tiny muted">${esc(h?.browser_pm_note||'')}</div>`;}
+-async function listRecipientSessions(){try{const r=await api('/api/agent-sessions',{method:'POST',body:'{}'});pairSessionList.replaceChildren();pairSessionPicker.replaceChildren();const sessions=r.sessions||[];for(const s of sessions){const o=document.createElement('option');o.value=s.id;o.label=(s.name||'Unnamed')+' · '+(s.cwd||'');pairSessionList.append(o);const visible=document.createElement('option');visible.value=s.id;visible.textContent=s.id+' · '+(s.name||'Unnamed')+' · '+(s.cwd||'');pairSessionPicker.append(visible)}pairSessionPicker.selectedIndex=-1;pairSessionPicker.style.display=sessions.length?'block':'none';pairResult.textContent=sessions.length+' existing sessions found. Select the Dev’s independently verified UUID; no session is chosen automatically.'+(r.complete?'':' Inventory truncated; verify the exact UUID independently.')}catch(e){pairResult.textContent=e.message}}
+-async function probeRecipient(){try{const r=await api('/api/agent-probe',{method:'POST',body:JSON.stringify({actor_id:pairActor.value})});pairResult.textContent=r.action_id+' · '+r.status+(r.error?' · '+r.error:' · awaiting recipient receipt and result')}catch(e){pairResult.textContent=e.message}}
++function renderCoordination(h){const issues=h?.issues||[];coordinationHealth.innerHTML=`<div>${h?.core_ready?'Local PM/Dev channels verified':'CLI PM is negotiating recipient connections'} · owner: CLI PM</div>`+issues.map(x=>`<div class="tiny warn">${esc(N[x.actor]||x.actor)}: ${esc(x.code)} · ${esc(x.action)}</div>`).join('')+`<div class="tiny muted">${esc(h?.browser_pm_note||'')}</div>`;}
+ function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+ function age(sec){if(sec==null)return 'unknown';sec=Math.max(0,Math.floor(sec));if(sec<60)return sec+'s';let m=Math.floor(sec/60);if(m<60)return m+'m';let h=Math.floor(m/60);if(h<24)return h+'h '+(m%60)+'m';return Math.floor(h/24)+'d '+(h%24)+'h'}
+ function statusNorm(s,p={}){s=String(s||'').toLowerCase();if(p.player_id==='po')return s==='action-needed'?['DECISION NEEDED','s-waiting']:['NO DECISION PENDING','s-idle'];if(s==='unknown'||s==='stale')return ['UNKNOWN','s-waiting'];if(s==='queued'||s==='delivering')return ['WAITING','s-waiting'];if(s==='responded_unpublished')return ['UNPUBLISHED','s-blocked'];if(s==='responded_unreconciled')return ['UNRECONCILED','s-blocked'];if(s==='reported')return ['REPORTED','s-waiting'];if(s==='responded')return ['REPLY RETURNED','s-waiting'];if(s.startsWith('failed'))return ['FAILED','s-blocked'];if(s==='active'||s==='running')return ['WORKING','s-working'];if(s==='blocked'||s==='error'||s==='auth_required'||p.holding)return ['BLOCKED','s-blocked'];if(s==='waiting'||s==='action-needed')return ['WAITING','s-waiting'];if(s==='done'||s==='closed'||s==='merged'||s==='completed')return ['COMPLETED','s-done'];return ['IDLE','s-idle']}
+@@ -87,10 +82,10 @@ function ownerTag(o){o=o||'unassigned';return `<span class="ownerTag owner-${esc
+ function checksSummary(pr){let arr=pr?.statusCheckRollup||[];if(!Array.isArray(arr)||!arr.length)return 'GitHub checks not started';let run=0,fail=0,ok=0;for(const x of arr){let s=String(x.status||'').toUpperCase(),c=String(x.conclusion||x.state||'').toUpperCase();if(['IN_PROGRESS','QUEUED','PENDING','WAITING','REQUESTED','EXPECTED'].includes(s)||(!c&&s!=='COMPLETED'))run++;else if(['FAILURE','FAILED','TIMED_OUT','ACTION_REQUIRED','CANCELLED','ERROR'].includes(c))fail++;else if(['SUCCESS','NEUTRAL','SKIPPED'].includes(c))ok++;}return fail&&run?`${run} running; ${fail} failed/cancelled`:fail?`${fail} failed/cancelled`:run?`${run} running`:`${ok}/${arr.length} complete`}
+ function prState(pr,currentNum){if(pr.mergedAt||String(pr.state||'').toUpperCase()==='MERGED')return ['COMPLETED','s-done','Completed'];if(pr.closedAt||String(pr.state||'').toUpperCase()==='CLOSED')return ['CLOSED','s-idle','Closed'];if(currentNum&&Number(pr.number)===Number(currentNum)){let b=dashboard?.blocker||{};let txt=String(b.text||'').toLowerCase();let [t,c]=statusNorm(txt.includes('running')?'waiting':txt.includes('failed')?'blocked':'waiting');return [t,c,'CURRENT in RWT queue'];}if(pr.isDraft)return ['WAITING','s-waiting','Open · Draft · not current'];let ct=checksSummary(pr);if(ct.includes('failed'))return ['BLOCKED','s-blocked','Open · checks failed'];if(ct.includes('running'))return ['WORKING','s-working','Open · checks running'];return ['WAITING','s-waiting','Open · not current'];}
+ function closeDetail(){detail.style.display='none';delete detailBox.dataset.agent;document.querySelectorAll('.agent').forEach(x=>x.classList.remove('selected'));}
+-function routeDetails(id){const r=dashboard?.agent_routes?.[id];if(!r)return '';const d=r.last_task_delivery||r.last_delivery||{};const w=r.worker;return `${w?'<div class="k">Persistent worker</div><div>'+esc(w.worker_id)+' · thread '+esc(w.thread_id)+' · '+esc(w.status)+' · '+(w.recent?'heartbeat live':'heartbeat stale')+'</div><div>'+esc(w.error||'')+'</div>':''}<div class="k">Recipient route</div><div>${esc(r.configured?(r.transport+' · '+r.session_id):'Not paired')}</div><div class="k">Delivery ID / action</div><div>${esc([d.id?'#'+d.id:'',d.action_id||''].filter(Boolean).join(' · ')||'No delivery observed')}</div><div class="k">Receipt / result</div><div>${esc(d.status||'No delivery')} · ${d.receipt_at?'receipt recorded':'receipt missing'} · ${d.result_at?'result recorded':'result missing'}</div><div class="k">Exact delivery error</div><div>${esc(d.error||r.blocker||'No error recorded')}</div><div class="k">Host preflight</div><div>${esc(r.host_preflight||'Not verified on installed host')}</div>`;}
++function routeDetails(id){const r=dashboard?.agent_routes?.[id];if(!r)return '';const d=r.last_task_delivery||r.last_delivery||{};const w=r.worker;return `${w?'<div class="k">Persistent worker</div><div>'+esc(w.worker_id)+' · thread '+esc(w.thread_id)+' · '+esc(w.status)+' · '+(w.recent?'heartbeat live':'heartbeat stale')+'</div><div>'+esc(w.error||'')+'</div>':''}<div class="k">Recipient route</div><div>${esc(r.configured?(r.transport+' · '+r.session_id):'Awaiting CLI PM negotiation')}</div><div class="k">Delivery ID / action</div><div>${esc([d.id?'#'+d.id:'',d.action_id||''].filter(Boolean).join(' · ')||'No delivery observed')}</div><div class="k">Receipt / result</div><div>${esc(d.status||'No delivery')} · ${d.receipt_at?'receipt recorded':'receipt missing'} · ${d.result_at?'result recorded':'result missing'}</div><div class="k">Exact delivery error</div><div>${esc(d.error||r.blocker||'No error recorded')}</div><div class="k">Host preflight</div><div>${esc(r.host_preflight||'Not verified on installed host')}</div>`;}
+ function showAgent(id,refresh=false){if(!refresh&&detail.style.display!=='none'&&detailBox.dataset.agent===id){closeDetail();return;}let p=dashboard?.players?.[id]||{};let w=p.work_item||{};detail.style.display='block';detailBox.dataset.agent=id;detailBox.innerHTML=`<div class="row spread"><div class="big">${esc(N[id]||id)}</div><span>${badge(p.status,p)} <button onclick="closeDetail()">Close</button></span></div><div class="detailGrid"><div class="k">Working on</div><div>${esc(w.title||p.task||'No current task')}</div><div class="k">Blocked?</div><div>${esc(p.blocker||p.task_blocker||w.sequence_blocker||w.dispatch_hold||w.blocker||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status has no current explanation; CLI PM must reconcile':'No'))}</div><div class="k">Next action</div><div>${esc(w.next_action||p.opportunity||'No next action recorded')}</div><div class="k">Branch</div><div>${esc(w.branch||'—')}</div><div class="k">PO needed</div><div>${w.po_required?'YES':'NO'}</div><div class="k">Status age</div><div>${age(p.age_seconds)}${p.checkpoint_warning?' · '+esc(p.checkpoint_warning):''}</div>${routeDetails(id)}</div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.toggle('selected',x.dataset.id===id));}
+ function showPr(pr){let [st,cls,pos]=prState(pr,dashboard?.current?.number);detail.style.display='block';detailBox.removeAttribute('data-agent');detailBox.innerHTML=`<div class="row spread"><div class="big">PR #${esc(pr.number)} · ${esc(pr.title||'')}</div><span class="statusBadge ${cls}">${st}</span></div><div class="detailGrid"><div class="k">RWT position</div><div>${esc(pos)}</div><div class="k">Head</div><div>${esc((pr.headRefOid||pr.head||'').slice(0,12)||'—')}</div><div class="k">Checks</div><div>${esc(pr.checks?`${pr.checks.green||0}/${pr.checks.total||0} green${pr.checks.running?' · '+pr.checks.running+' running':''}${pr.checks.failed?' · '+pr.checks.failed+' failed':''}`:checksSummary(pr))}</div><div class="k">Review</div><div>${esc(pr.reviewDecision||'—')}</div><div class="k">Updated</div><div>${esc(pr.updatedAt||pr.closedAt||pr.mergedAt||'—')}</div><div class="k">GitHub</div><div><a href="${esc(pr.url)}" target="_blank">Open PR</a></div></div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.remove('selected'));}
+-function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div><div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
++function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(p.coordination_state==='negotiating_sessions'?'Starting coordinator · requesting agent session ACKs':null)||(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div>${id!=='po'?`<div class="agentWhy">Connection: ${esc(p.connection_state||'starting')}${p.connection_binding?.error?' · '+esc(p.connection_binding.error):''}</div>`:''}<div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
+ function renderQueue(q){queue.innerHTML=(q||[]).map(x=>`<div class="workItem"><div><div class="itemTitle">${esc(x.title||x.item_key||'Untitled')}</div><div class="itemMeta">${esc(x.sequence_blocker||x.dispatch_hold||x.blocker||x.next_action||'')}</div></div><div>${ownerTag(x.owner)} ${badge(x.state)}</div></div>`).join('')||'<div class="muted">Queue empty</div>'}
+ function prRow(pr,completed=false){let [st,cls,pos]=prState(pr,dashboard?.current?.number);let obj=encodeURIComponent(JSON.stringify(pr));return `<div class="prItem ${dashboard?.current&&Number(pr.number)===Number(dashboard.current.number)?'current':''} ${completed?'completed':''}" onclick="showPr(JSON.parse(decodeURIComponent('${obj}')))"><div><div class="prTitle"><span class="prNumber">#${pr.number}</span>${esc(pr.title||'')}</div><div class="prMeta">${esc(pos)} · ${esc(checksSummary(pr))}</div></div><span class="statusBadge ${cls}">${st}</span></div>`}
+ function renderPrs(d){let open=(d.open_prs||[]).slice(0,4);let closed=[...(d.recent_completed||[])].sort((a,b)=>String(b.mergedAt||b.closedAt||b.updatedAt||'').localeCompare(String(a.mergedAt||a.closedAt||a.updatedAt||''))).slice(0,4);openPrs.innerHTML=open.map(x=>prRow(x)).join('')||'<div class="muted">No open PRs</div>';closedPrs.innerHTML=closed.map(x=>prRow(x,true)).join('')||'<div class="muted">No recent closed PRs</div>';if(d.current){currentPr.innerHTML=prRow({...d.current,number:d.current.number,title:d.current.title,url:d.current.url,headRefOid:d.current.head,isDraft:d.current.draft,state:d.current.state,reviewDecision:d.current.reviewDecision,statusCheckRollup:d.current.statusCheckRollup||[]});}else currentPr.innerHTML='<div class="decision warn"><div class="big">No Current PR</div><div class="muted" style="margin-top:4px">PM should select the active release PR when one exists.</div></div>'}
+@@ -98,11 +93,11 @@ function renderLedger(d){const asks=d.asks||[],hs=d.review_handoffs||[],bl=d.act
+ function renderDashboard(d){dashboard=d;document.querySelector('.version').textContent='Board v'+d.version+' ('+(d.build||'original')+') · MAIN GOAL: RWT CLOSED · observed '+(d.observed_at||'unknown')+' · GitHub checked '+(d.github_observed_at||'unknown')+(d.github_error?' · GitHub error: '+d.github_error:'')+' · '+(d.reconciliation||'Reconciliation unknown')+' · '+(d.comms?.outbox||'Outbox pending')+(d.comms?.error?' · Watcher error: '+d.comms.error:'');let b=d.blocker||{};let po=Object.values(d.players||{}).find(x=>x.player_id==='po')||{};let poNeed=!!b.po_required||String(po.status||'').toLowerCase()==='action-needed';blockerTitle.textContent=b.text||'No blocker recorded';blockerMeta.textContent=`Owner: ${N[b.owner]||b.owner||'Unassigned'} · blocked ${age(b.age_seconds)} · ${b.cause||'No cause recorded'}`;blockerNext.innerHTML=`<span class="strong">Next:</span> ${esc(b.next_action||'No next action recorded')}`;blocker.className='decision '+(String(b.text||'').toLowerCase().includes('failed')?'bad':'warn');poDecisionTitle.textContent=poNeed?'ACTION NEEDED':'NO ACTION NEEDED';poDecisionMeta.textContent=poNeed?(po.task||b.next_action||'Decision requested'):'No PO decision is currently recorded; execution gates still apply.';poDecision.className='decision '+(poNeed?'warn':'good');renderAgents(d.players||{});renderQueue(d.priority_queue||[]);renderPrs(d);renderLedger(d);const selectedAgent=detailBox.dataset.agent;if(selectedAgent)showAgent(selectedAgent,true)}
+ async function refreshDashboard(){try{renderDashboard(await api('/api/dashboard'))}catch(e){blockerTitle.textContent='Dashboard error';blockerMeta.textContent=e.message}}
+ function deliveryHtml(d){let [t,c]=statusNorm(d.status);let task=d.work_item_key?` · task ${esc(d.work_item_key)} · ${esc(d.target_branch||'branch unknown')} · ${esc(d.target_worktree||'worktree unknown')}`:'';return `<div class="delivery"><strong>#${d.id}</strong> ${esc(d.source_actor)}→${esc(d.recipient)} <span class="statusBadge ${c}">${esc(d.delivery_label||t)}</span> · attempt ${d.attempts||0} · ${d.historical?'history':'current'} · ${age(d.age_seconds)}<div class="muted">${esc(d.delivery_stage||t)}${task}</div>${d.target_actor_id?`<div class="tiny">Recipient: ${esc(d.target_actor_id)} · ${esc(d.target_transport||'route unknown')} · session ${esc(d.target_session_id||'unknown')} · action ${esc(d.task_action_id||'not assigned')} · ${d.task_receipt_at?'receipt recorded':'receipt missing'} · ${d.task_result_at?'result recorded':'result missing'}</div>`:''}${d.github_comment_id&&d.status!=='responded'?`<div class="muted">Prior publication: GitHub comment ${esc(d.github_comment_id)} · current attempt ${esc(d.status)}</div>`:''}${d.dispatch_blocker?`<div class="warn">${esc(d.dispatch_blocker)}</div>`:''}${d.error?`<div class="error">${esc(d.error)}</div>`:''}${d.recovery_action?`<div class="muted">${esc(d.recovery_action)}</div>`:''}${String(d.status).startsWith('failed')&&!d.recovery_action?.startsWith('PM recovery queued')?`<button onclick="retryDelivery(${d.id})">retry</button>`:''}</div>`}
+-async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(!r.configured?'not paired'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'paired; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;const selectedRoute=t.agent_routes?.[pairActor.value];if(selectedRoute?.worker){const w=selectedRoute.worker;pairResult.textContent='Worker '+w.worker_id+' · thread '+w.thread_id+' · '+w.status+(w.recent?' · heartbeat live':' · heartbeat stale')+(w.error?' · '+w.error:'')+' · '+(w.actions||[]).map(a=>a.action_id+': '+a.state+(a.error?' ('+a.error+')':'')).join('; ')}else if(selectedRoute?.last_delivery){const l=selectedRoute.last_delivery;pairResult.textContent=l.action_id+' · '+l.status+(l.receipt_at?' · recipient receipt recorded':' · no recipient receipt')+(l.result_at?' · result recorded':'')+(l.error?' · '+l.error:'')+(l.fallback_queue_id?' · PM fallback reminder queued #'+l.fallback_queue_id:'')+' · '+(selectedRoute.live_delivery_proven?'automatic wake proven':'automatic wake unproven')};activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
++async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const identities=t.session_registration||{};const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(identities[id]?.state||'identity not requested')+' · '+(r.transport==='native_pm_executor'?'native coordinator':!r.configured?'route awaiting coordinator'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'route configured; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
+ async function refreshPr(){try{let s=await api('/api/pr-state');wtStatus.textContent=s.worktree&&s.worktree.is_git?`CLI Dev worktree: ${s.worktree.path} · ${(s.worktree.head||'').slice(0,9)} · ${s.worktree.clean?'clean':'DIRTY'}`:'CLI Dev worktree not selected/ready'}catch(e){wtStatus.textContent='Worktree error: '+e.message}}
+ async function readFiles(){let out=[];let el=document.getElementById('files');if(!el)return out;for(const f of el.files){let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});out.push({name:f.name,data})}return out}
+ async function send(){let selected=document.querySelector('input[name=route]:checked');let route=selected?selected.value:'pm';sessionStorage.setItem('rwtSendRoute',route);let text=msg.value.trim();if(!text&&!document.getElementById('files').files.length){sendStatus.textContent='Type a message or attach files first.';return}sendStatus.textContent='Sending…';try{let fs=await readFiles();let sent=await api('/api/send',{method:'POST',body:JSON.stringify({actor:'PO',route,message:text,files:fs,handoff_pr:handoffPr.value,handoff_topic:handoffTopic.value})});msg.value='';let f=document.getElementById('files');if(f)f.value='';sendStatus.textContent=route==='none'?'Posted to GitHub #1258.':'Queued deliveries '+(sent.delivery_ids||[]).join(', ')+'; acknowledgment appears in Delivery queue';if(sent.handoff_manifest)sendStatus.textContent+=' · Handoff: '+sent.handoff_manifest;await refreshAll()}catch(e){sendStatus.textContent='Not sent: '+e.message}}
+ function initComposer(){let saved=sessionStorage.getItem('rwtSendRoute')||'pm';let r=document.querySelector(`input[name=route][value="${saved}"]`)||document.querySelector('input[name=route][value="pm"]');if(r)r.checked=true;document.querySelectorAll('input[name=route]').forEach(x=>x.addEventListener('change',()=>sessionStorage.setItem('rwtSendRoute',x.value)));}
+ async function pause(agent,v){await api('/api/pause',{method:'POST',body:JSON.stringify({agent,paused:v})});await refreshLive()}async function killAgent(agent){await api('/api/kill',{method:'POST',body:JSON.stringify({agent})});await refreshLive()}async function resetDev(){await api('/api/reset-dev',{method:'POST',body:'{}'});await refreshLive()}async function resetPm(){await api('/api/reset-pm',{method:'POST',body:'{}'});await refreshLive()}async function retryDelivery(id){await api('/api/retry-delivery',{method:'POST',body:JSON.stringify({id})});await refreshLive()}async function saveAutomation(){let body={pm_github_review:a_pm_review.checked,pm_github_ci:a_pm_ci.checked,pm_github_head:a_pm_head.checked,pm_github_deploy:a_pm_deploy.checked,dev_github:a_dev_github.checked,dev_to_pm:a_dev_pm.checked,pm_to_dev:a_pm_dev.checked,watch_interval_seconds:Number(a_interval.value||20)};await api('/api/automation',{method:'POST',body:JSON.stringify(body)});automationSaved.textContent='saved '+new Date().toLocaleTimeString();await refreshLive()}
+-async function refreshAll(){await Promise.all([refreshDashboard(),refreshLive(),refreshPr()])}initComposer();refreshAll();setInterval(refreshLive,2500);setInterval(refreshDashboard,10000);setInterval(refreshPr,30000);
++async function refreshAll(){await Promise.all([refreshDashboard(),refreshLive(),refreshPr()])}initComposer();api('/api/dashboard-open',{method:'POST',body:'{}'}).then(refreshAll).catch(e=>{transport.textContent='Registration startup error: '+e.message;refreshAll()});setInterval(refreshLive,2500);setInterval(refreshDashboard,10000);setInterval(refreshPr,30000);
+ </script></main></body></html>
+diff --git a/test_agent_transport.py b/test_agent_transport.py
+index 461ad4e..1468424 100644
+--- a/test_agent_transport.py
++++ b/test_agent_transport.py
+@@ -13,9 +13,10 @@ import agent_transport as transport
+ SESSION = '11111111-1111-4111-8111-111111111111'
+ 
+ class FakeServer:
+-    def __init__(self, path, state='idle', loaded=True, lose_reply=False, reject=False):
++    def __init__(self, path, state='idle', loaded=True, lose_reply=False, reject=False, oversized_history=False):
+         self.path, self.state, self.loaded = path, state, loaded
+         self.lose_reply, self.reject = lose_reply, reject
++        self.oversized_history = oversized_history
+         self.methods, self.params, self.errors = [], [], []
+         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+         self.socket.bind(('127.0.0.1', 0)); self.socket.listen(1); self.socket.settimeout(3)
+@@ -49,7 +50,15 @@ class FakeServer:
+                     if method == 'initialized': continue
+                     if method == 'initialize': result = {}
+                     elif method == 'thread/loaded/list': result = {'data': [SESSION] if self.loaded else []}
+-                    elif method == 'thread/read': result = {'thread': {'id': SESSION, 'status': {'type': self.state}, 'turns': [{'id': 'existing-turn', 'status': 'inProgress'}] if self.state == 'active' else []}}
++                    elif method == 'thread/read':
++                        if self.oversized_history and params.get('includeTurns'):
++                            # The old client fails before reading payload, exactly
++                            # as a full-history response over its frame cap does.
++                            conn.sendall(bytes([129,127])+struct.pack('!Q',8*1024*1024+1))
++                            return
++                        result = {'thread': {'id': SESSION, 'status': {'type': self.state}, 'turns': []}}
++                    elif method == 'thread/turns/list':
++                        result = {'data':[{'id':'existing-turn','status':'inProgress'}]}
+                     elif method == 'turn/start': result = {'turn': {'id': 'new-turn', 'status': 'inProgress'}}
+                     elif method == 'turn/steer': result = {'turnId': 'existing-turn'}
+                     else: raise AssertionError('unexpected ' + method)
+@@ -82,10 +91,19 @@ class CodexTransportTests(unittest.TestCase):
+         self.assertTrue(result['accepted']); self.assertEqual(result['session_id'], SESSION)
+         self.assertEqual(s.methods, ['initialize', 'initialized', 'thread/loaded/list', 'thread/read', 'turn/start'])
+         self.assertEqual(s.params[-1], {'threadId': SESSION, 'input': [{'type': 'text', 'text': 'read task'}]})
++    def test_large_history_cannot_block_idle_delivery(self):
++        result,s=self.send(oversized_history=True)
++        self.assertTrue(result['accepted'])
++        read=s.params[s.methods.index('thread/read')]
++        self.assertFalse(read['includeTurns'])
++        self.assertNotIn('thread/turns/list',s.methods)
++
+     def test_active_thread_uses_exact_turn_steer(self):
+         result, s = self.send(state='active')
+         self.assertEqual(result['turn_id'], 'existing-turn'); self.assertNotIn('turn/start', s.methods)
+         self.assertEqual(s.params[-1]['expectedTurnId'], 'existing-turn')
++        turns=s.params[s.methods.index('thread/turns/list')]
++        self.assertEqual(turns,{'threadId':SESSION,'limit':1,'sortDirection':'desc','itemsView':'notLoaded'})
+     def test_unloaded_thread_never_resumed_as_second_writer(self):
+         with self.assertRaisesRegex(transport.QueueRejected, 'not loaded'): self.send(loaded=False)
+     def test_lost_mutation_reply_is_uncertain_without_retry(self):
+diff --git a/test_foreground_startup.py b/test_foreground_startup.py
+index 245e0b1..0440edc 100644
+--- a/test_foreground_startup.py
++++ b/test_foreground_startup.py
+@@ -44,7 +44,7 @@ class ForegroundTests(unittest.TestCase):
+             pairing = source / 'agent-routes.json'
+             pairing.write_text('{"existing": "route"}')
+             pairing.chmod(0o600)
+-            root = parent / 'rwt-pr-handoff-v4.7.13'
++            root = parent / 'rwt-pr-handoff-v4.7.14'
+             root.mkdir()
+             env = {}
+             prepare_foreground(root, env, home)
+@@ -57,20 +57,20 @@ class ForegroundTests(unittest.TestCase):
+             self.assertTrue(json.loads((root / '.agent-work' / 'migration-manifest.json').read_text())['completed'])
+ 
+     def test_browser_readiness_waits_through_connection_refusal_and_wrong_version(self):
+-        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.13', 'transport': {}}]
++        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.14', 'transport': {}}]
+         def opener(*args, **kwargs):
+             value = responses.pop(0)
+             if isinstance(value, Exception):
+                 raise value
+             return io.StringIO(json.dumps(value))
+         ready = wait_ready(1, 4317, opener=opener, alive=lambda: True, pause=lambda _: None)
+-        self.assertEqual(ready['version'], '4.7.13')
++        self.assertEqual(ready['version'], '4.7.14')
+         self.assertFalse(responses)
+ 
+     def test_verified_v4710_migration_retains_new_delivery_journal(self):
+         with tempfile.TemporaryDirectory() as directory:
+             parent = Path(directory)
+-            root = parent / 'rwt-pr-handoff-v4.7.13'
++            root = parent / 'rwt-pr-handoff-v4.7.14'
+             state = parent / 'rwt-pr-handoff-v4.7.10' / '.agent-work'
+             state.mkdir(parents=True)
+             with sqlite3.connect(state / 'state.db') as db:
+@@ -94,7 +94,7 @@ class ForegroundTests(unittest.TestCase):
+     def test_verified_v4712_trial_journal_is_preferred(self):
+         with tempfile.TemporaryDirectory() as directory:
+             parent = Path(directory)
+-            root = parent / 'rwt-pr-handoff-v4.7.13'
++            root = parent / 'rwt-pr-handoff-v4.7.14'
+             state = parent / 'rwt-pr-handoff-v4.7.12' / '.agent-work'
+             state.mkdir(parents=True)
+             with sqlite3.connect(state / 'state.db') as db:
+@@ -113,7 +113,7 @@ class ForegroundTests(unittest.TestCase):
+     def test_verified_v4711_journal_is_preferred_without_overwriting_existing_target(self):
+         with tempfile.TemporaryDirectory() as directory:
+             parent = Path(directory)
+-            root = parent / 'rwt-pr-handoff-v4.7.13'
++            root = parent / 'rwt-pr-handoff-v4.7.14'
+             state = parent / 'rwt-pr-handoff-v4.7.11' / '.agent-work'
+             state.mkdir(parents=True)
+             with sqlite3.connect(state / 'state.db') as db:
+@@ -143,9 +143,9 @@ class ForegroundTests(unittest.TestCase):
+             plist.parent.mkdir(parents=True)
+             plist.write_bytes(plistlib.dumps({'Label': 'com.speaksharp.orch', 'ProgramArguments': ['python3', str(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.9' / 'installed-service.py')]}))
+             with self.assertRaisesRegex(RuntimeError, 'loaded'):
+-                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.13', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
++                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.14', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
+             self.assertTrue(plist.exists())
+-            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.13', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
++            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.14', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
+             self.assertFalse(plist.exists())
+             self.assertTrue(plist.with_suffix('.plist.disabled-v4.7.9').exists())
+ 
+diff --git a/test_http_disconnect.py b/test_http_disconnect.py
+new file mode 100644
+index 0000000..589dae5
+--- /dev/null
++++ b/test_http_disconnect.py
+@@ -0,0 +1,81 @@
++"""A real reset client must not produce a server crash or break later responses."""
++import json
++import socket
++import struct
++import threading
++import unittest
++import urllib.error
++import urllib.request
++from http.server import HTTPServer
++from unittest.mock import Mock
++import server
++
++
++class HttpDisconnectTests(unittest.TestCase):
++    def test_real_client_reset_during_response_does_not_break_the_next_request(self):
++        entered, release = threading.Event(), threading.Event()
++        errors = []
++
++        class Handler(server.H):
++            def control_refusal(self, mutating=False):
++                return None  # Read-only unknown routes; no state or credential access.
++
++            def sendj(self, code, obj):
++                if self.path == '/disconnect':
++                    entered.set()
++                    if not release.wait(3):
++                        raise RuntimeError('test client did not release response')
++                return super().sendj(code, obj)
++
++        class TestServer(HTTPServer):
++            def handle_error(self, request, client_address):
++                errors.append(client_address)
++
++        http = TestServer(('127.0.0.1', 0), Handler)
++        thread = threading.Thread(target=http.serve_forever, daemon=True)
++        thread.start()
++        try:
++            client = socket.create_connection(http.server_address, timeout=3)
++            client.sendall(b'GET /disconnect HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n')
++            self.assertTrue(entered.wait(3))
++            client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
++            client.close()
++            release.set()
++            # This serialized server handles the reset before this next request.
++            url = 'http://127.0.0.1:' + str(http.server_address[1]) + '/still-serving'
++            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++            with self.assertRaises(urllib.error.HTTPError) as result:
++                opener.open(url, timeout=3)
++            self.assertEqual(result.exception.code, 404)
++            self.assertIsInstance(json.loads(result.exception.read()), dict)
++            result.exception.close()
++            self.assertEqual(errors, [])
++        finally:
++            release.set()
++            http.shutdown()
++            http.server_close()
++            thread.join(3)
++
++    def handler(self):
++        handler = server.H.__new__(server.H)
++        for name in ('send_response', 'send_header', 'end_headers'):
++            setattr(handler, name, Mock())
++        handler.wfile = Mock()
++        return handler
++
++    def test_body_and_header_disconnects_are_expected_transport_failures(self):
++        for failure in (BrokenPipeError, ConnectionResetError):
++            for boundary in ('write', 'end_headers'):
++                handler = self.handler()
++                target = handler.wfile.write if boundary == 'write' else handler.end_headers
++                target.side_effect = failure('client disconnected')
++                with self.subTest(failure=failure, boundary=boundary):
++                    self.assertFalse(handler.sendj(200, {'ready': True}))
++
++    def test_application_errors_are_not_hidden_as_client_disconnects(self):
++        handler = self.handler()
++        with self.assertRaises(TypeError):
++            handler.sendj(200, {'not_json': object()})
++        handler.wfile.write.side_effect = OSError('unrelated write failure')
++        with self.assertRaises(OSError):
++            handler.sendj(200, {'ready': True})
+diff --git a/test_regressions.py b/test_regressions.py
+index 5ac2507..f5880ff 100644
+--- a/test_regressions.py
++++ b/test_regressions.py
+@@ -342,7 +342,7 @@ class RegressionTests(unittest.TestCase):
+ 
+     def test_version_labels_match(self):
+         root=Path(server.__file__).parent
+-        self.assertEqual(server.BOARD_VERSION,'4.7.13')
++        self.assertEqual(server.BOARD_VERSION,'4.7.14')
+         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
+             text=(root/file).read_text()
+             self.assertIn('v'+server.BOARD_VERSION,text)
+diff --git a/test_session_rebinding.py b/test_session_rebinding.py
+new file mode 100644
+index 0000000..bb6a47a
+--- /dev/null
++++ b/test_session_rebinding.py
+@@ -0,0 +1,37 @@
++import unittest
++from unittest.mock import Mock
++from agent_transport import RouteError
++from session_rebinding import identity_decision,rebind_clear_route
++
++class RebindingTests(unittest.TestCase):
++    def setUp(self):
++        self.route={'provider':'codex_app_server','session_id':'old'}
++        self.report={'state':'identity_reported','session':'current','provider':'codex'}
++    def test_clear_reported_codex_route_is_rebound_once(self):
++        pair=Mock()
++        result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=False,busy=False,pair=pair)
++        self.assertEqual(result['state'],'route_rebound')
++        pair.assert_called_once_with('cli_dev','codex_app_server','current')
++    def test_pending_task_or_live_writer_prevents_rebind(self):
++        for outstanding,busy in [(True,False),(False,True),(True,True)]:
++            pair=Mock()
++            result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=outstanding,busy=busy,pair=pair)
++            self.assertEqual(result['state'],'route_rebind_pending')
++            pair.assert_not_called()
++    def test_final_pairing_race_preserves_hold(self):
++        result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=False,busy=False,pair=Mock(side_effect=RouteError('pending changed')))
++        self.assertEqual(result['error'],'pending changed')
++    def test_inbox_uuid_is_not_a_runtime_thread_uuid(self):
++        route={'provider':'local_inbox','session_id':'pairing'}
++        worker={'session':'pairing','thread_id':'current'}
++        self.assertEqual(identity_decision(route,self.report,worker)['state'],'identity_matches_worker')
++        self.assertFalse(identity_decision(route,self.report,worker)['rebind'])
++        self.assertEqual(identity_decision(route,self.report)['state'],'identity_reported_inbox')
++    def test_worker_thread_change_requires_reconciliation(self):
++        self.assertEqual(identity_decision({'provider':'local_inbox','session_id':'pairing'},self.report,
++            {'session':'pairing','thread_id':'other'})['state'],'runtime_changed')
++    def test_ack_is_required_and_provider_must_match(self):
++        self.assertEqual(identity_decision(self.route,{})['state'],'awaiting_identity')
++        self.assertEqual(identity_decision(self.route,dict(self.report,provider='claude'))['state'],'provider_mismatch')
++
++if __name__=='__main__':unittest.main()
+diff --git a/test_session_registration.py b/test_session_registration.py
+new file mode 100644
+index 0000000..26a9ba9
 --- /dev/null
 +++ b/test_session_registration.py
 @@ -0,0 +1,109 @@
@@ -548,9 +1304,11 @@
 +
 +if __name__=='__main__':
 +    unittest.main()
+diff --git a/test_startup_readiness.py b/test_startup_readiness.py
+index dd4d41f..e5b483a 100644
 --- a/test_startup_readiness.py
 +++ b/test_startup_readiness.py
-@@ -12,7 +12,7 @@
+@@ -12,7 +12,7 @@ class StartupReadinessTests(CommsTests):
              self.assertEqual(server.announce_app_version(), first)
          self.assertEqual(gh.call_count, 1)
          self.assertIn('ALL AGENTS', gh.call_args.args[0][-1])
@@ -559,369 +1317,13 @@
          with server.con() as db:
              notices = list(db.execute("SELECT actor_id,status,receipt_at,result_at FROM agent_notifications WHERE task_id='version-handshake'"))
          self.assertEqual(len(notices), 3)
---- /dev/null
-+++ b/session_rebinding.py
-@@ -0,0 +1,40 @@
-+"""Distinguish a runtime thread UUID from an inbox pairing UUID before recovery."""
-+from agent_transport import RouteError
-+
-+
-+def identity_decision(route, reported, worker=None):
-+    runtime = reported.get('session')
-+    if not runtime or reported.get('state') != 'identity_reported':
-+        return {'state': 'awaiting_identity', 'rebind': False}
-+    if route.get('provider') == 'local_inbox':
-+        # Inbox UUID is a channel identity, deliberately NOT the Codex thread UUID.
-+        # Never overwrite it with CODEX_THREAD_ID merely because the strings differ.
-+        if worker and worker.get('session') == route.get('session_id'):
-+            expected = worker.get('thread_id')
-+            if expected == runtime:
-+                return {'state': 'identity_matches_worker', 'rebind': False}
-+            return {'state': 'runtime_changed', 'rebind': False,
-+                    'error': 'Registered worker thread differs; reconcile owned worker before resume'}
-+        return {'state': 'identity_reported_inbox', 'rebind': False,
-+                'error': 'Inbox identity retained; runtime consumer registration still required'}
-+    if route.get('provider') == 'codex_app_server':
-+        if reported.get('provider') != 'codex':
-+            return {'state': 'provider_mismatch', 'rebind': False}
-+        return {'state': 'identity_matches_route' if runtime == route.get('session_id') else 'route_rebind_pending',
-+                'rebind': runtime != route.get('session_id')}
-+    return {'state': 'unsupported_route', 'rebind': False}
-+
-+
-+def rebind_clear_route(actor, route, reported, *, outstanding, busy, pair):
-+    decision = identity_decision(route, reported)
-+    if not decision.get('rebind'):
-+        return decision
-+    if outstanding or busy:
-+        return {'state': 'route_rebind_pending', 'rebind': False,
-+                'error': 'Old route has pending actions or live writer; no task replay or duplicate turn'}
-+    try:
-+        # Existing pairing operation rechecks durable pending state and role uniqueness.
-+        pair(actor, route['provider'], reported['session'])
-+    except RouteError as exc:
-+        return {'state': 'route_rebind_pending', 'rebind': False, 'error': str(exc)}
-+    return {'state': 'route_rebound', 'rebind': True, 'session_id': reported['session']}
---- /dev/null
-+++ b/test_session_rebinding.py
-@@ -0,0 +1,37 @@
-+import unittest
-+from unittest.mock import Mock
-+from agent_transport import RouteError
-+from session_rebinding import identity_decision,rebind_clear_route
-+
-+class RebindingTests(unittest.TestCase):
-+    def setUp(self):
-+        self.route={'provider':'codex_app_server','session_id':'old'}
-+        self.report={'state':'identity_reported','session':'current','provider':'codex'}
-+    def test_clear_reported_codex_route_is_rebound_once(self):
-+        pair=Mock()
-+        result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=False,busy=False,pair=pair)
-+        self.assertEqual(result['state'],'route_rebound')
-+        pair.assert_called_once_with('cli_dev','codex_app_server','current')
-+    def test_pending_task_or_live_writer_prevents_rebind(self):
-+        for outstanding,busy in [(True,False),(False,True),(True,True)]:
-+            pair=Mock()
-+            result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=outstanding,busy=busy,pair=pair)
-+            self.assertEqual(result['state'],'route_rebind_pending')
-+            pair.assert_not_called()
-+    def test_final_pairing_race_preserves_hold(self):
-+        result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=False,busy=False,pair=Mock(side_effect=RouteError('pending changed')))
-+        self.assertEqual(result['error'],'pending changed')
-+    def test_inbox_uuid_is_not_a_runtime_thread_uuid(self):
-+        route={'provider':'local_inbox','session_id':'pairing'}
-+        worker={'session':'pairing','thread_id':'current'}
-+        self.assertEqual(identity_decision(route,self.report,worker)['state'],'identity_matches_worker')
-+        self.assertFalse(identity_decision(route,self.report,worker)['rebind'])
-+        self.assertEqual(identity_decision(route,self.report)['state'],'identity_reported_inbox')
-+    def test_worker_thread_change_requires_reconciliation(self):
-+        self.assertEqual(identity_decision({'provider':'local_inbox','session_id':'pairing'},self.report,
-+            {'session':'pairing','thread_id':'other'})['state'],'runtime_changed')
-+    def test_ack_is_required_and_provider_must_match(self):
-+        self.assertEqual(identity_decision(self.route,{})['state'],'awaiting_identity')
-+        self.assertEqual(identity_decision(self.route,dict(self.report,provider='claude'))['state'],'provider_mismatch')
-+
-+if __name__=='__main__':unittest.main()
---- a/codex_rpc.py
-+++ b/codex_rpc.py
-@@ -187,7 +187,7 @@
-     try:
-         client = Client(route.remote_url, token=env.get(route.auth_token_env, '') if route.auth_token_env else '',
-                         timeout=timeout, env=env)
--        client.rpc('initialize', {'clientInfo': {'name': 'orch-actor-delivery', 'version': '4.7.6'}})
-+        client.rpc('initialize', {'clientInfo': {'name': 'orch-actor-delivery', 'version': '4.7.14'}, 'capabilities': {'experimentalApi': True}})
-         client.send({'method': 'initialized', 'params': {}})
-         cursor, seen, loaded = None, set(), False
-         for _ in range(8):
-@@ -205,7 +205,7 @@
-             seen.add(cursor)
-         if not loaded:
-             raise RPCError('Paired session is not loaded in the existing Codex server; no writer was started')
--        thread = client.rpc('thread/read', {'threadId': route.session_id, 'includeTurns': True}).get('thread')
-+        thread = client.rpc('thread/read', {'threadId': route.session_id, 'includeTurns': False}).get('thread')
-         if not isinstance(thread, dict) or thread.get('id') != route.session_id:
-             raise RPCError('Codex thread readback does not match pairing')
-         status = thread.get('status') or {}
-@@ -218,7 +218,12 @@
-             if not turn_id or turn.get('status') not in ('inProgress', 'completed'):
-                 raise RPCError('Codex did not confirm the requested turn')
-         elif state == 'active':
--            active = [t for t in thread.get('turns', []) if t.get('status') == 'inProgress']
-+            # Do not fetch years of item text merely to identify the current turn.
-+            # One newest turn with items omitted is sufficient; unsupported servers
-+            # reject before mutation rather than falling back to unbounded history.
-+            recent = client.rpc('thread/turns/list', {'threadId': route.session_id,
-+                'limit': 1, 'sortDirection': 'desc', 'itemsView': 'notLoaded'})
-+            active = [t for t in recent.get('data', []) if isinstance(t, dict) and t.get('status') == 'inProgress']
-             if len(active) != 1 or not active[0].get('id') or status.get('activeFlags'):
-                 raise RPCError('Active paired turn cannot be safely steered; wait for its owner')
-             params['expectedTurnId'] = active[0]['id']
---- a/test_agent_transport.py
-+++ b/test_agent_transport.py
-@@ -13,9 +13,10 @@
- SESSION = '11111111-1111-4111-8111-111111111111'
- 
- class FakeServer:
--    def __init__(self, path, state='idle', loaded=True, lose_reply=False, reject=False):
-+    def __init__(self, path, state='idle', loaded=True, lose_reply=False, reject=False, oversized_history=False):
-         self.path, self.state, self.loaded = path, state, loaded
-         self.lose_reply, self.reject = lose_reply, reject
-+        self.oversized_history = oversized_history
-         self.methods, self.params, self.errors = [], [], []
-         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-         self.socket.bind(('127.0.0.1', 0)); self.socket.listen(1); self.socket.settimeout(3)
-@@ -49,7 +50,15 @@
-                     if method == 'initialized': continue
-                     if method == 'initialize': result = {}
-                     elif method == 'thread/loaded/list': result = {'data': [SESSION] if self.loaded else []}
--                    elif method == 'thread/read': result = {'thread': {'id': SESSION, 'status': {'type': self.state}, 'turns': [{'id': 'existing-turn', 'status': 'inProgress'}] if self.state == 'active' else []}}
-+                    elif method == 'thread/read':
-+                        if self.oversized_history and params.get('includeTurns'):
-+                            # The old client fails before reading payload, exactly
-+                            # as a full-history response over its frame cap does.
-+                            conn.sendall(bytes([129,127])+struct.pack('!Q',8*1024*1024+1))
-+                            return
-+                        result = {'thread': {'id': SESSION, 'status': {'type': self.state}, 'turns': []}}
-+                    elif method == 'thread/turns/list':
-+                        result = {'data':[{'id':'existing-turn','status':'inProgress'}]}
-                     elif method == 'turn/start': result = {'turn': {'id': 'new-turn', 'status': 'inProgress'}}
-                     elif method == 'turn/steer': result = {'turnId': 'existing-turn'}
-                     else: raise AssertionError('unexpected ' + method)
-@@ -82,10 +91,19 @@
-         self.assertTrue(result['accepted']); self.assertEqual(result['session_id'], SESSION)
-         self.assertEqual(s.methods, ['initialize', 'initialized', 'thread/loaded/list', 'thread/read', 'turn/start'])
-         self.assertEqual(s.params[-1], {'threadId': SESSION, 'input': [{'type': 'text', 'text': 'read task'}]})
-+    def test_large_history_cannot_block_idle_delivery(self):
-+        result,s=self.send(oversized_history=True)
-+        self.assertTrue(result['accepted'])
-+        read=s.params[s.methods.index('thread/read')]
-+        self.assertFalse(read['includeTurns'])
-+        self.assertNotIn('thread/turns/list',s.methods)
-+
-     def test_active_thread_uses_exact_turn_steer(self):
-         result, s = self.send(state='active')
-         self.assertEqual(result['turn_id'], 'existing-turn'); self.assertNotIn('turn/start', s.methods)
-         self.assertEqual(s.params[-1]['expectedTurnId'], 'existing-turn')
-+        turns=s.params[s.methods.index('thread/turns/list')]
-+        self.assertEqual(turns,{'threadId':SESSION,'limit':1,'sortDirection':'desc','itemsView':'notLoaded'})
-     def test_unloaded_thread_never_resumed_as_second_writer(self):
-         with self.assertRaisesRegex(transport.QueueRejected, 'not loaded'): self.send(loaded=False)
-     def test_lost_mutation_reply_is_uncertain_without_retry(self):
---- a/foreground_startup.py
-+++ b/foreground_startup.py
-@@ -47,6 +47,17 @@
-         if (manifest.get('completed') is True and manifest.get('source_db') in approved_sources
-                 and manifest.get('target_db') == str((trial / 'state.db').resolve())):
-             source = trial / 'state.db'
-+    current = root.parent / 'rwt-pr-handoff-v4.7.13' / '.agent-work'
-+    current_receipt = current / 'migration-manifest.json'
-+    if current_receipt.is_file() and (current / 'state.db').is_file():
-+        manifest = json.loads(current_receipt.read_text())
-+        approved_sources = {
-+            str((root.parent / name / '.agent-work' / 'state.db').resolve())
-+            for name in ('rwt-pr-handoff-v4.7.12','rwt-pr-handoff-v4.7.11','rwt-pr-handoff-v4.7.10','rwt-pr-handoff-v4.7.7-candidate')
-+        }
-+        if (manifest.get('completed') is True and manifest.get('source_db') in approved_sources
-+                and manifest.get('target_db') == str((current / 'state.db').resolve())):
-+            source = current / 'state.db'
-     if not (root / '.agent-work' / 'state.db').exists() and not env.get('RWT_MIGRATE_FROM') and source.is_file():
-         # Confirmed by last-serving receipts and the owned Mac diagnostic 6124027101.
-         env['RWT_MIGRATE_FROM'] = str(source)
-@@ -86,7 +97,7 @@
-         try:
-             with opener(f'http://127.0.0.1:{port}/api/live', timeout=5) as response:
-                 value = json.load(response)
--            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.13':
-+            if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.14':
-                 return value
-         except (OSError, ValueError):
-             pass
-@@ -100,7 +111,7 @@
-     parser.add_argument('--port', type=int, required=True)
-     args = parser.parse_args()
-     wait_ready(args.pid, args.port)
--    print('Orch v4.7.13 HTTP ready. Keep this terminal running for coordination.', flush=True)
-+    print('Orch v4.7.14 HTTP ready. Keep this terminal running for coordination.', flush=True)
-     webbrowser.open(f'http://127.0.0.1:{args.port}/')
- 
- 
---- a/orch-setup.py
-+++ b/orch-setup.py
-@@ -59,10 +59,10 @@
-         # Keep existing installation and its work/leases; never create a second PM executor.
-         health = live['transport'].get('coordination', {})
-         print(json.dumps({'existing_board': True, 'coordination': health,
--                          'running_version': live.get('version'), 'requested_version': '4.7.13',
--                          'next': ('CLI PM handles listed route/recovery work' if live.get('version') == '4.7.13'
-+                          'running_version': live.get('version'), 'requested_version': '4.7.14',
-+                          'next': ('CLI PM handles listed route/recovery work' if live.get('version') == '4.7.14'
-                                    else 'The older foreground board is still running. Stop its terminal with Ctrl-C when idle, then run this installer again; no upgrade has occurred.')}))
--        if not args.check and live.get('version') == '4.7.13':
-+        if not args.check and live.get('version') == '4.7.14':
-             webbrowser.open(f'http://127.0.0.1:{port}/')
-         return 0
-     issues = package_integrity.verify(root)
---- a/start-rwt-handoff.sh
-+++ b/start-rwt-handoff.sh
-@@ -17,7 +17,7 @@
- python3 -c 'from pathlib import Path; import os; from foreground_startup import prepare_foreground; prepare_foreground(Path.cwd(), os.environ)'
- python3 migrate_state.py
- 
--echo "RWT Board v4.7.13 (coordination.7): $URL"
-+echo "RWT Board v4.7.14 (coordination.8-work): $URL"
- echo "Use 127.0.0.1, not localhost."
- echo "Control issue: #${RWT_CONTROL_ISSUE}"
- 
---- a/test_foreground_startup.py
-+++ b/test_foreground_startup.py
-@@ -44,7 +44,7 @@
-             pairing = source / 'agent-routes.json'
-             pairing.write_text('{"existing": "route"}')
-             pairing.chmod(0o600)
--            root = parent / 'rwt-pr-handoff-v4.7.13'
-+            root = parent / 'rwt-pr-handoff-v4.7.14'
-             root.mkdir()
-             env = {}
-             prepare_foreground(root, env, home)
-@@ -57,20 +57,20 @@
-             self.assertTrue(json.loads((root / '.agent-work' / 'migration-manifest.json').read_text())['completed'])
- 
-     def test_browser_readiness_waits_through_connection_refusal_and_wrong_version(self):
--        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.13', 'transport': {}}]
-+        responses = [OSError('not yet'), {'version': '4.7.9', 'transport': {}}, {'version': '4.7.14', 'transport': {}}]
-         def opener(*args, **kwargs):
-             value = responses.pop(0)
-             if isinstance(value, Exception):
-                 raise value
-             return io.StringIO(json.dumps(value))
-         ready = wait_ready(1, 4317, opener=opener, alive=lambda: True, pause=lambda _: None)
--        self.assertEqual(ready['version'], '4.7.13')
-+        self.assertEqual(ready['version'], '4.7.14')
-         self.assertFalse(responses)
- 
-     def test_verified_v4710_migration_retains_new_delivery_journal(self):
-         with tempfile.TemporaryDirectory() as directory:
-             parent = Path(directory)
--            root = parent / 'rwt-pr-handoff-v4.7.13'
-+            root = parent / 'rwt-pr-handoff-v4.7.14'
-             state = parent / 'rwt-pr-handoff-v4.7.10' / '.agent-work'
-             state.mkdir(parents=True)
-             with sqlite3.connect(state / 'state.db') as db:
-@@ -94,7 +94,7 @@
-     def test_verified_v4712_trial_journal_is_preferred(self):
-         with tempfile.TemporaryDirectory() as directory:
-             parent = Path(directory)
--            root = parent / 'rwt-pr-handoff-v4.7.13'
-+            root = parent / 'rwt-pr-handoff-v4.7.14'
-             state = parent / 'rwt-pr-handoff-v4.7.12' / '.agent-work'
-             state.mkdir(parents=True)
-             with sqlite3.connect(state / 'state.db') as db:
-@@ -113,7 +113,7 @@
-     def test_verified_v4711_journal_is_preferred_without_overwriting_existing_target(self):
-         with tempfile.TemporaryDirectory() as directory:
-             parent = Path(directory)
--            root = parent / 'rwt-pr-handoff-v4.7.13'
-+            root = parent / 'rwt-pr-handoff-v4.7.14'
-             state = parent / 'rwt-pr-handoff-v4.7.11' / '.agent-work'
-             state.mkdir(parents=True)
-             with sqlite3.connect(state / 'state.db') as db:
-@@ -143,9 +143,9 @@
-             plist.parent.mkdir(parents=True)
-             plist.write_bytes(plistlib.dumps({'Label': 'com.speaksharp.orch', 'ProgramArguments': ['python3', str(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.9' / 'installed-service.py')]}))
-             with self.assertRaisesRegex(RuntimeError, 'loaded'):
--                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.13', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
-+                prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.14', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=0))
-             self.assertTrue(plist.exists())
--            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.13', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
-+            prepare_foreground(home / 'SW_Dev' / 'rwt-pr-handoff-v4.7.14', {}, home, run=lambda *a, **kw: SimpleNamespace(returncode=1))
-             self.assertFalse(plist.exists())
-             self.assertTrue(plist.with_suffix('.plist.disabled-v4.7.9').exists())
- 
---- a/test_regressions.py
-+++ b/test_regressions.py
-@@ -342,7 +342,7 @@
- 
-     def test_version_labels_match(self):
-         root=Path(server.__file__).parent
--        self.assertEqual(server.BOARD_VERSION,'4.7.13')
-+        self.assertEqual(server.BOARD_VERSION,'4.7.14')
-         for file in ['static/index.html','start-rwt-handoff.sh','README.md']:
-             text=(root/file).read_text()
-             self.assertIn('v'+server.BOARD_VERSION,text)
---- a/README.md
-+++ b/README.md
-@@ -1,4 +1,4 @@
--# RWT Orch v4.7.13 — coordination.7
-+# RWT Orch v4.7.14 — coordination.8-work
- 
- Only the PO downloads the package. Installation flows into the same foreground setup and launch as v4.7.7;
- `Install_Orch.command` and `Start_Orch.command` both use that path. No LaunchAgent, login task or background
-@@ -17,8 +17,10 @@
- without a wake hook are explicitly unsupported for automatic wake; GitHub posting is not delivery.
- No merge/deployment/Production authority is created by event notifications or installation.
- 
--coordination.7 adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
-+coordination.8-work adds startup readiness: stale generic PM errors no longer stop new event pickup; fresh verified login clears stale auth-required status. Dev preflight errors may reconcile but receive no WRITE authority until the assignment is verified. Operator pauses, cleanup uncertainty and invoked Dev uncertainty remain enforced.
- 
- First launch publishes one durable ALL AGENTS version/launcher notice to the control issue and queues version-specific recipient handshakes. Restart does not duplicate the post or invent ACKs. PM notification publication failures are task holds, not coordinator-wide errors. Healthy CLI PM is shown as available/receiving events, with task holds displayed separately. Existing native browser-chat wake limits are unchanged.
- 
--Released for PO-authorized Mac trial. See MAC-ACCEPTANCE.md. Ops/Beta review lifecycles no longer require special PO authorization-string setup. Historical observation reminders consolidate per route; actual task actions and uncertain deliveries remain separate.
-+HELD source candidate; no download ZIP released yet. See MAC-ACCEPTANCE.md. Ops/Beta review lifecycles no longer require special PO authorization-string setup. Historical observation reminders consolidate per route; actual task actions and uncertain deliveries remain separate.
-+
-+coordination.8-work: browser launch initiates per-boot UUID/nonce negotiation; native CLI PM boot identity skips GitHub/history loading and task ownership patches. Stale listeners/sleep gaps trigger negotiation. Identity and task/wake proof remain separate. Direct Codex route recovery distinguishes runtime UUID from inbox aliases and respects pending actions. Codex control reads summaries/newest active-turn metadata instead of full history, eliminating the reproduced >8 MiB history-frame rejection. HTTP disconnect handling is retained. Native Mac idle proof and legacy watcher recovery remain open.
---- a/INSTALL.md
-+++ b/INSTALL.md
-@@ -1,11 +1,13 @@
--# Orch v4.7.13 installation
-+HELD SOURCE: do not use old download/checksum references to install this working tree. No replacement ZIP is published.
- 
--Only PO downloads and installs. Install under ~/SW_Dev/rwt-pr-handoff-v4.7.13 using the same gh blob download, checksum verification, unzip and python3 orch-setup.py flow as v4.7.11. It starts in this terminal and opens http://127.0.0.1:4317/ after the actual API confirms version 4.7.13. Keep the terminal running. No LaunchAgent or login service is installed.
-+# Orch v4.7.14 installation
-+
-+Only PO downloads and installs. Install under ~/SW_Dev/rwt-pr-handoff-v4.7.14 using the same gh blob download, checksum verification, unzip and python3 orch-setup.py flow as v4.7.11. It starts in this terminal and opens http://127.0.0.1:4317/ after the actual API confirms version 4.7.14. Keep the terminal running. No LaunchAgent or login service is installed.
- 
- Before upgrading, stop the old foreground board with Ctrl-C in its terminal when no worker action is in flight. The installer preserves a running board instead of killing active work, explicitly reports an old version, and does not pretend the upgrade occurred. Run the installation block in any directory; it changes into the extracted absolute folder itself.
- 
--On a fresh v4.7.13 folder, automatically prefer a verified v4.7.12 migration journal, then v4.7.11, then verified v4.7.10, then the known v4.7.7-candidate source. Preserve database, private pairing and artifacts. Existing target state and an explicit migration override are retained; unknown ambiguous history is not guessed. Original installations remain intact.
-+On a fresh v4.7.14 folder, automatically prefer a verified v4.7.12 migration journal, then v4.7.11, then verified v4.7.10, then the known v4.7.7-candidate source. Preserve database, private pairing and artifacts. Existing target state and an explicit migration override are retained; unknown ambiguous history is not guessed. Original installations remain intact.
- 
- Existing gh/Codex login and paired routes remain prerequisites, not repeated setup. First launch announces the new app version through the supported routes and requires real recipient receipts/results. Devs do not install this bundle. Native CLI PM receives current events in its PM queue; an unsupported browser chat cannot be automatically awakened. A stale/unrearmed listener remains an explicit transport blocker, never a fabricated ACK.
- 
--Accept the installed upgrade only after the board reports 4.7.13 coordination.7, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
-+Accept the installed upgrade only after the board reports 4.7.14 coordination.7, then a real current CI/review event reaches CLI PM and the intended Dev, with authenticated receipt/result and PM follow-through without PO relay. Offline tests do not substitute for this host proof.
---- a/RELEASE-CANDIDATE.md
-+++ b/RELEASE-CANDIDATE.md
-@@ -1,11 +1,3 @@
--# v4.7.13 coordination.7 — Mac trial
-+# v4.7.14 — HELD source candidate
- 
--PO authorized publication for real-world Mac testing on 2026-10-13. This supersedes the hold on distributing the latest source. It is a trial, not a claim that all recipients have passed installed wake acceptance. Only PO downloads/installs; Devs do not download this bundle.
--
--Includes all saved v4.7.12 repairs plus routine PM review/CI follow-through using pinned PM source acceptance, current-PR provenance and Ops/Beta lifecycle support, and durable observation-outage incidents instead of one historical reminder per event. Original deliveries, callback identities and active writers are preserved. See MAC-ACCEPTANCE.md for the reported-issue matrix and real-host checks.
--
--Foreground install/launch, HTTP-readiness browser opening and verified predecessor migration. No LaunchAgent, login task or service. Keep the launcher terminal running. Existing recipient pairing and CLI sign-in are reused. First launch announces this version through GitHub and supported recipient routes.
--
--Open host proofs: GitHub event to idle-agent wake and matching receipt/result; watcher survival/rearm after runtime compaction; stale/replaced recipient routing; Browser PM inbound delivery. Unsupported browser chats cannot be awakened by a GitHub comment. CLI PM is the unattended coordinator and must handle eligible source review/qualification without PO relay. Missing runtime capability is explicit, not fabricated success.
--
--Migration, merge, deployment, credentials and Production runs retain separate authority. This package changes the coordination tool only.
-+No replacement ZIP is released. Startup handshake, native coordinator registration, bounded Codex summary/turn reads and guarded route recovery are implemented. Local regressions prove the old full-history frame rejection and its correction. Actual Mac idle wake, legacy Claude tracked-task rearm and reconciliation of old uncertain actions remain unverified. No LaunchAgent/login service or Dev bundle download. No Production authority.
+diff --git a/test_ui.js b/test_ui.js
+index 0371f22..b5a780b 100644
+--- a/test_ui.js
++++ b/test_ui.js
+@@ -9,4 +9,4 @@ const current={number:1558,title:'Filler count',state:'OPEN',head:'d371fe1b5',st
+ const dashboard={version:'4.6.17',build:'deadlock.5',observed_at:'2026-10-05T14:15:00Z',github_error:'fixture lookup failure',current,blocker:{text:'CI running; failed/cancelled rows also present'},players:{app_dev:{player_id:'app_dev',status:'reported',task:'PDF packet from checkpoint'}},reconciliation:'Task/player checkpoint applied',priority_queue:[{title:'PDF'},{title:'Coaching'},{title:'Share Feedback fix'},{title:'Telemetry'},{title:'#1560 Navigation'}],open_prs:[{number:1554,title:'PDF',isDraft:true},{number:1559,title:'Coaching',isDraft:true},{number:1560,title:'Navigation',isDraft:true},{number:1557,title:'Other',isDraft:true},{number:1488,title:'Parked',updatedAt:'2099'}],recent_completed:[],packet_verifications:[{pr_or_task:1258,ref:'f'.repeat(40),packet_path:'handoffs/PR-1258/orchestration/pkt',status:'pending',attempts:2,next_attempt_in_seconds:30,last_error:'temporary timeout'}]};
+ const sandbox={...elements,location:{hostname:'127.0.0.1',port:'4417'},document:{getElementById:element,querySelector:()=>element('version'),querySelectorAll:()=>[],activeElement:null},sessionStorage:{getItem(){},setItem(){}},setInterval(){},console,fetch:async path=>({ok:true,json:async()=>path==='/api/dashboard'?dashboard:path==='/api/live'?{transport:{},deliveries:[],activity:[],automation:{}}:{}})};
+ vm.createContext(sandbox);vm.runInContext(code,sandbox);
+-(async()=>{await vm.runInContext('refreshAll()',sandbox);assert(element('version').textContent.includes('4.6.17'));assert(element('version').textContent.includes('deadlock.5'));assert(element('version').textContent.includes('fixture lookup failure'));assert(element('agents').innerHTML.includes('REPORTED'));assert(element('currentPr').innerHTML.includes('#1558'));assert(element('queue').innerHTML.includes('Share Feedback fix'));assert(element('queue').innerHTML.includes('#1560 Navigation'));assert(element('openPrs').innerHTML.indexOf('#1554')<element('openPrs').innerHTML.indexOf('#1559'));assert(!element('openPrs').innerHTML.includes('#1488'));assert(!html.includes('Open · 4 most recent'));assert(element('version').textContent.includes('Task/player checkpoint applied'));assert(element('currentPr').innerHTML.includes('1 running; 1 failed/cancelled'));assert(html.indexOf('id="deliveries"')<html.indexOf('<details class="advanced">'));assert.equal((html.match(/id="deliveries"/g)||[]).length,1);const failedDelivery=vm.runInContext(`deliveryHtml({id:36,status:'failed',source_actor:'PM',recipient:'dev',work_item_key:'PR-1570-P1',target_branch:'fix/1258-readback-boot-control',target_worktree:'/tmp/1570-boot',attempts:0,historical:true,age_seconds:4,delivery_stage:'BLOCKED BEFORE DEV INVOCATION',error:'target worktree is missing',recovery_action:'PM recovery queued #37 (queued)'})`,sandbox);assert(failedDelivery.includes('BLOCKED BEFORE DEV INVOCATION'));assert(failedDelivery.includes('target worktree is missing'));assert(failedDelivery.includes('PM recovery queued #37'));assert(failedDelivery.includes('fix/1258-readback-boot-control'));assert(!failedDelivery.includes('onclick="retryDelivery(36)"'));const ledgerFixture=Object.assign({},dashboard,{asks:[{id:4,source_comment_id:6047886074,ask_index:2,source_actor:'App Dev',age_seconds:700,request:'a route for PR 4 evidence',next_action:'PM recovery woke once; awaiting typed disposition'}],ask_blocker:'1 ask(s) still undispositioned after one PM recovery',review_handoffs:[{id:1,token:'RH-1-aaaaaaaa',pr_number:1570,head:'a'.repeat(40),owner:'app_dev',disposition:'fix_now',state:'delivered'}],action_blockers:[{detail:'BLOCKED (unsupported PM action): kind=\'merge\''}],share:{pr_or_task:1258,remote_branch:'docs/1258-orchestration-deadlock5-20261007',remote_path:'handoffs/PR-1258/',tree_url:'https://github.com/x',publication:'push pin + readback'}});vm.runInContext('renderLedger(ledgerFixture)',Object.assign(sandbox,{ledgerFixture}));const ledgerHtml=element('ledger').innerHTML;for(const want of ['ASK 4','6047886074','item 2','a route for PR 4 evidence','BOARD BLOCKER','RH-1-aaaaaaaa','receipt not yet echoed','FIX_NOW','unsupported PM action','handoffs/PR-1258/','PACKET READ PENDING','retry in 30s','temporary timeout'])assert(ledgerHtml.includes(want),want);vm.runInContext("showAgent('cli_dev')",sandbox);dashboard.players.cli_dev={player_id:'cli_dev',status:'active',task:'Navigation proof running',blocker:''};vm.runInContext('renderDashboard(dashboardFixture)',Object.assign(sandbox,{dashboardFixture:dashboard}));assert(element('detailBox').innerHTML.includes('WORKING'));assert(element('detailBox').innerHTML.includes('Navigation proof running'));dashboard.players.cli_dev.status='blocked';dashboard.players.cli_dev.blocker='Fixture transport error';vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert(element('detailBox').innerHTML.includes('BLOCKED'));assert(element('detailBox').innerHTML.includes('Fixture transport error'));vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'block');vm.runInContext('closeDetail()',sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert.equal(element('detail').style.display,'none');dashboard.agent_routes={cli_dev:{configured:true,transport:'codex_app_server',session_id:'fixture-session',host_preflight:'Not verified on installed host',last_task_delivery:{id:849,action_id:'task-849',status:'failed',error:'Fixture host preflight missing'}}};vm.runInContext("showAgent('cli_dev',true)",sandbox);for(const want of ['codex_app_server','fixture-session','#849','task-849','receipt missing','result missing','Fixture host preflight missing','Not verified on installed host'])assert(element('detailBox').innerHTML.includes(want),want);const routedDelivery=vm.runInContext("deliveryHtml({id:849,status:'failed',target_actor_id:'cli_dev',target_transport:'codex_app_server',target_session_id:'fixture-session',task_action_id:'task-849'})",sandbox);for(const want of ['fixture-session','task-849','receipt missing','result missing'])assert(routedDelivery.includes(want),want);const sent=[];sandbox.fetch=async(path,opts)=>{sent.push([path,opts]);return {ok:true,json:async()=>({ok:true})}};await vm.runInContext("api('/api/pause',{method:'POST',body:'{}'})",sandbox);assert.equal(sent[0][1].headers['Content-Type'],'application/json');assert.equal(sent[0][1].headers['X-RWT-Control-Token'],'__RWT_CONTROL_TOKEN__');console.log('UI smoke passed: actual script runs; control requests carry the server-injected token; delivery stages, exact failed route, bounded PM recovery, no false Dev ACK/retry; open asks, review handoff receipts, packet-read retry state, named blockers, share location; dashboard and queue.');})().catch(e=>{console.error(e);process.exitCode=1});
++(async()=>{await vm.runInContext('refreshAll()',sandbox);assert(element('version').textContent.includes('4.6.17'));assert(element('version').textContent.includes('deadlock.5'));assert(element('version').textContent.includes('fixture lookup failure'));assert(element('agents').innerHTML.includes('REPORTED'));assert(element('currentPr').innerHTML.includes('#1558'));assert(element('queue').innerHTML.includes('Share Feedback fix'));assert(element('queue').innerHTML.includes('#1560 Navigation'));assert(element('openPrs').innerHTML.indexOf('#1554')<element('openPrs').innerHTML.indexOf('#1559'));assert(!element('openPrs').innerHTML.includes('#1488'));assert(!html.includes('Open · 4 most recent'));assert(element('version').textContent.includes('Task/player checkpoint applied'));assert(element('currentPr').innerHTML.includes('1 running; 1 failed/cancelled'));assert(html.indexOf('id="deliveries"')<html.indexOf('<details class="advanced">'));assert.equal((html.match(/id="deliveries"/g)||[]).length,1);const failedDelivery=vm.runInContext(`deliveryHtml({id:36,status:'failed',source_actor:'PM',recipient:'dev',work_item_key:'PR-1570-P1',target_branch:'fix/1258-readback-boot-control',target_worktree:'/tmp/1570-boot',attempts:0,historical:true,age_seconds:4,delivery_stage:'BLOCKED BEFORE DEV INVOCATION',error:'target worktree is missing',recovery_action:'PM recovery queued #37 (queued)'})`,sandbox);assert(failedDelivery.includes('BLOCKED BEFORE DEV INVOCATION'));assert(failedDelivery.includes('target worktree is missing'));assert(failedDelivery.includes('PM recovery queued #37'));assert(failedDelivery.includes('fix/1258-readback-boot-control'));assert(!failedDelivery.includes('onclick="retryDelivery(36)"'));const ledgerFixture=Object.assign({},dashboard,{asks:[{id:4,source_comment_id:6047886074,ask_index:2,source_actor:'App Dev',age_seconds:700,request:'a route for PR 4 evidence',next_action:'PM recovery woke once; awaiting typed disposition'}],ask_blocker:'1 ask(s) still undispositioned after one PM recovery',review_handoffs:[{id:1,token:'RH-1-aaaaaaaa',pr_number:1570,head:'a'.repeat(40),owner:'app_dev',disposition:'fix_now',state:'delivered'}],action_blockers:[{detail:'BLOCKED (unsupported PM action): kind=\'merge\''}],share:{pr_or_task:1258,remote_branch:'docs/1258-orchestration-deadlock5-20261007',remote_path:'handoffs/PR-1258/',tree_url:'https://github.com/x',publication:'push pin + readback'}});vm.runInContext('renderLedger(ledgerFixture)',Object.assign(sandbox,{ledgerFixture}));const ledgerHtml=element('ledger').innerHTML;for(const want of ['ASK 4','6047886074','item 2','a route for PR 4 evidence','BOARD BLOCKER','RH-1-aaaaaaaa','receipt not yet echoed','FIX_NOW','unsupported PM action','handoffs/PR-1258/','PACKET READ PENDING','retry in 30s','temporary timeout'])assert(ledgerHtml.includes(want),want);vm.runInContext("showAgent('cli_dev')",sandbox);dashboard.players.cli_dev={player_id:'cli_dev',status:'active',task:'Navigation proof running',blocker:''};vm.runInContext('renderDashboard(dashboardFixture)',Object.assign(sandbox,{dashboardFixture:dashboard}));assert(element('detailBox').innerHTML.includes('WORKING'));assert(element('detailBox').innerHTML.includes('Navigation proof running'));dashboard.players.cli_dev.status='blocked';dashboard.players.cli_dev.blocker='Fixture transport error';vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert(element('detailBox').innerHTML.includes('BLOCKED'));assert(element('detailBox').innerHTML.includes('Fixture transport error'));vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'block');vm.runInContext('closeDetail()',sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert.equal(element('detail').style.display,'none');dashboard.agent_routes={cli_dev:{configured:true,transport:'codex_app_server',session_id:'fixture-session',host_preflight:'Not verified on installed host',last_task_delivery:{id:849,action_id:'task-849',status:'failed',error:'Fixture host preflight missing'}}};vm.runInContext("showAgent('cli_dev',true)",sandbox);for(const want of ['codex_app_server','fixture-session','#849','task-849','receipt missing','result missing','Fixture host preflight missing','Not verified on installed host'])assert(element('detailBox').innerHTML.includes(want),want);const routedDelivery=vm.runInContext("deliveryHtml({id:849,status:'failed',target_actor_id:'cli_dev',target_transport:'codex_app_server',target_session_id:'fixture-session',task_action_id:'task-849'})",sandbox);for(const want of ['fixture-session','task-849','receipt missing','result missing'])assert(routedDelivery.includes(want),want);const sent=[];sandbox.fetch=async(path,opts)=>{sent.push([path,opts]);return {ok:true,json:async()=>({ok:true})}};await vm.runInContext("api('/api/pause',{method:'POST',body:'{}'})",sandbox);assert.equal(sent[0][1].headers['Content-Type'],'application/json');assert.equal(sent[0][1].headers['X-RWT-Control-Token'],'__RWT_CONTROL_TOKEN__');for(const removed of ['pairActor','pairProvider','pairSession','pairSessionPicker','pairResult','pairRecipient','connectRecipient','listRecipientSessions','probeRecipient'])assert(!html.includes(removed),removed+' must stay internal');assert(!element('transport').textContent.includes('Live error'));const liveFixture={transport:{pm_configured:true,session_registration:{cli_dev:{state:'identity-reported'}},agent_routes:{cli_pm:{configured:true,transport:'native_pm_executor'},cli_dev:{configured:true,transport:'local_inbox',listener_recent:true,live_delivery_proven:false}}},activity:[{actor:'CLI PM',message:'Recipient negotiation in progress'}],deliveries:[{id:999,status:'awaiting_receipt',target_actor_id:'cli_dev',task_action_id:'fixture-999'}],automation:{}};sandbox.fetch=async path=>({ok:true,json:async()=>path==='/api/live'?liveFixture:{}});await vm.runInContext('refreshLive()',sandbox);assert(!element('transport').textContent.includes('Live error'));assert(element('transport').textContent.includes('identity-reported'));assert(element('transport').textContent.includes('native coordinator'));assert(element('transport').textContent.includes('wake unproven'));assert(!element('transport').textContent.includes('automatic wake proven'));assert(element('activity').innerHTML.includes('Recipient negotiation in progress'));assert(element('deliveries').innerHTML.includes('fixture-999'));liveFixture.transport.agent_routes.cli_dev.live_delivery_proven=true;await vm.runInContext('refreshLive()',sandbox);assert(element('transport').textContent.includes('automatic wake proven'));console.log('UI smoke passed: actual script runs; control requests carry the server-injected token; delivery stages, exact failed route, bounded PM recovery, no false Dev ACK/retry; open asks, review handoff receipts, packet-read retry state, named blockers, share location; dashboard and queue.');})().catch(e=>{console.error(e);process.exitCode=1});
