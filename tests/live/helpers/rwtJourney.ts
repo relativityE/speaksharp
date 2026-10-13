@@ -1045,11 +1045,14 @@ const STEP_DIAGNOSTIC_READ_MS = 3_000;
  * The status text is read only to classify it and is never recorded. Product copy: `ENGINE_RETIRE_UNCONFIRMED_MESSAGE`
  * (useSessionLifecycle.ts), the lease block (recordingLeasePolicy.ts) and the Progress hold.
  */
-export type StartRefusalClass = 'engine_unconfirmed' | 'lease_blocked' | 'finishing_up' | 'start_error' | 'none_visible';
+export type StartRefusalClass = 'engine_unconfirmed' | 'lease_blocked' | 'finishing_up' | 'prior_unsaved' | 'start_error' | 'none_visible';
 const START_REFUSAL_PATTERNS: ReadonlyArray<readonly [StartRefusalClass, RegExp]> = [
     ['engine_unconfirmed', /could not confirm the last recording stopped/i],
     ['lease_blocked', /A recording is active on .*press Start again to take over/i],
     ['finishing_up', /Finishing up your last session/i],
+    // #1600 review (6133231405): the controller's refusal while a previous recording is unresolved — the likely next-Start
+    // refusal in runs 38298685079 / 38304068207. Before `start_error`, whose generic "save" wording it would otherwise hit.
+    ['prior_unsaved', /Finish saving your previous recording before starting a new one/i],
     ['start_error', /(?:could ?n[o']t|unable to|failed to) (?:start|record|save)|microphone (?:access )?(?:is )?(?:blocked|denied)/i],
 ];
 export function classifyStartRefusal(texts: readonly string[]): StartRefusalClass {

@@ -34,6 +34,13 @@ const ENGINE_UNCONFIRMED = (() => {
 })();
 const leaseBlocked = interpretAcquireResult({ acquired: false, reason: 'held_by_other', holder_label: 'your other tab' } as never);
 const LEASE_BLOCKED = 'message' in leaseBlocked ? String(leaseBlocked.message) : '';
+/** The controller's refusal while a previous recording is unresolved (#1600 review 6133231405). */
+const PRIOR_UNSAVED = (() => {
+    const src = readFileSync(path.join(ROOT, 'frontend/src/services/SpeechRuntimeController.ts'), 'utf8');
+    const m = src.match(/refuseStart\('(Finish saving your previous recording[^']*)'\)/);
+    if (!m) throw new Error('prior-unsaved refusal copy not found');
+    return m[1];
+})();
 const FINISHING_UP = (() => {
     const src = readFileSync(path.join(ROOT, 'frontend/src/services/progress/progressStartGate.ts'), 'utf8');
     const m = src.match(/'(Finishing up your last session[^']*)'/);
@@ -48,6 +55,7 @@ describe('classifyStartRefusal — closed enum from the product copy', () => {
         expect(classifyStartRefusal([LEASE_BLOCKED])).toBe('lease_blocked');
         expect(classifyStartRefusal([FINISHING_UP])).toBe('finishing_up');
         expect(classifyStartRefusal(['Could not start recording. Please try again.'])).toBe('start_error');
+        expect(classifyStartRefusal([PRIOR_UNSAVED])).toBe('prior_unsaved');
     });
     it('reports none_visible when no refusal copy is on the page', () => {
         expect(classifyStartRefusal([])).toBe('none_visible');
