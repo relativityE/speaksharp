@@ -89,7 +89,11 @@ describe('take after switching products is clean', () => {
         const helper = readFileSync(resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
         expect(helper).toMatch(/receipt\.row\('take after switching products is clean', iso\.verdict/);
         expect(helper).toMatch(/await openProduct\('open-mic'\)[\s\S]*await openProduct\('focus-points'\)/);
-        expect(helper).toContain('getByTestId(`nav-products-${item}`)');
+        // The switch goes through the header Products menu: since #1258 (runs 38312744958 / 38313665238) the step uses the
+        // shared helper, which resolves the rendered header before choosing the item.
+        expect(helper).toMatch(/const openProduct = \(item: 'open-mic' \| 'focus-points'\) => openProductsItem\(page, item\);/);
+        const menu = readFileSync(resolve(__dirname, '../live/helpers/productsMenu.ts'), 'utf8');
+        expect(menu).toContain('getByTestId(isDesktop ? `nav-products-${item}` : `nav-mobile-products-${item}`)');
         // Every database read in the step fails closed (6089889070: no infrastructure failure becomes a verdict).
         const step = helper.slice(helper.indexOf("'Open Mic take, then a Focus take right after the product switch'"), helper.indexOf("receipt.row('take after switching products is clean'"));
         const reads = step.match(/admin!\.from\(/g)?.length ?? 0;
