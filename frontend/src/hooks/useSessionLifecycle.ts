@@ -312,6 +312,14 @@ export const useSessionLifecycle = () => {
                 modelReady: modelReadyAtIntent,
             });
 
+        // #1258 R1 (runs 38298685079 / 38304068207): a Stop while the take is already STOPPING is the same Stop pressed
+        // again — the review's repeat action landed 87–97 ms after Stop. Taken as a second Stop it queued behind the
+        // first and, being "too short", replaced the status the user sees. The controller now ignores a second Stop for
+        // the same recording; the hook reports the click and leaves the take and its status alone.
+        if (shouldStop && latestRuntimeState === 'STOPPING') {
+            reportIntent('suppressed_finalizing');
+            return;
+        }
         if (isProcessingRef.current && !shouldStop) {
             // A SECOND CLICK WHILE THE FIRST IS IN FLIGHT. This returned with no log and no event, so
             // "two clicks required" and "one click, silent wait" were indistinguishable in the data —
