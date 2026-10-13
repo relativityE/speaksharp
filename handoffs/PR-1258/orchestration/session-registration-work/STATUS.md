@@ -1,9 +1,18 @@
-# v4.7.14 held source checkpoint
+# v4.7.14 held source — IDE PM continuity checkpoint
 
-818 Python test executions PASS (51.5s); actual dashboard script smoke PASS; working-source manifest verification PASS. Old published v4.7.13 control client reproduced invalid Codex frame length against a full-history response >8 MiB, with no turn submitted. New summary-only idle delivery passes; active steering uses newest1 turn with items omitted. This is a proven failure class, not proof it caused recovery2160 on Mac.
+PO requested PM takeover in a new chat on 2026-10-13 after IDE PM stopped responding. Recovered source from docs/1258-orch-coordination-20261012@702f4f4ab9cfe97123122013e92296466bcea5f9. The old chat's running turn has not been confirmed cancelled. This separate checkpoint branch preserves the prior writer's branch unchanged.
 
-Includes native CLI PM recognition, minimal no-GitHub/no-task-ledger bootstrap, dashboard-triggered nonce/session identity exchange, stale listener/sleep negotiation, guarded direct-route rebind and inbox alias/runtime UUID separation, explicit connection vs task status, v4.7.14 launcher/readiness labels and verified v4.7.13 state migration. Previous HTTP-disconnect repair is retained separately.
+Baseline ZIP git-blob identity independently verified: 81095837c581ad55af46b8697513f05c9b35916f. repair.patch is now a CONSOLIDATED patch directly against that immutable v4.7.13 ZIP, including the previously separate HTTP-disconnect correction, held session-registration/rebinding/native-PM/bootstrap/summary-only Codex work, and the recovered internal-recipient UI. Do not apply the old separate patches before this consolidated patch.
 
-Official protocol references: https://learn.chatgpt.com/docs/app-server (thread/read includeTurns=false; bounded thread/turns/list; turn/start). Claude's native push channels require runtime channel enablement and custom-channel preview consent: https://code.claude.com/docs/en/channels-reference . A polling script or active-message test is not idle wake proof; no channel setup is silently enabled.
+Manual Recipient pairing pane, UUID/provider inputs, session list/picker, Connect/test actions and handlers are removed. refreshLive no longer references deleted controls. Server guidance directs recipient negotiation to CLI PM. Per-agent route, delivery, receipt/result, worker heartbeat and exact errors remain read-only diagnostics. Identity-reported does not show automatic wake proven unless the existing authenticated wake-proof field is true.
 
-Held, no replacement ZIP. Real idle wake/ACK and actual legacy Claude watcher restoration remain open. Bounded Mac diagnosis requested on1593 comment6153736023; no Dev bundle install, no PO relay/commands, no LaunchAgent, no agent reset, no Production action. Dev reviews preempt tool work;1611 successor correction reviewed and1598 current-head reviews released during this checkpoint.
+Validation executed here against the reconstructed working source:
+- Full Python discovery: 818 tests PASS in 55.204s.
+- Focused session registration/rebinding, actual loopback Codex WebSocket transport and HTTP-disconnect checks: 44 PASS.
+- Actual dashboard JavaScript smoke PASS, including live refresh with no removed controls and identity-versus-wake state assertions.
+- Bash launcher syntax, diff whitespace and regenerated working-source manifest verification PASS.
+- Initial focused command named a nonexistent test module; corrected to test_agent_transport before these passes.
+
+No replacement ZIP, installation, Mac delivery or release is claimed. v4.7.13 remains the installed version. Real idle PM event -> existing recipient wake -> authenticated receipt/result, watcher restoration after compaction, restart cursor recovery, timeout/owned-child reconciliation and Mac sleep/resume acceptance remain open. Review-completion qualification repair remains a separate bounded CI increment. No LaunchAgent/login service, Dev bundle installation, agent reset, merge/deploy/migration/provider/Production action.
+
+PM continuity is recorded on #1593 comment 6154616551. App Dev owns Alpha/RWT; CLI Dev owns Beta/MVP. Current serial CLI landing #1592 -> #1601 remains ahead of resumed App Dev #1606 -> #1607. #1592 is qualified and awaits exact PO merge authority. Preserve the existing writers, candidates and leases; no duplicate dispatch or uncertain delivery replay.
