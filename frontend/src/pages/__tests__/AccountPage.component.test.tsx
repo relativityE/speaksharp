@@ -8,11 +8,13 @@ import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import type { UserProfile } from '@/types/user';
 import { profileService } from '@/services/domainServices';
 import { useQueryClient } from '@tanstack/react-query';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
 
 vi.mock('@/hooks/useUserProfile', () => ({ useUserProfile: vi.fn() }));
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: vi.fn() }));
 vi.mock('@/config/appRuntimeConfig', () => ({ arePaymentsEnabled: vi.fn() }));
 vi.mock('@/services/domainServices', () => ({ profileService: { getById: vi.fn() } }));
+vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: vi.fn() }));
 vi.mock('@tanstack/react-query', async (original) => ({
   ...await original<typeof import('@tanstack/react-query')>(), useQueryClient: vi.fn(),
 }));
@@ -27,6 +29,7 @@ describe('Membership on Account', () => {
   const setQueryData = vi.fn();
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useUsageLimit).mockReturnValue({ data: undefined, isError: false } as ReturnType<typeof useUsageLimit>);
     vi.mocked(useQueryClient).mockReturnValue({ setQueryData } as unknown as ReturnType<typeof useQueryClient>);
     vi.mocked(arePaymentsEnabled).mockReturnValue(true);
     vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke } } as unknown as ReturnType<typeof getSupabaseClient>);
@@ -124,5 +127,34 @@ describe('Membership on Account', () => {
     expect(screen.queryByRole('button', { name: 'Manage billing' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('labels a server-confirmed active trial as Trial without paid billing controls', () => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    vi.mocked(useUsageLimit).mockReturnValue({ data: { trial_active: true }, isError: false } as ReturnType<typeof useUsageLimit>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText('Trial')).toBeVisible();
+    expect(screen.getByText(/Your trial is active/)).toBeVisible();
+    expect(screen.queryByText('Free · Free')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage billing' })).not.toBeInTheDocument();
+  });
+
+  it('does not infer a trial from client dates or override a confirmed paid membership', () => {
+    expect(membershipPresentation({ ...paid, subscription_status: 'free', trial_expires_at: '2999-01-01T00:00:00Z' }, false).status).toBe('Free');
+    expect(membershipPresentation(paid, true).status).toBe('Active');
+  });
+
+  it.each([
+    { state: 'expired', data: { trial_active: false }, isError: false },
+    { state: 'unknown', data: undefined, isError: false },
+    { state: 'failed', data: { trial_active: true }, isError: true },
+  ])('does not claim a server-confirmed active trial when usage is $state', (usage) => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null, trial_expires_at: '2999-01-01T00:00:00Z' }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    vi.mocked(useUsageLimit).mockReturnValue(usage as ReturnType<typeof useUsageLimit>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.queryByText('Trial')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Your trial is active/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
   });
 });

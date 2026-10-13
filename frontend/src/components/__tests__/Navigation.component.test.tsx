@@ -568,7 +568,7 @@ describe('Navigation', () => {
             expect(screen.queryByText('PRO')).not.toBeInTheDocument();
         });
 
-        it('does not present an active trial as paid Pro', () => {
+        it('does not present an active trial as paid Pro and labels its account menu Trial', async () => {
             mockUseUserProfile.mockReturnValue({
                 data: { subscription_status: 'free', stripe_subscription_id: null, trial_expires_at: '2999-01-01T00:00:00Z' },
                 isLoading: false,
@@ -583,6 +583,26 @@ describe('Navigation', () => {
             expect(screen.queryByTestId('nav-upgrade-button')).not.toBeInTheDocument();
             expect(screen.queryByTestId('pro-badge')).not.toBeInTheDocument();
             expect(screen.queryByText('PRO')).not.toBeInTheDocument();
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
+            expect(screen.getByText(/· Trial$/)).toBeVisible();
+        });
+
+        it('keeps a confirmed paid account labeled Pro even if usage also reports an active trial', async () => {
+            mockUseUserProfile.mockReturnValue({ data: paidProProfile, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { trial_active: true } });
+            renderNavigation('/');
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
+            expect(screen.getByText(/· Pro$/)).toBeVisible();
+            expect(screen.queryByText(/· Trial$/)).not.toBeInTheDocument();
+        });
+
+        it('does not infer a menu Trial label from a future profile date when the server says inactive', async () => {
+            mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free', trial_expires_at: '2999-01-01T00:00:00Z' }, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { trial_active: false } });
+            renderNavigation('/');
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
+            expect(screen.getByText(/· Free$/)).toBeVisible();
+            expect(screen.queryByText(/· Trial$/)).not.toBeInTheDocument();
         });
 
         it.each(['/session', '/session/', '/Session', '/session/abc123', '/analytics', '/ANALYTICS', '/analytics/42', '/pricing'])(

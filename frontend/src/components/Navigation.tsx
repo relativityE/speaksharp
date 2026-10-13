@@ -35,7 +35,7 @@ const Navigation = () => {
   const navigate = useNavigate();
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
-  const { data: usageLimit } = useUsageLimit();
+  const { data: usageLimit, isError: usageError } = useUsageLimit();
   // Feedback carries an opaque account reference for support follow-up and never carries transcript
   // or audio. Product analytics receives only content-free feedback state through the governed boundary.
   const reportSttMode = useSessionStore(state => state.sttMode);
@@ -61,6 +61,8 @@ const Navigation = () => {
   // hasPaidProEntitlement is the canonical paid signal and is unaffected by that override.
   const hasActiveProductAccess = isPro(effectiveSubscriptionStatus) || hasPaidProEntitlement(profile);
   const isConfirmedPaidUser = hasPaidProEntitlement(profile);
+  const accountMembershipLabel = isConfirmedPaidUser ? 'Pro'
+    : !usageError && usageLimit?.trial_active === true ? 'Trial' : 'Free';
 
   const handleSignOut = async () => {
     await signOut();
@@ -419,7 +421,7 @@ const Navigation = () => {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)] min-w-48" opaque>
                       <div className="max-w-64 truncate border-b border-border px-2 py-2 text-xs text-muted-foreground" title={session.user?.email}>
-                        {session.user?.email ?? 'Your account'} · {isConfirmedPaidUser ? 'Pro' : 'Free'}
+                        {session.user?.email ?? 'Your account'} · {accountMembershipLabel}
                       </div>
                       <DropdownMenuItem asChild><Link to="/account" data-testid="nav-account-link"><UserRound className="mr-2 h-4 w-4" />Account</Link></DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON}>

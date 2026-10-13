@@ -1,8 +1,10 @@
 import { hasPaidProEntitlement } from '@/constants/subscriptionTiers';
 import type { UserProfile } from '@/types/user';
 
-export function membershipPresentation(profile: UserProfile | null | undefined) {
-  if (!hasPaidProEntitlement(profile)) return { status: 'Free' as const, detail: 'No active paid membership.' };
+export function membershipPresentation(profile: UserProfile | null | undefined, serverTrialActive = false) {
+  if (!hasPaidProEntitlement(profile)) return serverTrialActive
+    ? { status: 'Trial' as const, detail: 'Your trial is active. Trial access is confirmed by the server.' }
+    : { status: 'Free' as const, detail: 'No active paid membership.' };
   const date = profile?.stripe_current_period_end;
   const parsed = date ? new Date(date) : null;
   const endDate = parsed && Number.isFinite(parsed.getTime()) ? parsed.toLocaleDateString(undefined, {
