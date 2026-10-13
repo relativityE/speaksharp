@@ -105,7 +105,8 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(readPending).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledWith('rec-1');
-        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1' });
+        // #1258 RH-13: the handoff also records WHEN it was accepted, so a reconcile round can bind it to the right take.
+        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(practiceSelected).toHaveBeenCalledWith('focus_points', true);

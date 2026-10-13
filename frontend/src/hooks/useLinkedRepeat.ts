@@ -70,7 +70,7 @@ export function useLinkedRepeat(sessionId: string) {
                 ? pending.attemptId
                 : await recordRecommendationAttempt(recommendationId);
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId });
+            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso: new Date().toISOString() });
             if (!handoffStored) {
                 const abandoned = await abandonRecommendationAttempt(attemptId);
                 setActionError(abandoned
