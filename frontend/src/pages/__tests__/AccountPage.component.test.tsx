@@ -151,7 +151,7 @@ describe('Membership on Account', () => {
     { state: 'failed', data: { trial_active: true }, isError: true },
   ])('does not claim a server-confirmed active trial when usage is $state', (usage) => {
     vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null, trial_expires_at: '2999-01-01T00:00:00Z' }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
-    vi.mocked(useUsageLimit).mockReturnValue(usage as ReturnType<typeof useUsageLimit>);
+    vi.mocked(useUsageLimit).mockReturnValue(usage as unknown as ReturnType<typeof useUsageLimit>);
     render(<AccountPage />, { route: '/account' });
     expect(screen.queryByText('Trial')).not.toBeInTheDocument();
     expect(screen.queryByText(/Your trial is active/)).not.toBeInTheDocument();
