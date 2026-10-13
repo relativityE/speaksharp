@@ -445,6 +445,13 @@ export interface SentEvent {
     /** #1258 R11: when the PAGE captured the event (PostHog `timestamp` / `$time`), so order survives flush reordering. */
     capturedAt?: number;
     /**
+     * #1258 R11 (Browser PM RETURN 6145711360): which decoded PostHog request carried the event, and its position in that
+     * payload. One payload is the page's FIFO queue at flush, so position within it IS capture order; arrival order across
+     * payloads is not. Memory only, like `journeyId`.
+     */
+    batch?: number;
+    batchIndex?: number;
+    /**
      * #1258 R11 (PM RETURN 6144366004): `ai_coaching_diagnostic` only — the opaque request id and the closed outcome, so a
      * later `practice_loop_review_failed` can be bound to ITS request. In memory like `journeyId`; never in OUTCOME_FIELDS,
      * whose keys can reach receipt evidence.
@@ -547,6 +554,8 @@ export class AnalyticsTap {
     /** #1258 F3: every capture attempt's closed outcome, so a missing binding says WHY in the receipt (content-free). */
     readonly actionCaptures: ActionCaptureAttempt[] = [];
     undecodable = 0;
+    /** #1258 R11: sequence number of decoded event payloads, so each event keeps its batch (see `SentEvent.batch`). */
+    private batchSeq = 0;
     /** PostHog POSTs whose body the browser does not expose (a Blob `sendBeacon` on page-hide). See `sentVerdict`. */
     blindBeacons = 0;
     /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
@@ -572,6 +581,8 @@ export class AnalyticsTap {
             // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
             if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest(); return; }
             const before = this.events.length;
+            const batch = ++this.batchSeq;
+            let batchIndex = 0;
             for (const entry of this.decode(body)) {
                 const record = entry as { event?: unknown; properties?: Record<string, unknown>; timestamp?: unknown };
                 if (typeof record?.event !== 'string') continue;
@@ -582,6 +593,8 @@ export class AnalyticsTap {
                 this.events.push({
                     event: record.event,
                     at: Date.now(),
+                    batch,
+                    batchIndex: batchIndex++,
                     ...(capturedAt === undefined ? {} : { capturedAt }),
                     ...(record.event === 'ai_coaching_diagnostic' ? { diagnosticRequestId: text('diagnostic_request_id'), diagnosticOutcome: text('outcome') } : {}),
                     journeyId: text('journey_id'),

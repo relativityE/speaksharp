@@ -166,6 +166,80 @@ describe('R11 — a failure report is bound to ITS request by the page\'s emissi
         expect(r.reasons).not.toContain('provider_timeout');
     });
 
+    describe('Browser PM RETURN 6145711360 — order is bound only where it is PROVABLE', () => {
+        /** One PostHog payload: its position is the page's FIFO capture order. `at` is tap arrival, never evidence. */
+        const inBatch = (batch: number, events: Array<Record<string, unknown>>) => events.map((e, batchIndex) => ({ ...e, batch, batchIndex }));
+        const noTime = (e: Record<string, unknown>) => Object.fromEntries(Object.entries(e).filter(([k]) => k !== 'capturedAt'));
+
+        it('PM repro 1: A\'s failure with NO capture time, a later network report in another payload → A ambiguous (HOLD), never bound', async () => {
+            const events = [...inBatch(1, [noTime({ ...diag('A', 0), at: 1_000 })]), ...inBatch(2, [{ ...report('network', 9_999), at: 9_999 }])];
+            expect(bindFailureReports(events as never).get('A')).toEqual({ state: 'ambiguous' });
+            const r = await chain({ exchanges: [failed('A', 's1', 900)], events, reportSession: 's1', currentSession: 's1', ref: 'A' });
+            expect(r).toEqual({ verdict: 'HOLD', reasons: 'telemetry_not_received,failure_category_ambiguous' });
+        });
+
+        it('PM repro 2: tied capture times across reordered payloads (B, A, then B\'s report) bind NOTHING to A — both ambiguous', async () => {
+            const events = [...inBatch(1, [diag('B', 100)]), ...inBatch(2, [diag('A', 100)]), ...inBatch(3, [report('network', 100)])];
+            const b = bindFailureReports(events as never);
+            expect(b.get('A')).toEqual({ state: 'ambiguous' });
+            expect(b.get('B')).toEqual({ state: 'ambiguous' });
+            const r = await chain({ exchanges: [failed('A', 's1', 50), failed('B', 's2', 40)], events, reportSession: 's1', currentSession: 's1', ref: 'A' });
+            expect(r).toEqual({ verdict: 'HOLD', reasons: 'telemetry_not_received,failure_category_ambiguous' });
+        });
+
+        it('a tie among the candidates (report strictly later, but A and B captured in the same ms in different payloads) is ambiguous', () => {
+            const events = [...inBatch(1, [diag('B', 100)]), ...inBatch(2, [diag('A', 100)]), ...inBatch(3, [report('network', 101)])];
+            expect(bindFailureReports(events as never).get('A')).toEqual({ state: 'ambiguous' });
+        });
+
+        it('mixed availability: one unrelated event with no capture time makes a cross-payload order unprovable → ambiguous', async () => {
+            const events = [...inBatch(1, [diag('A', 10)]), ...inBatch(2, [report('unavailable', 11)]), ...inBatch(3, [noTime(diag('C', 0))])];
+            expect(bindFailureReports(events as never).get('A')).toEqual({ state: 'ambiguous' });
+            const r = await chain({ exchanges: [failed('A', 's1', 0)], events, reportSession: 's1', currentSession: 's1', ref: 'A' });
+            expect(r).toEqual({ verdict: 'HOLD', reasons: 'telemetry_not_received,failure_category_ambiguous' });
+        });
+
+        it('WITHIN one payload, position proves order even with missing or tied times — and arrival order is ignored', async () => {
+            // The page queued B's failure, then A's, then A's report: FIFO position binds the report to A.
+            const tied = inBatch(1, [{ ...diag('B', 100), at: 9 }, { ...diag('A', 100), at: 5 }, { ...report('rate_limited', 100), at: 1 }]);
+            expect(bindFailureReports(tied as never).get('A')).toEqual({ state: 'bound', reason: 'rate_limited' });
+            expect(bindFailureReports(tied as never).has('B')).toBe(false);
+            const missing = inBatch(1, [noTime(diag('A', 0)), noTime(report('unavailable', 0))]);
+            expect(bindFailureReports(missing as never).get('A')).toEqual({ state: 'bound', reason: 'unavailable' });
+            const r = await chain({ exchanges: [failed('A', 's1', 0)], events: missing, reportSession: 's1', currentSession: 's1', ref: 'A' });
+            expect(r).toEqual({ verdict: 'HOLD', reasons: 'telemetry_not_received' });
+        });
+
+        it('distinct capture times still order separate payloads (the earlier out-of-order flush case keeps binding)', () => {
+            const events = [...inBatch(2, [{ ...report('rate_limited', 1_012), at: 500 }]), ...inBatch(1, [{ ...diag('A', 1_010), at: 900 }])];
+            expect(bindFailureReports(events as never).get('A')).toEqual({ state: 'bound', reason: 'rate_limited' });
+        });
+
+        it('observed-invalid bound evidence stays FAIL when proven by payload position, with no raw text', async () => {
+            const events = inBatch(1, [noTime(diag('A', 0)), noTime(report('provider_timeout', 0))]);
+            const r = await chain({ exchanges: [failed('A', 's1', 0)], events, reportSession: 's1', currentSession: 's1', ref: 'A' });
+            expect(r.verdict).toBe('FAIL');
+            expect(r.reasons.split(',')).toContain('request_field_invalid');
+            expect(r.reasons).not.toContain('provider_timeout');
+        });
+
+        it('the tap stamps every decoded event with its payload and position, in memory only', async () => {
+            const { AnalyticsTap, OUTCOME_FIELDS } = await import('../live/helpers/rwtJourney');
+            const tap = new AnalyticsTap();
+            let onRequest: (r: unknown) => void = () => undefined;
+            tap.attach({ on: (_e: string, cb: (r: unknown) => void) => { onRequest = cb; }, mainFrame: () => null } as never);
+            const post = (events: string[]) => onRequest({
+                isNavigationRequest: () => false, frame: () => null, url: () => 'https://us.i.posthog.com/e/', method: () => 'POST',
+                postDataBuffer: () => Buffer.from(JSON.stringify(events.map((event) => ({ event, properties: { boot_id: 'b' } })))),
+            });
+            post(['ai_coaching_diagnostic', 'practice_loop_review_failed']);
+            post(['telemetry_health']);
+            expect(tap.events.map((e) => [e.event, e.batch, e.batchIndex])).toEqual([
+                ['ai_coaching_diagnostic', 1, 0], ['practice_loop_review_failed', 1, 1], ['telemetry_health', 2, 0]]);
+            expect(Object.values(OUTCOME_FIELDS).flat()).not.toContain('batch');
+        });
+    });
+
     it('the tap keeps the request id OUT of OUTCOME_FIELDS (receipt-bound) and records it in memory only', async () => {
         const { OUTCOME_FIELDS } = await import('../live/helpers/rwtJourney');
         expect(Object.values(OUTCOME_FIELDS).flat()).not.toContain('diagnostic_request_id');
@@ -212,6 +286,16 @@ describe('R11 — a failure report is bound to ITS request by the page\'s emissi
             const v = verdict(r as never, e as never, rep as never);
             expect(v.verdict).toBe('FAIL');
             expect(v.reasons).toContain(reason);
+        });
+
+        it('every contradiction stays FAIL with the category AMBIGUOUS too (an unprovable binding never relaxes them)', () => {
+            const rows: Array<[Record<string, unknown>, Record<string, unknown>, Record<string, unknown>]> = [
+                [request({ configuredModel: 'other-model' }), expectation(), base], [request({ attemptId: 'other-att' }), expectation(), base],
+                [request({ sessionId: 's2' }), expectation(), base], [request(), expectation(), { ...base, sessionId: 's9' }],
+                [request({ outcome: 'unmapped:echo_mismatch' }), expectation(), base], [request({ totalMs: -1 }), expectation(), base],
+                [request({ providerMs: 50_000 }), expectation(), base],
+            ];
+            for (const [r, e, rep] of rows) expect(verdict({ ...r, failureCategory: FAILURE_CATEGORY_AMBIGUOUS }, e, rep).verdict).toBe('FAIL');
         });
 
         it('CONTROL: with no contradiction, an unobserved category is HOLD (not FAIL), and success settlement is unchanged', () => {

@@ -67,45 +67,76 @@ export function echoMismatch(exchange: CoachingExchange): 'request' | 'attempt' 
 export const PAGE_FAILURE_REASONS: readonly string[] = [
     'access_denied', 'invalid_response', 'network', 'not_found', 'rate_limited', 'service_configuration', 'transcript_unavailable', 'unavailable',
 ];
-/** The tap's view of an event: page boot, page capture time (or observation time), and closed fields only. */
+/**
+ * The tap's view of an event: page boot, page capture time, the PostHog payload that carried it and its position there,
+ * and closed fields only. `at` is when the TAP observed it — arrival order, never proof of page order.
+ */
 export interface ObservedEvent {
     event: string; at: number; capturedAt?: number; bootId?: string; reason?: string;
+    batch?: number; batchIndex?: number;
     diagnosticRequestId?: string; diagnosticOutcome?: string;
 }
 export type FailureReportBinding = { state: 'bound'; reason: string | undefined } | { state: 'ambiguous' };
 
 const TERMINAL_FAILURE_OUTCOMES: ReadonlySet<string> = new Set(['failure', 'network_failure']);
+const UNPROVABLE = Symbol('unprovable');
 
 /**
- * #1258 R11 (PM RETURN 6144366004) — BIND each page failure report to ITS request, by the page's own emission order.
+ * The event the page emitted immediately before `report` (among this boot's coaching events), when that order is PROVABLE:
+ *  - within one PostHog payload, position is capture order (the payload is the page's FIFO queue at flush, so nothing
+ *    captured between two of its events can sit in another payload);
+ *  - across payloads, only page capture times that are ALL present and STRICTLY ordered prove order.
+ * A missing or tied capture time makes the order unprovable. Arrival order and observation time are never used.
+ */
+function provablePredecessor(report: ObservedEvent, boot: readonly ObservedEvent[]): ObservedEvent | null | typeof UNPROVABLE {
+    const inBatch = report.batch !== undefined && report.batchIndex !== undefined;
+    if (inBatch) {
+        const earlier = boot.filter((x) => x.batch === report.batch && x.batchIndex !== undefined && x.batchIndex < report.batchIndex!);
+        if (earlier.length > 0) return earlier.reduce((a, b) => (b.batchIndex! > a.batchIndex! ? b : a));
+    }
+    const others = boot.filter((x) => x !== report && !(inBatch && x.batch === report.batch));
+    if (others.length === 0) return null;
+    const at = report.capturedAt;
+    if (at === undefined || others.some((x) => x.capturedAt === undefined || x.capturedAt === at)) return UNPROVABLE;
+    const before = others.filter((x) => x.capturedAt! < at);
+    if (before.length === 0) return null;
+    const latest = Math.max(...before.map((x) => x.capturedAt!));
+    const top = before.filter((x) => x.capturedAt === latest);
+    return top.length === 1 ? top[0] : UNPROVABLE;
+}
+
+/**
+ * #1258 R11 (PM RETURN 6144366004; Browser PM RETURN 6145711360) — BIND each page failure report to ITS request, by the
+ * page's own PROVABLE emission order.
  *
  * On a terminal failure AISuggestions emits, synchronously and in this order: `ai_coaching_diagnostic` (carrying the
  * request's `diagnostic_request_id` and outcome `failure` / `network_failure`), then `practice_loop_review_failed` (the
- * page's closed `reason`). So a report is bound to request X only when, within the SAME page boot and in CAPTURE order,
- * the coaching event immediately before it is X's terminal failure. A report with any other predecessor binds to nothing;
- * a request that collects more than one report is `ambiguous`. A timestamp alone never binds, and no report serves two
- * requests.
+ * page's closed `reason`). So a report is bound to request X only when, within the SAME page boot, the coaching event
+ * provably immediately before it is X's terminal failure. A report with any other provable predecessor binds to nothing; a
+ * request that collects more than one report is `ambiguous`. A report whose predecessor CANNOT be proven (missing or tied
+ * capture times across payloads) is placed nowhere, and every terminal failure in that boot becomes `ambiguous` — it may
+ * have been theirs. No report serves two requests, and nothing binds by timestamp proximity or arrival order.
  */
 export function bindFailureReports(events: readonly ObservedEvent[]): Map<string, FailureReportBinding> {
-    const byBoot = new Map<string, Array<{ e: ObservedEvent; i: number }>>();
-    events.forEach((e, i) => {
-        if ((e.event !== 'ai_coaching_diagnostic' && e.event !== 'practice_loop_review_failed') || !e.bootId) return;
-        const list = byBoot.get(e.bootId) ?? [];
-        list.push({ e, i });
-        byBoot.set(e.bootId, list);
-    });
+    const byBoot = new Map<string, ObservedEvent[]>();
+    for (const e of events) {
+        if ((e.event !== 'ai_coaching_diagnostic' && e.event !== 'practice_loop_review_failed') || !e.bootId) continue;
+        byBoot.set(e.bootId, [...(byBoot.get(e.bootId) ?? []), e]);
+    }
     const bindings = new Map<string, FailureReportBinding>();
-    for (const list of byBoot.values()) {
-        list.sort((x, y) => ((x.e.capturedAt ?? x.e.at) - (y.e.capturedAt ?? y.e.at)) || (x.i - y.i));
-        list.forEach(({ e }, k) => {
-            if (e.event !== 'practice_loop_review_failed' || k === 0) return;
-            const prev = list[k - 1].e;
-            const requestId = prev.diagnosticRequestId;
-            const outcome = prev.diagnosticOutcome;
-            if (prev.event !== 'ai_coaching_diagnostic' || typeof requestId !== 'string' || requestId === ''
-                || typeof outcome !== 'string' || !TERMINAL_FAILURE_OUTCOMES.has(outcome)) return;
-            bindings.set(requestId, bindings.has(requestId) ? { state: 'ambiguous' } : { state: 'bound', reason: e.reason });
-        });
+    const isTerminalFailure = (e: ObservedEvent) => e.event === 'ai_coaching_diagnostic'
+        && typeof e.diagnosticRequestId === 'string' && e.diagnosticRequestId !== ''
+        && typeof e.diagnosticOutcome === 'string' && TERMINAL_FAILURE_OUTCOMES.has(e.diagnosticOutcome);
+    for (const boot of byBoot.values()) {
+        let unplaced = false;
+        for (const report of boot.filter((e) => e.event === 'practice_loop_review_failed')) {
+            const prev = provablePredecessor(report, boot);
+            if (prev === UNPROVABLE) { unplaced = true; continue; }
+            if (!prev || !isTerminalFailure(prev)) continue;
+            const id = prev.diagnosticRequestId!;
+            bindings.set(id, bindings.has(id) ? { state: 'ambiguous' } : { state: 'bound', reason: report.reason });
+        }
+        if (unplaced) for (const e of boot) if (isTerminalFailure(e)) bindings.set(e.diagnosticRequestId!, { state: 'ambiguous' });
     }
     return bindings;
 }
