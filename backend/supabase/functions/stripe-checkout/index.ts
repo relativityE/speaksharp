@@ -30,6 +30,10 @@ type StripeLike = {
   checkout: {
     sessions: {
       create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }>;
+      retrieve?: (id: string) => Promise<{
+        id: string; status?: string | null; url: string | null;
+        client_reference_id?: string | null; metadata?: Record<string,string> | null;
+      }>;
     };
   };
   prices: {
@@ -321,6 +325,31 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       if (!serviceKey) throw new Error('billing coordination unavailable');
       const admin: SupabaseClient = deps.createAdmin?.() ?? createClient(getEnv('SUPABASE_URL')!,serviceKey,
         { auth: { persistSession:false,autoRefreshToken:false } });
+      const existing=await admin.rpc('inspect_account_checkout',{p_user_id:user.id});
+      if (existing.error || !Array.isArray(existing.data) || existing.data.length>1) throw new Error('billing readback unavailable');
+      if (existing.data.length===1) {
+        const operation=existing.data[0] as {operation_id:unknown;session_id:unknown;phase:unknown};
+        if (operation.phase!=='open' || typeof operation.operation_id!=='string'
+          || typeof operation.session_id!=='string' || !stripeClient.checkout.sessions.retrieve) {
+          throw new Error('checkout issuance requires reconciliation');
+        }
+        const previous=await stripeClient.checkout.sessions.retrieve(operation.session_id);
+        if (previous.id!==operation.session_id || previous.client_reference_id!==user.id
+          || previous.metadata?.userId!==user.id) throw new Error('checkout ownership unverified');
+        if (previous.status==='open') {
+          if (!previous.url || new URL(previous.url).protocol!=='https:') throw new Error('checkout URL unavailable');
+          const reusable=await admin.rpc('confirm_account_checkout_reuse',{
+            p_user_id:user.id,p_operation_id:operation.operation_id,p_session_id:previous.id,
+          });
+          if (reusable.error || reusable.data!==true) throw new Error('checkout reuse unverified');
+          return createSuccessResponse({checkoutUrl:previous.url},responseHeaders);
+        }
+        if (previous.status!=='expired') throw new Error('checkout completion requires reconciliation');
+        const expired=await admin.rpc('reconcile_account_checkout_expiry',{
+          p_user_id:user.id,p_operation_id:operation.operation_id,p_session_id:previous.id,
+        });
+        if (expired.error) throw new Error('checkout expiry unverified');
+      }
       const reserved = await admin.rpc('begin_account_checkout',{p_user_id:user.id});
       if (reserved.error || typeof reserved.data!=='string' || !reserved.data) throw new Error('billing operation pending');
       const operationId = reserved.data;

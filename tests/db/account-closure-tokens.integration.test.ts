@@ -60,6 +60,34 @@ const issue = () => service('SELECT * FROM public.issue_account_closure_token($1
 const claim = (id = U, hash = HASH) => service('SELECT * FROM public.claim_account_closure_token($1,$2)', [id, hash]);
 
 describe('account deletion — actual SQL grants, durable claims and retained-trial behavior', () => {
+  it('normal purchase retry needs no deletion token, reuses only exact open checkout and recovers confirmed expiry',async()=>{
+    await apply();
+    const operation=(await service('SELECT begin_account_checkout($1) AS id',[U])).rows[0] as {id:string};
+    await service('SELECT record_account_checkout($1,$2,$3)',[U,operation.id,'cs']);
+    expect((await service('SELECT * FROM inspect_account_checkout($1)',[U])).rows).toEqual([{operation_id:operation.id,session_id:'cs',phase:'open'}]);
+    expect((await service('SELECT confirm_account_checkout_reuse($1,$2,$3) AS reusable',[U,operation.id,'cs'])).rows).toEqual([{reusable:true}]);
+    expect((await service('SELECT confirm_account_checkout_reuse($1,$2,$3) AS reusable',[OTHER,operation.id,'cs'])).rows).toEqual([{reusable:false}]);
+    await service('SELECT reconcile_account_checkout_expiry($1,$2,$3)',[U,operation.id,'cs']);
+    const next=(await service('SELECT begin_account_checkout($1) AS id',[U])).rows[0] as {id:string};
+    expect(next.id).not.toBe(operation.id);
+    expect((await db.query('SELECT * FROM account_closure_tokens')).rows).toEqual([]);
+  });
+  it('expiry recovery followed by closure cannot reopen or reserve checkout work',async()=>{
+    await apply(); await issue();
+    const operation=(await service('SELECT begin_account_checkout($1) AS id',[U])).rows[0] as {id:string};
+    await service('SELECT record_account_checkout($1,$2,$3)',[U,operation.id,'cs']);
+    await service('SELECT reconcile_account_checkout_expiry($1,$2,$3)',[U,operation.id,'cs']);
+    await claim();
+    await expect(service('SELECT inspect_account_checkout($1)',[U])).rejects.toThrow('account closure pending');
+    await expect(service('SELECT reconcile_account_checkout_expiry($1,$2,$3)',[U,operation.id,'cs'])).rejects.toThrow('account closure pending');
+    expect((await service('SELECT confirm_account_checkout_reuse($1,$2,$3) AS reusable',[U,operation.id,'cs'])).rows).toEqual([{reusable:false}]);
+    await expect(service('SELECT begin_account_checkout($1)',[U])).rejects.toThrow('billing operation pending');
+  });
+  it('an attached nonterminal subscription never permits a second purchase reservation',async()=>{
+    await apply();
+    await db.query("UPDATE user_profiles SET stripe_customer_id='cus',stripe_subscription_id='sub' WHERE id=$1",[U]);
+    await expect(service('SELECT begin_account_checkout($1)',[U])).rejects.toThrow('existing subscription requires billing management');
+  });
   it('rollout without drained legacy checkout writers refuses deletion', async () => {
     await apply(false); await issue();
     await expect(claim()).rejects.toThrow('checkout reconciliation required');

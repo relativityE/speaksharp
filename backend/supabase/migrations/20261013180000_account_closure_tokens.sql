@@ -62,6 +62,8 @@ DECLARE v_operation uuid;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
   IF NOT EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id) THEN RAISE EXCEPTION 'account unavailable'; END IF;
+  IF EXISTS(SELECT 1 FROM public.user_profiles WHERE id=p_user_id AND stripe_subscription_id IS NOT NULL)
+    THEN RAISE EXCEPTION 'existing subscription requires billing management'; END IF;
   INSERT INTO public.account_billing_fences(user_id) VALUES(p_user_id) ON CONFLICT DO NOTHING;
   IF EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND phase='closing')
     OR EXISTS(SELECT 1 FROM public.account_closure_attempts WHERE user_id=p_user_id AND phase<>'failed')
@@ -69,6 +71,49 @@ BEGIN
     THEN RAISE EXCEPTION 'billing operation pending'; END IF;
   INSERT INTO public.account_checkout_operations(user_id) VALUES(p_user_id) RETURNING operation_id INTO v_operation;
   RETURN v_operation;
+END;
+$$;
+
+-- Authenticated checkout owns normal retry; deletion verification is not a
+-- prerequisite. These RPCs are service-role-only, called after verified getUser.
+CREATE FUNCTION public.inspect_account_checkout(p_user_id uuid)
+RETURNS TABLE(operation_id uuid,session_id text,phase text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  IF NOT EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id)
+    OR EXISTS(SELECT 1 FROM public.account_billing_fences f WHERE f.user_id=p_user_id AND f.phase='closing')
+    OR EXISTS(SELECT 1 FROM public.account_closure_attempts a WHERE a.user_id=p_user_id AND a.phase<>'failed')
+    THEN RAISE EXCEPTION 'account closure pending'; END IF;
+  RETURN QUERY SELECT o.operation_id,o.session_id,o.phase FROM public.account_checkout_operations o
+    WHERE o.user_id=p_user_id AND o.phase<>'settled';
+END;
+$$;
+
+CREATE FUNCTION public.confirm_account_checkout_reuse(p_user_id uuid,p_operation_id uuid,p_session_id text)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  IF NOT EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id)
+    OR EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND phase='closing')
+    OR EXISTS(SELECT 1 FROM public.account_closure_attempts WHERE user_id=p_user_id AND phase<>'failed')
+    THEN RETURN false; END IF;
+  RETURN EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id
+    AND operation_id=p_operation_id AND session_id=p_session_id AND phase='open');
+END;
+$$;
+
+CREATE FUNCTION public.reconcile_account_checkout_expiry(p_user_id uuid,p_operation_id uuid,p_session_id text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  IF NOT EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id)
+    OR EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND phase='closing')
+    OR EXISTS(SELECT 1 FROM public.account_closure_attempts WHERE user_id=p_user_id AND phase<>'failed')
+    THEN RAISE EXCEPTION 'account closure pending'; END IF;
+  UPDATE public.account_checkout_operations SET phase='settled'
+    WHERE user_id=p_user_id AND operation_id=p_operation_id AND session_id=p_session_id AND phase='open';
+  IF NOT FOUND THEN RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
 END;
 $$;
 
@@ -225,6 +270,11 @@ RETURNS TABLE(user_id uuid, email text, customer_id text, request_id uuid, expir
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE v_row public.account_closure_tokens%ROWTYPE; v_customer text; v_status text;
 BEGIN
+  -- Canonical webhook SELECT ... FOR UPDATE precedes the profile's billing
+  -- trigger/advisory lock. Closure must take the same row→advisory order.
+  SELECT p.stripe_customer_id, p.subscription_status INTO v_customer, v_status
+    FROM public.user_profiles p WHERE p.id = p_user_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'account profile unavailable'; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
   SELECT t.* INTO v_row FROM public.account_closure_tokens t
     JOIN auth.users u ON u.id = t.user_id
@@ -242,9 +292,6 @@ BEGIN
     THEN RAISE EXCEPTION 'checkout reconciliation required'; END IF;
   INSERT INTO public.account_billing_fences(user_id,phase,request_id) VALUES(p_user_id,'closing',v_row.request_id)
     ON CONFLICT ON CONSTRAINT account_billing_fences_pkey DO UPDATE SET phase='closing',request_id=EXCLUDED.request_id;
-  SELECT p.stripe_customer_id, p.subscription_status INTO v_customer, v_status
-    FROM public.user_profiles p WHERE p.id = p_user_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'account profile unavailable'; END IF;
   IF v_status = 'pro' AND (v_customer IS NULL OR btrim(v_customer) = '') THEN
     RAISE EXCEPTION 'paid billing identity unavailable';
   END IF;
@@ -391,6 +438,12 @@ $$;
 REVOKE ALL ON FUNCTION public.issue_account_closure_token(uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.begin_account_checkout(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.begin_account_checkout(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.inspect_account_checkout(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.inspect_account_checkout(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.confirm_account_checkout_reuse(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.confirm_account_checkout_reuse(uuid,uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION public.reconcile_account_checkout_expiry(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.reconcile_account_checkout_expiry(uuid,uuid,text) TO service_role;
 REVOKE ALL ON FUNCTION public.record_account_checkout(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.record_account_checkout(uuid,uuid,text) TO service_role;
 REVOKE ALL ON FUNCTION public.settle_account_checkout(uuid,text,text,text,uuid) FROM PUBLIC,anon,authenticated;
