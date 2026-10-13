@@ -380,12 +380,70 @@ describe('R8/R9 — wait boundedly for the OBSERVED events before leaving the pa
         expect(wait).toBeGreaterThan(share.indexOf("'Thanks — we’ve got it.'"));
         expect(wait).toBeLessThan(share.indexOf("from('user_issue_reports')"));
         const nav = read('tests/live/rwt-products-navigation.live.spec.ts');
-        expect(nav.indexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeLessThan(nav.indexOf("getByTestId('sign-out-button')"));
+        expect(nav.indexOf('signOutThroughProduct(page as never)'), 'the sign-out call is present').toBeGreaterThan(-1);
+        expect(nav.indexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeLessThan(nav.indexOf('signOutThroughProduct(page as never)'));
         expect(nav.lastIndexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeLessThan(nav.indexOf("receipt.row('journey_step sent'"));
         const openMic = read('tests/live/rwt-open-mic-first-session.live.spec.ts');
         expect(openMic.indexOf("tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 })")).toBeLessThan(openMic.indexOf("receipt.row('telemetry sent'"));
         const focus = read('tests/live/helpers/rwtFocusPointsJourney.ts');
         expect(focus.indexOf("tap.awaitObserved(page, { coverage_evaluation: 1 })")).toBeLessThan(focus.indexOf("tap.sent('coverage_evaluation')"));
         expect(journey).not.toMatch(/settleBeforeLeaving/);
+    });
+});
+
+describe('Sign Out compatibility (PM 6149152089): the product control on either header, failure reported', async () => {
+    const { signOutThroughProduct } = await import('../live/helpers/rwtJourney');
+
+    /** A header: the shipped direct button, or #1601's account menu that starts CLOSED and opens from the avatar. */
+    const header = (shape: { direct: boolean; avatar: boolean; menuItem: boolean }) => {
+        const clicks: string[] = [];
+        let open = false;
+        const visible = (id: string) => (id === 'nav-sign-out-button' ? shape.direct || (open && shape.menuItem)
+            : id === 'nav-account-avatar' ? shape.avatar : false);
+        const loc = (ids: string[]): Record<string, unknown> => ({
+            ids,
+            or: (other: { ids: string[] }) => loc([...ids, ...other.ids]),
+            first: () => loc(ids),
+            isVisible: async () => ids.some(visible),
+            waitFor: async () => { if (!ids.some(visible)) throw new Error(`timeout waiting for ${ids.join('|')}`); },
+            click: async () => {
+                const id = ids.find(visible);
+                if (!id) throw new Error(`not visible: ${ids.join('|')}`);
+                clicks.push(id);
+                if (id === 'nav-account-avatar') open = true;
+            },
+        });
+        return { page: { getByTestId: (id: string) => loc([id]) }, clicks };
+    };
+
+    it('CONTROL: the shipped direct button is clicked as-is, without touching the avatar', async () => {
+        const h = header({ direct: true, avatar: true, menuItem: false });
+        expect(await signOutThroughProduct(h.page as never)).toBe('direct');
+        expect(h.clicks).toEqual(['nav-sign-out-button']);
+    });
+
+    it('an initially CLOSED account menu is opened from the avatar, then its Sign Out item is clicked', async () => {
+        const h = header({ direct: false, avatar: true, menuItem: true });
+        expect(await signOutThroughProduct(h.page as never)).toBe('menu');
+        expect(h.clicks).toEqual(['nav-account-avatar', 'nav-sign-out-button']);
+    });
+
+    it('no control, or a menu without a Sign Out item, THROWS — never a silent pass', async () => {
+        await expect(signOutThroughProduct(header({ direct: false, avatar: false, menuItem: false }).page as never)).rejects.toThrow(/timeout/);
+        const h = header({ direct: false, avatar: true, menuItem: false });
+        await expect(signOutThroughProduct(h.page as never)).rejects.toThrow(/timeout/);
+        expect(h.clicks).toEqual(['nav-account-avatar']);
+    });
+
+    it('both callers use the helper; the session-cleared and sign-in UID checks remain; Products cleanup reports failure', () => {
+        const journey = read('tests/live/helpers/rwtJourney.ts');
+        const signIn = journey.slice(journey.indexOf('const signOutAndSignIn = async'), journey.indexOf('return { uid, signupMs, signOutAndSignIn }'));
+        expect(signIn).toContain('await signOutThroughProduct(page as never);');
+        expect(signIn).toContain("message: 'sign-out must clear the session' }).toBeFalsy()");
+        expect(signIn).toContain('.toBe(uid);');
+        const products = read('tests/live/rwt-products-navigation.live.spec.ts');
+        expect(products).toContain('signOutPath = await signOutThroughProduct(page as never)');
+        expect(products).toMatch(/receipt\.row\('signed out after the journey', sessionCleared \? 'PASS' : 'FAIL'/);
+        expect(products).not.toMatch(/sign-out-button'\)[\s\S]{0,160}\.catch\(\(\) => undefined\)/);
     });
 });

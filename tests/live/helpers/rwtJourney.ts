@@ -201,6 +201,36 @@ export function newDisposableEmail(label: string): string {
     return `${RWT_ACCOUNT_PREFIX}${unique}@${process.env.LIVE_TEST_EMAIL_DOMAIN || 'example.com'}`;
 }
 
+/** The part of a Playwright locator the sign-out helper uses (so it can be exercised offline). */
+interface SignOutLocator {
+    or(other: SignOutLocator): SignOutLocator;
+    first(): SignOutLocator;
+    isVisible(): Promise<boolean>;
+    waitFor(options: { state: 'visible'; timeout: number }): Promise<void>;
+    click(options?: { timeout?: number }): Promise<void>;
+}
+
+/**
+ * #1601 compatibility (PM 6149152089, P1 r4252374522) — sign out through the product's OWN control on either header:
+ * the direct Sign Out button shipped today, or the account menu (#1601) that opens from the signed-in avatar. A visible
+ * direct button is used as-is; otherwise the avatar is REQUIRED, opened, and its `nav-sign-out-button` item REQUIRED
+ * and clicked. Throws when neither path is present, so a caller can report the failure instead of passing silently.
+ */
+export async function signOutThroughProduct(page: { getByTestId(id: string): SignOutLocator }, timeoutMs = 30_000): Promise<'direct' | 'menu'> {
+    const direct = page.getByTestId('sign-out-button').or(page.getByTestId('nav-sign-out-button')).first();
+    const avatar = page.getByTestId('nav-account-avatar');
+    await direct.or(avatar).first().waitFor({ state: 'visible', timeout: timeoutMs });
+    if (await direct.isVisible()) {
+        await direct.click({ timeout: 10_000 });
+        return 'direct';
+    }
+    await avatar.click({ timeout: 10_000 });
+    const item = page.getByTestId('nav-sign-out-button');
+    await item.waitFor({ state: 'visible', timeout: 10_000 });
+    await item.click({ timeout: 10_000 });
+    return 'menu';
+}
+
 /**
  * Fresh disposable signup through the real form. The generated password exists only inside the returned
  * `signInAgain` closure (trace, video and screenshots are off in both suites, so no artifact can hold it); the UID
@@ -226,9 +256,7 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
     const uid = (await readUid()) ?? '';
     const signupMs = Date.now() - startedAt;
     const signOutAndSignIn = async () => {
-        const signOut = page.getByTestId('sign-out-button').or(page.getByTestId('nav-sign-out-button')).first();
-        await expect(signOut, 'the product offers sign-out').toBeVisible({ timeout: 30_000 });
-        await signOut.click();
+        await signOutThroughProduct(page as never);
         await expect.poll(readUid, { timeout: 30_000, message: 'sign-out must clear the session' }).toBeFalsy();
         const signinStarted = Date.now();
         await page.goto('/auth/signin');

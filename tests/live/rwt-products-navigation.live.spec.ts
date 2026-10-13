@@ -33,6 +33,7 @@ import {
     rwtPreconditionFailures,
     suppressPageSnapshot,
     telemetryClassRows,
+    signOutThroughProduct,
 } from './helpers/rwtJourney';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { RWT_BROWSER_IDENTITY_ARGS } from './helpers/rwtBrowserIdentity';
@@ -192,8 +193,16 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             // #1258 R9 (run 38312345563): the journey takes seconds; wait (bounded) until its navigation telemetry is
             // observed leaving the page before signing out, or the queued events are lost when the page goes.
             receipt.meta.navigationTelemetryObserved = (await tap.awaitObserved(page, { journey_step: 1 })).observed;
-            // Leave the shared account signed out through the product's own control; it is never deleted.
-            await page.getByTestId('sign-out-button').or(page.getByTestId('nav-sign-out-button')).first().click({ timeout: 10_000 }).catch(() => undefined);
+            // Leave the shared account signed out through the product's own control; it is never deleted. A failed
+            // sign-out is REPORTED (PM 6149152089), never swallowed: the next run would otherwise start signed in.
+            let signOutPath: 'direct' | 'menu' | null = null;
+            try { signOutPath = await signOutThroughProduct(page as never); } catch { signOutPath = null; }
+            const sessionCleared = signOutPath !== null
+                && await expect.poll(() => readUid(page), { timeout: 30_000 }).toBeFalsy().then(() => true, () => false);
+            receipt.row('signed out after the journey', sessionCleared ? 'PASS' : 'FAIL',
+                sessionCleared ? 'the product sign-out cleared the session'
+                    : signOutPath === null ? 'no product sign-out control could be used' : 'sign-out did not clear the session',
+                { path: signOutPath ?? 'none', sessionCleared });
             if (historyUnproven) throw new Error('HOLD returning history: the returning-user account has no saved session, so returning history is unproven');
         } finally {
             await tap.awaitObserved(page, { journey_step: 1 });
