@@ -92,10 +92,8 @@ describe('Account billing return with the real ProfileGuard and shared profile c
     expect(client.getQueryState(key)?.error).toBeNull();
     expect(client.getQueryData(key)).toEqual(profile);
     expect(profileService.getById).toHaveBeenCalledTimes(1);
-    if (boundary === 'timeout') {
-      expect(screen.getByText('Pro · Active')).toBeVisible();
-      expect(screen.queryByText('Profile Sync Failed')).not.toBeInTheDocument();
-    }
+    expect(screen.queryByText('Pro · Active') !== null).toBe(boundary === 'timeout');
+    expect(screen.queryByText('Profile Sync Failed')).not.toBeInTheDocument();
   });
 
   it('ordinary Account visits do not issue billing-return polls', async () => {
