@@ -67,6 +67,14 @@ on:
         description: "Set to 'true' to ALSO run the PAID Stripe live-readiness specs in Gate 3 (checkout / webhook / billing-portal). Default empty = CONTROLLED non-paid scope: paid Stripe readiness is a separate paid-launch concern and does NOT gate the controlled soft release."
         required: false
         default: ''
+      rwt_human_reflex_ms:
+        description: 'RWT ONLY — human think-time in ms before every press, fill, check, select and key press in tests/live/rwt-*.live.spec.ts, so a journey models a person, not a machine (PO 2026-10-12). 500 = default; 1000 only if 500 still fails. Recorded in each receipt as meta.humanReflexMs.'
+        required: false
+        default: '500'
+        type: choice
+        options:
+          - '500'
+          - '1000'
 
 permissions:
   contents: read
@@ -333,6 +341,7 @@ jobs:
           # RWT two-product journeys: the per-dispatch write acknowledgement and the disposable-account email domain.
           RWT_WRITES_ACK: ${{ github.event.inputs.rwt_writes_ack }}
           RWT_CANARY_CLAIM_ACK: ${{ github.event.inputs.rwt_canary_claim_ack }}
+          RWT_HUMAN_REFLEX_MS: ${{ github.event.inputs.rwt_human_reflex_ms }}
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
         run: |
           echo "DIAGNOSTIC_SINGLE_SPEC=true"
