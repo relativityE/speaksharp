@@ -1,0 +1,67 @@
+name: "Retention-expiry lint proof (plpgsql_check)"
+
+# #1258 P0 follow-up (PM 6150068041). Applying 20261013120000 to Production deployed the reviewed definitions, but the
+# exact-apply lint gate failed: `supabase db lint` (the plpgsql_check extension) reported a NEW 42804 warning on
+# public.expire_transcripts_newest_one (run 38428832342). 20261013140000 types the two empty-array literals.
+#
+# A test that only shows the function still runs proves nothing about a static finding, so this job runs the SAME
+# checker on a throwaway PostgreSQL 17: it must REPRODUCE the 42804 finding after 20261013120000 and find it GONE (with
+# no new finding) after 20261013140000. Disposable cluster on the runner; no secret, no Production connection.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20261013120000_retention_expiry_without_superuser_1258.sql'
+      - 'backend/supabase/migrations/20261013140000_retention_expiry_typed_empty_array_1258.sql'
+      - 'tests/db/run-retention-expiry-lint-proof.sh'
+      - 'tests/db/retention-expiry-no-superuser-1258.integration.test.ts'
+      - '.github/workflows/retention-expiry-lint-proof.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retention-expiry-lint-proof-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-proof:
+    name: "plpgsql_check RED/GREEN (postgres:17)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      # BOUNDED apt, as in atomic-completion-concurrency-matrix.yml: an un-timed network hang is a known failure mode.
+      - name: Install PostgreSQL 17 and plpgsql_check from apt.postgresql.org (bounded)
+        run: |
+          timeout 180 sudo apt-get update -qq || { echo "::error::apt-get update exceeded its 180s bound"; exit 1; }
+          timeout 180 sudo apt-get install -y -qq postgresql-common \
+            || { echo "::error::postgresql-common install exceeded its 180s bound"; exit 1; }
+          timeout 240 sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+            || { echo "::error::adding apt.postgresql.org exceeded its 240s bound"; exit 1; }
+          timeout 300 sudo apt-get install -y -qq postgresql-17 postgresql-17-plpgsql-check \
+            || { echo "::error::postgresql-17 / plpgsql_check install exceeded its 300s bound"; exit 1; }
+          /usr/lib/postgresql/17/bin/postgres --version
+
+      - name: Reproduce the Production lint finding, then prove the fix removes it
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: |
+          # `set -o pipefail` is REQUIRED: GitHub runs steps with `bash -e` only, so a pipeline would otherwise take
+          # TEE's exit status and a FAIL would report success.
+          set -o pipefail
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          bash tests/db/run-retention-expiry-lint-proof.sh | tee lint-proof.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Retention-expiry lint proof — postgres:17 + plpgsql_check"
+            echo '```'
+            cat lint-proof.txt 2>/dev/null || echo 'no result captured'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
