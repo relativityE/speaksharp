@@ -118,7 +118,23 @@
      patch_errors = []
      accepted = apply_board_updates(updates, errors=patch_errors)
      if not accepted:
-@@ -6600,6 +6637,11 @@
+@@ -6377,7 +6414,14 @@
+         a = agents.get(aid) or {}
+         ast = str(a.get("status") or "idle")
+         board_status = str(base.get('status') or 'unknown')
+-        if pid == 'cli_pm' and ast in ('idle', 'available') and not a.get('paused') and get_setting('pm_runtime_ready', '0') == '1':
++        registration = registration_snapshot().get(pid, {})
++        base['identity_state'] = registration.get('state','starting' if pid=='cli_pm' else 'not_requested')
++        if pid == 'cli_pm' and get_setting('pm_runtime_ready','0') == '1' and registration.get('state') == 'awaiting_ack' and ast not in ('auth_required','error') and not a.get('paused'):
++            base['status'] = 'active'
++            base['task_blocker'] = base.get('blocker') or ''
++            base['blocker'] = ''
++            base['coordination_state'] = 'negotiating_sessions'
++        elif pid == 'cli_pm' and ast in ('idle', 'available') and not a.get('paused') and get_setting('pm_runtime_ready', '0') == '1':
+             base['status'] = 'available'
+             base['task_blocker'] = base.get('blocker') or ''
+             base['blocker'] = ''
+@@ -6600,6 +6644,11 @@
      return [r['action_id'] for r in notices + tasks]
  
  
@@ -130,7 +146,24 @@
  def transport_status():
      mode = pm_transport_mode()
      codex_binary = resolved_bin(CODEX_BIN)
-@@ -6666,6 +6708,7 @@
+@@ -6615,6 +6664,16 @@
+         pm_label = "not configured"
+     actors = {}
+     for actor_id in ('cli_dev', 'app_dev', 'browser_pm', 'cli_pm'):
++        if actor_id == 'cli_pm':
++            # CLI PM is the board's own sole executor, not a separately paired
++            # recipient. Missing actor-routes.json must not disable its startup.
++            native = get_agent('pm') or {}
++            identity = registration_snapshot().get('cli_pm', {})
++            actors[actor_id] = {'configured': configured, 'transport': 'native_pm_executor',
++                'session_id': native.get('session_id'), 'remote': False,
++                'live_delivery_proven': False, 'identity_state': identity.get('state','starting'),
++                'blocker': '' if configured else 'Native PM runtime unavailable: ' + pm_label}
++            continue
+         try:
+             route = configured_actor_route(actor_id)
+             with DB_LOCK, con() as c:
+@@ -6666,6 +6725,7 @@
          "claude_worker_configured": bool(resolved_bin(CLAUDE_BIN)),
          "claude_subscription_mode": True,
          "claude_permission_mode": PERMISSION_MODE,
@@ -138,7 +171,7 @@
          "agent_routes": actors,
          "external_notification_configured": external_ready,
          "external_notification_status": ("Recipient routes configured; inspect each route's automatic-wake receipt proof"
-@@ -6860,6 +6903,9 @@
+@@ -6860,6 +6920,9 @@
          except Exception:
              return self.sendj(400, {"error": "invalid json"})
  
@@ -148,7 +181,7 @@
          if self.path == '/api/agent-route-retire':
              if not isinstance(b, dict):
                  return self.sendj(400, {'error': 'JSON object required'})
-@@ -7054,6 +7100,60 @@
+@@ -7054,6 +7117,60 @@
  
      def log_message(self, *args):
          pass
@@ -211,12 +244,21 @@
  def prepare_app_version_notice():
 --- a/static/index.html
 +++ b/static/index.html
+@@ -90,7 +90,7 @@
+ function routeDetails(id){const r=dashboard?.agent_routes?.[id];if(!r)return '';const d=r.last_task_delivery||r.last_delivery||{};const w=r.worker;return `${w?'<div class="k">Persistent worker</div><div>'+esc(w.worker_id)+' · thread '+esc(w.thread_id)+' · '+esc(w.status)+' · '+(w.recent?'heartbeat live':'heartbeat stale')+'</div><div>'+esc(w.error||'')+'</div>':''}<div class="k">Recipient route</div><div>${esc(r.configured?(r.transport+' · '+r.session_id):'Not paired')}</div><div class="k">Delivery ID / action</div><div>${esc([d.id?'#'+d.id:'',d.action_id||''].filter(Boolean).join(' · ')||'No delivery observed')}</div><div class="k">Receipt / result</div><div>${esc(d.status||'No delivery')} · ${d.receipt_at?'receipt recorded':'receipt missing'} · ${d.result_at?'result recorded':'result missing'}</div><div class="k">Exact delivery error</div><div>${esc(d.error||r.blocker||'No error recorded')}</div><div class="k">Host preflight</div><div>${esc(r.host_preflight||'Not verified on installed host')}</div>`;}
+ function showAgent(id,refresh=false){if(!refresh&&detail.style.display!=='none'&&detailBox.dataset.agent===id){closeDetail();return;}let p=dashboard?.players?.[id]||{};let w=p.work_item||{};detail.style.display='block';detailBox.dataset.agent=id;detailBox.innerHTML=`<div class="row spread"><div class="big">${esc(N[id]||id)}</div><span>${badge(p.status,p)} <button onclick="closeDetail()">Close</button></span></div><div class="detailGrid"><div class="k">Working on</div><div>${esc(w.title||p.task||'No current task')}</div><div class="k">Blocked?</div><div>${esc(p.blocker||p.task_blocker||w.sequence_blocker||w.dispatch_hold||w.blocker||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status has no current explanation; CLI PM must reconcile':'No'))}</div><div class="k">Next action</div><div>${esc(w.next_action||p.opportunity||'No next action recorded')}</div><div class="k">Branch</div><div>${esc(w.branch||'—')}</div><div class="k">PO needed</div><div>${w.po_required?'YES':'NO'}</div><div class="k">Status age</div><div>${age(p.age_seconds)}${p.checkpoint_warning?' · '+esc(p.checkpoint_warning):''}</div>${routeDetails(id)}</div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.toggle('selected',x.dataset.id===id));}
+ function showPr(pr){let [st,cls,pos]=prState(pr,dashboard?.current?.number);detail.style.display='block';detailBox.removeAttribute('data-agent');detailBox.innerHTML=`<div class="row spread"><div class="big">PR #${esc(pr.number)} · ${esc(pr.title||'')}</div><span class="statusBadge ${cls}">${st}</span></div><div class="detailGrid"><div class="k">RWT position</div><div>${esc(pos)}</div><div class="k">Head</div><div>${esc((pr.headRefOid||pr.head||'').slice(0,12)||'—')}</div><div class="k">Checks</div><div>${esc(pr.checks?`${pr.checks.green||0}/${pr.checks.total||0} green${pr.checks.running?' · '+pr.checks.running+' running':''}${pr.checks.failed?' · '+pr.checks.failed+' failed':''}`:checksSummary(pr))}</div><div class="k">Review</div><div>${esc(pr.reviewDecision||'—')}</div><div class="k">Updated</div><div>${esc(pr.updatedAt||pr.closedAt||pr.mergedAt||'—')}</div><div class="k">GitHub</div><div><a href="${esc(pr.url)}" target="_blank">Open PR</a></div></div>`;document.querySelectorAll('.agent').forEach(x=>x.classList.remove('selected'));}
+-function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div><div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
++function renderAgents(ps){let order=['po','cli_pm','cli_dev','app_dev','browser_pm'];agents.innerHTML=order.map(id=>{let p=ps[id]||{};let w=p.work_item||{};let route=id==='cli_pm'?null:dashboard?.agent_routes?.[id];let why=(p.coordination_state==='negotiating_sessions'?'Starting coordinator · requesting agent session ACKs':null)||(id==='cli_pm'&&p.coordination_state==='receiving_events'?('Receiving events'+(p.task_blocker?' · task hold: '+p.task_blocker:'')):null)||(['error','auth_required'].includes(p.agent_status)?p.blocker:null)||(route?.configured===false?'Delivery blocked: '+route.blocker:null)||p.checkpoint_warning||p.blocker||w.sequence_blocker||w.blocker||p.opportunity||(p.holding?'Recorded task hold; current reason unverified':p.status==='blocked'?'Blocked status needs a current explanation':'No blocker');return `<div class="agent ${id}" data-id="${id}" onclick="showAgent('${id}')"><div class="row spread"><span class="agentName">${N[id]}</span>${badge(p.status,p)}</div><div class="agentTask" title="${esc(w.title||p.task||'No current task')}">${esc(w.title||p.task||'No current task')}</div><div class="agentWhy" title="${esc(why)}">${esc(why)}</div></div>`}).join('')}
+ function renderQueue(q){queue.innerHTML=(q||[]).map(x=>`<div class="workItem"><div><div class="itemTitle">${esc(x.title||x.item_key||'Untitled')}</div><div class="itemMeta">${esc(x.sequence_blocker||x.dispatch_hold||x.blocker||x.next_action||'')}</div></div><div>${ownerTag(x.owner)} ${badge(x.state)}</div></div>`).join('')||'<div class="muted">Queue empty</div>'}
+ function prRow(pr,completed=false){let [st,cls,pos]=prState(pr,dashboard?.current?.number);let obj=encodeURIComponent(JSON.stringify(pr));return `<div class="prItem ${dashboard?.current&&Number(pr.number)===Number(dashboard.current.number)?'current':''} ${completed?'completed':''}" onclick="showPr(JSON.parse(decodeURIComponent('${obj}')))"><div><div class="prTitle"><span class="prNumber">#${pr.number}</span>${esc(pr.title||'')}</div><div class="prMeta">${esc(pos)} · ${esc(checksSummary(pr))}</div></div><span class="statusBadge ${cls}">${st}</span></div>`}
+ function renderPrs(d){let open=(d.open_prs||[]).slice(0,4);let closed=[...(d.recent_completed||[])].sort((a,b)=>String(b.mergedAt||b.closedAt||b.updatedAt||'').localeCompare(String(a.mergedAt||a.closedAt||a.updatedAt||''))).slice(0,4);openPrs.innerHTML=open.map(x=>prRow(x)).join('')||'<div class="muted">No open PRs</div>';closedPrs.innerHTML=closed.map(x=>prRow(x,true)).join('')||'<div class="muted">No recent closed PRs</div>';if(d.current){currentPr.innerHTML=prRow({...d.current,number:d.current.number,title:d.current.title,url:d.current.url,headRefOid:d.current.head,isDraft:d.current.draft,state:d.current.state,reviewDecision:d.current.reviewDecision,statusCheckRollup:d.current.statusCheckRollup||[]});}else currentPr.innerHTML='<div class="decision warn"><div class="big">No Current PR</div><div class="muted" style="margin-top:4px">PM should select the active release PR when one exists.</div></div>'}
 @@ -98,11 +98,11 @@
  function renderDashboard(d){dashboard=d;document.querySelector('.version').textContent='Board v'+d.version+' ('+(d.build||'original')+') · MAIN GOAL: RWT CLOSED · observed '+(d.observed_at||'unknown')+' · GitHub checked '+(d.github_observed_at||'unknown')+(d.github_error?' · GitHub error: '+d.github_error:'')+' · '+(d.reconciliation||'Reconciliation unknown')+' · '+(d.comms?.outbox||'Outbox pending')+(d.comms?.error?' · Watcher error: '+d.comms.error:'');let b=d.blocker||{};let po=Object.values(d.players||{}).find(x=>x.player_id==='po')||{};let poNeed=!!b.po_required||String(po.status||'').toLowerCase()==='action-needed';blockerTitle.textContent=b.text||'No blocker recorded';blockerMeta.textContent=`Owner: ${N[b.owner]||b.owner||'Unassigned'} · blocked ${age(b.age_seconds)} · ${b.cause||'No cause recorded'}`;blockerNext.innerHTML=`<span class="strong">Next:</span> ${esc(b.next_action||'No next action recorded')}`;blocker.className='decision '+(String(b.text||'').toLowerCase().includes('failed')?'bad':'warn');poDecisionTitle.textContent=poNeed?'ACTION NEEDED':'NO ACTION NEEDED';poDecisionMeta.textContent=poNeed?(po.task||b.next_action||'Decision requested'):'No PO decision is currently recorded; execution gates still apply.';poDecision.className='decision '+(poNeed?'warn':'good');renderAgents(d.players||{});renderQueue(d.priority_queue||[]);renderPrs(d);renderLedger(d);const selectedAgent=detailBox.dataset.agent;if(selectedAgent)showAgent(selectedAgent,true)}
  async function refreshDashboard(){try{renderDashboard(await api('/api/dashboard'))}catch(e){blockerTitle.textContent='Dashboard error';blockerMeta.textContent=e.message}}
  function deliveryHtml(d){let [t,c]=statusNorm(d.status);let task=d.work_item_key?` · task ${esc(d.work_item_key)} · ${esc(d.target_branch||'branch unknown')} · ${esc(d.target_worktree||'worktree unknown')}`:'';return `<div class="delivery"><strong>#${d.id}</strong> ${esc(d.source_actor)}→${esc(d.recipient)} <span class="statusBadge ${c}">${esc(d.delivery_label||t)}</span> · attempt ${d.attempts||0} · ${d.historical?'history':'current'} · ${age(d.age_seconds)}<div class="muted">${esc(d.delivery_stage||t)}${task}</div>${d.target_actor_id?`<div class="tiny">Recipient: ${esc(d.target_actor_id)} · ${esc(d.target_transport||'route unknown')} · session ${esc(d.target_session_id||'unknown')} · action ${esc(d.task_action_id||'not assigned')} · ${d.task_receipt_at?'receipt recorded':'receipt missing'} · ${d.task_result_at?'result recorded':'result missing'}</div>`:''}${d.github_comment_id&&d.status!=='responded'?`<div class="muted">Prior publication: GitHub comment ${esc(d.github_comment_id)} · current attempt ${esc(d.status)}</div>`:''}${d.dispatch_blocker?`<div class="warn">${esc(d.dispatch_blocker)}</div>`:''}${d.error?`<div class="error">${esc(d.error)}</div>`:''}${d.recovery_action?`<div class="muted">${esc(d.recovery_action)}</div>`:''}${String(d.status).startsWith('failed')&&!d.recovery_action?.startsWith('PM recovery queued')?`<button onclick="retryDelivery(${d.id})">retry</button>`:''}</div>`}
 -async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(!r.configured?'not paired'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'paired; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;const selectedRoute=t.agent_routes?.[pairActor.value];if(selectedRoute?.worker){const w=selectedRoute.worker;pairResult.textContent='Worker '+w.worker_id+' · thread '+w.thread_id+' · '+w.status+(w.recent?' · heartbeat live':' · heartbeat stale')+(w.error?' · '+w.error:'')+' · '+(w.actions||[]).map(a=>a.action_id+': '+a.state+(a.error?' ('+a.error+')':'')).join('; ')}else if(selectedRoute?.last_delivery){const l=selectedRoute.last_delivery;pairResult.textContent=l.action_id+' · '+l.status+(l.receipt_at?' · recipient receipt recorded':' · no recipient receipt')+(l.result_at?' · result recorded':'')+(l.error?' · '+l.error:'')+(l.fallback_queue_id?' · PM fallback reminder queued #'+l.fallback_queue_id:'')+' · '+(selectedRoute.live_delivery_proven?'automatic wake proven':'automatic wake unproven')};activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
-+async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const identities=t.session_registration||{};const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(identities[id]?.state||'identity not requested')+' · '+(!r.configured?'not paired'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'paired; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;const selectedRoute=t.agent_routes?.[pairActor.value];if(selectedRoute?.worker){const w=selectedRoute.worker;pairResult.textContent='Worker '+w.worker_id+' · thread '+w.thread_id+' · '+w.status+(w.recent?' · heartbeat live':' · heartbeat stale')+(w.error?' · '+w.error:'')+' · '+(w.actions||[]).map(a=>a.action_id+': '+a.state+(a.error?' ('+a.error+')':'')).join('; ')}else if(selectedRoute?.last_delivery){const l=selectedRoute.last_delivery;pairResult.textContent=l.action_id+' · '+l.status+(l.receipt_at?' · recipient receipt recorded':' · no recipient receipt')+(l.result_at?' · result recorded':'')+(l.error?' · '+l.error:'')+(l.fallback_queue_id?' · PM fallback reminder queued #'+l.fallback_queue_id:'')+' · '+(selectedRoute.live_delivery_proven?'automatic wake proven':'automatic wake unproven')};activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
++async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const identities=t.session_registration||{};const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(identities[id]?.state||'identity not requested')+' · '+(r.transport==='native_pm_executor'?'native coordinator':!r.configured?'not paired'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'paired; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;const selectedRoute=t.agent_routes?.[pairActor.value];if(selectedRoute?.worker){const w=selectedRoute.worker;pairResult.textContent='Worker '+w.worker_id+' · thread '+w.thread_id+' · '+w.status+(w.recent?' · heartbeat live':' · heartbeat stale')+(w.error?' · '+w.error:'')+' · '+(w.actions||[]).map(a=>a.action_id+': '+a.state+(a.error?' ('+a.error+')':'')).join('; ')}else if(selectedRoute?.last_delivery){const l=selectedRoute.last_delivery;pairResult.textContent=l.action_id+' · '+l.status+(l.receipt_at?' · recipient receipt recorded':' · no recipient receipt')+(l.result_at?' · result recorded':'')+(l.error?' · '+l.error:'')+(l.fallback_queue_id?' · PM fallback reminder queued #'+l.fallback_queue_id:'')+' · '+(selectedRoute.live_delivery_proven?'automatic wake proven':'automatic wake unproven')};activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
  async function refreshPr(){try{let s=await api('/api/pr-state');wtStatus.textContent=s.worktree&&s.worktree.is_git?`CLI Dev worktree: ${s.worktree.path} · ${(s.worktree.head||'').slice(0,9)} · ${s.worktree.clean?'clean':'DIRTY'}`:'CLI Dev worktree not selected/ready'}catch(e){wtStatus.textContent='Worktree error: '+e.message}}
  async function readFiles(){let out=[];let el=document.getElementById('files');if(!el)return out;for(const f of el.files){let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});out.push({name:f.name,data})}return out}
  async function send(){let selected=document.querySelector('input[name=route]:checked');let route=selected?selected.value:'pm';sessionStorage.setItem('rwtSendRoute',route);let text=msg.value.trim();if(!text&&!document.getElementById('files').files.length){sendStatus.textContent='Type a message or attach files first.';return}sendStatus.textContent='Sending…';try{let fs=await readFiles();let sent=await api('/api/send',{method:'POST',body:JSON.stringify({actor:'PO',route,message:text,files:fs,handoff_pr:handoffPr.value,handoff_topic:handoffTopic.value})});msg.value='';let f=document.getElementById('files');if(f)f.value='';sendStatus.textContent=route==='none'?'Posted to GitHub #1258.':'Queued deliveries '+(sent.delivery_ids||[]).join(', ')+'; acknowledgment appears in Delivery queue';if(sent.handoff_manifest)sendStatus.textContent+=' · Handoff: '+sent.handoff_manifest;await refreshAll()}catch(e){sendStatus.textContent='Not sent: '+e.message}}
@@ -274,7 +316,7 @@
 +    return {r['actor']: dict(r) for r in c.execute('SELECT * FROM session_registration WHERE boot=?', (boot,))}
 --- /dev/null
 +++ b/test_session_registration.py
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,100 @@
 +import json
 +import sqlite3
 +import unittest
@@ -315,6 +357,15 @@
 +        self.assertEqual(registration.snapshot(self.db,'boot')['cli_dev']['state'],'awaiting_ack')
 +
 +class IntegrationTests(CommsTests):
++    def test_native_coordinator_needs_no_external_actor_pairing(self):
++        server.PM_MODE='codex'
++        server.CODEX_AUTH_OK=True
++        with patch.object(server,'resolved_bin',return_value='/test/codex'),patch.object(server,'configured_actor_route',side_effect=server.agent_transport.RouteError('not paired')):
++            native=server.transport_status()['agent_routes']['cli_pm']
++        self.assertTrue(native['configured'])
++        self.assertEqual(native['transport'],'native_pm_executor')
++        self.assertFalse(native['live_delivery_proven'])
++
 +    def test_authenticated_callback_records_identity_but_not_wake(self):
 +        challenge=server.request_session_registration('dashboard-open',('cli_dev',))[0]
 +        with server.con() as c:
@@ -366,3 +417,14 @@
 +
 +if __name__=='__main__':
 +    unittest.main()
+--- a/test_startup_readiness.py
++++ b/test_startup_readiness.py
+@@ -12,7 +12,7 @@
+             self.assertEqual(server.announce_app_version(), first)
+         self.assertEqual(gh.call_count, 1)
+         self.assertIn('ALL AGENTS', gh.call_args.args[0][-1])
+-        self.assertIn('4.7.13', gh.call_args.args[0][-1])
++        self.assertIn(server.BOARD_VERSION, gh.call_args.args[0][-1])
+         with server.con() as db:
+             notices = list(db.execute("SELECT actor_id,status,receipt_at,result_at FROM agent_notifications WHERE task_id='version-handshake'"))
+         self.assertEqual(len(notices), 3)
