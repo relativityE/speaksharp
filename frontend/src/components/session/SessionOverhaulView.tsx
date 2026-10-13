@@ -814,6 +814,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // Start from the previous owner.
     const gateResolvedForViewer = progressGateResolvedFor === (authUserId ?? '');
     const gateBlocksStart = gateBlocksStartFor(progressGate, progressGateResolvedFor, authUserId);
+    // #1258 R1 (runs 38298685079 / 38304068207): the review's repeat actions used only the Progress gate, so they were
+    // live while the take was still STOPPING / finalizing — when the mic beside them was already disabled — and a press
+    // 87–97 ms after Stop was taken as a second Stop. They now share the mic's own gate.
+    const repeatActionDisabled = Boolean(isButtonDisabled) || gateBlocksStart;
     const gateNotice = progressGateNotice(progressGate, gateResolvedForViewer);
 
     const reviewIsTerminal = effectiveReview.kind === 'expired' || effectiveReview.kind === 'not_captured';
@@ -845,7 +849,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         : undefined;
     const objectiveAfterSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={chooseRetryPoints} onNewSet={onNewSet ? chooseNewSet : undefined}
-            retryDisabled={gateBlocksStart} retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
+            retryDisabled={repeatActionDisabled} retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
         : isObjective
             ? <FocusPointsRail
                 rows={pendingObjectiveRows}
@@ -856,7 +860,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 // results. While results are still saving, the rail keeps saying "Checking…".
                 checkUnavailable={coverageTerminallyUnavailable}
                 onRetry={chooseRetryPoints}
-                retryDisabled={gateBlocksStart}
+                retryDisabled={repeatActionDisabled}
                 retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}
                 onNewSet={onNewSet ? chooseNewSet : undefined}
             />
@@ -986,7 +990,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             {!isObjective && (
                 <div className={practiceLoopReview ? 'mt-4' : undefined}>
                     <SessionVerdict verdictLine={null} fix={null} onPracticeAgain={choosePracticeAgain} onSeeAllSessions={chooseSeeAllSessions}
-                        practiceAgainDisabled={gateBlocksStart} practiceAgainDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
+                        practiceAgainDisabled={repeatActionDisabled} practiceAgainDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
                 </div>
             )}
         </>

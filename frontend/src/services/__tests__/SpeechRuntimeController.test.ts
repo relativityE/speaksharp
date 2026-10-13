@@ -96,6 +96,9 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         // Reset singleton private state
         (controller as unknown as { state: string }).state = 'IDLE';
         (controller as unknown as { initialized: boolean }).initialized = true;
+        // #1258 R1: these tests enter RECORDING by assignment, not startRecording(), so the singleton keeps an earlier
+        // test's recording id; the per-recording "Stop already accepted" guard is singleton state and is reset here too.
+        (controller as unknown as { stopAcceptedForRecordingId: string | null }).stopAcceptedForRecordingId = null;
         const stubService = {
             updatePolicy: vi.fn().mockResolvedValue(undefined),
             warmUp: vi.fn().mockResolvedValue(undefined),
