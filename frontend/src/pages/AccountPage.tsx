@@ -31,7 +31,7 @@ export default function AccountPage() {
   useEffect(() => {
     if (!returned || !profileId) return;
     let active = true;
-    let retry: ReturnType<typeof window.setTimeout> | undefined;
+    let retry: number | undefined;
     setRefreshing(true);
     // A failed refetch on the shared userProfile query poisons ProfileGuard even
     // when its confirmed data remains cached. Poll independently; publish only
