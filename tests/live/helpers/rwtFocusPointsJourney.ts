@@ -73,7 +73,10 @@ import {
     sentDetail,
     readbackSettlement,
     exactCountVerdict,
+    stopIfPageTornDown,
 } from './rwtJourney';
+import { openProductsItem, resolveProductsTrigger } from './productsMenu';
+import { PACE_GUIDE_DEFAULT_SECONDS, parsePaceGuideSeconds } from './rwtPaceGuide';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -213,12 +216,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const switched = await performCandidateSwitch(page, run, JOURNEY);
             receipt.meta.switchOutcome = switched;
             if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
-            const desktop = page.getByTestId('nav-products-button');
-            if (await desktop.isVisible().catch(() => false)) {
-                await desktop.click();
+            const { trigger, isDesktop } = await resolveProductsTrigger(page);
+            await trigger.click();
+            if (isDesktop) {
                 await page.getByTestId('nav-products-focus-points').click();
             } else {
-                await page.getByTestId('nav-mobile-products-button').click();
                 await page.getByTestId('nav-mobile-products-focus-points').or(page.getByTestId('nav-mobile-focus-points-link')).first().click();
             }
             const opened = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
@@ -236,8 +238,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 if ((await page.getByTestId(`objective-point-label-${i}`).count()) === 0) await page.getByTestId('objective-add-point').click();
                 await page.getByTestId(`objective-point-label-${i}`).fill(points[i]);
             }
-            const pace = parseClock(await page.getByTestId('objective-pace-value').innerText());
-            receipt.row('pace guide', pace === GUIDE_SECONDS ? 'PASS' : 'FAIL', pace === GUIDE_SECONDS ? 'the default guide is 1:00 per point' : 'the guide is not 1:00', { paceSeconds: pace });
+            // #1258 R5: the guide is minutes per point ("1 min"), compared as seconds; a missing guide is read, not awaited.
+            const paceValue = page.getByTestId('objective-pace-value');
+            const paceShown = (await paceValue.count()) > 0;
+            const pace = paceShown ? parsePaceGuideSeconds(await paceValue.innerText({ timeout: 5_000 }).catch(() => null)) : null;
+            receipt.row('pace guide', pace === PACE_GUIDE_DEFAULT_SECONDS ? 'PASS' : 'FAIL',
+                pace === PACE_GUIDE_DEFAULT_SECONDS ? 'the default guide is 1 min per point'
+                    : paceShown ? 'the guide is not 1 min per point' : 'no pace guide was shown',
+                { paceSeconds: pace, paceShown });
             await page.getByTestId('objective-setup-submit').click();
             const arrived = await page.waitForURL(/\/session/, { timeout: 45_000 }).then(() => true).catch(() => false);
             const mic = (await micAcquisitions(page)).length;
@@ -512,7 +520,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
                     receipt, admin: admin as never, userId: owner.uid, reportId: feedbackReportId, currentSessionId: persistedId,
-                    exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'focus_points',
+                    exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'focus_points',
                 });
             });
         }
@@ -522,7 +530,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             generationsForTake = tap.sent('practice_loop_review_requested').length;
             rowsGenerationsAt = Date.now();
             if (!persistedId) {
-                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null });
+                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null });
                 await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', []);
                 return;
             }
@@ -556,6 +564,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──
         if (fixtureKey === 'focus_points_tts') {
+            // Both steps drive the current page without navigating first: a page torn down by a failed Start stops here.
+            stopIfPageTornDown(receipt, page, 'next Start without a hold', 'Open Mic take, then a Focus take right after the product switch');
             // The switch step's saved Focus take is the completed review New Set / Edit starts from (Browser PM 6097978379).
             let switchFocusId: string | null = null;
             // ── #1258 (Browser PM 6089889070) — Open Mic → Focus Points: the take right after the switch hears only itself ──
@@ -567,16 +577,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     return { product: (data?.product as string | null) ?? null, digest: data ? sha256Hex(data.transcript) : null, transcript: typeof data?.transcript === 'string' ? data.transcript : '' };
                 };
                 const lastSaved = () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
-                const openProduct = async (item: 'open-mic' | 'focus-points') => {
-                    const desktop = page.getByTestId('nav-products-button');
-                    if (await desktop.isVisible().catch(() => false)) {
-                        await desktop.click();
-                        await page.getByTestId(`nav-products-${item}`).click();
-                    } else {
-                        await page.getByTestId('nav-mobile-products-button').click();
-                        await page.getByTestId(`nav-mobile-products-${item}`).click();
-                    }
-                };
+                const openProduct = (item: 'open-mic' | 'focus-points') => openProductsItem(page, item);
                 // 1. A full Open Mic take: the replayed Focus fixture speaks all four points into it.
                 const before = await lastSaved();
                 await openProduct('open-mic');
@@ -746,6 +747,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             });
         }
     } finally {
+        // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
+        receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { coverage_evaluation: 1 })).observed;
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         const coverageSeen = tap.sent('coverage_evaluation').length > 0;
         const coverageReceivedBy = ['session_after_focus_points'] as const;

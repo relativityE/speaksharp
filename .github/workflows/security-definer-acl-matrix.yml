@@ -67,7 +67,9 @@ jobs:
           psql --version
 
       - name: Record server version
-        run: psql -Atc 'select version()' | tee server-version.txt
+        run: |
+          set -o pipefail
+          psql -Atc 'select version()' | tee server-version.txt
 
       - name: Apply hosted-state bootstrap
         run: psql -v ON_ERROR_STOP=1 -v include_hosted_drift=true -f tests/db/security-definer-acl-bootstrap.sql
