@@ -442,6 +442,15 @@ export const sha256Hex = (value: unknown): string => createHash('sha256').update
 export interface SentEvent {
     event: string;
     at: number;
+    /** #1258 R11: when the PAGE captured the event (PostHog `timestamp` / `$time`), so order survives flush reordering. */
+    capturedAt?: number;
+    /**
+     * #1258 R11 (PM RETURN 6144366004): `ai_coaching_diagnostic` only — the opaque request id and the closed outcome, so a
+     * later `practice_loop_review_failed` can be bound to ITS request. In memory like `journeyId`; never in OUTCOME_FIELDS,
+     * whose keys can reach receipt evidence.
+     */
+    diagnosticRequestId?: string;
+    diagnosticOutcome?: string;
     journeyId?: string;
     attemptId?: string;
     bootId?: string;
@@ -564,13 +573,17 @@ export class AnalyticsTap {
             if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest(); return; }
             const before = this.events.length;
             for (const entry of this.decode(body)) {
-                const record = entry as { event?: unknown; properties?: Record<string, unknown> };
+                const record = entry as { event?: unknown; properties?: Record<string, unknown>; timestamp?: unknown };
                 if (typeof record?.event !== 'string') continue;
                 const props = record.properties ?? {};
                 const text = (key: string) => (typeof props[key] === 'string' ? props[key] as string : undefined);
+                const capturedAt = typeof record.timestamp === 'string' && Number.isFinite(Date.parse(record.timestamp)) ? Date.parse(record.timestamp)
+                    : typeof props.$time === 'number' && Number.isFinite(props.$time) ? Math.round(props.$time * 1000) : undefined;
                 this.events.push({
                     event: record.event,
                     at: Date.now(),
+                    ...(capturedAt === undefined ? {} : { capturedAt }),
+                    ...(record.event === 'ai_coaching_diagnostic' ? { diagnosticRequestId: text('diagnostic_request_id'), diagnosticOutcome: text('outcome') } : {}),
                     journeyId: text('journey_id'),
                     attemptId: text('attempt_id'),
                     bootId: text('boot_id'),

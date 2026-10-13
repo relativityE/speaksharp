@@ -88,14 +88,23 @@ export type DiagnosticReason =
     | 'report_mismatch' | 'association_mismatch' | 'session_mismatch' | 'request_mismatch' | 'attempt_mismatch'
     | 'failure_category_mismatch' | 'server_reason_mismatch' | 'configured_model_mismatch' | 'request_session_mismatch' | 'outcome_mismatch'
     | 'current_attempt_attached_to_other_session' | 'invented_link' | 'storage_not_exactly_once' | 'acknowledgement_not_visible'
-    | 'report_field_invalid' | 'request_field_invalid' | 'unexpected_field' | 'failure_category_not_observed';
+    | 'report_field_invalid' | 'request_field_invalid' | 'unexpected_field' | 'failure_category_not_observed'
+    | 'failure_category_ambiguous';
+
+/**
+ * #1258 R11 (PM RETURN 6144366004) — the page-reported category of a failed request, as the adapter could bind it:
+ * `null` = no report bound (unobserved, HOLD); AMBIGUOUS = more than one report bound to the request (HOLD); OBSERVED_INVALID
+ * = a report bound to it carried a reason outside the vocabulary (stays invalid → FAIL). The raw reason never travels.
+ */
+export const FAILURE_CATEGORY_AMBIGUOUS = 'category:ambiguous';
+export const FAILURE_CATEGORY_OBSERVED_INVALID = 'category:observed_invalid';
 
 export interface DiagnosticVerdict { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: DiagnosticReason[] }
 
 // #1258 R11 (PM 6143804613-review): a failed request whose page-reported category was not CAPTURED is unproven (HOLD) —
 // never guessed, and never a field contradiction. A captured category outside FAILURE_CATEGORIES still FAILs.
 const HOLD_REASONS = new Set<DiagnosticReason>(['report_not_found', 'request_link_missing', 'request_not_found', 'telemetry_not_received', 'observed_model_missing',
-    'failure_category_not_observed']);
+    'failure_category_not_observed', 'failure_category_ambiguous']);
 const OUTCOMES: readonly string[] = ['success', 'provider_error', 'timeout', 'transport_error', 'invalid_response', 'rate_limited',
     'server_error', 'client_network'];
 const ASSOCIATIONS: readonly string[] = ['current_take', 'selected_older_session', 'no_session'];
@@ -182,7 +191,8 @@ function shapeHolds(q: AiRequestDiagnostic): boolean {
 
 function requestValid(q: AiRequestDiagnostic): boolean {
     return nonEmpty(q.requestId) && nonEmpty(q.attemptId) && nonEmpty(q.sessionId) && OUTCOMES.includes(q.outcome)
-        && (q.outcome === 'success' ? q.failureCategory === null : q.failureCategory === null || FAILURE_CATEGORIES.includes(q.failureCategory))
+        && (q.outcome === 'success' ? q.failureCategory === null
+            : q.failureCategory === null || q.failureCategory === FAILURE_CATEGORY_AMBIGUOUS || FAILURE_CATEGORIES.includes(q.failureCategory))
         && shapeHolds(q)
         && count(q.retryCount) && duration(q.totalMs)
         // The provider leg is part of the request, so it can never exceed the total (PM RETURN 6111565683).
@@ -226,6 +236,7 @@ export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | n
                 const q = linked[0];
                 if (!requestValid(q)) reasons.add('request_field_invalid');
                 if (q.outcome !== 'success' && q.failureCategory === null) reasons.add('failure_category_not_observed');
+                if (q.outcome !== 'success' && q.failureCategory === FAILURE_CATEGORY_AMBIGUOUS) reasons.add('failure_category_ambiguous');
                 if (q.sessionId !== report.sessionId) reasons.add('request_session_mismatch');
                 if (expected.outcome !== null && q.outcome !== expected.outcome) reasons.add('outcome_mismatch');
                 if (expected.attemptId !== null && q.attemptId !== expected.attemptId) reasons.add('attempt_mismatch');
@@ -242,6 +253,10 @@ export function validateFeedbackDiagnostics(lookup: FeedbackDiagnosticLookup | n
         if (linked.length === 0) reasons.add('request_not_found');
         else if (linked.length > 1 || !requestValid(linked[0])) reasons.add('request_field_invalid');
         else if (linked[0].sessionId !== report.sessionId) reasons.add('request_session_mismatch');
+        if (linked.length === 1 && linked[0].outcome !== 'success') {
+            if (linked[0].failureCategory === null) reasons.add('failure_category_not_observed');
+            if (linked[0].failureCategory === FAILURE_CATEGORY_AMBIGUOUS) reasons.add('failure_category_ambiguous');
+        }
     }
 
     const list = [...reasons];

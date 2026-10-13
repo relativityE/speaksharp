@@ -82,49 +82,143 @@ describe('R3b — a coaching phrase is read by its test id, bounded', () => {
     });
 });
 
-describe('R11 — the chain uses the category the PAGE reported, captured, never derived', async () => {
-    const { capturedFailureCategory, toAiRequestDiagnostic, PAGE_FAILURE_REASONS } = await import('../live/helpers/coachingFeedbackAdapter');
-    const { validateFeedbackDiagnostics } = await import('../live/helpers/feedbackDiagnosticContract');
-    // Scenario 2's request as observed (ai_coaching_diagnostic 2026-10-12T20:27:50Z); ids synthetic; answered at t=1000.
-    const s2 = {
-        sent: { requestId: 'req-1', attemptId: 'att-1', sessionId: 'sess-1' }, status: 502, clientMs: 41_000, suggestions: null, at: 1_000,
-        diagnostics: { request_id: 'req-1', attempt_id: 'att-1', outcome: 'failure', reason: 'provider_timeout', provider_status: null,
+describe('R11 — a failure report is bound to ITS request by the page\'s emission order (helper → adapter → validator)', async () => {
+    const { bindFailureReports, capturedFailureCategory, feedbackDiagnosticChainRow, PAGE_FAILURE_REASONS } = await import('../live/helpers/coachingFeedbackAdapter');
+    const { validateFeedbackDiagnostics, FAILURE_CATEGORY_AMBIGUOUS, FAILURE_CATEGORY_OBSERVED_INVALID } = await import('../live/helpers/feedbackDiagnosticContract');
+
+    /** A failed coaching exchange shaped like scenario 2's (502 provider_timeout, 2 provider attempts). */
+    const failed = (requestId: string, sessionId: string, at: number) => ({
+        sent: { requestId, attemptId: `${requestId}-att`, sessionId }, status: 502, clientMs: 41_000, suggestions: null, at,
+        diagnostics: { request_id: requestId, attempt_id: `${requestId}-att`, outcome: 'failure', reason: 'provider_timeout', provider_status: null,
             provider_attempts: 2, retry_count: 1, provider_duration_ms: 40_009, total_duration_ms: 40_603,
             configured_model: 'gemini-3.8-flash', observed_model: null, source: 'fresh' },
+    });
+    const diag = (requestId: string, capturedAt: number, bootId = 'boot-1', outcome = 'failure') =>
+        ({ event: 'ai_coaching_diagnostic', at: capturedAt + 3_000, capturedAt, bootId, diagnosticRequestId: requestId, diagnosticOutcome: outcome });
+    const report = (reason: string, capturedAt: number, bootId = 'boot-1') =>
+        ({ event: 'practice_loop_review_failed', at: capturedAt + 3_000, capturedAt, bootId, reason });
+    const health = (capturedAt: number) => ({ event: 'telemetry_health', at: capturedAt + 3_000, capturedAt, bootId: 'boot-1' });
+
+    /** The REAL chain row, with a fake report reader and receipt: binding → category → adapter → validator → row. */
+    const chain = async (opts: { exchanges: unknown[]; events: unknown[]; reportSession: string; currentSession: string; ref: string }) => {
+        const rows: Array<{ step: string; verdict: string; evidence?: Record<string, unknown> }> = [];
+        const receipt = { rows, row: (step: string, verdict: string, _d: string, evidence?: Record<string, unknown>) => { rows.push({ step, verdict, evidence }); } };
+        const admin = { from: () => ({ select: () => ({ eq: () => ({ eq: async () => ({ data: [{ id: 'r1', session_id: opts.reportSession, metadata: { coaching_diagnostic_ref: opts.ref } }], error: null }) }) }) }) };
+        await feedbackDiagnosticChainRow({
+            receipt: receipt as never, admin: admin as never, userId: 'u1', reportId: 'r1', currentSessionId: opts.currentSession,
+            reportedSessionId: opts.reportSession, acknowledgementVisible: true, exchanges: opts.exchanges as never,
+            observedEvents: opts.events as never, configuredModel: 'gemini-3.8-flash', product: 'open_mic',
+        });
+        const row = rows.find((r) => r.step === 'feedback diagnostic chain');
+        return { verdict: row?.verdict, reasons: String(row?.evidence?.reasons ?? '') };
     };
-    const verdictWith = (category: string | null) => validateFeedbackDiagnostics({
-        report: { reportId: 'r1', sessionId: 'sess-1', association: 'current_take', linkedRequestId: 'req-1', storage: 'stored_once', acknowledgementVisible: true, telemetryReceived: false },
-        requests: [toAiRequestDiagnostic(s2 as never, category)],
-    } as never, { reportId: 'r1', association: 'current_take', sessionId: 'sess-1', requestId: 'req-1', attemptId: 'att-1', currentRequestId: 'req-1',
-        outcome: null, failureCategory: null, serverReason: null, configuredModel: 'gemini-3.8-flash' } as never);
 
-    it('a captured page report is used: the false 38304068207 FAIL becomes the readback HOLD only', () => {
-        const category = capturedFailureCategory(s2 as never, [{ at: 900, reason: 'network' }, { at: 1_050, reason: 'unavailable' }]);
-        expect(category, 'the first report at or after the answer — not an earlier one').toBe('unavailable');
-        expect(verdictWith(category)).toEqual({ verdict: 'HOLD', reasons: ['telemetry_not_received'] });
+    it('exact binding: the report right after A\'s terminal failure gives A the page category → readback HOLD only (38304068207)', async () => {
+        const r = await chain({ exchanges: [failed('A', 's1', 1_000)], events: [diag('A', 1_010), health(1_011), report('unavailable', 1_012)], reportSession: 's1', currentSession: 's1', ref: 'A' });
+        expect(r).toEqual({ verdict: 'HOLD', reasons: 'telemetry_not_received' });
     });
 
-    it('no captured report is an explicit HOLD (`failure_category_not_observed`), never a guess and never a contradiction', () => {
-        expect(capturedFailureCategory(s2 as never, [])).toBeNull();
-        expect(capturedFailureCategory(s2 as never, [{ at: 1_050, reason: 'made_up' }]), 'only the page\'s closed reasons').toBeNull();
-        expect(verdictWith(null)).toEqual({ verdict: 'HOLD', reasons: ['telemetry_not_received', 'failure_category_not_observed'] });
+    it('PM repro: a LATER unrelated request\'s report is never borrowed — A stays unobserved (HOLD)', async () => {
+        const events = [diag('A', 1_010), diag('B', 9_000), report('network', 9_999)];
+        expect(capturedFailureCategory(failed('A', 's1', 1_000) as never, bindFailureReports(events as never))).toBeNull();
+        // B is another take's request (an unrelated later failure); the report is about A's take.
+        const r = await chain({ exchanges: [failed('A', 's1', 1_000), failed('B', 's2', 8_990)], events, reportSession: 's1', currentSession: 's1', ref: 'A' });
+        expect(r).toEqual({ verdict: 'HOLD', reasons: 'telemetry_not_received,failure_category_not_observed' });
     });
 
-    it('a captured category outside the contract vocabulary still FAILs; a success carries none', () => {
-        expect(verdictWith('provider_timeout').verdict).toBe('FAIL');
-        expect(capturedFailureCategory({ ...s2, status: 200 } as never, [{ at: 1_050, reason: 'unavailable' }])).toBeNull();
+    it('interleaved failures: a report binds only to its IMMEDIATE predecessor, and one report never serves two requests', () => {
+        const bindings = bindFailureReports([diag('A', 100), diag('B', 110), report('unavailable', 111)] as never);
+        expect(bindings.get('B')).toEqual({ state: 'bound', reason: 'unavailable' });
+        expect(bindings.has('A')).toBe(false);
     });
 
-    it('the page reasons equal the product telemetry vocabulary, and every chain caller passes the observed reports', () => {
+    it('out-of-order flush: binding follows CAPTURE order, not the order the tap observed the batches', () => {
+        // The report's batch was observed FIRST (at 500) but captured after A's failure.
+        const events = [{ ...report('rate_limited', 1_012), at: 500 }, { ...diag('A', 1_010), at: 900 }];
+        expect(bindFailureReports(events as never).get('A')).toEqual({ state: 'bound', reason: 'rate_limited' });
+    });
+
+    it('two reports for one request are ambiguous (HOLD); a report in another page boot binds nothing', async () => {
+        const amb = bindFailureReports([diag('A', 10), report('unavailable', 11), diag('A', 20), report('network', 21)] as never);
+        expect(capturedFailureCategory(failed('A', 's1', 0) as never, amb)).toBe(FAILURE_CATEGORY_AMBIGUOUS);
+        const r = await chain({ exchanges: [failed('A', 's1', 0)], events: [diag('A', 10), report('unavailable', 11), diag('A', 20), report('network', 21)], reportSession: 's1', currentSession: 's1', ref: 'A' });
+        expect(r.verdict).toBe('HOLD');
+        expect(r.reasons.split(',')).toContain('failure_category_ambiguous');
+        expect(bindFailureReports([diag('A', 10, 'boot-1'), report('unavailable', 11, 'boot-2')] as never).size).toBe(0);
+        expect(bindFailureReports([diag('A', 10, 'boot-1', 'retrying'), report('unavailable', 11)] as never).size, 'a retrying diagnostic is not terminal').toBe(0);
+    });
+
+    it('older take / current take: the older report gets the older request\'s own category, never the current one\'s', async () => {
+        const events = [diag('OLD', 100), report('access_denied', 101), diag('NEW', 500), report('unavailable', 501)];
+        const bindings = bindFailureReports(events as never);
+        expect(capturedFailureCategory(failed('OLD', 's-old', 90) as never, bindings)).toBe('access_denied');
+        expect(capturedFailureCategory(failed('NEW', 's-new', 490) as never, bindings)).toBe('unavailable');
+        const r = await chain({ exchanges: [failed('OLD', 's-old', 90), failed('NEW', 's-new', 490)], events, reportSession: 's-old', currentSession: 's-new', ref: 'OLD' });
+        expect(r).toEqual({ verdict: 'HOLD', reasons: 'telemetry_not_received' });
+    });
+
+    it('an OBSERVED reason outside the page vocabulary stays invalid end to end → FAIL, with no raw text in the row', async () => {
+        const events = [diag('A', 10), report('provider_timeout', 11)];
+        expect(capturedFailureCategory(failed('A', 's1', 0) as never, bindFailureReports(events as never))).toBe(FAILURE_CATEGORY_OBSERVED_INVALID);
+        const r = await chain({ exchanges: [failed('A', 's1', 0)], events, reportSession: 's1', currentSession: 's1', ref: 'A' });
+        expect(r.verdict).toBe('FAIL');
+        expect(r.reasons.split(',')).toContain('request_field_invalid');
+        expect(r.reasons).not.toContain('provider_timeout');
+    });
+
+    it('the tap keeps the request id OUT of OUTCOME_FIELDS (receipt-bound) and records it in memory only', async () => {
+        const { OUTCOME_FIELDS } = await import('../live/helpers/rwtJourney');
+        expect(Object.values(OUTCOME_FIELDS).flat()).not.toContain('diagnostic_request_id');
+        expect(read('tests/live/helpers/rwtJourney.ts')).toMatch(/record\.event === 'ai_coaching_diagnostic' \? \{ diagnosticRequestId: text\('diagnostic_request_id'\), diagnosticOutcome: text\('outcome'\) \}/);
+    });
+
+    it('the page reasons equal the product telemetry vocabulary, and every chain caller passes the observed events', () => {
         const allowlist = read('frontend/src/services/telemetryAllowlist.ts');
-        const block = allowlist.slice(allowlist.indexOf('const PRACTICE_LOOP_REVIEW_FAILURE_REASONS = ['), allowlist.indexOf('] as const;', allowlist.indexOf('const PRACTICE_LOOP_REVIEW_FAILURE_REASONS = [')));
+        const start = allowlist.indexOf('const PRACTICE_LOOP_REVIEW_FAILURE_REASONS = [');
+        const block = allowlist.slice(start, allowlist.indexOf('] as const;', start));
         expect([...block.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort()).toEqual([...PAGE_FAILURE_REASONS].sort());
-        const adapter = read('tests/live/helpers/coachingFeedbackAdapter.ts');
-        expect(adapter).toMatch(/failureCategory: \(e\) => capturedFailureCategory\(e, input\.reportedFailures \?\? \[\]\),/);
-        expect(adapter).not.toMatch(/failureCategory: \(\) => null,/);
+        const page = read('frontend/src/components/session/AISuggestions.tsx');
+        expect(page, 'the page emits the failure diagnostic, then the report, with no await between')
+            .toMatch(/outcome: shouldRetry \? 'retrying' : failure\.reason === 'network' \? 'network_failure' : 'failure',[\s\S]{0,700}?trackPracticeLoopReviewFailed\(failure\.reason\);/);
+        expect(read('tests/live/helpers/coachingFeedbackAdapter.ts')).toMatch(/failureCategory: \(e\) => capturedFailureCategory\(e, failureBindings\),/);
         for (const caller of ['tests/live/rwt-open-mic-first-session.live.spec.ts', 'tests/live/helpers/rwtFocusPointsJourney.ts', 'tests/live/rwt-feedback-association-boundaries.live.spec.ts']) {
-            expect({ caller, passes: read(caller).includes("reportedFailures: tap.sent('practice_loop_review_failed')") }).toEqual({ caller, passes: true });
+            expect({ caller, passes: read(caller).includes('observedEvents: tap.events') }).toEqual({ caller, passes: true });
         }
+    });
+
+    describe('relaxing the unobserved category preserves EVERY other contradiction', () => {
+        const base = { reportId: 'r1', sessionId: 's1', association: 'current_take', linkedRequestId: 'A', storage: 'stored_once', acknowledgementVisible: true, telemetryReceived: false };
+        const request = (over: Record<string, unknown> = {}) => ({
+            requestId: 'A', attemptId: 'A-att', sessionId: 's1', outcome: 'timeout', failureCategory: null, serverReason: 'provider_timeout',
+            statusClass: '5xx', providerStatusClass: 'none', retryCount: 1, totalMs: 40_603, providerMs: 40_009,
+            configuredModel: 'gemini-3.8-flash', observedModel: null, source: 'fresh', ...over,
+        });
+        const expectation = (over: Record<string, unknown> = {}) => ({ reportId: 'r1', association: 'current_take', sessionId: 's1', requestId: 'A', attemptId: 'A-att',
+            currentRequestId: 'A', outcome: null, failureCategory: null, serverReason: null, configuredModel: 'gemini-3.8-flash', ...over });
+        const verdict = (r: Record<string, unknown>, e: Record<string, unknown> = expectation(), rep: Record<string, unknown> = base) =>
+            validateFeedbackDiagnostics({ report: rep, requests: [r] } as never, e as never);
+
+        it.each([
+            ['configured model mismatch', request({ configuredModel: 'other-model' }), expectation(), base, 'configured_model_mismatch'],
+            ['attempt mismatch', request({ attemptId: 'other-att' }), expectation(), base, 'attempt_mismatch'],
+            ['request bound to another session', request({ sessionId: 's2' }), expectation(), base, 'request_session_mismatch'],
+            ['report session mismatch', request(), expectation(), { ...base, sessionId: 's9' }, 'session_mismatch'],
+            ['poisoned echo (unmapped outcome)', request({ outcome: 'unmapped:echo_mismatch' }), expectation(), base, 'request_field_invalid'],
+            ['negative duration', request({ totalMs: -1 }), expectation(), base, 'request_field_invalid'],
+            ['provider leg longer than the request', request({ providerMs: 50_000 }), expectation(), base, 'request_field_invalid'],
+            ['observed-invalid category', request({ failureCategory: FAILURE_CATEGORY_OBSERVED_INVALID }), expectation(), base, 'request_field_invalid'],
+            ['no-session report with an invented link', request(), expectation({ association: 'no_session', sessionId: null, requestId: null }), { ...base, association: 'no_session', sessionId: null }, 'invented_link'],
+        ])('%s stays FAIL with the category unobserved', (_n, r, e, rep, reason) => {
+            const v = verdict(r as never, e as never, rep as never);
+            expect(v.verdict).toBe('FAIL');
+            expect(v.reasons).toContain(reason);
+        });
+
+        it('CONTROL: with no contradiction, an unobserved category is HOLD (not FAIL), and success settlement is unchanged', () => {
+            expect(verdict(request())).toEqual({ verdict: 'HOLD', reasons: ['telemetry_not_received', 'failure_category_not_observed'] });
+            const success = request({ outcome: 'success', failureCategory: null, serverReason: 'none', statusClass: '2xx', providerStatusClass: '2xx', observedModel: 'gemini-3.8-flash' });
+            expect(verdict(success)).toEqual({ verdict: 'HOLD', reasons: ['telemetry_not_received'] });
+        });
     });
 });
 

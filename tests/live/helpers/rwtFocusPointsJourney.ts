@@ -520,7 +520,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
                     receipt, admin: admin as never, userId: owner.uid, reportId: feedbackReportId, currentSessionId: persistedId,
-                    exchanges: generations.exchanges, reportedFailures: tap.sent('practice_loop_review_failed'), configuredModel: coachingContract.model, product: 'focus_points',
+                    exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'focus_points',
                 });
             });
         }

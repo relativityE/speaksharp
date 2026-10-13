@@ -9,7 +9,7 @@
  */
 import type { CoachingExchange } from './coachingGenerationTap';
 import { createHash } from 'node:crypto';
-import { validateFeedbackDiagnostics } from './feedbackDiagnosticContract';
+import { FAILURE_CATEGORY_AMBIGUOUS, FAILURE_CATEGORY_OBSERVED_INVALID, validateFeedbackDiagnostics } from './feedbackDiagnosticContract';
 import type {
     AiRequestDiagnostic, AiRequestOutcome, DiagnosticExpectation, FeedbackDiagnosticLookup, FeedbackReportDiagnostic,
     ReportAssociation, ReportStorage,
@@ -67,18 +67,60 @@ export function echoMismatch(exchange: CoachingExchange): 'request' | 'attempt' 
 export const PAGE_FAILURE_REASONS: readonly string[] = [
     'access_denied', 'invalid_response', 'network', 'not_found', 'rate_limited', 'service_configuration', 'transcript_unavailable', 'unavailable',
 ];
-/** A `practice_loop_review_failed` the tap observed leaving the page: when, and the page's own closed reason. */
-export interface ReportedReviewFailure { at: number; reason?: string }
+/** The tap's view of an event: page boot, page capture time (or observation time), and closed fields only. */
+export interface ObservedEvent {
+    event: string; at: number; capturedAt?: number; bootId?: string; reason?: string;
+    diagnosticRequestId?: string; diagnosticOutcome?: string;
+}
+export type FailureReportBinding = { state: 'bound'; reason: string | undefined } | { state: 'ambiguous' };
+
+const TERMINAL_FAILURE_OUTCOMES: ReadonlySet<string> = new Set(['failure', 'network_failure']);
 
 /**
- * #1258 R11 (PM review): the category the PAGE REPORTED for a failed exchange — captured, never derived. It is the first
- * `practice_loop_review_failed` the tap observed at or after the exchange's answer. A success carries none; a failure
- * with no captured report returns null, which the contract holds as `failure_category_not_observed`.
+ * #1258 R11 (PM RETURN 6144366004) — BIND each page failure report to ITS request, by the page's own emission order.
+ *
+ * On a terminal failure AISuggestions emits, synchronously and in this order: `ai_coaching_diagnostic` (carrying the
+ * request's `diagnostic_request_id` and outcome `failure` / `network_failure`), then `practice_loop_review_failed` (the
+ * page's closed `reason`). So a report is bound to request X only when, within the SAME page boot and in CAPTURE order,
+ * the coaching event immediately before it is X's terminal failure. A report with any other predecessor binds to nothing;
+ * a request that collects more than one report is `ambiguous`. A timestamp alone never binds, and no report serves two
+ * requests.
  */
-export function capturedFailureCategory(exchange: CoachingExchange, reported: readonly ReportedReviewFailure[]): string | null {
+export function bindFailureReports(events: readonly ObservedEvent[]): Map<string, FailureReportBinding> {
+    const byBoot = new Map<string, Array<{ e: ObservedEvent; i: number }>>();
+    events.forEach((e, i) => {
+        if ((e.event !== 'ai_coaching_diagnostic' && e.event !== 'practice_loop_review_failed') || !e.bootId) return;
+        const list = byBoot.get(e.bootId) ?? [];
+        list.push({ e, i });
+        byBoot.set(e.bootId, list);
+    });
+    const bindings = new Map<string, FailureReportBinding>();
+    for (const list of byBoot.values()) {
+        list.sort((x, y) => ((x.e.capturedAt ?? x.e.at) - (y.e.capturedAt ?? y.e.at)) || (x.i - y.i));
+        list.forEach(({ e }, k) => {
+            if (e.event !== 'practice_loop_review_failed' || k === 0) return;
+            const prev = list[k - 1].e;
+            const requestId = prev.diagnosticRequestId;
+            const outcome = prev.diagnosticOutcome;
+            if (prev.event !== 'ai_coaching_diagnostic' || typeof requestId !== 'string' || requestId === ''
+                || typeof outcome !== 'string' || !TERMINAL_FAILURE_OUTCOMES.has(outcome)) return;
+            bindings.set(requestId, bindings.has(requestId) ? { state: 'ambiguous' } : { state: 'bound', reason: e.reason });
+        });
+    }
+    return bindings;
+}
+
+/**
+ * The page-reported category for one exchange, from `bindFailureReports`: a success carries none; an unbound failure is
+ * `null` (unobserved → HOLD); an ambiguous one is FAILURE_CATEGORY_AMBIGUOUS (HOLD); a bound reason outside the page
+ * vocabulary is FAILURE_CATEGORY_OBSERVED_INVALID (stays invalid → FAIL). The raw reason never leaves this function.
+ */
+export function capturedFailureCategory(exchange: CoachingExchange, bindings: ReadonlyMap<string, FailureReportBinding>): string | null {
     if (exchange.status !== null && exchange.status >= 200 && exchange.status < 300) return null;
-    const report = reported.find((r) => r.at >= exchange.at && typeof r.reason === 'string' && PAGE_FAILURE_REASONS.includes(r.reason));
-    return report?.reason ?? null;
+    const binding = exchange.sent.requestId ? bindings.get(exchange.sent.requestId) : undefined;
+    if (!binding) return null;
+    if (binding.state === 'ambiguous') return FAILURE_CATEGORY_AMBIGUOUS;
+    return typeof binding.reason === 'string' && PAGE_FAILURE_REASONS.includes(binding.reason) ? binding.reason : FAILURE_CATEGORY_OBSERVED_INVALID;
 }
 
 /** One exchange as the contract's request record. `failureCategory` is the product category the page reported. */
@@ -254,12 +296,13 @@ export async function feedbackDiagnosticChainRow(input: {
      */
     acknowledgementVisible?: boolean;
     exchanges: readonly CoachingExchange[];
-    /** #1258 R11: the page's `practice_loop_review_failed` reports the tap observed (closed reasons, times only). */
-    reportedFailures?: readonly ReportedReviewFailure[];
+    /** #1258 R11: the tap's observed events; failure reports are bound to their request by `bindFailureReports`. */
+    observedEvents?: readonly ObservedEvent[];
     configuredModel: string;
     product: 'open_mic' | 'focus_points';
 }): Promise<void> {
     const { receipt } = input;
+    const failureBindings = bindFailureReports(input.observedEvents ?? []);
     const reportedSessionId = input.reportedSessionId === undefined ? input.currentSessionId : input.reportedSessionId;
     if (!input.reportId || !input.currentSessionId || !reportedSessionId) {
         receipt.row('feedback diagnostic chain', 'HOLD', 'no stored report or no saved take to resolve',
@@ -290,7 +333,7 @@ export async function feedbackDiagnosticChainRow(input: {
         exchanges: input.exchanges,
         // #1258 R11 (run 38304068207): this was `() => null`, which the contract rejected for EVERY failed request
         // (`request_field_invalid`), so a coaching timeout read as a contradiction. The page's own report is used now.
-        failureCategory: (e) => capturedFailureCategory(e, input.reportedFailures ?? []),
+        failureCategory: (e) => capturedFailureCategory(e, failureBindings),
     }) : null;
     const v = validateFeedbackDiagnostics(lookup, expected);
     // Echoed-id evidence is preserved as a count (content-free); a mismatch already FAILs the request's record.
