@@ -16,6 +16,7 @@ function fixture() {
       claimed = true;
       return proof;
     }),
+    verifyCheckouts: vi.fn(async () => true),
     listSubscriptions: vi.fn()
       .mockResolvedValueOnce({ complete: true, subscriptions: [{ id: 'sub', status: 'active' }] })
       .mockResolvedValue({ complete: true, subscriptions: [{ id: 'sub', status: 'canceled' }] }),
@@ -31,6 +32,14 @@ function fixture() {
 }
 
 describe('account closure — approved no-refund, retained-trial-email policy', () => {
+  it('legacy open checkout on a customer-null account prevents every destructive call', async () => {
+    const { deps } = fixture();
+    vi.mocked(deps.consumeProof).mockResolvedValue({ ...proof, customerId:null });
+    vi.mocked(deps.verifyCheckouts).mockResolvedValue(false);
+    expect((await closeAccount('owner','token',deps)).outcome).toBe('incomplete');
+    expect(deps.preserveTrialEmail).not.toHaveBeenCalled();
+    expect(deps.deleteAuthUser).not.toHaveBeenCalled();
+  });
   it('settles billing, deletes the Stripe customer, preserves trial email, then deletes auth and proves residue', async () => {
     const { deps, order } = fixture();
     expect(await closeAccount('owner', 'emailed-secret', deps)).toEqual({
@@ -110,6 +119,15 @@ describe('account closure — approved no-refund, retained-trial-email policy', 
       outcome: 'incomplete', stage: 'account_deletion', billingClosed: true,
       customerDeleted: true, accountDeleted: false,
     });
+    expect(deps.verifyResidue).not.toHaveBeenCalled();
+  });
+
+  it.each(['lost response', 'readback timeout'])('unknown auth deletion remains pending (%s)', async () => {
+    const { deps } = fixture();
+    vi.mocked(deps.deleteAuthUser).mockRejectedValue(new Error('remote outcome unknown'));
+    const result = await closeAccount('owner', 'token', deps);
+    expect(result.accountDeleted).toBeNull();
+    expect(result.outcome).toBe('verification_pending');
     expect(deps.verifyResidue).not.toHaveBeenCalled();
   });
 

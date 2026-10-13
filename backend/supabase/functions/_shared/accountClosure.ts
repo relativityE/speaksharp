@@ -21,6 +21,8 @@ export interface ClosureDependencies {
   now(): number;
   /** Atomic single-use claim; identity/billing fields come from authoritative storage. */
   consumeProof(userId: string, token: string): Promise<ClosureProof | null>;
+  /** Under the claimed billing fence, exhaust legacy checkout pages; open/uncertain sessions block deletion. */
+  verifyCheckouts(userId: string, customerId: string | null): Promise<boolean>;
   listSubscriptions(customerId: string): Promise<SubscriptionPage>;
   cancelSubscription(id: string, options: {
     invoice_now: false; prorate: false; idempotencyKey: string;
@@ -31,7 +33,7 @@ export interface ClosureDependencies {
   /** Retain only the trial-prevention record; the FK becomes NULL on auth deletion. */
   preserveTrialEmail(userId: string, email: string): Promise<void>;
   removeOwnedStorage(userId: string): Promise<void>;
-  deleteAuthUser(userId: string): Promise<{ deleted: boolean }>;
+  deleteAuthUser(userId: string): Promise<{ deleted: boolean | null }>;
   /** Must separately verify auth absence, cascading rows and declared retained exceptions. */
   verifyResidue(userId: string): Promise<{ clean: boolean }>;
 }
@@ -39,11 +41,11 @@ export interface ClosureDependencies {
 export type ClosureStage = 'verification' | 'subscriptions' | 'billing_settlement'
   | 'customer_deletion' | 'trial_retention' | 'storage_cleanup' | 'account_deletion' | 'residue';
 export interface ClosureResult {
-  outcome: 'deleted' | 'refused' | 'incomplete';
+  outcome: 'deleted' | 'refused' | 'incomplete' | 'verification_pending';
   stage: ClosureStage;
   billingClosed: boolean;
   customerDeleted: boolean;
-  accountDeleted: boolean;
+  accountDeleted: boolean | null;
 }
 
 const terminal = (status: string) => status === 'canceled' || status === 'incomplete_expired';
@@ -66,6 +68,8 @@ export async function closeAccount(
       || proof.expiresAt <= now || proof.customerId === '') return result;
 
     result.outcome = 'incomplete';
+    result.stage = 'subscriptions';
+    if (await deps.verifyCheckouts(proof.userId, proof.customerId) !== true) return result;
     if (proof.customerId) {
       result.stage = 'subscriptions';
       const before = await deps.listSubscriptions(proof.customerId);
@@ -99,8 +103,19 @@ export async function closeAccount(
     result.stage = 'storage_cleanup';
     await deps.removeOwnedStorage(proof.userId);
     result.stage = 'account_deletion';
-    if ((await deps.deleteAuthUser(proof.userId)).deleted !== true) return result;
+    // Once an irreversible call may have started, exceptions cannot prove non-deletion.
+    result.accountDeleted = null;
+    result.outcome = 'verification_pending';
+    const authResult = await deps.deleteAuthUser(proof.userId);
+    if (authResult.deleted !== true) {
+      if (authResult.deleted === false) {
+        result.accountDeleted = false;
+        result.outcome = 'incomplete';
+      }
+      return result;
+    }
     result.accountDeleted = true;
+    result.outcome = 'incomplete';
     result.stage = 'residue';
     if ((await deps.verifyResidue(proof.userId)).clean !== true) return result;
     result.outcome = 'deleted';

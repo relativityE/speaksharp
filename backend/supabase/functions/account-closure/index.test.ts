@@ -5,22 +5,27 @@ import { buildDependencies } from './index.ts';
 
 function fixture() {
   const calls: { name: string; args: unknown }[] = [];
-  const settings = { deletedCustomer: false, authAbsent: true, customerOwner: 'cus', storageRemains: false };
+  const settings = { deletedCustomer: false, authAbsent: true, customerOwner: 'cus', storageRemains: false,
+    deleteThrows: false, readThrows: false,
+    checkouts: [] as {id:string;status:string;client_reference_id:string;metadata:{userId:string};customer:string|null}[],
+    pending: [] as {operation_id:string;session_id:string|null}[] };
   let removed = false;
   const admin = {
     rpc: async (name: string, args: Record<string, unknown>) => {
       calls.push({ name, args });
-      const data = name === 'claim_account_closure_token' ? [{ user_id: 'owner', email: 'user@example.test',
+      const data = name === 'inspect_account_closure_checkouts' ? settings.pending
+        : name === 'claim_account_closure_token' ? [{ user_id: 'owner', email: 'user@example.test',
         customer_id: 'cus', request_id: 'request', expires_at: new Date(Date.now() + 900_000).toISOString() }]
         : name === 'list_account_closure_storage' ? (!removed || settings.storageRemains ? [{ bucket_id: 'audio', name: 'owned/file' }] : [])
         : name === 'verify_account_closure_residue' ? true : name === 'issue_account_closure_token' ? [{ request_id: 'request' }] : null;
       return { data, error: null };
     },
     auth: { admin: {
-      deleteUser: async (id: string, soft: boolean) => { calls.push({ name: 'deleteUser', args: { id, soft } }); return { error: null }; },
-      getUserById: async () => settings.authAbsent
+      deleteUser: async (id: string, soft: boolean) => { calls.push({ name: 'deleteUser', args: { id, soft } });
+        if (settings.deleteThrows) throw new Error('lost delete response'); return { error: null }; },
+      getUserById: async () => { if (settings.readThrows) throw new Error('read timeout'); return settings.authAbsent
         ? { data: { user: null }, error: { status: 404, code: 'user_not_found' } }
-        : { data: { user: { id: 'owner' } }, error: null },
+        : { data: { user: { id: 'owner' } }, error: null }; },
     } },
     storage: { from: (bucket: string) => ({ remove: async (paths: string[]) => {
       calls.push({ name: 'storageRemove', args: { bucket, paths } }); removed = true; return { error: null };
@@ -31,6 +36,10 @@ function fixture() {
     signInWithOtp: async (args: unknown) => { calls.push({ name: 'sendLink', args }); return { error: null }; },
   } } as unknown as SupabaseClient;
   const stripe = {
+    checkout: { sessions: {
+      list: async () => ({data:settings.checkouts,has_more:false}),
+      retrieve: async (id:string) => settings.checkouts.find((session)=>session.id===id),
+    } },
     customers: {
       retrieve: async (id: string) => ({ id, deleted: settings.deletedCustomer }),
       del: async (id: string) => { calls.push({ name: 'deleteCustomer', args: id }); return { id, deleted: true }; },
@@ -62,9 +71,39 @@ Deno.test('production token claim sends only SHA-256, and uses the authoritative
   assertEquals(/^[a-f0-9]{64}$/.test(hash), true);
   assertEquals(hash === token, false);
   await adapters.settleBilling('owner', [{ id: 'sub', status: 'canceled' }]);
-  assertEquals(calls[1], { name: 'settle_account_closure_billing', args: {
+  assertEquals(calls.find((c)=>c.name==='settle_account_closure_billing'), { name: 'settle_account_closure_billing', args: {
     p_user_id: 'owner', p_customer_id: 'cus', p_request_id: 'request', p_subscriptions: [{ id: 'sub', status: 'canceled' }],
   } });
+});
+Deno.test('legacy open checkout on a null-customer account blocks closure, including later pages', async () => {
+  const {adapters,stripe}=fixture(); let page=0;
+  stripe.checkout.sessions.list=(() => Promise.resolve(++page===1
+    ? {has_more:true,data:[{id:'unrelated',status:'expired',client_reference_id:'other'}]}
+    : {has_more:false,data:[{id:'open',status:'open',client_reference_id:'owner',customer:null}]})) as unknown as typeof stripe.checkout.sessions.list;
+  assertEquals(await adapters.verifyCheckouts('owner',null),false);
+  assertEquals(page,2);
+});
+Deno.test('completed legacy checkout with uncaptured customer refuses customer-null deletion', async () => {
+  const {adapters,settings}=fixture();
+  settings.checkouts=[{id:'complete',status:'complete',client_reference_id:'owner',metadata:{userId:'owner'},customer:'late'}];
+  assertEquals(await adapters.verifyCheckouts('owner',null),false);
+  assertEquals(await adapters.verifyCheckouts('owner','late'),true);
+});
+Deno.test('known expired checkout is reconciled before claim; open checkout is never expired by local time', async () => {
+  const {adapters,settings,calls}=fixture();
+  settings.pending=[{operation_id:'operation',session_id:'cs'}];
+  settings.checkouts=[{id:'cs',status:'open',client_reference_id:'owner',metadata:{userId:'owner'},customer:null}];
+  assertEquals(await adapters.consumeProof('owner','a'.repeat(64)),null);
+  assertEquals(calls.some((c)=>c.name==='claim_account_closure_token'),false);
+  settings.checkouts[0].status='expired';
+  await adapters.consumeProof('owner','a'.repeat(64));
+  const names=calls.map((c)=>c.name);
+  assertEquals(names.indexOf('reconcile_expired_account_checkout')<names.indexOf('claim_account_closure_token'),true);
+});
+Deno.test('interrupted checkout issuance remains a durable hold without guessing a Stripe identity', async () => {
+  const {adapters,settings,calls}=fixture(); settings.pending=[{operation_id:'operation',session_id:null}];
+  assertEquals(await adapters.consumeProof('owner','a'.repeat(64)),null);
+  assertEquals(calls.some((c)=>c.name==='claim_account_closure_token'),false);
 });
 Deno.test('production adapter cancels without invoicing/proration and supplies a stable idempotency key', async () => {
   const { calls, adapters } = fixture();
@@ -105,7 +144,19 @@ Deno.test('storage residue blocks auth deletion', async () => {
 });
 Deno.test('auth deletion requires authoritative not-found readback, never a successful delete response alone', async () => {
   const { settings, adapters } = fixture(); settings.authAbsent = false;
-  assertEquals(await adapters.deleteAuthUser('owner'), { deleted: false });
+  await adapters.consumeProof('owner', 'a'.repeat(64));
+  assertEquals(await adapters.deleteAuthUser('owner'), { deleted: null });
   settings.authAbsent = true;
   assertEquals(await adapters.deleteAuthUser('owner'), { deleted: true });
 });
+for (const mode of ['deleteThrows', 'readThrows'] as const) {
+  Deno.test(`auth deletion ${mode} preserves unknown intent and never records false non-deletion`, async () => {
+    const { settings, adapters, calls } = fixture(); settings[mode] = true;
+    await adapters.consumeProof('owner', 'a'.repeat(64));
+    assertEquals(await adapters.deleteAuthUser('owner'), { deleted: null });
+    const journalIndex = calls.findIndex((c) => c.name === 'record_account_closure_auth_state');
+    assertEquals(journalIndex > -1 && journalIndex < calls.findIndex((c) => c.name === 'deleteUser'), true);
+    assertEquals(calls.filter((c) => c.name === 'record_account_closure_auth_state').map((c) =>
+      (c.args as { p_state: string }).p_state), ['auth_unknown']);
+  });
+}

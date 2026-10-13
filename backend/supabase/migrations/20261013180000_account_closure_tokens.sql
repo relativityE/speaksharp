@@ -14,6 +14,152 @@ CREATE TABLE public.account_closure_tokens (
 ALTER TABLE public.account_closure_tokens ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.account_closure_tokens FROM PUBLIC, anon, authenticated, service_role;
 
+-- Deliberately no FK to auth.users: irreversible-operation uncertainty must survive
+-- auth cascade. Client roles cannot read, reset, expire or manufacture this journal.
+CREATE TABLE public.account_closure_attempts (
+  user_id uuid PRIMARY KEY,
+  request_id uuid NOT NULL UNIQUE,
+  phase text NOT NULL CHECK (phase IN ('processing', 'auth_unknown', 'auth_deleted', 'completed', 'failed')),
+  updated_at timestamptz NOT NULL DEFAULT statement_timestamp()
+);
+ALTER TABLE public.account_closure_attempts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.account_closure_attempts FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE TABLE public.account_billing_fences (
+  user_id uuid PRIMARY KEY,
+  phase text NOT NULL DEFAULT 'open' CHECK(phase IN ('open','closing')),
+  request_id uuid
+);
+CREATE TABLE public.account_checkout_operations (
+  operation_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  session_id text UNIQUE,
+  phase text NOT NULL DEFAULT 'issuing' CHECK(phase IN ('issuing','open','settled','unknown')),
+  created_at timestamptz NOT NULL DEFAULT statement_timestamp()
+);
+-- Rollout prerequisite: old unfenced checkout workers must be drained before an
+-- operator enables deletion. A source test or new route alone cannot certify that.
+CREATE TABLE public.account_billing_coordination (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+  checkout_workers_drained boolean NOT NULL DEFAULT false,
+  evidence_reference text
+);
+INSERT INTO public.account_billing_coordination(singleton) VALUES(true);
+CREATE TABLE public.account_closure_billing_permits (
+  user_id uuid PRIMARY KEY, request_id uuid NOT NULL, transaction_id bigint NOT NULL
+);
+ALTER TABLE public.account_billing_fences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.account_checkout_operations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.account_billing_coordination ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.account_closure_billing_permits ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.account_billing_fences,public.account_checkout_operations,
+  public.account_billing_coordination,public.account_closure_billing_permits
+  FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE FUNCTION public.begin_account_checkout(p_user_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE v_operation uuid;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  IF NOT EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id) THEN RAISE EXCEPTION 'account unavailable'; END IF;
+  INSERT INTO public.account_billing_fences(user_id) VALUES(p_user_id) ON CONFLICT DO NOTHING;
+  IF EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND phase='closing')
+    OR EXISTS(SELECT 1 FROM public.account_closure_attempts WHERE user_id=p_user_id AND phase<>'failed')
+    OR EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id AND phase<>'settled')
+    THEN RAISE EXCEPTION 'billing operation pending'; END IF;
+  INSERT INTO public.account_checkout_operations(user_id) VALUES(p_user_id) RETURNING operation_id INTO v_operation;
+  RETURN v_operation;
+END;
+$$;
+
+CREATE FUNCTION public.record_account_checkout(p_user_id uuid,p_operation_id uuid,p_session_id text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  IF NULLIF(btrim(p_session_id),'') IS NULL THEN RAISE EXCEPTION 'session identity missing'; END IF;
+  UPDATE public.account_checkout_operations SET session_id=p_session_id,phase='open'
+    WHERE user_id=p_user_id AND operation_id=p_operation_id AND phase='issuing';
+  IF NOT FOUND AND EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id
+    AND operation_id=p_operation_id AND session_id=p_session_id AND phase='settled') THEN RETURN; END IF;
+  IF NOT FOUND THEN RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
+END;
+$$;
+
+-- Called only after authenticated Stripe completion has applied its canonical
+-- subscription snapshot. Open/issuing operations never disappear on timeout.
+CREATE FUNCTION public.settle_account_checkout(p_user_id uuid,p_session_id text,p_customer_id text,p_subscription_id text,
+  p_operation_id uuid DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  IF EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND phase='closing')
+    THEN RAISE EXCEPTION 'account closure pending'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.user_profiles WHERE id=p_user_id AND stripe_customer_id=p_customer_id
+    AND stripe_subscription_id=p_subscription_id) THEN RAISE EXCEPTION 'checkout not attached'; END IF;
+  IF p_operation_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.account_checkout_operations
+    WHERE user_id=p_user_id AND operation_id=p_operation_id AND
+      (session_id=p_session_id OR (session_id IS NULL AND phase='issuing')))
+    THEN RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
+  UPDATE public.account_checkout_operations SET phase='settled',session_id=p_session_id
+    WHERE user_id=p_user_id AND ((session_id=p_session_id AND phase='open')
+      OR (operation_id=p_operation_id AND phase='issuing' AND session_id IS NULL));
+  -- Legacy completions have no operation row; the verified profile binding above
+  -- remains authoritative and the closure adapter separately scans legacy sessions.
+END;
+$$;
+
+CREATE FUNCTION public.inspect_account_closure_checkouts(p_user_id uuid,p_token_hash text)
+RETURNS TABLE(operation_id uuid,session_id text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  IF NOT EXISTS(SELECT 1 FROM public.account_closure_tokens t JOIN auth.users u ON u.id=t.user_id
+    WHERE t.user_id=p_user_id AND t.token_hash=p_token_hash AND t.phase='issued'
+      AND t.expires_at>statement_timestamp() AND lower(btrim(u.email))=t.email_normalized
+      AND u.email_confirmed_at IS NOT NULL) THEN RAISE EXCEPTION 'verification unavailable'; END IF;
+  RETURN QUERY SELECT o.operation_id,o.session_id FROM public.account_checkout_operations o
+    WHERE o.user_id=p_user_id AND o.phase<>'settled';
+END;
+$$;
+
+-- Only the provider adapter may supply an authenticated, exact-session expired
+-- readback. Local time alone never expires an issuing/open/unknown operation.
+CREATE FUNCTION public.reconcile_expired_account_checkout(p_user_id uuid,p_token_hash text,p_operation_id uuid,p_session_id text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  IF NOT EXISTS(SELECT 1 FROM public.account_closure_tokens WHERE user_id=p_user_id
+    AND token_hash=p_token_hash AND phase='issued' AND expires_at>statement_timestamp())
+    OR EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND phase='closing')
+    THEN RAISE EXCEPTION 'reconciliation ownership missing'; END IF;
+  UPDATE public.account_checkout_operations SET phase='settled'
+    WHERE user_id=p_user_id AND operation_id=p_operation_id AND session_id=p_session_id AND phase='open';
+  IF NOT FOUND THEN RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
+END;
+$$;
+
+CREATE FUNCTION public.guard_account_closure_billing()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||NEW.id::text,0));
+  IF TG_OP='UPDATE' AND
+    (NEW.stripe_customer_id,NEW.stripe_subscription_id,NEW.subscription_id,NEW.subscription_status)
+      IS NOT DISTINCT FROM (OLD.stripe_customer_id,OLD.stripe_subscription_id,OLD.subscription_id,OLD.subscription_status)
+    THEN RETURN NEW; END IF;
+  IF EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=NEW.id AND phase='closing') THEN
+    IF TG_OP<>'UPDATE' OR NOT EXISTS(SELECT 1 FROM public.account_closure_billing_permits p
+      JOIN public.account_closure_attempts a USING(user_id,request_id)
+      WHERE p.user_id=NEW.id AND p.transaction_id=txid_current() AND a.phase='processing')
+      OR NEW.stripe_customer_id IS DISTINCT FROM OLD.stripe_customer_id
+      OR NEW.stripe_subscription_id IS NOT NULL OR NEW.subscription_id IS NOT NULL
+      OR NEW.subscription_status<>'free' THEN RAISE EXCEPTION 'account closure fences billing'; END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER account_closure_billing_guard BEFORE INSERT OR UPDATE ON public.user_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.guard_account_closure_billing();
+REVOKE EXECUTE ON FUNCTION public.guard_account_closure_billing() FROM PUBLIC,anon,authenticated,service_role;
+
 -- D1: the retained ledger must govern signup, not merely survive deletion. The previous
 -- 30-day trigger stamped a new window without consulting this ledger.
 CREATE OR REPLACE FUNCTION public.ensure_trial_profile_for_new_user()
@@ -54,6 +200,8 @@ BEGIN
   SELECT lower(btrim(email)) INTO v_email FROM auth.users
     WHERE id = p_user_id AND email_confirmed_at IS NOT NULL;
   IF v_email IS NULL OR v_email = '' THEN RAISE EXCEPTION 'confirmed email required'; END IF;
+  IF EXISTS (SELECT 1 FROM public.account_closure_attempts a WHERE a.user_id=p_user_id AND a.phase <> 'failed')
+    THEN RETURN; END IF;
   RETURN QUERY INSERT INTO public.account_closure_tokens AS t
     (user_id, token_hash, email_normalized, issued_at, expires_at)
     VALUES (p_user_id, p_token_hash, v_email, v_now, v_now + interval '15 minutes')
@@ -77,6 +225,7 @@ RETURNS TABLE(user_id uuid, email text, customer_id text, request_id uuid, expir
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE v_row public.account_closure_tokens%ROWTYPE; v_customer text; v_status text;
 BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
   SELECT t.* INTO v_row FROM public.account_closure_tokens t
     JOIN auth.users u ON u.id = t.user_id
     WHERE t.user_id = p_user_id AND t.token_hash = p_token_hash
@@ -85,6 +234,14 @@ BEGIN
       AND lower(btrim(u.email)) = t.email_normalized
     FOR UPDATE OF t;
   IF NOT FOUND THEN RETURN; END IF;
+  IF EXISTS (SELECT 1 FROM public.account_closure_attempts a WHERE a.user_id=p_user_id AND a.phase <> 'failed')
+    THEN RETURN; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.account_billing_coordination WHERE checkout_workers_drained
+      AND NULLIF(btrim(evidence_reference),'') IS NOT NULL)
+    OR EXISTS(SELECT 1 FROM public.account_checkout_operations o WHERE o.user_id=p_user_id AND o.phase<>'settled')
+    THEN RAISE EXCEPTION 'checkout reconciliation required'; END IF;
+  INSERT INTO public.account_billing_fences(user_id,phase,request_id) VALUES(p_user_id,'closing',v_row.request_id)
+    ON CONFLICT ON CONSTRAINT account_billing_fences_pkey DO UPDATE SET phase='closing',request_id=EXCLUDED.request_id;
   SELECT p.stripe_customer_id, p.subscription_status INTO v_customer, v_status
     FROM public.user_profiles p WHERE p.id = p_user_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'account profile unavailable'; END IF;
@@ -93,6 +250,10 @@ BEGIN
   END IF;
   UPDATE public.account_closure_tokens t SET consumed_at = statement_timestamp(), phase = 'processing'
     WHERE t.user_id = p_user_id AND t.request_id = v_row.request_id;
+  INSERT INTO public.account_closure_attempts(user_id,request_id,phase)
+    VALUES(p_user_id,v_row.request_id,'processing') ON CONFLICT ON CONSTRAINT account_closure_attempts_pkey DO UPDATE
+    SET request_id=EXCLUDED.request_id,phase='processing',updated_at=statement_timestamp()
+    WHERE account_closure_attempts.phase='failed';
   RETURN QUERY SELECT v_row.user_id, v_row.email_normalized, v_customer,
     v_row.request_id, v_row.expires_at;
 END;
@@ -101,9 +262,29 @@ $$;
 -- A completed failed HTTP attempt releases its processing hold, NOT the consumed token.
 -- Interrupted/unknown attempts stay processing until independently reconciled; no unsafe expiry retry.
 CREATE FUNCTION public.finish_account_closure_attempt(p_user_id uuid, p_request_id uuid)
-RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = '' AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  UPDATE public.account_closure_attempts SET phase='failed',updated_at=statement_timestamp()
+    WHERE user_id=p_user_id AND request_id=p_request_id AND phase='processing';
+  IF NOT FOUND THEN RETURN; END IF;
   UPDATE public.account_closure_tokens SET phase = 'failed'
     WHERE user_id = p_user_id AND request_id = p_request_id AND phase = 'processing';
+  UPDATE public.account_billing_fences SET phase='open',request_id=NULL
+    WHERE user_id=p_user_id AND request_id=p_request_id;
+END;
+$$;
+
+CREATE FUNCTION public.record_account_closure_auth_state(p_user_id uuid,p_request_id uuid,p_state text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  UPDATE public.account_closure_attempts SET phase=p_state,updated_at=statement_timestamp()
+    WHERE user_id=p_user_id AND request_id=p_request_id AND
+      ((p_state='auth_unknown' AND phase='processing') OR
+       (p_state='auth_deleted' AND phase='auth_unknown') OR
+       (p_state='completed' AND phase='auth_deleted'));
+  IF NOT FOUND THEN RAISE EXCEPTION 'invalid closure transition'; END IF;
+END;
 $$;
 
 CREATE FUNCTION public.preserve_account_trial_email(p_user_id uuid)
@@ -147,8 +328,10 @@ BEGIN
       VALUES (v_sub->>'id', p_customer_id, v_sub->>'status', 'account-closure:' || p_request_id)
       ON CONFLICT (subscription_id) DO NOTHING;
   END LOOP;
+  INSERT INTO public.account_closure_billing_permits VALUES(p_user_id,p_request_id,txid_current());
   UPDATE public.user_profiles SET subscription_status = 'free', stripe_subscription_id = NULL,
     subscription_id = NULL, stripe_cancel_at_period_end = false, updated_at = now() WHERE id = p_user_id;
+  DELETE FROM public.account_closure_billing_permits WHERE user_id=p_user_id AND request_id=p_request_id;
 END;
 $$;
 
@@ -206,6 +389,16 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.issue_account_closure_token(uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.begin_account_checkout(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.begin_account_checkout(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.record_account_checkout(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.record_account_checkout(uuid,uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION public.settle_account_checkout(uuid,text,text,text,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.settle_account_checkout(uuid,text,text,text,uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.inspect_account_closure_checkouts(uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.inspect_account_closure_checkouts(uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION public.reconcile_expired_account_checkout(uuid,text,uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.reconcile_expired_account_checkout(uuid,text,uuid,text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.issue_account_closure_token(uuid, text) TO service_role;
 REVOKE ALL ON FUNCTION public.revoke_account_closure_token(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.revoke_account_closure_token(uuid, text) TO service_role;
@@ -213,6 +406,8 @@ REVOKE ALL ON FUNCTION public.claim_account_closure_token(uuid, text) FROM PUBLI
 GRANT EXECUTE ON FUNCTION public.claim_account_closure_token(uuid, text) TO service_role;
 REVOKE ALL ON FUNCTION public.finish_account_closure_attempt(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.finish_account_closure_attempt(uuid, uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.record_account_closure_auth_state(uuid,uuid,text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_account_closure_auth_state(uuid,uuid,text) TO service_role;
 REVOKE ALL ON FUNCTION public.preserve_account_trial_email(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.preserve_account_trial_email(uuid) TO service_role;
 REVOKE ALL ON FUNCTION public.settle_account_closure_billing(uuid, uuid, text, jsonb) FROM PUBLIC, anon, authenticated;

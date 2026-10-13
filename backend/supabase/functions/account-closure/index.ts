@@ -47,7 +47,28 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
       const adapters: ClosureDependencies = {
         now: () => Date.now(),
         consumeProof: async (userId, token) => {
-          const rows = await rpc('claim_account_closure_token', { p_user_id: userId, p_token_hash: await hashToken(token) });
+          const hash=await hashToken(token);
+          const pending=await rpc('inspect_account_closure_checkouts',{p_user_id:userId,p_token_hash:hash});
+          if (!Array.isArray(pending)) throw new Error('checkout_readback_missing');
+          for (const operation of pending as {operation_id:string;session_id:string|null}[]) {
+            // An interrupted issuance without a known Stripe session cannot be
+            // retried or dismissed. It needs independent provider reconciliation.
+            if (!operation.operation_id || !operation.session_id) return null;
+            const session=await useStripe().checkout.sessions.retrieve(operation.session_id);
+            if (session.id!==operation.session_id || session.client_reference_id!==userId
+              || session.metadata?.userId!==userId) throw new Error('checkout_identity_mismatch');
+            if (session.status==='expired') {
+              await rpc('reconcile_expired_account_checkout',{p_user_id:userId,p_token_hash:hash,
+                p_operation_id:operation.operation_id,p_session_id:operation.session_id});
+            } else if (session.status==='complete') {
+              const customer=typeof session.customer==='string'?session.customer:session.customer?.id;
+              const subscription=typeof session.subscription==='string'?session.subscription:session.subscription?.id;
+              if (!customer || !subscription) return null;
+              await rpc('settle_account_checkout',{p_user_id:userId,p_session_id:session.id,
+                p_customer_id:customer,p_subscription_id:subscription,p_operation_id:operation.operation_id});
+            } else return null;
+          }
+          const rows = await rpc('claim_account_closure_token', { p_user_id: userId, p_token_hash: hash });
           if (!Array.isArray(rows) || rows.length !== 1) return null;
           const row = rows[0] as Record<string, unknown>;
           if (typeof row.user_id !== 'string' || typeof row.email !== 'string' || typeof row.request_id !== 'string'
@@ -57,6 +78,25 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
           proof = { userId: row.user_id, email: row.email, customerId: row.customer_id,
             requestId: row.request_id, expiresAt: Date.parse(row.expires_at) };
           return proof;
+        },
+        verifyCheckouts: async (userId,customerId) => {
+          // No customer-null shortcut: legacy checkout creates the customer at completion.
+          // This runs after the DB fence and only after old unfenced workers are drained.
+          let cursor: string | undefined;
+          for (let page=0;page<20;page++) {
+            const sessions=await useStripe().checkout.sessions.list({limit:100,starting_after:cursor});
+            for (const session of sessions.data) {
+              if (session.client_reference_id!==userId && session.metadata?.userId!==userId) continue;
+              const owner=typeof session.customer==='string'?session.customer:session.customer?.id;
+              if (session.status==='expired') continue;
+              if (session.status!=='complete' || !owner || owner!==customerId) return false;
+            }
+            if (!sessions.has_more) return true;
+            const next=sessions.data.at(-1)?.id;
+            if (!next || next===cursor) return false;
+            cursor=next;
+          }
+          return false;
         },
         listSubscriptions: async (customerId) => {
           const client = useStripe();
@@ -110,14 +150,32 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
           if ((await read()).length !== 0) throw new Error('storage_residue');
         },
         deleteAuthUser: async (userId) => {
-          const { error } = await admin.auth.admin.deleteUser(userId, false);
-          if (error) return { deleted: false };
-          const read = await admin.auth.admin.getUserById(userId);
-          return { deleted: read.error?.status === 404 && read.error.code === 'user_not_found' };
+          if (!proof) throw new Error('closure_proof_missing');
+          // Commit the reconciliation hold before the destructive request. This record has
+          // no auth FK and survives deletion, process death and lost HTTP responses.
+          await rpc('record_account_closure_auth_state', {
+            p_user_id: userId, p_request_id: proof.requestId, p_state: 'auth_unknown',
+          });
+          try {
+            const { error } = await admin.auth.admin.deleteUser(userId, false);
+            if (error) return { deleted: null };
+            const read = await admin.auth.admin.getUserById(userId);
+            if (read.error?.status !== 404 || read.error.code !== 'user_not_found') return { deleted: null };
+            await rpc('record_account_closure_auth_state', {
+              p_user_id: userId, p_request_id: proof.requestId, p_state: 'auth_deleted',
+            });
+            return { deleted: true };
+          } catch { return { deleted: null }; }
         },
-        verifyResidue: async (userId) => ({ clean: await rpc('verify_account_closure_residue', {
-          p_user_id: userId, p_email: proof?.email ?? '',
-        }) === true }),
+        verifyResidue: async (userId) => {
+          const clean = await rpc('verify_account_closure_residue', {
+            p_user_id: userId, p_email: proof?.email ?? '',
+          }) === true;
+          if (clean && proof) await rpc('record_account_closure_auth_state', {
+            p_user_id: userId, p_request_id: proof.requestId, p_state: 'completed',
+          });
+          return { clean };
+        },
       };
       return adapters;
     },

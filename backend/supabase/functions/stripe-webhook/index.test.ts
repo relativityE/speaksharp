@@ -33,13 +33,28 @@ const mkSupabase = (rpcResult: any = { data: { success: true, entitlement: "pro"
   let capturedArgs: any = null;
   return {
     calls: () => capturedArgs,
-    supabase: { rpc: (_fn: string, args: any) => { capturedArgs = args; return Promise.resolve(rpcResult); } },
+    supabase: { rpc: (_fn: string, args: any) => { if (_fn === "apply_stripe_subscription_snapshot") capturedArgs = args; return Promise.resolve(rpcResult); } },
   };
 };
 
 const req = (event: any) => new Request("http://localhost", { method: "POST", headers: { "Stripe-Signature": "mock" }, body: JSON.stringify(event) });
 
 Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
+  await t.step('checkout completion retries unfinished operation settlement even on a duplicate snapshot',async()=>{
+    const names:string[]=[];
+    const database={rpc:async(name:string,args:Record<string,unknown>)=>{names.push(name);
+      if(name==='settle_account_checkout') {
+        assertEquals(args.p_operation_id,'operation');
+        return {data:null,error:{message:'fenced'}};
+      }
+      return {data:{success:true,skipped:true},error:null};
+    }};
+    const res=await handler(req({id:'duplicate',type:'checkout.session.completed',data:{object:{id:'cs',
+      client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
+      mkStripe(),database,'secret',env);
+    assertEquals(res.status,500);
+    assertEquals(names,['apply_stripe_subscription_snapshot','settle_account_checkout']);
+  });
   await t.step("checkout.session.completed with an active, correctly-priced sub → snapshot with user binding", async () => {
     const sb = mkSupabase();
     const res = await handler(req({ id: "e1", type: "checkout.session.completed", created: 1000,

@@ -78,7 +78,7 @@ export async function handleClosureRequest(req: Request, deps: ClosureRequestDep
         return proof;
       },
     });
-    if (requestId && !result.accountDeleted) await deps.finish(user.id, requestId);
+    if (requestId && result.accountDeleted === false) await deps.finish(user.id, requestId);
     return reply(result.outcome === 'deleted' ? 200 : result.outcome === 'refused' ? 403 : 409, result);
   } catch {
     return reply(503, { error: 'account_closure_unavailable' });

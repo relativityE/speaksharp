@@ -9,6 +9,7 @@ function fixture() {
   const adapters: ClosureDependencies = {
     now: () => 1000,
     consumeProof: vi.fn(async () => ({ userId: 'owner', email: 'verified@example.test', customerId: null, requestId: 'request', expiresAt: 2000 })),
+    verifyCheckouts: vi.fn(async () => true),
     listSubscriptions: vi.fn(), cancelSubscription: vi.fn(), settleBilling: vi.fn(), deleteCustomer: vi.fn(),
     preserveTrialEmail: vi.fn(async () => {}), removeOwnedStorage: vi.fn(async () => {}),
     deleteAuthUser: vi.fn(async () => ({ deleted: true })), verifyResidue: vi.fn(async () => ({ clean: true })),
@@ -26,6 +27,13 @@ function fixture() {
 }
 
 describe('account-closure authenticated request/confirmation contract', () => {
+  it('unknown auth deletion never releases the processing hold or implies non-deletion', async () => {
+    const { deps, request, adapters } = fixture();
+    vi.mocked(adapters.deleteAuthUser).mockRejectedValue(new Error('lost remote response'));
+    const response = await handleClosureRequest(request({ action: 'confirm', token: secret, confirmIrreversible: true }), deps);
+    expect(await response.json()).toMatchObject({ outcome: 'verification_pending', accountDeleted: null });
+    expect(deps.finish).not.toHaveBeenCalled();
+  });
   it('issues only a hash, mails only the authenticated email, and never returns the secret', async () => {
     const { deps, request } = fixture();
     const response = await handleClosureRequest(request({ action: 'request', email: 'attacker@example.test', userId: 'other', redirect: 'https://evil.test' }), deps);

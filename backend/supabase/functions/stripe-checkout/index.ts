@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
-import { createClient } from "npm:@supabase/supabase-js@2"
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 import { corsGuard, corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
 
@@ -47,6 +47,7 @@ type HandlerDeps = {
   getEnv?: EnvGetter;
   createSupabase?: SupabaseFactory;
   stripeClient?: StripeLike | null;
+  createAdmin?: () => SupabaseClient;
 };
 
 const normalizePlan = (value: unknown): CheckoutPlan | null => {
@@ -314,6 +315,15 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     // 5. Stripe Session Creation
     console.log(`[Stripe Checkout] 💳 Creating Stripe Session for ${plan} with Price ID: ${priceId}`);
     try {
+      // Reserve before contacting Stripe. A lost response leaves a durable issuing
+      // operation; neither another checkout nor account deletion may race past it.
+      const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+      if (!serviceKey) throw new Error('billing coordination unavailable');
+      const admin: SupabaseClient = deps.createAdmin?.() ?? createClient(getEnv('SUPABASE_URL')!,serviceKey,
+        { auth: { persistSession:false,autoRefreshToken:false } });
+      const reserved = await admin.rpc('begin_account_checkout',{p_user_id:user.id});
+      if (reserved.error || typeof reserved.data!=='string' || !reserved.data) throw new Error('billing operation pending');
+      const operationId = reserved.data;
       const session = await stripeClient.checkout.sessions.create({
         ...customerParams,
         payment_method_types: ["card"],
@@ -329,6 +339,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
         cancel_url: `${effectiveSiteUrl}/pricing?checkout=cancelled&conversion_source=${encodeURIComponent(conversionSource)}&utm_source=${encodeURIComponent(utmSource)}&utm_medium=${encodeURIComponent(utmMedium)}&utm_campaign=${encodeURIComponent(utmCampaign)}`,
         metadata: {
           userId: user.id,
+          billingOperationId: operationId,
           plan,
           conversionSource,
           utmSource,
@@ -346,6 +357,10 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
           },
         },
       })
+      const recorded = await admin.rpc('record_account_checkout',{
+        p_user_id:user.id,p_operation_id:operationId,p_session_id:session.id,
+      });
+      if (recorded.error) throw new Error('checkout delivery unverified');
       console.log(`[Stripe Checkout] ✅ Session created: ${session.id}`)
 
       return createSuccessResponse({ checkoutUrl: session.url }, responseHeaders);

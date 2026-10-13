@@ -6,8 +6,8 @@ import { accountDeletionToken, clearAccountDeletionToken } from '@/services/acco
 import { Button } from '@/components/ui/button';
 
 interface DeletionResponse {
-  outcome?: 'email_requested' | 'deleted' | 'refused' | 'incomplete';
-  accountDeleted?: boolean;
+  outcome?: 'email_requested' | 'deleted' | 'refused' | 'incomplete' | 'verification_pending';
+  accountDeleted?: boolean | null;
   billingClosed?: boolean;
   customerDeleted?: boolean;
 }
@@ -16,10 +16,11 @@ function closureResponse(value: unknown): DeletionResponse | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;
   if (row.outcome === 'email_requested') return { outcome: 'email_requested' };
-  if (!['deleted', 'refused', 'incomplete'].includes(String(row.outcome))
-    || typeof row.accountDeleted !== 'boolean' || typeof row.billingClosed !== 'boolean'
+  if (!['deleted', 'refused', 'incomplete', 'verification_pending'].includes(String(row.outcome))
+    || (row.accountDeleted !== null && typeof row.accountDeleted !== 'boolean') || typeof row.billingClosed !== 'boolean'
     || typeof row.customerDeleted !== 'boolean') return null;
   if (row.outcome === 'deleted' && (row.accountDeleted !== true || row.billingClosed !== true)) return null;
+  if ((row.accountDeleted === null) !== (row.outcome === 'verification_pending')) return null;
   return row as unknown as DeletionResponse;
 }
 
@@ -30,6 +31,7 @@ export default function AccountDeletionPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [reconciliationPending, setReconciliationPending] = useState(false);
   const inFlight = useRef(false);
 
   const submit = async (action: 'request' | 'confirm') => {
@@ -58,7 +60,10 @@ export default function AccountDeletionPage() {
       setToken(null);
       setConfirmed(false);
       if (!result) throw new Error('Deletion result unverified');
-      if (result.accountDeleted) {
+      if (result.accountDeleted === null) {
+        setReconciliationPending(true);
+        setMessage('Account deletion could not be verified. It may already have happened. Do not request another link or retry deletion; contact support for reconciliation.');
+      } else if (result.accountDeleted) {
         setCompleted(true);
         try { await signOut(); } catch { /* deletion already happened; preserve the factual result */ }
         setMessage(result.outcome === 'deleted'
@@ -75,6 +80,7 @@ export default function AccountDeletionPage() {
       if (action === 'confirm') {
         clearAccountDeletionToken();
         setToken(null);
+        setReconciliationPending(true);
       }
       setMessage(action === 'request'
         ? 'We could not send a verification link. Please try again later or contact support.'
@@ -92,7 +98,7 @@ export default function AccountDeletionPage() {
       <p className="mt-3">We will cancel your subscriptions and delete your Stripe customer. Deleting now ends access immediately and forfeits remaining paid time without a refund. If cancellation cannot be confirmed, deletion stops.</p>
       <p className="mt-3">Your trial email is retained to prevent repeat trials. Historical billing and support records may remain.</p>
       <p className="mt-3">To keep your account and use the rest of your paid period, cancel membership instead and return here later. Cancelling membership never schedules account deletion.</p>
-      {loading ? <p role="status" className="mt-6">Checking your sign-in…</p> : !user ?
+      {reconciliationPending ? null : loading ? <p role="status" className="mt-6">Checking your sign-in…</p> : !user ?
         <p className="mt-6"><Link to="/auth/signin">Sign in</Link> before requesting a verification link.</p> : token ?
           <div className="mt-6 space-y-4">
             <label className="flex items-start gap-3"><input type="checkbox" checked={confirmed}

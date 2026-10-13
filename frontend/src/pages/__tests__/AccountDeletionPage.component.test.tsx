@@ -24,6 +24,17 @@ beforeEach(() => {
 });
 
 describe('deletion confirmation UI — real component, mocked provider boundary', () => {
+  it('unknown auth outcome warns deletion may have happened and offers no blind retry/link', async () => {
+    mocks.token = secret;
+    mocks.invoke.mockResolvedValue({ data: { ...done, outcome: 'verification_pending', accountDeleted: null }, error: null });
+    mount(); fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    await screen.findByText(/It may already have happened/);
+    expect(screen.queryByText(/your account has not been deleted/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  });
   it('states irreversible loss, no refund and retained exceptions before offering verification', () => {
     mount();
     expect(screen.getByText(/forfeits remaining paid time without a refund/)).toBeInTheDocument();

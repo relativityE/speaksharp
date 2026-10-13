@@ -32,6 +32,7 @@ beforeEach(async () => {
       trial_expires_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz DEFAULT now());
     CREATE TABLE public.stripe_subscription_tombstones(subscription_id text PRIMARY KEY,
       customer_id text NOT NULL, terminal_status text NOT NULL, tombstoned_at timestamptz DEFAULT now(), event_id text);
+    CREATE TABLE public.processed_webhook_events(event_id text PRIMARY KEY,event_type text,processed_at timestamptz);
     CREATE TABLE public.sessions(id uuid PRIMARY KEY, user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE);
     CREATE TABLE public.user_issue_reports(id uuid PRIMARY KEY, user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL);
     CREATE TABLE storage.objects(bucket_id text, name text, owner_id text);
@@ -45,7 +46,13 @@ beforeEach(async () => {
 });
 afterEach(async () => { await db.close(); });
 
-async function apply() { await db.exec('SET ROLE closure_owner'); try { await db.exec(candidate); } finally { await db.exec('RESET ROLE'); } }
+async function apply(drained = true) {
+  await db.exec('SET ROLE closure_owner');
+  try {
+    await db.exec(candidate);
+    if (drained) await db.exec("UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='offline-fixture-only'");
+  } finally { await db.exec('RESET ROLE'); }
+}
 async function service(sql: string, args: unknown[] = []) {
   return db.transaction(async (tx) => { await tx.exec('SET LOCAL ROLE service_role'); return tx.query(sql, args); });
 }
@@ -53,6 +60,69 @@ const issue = () => service('SELECT * FROM public.issue_account_closure_token($1
 const claim = (id = U, hash = HASH) => service('SELECT * FROM public.claim_account_closure_token($1,$2)', [id, hash]);
 
 describe('account deletion — actual SQL grants, durable claims and retained-trial behavior', () => {
+  it('rollout without drained legacy checkout writers refuses deletion', async () => {
+    await apply(false); await issue();
+    await expect(claim()).rejects.toThrow('checkout reconciliation required');
+  });
+  it.each(['issuing','open','unknown'])('customer-null checkout %s is durable and excludes closure', async (phase) => {
+    await apply(); await issue();
+    const operation = (await service('SELECT begin_account_checkout($1) AS id',[U])).rows[0] as { id: string };
+    if (phase==='open') await service('SELECT record_account_checkout($1,$2,$3)',[U,operation.id,'cs_open']);
+    if (phase==='unknown') await db.query("UPDATE account_checkout_operations SET phase='unknown' WHERE operation_id=$1",[operation.id]);
+    await expect(claim()).rejects.toThrow('checkout reconciliation required');
+    await expect(service('SELECT begin_account_checkout($1)',[U])).rejects.toThrow('billing operation pending');
+    expect((await db.query('SELECT stripe_customer_id FROM user_profiles WHERE id=$1',[U])).rows).toEqual([{stripe_customer_id:null}]);
+  });
+  it('closure winning the interleaving fences new checkout and late webhook attachment', async () => {
+    await db.exec(`SET ROLE closure_owner; ${readFileSync(resolve(MIG,'20260812002000_webhook_lifecycle_completeness_1282.sql'),'utf8')} RESET ROLE;`);
+    await apply(); await issue(); await claim();
+    await expect(service('SELECT begin_account_checkout($1)',[U])).rejects.toThrow('billing operation pending');
+    await expect(db.query("UPDATE user_profiles SET stripe_customer_id='cus_late',stripe_subscription_id='sub_late',subscription_status='pro' WHERE id=$1",[U]))
+      .rejects.toThrow('account closure fences billing');
+    expect((await db.query('SELECT stripe_customer_id FROM user_profiles WHERE id=$1',[U])).rows).toEqual([{stripe_customer_id:null}]);
+    const result=await service('SELECT apply_stripe_subscription_snapshot($1,$2,$3,$4,$5,$6,$7,$8,$9) AS result',
+      ['late_event','sub_late','cus_late','active',true,false,null,U,null]);
+    expect(result.rows[0]).toMatchObject({result:{success:false,error:'account closure fences billing'}});
+    expect((await db.query("SELECT * FROM processed_webhook_events WHERE event_id='late_event'")).rows).toEqual([]);
+  });
+  it('completed checkout cannot release its hold before canonical customer/subscription attachment', async () => {
+    await apply(); await issue();
+    const operation = (await service('SELECT begin_account_checkout($1) AS id',[U])).rows[0] as {id:string};
+    await service('SELECT record_account_checkout($1,$2,$3)',[U,operation.id,'cs_done']);
+    await expect(service('SELECT settle_account_checkout($1,$2,$3,$4)',[U,'cs_done','cus','sub'])).rejects.toThrow('checkout not attached');
+    await db.query("UPDATE user_profiles SET stripe_customer_id='cus',stripe_subscription_id='sub',subscription_status='pro' WHERE id=$1",[U]);
+    await service('SELECT settle_account_checkout($1,$2,$3,$4)',[U,'cs_done','cus','sub']);
+    expect((await claim()).rows[0]).toMatchObject({customer_id:'cus'});
+  });
+  it('completion before checkout URL delivery settles the exact reservation without reopening it', async () => {
+    await apply();
+    const operation=(await service('SELECT begin_account_checkout($1) AS id',[U])).rows[0] as {id:string};
+    await db.query("UPDATE user_profiles SET stripe_customer_id='cus',stripe_subscription_id='sub',subscription_status='pro' WHERE id=$1",[U]);
+    await service('SELECT settle_account_checkout($1,$2,$3,$4,$5)',[U,'cs','cus','sub',operation.id]);
+    await service('SELECT record_account_checkout($1,$2,$3)',[U,operation.id,'cs']);
+    expect((await db.query('SELECT phase,session_id FROM account_checkout_operations')).rows).toEqual([{phase:'settled',session_id:'cs'}]);
+  });
+  it('confirmed checkout expiry releases only the exact tracked operation, never a guessed issuance', async () => {
+    await apply(); await issue();
+    const operation=(await service('SELECT begin_account_checkout($1) AS id',[U])).rows[0] as {id:string};
+    await expect(service('SELECT reconcile_expired_account_checkout($1,$2,$3,$4)',[U,HASH,operation.id,'guessed'])).rejects.toThrow('checkout ownership mismatch');
+    await service('SELECT record_account_checkout($1,$2,$3)',[U,operation.id,'cs']);
+    await service('SELECT reconcile_expired_account_checkout($1,$2,$3,$4)',[U,HASH,operation.id,'cs']);
+    expect((await claim()).rows).toHaveLength(1);
+  });
+  it('auth uncertainty survives cascade and cannot be released or replaced by a new link', async () => {
+    await apply(); await issue();
+    const row = (await claim()).rows[0] as { request_id: string };
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, row.request_id, 'auth_unknown']);
+    await service('SELECT finish_account_closure_attempt($1,$2)', [U, row.request_id]);
+    expect((await db.query('SELECT phase FROM account_closure_attempts')).rows).toEqual([{ phase: 'auth_unknown' }]);
+    await db.exec(`UPDATE account_closure_tokens SET issued_at=now()-interval '1 hour' WHERE user_id='${U}'`);
+    expect((await issue()).rows).toEqual([]);
+    await db.exec(`DELETE FROM auth.users WHERE id='${U}'`);
+    expect((await db.query('SELECT phase FROM account_closure_attempts')).rows).toEqual([{ phase: 'auth_unknown' }]);
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, row.request_id, 'auth_deleted']);
+    expect((await db.query('SELECT phase FROM account_closure_attempts')).rows).toEqual([{ phase: 'auth_deleted' }]);
+  });
   it('RED: current signup source gives a deleted/recreated email another 30-day trial', async () => {
     await db.exec(`INSERT INTO trial_entitlements VALUES ('user@example.test','${U}',now()-interval '60 days',now()-interval '30 days',now());
       DELETE FROM auth.users WHERE id='${U}';
