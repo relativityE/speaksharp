@@ -4174,7 +4174,10 @@ export class SpeechRuntimeController {
                     type: 'error',
                     message: '⛔ Active session in another tab.'
                 });
-                await this.transition('FAILED', undefined, _token);
+                // #1258 (Codex P2 4261513195, PM 6150665406): the FAILED transition carries a closed `failure_code`
+                // (start_gate_closed) instead of none. A FAILED error's message becomes the status line, so the error
+                // keeps the exact display text above and the code travels as a tag; only the code leaves the device.
+                await this.transition('FAILED', withFailureCode(new Error('⛔ Active session in another tab.'), 'start_gate_closed'), _token);
                 return;
             }
 
