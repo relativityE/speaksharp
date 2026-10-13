@@ -1,0 +1,143 @@
+--- a/server.py
++++ b/server.py
+@@ -6714,14 +6714,23 @@
+             return 403, "missing or invalid control token"
+         return None
+ 
++    def send_bytes(self, code, content_type, data):
++        try:
++            self.send_response(code)
++            self.send_header("Content-Type", content_type)
++            self.send_header("Content-Length", str(len(data)))
++            self.send_header("Cache-Control", "no-store")
++            self.end_headers()
++            self.wfile.write(data)
++        except (BrokenPipeError, ConnectionResetError):
++            # A timed-out readiness poll or closed browser is not a server crash.
++            # Never undo/replay an already committed action because its response
++            # could not reach the client. Other application/I/O errors propagate.
++            return False
++        return True
++
+     def sendj(self, code, obj):
+-        data = json.dumps(obj).encode()
+-        self.send_response(code)
+-        self.send_header("Content-Type", "application/json")
+-        self.send_header("Content-Length", str(len(data)))
+-        self.send_header("Cache-Control", "no-store")
+-        self.end_headers()
+-        self.wfile.write(data)
++        return self.send_bytes(code, "application/json", json.dumps(obj).encode())
+ 
+     def body(self):
+         n = int(self.headers.get("Content-Length", "0"))
+@@ -6744,13 +6753,7 @@
+                 return self.sendj(403, {'error': str(exc)})
+         if u.path == "/":
+             data = (STATIC / "index.html").read_bytes().replace(TOKEN_PLACEHOLDER, CONTROL_TOKEN.encode())
+-            self.send_response(200)
+-            self.send_header("Content-Type", "text/html; charset=utf-8")
+-            self.send_header("Content-Length", str(len(data)))
+-            self.send_header("Cache-Control", "no-store")
+-            self.end_headers()
+-            self.wfile.write(data)
+-            return
++            return self.send_bytes(200, "text/html; charset=utf-8", data)
+         if u.path == "/api/live":
+             return self.sendj(200, {
+                 "version": BOARD_VERSION,
+--- a/foreground_startup.py
++++ b/foreground_startup.py
+@@ -84,7 +84,7 @@
+         if not alive():
+             raise RuntimeError('Orch exited before HTTP readiness; browser not opened')
+         try:
+-            with opener(f'http://127.0.0.1:{port}/api/live', timeout=1) as response:
++            with opener(f'http://127.0.0.1:{port}/api/live', timeout=5) as response:
+                 value = json.load(response)
+             if isinstance(value, dict) and 'transport' in value and value.get('version') == '4.7.13':
+                 return value
+--- /dev/null
++++ b/test_http_disconnect.py
+@@ -0,0 +1,81 @@
++"""A real reset client must not produce a server crash or break later responses."""
++import json
++import socket
++import struct
++import threading
++import unittest
++import urllib.error
++import urllib.request
++from http.server import HTTPServer
++from unittest.mock import Mock
++import server
++
++
++class HttpDisconnectTests(unittest.TestCase):
++    def test_real_client_reset_during_response_does_not_break_the_next_request(self):
++        entered, release = threading.Event(), threading.Event()
++        errors = []
++
++        class Handler(server.H):
++            def control_refusal(self, mutating=False):
++                return None  # Read-only unknown routes; no state or credential access.
++
++            def sendj(self, code, obj):
++                if self.path == '/disconnect':
++                    entered.set()
++                    if not release.wait(3):
++                        raise RuntimeError('test client did not release response')
++                return super().sendj(code, obj)
++
++        class TestServer(HTTPServer):
++            def handle_error(self, request, client_address):
++                errors.append(client_address)
++
++        http = TestServer(('127.0.0.1', 0), Handler)
++        thread = threading.Thread(target=http.serve_forever, daemon=True)
++        thread.start()
++        try:
++            client = socket.create_connection(http.server_address, timeout=3)
++            client.sendall(b'GET /disconnect HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n')
++            self.assertTrue(entered.wait(3))
++            client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
++            client.close()
++            release.set()
++            # This serialized server handles the reset before this next request.
++            url = 'http://127.0.0.1:' + str(http.server_address[1]) + '/still-serving'
++            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
++            with self.assertRaises(urllib.error.HTTPError) as result:
++                opener.open(url, timeout=3)
++            self.assertEqual(result.exception.code, 404)
++            self.assertIsInstance(json.loads(result.exception.read()), dict)
++            result.exception.close()
++            self.assertEqual(errors, [])
++        finally:
++            release.set()
++            http.shutdown()
++            http.server_close()
++            thread.join(3)
++
++    def handler(self):
++        handler = server.H.__new__(server.H)
++        for name in ('send_response', 'send_header', 'end_headers'):
++            setattr(handler, name, Mock())
++        handler.wfile = Mock()
++        return handler
++
++    def test_body_and_header_disconnects_are_expected_transport_failures(self):
++        for failure in (BrokenPipeError, ConnectionResetError):
++            for boundary in ('write', 'end_headers'):
++                handler = self.handler()
++                target = handler.wfile.write if boundary == 'write' else handler.end_headers
++                target.side_effect = failure('client disconnected')
++                with self.subTest(failure=failure, boundary=boundary):
++                    self.assertFalse(handler.sendj(200, {'ready': True}))
++
++    def test_application_errors_are_not_hidden_as_client_disconnects(self):
++        handler = self.handler()
++        with self.assertRaises(TypeError):
++            handler.sendj(200, {'not_json': object()})
++        handler.wfile.write.side_effect = OSError('unrelated write failure')
++        with self.assertRaises(OSError):
++            handler.sendj(200, {'ready': True})
