@@ -2,22 +2,27 @@
 // Reuses the scoped SQL fixture and actual migration/RPC source. No full-chain claim.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import process from 'node:process';
+import console from 'node:console';
+import { setTimeout } from 'node:timers';
 
 const root = mkdtempSync('/private/tmp/account-closure-realpg-');
 const data = join(root, 'data');
 const socket = join(root, 'socket');
 mkdirSync(socket);
-const env = { ...process.env, PGHOST: socket, PGPORT: '5432', PGUSER: 'closure_test_admin', PGDATABASE: 'postgres' };
+const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('PG'))),
+  PGHOST: socket, PGPORT: '5432', PGUSER: 'closure_test_admin', PGDATABASE: 'postgres' };
+const connection = ['-h', socket, '-p', env.PGPORT, '-U', env.PGUSER, '-d', env.PGDATABASE];
 const uid = '11111111-1111-4111-8111-111111111111';
 const hash = 'a'.repeat(64);
 const migration = (name) => readFileSync(resolve('backend/supabase/migrations', name), 'utf8');
-const sql = (text) => execFileSync('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
+const sql = (text) => execFileSync('psql', [...connection, '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
   { env, encoding: 'utf8', timeout: 10_000 }).trim();
 const clients = [];
 function client(name, text) {
-  const child = spawn('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
+  const child = spawn('psql', [...connection, '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
     { env: { ...env, PGAPPNAME: name }, stdio: ['ignore', 'pipe', 'pipe'] });
   const done = new Promise((resolveResult, reject) => {
     let stdout = ''; let stderr = '';
@@ -81,7 +86,7 @@ try {
     result: 'PASS', boundary: 'canonical webhook row-lock → closure claim', providerCalls: 0,
     fullMigrationChain: 'UNVERIFIED' }));
 } finally {
-  if (started) execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });
+  if (started || existsSync(join(data, 'postmaster.pid'))) execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });
   await Promise.allSettled(clients);
   rmSync(root, { recursive: true, force: true });
 }
