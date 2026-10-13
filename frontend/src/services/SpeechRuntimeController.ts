@@ -629,6 +629,13 @@ export class SpeechRuntimeController {
 
     // Cancellation tracking for startRecording
     private currentRecordingId: string | null = null;
+    /**
+     * #1258 R1 — the recording whose Stop was already accepted. A second Stop for the SAME recording is a no-op, however
+     * late its queued turn runs. Alpha runs 38298685079 / 38304068207: a Stop pressed while the take was STOPPING queued
+     * behind the first; when that save failed (FAILED_VISIBLE, Retry Save armed), the queued Stop ran on the failed take
+     * and moved it to READY — the failure vanished from the page while the unsaved take still refused the next Start.
+     */
+    private stopAcceptedForRecordingId: string | null = null;
     /** #1421 Option A: the attempt this take belongs to, snapshotted when the take enters RECORDING. */
     private currentRecordingSubject: RecordingSubject | null = null;
     /**
@@ -4679,6 +4686,8 @@ export class SpeechRuntimeController {
         this.markRecordingResolved();
         this.pendingAttributionRetry = null;
         this.pendingFullSaveRetry = null;
+        // #1258 R1: a hard reset drops queued commands and starts a new lifecycle; no earlier Stop carries over.
+        this.stopAcceptedForRecordingId = null;
         this.recordingProgressMode = { mode: 'unknown' };
         this.recordingLogin = null;
 
@@ -4889,6 +4898,11 @@ export class SpeechRuntimeController {
             if (!canStop) {
                 return null;
             }
+            if (this.currentRecordingId !== null && this.stopAcceptedForRecordingId === this.currentRecordingId) {
+                pushNativeRuntimeTrace('controller_stop_duplicate_ignored', { state: this.state });
+                return null;
+            }
+            this.stopAcceptedForRecordingId = this.currentRecordingId;
             const stopSnapshotStore = useSessionStore.getState();
             const frozenAtStop = this.freezeTranscriptLifecycleAtStop();
             pushTranscriptLifecycleTrace('lifecycle:stop', {
