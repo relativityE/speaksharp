@@ -1,14 +1,15 @@
 --- a/server.py
 +++ b/server.py
-@@ -35,6 +35,7 @@
+@@ -35,6 +35,8 @@
  import coordination_health
  import worker_supervisor
  import coordination_recovery
 +import session_registration
++import session_rebinding
  
  APP = Path(__file__).resolve().parent
  DB = APP / ".agent-work" / "state.db"
-@@ -91,8 +92,8 @@
+@@ -91,8 +93,8 @@
                                    "pull_request_review_comment", "workflow_run", "check_run", "check_suite", "push"})
  CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1593"))
  WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
@@ -19,7 +20,7 @@
  GH_BACKOFF_UNTIL = 0.0
  PR_DISPLAY_CACHE = {}
  PR_DISPLAY_LOCK = threading.RLock()
-@@ -2436,17 +2437,19 @@
+@@ -2436,17 +2438,19 @@
      return qids
  
  
@@ -41,7 +42,7 @@
              if actor == 'cli_pm':
                  # This native coordinator already receives the durable PM event queue.
                  continue
-@@ -2479,12 +2482,13 @@
+@@ -2479,12 +2483,13 @@
                      if actor_channels.retire_unpresented_notice(old['action_id'], actor, old['target_session_id']):
                          c.execute("UPDATE agent_notifications SET status='superseded',error=?,updated_at=? WHERE action_id=?",
                                    ('Newer awareness snapshot; unread inbox notice retired, not acknowledged', now(), old['action_id']))
@@ -57,7 +58,7 @@
      for row in rows:
          try:
              route = configured_actor_route(row['actor_id'])
-@@ -4282,6 +4286,17 @@
+@@ -4282,6 +4287,17 @@
                  c.execute("UPDATE asks SET disposition_ref=disposition_ref || ' · receipt notification:' || ? WHERE handoff_id=? AND state='dispatched'",
                            (action_id, n['handoff_id']))
              else:
@@ -75,7 +76,7 @@
                  if n['status'] == 'responded' and n['result_digest'] == digest:
                      return 200, {'ok': True, 'duplicate': True}
                  if n['status'] != 'received' or not n['receipt_at']:
-@@ -5070,6 +5085,7 @@
+@@ -5070,6 +5086,7 @@
              sweep_preflight_recoveries()
              sweep_invocation_recoveries()
              sweep_agent_delivery_stalls()
@@ -83,7 +84,7 @@
              players = list_player_status()
              p = players.get('cli_dev') or {}
              key = str(p.get('work_item_key') or '')
-@@ -5574,6 +5590,21 @@
+@@ -5574,6 +5591,21 @@
          add_activity("SYSTEM", "Cancelled PM response was discarded; no automatic handoff occurred.", "none", "system")
          return
  
@@ -105,7 +106,7 @@
      updates = routed.get("board_updates")
      if (not isinstance(updates, dict) or not updates.get('work_items') or not updates.get('players')):
          detail = 'PM replied without task AND player reconciliation; no executable handoff'
-@@ -5604,6 +5635,12 @@
+@@ -5604,6 +5636,12 @@
          return
      update_queue(q["id"], status="responded", finished_at=now(), session_id=sid)
      set_agent("pm", status="idle", session_id=sid)
@@ -118,7 +119,7 @@
      patch_errors = []
      accepted = apply_board_updates(updates, errors=patch_errors)
      if not accepted:
-@@ -6377,7 +6414,14 @@
+@@ -6377,7 +6415,14 @@
          a = agents.get(aid) or {}
          ast = str(a.get("status") or "idle")
          board_status = str(base.get('status') or 'unknown')
@@ -134,19 +135,54 @@
              base['status'] = 'available'
              base['task_blocker'] = base.get('blocker') or ''
              base['blocker'] = ''
-@@ -6600,6 +6644,11 @@
+@@ -6600,6 +6645,46 @@
      return [r['action_id'] for r in notices + tasks]
  
  
 +def registration_snapshot():
 +    with DB_LOCK, con() as c:
-+        return session_registration.snapshot(c, SESSION_BOOT_ID)
++        rows = session_registration.snapshot(c, SESSION_BOOT_ID)
++    for actor, report in rows.items():
++        if actor == 'cli_pm':
++            continue
++        try:
++            route = configured_actor_route(actor)
++            import worker_runtime
++            worker = worker_runtime.status(actor, route.session_id)
++            report['binding'] = session_rebinding.identity_decision(
++                {'provider': route.provider, 'session_id': route.session_id}, report, worker)
++        except agent_transport.RouteError as exc:
++            report['binding'] = {'state':'route_unavailable','error':str(exc),'rebind':False}
++    return rows
++
++
++def reconcile_registered_identity(actor):
++    with DB_LOCK, con() as c:
++        report = session_registration.snapshot(c, SESSION_BOOT_ID).get(actor, {})
++        try:
++            route = configured_actor_route(actor)
++        except agent_transport.RouteError:
++            return
++        # Frozen repository tasks remain immutable. Never redirect their ACK target.
++        outstanding = bool(c.execute("SELECT 1 FROM queue WHERE target_actor_id=? AND status NOT IN ('responded','failed','cancelled') LIMIT 1",(actor,)).fetchone()
++            or c.execute("SELECT 1 FROM agent_notifications WHERE actor_id=? AND target_session_id<>'' AND status NOT IN ('responded','cancelled','superseded') LIMIT 1",(actor,)).fetchone())
++        import worker_runtime
++        worker = worker_runtime.status(actor, route.session_id)
++        busy = bool(worker and (worker.get('status') not in ('stopped','listening','board_unavailable')
++                               or worker_supervisor.alive(worker.get('runtime_pid'))))
++        decision = session_rebinding.rebind_clear_route(actor,
++            {'provider':route.provider,'session_id':route.session_id},report,
++            outstanding=outstanding,busy=busy,
++            pair=lambda role,provider,session: pair_actor_route({'actor_id':role,'provider':provider,'session_id':session}))
++    if decision.get('rebind'):
++        request_session_registration('route-changed:'+decision['session_id'],(actor,))
++    return decision
 +
 +
  def transport_status():
      mode = pm_transport_mode()
      codex_binary = resolved_bin(CODEX_BIN)
-@@ -6615,6 +6664,16 @@
+@@ -6615,6 +6700,16 @@
          pm_label = "not configured"
      actors = {}
      for actor_id in ('cli_dev', 'app_dev', 'browser_pm', 'cli_pm'):
@@ -163,7 +199,7 @@
          try:
              route = configured_actor_route(actor_id)
              with DB_LOCK, con() as c:
-@@ -6666,6 +6725,7 @@
+@@ -6666,6 +6761,7 @@
          "claude_worker_configured": bool(resolved_bin(CLAUDE_BIN)),
          "claude_subscription_mode": True,
          "claude_permission_mode": PERMISSION_MODE,
@@ -171,7 +207,7 @@
          "agent_routes": actors,
          "external_notification_configured": external_ready,
          "external_notification_status": ("Recipient routes configured; inspect each route's automatic-wake receipt proof"
-@@ -6860,6 +6920,9 @@
+@@ -6860,6 +6956,9 @@
          except Exception:
              return self.sendj(400, {"error": "invalid json"})
  
@@ -181,7 +217,7 @@
          if self.path == '/api/agent-route-retire':
              if not isinstance(b, dict):
                  return self.sendj(400, {'error': 'JSON object required'})
-@@ -7054,6 +7117,60 @@
+@@ -7054,6 +7153,61 @@
  
      def log_message(self, *args):
          pass
@@ -229,6 +265,7 @@
 +            route = configured_actor_route(actor)
 +        except agent_transport.RouteError:
 +            continue
++        reconcile_registered_identity(actor)
 +        if route.provider != 'local_inbox':
 +            continue
 +        health = actor_channels.listener_status(actor, route.session_id)
@@ -428,3 +465,86 @@
          with server.con() as db:
              notices = list(db.execute("SELECT actor_id,status,receipt_at,result_at FROM agent_notifications WHERE task_id='version-handshake'"))
          self.assertEqual(len(notices), 3)
+--- /dev/null
++++ b/session_rebinding.py
+@@ -0,0 +1,40 @@
++"""Distinguish a runtime thread UUID from an inbox pairing UUID before recovery."""
++from agent_transport import RouteError
++
++
++def identity_decision(route, reported, worker=None):
++    runtime = reported.get('session')
++    if not runtime or reported.get('state') != 'identity_reported':
++        return {'state': 'awaiting_identity', 'rebind': False}
++    if route.get('provider') == 'local_inbox':
++        # Inbox UUID is a channel identity, deliberately NOT the Codex thread UUID.
++        # Never overwrite it with CODEX_THREAD_ID merely because the strings differ.
++        if worker and worker.get('session') == route.get('session_id'):
++            expected = worker.get('thread_id')
++            if expected == runtime:
++                return {'state': 'identity_matches_worker', 'rebind': False}
++            return {'state': 'runtime_changed', 'rebind': False,
++                    'error': 'Registered worker thread differs; reconcile owned worker before resume'}
++        return {'state': 'identity_reported_inbox', 'rebind': False,
++                'error': 'Inbox identity retained; runtime consumer registration still required'}
++    if route.get('provider') == 'codex_app_server':
++        if reported.get('provider') != 'codex':
++            return {'state': 'provider_mismatch', 'rebind': False}
++        return {'state': 'identity_matches_route' if runtime == route.get('session_id') else 'route_rebind_pending',
++                'rebind': runtime != route.get('session_id')}
++    return {'state': 'unsupported_route', 'rebind': False}
++
++
++def rebind_clear_route(actor, route, reported, *, outstanding, busy, pair):
++    decision = identity_decision(route, reported)
++    if not decision.get('rebind'):
++        return decision
++    if outstanding or busy:
++        return {'state': 'route_rebind_pending', 'rebind': False,
++                'error': 'Old route has pending actions or live writer; no task replay or duplicate turn'}
++    try:
++        # Existing pairing operation rechecks durable pending state and role uniqueness.
++        pair(actor, route['provider'], reported['session'])
++    except RouteError as exc:
++        return {'state': 'route_rebind_pending', 'rebind': False, 'error': str(exc)}
++    return {'state': 'route_rebound', 'rebind': True, 'session_id': reported['session']}
+--- /dev/null
++++ b/test_session_rebinding.py
+@@ -0,0 +1,37 @@
++import unittest
++from unittest.mock import Mock
++from agent_transport import RouteError
++from session_rebinding import identity_decision,rebind_clear_route
++
++class RebindingTests(unittest.TestCase):
++    def setUp(self):
++        self.route={'provider':'codex_app_server','session_id':'old'}
++        self.report={'state':'identity_reported','session':'current','provider':'codex'}
++    def test_clear_reported_codex_route_is_rebound_once(self):
++        pair=Mock()
++        result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=False,busy=False,pair=pair)
++        self.assertEqual(result['state'],'route_rebound')
++        pair.assert_called_once_with('cli_dev','codex_app_server','current')
++    def test_pending_task_or_live_writer_prevents_rebind(self):
++        for outstanding,busy in [(True,False),(False,True),(True,True)]:
++            pair=Mock()
++            result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=outstanding,busy=busy,pair=pair)
++            self.assertEqual(result['state'],'route_rebind_pending')
++            pair.assert_not_called()
++    def test_final_pairing_race_preserves_hold(self):
++        result=rebind_clear_route('cli_dev',self.route,self.report,outstanding=False,busy=False,pair=Mock(side_effect=RouteError('pending changed')))
++        self.assertEqual(result['error'],'pending changed')
++    def test_inbox_uuid_is_not_a_runtime_thread_uuid(self):
++        route={'provider':'local_inbox','session_id':'pairing'}
++        worker={'session':'pairing','thread_id':'current'}
++        self.assertEqual(identity_decision(route,self.report,worker)['state'],'identity_matches_worker')
++        self.assertFalse(identity_decision(route,self.report,worker)['rebind'])
++        self.assertEqual(identity_decision(route,self.report)['state'],'identity_reported_inbox')
++    def test_worker_thread_change_requires_reconciliation(self):
++        self.assertEqual(identity_decision({'provider':'local_inbox','session_id':'pairing'},self.report,
++            {'session':'pairing','thread_id':'other'})['state'],'runtime_changed')
++    def test_ack_is_required_and_provider_must_match(self):
++        self.assertEqual(identity_decision(self.route,{})['state'],'awaiting_identity')
++        self.assertEqual(identity_decision(self.route,dict(self.report,provider='claude'))['state'],'provider_mismatch')
++
++if __name__=='__main__':unittest.main()

@@ -1,9 +1,9 @@
-# Orch session registration checkpoint — held
+# Orch v4.7.14 source — held
 
-App source changes, not a released replacement for v4.7.13.
+Dashboard launch starts per-boot actor/nonce identity negotiation. Stale listener/compaction rearm loss and sleep gaps trigger negotiation. Authenticated ACKs report runtime session identity independently of idle wake. CLI PM uses native board executor, not separate pairing; identity-only replies do not require task-ownership patches.
 
-Dashboard launch creates per-boot actor/nonce identity negotiation; stale local listeners and wall-clock sleep gaps trigger recovery. Authenticated recipient callbacks record runtime UUID independently from idle wake. Native CLI PM identity turns do not require repository task ownership patches. Dashboard shows identity stage; foreground supervision remains the existing owned-worker supervisor.
+Route recovery distinguishes local-inbox channel UUID from runtime thread UUID. Clear direct Codex routes can rebind to acknowledged current runtime identity; pending tasks/live registered writers and final pairing races keep an explicit hold. Inbox pairing UUID is never replaced with CODEX_THREAD_ID.
 
-Verification: 155 related test executions plus actual UI smoke PASS; after adding authenticated callback/native-PM regressions, 24 registration-module/suite executions PASS (8 new focused cases plus inherited controls). HTTP-disconnect repair from prior checkpoint retained locally, not reproduced in this delta.
+202 related Python test executions PASS, including registration/authenticated callbacks/native PM, rebinding guards, startup, route recovery, delivery/worker/runtime/HTTP controls; actual dashboard UI smoke PASS previously. Native Mac idle event→turn→ACK remains unproved. Legacy Claude tracked watcher rearm lacks an externally verified wake hook. No replacement ZIP, Mac change, LaunchAgent or claim that all reported symptoms are fixed. Old 4.7.13 remains unchanged.
 
-OPEN: changed-session identity is reported but does not automatically overwrite a frozen/pending delivery route. Safe rebind and retirement/reconciliation of old non-writing notices require further implementation. Existing persistent-worker supervisor can resume verified registered idle consumers, but legacy Claude tracked-task rearm and real Codex idle event→turn→ACK remain Mac acceptance gaps. No replacement ZIP, no LaunchAgent, no Mac change, no new wake proof. Do not advertise all blocked/unknown symptoms fixed.
+Pending: actual runtime transport diagnosis and idle wake on Mac; safe retirement/reconciliation of already-uncertain old deliveries; runtime-specific legacy watcher restoration. Source checkpoint only, not download-ready.
