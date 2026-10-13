@@ -23,6 +23,7 @@ function fixture() {
     settleBilling: vi.fn(async () => { order.push('settle'); }),
     deleteCustomer: vi.fn(async () => { order.push('customer'); return { deleted: true }; }),
     preserveTrialEmail: vi.fn(async () => { order.push('trial'); }),
+    removeOwnedStorage: vi.fn(async () => { order.push('storage'); }),
     deleteAuthUser: vi.fn(async () => { order.push('auth'); return { deleted: true }; }),
     verifyResidue: vi.fn(async () => { order.push('residue'); return { clean: true }; }),
   };
@@ -35,7 +36,7 @@ describe('account closure — approved no-refund, retained-trial-email policy', 
     expect(await closeAccount('owner', 'emailed-secret', deps)).toEqual({
       outcome: 'deleted', stage: 'residue', billingClosed: true, customerDeleted: true, accountDeleted: true,
     });
-    expect(order).toEqual(['cancel', 'settle', 'customer', 'trial', 'auth', 'residue']);
+    expect(order).toEqual(['cancel', 'settle', 'customer', 'trial', 'storage', 'auth', 'residue']);
     expect(deps.cancelSubscription).toHaveBeenCalledWith('sub', {
       invoice_now: false, prorate: false, idempotencyKey: 'account-closure:request:sub',
     });
@@ -88,7 +89,7 @@ describe('account closure — approved no-refund, retained-trial-email policy', 
     expect(deps.deleteAuthUser).not.toHaveBeenCalled();
   });
 
-  it.each(['settleBilling', 'deleteCustomer', 'preserveTrialEmail'] as const)('%s failure stops before auth deletion', async (method) => {
+  it.each(['settleBilling', 'deleteCustomer', 'preserveTrialEmail', 'removeOwnedStorage'] as const)('%s failure stops before auth deletion', async (method) => {
     const { deps } = fixture();
     vi.mocked(deps[method]).mockRejectedValue(new Error('unavailable'));
     expect((await closeAccount('owner', 'token', deps)).outcome).toBe('incomplete');

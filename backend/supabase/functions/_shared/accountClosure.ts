@@ -30,13 +30,14 @@ export interface ClosureDependencies {
   deleteCustomer(customerId: string): Promise<{ deleted: boolean }>;
   /** Retain only the trial-prevention record; the FK becomes NULL on auth deletion. */
   preserveTrialEmail(userId: string, email: string): Promise<void>;
+  removeOwnedStorage(userId: string): Promise<void>;
   deleteAuthUser(userId: string): Promise<{ deleted: boolean }>;
   /** Must separately verify auth absence, cascading rows and declared retained exceptions. */
   verifyResidue(userId: string): Promise<{ clean: boolean }>;
 }
 
 export type ClosureStage = 'verification' | 'subscriptions' | 'billing_settlement'
-  | 'customer_deletion' | 'trial_retention' | 'account_deletion' | 'residue';
+  | 'customer_deletion' | 'trial_retention' | 'storage_cleanup' | 'account_deletion' | 'residue';
 export interface ClosureResult {
   outcome: 'deleted' | 'refused' | 'incomplete';
   stage: ClosureStage;
@@ -95,6 +96,8 @@ export async function closeAccount(
 
     result.stage = 'trial_retention';
     await deps.preserveTrialEmail(proof.userId, proof.email);
+    result.stage = 'storage_cleanup';
+    await deps.removeOwnedStorage(proof.userId);
     result.stage = 'account_deletion';
     if ((await deps.deleteAuthUser(proof.userId)).deleted !== true) return result;
     result.accountDeleted = true;

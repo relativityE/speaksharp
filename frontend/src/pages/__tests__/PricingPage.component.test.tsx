@@ -52,6 +52,18 @@ describe('PricingPage', () => {
         return render(<PricingPage />);
     };
 
+    it('offers the separate deletion page to a signed-in Free account without opening billing', () => {
+        renderPricingPage();
+        expect(screen.getByRole('link', { name: 'Delete account' })).toHaveAttribute('href', '/account/delete');
+        expect(mockInvoke).not.toHaveBeenCalled();
+    });
+
+    it('does not offer account deletion without a loaded account profile', () => {
+        mockUseUserProfile.mockReturnValue({ data: null } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
+        renderPricingPage();
+        expect(screen.queryByRole('link', { name: 'Delete account' })).not.toBeInTheDocument();
+    });
+
     // #1266 — a PAID-OFFER view must not be recorded when enrollment is unavailable.
     describe('paid-offer view telemetry gating', () => {
         it('records the Pro (paid) offer view when enrollment is ENABLED', () => {

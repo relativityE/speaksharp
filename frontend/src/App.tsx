@@ -72,6 +72,7 @@ const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
 const AuthPage = React.lazy(() => import('./pages/AuthPage'));
 const ResetPasswordPage = React.lazy(() => import('./pages/ResetPasswordPage'));
+const AccountDeletionPage = React.lazy(() => import('./pages/AccountDeletionPage'));
 const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
 const OpsStatusPage = React.lazy(() => import('./pages/OpsStatusPage').then(module => ({ default: module.OpsStatusPage })));
 const PricingPage = React.lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
@@ -424,6 +425,7 @@ const App: React.FC = () => {
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
                   <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
                   <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
+                  <Route path="/account/delete" element={<PageTransition><AccountDeletionPage /></PageTransition>} />
                   {/* PUBLIC authenticated-continuation target for magic-link returns: waits for the
                       recovered session, then runs the same post-auth rollout decision as password sign-in. */}
                   <Route path="/auth/continue" element={<PageTransition><PostAuthContinue /></PageTransition>} />
