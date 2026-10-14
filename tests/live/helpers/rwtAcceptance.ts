@@ -53,7 +53,24 @@ export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN' | 'EXTERNAL';
 export interface ReceiptRow { step: string; verdict: Verdict; detail: string; evidence?: Record<string, string | number | boolean | null> }
 export type Acceptance = 'PASS' | 'FAIL' | 'INCOMPLETE';
 
-export interface HumanObservationState { id: string; runbookRow: string; result: 'pending' | 'PASS' | 'FAIL' }
+export interface HumanObservationState { id: string; runbookRow: string; result: 'pending' | 'PASS' | 'FAIL' | 'not_exercised' }
+
+/**
+ * #1258 (Codex P2 r4274573846, PM 6175763509 §4) — the human checks that judge the QUALITY of a coaching answer, each
+ * with the coaching row that produced (or failed to produce) that answer. When that parent is a proved EXTERNAL outage
+ * there is no answer to judge: the reviewer may record NOT_EXERCISED (or leave it blank) instead of inventing PASS/FAIL.
+ * Only for these ids, only under their own EXTERNAL parent; PASS is refused (absent coaching is never quality PASS), and a
+ * recorded FAIL still stands. Every other human check is unchanged.
+ */
+export const COACHING_QUALITY_OBSERVATIONS: Readonly<Record<string, string>> = Object.freeze({
+    open_mic_coaching_relevant: 'coaching rendered',
+    focus_coaching_covers_points: 'Focus coaching rendered',
+});
+export const NOT_EXERCISED = 'NOT_EXERCISED';
+const externalParentOf = (rows: readonly ReceiptRow[], observationId: string): boolean => {
+    const parent = COACHING_QUALITY_OBSERVATIONS[observationId];
+    return parent !== undefined && rows.some((r) => r.step === parent && r.verdict === 'EXTERNAL');
+};
 
 const isHumanObservation = (r: ReceiptRow): boolean => Boolean(r.evidence && typeof r.evidence.observationId === 'string');
 
@@ -94,7 +111,7 @@ export function receiptAcceptance(rows: readonly ReceiptRow[]): {
         humanObservations: rows.filter(isHumanObservation).map((r) => ({
             id: String(r.evidence!.observationId),
             runbookRow: String(r.evidence!.runbookRow ?? ''),
-            result: r.verdict === 'PASS' || r.verdict === 'FAIL' ? r.verdict : 'pending',
+            result: r.verdict === 'PASS' || r.verdict === 'FAIL' ? r.verdict : r.verdict === 'EXTERNAL' ? 'not_exercised' : 'pending',
         })),
     };
 }
@@ -138,7 +155,7 @@ export function humanWorksheet(suite: string, release: string, journeyIds: reado
         '',
         '| Observation id | Runbook row | Question | Observation needed to decide (pass criterion) | Result (PASS/FAIL) | Observer · date |',
         '|---|---|---|---|---|---|',
-        ...human.map((r) => `| \`${cell(r.evidence!.observationId)}\` | ${cell(r.evidence!.runbookRow)} | ${cell(r.step.replace(/^human: /, ''))} | ${cell(r.evidence!.passCriterion)} | ${r.verdict === 'HUMAN' ? '' : r.verdict} |  |`),
+        ...human.map((r) => `| \`${cell(r.evidence!.observationId)}\` | ${cell(r.evidence!.runbookRow)} | ${cell(r.step.replace(/^human: /, ''))} | ${cell(r.evidence!.passCriterion)} | ${r.verdict === 'HUMAN' ? (externalParentOf(rows, String(r.evidence!.observationId)) ? NOT_EXERCISED : '') : r.verdict} |  |`),
     ];
     if (human.length === 0) lines.push('', '_No human observations in this run._');
     return `${lines.join('\n')}\n`;
@@ -259,6 +276,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
+    // #1258 (Codex P2 r4274573839, PM 6175763509 §3): request provenance is mandatory evidence on every path.
+    'coaching request bound to this take',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
     'Back from Progress restores the session', 'restored review', 'Back requests no coaching',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
@@ -276,7 +295,8 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'pace guide', 'Head to session', 'rail legend', 'pending points labelled', 'rail before speaking', 'model identity',
     'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved',
     'final point verdicts', 'not-detected explained', 'coverage count', 'average per point', 'final rail colours and words',
-    'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching length',
+    'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching request bound to this take',
+    'Focus coaching length',
     'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching provenance',
     'Focus coaching visible = saved', 'Focus coaching server receipt', 'Products menu opened in the session',
     'Focus Back from Progress and reload keep the saved session',
@@ -644,8 +664,15 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
     for (const id of expectedIds) {
         const entry = seen.get(id);
         if (!entry) { errors.push(`observation missing from worksheet: ${id}`); continue; }
-        if (entry.result !== 'PASS' && entry.result !== 'FAIL') errors.push(`observation ${id} has no PASS/FAIL result`);
-        if ((entry.result === 'PASS' || entry.result === 'FAIL') && entry.observer.trim() === '') errors.push(`observation ${id} ${entry.result} has no observer`);
+        const externalParent = externalParentOf(receipt.rows, id);
+        if (entry.result === NOT_EXERCISED || entry.result === '') {
+            // Only a coaching-quality check under its own proved EXTERNAL parent may be not exercised (blank allowed).
+            if (!externalParent) errors.push(`observation ${id} has no PASS/FAIL result`);
+            continue;
+        }
+        if (entry.result !== 'PASS' && entry.result !== 'FAIL') { errors.push(`observation ${id} has no PASS/FAIL result`); continue; }
+        if (externalParent && entry.result === 'PASS') errors.push(`observation ${id} cannot PASS: its coaching was not exercised (external provider outage)`);
+        if (entry.observer.trim() === '') errors.push(`observation ${id} ${entry.result} has no observer`);
     }
 
     const readbackRows = readback === undefined ? receipt.rows : applyReadback(receipt, readback, errors);
@@ -659,6 +686,10 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
     const rows = readbackRows.map((r) => {
         if (!isHumanObservation(r)) return r;
         const entry = seen.get(String(r.evidence!.observationId))!;
+        if (entry.result === NOT_EXERCISED || entry.result === '') {
+            return { ...r, verdict: 'EXTERNAL' as const, detail: 'not exercised: there was no coaching answer to judge (external provider outage)',
+                evidence: { ...r.evidence!, recorded: 'not_exercised', observer: entry.observer } };
+        }
         const verdict = entry.result as 'PASS' | 'FAIL';
         return { ...r, verdict, detail: `recorded by the human reviewer: ${verdict}`, evidence: { ...r.evidence!, recorded: verdict, observer: entry.observer } };
     });

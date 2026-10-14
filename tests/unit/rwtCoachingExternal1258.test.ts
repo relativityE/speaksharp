@@ -14,7 +14,7 @@ import {
     type CoachingFailureEvidence, type GracefulDegradation,
 } from '../live/helpers/coachingExternal';
 import { CoachingGenerationTap } from '../live/helpers/coachingGenerationTap';
-import { readCoachingFailureEvidence, readCoachingFailureReason } from '../live/helpers/rwtJourney';
+import { analyticsRows, readCoachingFailureEvidence, readCoachingFailureReason, RwtReceipt } from '../live/helpers/rwtJourney';
 import {
     finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, requiredAutomatedRows, validateReceipt, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
@@ -308,7 +308,8 @@ describe('finalization (schema, readback D1, exit semantics)', () => {
         expect(received.verdict).toBe('HOLD');
         expect(received.detail).toMatch(/post-Stop success chain \(review_rendered\).*EXTERNAL; product gate unchanged, D1/);
         expect(r).toMatchObject({ status: 'final', finalAcceptance: 'INCOMPLETE', successfulCoachingOutstanding: true });
-        expect(r.external.map((e) => e.step)).toEqual(['coaching rendered']);
+        // PM 6175763509 §4: the coaching-quality human check under this parent finalizes as EXTERNAL "not exercised".
+        expect(r.external.map((e) => e.step).sort()).toEqual(['coaching rendered', 'human: open_mic_coaching_relevant']);
     });
     it('14. an observed readback FAIL still dominates beside EXTERNAL (never relabelled)', () => {
         const r = finalizeReceipt(receipt, worksheet(), { suite: SUITE, release: SHA, journeys: [{ journeyId: J, stages: STAGES, verdict: 'FAIL' }], missingBindings: [] });
@@ -319,5 +320,130 @@ describe('finalization (schema, readback D1, exit semantics)', () => {
         const r = finalizeReceipt(receipt, worksheet(), { suite: SUITE, release: SHA, journeys: [{ journeyId: J, stages: STAGES, verdict: 'QUALIFIED' }], missingBindings: [] });
         expect(r.rows.find((row) => row.step === 'journey telemetry received')!.verdict).toBe('PASS');
         expect(r.finalAcceptance).toBe('INCOMPLETE');
+    });
+});
+
+// ── PM 6175763509 (Codex r4274573828 / 837 / 839 / 846) ─────────────────────────────────────────────────────────────
+
+describe('§1 — the take\'s TERMINAL exchange within its review lifecycle (declared attempt authority, not arrival order)', () => {
+    const ex = (o: { requestId?: string | null; attemptId?: string; clientAttempt?: number; status: number | null; reason?: string; providerStatus?: number | null;
+        echoRequest?: string; echoAttempt?: string }) => ({
+        sent: { sessionId: 's', product: null, requestId: o.requestId === undefined ? 'life-1' : o.requestId, attemptId: o.attemptId ?? 'att-x',
+            clientAttempt: o.clientAttempt ?? 1, clientReleaseId: null },
+        status: o.status,
+        diagnostics: o.status === null ? null : { reason: o.reason ?? 'provider_http_5xx', provider_status: o.providerStatus ?? 503,
+            ...(o.echoRequest ? { request_id: o.echoRequest } : {}), ...(o.echoAttempt ? { attempt_id: o.echoAttempt } : {}) },
+        suggestions: null, clientMs: 1, at: 1,
+    });
+    const terminal503 = ex({ attemptId: 'a2', clientAttempt: 2, status: 502 });
+    it('a single 503 exchange proves the outage', () => {
+        expect(takeExchangeEvidence([ex({ status: 502 })])).toMatchObject({ unique: true, diagnosticRequestId: 'life-1', evidence: { providerStatus: 503 } });
+    });
+    it('network failure (no answer) on attempt 1, then a 503 on attempt 2 → the attempt-2 503, in either arrival order', () => {
+        const net = ex({ attemptId: 'a1', clientAttempt: 1, status: null });
+        expect(takeExchangeEvidence([net, terminal503])).toMatchObject({ unique: true, evidence: { httpStatus: 502, reason: 'provider_http_5xx' } });
+        expect(takeExchangeEvidence([terminal503, net])).toMatchObject({ unique: true, evidence: { httpStatus: 502 } });
+    });
+    it('a 425 pending wait then the terminal answer at the SAME client attempt → the terminal answer', () => {
+        const pending = ex({ attemptId: 'a1', clientAttempt: 1, status: 425, reason: 'focus_results_pending' });
+        const final = ex({ attemptId: 'a1b', clientAttempt: 1, status: 502 });
+        expect(takeExchangeEvidence([pending, final])).toMatchObject({ unique: true, evidence: { httpStatus: 502, providerStatus: 503 } });
+        expect(takeExchangeEvidence([final, pending]).unique).toBe(true);
+    });
+    it('two unrelated lifecycles for one take are unproven', () => {
+        expect(takeExchangeEvidence([ex({ status: 502 }), ex({ requestId: 'life-2', status: 502 })]).unique).toBe(false);
+    });
+    it('duplicate terminal evidence at the last attempt is unproven', () => {
+        expect(takeExchangeEvidence([ex({ attemptId: 'a1', status: 502 }), ex({ attemptId: 'a1c', status: 502 })]).unique).toBe(false);
+    });
+    it('a conflicting server echo (request or attempt id) is unproven', () => {
+        expect(takeExchangeEvidence([ex({ status: 502, echoRequest: 'life-OTHER' })]).unique).toBe(false);
+        expect(takeExchangeEvidence([ex({ attemptId: 'a1', status: 502, echoAttempt: 'a-OTHER' })]).unique).toBe(false);
+    });
+    it('only pending/unanswered exchanges, or no lifecycle id, prove nothing', () => {
+        expect(takeExchangeEvidence([ex({ status: 425 })]).unique).toBe(false);
+        expect(takeExchangeEvidence([ex({ status: null })]).unique).toBe(false);
+        expect(takeExchangeEvidence([ex({ requestId: null, status: 502 })]).unique).toBe(false);
+    });
+});
+
+describe('§2–§4 — a consumer-built EXTERNAL receipt through the real validator and finalizer', () => {
+    const SHA = 'e'.repeat(40);
+    const J = 'journey-ext';
+    const STAGES = ['session_during', 'session_after_open_mic', 'share_feedback', 'analytics_inventory', 'session_pdf_export'];
+    const human = (id: string): ReceiptRow => ({ step: `human: ${id}`, verdict: 'HUMAN', detail: 'named human RWT observation',
+        evidence: { observationId: id, runbookRow: 'row', passCriterion: 'c', recorded: 'pending' } });
+    /** The rows the Open Mic consumer writes on a proved outage, incl. analyticsRows' coaching-dependent rows. */
+    const externalOpenMicRows = (): ReceiptRow[] => {
+        const r = new RwtReceipt('open-mic-first-session');
+        r.row('coaching rendered', 'EXTERNAL', 'external provider unavailable (provider 503)');
+        r.row('coaching request bound to this take', 'PASS', 'the coaching request named this saved take');
+        analyticsRows(r, { actionClicked: true, listed: true, detailOpened: true, detailMatches: true, reloadMatches: true,
+            coachingBefore: undefined, coachingAfter: undefined } as never, true);
+        return r.rows;
+    };
+    const receiptWith = (rows: ReceiptRow[], suite = 'open-mic-first-session') => {
+        const base: ReceiptRow[] = [
+            ...rows, { step: 'journey telemetry received', verdict: 'HOLD', detail: 'p' }, { step: 'signup-stage telemetry received', verdict: 'HOLD', detail: 'p' },
+            pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), pass('journey telemetry (canary class)'), pass('receipt content-free'),
+            human('open_mic_coaching_relevant'), human('open_mic_uh_detected'),
+        ];
+        const complete = [...base, ...requiredAutomatedRows(suite)!.product.filter((s) => !base.some((x) => x.step === s))
+            .map((s) => (s === 'base_q4 primary' ? { step: s, verdict: 'HOLD' as const, detail: 'p' } : pass(s)))];
+        return { suite, release: SHA, meta: { fixtureKind: 'synthetic' }, rows: complete,
+            readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: [], missingBindings: [] } };
+    };
+    const worksheet = (rows: ReceiptRow[], results: Record<string, string>) => parseHumanWorksheet(humanWorksheet('open-mic-first-session', SHA, [J], rows)
+        .split('\n').map((l) => {
+            const id = Object.keys(results).find((k) => l.startsWith(`| \`${k}\``));
+            return id ? l.replace(/\| [^|]* \| {2}\|$/, `| ${results[id]} | PO · 2026-10-14 |`) : l;
+        }).join('\n'));
+
+    it('§2: the consumer writes every coaching-dependent Analytics row as EXTERNAL, and the receipt finalizes INCOMPLETE (not a binding error)', () => {
+        const rows = externalOpenMicRows();
+        for (const step of ['analytics detail shows both AI suggestions', 'saved review is the first block', '"From this session" evidence', 'one practice action']) {
+            expect(rows.find((x) => x.step === step)?.verdict, step).toBe('EXTERNAL');
+        }
+        const receipt = receiptWith(rows);
+        expect(validateReceipt(receipt).errors).toEqual([]);
+        const r = finalizeReceipt(receipt, worksheet(receipt.rows, { open_mic_coaching_relevant: '', open_mic_uh_detected: 'PASS' }));
+        expect(r).toMatchObject({ status: 'final', finalAcceptance: 'INCOMPLETE', successfulCoachingOutstanding: true });
+    });
+    it('§2 RED-case: a receipt missing one coaching-dependent Analytics row cannot finalize', () => {
+        const receipt = receiptWith(externalOpenMicRows());
+        receipt.rows = receipt.rows.filter((x) => x.step !== 'one practice action');
+        expect(validateReceipt(receipt).errors.join(' ')).toMatch(/one practice action/);
+    });
+    it.each([['open-mic-first-session', 'coaching request bound to this take'], ['focus-points-session', 'Focus coaching request bound to this take']])(
+        '§3 %s: the request-binding row is REQUIRED — omission cannot qualify; a mismatch FAILs', (suite, step) => {
+            expect(requiredAutomatedRows(suite)!.product).toContain(step);
+            const complete = receiptWith([], suite);
+            const omitted = { ...complete, rows: complete.rows.filter((x) => x.step !== step) };
+            expect(validateReceipt(omitted).errors.join(' ')).toContain(step);
+            const mismatched = { ...complete, rows: complete.rows.map((x) => (x.step === step ? { ...x, verdict: 'FAIL' as const } : x)) };
+            expect(receiptAcceptance(mismatched.rows).acceptance).toBe('FAIL');
+        });
+    it('§4: under the EXTERNAL parent the quality check is prefilled NOT_EXERCISED and finalizes as not exercised (never PASS)', () => {
+        const receipt = receiptWith(externalOpenMicRows());
+        const md = humanWorksheet('open-mic-first-session', SHA, [J], receipt.rows);
+        expect(md).toMatch(/`open_mic_coaching_relevant`.*\| NOT_EXERCISED \|/);
+        const r = finalizeReceipt(receipt, worksheet(receipt.rows, { open_mic_coaching_relevant: 'NOT_EXERCISED', open_mic_uh_detected: 'PASS' }));
+        expect(r.status).toBe('final');
+        expect(r.humanObservations.find((h) => h.id === 'open_mic_coaching_relevant')?.result).toBe('not_exercised');
+        expect(r.finalAcceptance).toBe('INCOMPLETE');
+    });
+    it('§4: PASS for absent coaching is refused; a recorded FAIL still stands', () => {
+        const receipt = receiptWith(externalOpenMicRows());
+        const passed = finalizeReceipt(receipt, worksheet(receipt.rows, { open_mic_coaching_relevant: 'PASS', open_mic_uh_detected: 'PASS' }));
+        expect(passed.status).toBe('binding_error');
+        expect(passed.errors.join(' ')).toMatch(/cannot PASS/);
+        const failed = finalizeReceipt(receipt, worksheet(receipt.rows, { open_mic_coaching_relevant: 'FAIL', open_mic_uh_detected: 'PASS' }));
+        expect(failed.finalAcceptance).toBe('FAIL');
+    });
+    it('§4: NOT_EXERCISED without a matching EXTERNAL parent, or for any other human check, is refused', () => {
+        const ordinary = receiptWith([pass('coaching rendered')]);
+        expect(finalizeReceipt(ordinary, worksheet(ordinary.rows, { open_mic_coaching_relevant: 'NOT_EXERCISED', open_mic_uh_detected: 'PASS' })).status).toBe('binding_error');
+        const external = receiptWith(externalOpenMicRows());
+        expect(finalizeReceipt(external, worksheet(external.rows, { open_mic_coaching_relevant: '', open_mic_uh_detected: 'NOT_EXERCISED' })).status).toBe('binding_error');
     });
 });

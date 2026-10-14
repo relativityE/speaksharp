@@ -477,14 +477,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const digest = sha256Hex(row?.transcript);
             // Through the on-screen Analytics action the person clicks after Stop, then the session's own control.
             const requestsBefore = coaching.requests;
-            if (!savedCoaching) {
-                // #1258 (PM 6171519534): "not exercised" only under a proved external outage of THIS take's coaching.
-                const focusExternalCoaching = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
-                receipt.row('analytics detail shows both AI suggestions', focusExternalCoaching ? 'EXTERNAL' : 'HOLD',
-                    focusExternalCoaching ? 'not exercised: the coaching provider was unavailable (external, non-blocking per PO)' : 'no saved coaching response to look for');
-            }
+            // #1258 (PM 6175763509 §2): under a proved EXTERNAL outage `analyticsRows` writes every coaching-dependent row as
+            // not exercised; otherwise a missing saved pair is the existing HOLD.
+            const focusExternalCoaching = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
+            if (!savedCoaching && !focusExternalCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
             // Focus Points evidence is the saved point results ("Detected: point 1 at 0:21." / "Not detected: point 3.").
-            analyticsRows(receipt, await analyticsThroughActions(page, persistedId, digest, savedCoaching ?? undefined, /(Detected|Not detected): point \d/));
+            analyticsRows(receipt, await analyticsThroughActions(page, persistedId, digest, savedCoaching ?? undefined, /(Detected|Not detected): point \d/),
+                focusExternalCoaching);
             receipt.row('Analytics generates no coaching', coaching.requests === requestsBefore ? 'PASS' : 'FAIL',
                 coaching.requests === requestsBefore ? 'opening and reloading Analytics requested no new review' : 'Analytics requested coaching again (regeneration / quota)',
                 { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests });

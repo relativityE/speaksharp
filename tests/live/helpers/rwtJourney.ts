@@ -1600,7 +1600,16 @@ export async function openProductsMenuInPlace(page: Page): Promise<boolean> {
     return opened;
 }
 
-export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof analyticsThroughActions>>): void {
+/**
+ * The Analytics rows that can only be measured when the take HAS a saved coaching pair. Under a proved EXTERNAL outage
+ * they are written as "not exercised" (Codex P1 r4274573837, PM 6175763509 §2), so a complete receipt carries every
+ * required row instead of silently omitting them. The navigation rows above them are always judged on their own.
+ */
+export const COACHING_DEPENDENT_ANALYTICS_ROWS = Object.freeze([
+    'analytics detail shows both AI suggestions', 'saved review is the first block', '"From this session" evidence', 'one practice action',
+] as const);
+
+export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof analyticsThroughActions>>, externalCoaching = false): void {
     receipt.row('Analytics action', a.actionClicked && a.listed ? 'PASS' : 'FAIL',
         a.actionClicked ? (a.listed ? 'the on-screen Analytics action opened Analytics and it lists this session' : 'Analytics opened but does not list this session')
             : 'the post-save Analytics action was not shown or did not open Analytics');
@@ -1629,6 +1638,10 @@ export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof 
             { evidenceShown: after.evidenceShown, evidenceMatches: after.evidenceMatches });
         receipt.row('one practice action', a.coachingBefore.oneAction && after.oneAction ? 'PASS' : 'FAIL',
             after.oneAction ? 'exactly one practice action, with no competing Progress sentence or button' : 'zero or several practice actions, or a competing Progress action');
+    } else if (externalCoaching) {
+        for (const step of COACHING_DEPENDENT_ANALYTICS_ROWS) {
+            receipt.row(step, 'EXTERNAL', 'not exercised: the take has no saved coaching because the provider was unavailable (external, non-blocking per PO)');
+        }
     }
 }
 

@@ -611,13 +611,10 @@ test.describe('RWT — Open Mic first session @live', () => {
                 if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
                 // With a complete saved response, the detail must also show both suggestions before and after its reload.
                 const savedCoaching = savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : undefined;
-                if (!savedCoaching) {
-                    // #1258 (PM 6171519534): with no answer to show, the row is "not exercised" under a proved external outage.
-                    const analyticsCoaching = coachingParentOutcome
-                        ? successDependentRow(coachingParentOutcome, { verdict: 'HOLD', detail: 'no saved coaching response to look for' })
-                        : { verdict: 'HOLD' as const, detail: 'no saved coaching response to look for' };
-                    receipt.row('analytics detail shows both AI suggestions', analyticsCoaching.verdict, analyticsCoaching.detail);
-                }
+                // #1258 (PM 6175763509 §2): under a proved EXTERNAL outage `analyticsRows` writes every coaching-dependent row as
+                // not exercised; otherwise a missing saved pair is the existing HOLD.
+                const externalCoaching = coachingParentOutcome?.verdict === 'EXTERNAL';
+                if (!savedCoaching && !externalCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
                 let pdfAttempted = false;
                 const downloadPdf = async (): Promise<void> => {
                     pdfAttempted = true;
@@ -651,7 +648,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 };
                 const requestsBeforeAnalytics = coaching.requests;
                 // Open Mic evidence is the stored delivery measurement ("6.2 filler words a minute, above your target").
-                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching, /\ba minute\b/i, downloadPdf));
+                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching, /\ba minute\b/i, downloadPdf), externalCoaching);
                 receipt.row('Analytics generates no coaching', coaching.requests === requestsBeforeAnalytics ? 'PASS' : 'FAIL',
                     coaching.requests === requestsBeforeAnalytics ? 'opening and reloading Analytics requested no new review'
                         : 'Analytics requested coaching again (regeneration / quota)',

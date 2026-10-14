@@ -166,21 +166,48 @@ export function coachingTelemetryVerdict(parent: CoachingParentVerdict, failure:
 }
 
 /**
- * PM 6173420642 §3 — ONE EXCHANGE, ONE TUPLE, from the EXISTING request-boundary authority (`CoachingGenerationTap`):
- * each coaching POST is joined to its own response by the request object, and the record is written once, when that
- * response's body has been read — so overlapping requests or reversed body completion cannot move one take's provider
- * evidence onto another, and nothing is overwritten later. External proof is derived ONLY from the take's own exchange:
- * exactly one exchange for the saved session (zero = unproven; more than one = ambiguous, also unproven).
+ * PM 6173420642 §3 / 6175763509 §1 — ONE TERMINAL EXCHANGE PER TAKE, from the EXISTING request-boundary authority
+ * (`CoachingGenerationTap`): each coaching POST is joined to its own response by the request object and recorded once.
+ *
+ * One review lifecycle (one `diagnostic_request_id`) can legitimately make several POSTs: a `425 focus_results_pending`
+ * answer is waited out and re-sent, and a network failure earns one automatic retry. (A provider 5xx does NOT — the page
+ * treats `unavailable` as terminal.) So the take's exchanges are grouped by lifecycle and the TERMINAL attempt is selected
+ * by declared authority, never by arrival order:
+ *   • exactly one lifecycle for the saved take — several lifecycles are unproven (which one does the row describe?);
+ *   • every exchange's server echo (`diagnostics.request_id` / `attempt_id`, when present) matches what was sent;
+ *   • non-terminal attempts are dropped: a 425 wait, or a request with no answer (network failure);
+ *   • the terminal attempt is the one with the highest declared `client_attempt`; two terminal answers at that attempt
+ *     are duplicate terminal evidence → unproven.
+ * Anything unresolved proves nothing (`unique: false`).
  */
+const UNPROVEN = { evidence: { httpStatus: null, reason: null, providerStatus: null }, diagnosticRequestId: null, unique: false } as const;
+
 export function takeExchangeEvidence(forSession: readonly CoachingExchange[]): {
     evidence: CoachingFailureEvidence;
     diagnosticRequestId: string | null;
     unique: boolean;
 } {
-    if (forSession.length !== 1) {
-        return { evidence: { httpStatus: null, reason: null, providerStatus: null }, diagnosticRequestId: null, unique: false };
-    }
-    const exchange = forSession[0];
+    if (forSession.length === 0) return { ...UNPROVEN };
+    const lifecycles = new Set(forSession.map((e) => e.sent.requestId));
+    if (lifecycles.size !== 1) return { ...UNPROVEN };
+    const lifecycle = forSession[0].sent.requestId;
+    if (!lifecycle) return { ...UNPROVEN };
+    const echoConflicts = forSession.some((e) => {
+        const echoedRequest = e.diagnostics?.request_id;
+        const echoedAttempt = e.diagnostics?.attempt_id;
+        return (typeof echoedRequest === 'string' && echoedRequest !== lifecycle)
+            || (typeof echoedAttempt === 'string' && e.sent.attemptId !== null && echoedAttempt !== e.sent.attemptId);
+    });
+    if (echoConflicts) return { ...UNPROVEN };
+    const terminal = forSession.filter((e) => e.status !== null && e.status !== 425);
+    if (terminal.length === 0) return { ...UNPROVEN };
+    const attemptOf = (e: CoachingExchange) => e.sent.clientAttempt ?? 0;
+    const last = Math.max(...terminal.map(attemptOf));
+    const atLast = terminal.filter((e) => attemptOf(e) === last);
+    if (atLast.length !== 1) return { ...UNPROVEN };
+    // An answered attempt AFTER the terminal one would mean the lifecycle did not end there.
+    if (forSession.some((e) => e.status !== null && attemptOf(e) > last)) return { ...UNPROVEN };
+    const exchange = atLast[0];
     const reason = exchange.diagnostics?.reason;
     return {
         evidence: {
@@ -190,7 +217,7 @@ export function takeExchangeEvidence(forSession: readonly CoachingExchange[]): {
             reason: exchange.diagnostics ? coachingFailureReason({ reason }) ?? 'unrecognized' : null,
             providerStatus: providerStatusFrom({ diagnostics: exchange.diagnostics }),
         },
-        diagnosticRequestId: exchange.sent.requestId,
+        diagnosticRequestId: lifecycle,
         unique: true,
     };
 }
