@@ -29,13 +29,16 @@ CREATE FUNCTION public.record_account_closure_drain_attestation(
   p_attestation_id uuid, p_expected_generation bigint, p_record jsonb, p_validation jsonb)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE state public.account_closure_attestation_state; prior public.account_closure_drain_attestations;
-  expiry timestamptz; created timestamptz; binding text; evidence text;
+  expiry timestamptz; created timestamptz; binding text; evidence text; registered_at timestamptz;
 BEGIN
   -- Global order: disabled coordination row, then attestation generation row.
   PERFORM 1 FROM public.account_billing_coordination WHERE singleton AND NOT checkout_workers_drained
     AND evidence_reference IS NULL FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'deletion must remain disabled'; END IF;
   SELECT * INTO STRICT state FROM public.account_closure_attestation_state WHERE singleton FOR UPDATE;
+  -- statement_timestamp() predates lock waits. Capture the actual clock once
+  -- after BOTH serialization locks, for freshness and registration provenance.
+  registered_at:=clock_timestamp();
   IF p_expected_generation IS DISTINCT FROM state.generation THEN RAISE EXCEPTION 'stale attestation generation'; END IF;
   IF p_attestation_id IS NULL OR jsonb_typeof(p_record) IS DISTINCT FROM 'object'
     OR (SELECT count(*) FROM jsonb_object_keys(p_record))<>15
@@ -60,7 +63,7 @@ BEGIN
     OR p_record->'payments'->'backendEnabled' IS DISTINCT FROM 'false'::jsonb
     THEN RAISE EXCEPTION 'validated service evidence required'; END IF;
   created:=(p_record->>'createdAt')::timestamptz; expiry:=(p_record->>'expiresAt')::timestamptz;
-  IF created IS NULL OR expiry IS NULL OR created>statement_timestamp() OR expiry<=statement_timestamp()
+  IF created IS NULL OR expiry IS NULL OR created>registered_at OR expiry<=registered_at
     OR expiry<=created OR expiry-created>interval '15 minutes' THEN RAISE EXCEPTION 'stale attestation'; END IF;
   IF state.binding_digest IS NOT NULL AND state.binding_digest<>binding
     THEN RAISE EXCEPTION 'binding change requires invalidation'; END IF;
@@ -71,8 +74,8 @@ BEGIN
     RAISE EXCEPTION 'attestation identity conflict';
   END IF;
   UPDATE public.account_closure_attestation_state SET binding_digest=binding WHERE singleton;
-  INSERT INTO public.account_closure_drain_attestations(attestation_id,generation,binding_digest,evidence_digest,record,validation,expires_at)
-    VALUES(p_attestation_id,state.generation,binding,evidence,p_record,p_validation,expiry);
+  INSERT INTO public.account_closure_drain_attestations(attestation_id,generation,binding_digest,evidence_digest,record,validation,expires_at,recorded_at)
+    VALUES(p_attestation_id,state.generation,binding,evidence,p_record,p_validation,expiry,registered_at);
   RETURN p_attestation_id;
 END;
 $$;
