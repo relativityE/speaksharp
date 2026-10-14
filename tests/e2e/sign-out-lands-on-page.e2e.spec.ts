@@ -14,9 +14,10 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 async function signOutFrom(page: Page, route: string) {
   await programmaticLoginWithRoutes(page, { userType: 'free' });
   await navigateToRoute(page, route);
-  await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByTestId('nav-account-avatar')).toBeVisible({ timeout: 30000 });
+  await page.getByTestId('nav-account-avatar').click();
   await page.getByTestId('nav-sign-out-button').click();
-  await expect(page.getByTestId('nav-sign-out-button')).toHaveCount(0, { timeout: 30000 });
+  await expect(page.getByTestId('nav-account-avatar')).toHaveCount(0, { timeout: 30000 });
 }
 
 async function expectLandedOnAnonymousHome(page: Page, label: string) {
