@@ -761,8 +761,10 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
         if (!entry) { errors.push(`observation missing from worksheet: ${id}`); continue; }
         const externalParent = externalParentOf(receipt.rows, id);
         if (entry.result === NOT_EXERCISED || entry.result === '') {
-            // Only a coaching-quality check under its own proved EXTERNAL parent may be not exercised (blank allowed).
+            // Only a coaching-quality check under its own proved EXTERNAL parent may be not exercised (blank allowed) —
+            // and it is still SIGNED (Codex P2 r4275712673): an untouched prefilled row is not a reviewed one.
             if (!externalParent) errors.push(`observation ${id} has no PASS/FAIL result`);
+            else if (entry.observer.trim() === '') errors.push(`observation ${id} ${NOT_EXERCISED} has no observer`);
             continue;
         }
         if (entry.result !== 'PASS' && entry.result !== 'FAIL') { errors.push(`observation ${id} has no PASS/FAIL result`); continue; }

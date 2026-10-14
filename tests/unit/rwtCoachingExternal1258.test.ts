@@ -301,7 +301,10 @@ describe('finalization (schema, readback D1, exit semantics)', () => {
     const receipt = { suite: SUITE, release: SHA, meta: { fixtureKind: 'synthetic' }, rows,
         readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: [], missingBindings: [] } };
     const worksheet = () => parseHumanWorksheet(humanWorksheet(SUITE, SHA, [J], rows).split('\n')
-        .map((l) => (l.startsWith('| `open_mic_') ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-10-14 |') : l)).join('\n'));
+        .map((l) => (l.startsWith('| `open_mic_')
+            // A blank result is decided PASS; the prefilled NOT_EXERCISED is left as it is and SIGNED (Codex P2 r4275712673).
+            ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-10-14 |').replace(/\| NOT_EXERCISED \| {2}\|$/, '| NOT_EXERCISED | PO · 2026-10-14 |')
+            : l)).join('\n'));
 
     it('12. the schema accepts EXTERNAL and still rejects an unknown verdict', () => {
         expect(validateReceipt(receipt).errors).toEqual([]);
@@ -549,5 +552,42 @@ describe('Codex P2 r4275387528 — the worksheet explains the prefilled NOT_EXER
         const md = humanWorksheet('open-mic-first-session', SHA, ['j'], [pass('coaching rendered'), human('open_mic_coaching_relevant')]);
         expect(md).toContain('| Result (PASS/FAIL) |');
         expect(md).not.toContain('NOT_EXERCISED');
+    });
+});
+
+describe('Codex P2 r4275712673 — a not-exercised coaching-quality row is still signed', () => {
+    const SHA = 'b'.repeat(40);
+    const J = 'journey-sign';
+    const STAGES = ['session_during', 'session_after_open_mic', 'share_feedback', 'analytics_inventory', 'session_pdf_export'];
+    const human = (id: string): ReceiptRow => ({ step: `human: ${id}`, verdict: 'HUMAN', detail: 'h',
+        evidence: { observationId: id, runbookRow: 'row', passCriterion: 'c', recorded: 'pending' } });
+    const base: ReceiptRow[] = [
+        { step: 'journey telemetry received', verdict: 'HOLD', detail: 'p' }, { step: 'signup-stage telemetry received', verdict: 'HOLD', detail: 'p' },
+        pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), pass('journey telemetry (canary class)'), pass('receipt content-free'),
+        human('open_mic_coaching_relevant'), human('open_mic_uh_detected'), provedParent('coaching rendered'),
+    ];
+    const rows = [...base, ...requiredAutomatedRows('open-mic-first-session')!.product.filter((s) => !base.some((r) => r.step === s))
+        .map((s) => (s === 'base_q4 primary' ? { step: s, verdict: 'HOLD' as const, detail: 'p' } : pass(s)))];
+    const receipt = { suite: 'open-mic-first-session', release: SHA, meta: { fixtureKind: 'synthetic' }, rows,
+        readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: [], missingBindings: [] } };
+    /** The generated worksheet with `uh` signed PASS and the coaching row set to `result` with `observer`. */
+    const sheet = (result: string, observer: string) => parseHumanWorksheet(humanWorksheet('open-mic-first-session', SHA, [J], rows).split('\n')
+        .map((l) => (l.startsWith('| `open_mic_uh_detected`') ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-10-14 |')
+            : l.startsWith('| `open_mic_coaching_relevant`') ? l.replace(/\| [^|]* \| [^|]* \|$/, `| ${result} | ${observer} |`) : l)).join('\n'));
+
+    it('RED-case from the review: the prefilled NOT_EXERCISED row left UNSIGNED cannot finalize', () => {
+        const untouched = parseHumanWorksheet(humanWorksheet('open-mic-first-session', SHA, [J], rows).split('\n')
+            .map((l) => (l.startsWith('| `open_mic_uh_detected`') ? l.replace(/\| {2}\| {2}\|$/, '| PASS | PO · 2026-10-14 |') : l)).join('\n'));
+        const r = finalizeReceipt(receipt, untouched);
+        expect(r.status).toBe('binding_error');
+        expect(r.errors).toContain('observation open_mic_coaching_relevant NOT_EXERCISED has no observer');
+    });
+    it('an allowed blank result is also refused without an observer', () => {
+        expect(finalizeReceipt(receipt, sheet('', '')).errors).toContain('observation open_mic_coaching_relevant NOT_EXERCISED has no observer');
+    });
+    it('signed, it finalizes as not exercised (INCOMPLETE)', () => {
+        const r = finalizeReceipt(receipt, sheet('NOT_EXERCISED', 'PO · 2026-10-14'));
+        expect(r).toMatchObject({ status: 'final', finalAcceptance: 'INCOMPLETE' });
+        expect(r.humanObservations.find((h) => h.id === 'open_mic_coaching_relevant')?.result).toBe('not_exercised');
     });
 });
