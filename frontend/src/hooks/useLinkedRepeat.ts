@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
-import { attemptPressMatching, clearAttemptPress, recordAttemptPress, setOpenAttempt } from '@/services/progress/openAttempt';
+import { setOpenAttempt } from '@/services/progress/openAttempt';
 import logger from '@/lib/logger';
 
 /**
@@ -69,21 +69,16 @@ export function useLinkedRepeat(sessionId: string) {
         try {
             const pending = await readPendingRecommendationAttempt(recommendationId);
             if (pending.status === 'blocked') { outcome = 'readback_blocked'; throw new Error('pending-attempt-readback-failed'); }
-            // Codex P2 r4275389955: the create's press is recorded (client clock) BEFORE the call, so a create that commits
-            // but loses its answer is reused below with that original press — not this later retry press, and never the
-            // server's own clock.
-            if (pending.status !== 'one') recordAttemptPress(userId, recommendationId, acceptedAtIso);
             const attemptId = pending.status === 'one'
                 ? pending.attemptId
                 : await recordRecommendationAttempt(recommendationId);
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
-            // Codex P2 r4273828962: a REUSED attempt keeps the press that created it when this browser recorded one AND
-            // the server accepted it within the match window of that press (Codex P2 r4275718056: a stale marker from a
-            // create that genuinely failed is never borrowed by an attempt created elsewhere). Otherwise this press — the
-            // conservative choice: it never binds an earlier take.
-            const originalPress = pending.status === 'one' ? attemptPressMatching(userId, recommendationId, pending.acceptedAtIso) : null;
-            const handoffAcceptedAt = originalPress && originalPress < acceptedAtIso ? originalPress : acceptedAtIso;
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso: handoffAcceptedAt });
+            // A REUSED attempt (its create committed but the answer was lost) is accepted at THIS press (Codex P2 r4273828962,
+            // r4275389955, r4275718056; PM 6178959404). No request names an attempt before the server answers, so nothing
+            // proves which earlier press — on this device or another — created it, and the server's clock is never mixed
+            // into client ordering. Known limitation: a take recorded between the lost create and this press stays
+            // unlinked; it is never bound to a take that may predate the attempt.
+            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso });
             if (!handoffStored) {
                 const abandoned = await abandonRecommendationAttempt(attemptId);
                 setActionError(abandoned
@@ -93,7 +88,6 @@ export function useLinkedRepeat(sessionId: string) {
                 outcome = abandoned ? 'handoff_failed_abandoned' : 'handoff_failed_unclosed';
                 return;
             }
-            clearAttemptPress(userId, recommendationId); // the handoff now carries the acceptance time
             outcome = 'ok';
             afterLinked();
         } catch (err) {

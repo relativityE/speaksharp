@@ -19,9 +19,7 @@ vi.mock('@/services/progress/recordProgress', () => ({
 }));
 const setOpenAttempt = vi.fn();
 const clearOpenAttemptIfMatches = vi.fn();
-// The handoff writes are doubled; the client-clock press record (#1258 Codex P2 r4275389955) is the real one.
-vi.mock('@/services/progress/openAttempt', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@/services/progress/openAttempt')>()),
+vi.mock('@/services/progress/openAttempt', () => ({
     setOpenAttempt: (...a: unknown[]) => setOpenAttempt(...a),
     clearOpenAttemptIfMatches: (...a: unknown[]) => clearOpenAttemptIfMatches(...a),
 }));
@@ -47,7 +45,6 @@ function renderPanel(nextActionOwnedByReview = false) {
 }
 
 beforeEach(() => {
-    localStorage.clear();
     navigate.mockReset(); recordRecommendationAttempt.mockReset(); setOpenAttempt.mockReset();
     abandonRecommendationAttempt.mockReset(); loadSessionProgress.mockReset();
     readPendingRecommendationAttempt.mockReset(); clearOpenAttemptIfMatches.mockReset();

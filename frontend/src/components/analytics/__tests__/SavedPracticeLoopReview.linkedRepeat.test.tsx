@@ -41,11 +41,7 @@ vi.mock('@/services/progress/recordProgress', () => ({
     abandonRecommendationAttempt: (id: string) => abandon(id),
 }));
 const setOpenAttempt = vi.fn((_attempt: unknown) => true);
-// The handoff write is doubled; the client-clock press record (Codex P2 r4275389955) is the real one, on jsdom storage.
-vi.mock('@/services/progress/openAttempt', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@/services/progress/openAttempt')>()),
-    setOpenAttempt: (a: unknown) => setOpenAttempt(a),
-}));
+vi.mock('@/services/progress/openAttempt', () => ({ setOpenAttempt: (a: unknown) => setOpenAttempt(a) }));
 const practiceSelected = vi.fn();
 const practiceAction = vi.fn();
 const practiceState = vi.fn();
@@ -79,7 +75,6 @@ const staleClick = (el: HTMLButtonElement) => { el.disabled = false; fireEvent.c
 
 beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear();
     loadReview.mockResolvedValue(FOCUS);
     setOpenAttempt.mockReturnValue(true);
     readPending.mockResolvedValue({ status: 'none' });
@@ -107,8 +102,8 @@ describe('#1258 Codex P1 r4273670998 — acceptance time is the PRESS, not the e
     });
 });
 
-describe('#1258 Codex P2 r4273828962 / r4275389955 — a reused attempt keeps its ORIGINAL press, on the client clock', () => {
-    /** Press the action at `at` (client clock) and wait for the handoff, or for the attempt to settle without one. */
+describe('#1258 Codex P2 r4275718056 (PM 6178959404) — a reused attempt of unproved identity is accepted at THIS press', () => {
+    /** Press the action at `at` (client clock) and wait until `settled`. */
     const pressAt = async (at: string, settled: () => void) => {
         vi.useFakeTimers({ toFake: ['Date'] });
         try {
@@ -119,64 +114,47 @@ describe('#1258 Codex P2 r4273828962 / r4275389955 — a reused attempt keeps it
             vi.useRealTimers();
         }
     };
-    it('a create that commits but loses its answer is reused at the NEXT press with the FIRST press time', async () => {
-        loadProgress.mockResolvedValue(ELIGIBLE);
-        recordAttempt.mockResolvedValueOnce(null); // committed server-side; the answer never arrived
-        renderReview();
-        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
-        await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
-        expect(setOpenAttempt).not.toHaveBeenCalled();
-        // The retry, an hour later: the server reports the committed attempt; the server's own clock is never used.
-        // The server accepted it 2 s after the press (its own clock) — within the match window, so it is this press's attempt.
-        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-lost', acceptedAtIso: '2026-10-14T11:00:02.000Z' });
-        await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
-        expect(recordAttempt).toHaveBeenCalledTimes(1);
-        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-lost', acceptedAtIso: '2026-10-14T11:00:00.000Z' }));
-    });
-    it('Codex P2 r4275718056: a stale marker from a create that genuinely failed is not borrowed by an attempt created elsewhere later', async () => {
-        loadProgress.mockResolvedValue(ELIGIBLE);
-        recordAttempt.mockResolvedValueOnce(null); // this create genuinely failed: nothing was created
-        renderReview();
-        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
-        await pressAt('2026-10-14T09:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
-        // Another device accepted the same recommendation at 11:30 (server clock); this browser then retries at 12:00.
-        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-other-device', acceptedAtIso: '2026-10-14T11:30:00.000Z' });
-        await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
-        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-other-device', acceptedAtIso: '2026-10-14T12:00:00.000Z' }));
-    });
-    it('an unknown server acceptance time cannot confirm the marker: this press is kept', async () => {
+    /** A local create at 11:00:00 that fails, then a retry press at 11:01:00 that finds a pending attempt. */
+    const failedLocalThenReuse = async (pending: Record<string, unknown>) => {
         loadProgress.mockResolvedValue(ELIGIBLE);
         recordAttempt.mockResolvedValueOnce(null);
         renderReview();
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
         await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
-        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-lost', acceptedAtIso: null });
-        await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
-        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ acceptedAtIso: '2026-10-14T12:00:00.000Z' }));
+        expect(setOpenAttempt).not.toHaveBeenCalled();
+        readPending.mockResolvedValue({ status: 'one', ...pending });
+        await pressAt('2026-10-14T11:01:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        expect(recordAttempt).toHaveBeenCalledTimes(1);
+        return setOpenAttempt.mock.calls[0][0] as { attemptId: string; acceptedAtIso: string };
+    };
+    it.each([
+        // Another device accepted the same recommendation 30 s after the failed local press — inside any proximity window.
+        ['another device, 30 s after the failed press', { attemptId: 'attempt-other-device', acceptedAtIso: '2026-10-14T11:00:30.000Z' }],
+        // Clock skew either way: a server time just BEFORE the failed press, or well after it.
+        ['a server clock behind the browser', { attemptId: 'attempt-x', acceptedAtIso: '2026-10-14T10:59:10.000Z' }],
+        ['a server clock ahead of the browser', { attemptId: 'attempt-x', acceptedAtIso: '2026-10-14T11:00:55.000Z' }],
+        ['an unknown server time', { attemptId: 'attempt-x', acceptedAtIso: null }],
+        ['a malformed server time', { attemptId: 'attempt-x', acceptedAtIso: 'not-a-time' }],
+        ['no server time at all', { attemptId: 'attempt-x' }],
+    ])('%s → acceptance is the retry press, never the failed press nor the server time', async (_label, pending) => {
+        const stored = await failedLocalThenReuse(pending);
+        expect(stored).toMatchObject({ attemptId: pending.attemptId, acceptedAtIso: '2026-10-14T11:01:00.000Z' });
     });
-    it('a reused attempt this browser never pressed (created elsewhere) keeps THIS press — never an earlier guess', async () => {
-        loadProgress.mockResolvedValue(ELIGIBLE);
-        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-elsewhere' });
-        renderReview();
-        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
-        await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
-        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-elsewhere', acceptedAtIso: '2026-10-14T12:00:00.000Z' }));
-    });
-    it('a press recorded for ANOTHER recommendation is not borrowed', async () => {
-        localStorage.setItem('ss_progress_attempt_press_v1', JSON.stringify({ userId: 'user-1', recommendationId: 'rec-OTHER', pressedAtIso: '2026-10-14T09:00:00.000Z' }));
-        loadProgress.mockResolvedValue(ELIGIBLE);
-        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-lost' });
-        renderReview();
-        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
-        await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
-        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ acceptedAtIso: '2026-10-14T12:00:00.000Z' }));
-    });
-    it('a stored handoff retires the press record', async () => {
+    it('exact association — the create answered with its id — keeps that create\'s own press', async () => {
         loadProgress.mockResolvedValue(ELIGIBLE);
         renderReview();
         await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
-        await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
-        expect(localStorage.getItem('ss_progress_attempt_press_v1')).toBeNull();
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-1', acceptedAtIso: '2026-10-14T11:00:00.000Z' }));
+    });
+    it('nothing is written on this device for a create whose answer has not arrived (no marker to borrow later)', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        recordAttempt.mockResolvedValueOnce(null);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        const before = Object.keys(localStorage).length;
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
+        expect(Object.keys(localStorage).length).toBe(before);
     });
 });
 

@@ -527,3 +527,16 @@ describe('Codex P1 r4275718048 — a take queued first WITHOUT its start (server
         expect(startOf(N1)).toBe('2026-10-14T10:01:00.000Z');
     });
 });
+
+describe('PM 6178959404 — a reused attempt accepted at the retry press never binds an earlier take', () => {
+    it('a take that began between the failed local press and the retry stays unlinked; the next take is bound', async () => {
+        // What the linked repeat stores on an unproved reuse: the retry press (11:01), not the failed press (11:00).
+        acceptAttempt('att-reused', 'sess-source', USER, '2026-10-14T11:01:00.000Z');
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N, USER, '2026-10-14T11:00:30.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N1, USER, '2026-10-14T11:02:00.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N1]);
+    });
+});

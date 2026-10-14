@@ -102,11 +102,7 @@ export async function recordRecommendationAttempt(recommendationId: string): Pro
 
 export type PendingAttemptReadback =
     | { status: 'none' }
-    /**
-     * #1258 (Codex P2 r4275718056): `acceptedAtIso` is the server's `accepted_at`, used ONLY to confirm that a locally
-     * recorded press belongs to this attempt — never as the acceptance time itself (a different clock).
-     */
-    | { status: 'one'; attemptId: string; acceptedAtIso: string | null }
+    | { status: 'one'; attemptId: string }
     | { status: 'blocked' };
 
 /** Owner-scoped/RLS readback used before retrying acceptance after an uncertain RPC response. */
@@ -114,7 +110,7 @@ export async function readPendingRecommendationAttempt(recommendationId: string)
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
         .from('progress_recommendation_attempts')
-        .select('id, recommendation_id, lifecycle, accepted_at')
+        .select('id, recommendation_id, lifecycle')
         .eq('recommendation_id', recommendationId)
         .eq('lifecycle', 'pending')
         .limit(2);
@@ -124,9 +120,7 @@ export async function readPendingRecommendationAttempt(recommendationId: string)
             && row.recommendation_id === recommendationId && row.lifecycle === 'pending');
     if (matches.length === 0) return { status: 'none' };
     if (matches.length !== 1) return { status: 'blocked' };
-    const acceptedAt = (matches[0] as { accepted_at?: unknown }).accepted_at;
-    const acceptedMs = typeof acceptedAt === 'string' ? Date.parse(acceptedAt.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')) : Number.NaN;
-    return { status: 'one', attemptId: matches[0].id as string, acceptedAtIso: Number.isFinite(acceptedMs) ? new Date(acceptedMs).toISOString() : null };
+    return { status: 'one', attemptId: matches[0].id as string };
 }
 
 /**
