@@ -1,0 +1,50 @@
+name: Account closure full Supabase chain (disposable)
+
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/**'
+      - 'tests/db/account-closure-full-chain*'
+      - '.github/workflows/account-closure-full-chain-proof.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: account-closure-full-chain-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      SUPABASE_ACCESS_TOKEN: ''
+      SUPABASE_DB_PASSWORD: ''
+      PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+      - name: Replay actual baseline and closure migration; prove invariants
+        run: node tests/db/account-closure-full-chain.mjs
+      - name: Recover owned disposable resources after interruption
+        if: always()
+        run: node tests/db/account-closure-full-chain.mjs --cleanup
+      - name: Retain bounded proof manifest
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: account-closure-full-chain-${{ github.event.pull_request.head.sha }}
+          path: artifacts/account-closure-full-chain/*.json
+          if-no-files-found: error
+          retention-days: 1

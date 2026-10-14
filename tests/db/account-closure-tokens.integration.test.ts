@@ -60,6 +60,21 @@ const issue = () => service('SELECT * FROM public.issue_account_closure_token($1
 const claim = (id = U, hash = HASH) => service('SELECT * FROM public.claim_account_closure_token($1,$2)', [id, hash]);
 
 describe('account deletion — actual SQL grants, durable claims and retained-trial behavior', () => {
+  it('full-chain invariant SQL executes and rolls back the disabled gate on the scoped fixture', async () => {
+    await apply(false);
+    await db.exec(`DELETE FROM auth.users;
+      ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb, ADD COLUMN raw_user_meta_data jsonb;`);
+    await db.exec(readFileSync(resolve('tests/db/account-closure-full-chain.sql'), 'utf8'));
+    expect((await db.query('SELECT checkout_workers_drained FROM account_billing_coordination')).rows)
+      .toEqual([{ checkout_workers_drained: false }]);
+    expect((await db.query('SELECT * FROM auth.users')).rows).toEqual([]);
+  });
+  it('full-chain invariant SQL rejects a client-executable destructive RPC', async () => {
+    await apply(false);
+    await db.exec('GRANT EXECUTE ON FUNCTION public.claim_account_closure_token(uuid,text) TO authenticated');
+    await expect(db.exec(readFileSync(resolve('tests/db/account-closure-full-chain.sql'), 'utf8')))
+      .rejects.toThrow('unsafe function ACL: claim_account_closure_token');
+  });
   it('normal purchase retry needs no deletion token, reuses only exact open checkout and recovers confirmed expiry',async()=>{
     await apply();
     const operation=(await service('SELECT begin_account_checkout($1) AS id',[U])).rows[0] as {id:string};
