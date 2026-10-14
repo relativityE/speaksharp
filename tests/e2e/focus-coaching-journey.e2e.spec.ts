@@ -76,9 +76,9 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
     await expect(pair).toContainText(PAIR.what_to_try_next);
     await expect(page.getByTestId('ai-suggestions-retry'), 'no failure left behind').toHaveCount(0);
 
-    // #1538 (PO-approved wording): the rendered disclosure names the topic and points this take sends to Gemini.
+    // PO6175213749: disclose the authoritative saved Focus inputs and relevant measurements.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
-      "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.",
+      "Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.",
     );
 
     // REQUEST: two refusals + one answer, each for this saved session, each Focus Points.
@@ -108,9 +108,9 @@ test.describe('RWT item 4 — Focus-aware coaching through the rendered review',
     const sent = await requests(page);
     expect(sent.map((r) => r.body?.product)).toEqual(['open_mic']);
     expect(sent[0].body?.accepted_coaching_versions).toEqual(['gemini_coaching_v1', 'gemini_coaching_focus_v1']);
-    // #1538: Open Mic sends only the transcript, and its disclosure stays transcript-only.
+    // Open Mic also sends finalized filler counts and pace; audio is not sent.
     await expect(page.getByTestId('ai-suggestions-disclosure')).toHaveText(
-      "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.",
+      "Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.",
     );
   });
 });

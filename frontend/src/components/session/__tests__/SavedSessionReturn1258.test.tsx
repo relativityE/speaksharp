@@ -83,7 +83,7 @@ describe('SavedSessionReturn', () => {
     it('CASUALTY (Codex 4235188543): a legacy row with no product marker but resolved Focus Points gets the Focus disclosure', () => {
         resolvedProduct = 'focus_points';
         render(<SavedSessionReturn session={row({ product: null as unknown as PracticeSession['product'] })} onSeeAllSessions={() => {}} />);
-        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent('your Focus Points topic and points');
+        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent("Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.");
         expect(screen.getByTestId('saved-review-practice')).toBeInTheDocument();
         resolvedProduct = 'open_mic';
     });
