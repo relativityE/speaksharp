@@ -89,10 +89,20 @@ export const COACHING_DEPENDENT_ANALYTICS_ROWS = Object.freeze([
  * parent. Anywhere else EXTERNAL is a validation error — it can never turn an observed FAIL into a non-blocking
  * INCOMPLETE or report a provider outage the run did not prove.
  */
-interface ExternalScope { parent: string; binding: string; dependents: readonly string[] }
+interface ExternalScope {
+    parent: string;
+    binding: string;
+    /** App-owned rows that are EXTERNAL only with a confirmed read of NO saved coaching for this take. */
+    absence: readonly string[];
+    /** The app-owned telemetry row, EXTERNAL only when this request's failure report is bound to it. */
+    telemetry: string;
+    dependents: readonly string[];
+}
 const FOCUS_EXTERNAL_SCOPE: ExternalScope = Object.freeze({
     parent: 'Focus coaching rendered',
     binding: 'Focus coaching request bound to this take',
+    absence: Object.freeze(['Focus coaching provenance', 'Focus coaching visible = saved']),
+    telemetry: 'Focus coaching telemetry sent',
     dependents: Object.freeze([
         'Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt',
         'Focus coaching provenance', 'Focus coaching visible = saved', 'Focus coaching telemetry sent', ...COACHING_DEPENDENT_ANALYTICS_ROWS,
@@ -102,6 +112,8 @@ const EXTERNAL_SCOPES: Readonly<Record<string, ExternalScope>> = Object.freeze({
     'open-mic-first-session': Object.freeze({
         parent: 'coaching rendered',
         binding: 'coaching request bound to this take',
+        absence: Object.freeze(['coaching visible = saved']),
+        telemetry: 'coaching telemetry sent',
         dependents: Object.freeze([
             'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt', 'coaching telemetry sent',
             ...COACHING_DEPENDENT_ANALYTICS_ROWS,
@@ -152,11 +164,23 @@ function externalScopeErrors(suite: string, rows: readonly ReceiptRow[]): string
         const binding = rows.find((r) => r.step === scope.binding && !isHumanObservation(r));
         if (binding?.verdict !== 'PASS') errors.push(`row "${scope.parent}" is EXTERNAL but "${scope.binding}" is not PASS`);
     }
+    // Codex P1 r4276518654: an APP-OWNED dependent is EXTERNAL only with its own proof — the parent alone never
+    // excuses what the app did. The success-only rows (length, distinct, omission claim, server receipt) are never
+    // written FAIL under a proved parent, so for them the parent is the whole claim.
+    const absenceProved = (row: ReceiptRow | undefined) => row?.verdict === 'EXTERNAL' && row.evidence?.savedCoachingAbsent === true;
+    const absenceRows = scope.absence.map((step) => rows.find((x) => x.step === step && !isHumanObservation(x)));
     for (const r of externalRows) {
         if (r === parent) continue;
         if (isHumanObservation(r)) { errors.push(`human observation "${r.step}" arrived as EXTERNAL; only finalization may record not exercised`); continue; }
         if (!scope.dependents.includes(r.step)) { errors.push(`row "${r.step}" is EXTERNAL, but EXTERNAL is allowed only on the coaching rows of ${suite}`); continue; }
-        if (!parentExternal) errors.push(`row "${r.step}" is EXTERNAL without an EXTERNAL "${scope.parent}" parent`);
+        if (!parentExternal) { errors.push(`row "${r.step}" is EXTERNAL without an EXTERNAL "${scope.parent}" parent`); continue; }
+        if (scope.absence.includes(r.step) && !absenceProved(r)) {
+            errors.push(`row "${r.step}" is EXTERNAL without a confirmed read of no saved coaching (savedCoachingAbsent)`);
+        } else if (r.step === scope.telemetry && r.evidence?.boundFailureOutcome !== 'bound') {
+            errors.push(`row "${r.step}" is EXTERNAL without this request's bound failure report (boundFailureOutcome)`);
+        } else if ((COACHING_DEPENDENT_ANALYTICS_ROWS as readonly string[]).includes(r.step) && !absenceRows.every(absenceProved)) {
+            errors.push(`row "${r.step}" is EXTERNAL but the take's saved-coaching absence is not proved (${scope.absence.join(', ')})`);
+        }
     }
     return errors;
 }

@@ -1855,7 +1855,7 @@ export async function focusCoachingRows(
                     well: typeof saved?.what_worked === 'string' ? saved.what_worked.trim() : '',
                     next: typeof saved?.what_to_try_next === 'string' ? saved.what_to_try_next.trim() : '' };
             });
-            for (const r of rows) receipt.row(r.step, r.verdict, r.detail);
+            for (const r of rows) receipt.row(r.step, r.verdict, r.detail, r.evidence);
             humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
                 'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
         }

@@ -387,6 +387,8 @@ describe('§2–§4 — a consumer-built EXTERNAL receipt through the real valid
         const r = new RwtReceipt('open-mic-first-session');
         r.row('coaching rendered', 'EXTERNAL', 'external provider unavailable (provider 503)', { ...PROVED_PARENT_EVIDENCE });
         r.row('coaching request bound to this take', 'PASS', 'the coaching request named this saved take');
+        // As the consumer writes it (Codex P1 r4276518654): the confirmed read found no saved coaching.
+        r.row('coaching visible = saved', 'EXTERNAL', 'not exercised', { savedCoachingAbsent: true });
         analyticsRows(r, { actionClicked: true, listed: true, detailOpened: true, detailMatches: true, reloadMatches: true,
             coachingBefore: undefined, coachingAfter: undefined } as never, true);
         return r.rows;
@@ -506,7 +508,8 @@ describe('Codex P1 r4275387520 — EXTERNAL is a closed claim: only the proved c
             .toMatch(/"coaching request bound to this take" is not PASS/);
     });
     it('a dependent row is EXTERNAL only under an EXTERNAL parent', () => {
-        expect(errorsOf(openMic([provedParent('coaching rendered'), external('coaching length'), external('one practice action')]))).toBe('');
+        const absent = { ...external('coaching visible = saved'), evidence: { savedCoachingAbsent: true } };
+        expect(errorsOf(openMic([provedParent('coaching rendered'), absent, external('coaching length'), external('one practice action')]))).toBe('');
         expect(errorsOf(openMic([external('coaching length')]))).toMatch(/"coaching length" is EXTERNAL without an EXTERNAL "coaching rendered" parent/);
         // Another suite's coaching row is not this suite's dependent.
         expect(errorsOf(openMic([provedParent('coaching rendered'), external('Focus coaching length')]))).toMatch(/allowed only on the coaching rows/);
@@ -526,8 +529,8 @@ describe('Codex P1 r4275387520 — EXTERNAL is a closed claim: only the proved c
         const r = new RwtReceipt('focus-points-session');
         r.row('Focus coaching rendered', 'EXTERNAL', 'd', { ...PROVED_PARENT_EVIDENCE });
         r.row('Focus coaching request bound to this take', 'PASS', 'bound');
-        for (const x of produced) r.row(x.step, x.verdict, x.detail);
-        r.row('Focus coaching telemetry sent', 'EXTERNAL', 'bound failure report');
+        for (const x of produced) r.row(x.step, x.verdict, x.detail, x.evidence); // exactly as rwtJourney writes them
+        r.row('Focus coaching telemetry sent', 'EXTERNAL', 'bound failure report', { boundFailureOutcome: 'bound' });
         analyticsRows(r, { actionClicked: true, listed: true, detailOpened: true, detailMatches: true, reloadMatches: true,
             coachingBefore: undefined, coachingAfter: undefined } as never, true);
         const errors = validateReceipt({ suite: 'focus-points-session', release: SHA, rows: r.rows,
@@ -589,5 +592,51 @@ describe('Codex P2 r4275712673 — a not-exercised coaching-quality row is still
         const r = finalizeReceipt(receipt, sheet('NOT_EXERCISED', 'PO · 2026-10-14'));
         expect(r).toMatchObject({ status: 'final', finalAcceptance: 'INCOMPLETE' });
         expect(r.humanObservations.find((h) => h.id === 'open_mic_coaching_relevant')?.result).toBe('not_exercised');
+    });
+});
+
+describe('Codex P1 r4276518654 — an app-owned EXTERNAL dependent needs its own proof, not just its parent', () => {
+    const SHA = '9'.repeat(40);
+    const J = 'journey-owned';
+    const STAGES = ['session_during', 'session_after_open_mic', 'share_feedback', 'analytics_inventory', 'session_pdf_export'];
+    const receiptOf = (suite: string, rows: ReceiptRow[]) => ({ suite, release: SHA, rows: [pass('telemetry decodable'), ...rows],
+        readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: [] } });
+    /** Only the EXTERNAL-scope errors (the fixture is deliberately not a complete receipt). */
+    const scopeErrors = (suite: string, rows: ReceiptRow[]) => validateReceipt(receiptOf(suite, rows)).errors.filter((e) => e.includes('EXTERNAL'));
+    const ext = (step: string, evidence?: ReceiptRow['evidence']): ReceiptRow => ({ ...external(step), ...(evidence ? { evidence } : {}) });
+
+    it('RED-case from the review: Focus FAIL rows for an unexpectedly SAVED pair cannot be edited to EXTERNAL', async () => {
+        const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
+        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, well: 'saved anyway', next: '' }));
+        const owned = produced.filter((x) => x.step === 'Focus coaching provenance' || x.step === 'Focus coaching visible = saved');
+        expect(owned.map((x) => [x.verdict, x.evidence?.savedCoachingAbsent])).toEqual([['FAIL', false], ['FAIL', false]]);
+        const forged = owned.map((x) => ({ ...x, verdict: 'EXTERNAL' as const }));
+        expect(scopeErrors('focus-points-session', [provedParent('Focus coaching rendered'), pass('Focus coaching request bound to this take'), ...forged]))
+            .toEqual(forged.map((x) => `row "${x.step}" is EXTERNAL without a confirmed read of no saved coaching (savedCoachingAbsent)`));
+    });
+    it('an unreadable saved-coaching read (HOLD, absence null) cannot be edited to EXTERNAL either', async () => {
+        const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
+        const produced = await focusExternalDependentRows(parent, async () => ({ ok: false }));
+        const owned = produced.filter((x) => x.step === 'Focus coaching visible = saved').map((x) => ({ ...x, verdict: 'EXTERNAL' as const }));
+        expect(owned[0].evidence?.savedCoachingAbsent).toBeNull();
+        expect(scopeErrors('focus-points-session', [provedParent('Focus coaching rendered'), pass('Focus coaching request bound to this take'), ...owned]))
+            .toHaveLength(1);
+    });
+    it.each([['absent', undefined], ['ambiguous', 'ambiguous'], ['invalid', 'invalid'], ['unbindable', 'unbindable']])(
+        'a telemetry row whose failure report is %s cannot be EXTERNAL', (_label, outcome) => {
+            const row = ext('coaching telemetry sent', outcome === undefined ? undefined : { boundFailureOutcome: outcome });
+            expect(scopeErrors('open-mic-first-session', [provedParent('coaching rendered'), pass('coaching request bound to this take'), row]))
+                .toEqual(['row "coaching telemetry sent" is EXTERNAL without this request\'s bound failure report (boundFailureOutcome)']);
+        });
+    it('a bound failure report and a confirmed absence are accepted', () => {
+        expect(scopeErrors('open-mic-first-session', [provedParent('coaching rendered'), pass('coaching request bound to this take'),
+            ext('coaching telemetry sent', { boundFailureOutcome: 'bound' }), ext('coaching visible = saved', { savedCoachingAbsent: true })])).toEqual([]);
+    });
+    it('the coaching-dependent Analytics rows are EXTERNAL only when the take\'s saved-coaching absence is proved', () => {
+        const base = [provedParent('coaching rendered'), pass('coaching request bound to this take'), ext('one practice action')];
+        expect(scopeErrors('open-mic-first-session', [...base, { step: 'coaching visible = saved', verdict: 'FAIL', detail: 'saved anyway' }]))
+            .toEqual(['row "one practice action" is EXTERNAL but the take\'s saved-coaching absence is not proved (coaching visible = saved)']);
+        expect(scopeErrors('open-mic-first-session', base)).toHaveLength(1); // no absence row at all
+        expect(scopeErrors('open-mic-first-session', [...base, ext('coaching visible = saved', { savedCoachingAbsent: true })])).toEqual([]);
     });
 });

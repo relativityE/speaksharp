@@ -241,14 +241,18 @@ export function coachingRequestBindingRow(tap: { sentCount: number; exchanges: r
 export async function focusExternalDependentRows(
     parent: CoachingParentVerdict,
     readSavedCoaching: () => Promise<{ ok: true; well: string; next: string } | { ok: false }>,
-): Promise<Array<{ step: string; verdict: Verdict; detail: string }>> {
+): Promise<Array<{ step: string; verdict: Verdict; detail: string; evidence?: ReceiptRow['evidence'] }>> {
     if (parent.verdict !== 'EXTERNAL') return [];
     const saved = await readSavedCoaching().catch(() => ({ ok: false as const }));
     const notExercised = successDependentRow(parent, { verdict: 'FAIL', detail: 'no coaching answer' });
-    const savedRows = (verdict: Verdict, detail: string) => [
-        { step: 'Focus coaching provenance', verdict, detail },
-        { step: 'Focus coaching visible = saved', verdict, detail },
-    ];
+    // Codex P1 r4276518654: the saved-coaching rows carry what the read proved — true only for a confirmed absence.
+    const savedRows = (verdict: Verdict, detail: string) => {
+        const savedCoachingAbsent = !saved.ok ? null : saved.well === '' && saved.next === '';
+        return [
+            { step: 'Focus coaching provenance', verdict, detail, evidence: { savedCoachingAbsent } },
+            { step: 'Focus coaching visible = saved', verdict, detail, evidence: { savedCoachingAbsent } },
+        ];
+    };
     const answerRows = ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt']
         .map((step) => ({ step, ...notExercised }));
     if (!saved.ok) return [...answerRows, ...savedRows('HOLD', 'the saved coaching for this take could not be read, so its absence is unproven')];

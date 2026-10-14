@@ -510,7 +510,9 @@ test.describe('RWT — Open Mic first session @live', () => {
                                 : 'a visible phrase differs from the saved coaching response',
                     });
                 receipt.row('coaching visible = saved', visibleRow.verdict, visibleRow.detail,
-                    { wellMatchesSaved: wellMatches, nextMatchesSaved: nextMatches, savedResponsePresent: savedWell !== '' && savedNext !== '' });
+                    { wellMatchesSaved: wellMatches, nextMatchesSaved: nextMatches, savedResponsePresent: savedWell !== '' && savedNext !== '',
+                        // The read above fails closed, so this is a CONFIRMED absence (Codex P1 r4276518654).
+                        savedCoachingAbsent: !savedPresent });
                 humanObservation(receipt, 'open_mic_coaching_relevant', 'Product 1 row 5', 'coaching is about this speech',
                     'each phrase relates to what was said in this take — not generic advice');
 
