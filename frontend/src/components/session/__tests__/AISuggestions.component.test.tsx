@@ -566,16 +566,16 @@ describe('AISuggestions Integration', () => {
             expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
         });
 
-        it('the Gemini disclosure is present in the AUTOMATIC path, not only beside the button', async () => {
+        it('the AI service provider disclosure is present in the AUTOMATIC path, not only beside the button', async () => {
             // With a press, copy beside the button was read at the moment of the decision. With an
-            // automatic send, a user must not learn their transcript went to Google from text
+            // automatic send, a user must not learn their saved inputs went to the provider from text
             // attached to a control they never touched.
             mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
             render(<AISuggestions transcript="Hello world" canReview sessionId="s-disclosure" />);
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const disclosure = screen.getByTestId('ai-suggestions-disclosure');
-            expect(disclosure).toHaveTextContent(/Google Gemini/i);
+            expect(disclosure).toHaveTextContent(/AI service provider/i);
             expect(disclosure).toHaveTextContent(/Audio is never sent/i);
         });
     });
@@ -885,18 +885,17 @@ describe('AISuggestions Integration', () => {
         });
     });
 
-    describe('Gemini disclosure persistence', () => {
-        // Count-neutral by design: the edge function currently asks Gemini for four
-        // suggestions, so the disclosure must not promise a specific number.
-        const DISCLOSURE = /sends this session's transcript to google gemini to create ai coaching\. audio is never sent\./i;
+    describe('AI service provider disclosure persistence', () => {
+        // Disclose saved provider inputs without promising a coaching outcome or count.
+        const DISCLOSURE = "Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.";
 
-        it('shows the Gemini disclosure in the empty state', () => {
+        it('shows the provider/input disclosure in the empty state', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
-        it('keeps the Gemini disclosure visible when suggestions are prefilled', () => {
+        it('keeps the provider/input disclosure visible when suggestions are prefilled', () => {
             const initialSuggestions = {
                 version: 'gemini_coaching_v1' as const,
                 what_worked: 'Initial session-specific strength.',
@@ -908,7 +907,7 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
-        it('keeps the Gemini disclosure visible after suggestions are generated', async () => {
+        it('keeps the provider/input disclosure visible after suggestions are generated', async () => {
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
@@ -930,18 +929,17 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
-        // #1538 (PO-approved wording, P1 r4117696897): a Focus Points take also sends its topic and points to Gemini,
-        // so its disclosure says so. Open Mic keeps the transcript-only line — it sends nothing else.
-        const FOCUS_DISCLOSURE = "Sends this session's transcript and your Focus Points topic and points to Google Gemini to create AI coaching. Audio is never sent.";
-        const OPEN_MIC_DISCLOSURE = "Sends this session's transcript to Google Gemini to create AI coaching. Audio is never sent.";
+        // PO6175213749: reflect the authoritative server prompt's saved evidence.
+        const FOCUS_DISCLOSURE = "Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.";
+        const OPEN_MIC_DISCLOSURE = DISCLOSURE;
 
-        it('#1538 — a Focus Points take discloses its topic and points, exactly', () => {
+        it('#1538 — a Focus Points take discloses saved topic, points/results and relevant measurements, exactly', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" product="focus_points" />);
 
             expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(FOCUS_DISCLOSURE);
         });
 
-        it('#1538 — an Open Mic take keeps the transcript-only disclosure, exactly', () => {
+        it('#1538 — an Open Mic take discloses transcript, filler counts and pace, exactly', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" product="open_mic" />);
 
             expect(screen.getByTestId('ai-suggestions-disclosure').textContent).toBe(OPEN_MIC_DISCLOSURE);
@@ -960,7 +958,7 @@ describe('AISuggestions Integration', () => {
         it('#1416 P2-4 — generation no longer waits for a click, and the disclosure is still shown', async () => {
             // This asserted the click-first contract directly. The PO ruling withdrew it: `LegalPage`
             // conditions provider processing on a coaching feature being USED, not on a press, and
-            // the Gemini line is a disclosure rather than a consent gate. Inverted rather than
+            // the provider line is a disclosure rather than a consent gate. Inverted rather than
             // deleted, because the disclosure half of what it protected still matters — MORE so now
             // that nobody presses anything.
             mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: null }, error: null });
@@ -968,7 +966,7 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
             const disclosure = screen.getByTestId('ai-suggestions-disclosure');
-            expect(disclosure).toHaveTextContent(/Google Gemini/i);
+            expect(disclosure).toHaveTextContent(/AI service provider/i);
             expect(disclosure).toHaveTextContent(/Audio is never sent/i);
         });
     });
@@ -1400,7 +1398,7 @@ describe('#1258 punch list D3 — manual Try again policy by failure reason (PM 
         render(<AISuggestions transcript="Hello world" canReview sessionId={`s-no-${_reason}`} product="open_mic" />);
         await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'terminal'));
         expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
-        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/Google Gemini/);
+        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/AI service provider/);
     });
 
     it.each([
@@ -1416,7 +1414,7 @@ describe('#1258 punch list D3 — manual Try again policy by failure reason (PM 
         mockSupabaseClient.functions.invoke.mockResolvedValue(httpErrorStatus(503, { code: 'service_configuration' }));
         render(<AISuggestions transcript="Hello world" canReview sessionId="s-fp" product="focus_points" />);
         await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'terminal'));
-        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/Focus Points topic and points/);
+        expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(/saved Focus Points topic, points and results, and relevant speaking measurements/);
     });
 
     it("a session change never shows the previous session's failure", async () => {
