@@ -102,8 +102,7 @@ export async function recordRecommendationAttempt(recommendationId: string): Pro
 
 export type PendingAttemptReadback =
     | { status: 'none' }
-    /** #1258 (Codex P2 r4273828962): `acceptedAtIso` is the attempt's authoritative `accepted_at` (null if unreadable). */
-    | { status: 'one'; attemptId: string; acceptedAtIso: string | null }
+    | { status: 'one'; attemptId: string }
     | { status: 'blocked' };
 
 /** Owner-scoped/RLS readback used before retrying acceptance after an uncertain RPC response. */
@@ -111,7 +110,7 @@ export async function readPendingRecommendationAttempt(recommendationId: string)
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
         .from('progress_recommendation_attempts')
-        .select('id, recommendation_id, lifecycle, accepted_at')
+        .select('id, recommendation_id, lifecycle')
         .eq('recommendation_id', recommendationId)
         .eq('lifecycle', 'pending')
         .limit(2);
@@ -121,9 +120,7 @@ export async function readPendingRecommendationAttempt(recommendationId: string)
             && row.recommendation_id === recommendationId && row.lifecycle === 'pending');
     if (matches.length === 0) return { status: 'none' };
     if (matches.length !== 1) return { status: 'blocked' };
-    const acceptedAt = (matches[0] as { accepted_at?: unknown }).accepted_at;
-    const acceptedMs = typeof acceptedAt === 'string' ? Date.parse(acceptedAt.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')) : Number.NaN;
-    return { status: 'one', attemptId: matches[0].id as string, acceptedAtIso: Number.isFinite(acceptedMs) ? new Date(acceptedMs).toISOString() : null };
+    return { status: 'one', attemptId: matches[0].id as string };
 }
 
 /**
@@ -899,12 +896,9 @@ export async function reconcileProgressEvaluations(
     if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
 
     // #1258 RH-13: recommendations a durable evaluation still owes from an EARLIER page — a save or round that unlocked
-    // and then closed before finishing one. Their own namespace, so no older client can have retired them. Drained BEFORE
+    // and then closed before finishing one. Their own namespace, so no older client can have retired them. Listed BEFORE
     // this load's round, so an obligation the round itself writes is settled once, by the round, not again here.
     const owedRecommendations = listRecommendationObligations(userId);
-    if (owedRecommendations.ok) {
-        for (const o of owedRecommendations.entries) await settleRecommendationObligation(userId, o.sessionId, o.generation);
-    }
 
     // ── Layer 1: one attempt round over the durable Open Mic queue (transient eval failures) for this user. ──
     // RWT-20: this is the same round code the bounded in-page retry schedule runs (`progressDebtRetry.ts`), so load and
@@ -912,6 +906,12 @@ export async function reconcileProgressEvaluations(
     // load round. An UNREADABLE queue is still not an empty one: the round reports it rather than draining zero.
     const round = await attemptProgressDebtRound(userId, 'load');
     queueDrained = round.drained;
+
+    // Codex P2 r4275389965: the listed recommendations are settled only AFTER the round — recommendation latency is
+    // non-blocking, so a slow or hung recommendation call must never hold Start behind blocking evaluation debt.
+    if (owedRecommendations.ok) {
+        for (const o of owedRecommendations.entries) await settleRecommendationObligation(userId, o.sessionId, o.generation);
+    }
 
     // #1265: the generic active-era sweep was REMOVED. It evaluated any completed session missing an
     // evaluation, but it CANNOT positively identify the practice mode before writing the IMMUTABLE

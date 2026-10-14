@@ -14,12 +14,15 @@ import { describe, expect, it } from 'vitest';
 const src = readFileSync(path.resolve(__dirname, '../SpeechRuntimeController.ts'), 'utf8');
 
 describe('#1258 — the take-start boundary is captured where each take\'s session is created', () => {
-    it('Start-time placeholder save: captured before the row is created, remembered against the new session id', () => {
-        const capture = src.indexOf('const takeStartedAtIso = new Date().toISOString();');
+    it('Start-time placeholder save: the SERVICE\'s own recording start (Codex P1 r4275389946), remembered against the new session id', () => {
+        const capture = src.indexOf('const serviceStartedAtMs = service.getStartTime();');
         const save = src.indexOf('const saveResult = await saveSession(', capture);
         expect(capture).toBeGreaterThan(-1);
         expect(save).toBeGreaterThan(capture);
-        expect(src.indexOf('this.rememberTakeStart(dbSession.id, takeStartedAtIso);')).toBeGreaterThan(save);
+        expect(src).toContain('const takeStartedAtIso = serviceStartedAtMs ? new Date(serviceStartedAtMs).toISOString() : null;');
+        expect(src.indexOf('if (takeStartedAtIso) this.rememberTakeStart(dbSession.id, takeStartedAtIso);')).toBeGreaterThan(save);
+        // Never sampled late, after RECORDING was confirmed and the invariant check awaited.
+        expect(src).not.toContain('const takeStartedAtIso = new Date().toISOString();');
     });
     it('a take saved only at Stop remembers its own recording start', () => {
         expect(src).toContain('if (startTime) this.rememberTakeStart(sessionId, new Date(startTime).toISOString());');

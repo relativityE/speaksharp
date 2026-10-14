@@ -62,3 +62,39 @@ export function clearOpenAttemptIfMatches(userId: string, attemptId: string): bo
         return false;
     }
 }
+
+/**
+ * #1258 (Codex P2 r4275389955) — the CLIENT-clock moment a press asked the server to create an attempt for a
+ * recommendation. Written before the create call, so when that call commits but its answer is lost, the next press
+ * reuses the attempt with its ORIGINAL press time — the same clock as every take start it is compared with. The server's
+ * `accepted_at` is never mixed in: a skewed database clock would otherwise reorder an acceptance against a take.
+ */
+const PRESS_KEY = 'ss_progress_attempt_press_v1';
+
+interface AttemptPress { userId: string; recommendationId: string; pressedAtIso: string }
+
+export function recordAttemptPress(userId: string, recommendationId: string, pressedAtIso: string): void {
+    if (typeof localStorage === 'undefined') return;
+    try {
+        localStorage.setItem(PRESS_KEY, JSON.stringify({ userId, recommendationId, pressedAtIso } satisfies AttemptPress));
+    } catch (err) {
+        logger.warn({ err }, '[progress] attempt-press write failed');
+    }
+}
+
+/** The recorded press for exactly this owner and recommendation, or null (unknown — the caller keeps its own press). */
+export function attemptPressFor(userId: string, recommendationId: string): string | null {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(PRESS_KEY);
+        if (!raw) return null;
+        const p = JSON.parse(raw) as Partial<AttemptPress> | null;
+        return p && p.userId === userId && p.recommendationId === recommendationId && typeof p.pressedAtIso === 'string'
+            && Number.isFinite(Date.parse(p.pressedAtIso)) ? p.pressedAtIso : null;
+    } catch { return null; }
+}
+
+export function clearAttemptPress(userId: string, recommendationId: string): void {
+    if (typeof localStorage === 'undefined' || attemptPressFor(userId, recommendationId) === null) return;
+    try { localStorage.removeItem(PRESS_KEY); } catch { /* ignore */ }
+}

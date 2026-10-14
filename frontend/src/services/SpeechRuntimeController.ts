@@ -4510,8 +4510,11 @@ export class SpeechRuntimeController {
 
                     this.updateSessionPersisted(false);
                     pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: negMode });
-                    // #1258 (Codex P1 r4273828969): this is the take's start — captured before the row is created.
-                    const takeStartedAtIso = new Date().toISOString();
+                    // #1258 (Codex P1 r4273828969, r4275389946): the take began when the SERVICE confirmed recording — its own
+                    // stamp at ENGINE_STARTED, taken before the invariant check and this save, so an acceptance made in that gap
+                    // still sorts after this take. An unknown start is not remembered, so the binding fails closed.
+                    const serviceStartedAtMs = service.getStartTime();
+                    const takeStartedAtIso = serviceStartedAtMs ? new Date(serviceStartedAtMs).toISOString() : null;
                     const saveResult = await saveSession(
                         { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode, ...productMarkerFor(this.recordingProgressMode) },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
@@ -4538,7 +4541,7 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
-                        this.rememberTakeStart(dbSession.id, takeStartedAtIso);
+                        if (takeStartedAtIso) this.rememberTakeStart(dbSession.id, takeStartedAtIso);
                         this.applyPrivateTelemetryContext();
                         // #1161 (Option 2): ATOMICALLY bind the pre-session intent (registered before start) to the
                         // session this recording just produced. AWAITED; a bind failure/miss ⇒ the session resolves

@@ -477,3 +477,22 @@ describe('B11 — controller parity: with downstream held, Start is open and not
         expect(evaluateDurableStartGate(USER)).toEqual({ allowed: true });
     });
 });
+
+describe('Codex P2 r4275389965 — on load, an earlier page\'s owed recommendation never holds blocking evaluation debt', () => {
+    it('a hung recommendation for an OLD take does not delay the load round that retires a blocking queue entry', async () => {
+        const OLD = 'sess-old';
+        expect(recordRecommendationObligation(USER, OLD, '2026-10-13T09:00:00.000Z').ok).toBe(true);
+        expect(enqueueProgressReconcile(N, USER, new Date().toISOString(), '2026-10-13T11:00:00.000Z').ok).toBe(true);
+        expect(evaluateDurableStartGate(USER)).toMatchObject({ allowed: false, reason: 'queued_debt' });
+        const held = holdRecommendation(); // every recommendation call hangs until released
+        const load = reconcileProgressEvaluations(USER, []);
+        await settle();
+        expect(callsTo('record_progress_evaluation').map((c) => c[1].p_session_id), 'the round ran while the old recommendation hangs').toContain(N);
+        expect(getQueuedSessionIdsForUser(USER).sessionIds).not.toContain(N);
+        expect(evaluateDurableStartGate(USER)).toEqual({ allowed: true });
+        for (const d of held) d.resolve({ data: null, error: null });
+        await settle();
+        for (const d of held) d.resolve({ data: null, error: null });
+        await load;
+    });
+});
