@@ -54,6 +54,17 @@ const BY_NAME: Readonly<Record<string, RecordingFailureCode>> = {
     NotReadableError: 'mic_not_readable',
 };
 
+/**
+ * #1258 (Codex P2 4265905975) — the code for a failure an ENGINE reported. A definitive browser name wins (a
+ * `NotReadableError` is `mic_not_readable`, not a guess); otherwise only the Web Speech / getUserMedia permission
+ * vocabulary, as whole tokens, means `mic_permission` — never a substring such as the "mic" in "dynamically".
+ */
+const ENGINE_PERMISSION = /(?:^|[^a-z-])(?:service-not-allowed|not-allowed)(?:[^a-z-]|$)|\bpermission\b/i;
+export function engineFailureCode(error: Error): RecordingFailureCode {
+    if (Object.prototype.hasOwnProperty.call(BY_NAME, error.name)) return BY_NAME[error.name];
+    return ENGINE_PERMISSION.test(error.message ?? '') ? 'mic_permission' : 'engine_error';
+}
+
 /** The closed code for a failure, or null when there is no error. The message is read only to match authored text. */
 export function recordingFailureCode(error: unknown): RecordingFailureCode | null {
     if (error === null || error === undefined) return null;

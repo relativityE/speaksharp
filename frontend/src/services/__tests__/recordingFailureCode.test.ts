@@ -55,7 +55,8 @@ describe('coverage — every authored controller error has a real code', () => {
     });
 
     it('the engine-error path tags its error, and the transition names the code only for FAILED', () => {
-        expect(controllerSource).toMatch(/withFailureCode\(new Error\(displayMessage\), isMicPermissionError \? 'mic_permission' : 'engine_error'\)/);
+        // #1258 (Codex P2 4265905975): the code comes from the engine's own error, not the display heuristic.
+        expect(controllerSource).toMatch(/withFailureCode\(new Error\(displayMessage\), engineFailureCode\(error\)\)/);
         expect(controllerSource).toMatch(/newState === 'FAILED' \? recordingFailureCode\(error\) : null/);
     });
 });

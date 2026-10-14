@@ -1,5 +1,5 @@
 import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
-import { recordingFailureCode, withFailureCode } from './recordingFailureCode';
+import { engineFailureCode, recordingFailureCode, withFailureCode } from './recordingFailureCode';
 import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './loginSessionLog';
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
@@ -3049,8 +3049,9 @@ export class SpeechRuntimeController {
         store.setSTTStatus({ type: 'error', message: displayMessage });
 
         void this.enqueue(async (token) => {
-            // #1258: an engine-reported message is not authored text, so the code is tagged here, at its source.
-            await this.transition('FAILED', withFailureCode(new Error(displayMessage), isMicPermissionError ? 'mic_permission' : 'engine_error'), token);
+            // #1258: an engine-reported message is not authored text, so the code is tagged here, at its source — from the
+            // engine's own error (its browser name, then a strict permission vocabulary), not the display heuristic above.
+            await this.transition('FAILED', withFailureCode(new Error(displayMessage), engineFailureCode(error)), token);
         });
     }
 
