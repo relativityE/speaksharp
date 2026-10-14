@@ -67,8 +67,9 @@ const N1 = 'sess-n1';
 /** The obligation's own storage namespace, spelled literally: it must never collide with the shipped queue's. */
 const OBLIGATION_PREFIX: string = 'ss_progress_recommendation_owed_v1|';
 const OPEN_ATTEMPT_KEY = 'ss_progress_open_attempt_v1';
-const SAVE = (sessionId: string, userId: string | null = USER) =>
-    ({ sessionId, status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId });
+/** The take's recording start defaults to AFTER the default acceptance (10:00), as for a take this page started. */
+const SAVE = (sessionId: string, userId: string | null = USER, takeStartedAtIso: string | null = '2026-10-13T11:00:00.000Z') =>
+    ({ sessionId, status: 'completed', attributionStatus: 'verified', metricsPersisted: true, userId, takeStartedAtIso });
 
 const obligationKeys = () => Object.keys(localStorage).filter((k) => k.startsWith(OBLIGATION_PREFIX));
 /** Every generation key this owner holds for one take (`…|<owner>|<session>|<generation>`). */
@@ -278,6 +279,53 @@ describe('Codex P1 r4272602941 — a not-due attempt is never bound or advanced 
     });
 });
 
+describe('Codex P1 r4273828969 — acceptance is compared with the TAKE\'S START, not the late Progress seam', () => {
+    it('save path: a take that STARTED before acceptance is not bound, even though its Progress seam runs after it', async () => {
+        acceptAttempt('att-c1-save', 'sess-source', USER, '2026-10-14T10:00:00.000Z');
+        // The take started at 09:59 (before acceptance); its seam runs "now" (long after) — the old boundary.
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N, USER, '2026-10-14T09:59:00.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(getOpenAttemptForUser(USER)?.resolutionSessionId, 'a pre-acceptance take is never the practice take').toBeUndefined();
+        expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
+    });
+
+    it('save path: a take that started AFTER acceptance is bound', async () => {
+        acceptAttempt('att-c1-after', 'sess-source', USER, '2026-10-14T10:00:00.000Z');
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N, USER, '2026-10-14T10:01:00.000Z')))).toEqual({ kind: 'recorded' });
+        await settle();
+        // Bound to N and resolved against N (the resolved attempt is then cleared from the handoff).
+        expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N]);
+    });
+
+    it('round path: a queued take enqueued after acceptance but STARTED before it is not bound', async () => {
+        enqueueProgressReconcile('sess-pre', USER, '2026-10-14T10:00:30.000Z', '2026-10-14T09:59:00.000Z');
+        acceptAttempt('att-c1-round', 'sess-source', USER, '2026-10-14T10:00:00.000Z');
+        await attemptProgressDebtRound(USER, 'retry');
+        await settle();
+        expect(getQueuedSessionIdsForUser(USER).sessionIds).toEqual([]);
+        expect(getOpenAttemptForUser(USER)?.resolutionSessionId).toBeUndefined();
+        expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
+    });
+});
+
+describe('PM 6174115505 — an UNKNOWN take start fails closed (never guessed from the seam or the enqueue stamp)', () => {
+    it('save path: a take whose start is unknown (e.g. completed after a reload) is not bound', async () => {
+        acceptAttempt('att-unknown-save', 'sess-source');
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N, USER, null)))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(getOpenAttemptForUser(USER)?.resolutionSessionId).toBeUndefined();
+        expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
+    });
+    it('round path: a queued take with no recorded start is not bound, even when queued after acceptance', async () => {
+        acceptAttempt('att-unknown-round', 'sess-source', USER, '2026-10-13T10:00:00.000Z');
+        enqueueProgressReconcile('sess-nostart', USER, '2026-10-13T12:00:00.000Z');
+        await attemptProgressDebtRound(USER, 'retry');
+        await settle();
+        expect(getQueuedSessionIdsForUser(USER).sessionIds).toEqual([]);
+        expect(getOpenAttemptForUser(USER)?.resolutionSessionId).toBeUndefined();
+    });
+});
+
 describe('B6 — rapid N then N+1: one advance, bound to N', () => {
     it('N+1 joins N\'s in-flight advance instead of rebinding or advancing again', async () => {
         acceptAttempt('att-b6', 'sess-source');
@@ -375,6 +423,34 @@ describe('B8 — failure paths publish nothing and dispatch nothing', () => {
         } finally { vi.useRealTimers(); }
         expect(obligationFor(N)).toBeUndefined();
         expect(callsTo('record_progress_recommendation')).toHaveLength(0);
+    });
+});
+
+describe('PM 6174115505 — the controller carries each take\'s remembered start into its Progress seam', () => {
+    interface Ctl {
+        completeProgressForRecording: (ctx: unknown, sessionId: string, attribution: string, metricsPersisted: boolean, canPublish: () => boolean) => Promise<{ kind: string }>;
+    }
+    const controllerWith = (starts: Map<string, string> | undefined): Ctl => {
+        const c = Object.create(SpeechRuntimeController.prototype) as unknown as Ctl & Record<string, unknown>;
+        c.capturedUserId = USER;
+        c.takeStartedAtBySession = starts;
+        return c;
+    };
+    it.each([
+        ['Open Mic', { mode: 'open_mic' }],
+        ['Focus Points', { mode: 'focus_points', brief: { projectId: 'p', briefId: 'b' }, segments: [], durationSeconds: 10 }],
+    ])('%s: a take started after acceptance is bound through the seam; the same take with no remembered start is not', async (_label, ctx) => {
+        finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: true, registered: true, coverage: null });
+        acceptAttempt(`att-seam-${String((ctx as { mode: string }).mode)}`, 'sess-source', USER, '2026-10-13T10:00:00.000Z');
+        // After a reload (no remembered start): unbound — fail closed.
+        expect(await controllerWith(undefined).completeProgressForRecording(ctx, N, 'verified', true, () => true)).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
+        // The same page that started it: bound to it.
+        expect(await controllerWith(new Map([[N1, '2026-10-13T10:05:00.000Z']])).completeProgressForRecording(ctx, N1, 'verified', true, () => true))
+            .toEqual({ kind: 'recorded' });
+        await settle();
+        expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N1]);
     });
 });
 

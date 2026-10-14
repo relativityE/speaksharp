@@ -102,7 +102,8 @@ export async function recordRecommendationAttempt(recommendationId: string): Pro
 
 export type PendingAttemptReadback =
     | { status: 'none' }
-    | { status: 'one'; attemptId: string }
+    /** #1258 (Codex P2 r4273828962): `acceptedAtIso` is the attempt's authoritative `accepted_at` (null if unreadable). */
+    | { status: 'one'; attemptId: string; acceptedAtIso: string | null }
     | { status: 'blocked' };
 
 /** Owner-scoped/RLS readback used before retrying acceptance after an uncertain RPC response. */
@@ -110,7 +111,7 @@ export async function readPendingRecommendationAttempt(recommendationId: string)
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
         .from('progress_recommendation_attempts')
-        .select('id, recommendation_id, lifecycle')
+        .select('id, recommendation_id, lifecycle, accepted_at')
         .eq('recommendation_id', recommendationId)
         .eq('lifecycle', 'pending')
         .limit(2);
@@ -120,7 +121,9 @@ export async function readPendingRecommendationAttempt(recommendationId: string)
             && row.recommendation_id === recommendationId && row.lifecycle === 'pending');
     if (matches.length === 0) return { status: 'none' };
     if (matches.length !== 1) return { status: 'blocked' };
-    return { status: 'one', attemptId: matches[0].id as string };
+    const acceptedAt = (matches[0] as { accepted_at?: unknown }).accepted_at;
+    const acceptedMs = typeof acceptedAt === 'string' ? Date.parse(acceptedAt.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')) : Number.NaN;
+    return { status: 'one', attemptId: matches[0].id as string, acceptedAtIso: Number.isFinite(acceptedMs) ? new Date(acceptedMs).toISOString() : null };
 }
 
 /**
@@ -450,6 +453,8 @@ export async function wireProgressEvaluationOnSave(ctx: {
     attributionStatus: string | null | undefined;
     metricsPersisted: boolean;
     userId?: string | null;
+    /** #1258 (Codex P1 r4273828969): when this take's recording began — the boundary an acceptance is compared with. */
+    takeStartedAtIso?: string | null;
 }): Promise<ProgressEvaluationOutcome> {
     if (!ctx.sessionId) return { kind: 'unresolved', reason: 'missing_session' };
     // An aborted/incomplete session owes no evaluation — an accepted terminal reason, so it unlocks.
@@ -473,18 +478,21 @@ export async function wireProgressEvaluationOnSave(ctx: {
     // otherwise", and only a VERIFIED removal after terminal evidence may retire it.
     const obligationAtIso = new Date().toISOString();
     const obligation = ctx.userId
-        ? enqueueProgressReconcile(ctx.sessionId, ctx.userId, obligationAtIso)
+        ? enqueueProgressReconcile(ctx.sessionId, ctx.userId, obligationAtIso, ctx.takeStartedAtIso)
         : ({ ok: false } as const);
 
     // Cross-tab ownership (Codex 4003555358): the save's own evaluation and its settlement run under the same owner+session
     // boundary as load/retry rounds, so another tab's retry cannot evaluate or settle this debt at the same time.
     const { sessionId, userId } = { sessionId: ctx.sessionId, userId: ctx.userId };
+    // PM 6174115505: the boundary is the take's recording start, and ONLY that. Unknown (a take this page did not start —
+    // e.g. completed after a reload) is not guessed from the seam: the attempt is left unbound for a take that knows it.
+    const takeBoundaryIso = ctx.takeStartedAtIso ?? null;
     const owned = userId && obligation.ok
         ? await withAttemptOwnership(userId, sessionId, async () => {
             const result = await recordProgressEvaluationWithRetry(sessionId);
             return {
                 evaluation: result,
-                settled: result.id ? settleDurableEvaluation(userId, sessionId, obligationAtIso, { trigger: 'save' }) : null,
+                settled: result.id ? settleDurableEvaluation(userId, sessionId, takeBoundaryIso, { trigger: 'save' }) : null,
             };
         })
         : { owned: true as const, value: { evaluation: await recordProgressEvaluationWithRetry(sessionId), settled: null } };
@@ -516,7 +524,7 @@ export async function wireProgressEvaluationOnSave(ctx: {
     }
     // When the debt could not be made durable, no settlement ran — but the attempt binding is still decided here, the same
     // way, before anything is dispatched (Codex P1 r4272602941: resolution no longer binds on its own).
-    if (!owned.value.settled && bindOpenAttemptForTake(userId, sessionId, obligationAtIso, { trigger: 'save' }) === 'failed') {
+    if (!owned.value.settled && bindOpenAttemptForTake(userId, sessionId, takeBoundaryIso, { trigger: 'save' }) === 'failed') {
         return { kind: 'unresolved', reason: 'attempt_binding_unavailable' };
     }
     const settled = owned.value.settled ?? ({ ok: false, reason: 'queue_unavailable', generation: null } as const);
@@ -550,10 +558,10 @@ type SettleResult =
 function settleDurableEvaluation(
     userId: string,
     sessionId: string,
-    enqueuedAtIso: string,
+    boundaryIso: string | null,
     how: { trigger: 'save' } | { trigger: 'load' | 'retry'; ownerEntries: readonly QueueEntry[] },
 ): SettleResult {
-    if (bindOpenAttemptForTake(userId, sessionId, enqueuedAtIso, how) === 'failed') {
+    if (bindOpenAttemptForTake(userId, sessionId, boundaryIso, how) === 'failed') {
         logger.warn('[progress] attempt binding could not be persisted — Start stays blocked');
         return { ok: false, reason: 'attempt_binding_unavailable', generation: null };
     }
@@ -565,29 +573,44 @@ function settleDurableEvaluation(
 }
 
 /**
+ * #1258 (Codex P1 r4273828969): the moment a queued take is ordered against an acceptance — its recording start when
+ * recorded, else its enqueue stamp (older entries, or an older tab's rewrite that dropped the field).
+ */
+const takeBoundaryOf = (e: QueueEntry): string | null => e.takeStartedAtIso ?? null;
+
+/**
  * Bind the owner's accepted attempt to THIS take when it is the take that resolves it. Returns `failed` only when a bind
  * was due and could not be readback-verified.
  *
- * On save, the take being saved is the one recorded after acceptance — unless the attempt was accepted after this save
- * began (another tab), which then belongs to a later take. A reconcile round has no such context, so it binds only an
- * attempt that records when it was accepted, and only to the FIRST owed take enqueued after that moment; an attempt from
- * before `acceptedAtIso` existed is left to the next save, exactly as before.
+ * The boundary is when the take's RECORDING began (Codex P1 r4273828969) — not the Progress seam, which runs after the
+ * save and so cannot order a take against an acceptance made meanwhile. On save, an attempt accepted after this take
+ * began belongs to a later take. A reconcile round binds only an attempt that records when it was accepted, and only to
+ * the FIRST owed take that began after that moment; an attempt from before `acceptedAtIso` existed is left to the next
+ * save, exactly as before. A take whose start is unknown is never bound (fail closed): the attempt waits for a take that
+ * knows its own start.
  */
 function bindOpenAttemptForTake(
     userId: string,
     sessionId: string,
-    enqueuedAtIso: string,
+    boundaryIso: string | null,
     how: { trigger: 'save' } | { trigger: 'load' | 'retry'; ownerEntries: readonly QueueEntry[] },
 ): 'not_due' | 'bound' | 'failed' {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === sessionId) return 'not_due'; // never resolve a recommendation against itself
     if (open.resolutionSessionId) return open.resolutionSessionId === sessionId ? 'bound' : 'not_due';
+    // Fail closed on an UNKNOWN boundary: never bind on a guess (PM 6174115505).
+    if (boundaryIso === null) return 'not_due';
     const accepted = open.acceptedAtIso;
     if (how.trigger === 'save') {
-        if (accepted && accepted > enqueuedAtIso) return 'not_due';
+        if (accepted && accepted > boundaryIso) return 'not_due';
     } else {
-        if (!accepted || enqueuedAtIso < accepted) return 'not_due';
-        const earlier = how.ownerEntries.some((e) => e.sessionId !== sessionId && e.enqueuedAtIso >= accepted && e.enqueuedAtIso < enqueuedAtIso);
+        if (!accepted || boundaryIso < accepted) return 'not_due';
+        const earlier = how.ownerEntries.some((e) => {
+            const other = takeBoundaryOf(e);
+            // Another owed take that began after acceptance and before this one is the practice take; one whose start is
+            // unknown but was queued after acceptance makes the order ambiguous — both leave this take unbound.
+            return e.sessionId !== sessionId && (other === null ? e.enqueuedAtIso >= accepted : other >= accepted && other < boundaryIso);
+        });
         if (earlier) return 'not_due';
     }
     return setOpenAttempt({ ...open, resolutionSessionId: sessionId }) ? 'bound' : 'failed';
@@ -772,7 +795,7 @@ async function runProgressDebtRound(
             // debt that still exists.
             // #1258 RH-13: retire it in the same order as a save — bind, write the recommendation obligation, clear — so a
             // round can never reopen Start ahead of the binding or drop the recommendation it still owes.
-            const settled = settleDurableEvaluation(userId, entry.sessionId, current.enqueuedAtIso, {
+            const settled = settleDurableEvaluation(userId, entry.sessionId, takeBoundaryOf(current), {
                 trigger,
                 ownerEntries: read.ok ? read.entries : [],
             });

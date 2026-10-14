@@ -102,6 +102,25 @@ describe('#1258 Codex P1 r4273670998 — acceptance time is the PRESS, not the e
     });
 });
 
+describe('#1258 Codex P2 r4273828962 — a reused attempt keeps its ORIGINAL acceptance time', () => {
+    it('reusing a pending attempt (a lost create response) stamps the server\'s accepted_at, not the retry press', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-lost', acceptedAtIso: '2026-10-14T11:00:00.000Z' });
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date('2026-10-14T12:00:00.000Z')); // the retry press, an hour later
+            fireEvent.click(action());
+            await waitFor(() => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(recordAttempt).not.toHaveBeenCalled();
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-lost', acceptedAtIso: '2026-10-14T11:00:00.000Z' }));
+    });
+});
+
 describe('#1258 P1 — the saved review never skips a valid linked repeat', () => {
     it('CASUALTY: pending progress + an immediate click navigates nowhere; once eligible, ONE linked attempt/handoff then the same set opens', async () => {
         const progress = deferred<unknown>();

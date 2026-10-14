@@ -1125,6 +1125,21 @@ export class SpeechRuntimeController {
      *  which land in non-locked states (FAILED/FAILED_VISIBLE/TERMINATED/READY/IDLE). A PRE-recording failure
      *  never sets it, so it correctly unlocks. Preserves the transcript/recovery-draft window. */
     private recordingStartedUnresolved = false;
+    /**
+     * #1258 (Codex P1 r4273828969): when each take's RECORDING began, by its session id — the boundary a "Practice this
+     * next" acceptance is compared with at its Progress seam (which runs after the save, and on retries much later).
+     * Bounded to the most recent takes; a take with no entry falls back to its seam stamp.
+     */
+    private takeStartedAtBySession: Map<string, string> | undefined;
+    private rememberTakeStart(sessionId: string, startedAtIso: string): void {
+        const starts = (this.takeStartedAtBySession ??= new Map<string, string>());
+        starts.set(sessionId, startedAtIso);
+        while (starts.size > 16) {
+            const oldest = starts.keys().next().value;
+            if (oldest === undefined) break;
+            starts.delete(oldest);
+        }
+    }
     /** #1033: engine selection is locked while (a) Start intent, (b) the recording lifecycle, (c) a pending
      *  attribution retry, OR (d) a started recording has not yet durably resolved (post-start failure window).
      *  THE single authoritative predicate — consumed by the UI selector AND enforced in the controller. */
@@ -4495,6 +4510,8 @@ export class SpeechRuntimeController {
 
                     this.updateSessionPersisted(false);
                     pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: negMode });
+                    // #1258 (Codex P1 r4273828969): this is the take's start — captured before the row is created.
+                    const takeStartedAtIso = new Date().toISOString();
                     const saveResult = await saveSession(
                         { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode, ...productMarkerFor(this.recordingProgressMode) },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
@@ -4521,6 +4538,7 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        this.rememberTakeStart(dbSession.id, takeStartedAtIso);
                         this.applyPrivateTelemetryContext();
                         // #1161 (Option 2): ATOMICALLY bind the pre-session intent (registered before start) to the
                         // session this recording just produced. AWAITED; a bind failure/miss ⇒ the session resolves
@@ -5124,6 +5142,8 @@ export class SpeechRuntimeController {
                                 throw new Error(saveResult.reason === 'lease_not_held' ? LEASE_NOT_HELD_MESSAGE : 'Session save failed');
                             }
                             sessionId = saveResult.session.id;
+                            // #1258 (Codex P1 r4273828969): a take saved only at Stop still began at its recording start.
+                            if (startTime) this.rememberTakeStart(sessionId, new Date(startTime).toISOString());
                             // A's late session-create must not become B's controller session.
                             this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {
                                 this.sessionId = sessionId;
@@ -6137,6 +6157,7 @@ export class SpeechRuntimeController {
                     attributionStatus,
                     metricsPersisted,
                     userId: this.capturedUserId,
+                    takeStartedAtIso: this.takeStartedAtBySession?.get(sessionId) ?? null,
                 });
             } catch (progressErr) {
                 // A throw is NOT durability. Fail closed rather than inferring success from silence.

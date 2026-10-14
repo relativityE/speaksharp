@@ -73,7 +73,12 @@ export function useLinkedRepeat(sessionId: string) {
                 ? pending.attemptId
                 : await recordRecommendationAttempt(recommendationId);
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso });
+            // Codex P2 r4273828962: a REUSED attempt (its create committed but the answer was lost) was accepted when the
+            // server recorded it, not at this retry press. The earlier of the two is kept, so a skewed server clock can
+            // never push acceptance past the press.
+            const serverAcceptedAt = pending.status === 'one' ? pending.acceptedAtIso : null;
+            const handoffAcceptedAt = serverAcceptedAt && serverAcceptedAt < acceptedAtIso ? serverAcceptedAt : acceptedAtIso;
+            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso: handoffAcceptedAt });
             if (!handoffStored) {
                 const abandoned = await abandonRecommendationAttempt(attemptId);
                 setActionError(abandoned
