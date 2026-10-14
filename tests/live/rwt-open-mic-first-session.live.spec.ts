@@ -469,6 +469,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('coaching rendered', coachingParent.verdict, coachingParent.detail,
                     { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, providerStatus: take.evidence.providerStatus,
                         takeExchangeUnique: take.unique, externalOutcome: coachingParent.external, unavailableShown: rendered ? null : ui.unavailableShown,
+                        savedTakeProven: rendered ? null : Boolean(persistedId) && saved === 1,
                         retryEnabled: rendered ? null : ui.retryEnabled, stopToCoachingMs: coachingMs });
                 // PM 6171519534 §4: request provenance is its own row on every path — never waived by an external outcome.
                 const binding = coachingRequestBindingRow(generations, persistedId);

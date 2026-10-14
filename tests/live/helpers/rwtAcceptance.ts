@@ -74,6 +74,93 @@ const externalParentOf = (rows: readonly ReceiptRow[], observationId: string): b
 
 const isHumanObservation = (r: ReceiptRow): boolean => Boolean(r.evidence && typeof r.evidence.observationId === 'string');
 
+/**
+ * The Analytics rows that can only be measured when the take HAS a saved coaching pair. Under a proved EXTERNAL outage
+ * they are written as "not exercised" (Codex P1 r4274573837, PM 6175763509 §2), so a complete receipt carries every
+ * required row instead of silently omitting them. The navigation rows before them are always judged on their own.
+ */
+export const COACHING_DEPENDENT_ANALYTICS_ROWS = Object.freeze([
+    'analytics detail shows both AI suggestions', 'saved review is the first block', '"From this session" evidence', 'one practice action',
+] as const);
+
+/**
+ * #1258 (Codex P1 r4275387520) — EXTERNAL is a CLOSED claim. Per suite, exactly one coaching PARENT row may be EXTERNAL,
+ * and only with its own recorded proof; only that suite's success-dependent rows may follow it, and only under a proved
+ * parent. Anywhere else EXTERNAL is a validation error — it can never turn an observed FAIL into a non-blocking
+ * INCOMPLETE or report a provider outage the run did not prove.
+ */
+interface ExternalScope { parent: string; binding: string; dependents: readonly string[] }
+const FOCUS_EXTERNAL_SCOPE: ExternalScope = Object.freeze({
+    parent: 'Focus coaching rendered',
+    binding: 'Focus coaching request bound to this take',
+    dependents: Object.freeze([
+        'Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt',
+        'Focus coaching provenance', 'Focus coaching visible = saved', 'Focus coaching telemetry sent', ...COACHING_DEPENDENT_ANALYTICS_ROWS,
+    ]),
+});
+const EXTERNAL_SCOPES: Readonly<Record<string, ExternalScope>> = Object.freeze({
+    'open-mic-first-session': Object.freeze({
+        parent: 'coaching rendered',
+        binding: 'coaching request bound to this take',
+        dependents: Object.freeze([
+            'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt', 'coaching telemetry sent',
+            ...COACHING_DEPENDENT_ANALYTICS_ROWS,
+        ]),
+    }),
+    'focus-points-session': FOCUS_EXTERNAL_SCOPE,
+    'focus-points-partial': FOCUS_EXTERNAL_SCOPE,
+});
+
+/**
+ * The parent's own recorded proof, mirroring `coachingParentVerdict`: the Edge 502 carried a provider 5xx (with its
+ * integer status) or a provider timeout, from this take's unique exchange; the take was saved; the card settled on
+ * `error` with the unavailable headline and an enabled Try again. Returns what is missing (empty = proved).
+ */
+export function externalParentProofGaps(row: ReceiptRow): string[] {
+    const e = row.evidence ?? {};
+    const gaps: string[] = [];
+    if (e.httpStatus !== 502) gaps.push('httpStatus is not 502');
+    if (e.externalOutcome === 'provider_5xx') {
+        const ps = e.providerStatus;
+        if (e.failureReason !== 'provider_http_5xx') gaps.push('failureReason is not provider_http_5xx');
+        if (typeof ps !== 'number' || !Number.isInteger(ps) || ps < 500 || ps > 599) gaps.push('providerStatus is not an integer 500–599');
+    } else if (e.externalOutcome === 'provider_timeout') {
+        if (e.failureReason !== 'provider_timeout') gaps.push('failureReason is not provider_timeout');
+    } else {
+        gaps.push('externalOutcome is not provider_5xx or provider_timeout');
+    }
+    if (e.takeExchangeUnique !== true) gaps.push('the take exchange is not unique');
+    if (e.savedTakeProven !== true) gaps.push('the saved take is not proven');
+    if (e.reviewState !== 'error') gaps.push('the review card did not settle on error');
+    if (e.unavailableShown !== true) gaps.push('the unavailable message was not shown');
+    if (e.retryEnabled !== true) gaps.push('Try again was not enabled');
+    return gaps;
+}
+
+/** Every EXTERNAL row in an INPUT receipt must sit inside its suite's closed scope (see `EXTERNAL_SCOPES`). */
+function externalScopeErrors(suite: string, rows: readonly ReceiptRow[]): string[] {
+    const externalRows = rows.filter((r) => r.verdict === 'EXTERNAL');
+    if (externalRows.length === 0) return [];
+    const scope = EXTERNAL_SCOPES[suite];
+    if (!scope) return externalRows.map((r) => `row "${r.step}" is EXTERNAL, which the ${suite} suite never writes`);
+    const errors: string[] = [];
+    const parent = rows.find((r) => r.step === scope.parent && !isHumanObservation(r));
+    const parentExternal = parent?.verdict === 'EXTERNAL';
+    if (parentExternal) {
+        const gaps = externalParentProofGaps(parent);
+        if (gaps.length > 0) errors.push(`row "${scope.parent}" is EXTERNAL without its proof: ${gaps.join('; ')}`);
+        const binding = rows.find((r) => r.step === scope.binding && !isHumanObservation(r));
+        if (binding?.verdict !== 'PASS') errors.push(`row "${scope.parent}" is EXTERNAL but "${scope.binding}" is not PASS`);
+    }
+    for (const r of externalRows) {
+        if (r === parent) continue;
+        if (isHumanObservation(r)) { errors.push(`human observation "${r.step}" arrived as EXTERNAL; only finalization may record not exercised`); continue; }
+        if (!scope.dependents.includes(r.step)) { errors.push(`row "${r.step}" is EXTERNAL, but EXTERNAL is allowed only on the coaching rows of ${suite}`); continue; }
+        if (!parentExternal) errors.push(`row "${r.step}" is EXTERNAL without an EXTERNAL "${scope.parent}" parent`);
+    }
+    return errors;
+}
+
 /** Acceptance over ALL rows, the automated part alone, and the named human observations' state. */
 /**
  * #1532 Codex P1 r4121232394 — PO disposition 2026-09-28 (full loop 4): the ONLY rows whose HOLD does not gate acceptance.
@@ -141,6 +228,7 @@ const cell = (v: unknown) => String(v ?? '').replace(/\|/g, '/');
  */
 export function humanWorksheet(suite: string, release: string, journeyIds: readonly string[], rows: readonly ReceiptRow[]): string {
     const human = rows.filter(isHumanObservation);
+    const prefilled = human.some((r) => r.verdict === 'HUMAN' && externalParentOf(rows, String(r.evidence!.observationId)));
     const lines = [
         `# RWT human-check worksheet — ${suite}`,
         '',
@@ -152,8 +240,14 @@ export function humanWorksheet(suite: string, release: string, journeyIds: reado
         'An automated PASS is not a human check. Fill in Result (PASS or FAIL) and Observer for every row, then run',
         `\`pnpm rwt:finalize -- --receipt ${suite}.receipt.json --worksheet ${suite}.human-worksheet.md\`. Until that step`,
         'passes, this run is INCOMPLETE.',
+        ...(prefilled ? [
+            '',
+            `A Result prefilled \`${NOT_EXERCISED}\` is a coaching-quality check whose coaching was never produced: the provider was`,
+            'proved unavailable (EXTERNAL). Leave it as it is and sign the Observer cell. PASS is refused for it (there is no',
+            'coaching to approve); write FAIL only if you observed a coaching problem anyway. No other row accepts it.',
+        ] : []),
         '',
-        '| Observation id | Runbook row | Question | Observation needed to decide (pass criterion) | Result (PASS/FAIL) | Observer · date |',
+        `| Observation id | Runbook row | Question | Observation needed to decide (pass criterion) | ${prefilled ? `Result (PASS/FAIL, or prefilled ${NOT_EXERCISED})` : 'Result (PASS/FAIL)'} | Observer · date |`,
         '|---|---|---|---|---|---|',
         ...human.map((r) => `| \`${cell(r.evidence!.observationId)}\` | ${cell(r.evidence!.runbookRow)} | ${cell(r.step.replace(/^human: /, ''))} | ${cell(r.evidence!.passCriterion)} | ${r.verdict === 'HUMAN' ? (externalParentOf(rows, String(r.evidence!.observationId)) ? NOT_EXERCISED : '') : r.verdict} |  |`),
     ];
@@ -473,6 +567,7 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
     if (received && automated.required.includes(received.step) && received.verdict !== 'HOLD') {
         errors.push(`"journey telemetry received" arrived as ${received.verdict}; only the readback merge may settle it`);
     }
+    errors.push(...externalScopeErrors(receipt.suite, receipt.rows));
     return { receipt, errors };
 }
 

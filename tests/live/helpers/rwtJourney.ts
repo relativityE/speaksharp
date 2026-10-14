@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
@@ -1599,15 +1599,6 @@ export async function openProductsMenuInPlace(page: Page): Promise<boolean> {
     await page.keyboard.press('Escape').catch(() => undefined);
     return opened;
 }
-
-/**
- * The Analytics rows that can only be measured when the take HAS a saved coaching pair. Under a proved EXTERNAL outage
- * they are written as "not exercised" (Codex P1 r4274573837, PM 6175763509 §2), so a complete receipt carries every
- * required row instead of silently omitting them. The navigation rows above them are always judged on their own.
- */
-export const COACHING_DEPENDENT_ANALYTICS_ROWS = Object.freeze([
-    'analytics detail shows both AI suggestions', 'saved review is the first block', '"From this session" evidence', 'one practice action',
-] as const);
 
 export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof analyticsThroughActions>>, externalCoaching = false): void {
     receipt.row('Analytics action', a.actionClicked && a.listed ? 'PASS' : 'FAIL',

@@ -256,6 +256,12 @@ describe('the failed response is read once, allowlisted scalars only', () => {
 
 const external = (step: string): ReceiptRow => ({ step, verdict: 'EXTERNAL', detail: 'external provider unavailable' });
 const pass = (step: string): ReceiptRow => ({ step, verdict: 'PASS', detail: 'ok' });
+/** The parent's own recorded proof (Codex P1 r4275387520): a request-bound provider 503 with graceful app handling. */
+const PROVED_PARENT_EVIDENCE = Object.freeze({
+    reviewState: 'error', httpStatus: 502, failureReason: 'provider_http_5xx', providerStatus: 503, takeExchangeUnique: true,
+    externalOutcome: 'provider_5xx', savedTakeProven: true, unavailableShown: true, retryEnabled: true,
+});
+const provedParent = (step: string): ReceiptRow => ({ ...external(step), evidence: { ...PROVED_PARENT_EVIDENCE } });
 
 describe('acceptance: EXTERNAL is non-blocking but INCOMPLETE, and never hides a FAIL', () => {
     it('10. EXTERNAL alone → INCOMPLETE, named, coverage outstanding, not all-pass', () => {
@@ -288,7 +294,7 @@ describe('finalization (schema, readback D1, exit semantics)', () => {
     const base: ReceiptRow[] = [
         { step: 'journey telemetry received', verdict: 'HOLD', detail: 'pending' }, { step: 'signup-stage telemetry received', verdict: 'HOLD', detail: 'p' },
         pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), pass('journey telemetry (canary class)'), pass('receipt content-free'),
-        humanRow('open_mic_coaching_relevant'), humanRow('open_mic_uh_detected'), external('coaching rendered'),
+        humanRow('open_mic_coaching_relevant'), humanRow('open_mic_uh_detected'), provedParent('coaching rendered'),
     ];
     const rows = [...base, ...requiredAutomatedRows(SUITE)!.product.filter((s) => !base.some((r) => r.step === s))
         .map((s) => (s === 'base_q4 primary' ? { step: s, verdict: 'HOLD' as const, detail: 'p' } : pass(s)))];
@@ -376,7 +382,7 @@ describe('§2–§4 — a consumer-built EXTERNAL receipt through the real valid
     /** The rows the Open Mic consumer writes on a proved outage, incl. analyticsRows' coaching-dependent rows. */
     const externalOpenMicRows = (): ReceiptRow[] => {
         const r = new RwtReceipt('open-mic-first-session');
-        r.row('coaching rendered', 'EXTERNAL', 'external provider unavailable (provider 503)');
+        r.row('coaching rendered', 'EXTERNAL', 'external provider unavailable (provider 503)', { ...PROVED_PARENT_EVIDENCE });
         r.row('coaching request bound to this take', 'PASS', 'the coaching request named this saved take');
         analyticsRows(r, { actionClicked: true, listed: true, detailOpened: true, detailMatches: true, reloadMatches: true,
             coachingBefore: undefined, coachingAfter: undefined } as never, true);
@@ -445,5 +451,103 @@ describe('§2–§4 — a consumer-built EXTERNAL receipt through the real valid
         expect(finalizeReceipt(ordinary, worksheet(ordinary.rows, { open_mic_coaching_relevant: 'NOT_EXERCISED', open_mic_uh_detected: 'PASS' })).status).toBe('binding_error');
         const external = receiptWith(externalOpenMicRows());
         expect(finalizeReceipt(external, worksheet(external.rows, { open_mic_coaching_relevant: '', open_mic_uh_detected: 'NOT_EXERCISED' })).status).toBe('binding_error');
+    });
+});
+
+// ── Codex r4275387520 (P1) / r4275387528 (P2) on 69aba7df4 ─────────────────────────────────────────────────────────
+
+describe('Codex P1 r4275387520 — EXTERNAL is a closed claim: only the proved coaching parent and its own dependents', () => {
+    const SHA = 'f'.repeat(40);
+    const J = 'journey-closed';
+    const STAGES = ['session_during', 'session_after_open_mic', 'share_feedback', 'analytics_inventory', 'session_pdf_export'];
+    const human = (id: string): ReceiptRow => ({ step: `human: ${id}`, verdict: 'HUMAN', detail: 'named human RWT observation',
+        evidence: { observationId: id, runbookRow: 'row', passCriterion: 'c', recorded: 'pending' } });
+    /** A complete Open Mic receipt; `rows` override any same-named row. */
+    const openMic = (rows: ReceiptRow[]) => {
+        const base: ReceiptRow[] = [
+            { step: 'journey telemetry received', verdict: 'HOLD', detail: 'p' }, { step: 'signup-stage telemetry received', verdict: 'HOLD', detail: 'p' },
+            pass('telemetry decodable'), pass('signup-stage telemetry (user class)'), pass('journey telemetry (canary class)'), pass('receipt content-free'),
+            human('open_mic_coaching_relevant'), human('open_mic_uh_detected'),
+            ...requiredAutomatedRows('open-mic-first-session')!.product.map((s) => (s === 'base_q4 primary' ? { step: s, verdict: 'HOLD' as const, detail: 'p' } : pass(s))),
+        ];
+        const merged = [...base.filter((b) => !rows.some((r) => r.step === b.step)), ...rows];
+        return { suite: 'open-mic-first-session', release: SHA, meta: { fixtureKind: 'synthetic' }, rows: merged,
+            readback: { journeys: [{ journeyId: J, stages: STAGES }], reportedJourneyIds: [], missingBindings: [] } };
+    };
+    const errorsOf = (r: unknown) => validateReceipt(r).errors.join(' | ');
+
+    it('RED-case from the review: a FAIL edited to EXTERNAL on an unrelated row is refused — never finalized as INCOMPLETE', () => {
+        for (const step of ['saved exactly once', 'run-owned cleanup', 'session bears canary claim']) {
+            const forged = openMic([{ step, verdict: 'EXTERNAL', detail: 'forged' }]);
+            expect(errorsOf(forged)).toContain(`row "${step}" is EXTERNAL, but EXTERNAL is allowed only on the coaching rows`);
+            const fin = finalizeReceipt(forged, parseHumanWorksheet(''));
+            expect(fin.status).toBe('binding_error');
+            expect(fin.errors.join(' ')).toMatch(/EXTERNAL is allowed only on the coaching rows/);
+        }
+    });
+    it('the parent may be EXTERNAL only with its own proof (5xx or timeout); each missing proof is named', () => {
+        expect(errorsOf(openMic([provedParent('coaching rendered')]))).toBe('');
+        const timeout = { ...provedParent('coaching rendered'), evidence: { ...PROVED_PARENT_EVIDENCE, externalOutcome: 'provider_timeout', failureReason: 'provider_timeout', providerStatus: null } };
+        expect(errorsOf(openMic([timeout]))).toBe('');
+        expect(errorsOf(openMic([external('coaching rendered')]))).toMatch(/"coaching rendered" is EXTERNAL without its proof: httpStatus is not 502/);
+        for (const [key, value] of [
+            ['httpStatus', 500], ['failureReason', 'provider_transport'], ['providerStatus', 429], ['providerStatus', 503.5], ['externalOutcome', null],
+            ['takeExchangeUnique', false], ['savedTakeProven', null], ['reviewState', 'ready'], ['unavailableShown', false], ['retryEnabled', false],
+        ] as const) {
+            const row = { ...provedParent('coaching rendered'), evidence: { ...PROVED_PARENT_EVIDENCE, [key]: value } };
+            expect(errorsOf(openMic([row])), `${key}=${String(value)}`).toMatch(/is EXTERNAL without its proof/);
+        }
+    });
+    it('an EXTERNAL parent whose request is not bound to this take is not a proved outage', () => {
+        expect(errorsOf(openMic([provedParent('coaching rendered'), { step: 'coaching request bound to this take', verdict: 'FAIL', detail: 'x' }])))
+            .toMatch(/"coaching request bound to this take" is not PASS/);
+    });
+    it('a dependent row is EXTERNAL only under an EXTERNAL parent', () => {
+        expect(errorsOf(openMic([provedParent('coaching rendered'), external('coaching length'), external('one practice action')]))).toBe('');
+        expect(errorsOf(openMic([external('coaching length')]))).toMatch(/"coaching length" is EXTERNAL without an EXTERNAL "coaching rendered" parent/);
+        // Another suite's coaching row is not this suite's dependent.
+        expect(errorsOf(openMic([provedParent('coaching rendered'), external('Focus coaching length')]))).toMatch(/allowed only on the coaching rows/);
+    });
+    it('an input human observation can never arrive as EXTERNAL (only finalization records not exercised)', () => {
+        const row = { ...human('open_mic_coaching_relevant'), verdict: 'EXTERNAL' as const };
+        expect(errorsOf(openMic([provedParent('coaching rendered'), row]))).toMatch(/arrived as EXTERNAL; only finalization/);
+    });
+    it('a suite with no coaching parent rejects EXTERNAL outright', () => {
+        const r = { ...openMic([]), suite: 'returning-user-navigation' };
+        r.rows = [...r.rows, external('coaching rendered')];
+        expect(errorsOf(r)).toMatch(/is EXTERNAL, which the returning-user-navigation suite never writes/);
+    });
+    it('every row the Focus producer writes under a proved outage is inside the Focus scope', async () => {
+        const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
+        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, well: '', next: '' }));
+        const r = new RwtReceipt('focus-points-session');
+        r.row('Focus coaching rendered', 'EXTERNAL', 'd', { ...PROVED_PARENT_EVIDENCE });
+        r.row('Focus coaching request bound to this take', 'PASS', 'bound');
+        for (const x of produced) r.row(x.step, x.verdict, x.detail);
+        r.row('Focus coaching telemetry sent', 'EXTERNAL', 'bound failure report');
+        analyticsRows(r, { actionClicked: true, listed: true, detailOpened: true, detailMatches: true, reloadMatches: true,
+            coachingBefore: undefined, coachingAfter: undefined } as never, true);
+        const errors = validateReceipt({ suite: 'focus-points-session', release: SHA, rows: r.rows,
+            readback: { journeys: [{ journeyId: J, stages: ['x'] }], reportedJourneyIds: [] } }).errors.filter((e) => e.includes('EXTERNAL'));
+        expect(errors).toEqual([]);
+    });
+});
+
+describe('Codex P2 r4275387528 — the worksheet explains the prefilled NOT_EXERCISED result', () => {
+    const SHA = 'a'.repeat(40);
+    const human = (id: string): ReceiptRow => ({ step: `human: ${id}`, verdict: 'HUMAN', detail: 'h',
+        evidence: { observationId: id, runbookRow: 'row', passCriterion: 'c', recorded: 'pending' } });
+    it('under an EXTERNAL parent: the instruction and the column name the prefilled value and say to leave it', () => {
+        const md = humanWorksheet('open-mic-first-session', SHA, ['j'], [provedParent('coaching rendered'), human('open_mic_coaching_relevant'), human('open_mic_uh_detected')]);
+        expect(md).toContain('Result (PASS/FAIL, or prefilled NOT_EXERCISED)');
+        expect(md).toMatch(/prefilled `NOT_EXERCISED` is a coaching-quality check whose coaching was never produced/);
+        expect(md).toMatch(/Leave it as it is and sign the Observer cell\. PASS is refused for it/);
+        // The instruction never invites NOT_EXERCISED on the other check.
+        expect(md).toMatch(/`open_mic_uh_detected`[^\n]*\| {2}\| {2}\|$/m);
+    });
+    it('an ordinary run keeps the plain PASS/FAIL worksheet', () => {
+        const md = humanWorksheet('open-mic-first-session', SHA, ['j'], [pass('coaching rendered'), human('open_mic_coaching_relevant')]);
+        expect(md).toContain('| Result (PASS/FAIL) |');
+        expect(md).not.toContain('NOT_EXERCISED');
     });
 });
