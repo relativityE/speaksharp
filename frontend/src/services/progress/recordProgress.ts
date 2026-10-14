@@ -755,6 +755,7 @@ async function runProgressDebtRound(
         : owed.entries;
     let drained = 0;
     const attempted = new Set<string>();
+    const loadDownstream: Array<Promise<void>> = [];
     const attemptOne = async (entry: QueueEntry): Promise<void> => {
         // Cross-tab ownership (Codex 4003281159): the RPC, its persist/clear, terminal telemetry and the recommendation
         // dispatch run while this context exclusively owns owner+session. A contender skips the debt this round.
@@ -832,7 +833,9 @@ async function runProgressDebtRound(
             // Release-critical: recommendation work has no deadline, so it must not hold this round, or Start, open.
             void recommendation.catch((err) => logger.warn({ err }, '[progress] recommendation reconciliation failed (non-fatal)'));
         } else {
-            await recommendation;
+            // Codex P2 r4276808814: a load round still finishes its downstream work, but only AFTER every blocking entry
+            // has been evaluated — one slow recommendation or attempt advance must not keep a later debt queued.
+            loadDownstream.push(recommendation);
         }
     };
     // Due debts are attempted independently (Codex 4003746545): serially, each was charged the others' RPC deadlines and
@@ -843,6 +846,9 @@ async function runProgressDebtRound(
         if (failure) throw failure.reason;
     } else {
         for (const entry of targets) await attemptOne(entry);
+        for (const outcome of await Promise.allSettled(loadDownstream)) {
+            if (outcome.status === 'rejected') logger.warn({ err: outcome.reason }, '[progress] recommendation reconciliation failed (non-fatal)');
+        }
     }
     const after = getQueueEntriesForUser(userId);
     return {

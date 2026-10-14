@@ -540,3 +540,20 @@ describe('PM 6178959404 — a reused attempt accepted at the retry press never b
         expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N1]);
     });
 });
+
+describe('Codex P2 r4276808814 — a load round evaluates every blocking entry before waiting on downstream work', () => {
+    it('a stalled recommendation for the FIRST entry does not keep the second entry queued or Start blocked', async () => {
+        expect(enqueueProgressReconcile(N, USER, '2026-10-14T10:00:00.000Z', '2026-10-14T09:59:00.000Z').ok).toBe(true);
+        expect(enqueueProgressReconcile(N1, USER, '2026-10-14T10:05:00.000Z', '2026-10-14T10:04:00.000Z').ok).toBe(true);
+        expect(evaluateDurableStartGate(USER)).toMatchObject({ allowed: false, reason: 'queued_debt' });
+        const held = holdRecommendation(); // every recommendation call hangs until released
+        const round = attemptProgressDebtRound(USER, 'load');
+        await settle();
+        expect(callsTo('record_progress_evaluation').map((c) => c[1].p_session_id)).toEqual([N, N1]);
+        expect(getQueuedSessionIdsForUser(USER).sessionIds).toEqual([]);
+        expect(evaluateDurableStartGate(USER)).toEqual({ allowed: true });
+        expect(await within(round, 50), 'the load round itself still waits for its downstream work').toBe('HELD');
+        for (const d of held) d.resolve({ data: null, error: null });
+        expect(await round).toMatchObject({ drained: 2 });
+    });
+});
