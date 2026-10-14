@@ -1,0 +1,724 @@
+diff --git a/DELIVERY-HEALTH.md b/DELIVERY-HEALTH.md
+new file mode 100644
+index 0000000..2acaa26
+--- /dev/null
++++ b/DELIVERY-HEALTH.md
+@@ -0,0 +1,54 @@
++# GitHub delivery health — source acceptance contract
++
++Build: coordination.9-delivery-health, on the reconstructed v4.7.14 checkpoint.
++No host installation, login, provider call or task replay is performed by this
++increment. Only the existing PM writer consumes the GitHub queue.
++
++## Feedback implemented
++
++App Dev's apparently idle setup and absent local listeners: the read-only
++setup report and board expose the actual coordinator host/install/port/PID/boot.
++The launcher explains its foreground supervision and no longer points to a
++deleted Recipient pairing pane. Missing actor routes remain explicit; Devs
++still publish packets on GitHub without installing Orch.
++
++CLI Dev's live-board error and queued messages: a new delivery card joins the
++latest event to its native PM queue row by activity AND delivery identity,
++separates queued/invocation/response from receipt/result, exposes the preceding
++failed PM delivery/error, and names blocked execution rather than negotiation.
++Read-only health does not reset an errored worker or replay an uncertain action.
++
++The legacy `github_watch_last_wake` key is retained for compatibility, but the
++UI calls it “Last event queued (not wake)”. It is never used as receipt proof.
++The latest event/delivery join is durable across restart and coalescing; the
++report identifies whether it originated on the current boot. Invalid/missing
++trace identity is reported as unproven, never matched by timestamp proximity.
++
++## Evidence and limits
++
++Python tests exercise real temporary SQLite queue/settings state and stubbed
++runtime configuration. The Node smoke executes the actual dashboard JavaScript
++with a DOM stand-in, including escaped worker errors and failed-delivery IDs.
++Neither is a signed-in Mac wake, browser layout proof or provider observation.
++
++Native PM currently has a returned-response/checkpoint protocol, not a separate
++task-bound authenticated recipient ACK protocol. `end_to_end_proven` therefore
++stays false; this increment does not fabricate a green coordination receipt.
++It also does not implement callback compatibility upgrades, recover the
++unobserved installed PM subprocess error, or finish sleep/compaction recovery.
++
++## Installed acceptance still required
++
++1. Capture the actual coordinator identity and existing worker error. Reconcile
++   process ownership and any uncertain side-effect journal before recovery.
++2. Recover the sole intended PM worker through supported controls. Preserve
++   original event/delivery IDs, queue cursor and prior completed dispositions.
++3. A fresh Dev GitHub packet must create the matching delivery, invoke the
++   intended idle PM, return a task/head-matching ACK and result, and advance the
++   review without PO relay. A process, queue item or response alone is not this
++   evidence. Repeat after supported restart and sleep/re-arm.
++4. Only then accept installed coordination. Browser PM remains unavailable
++   for automatic wake until a supported inbound route is separately established.
++
++No generic reset button or blind installer restart is introduced. Diagnosis
++and recovery must preserve the one-writer and no-side-effect-replay boundaries.
+diff --git a/INSTALL.md b/INSTALL.md
+index 4a0736a..fb00598 100644
+--- a/INSTALL.md
++++ b/INSTALL.md
+@@ -1,6 +1,22 @@
+ # Orch v4.7.14 installation and acceptance candidate
+ 
+-Build: coordination.8-work. This candidate is installable, but automatic idle wake, legacy watcher restoration and stuck-delivery recovery are NOT accepted on the Mac. It is not a release receipt or a claim that copy-paste is eliminated. Keep the v4.7.13 installation intact.
++Source build: coordination.9-delivery-health. This source checkpoint adds truthful delivery/worker/host diagnostics. The previously exported coordination.8-work ZIP does not contain these changes. Do not overwrite an installed package with loose source files; installation/upgrade packaging and installed Mac acceptance remain separate. Keep existing private state and queued work intact.
++
++The established foreground installation instructions below describe the earlier
++exported ZIP. They are retained for provenance, not instructions to install the
++new source checkpoint from that old download. Automatic idle wake, watcher
++restoration and stuck-delivery recovery are NOT accepted on the Mac.
++
++## Read the actual coordinator diagnosis
++
++On the coordinator's host, run `python3 orch-setup.py --check` from its installed
++directory. A reachable but unhealthy board exits 2 and reports its coordinator
++identity, delivery pipeline and blockers. It does not restart workers or change
++pairing. Compare host/port/install root/PID/boot before combining reports from
++different machines. An idle foreground setup parent is not proof of a prompt:
++the launcher may be supervising its child server. Inspect the API and process
++tree before stopping anything. CLI PM owns native recipient negotiation; no
++App Dev installation or manual pairing pane is required.
+ 
+ ## Install using the established foreground flow
+ 
+diff --git a/PACKAGE-MANIFEST.json b/PACKAGE-MANIFEST.json
+index f58a6c1..b7c86cd 100644
+--- a/PACKAGE-MANIFEST.json
++++ b/PACKAGE-MANIFEST.json
+@@ -1,12 +1,17 @@
+ {
+   "version": "4.7.14",
+-  "build": "coordination.8-work",
++  "build": "coordination.9-delivery-health",
+   "files": [
+     {
+       "path": "COORDINATION-CHANGE.md",
+       "bytes": 1203,
+       "sha256": "7045f42815d5d4a542a7ed4fd3206730435a7781e6955c9758a94562959cae20"
+     },
++    {
++      "path": "DELIVERY-HEALTH.md",
++      "bytes": 3148,
++      "sha256": "6514b1dfa2e08ffa63c6a53e66cd8f9fdac1c43ebf429a6572f1c6327b4c8721"
++    },
+     {
+       "path": "FAILURE-SEQUENCES.md",
+       "bytes": 2063,
+@@ -14,8 +19,8 @@
+     },
+     {
+       "path": "INSTALL.md",
+-      "bytes": 3350,
+-      "sha256": "aba1e04e303677fcb2f72adbb8f55a5d954d4b49e2fafea94b00eade139238ec"
++      "bytes": 4420,
++      "sha256": "3409af4e9ed2172a877eceef14ae31f9cf58804d92849aafcabfc52f8ab45e3e"
+     },
+     {
+       "path": "Install_Orch.command",
+@@ -34,8 +39,8 @@
+     },
+     {
+       "path": "README.md",
+-      "bytes": 3007,
+-      "sha256": "f47e6ab053793eeb9a08872fb981c0d97c2ac81d8c6c3f07707c880e6d514997"
++      "bytes": 3990,
++      "sha256": "c96922ac4aeb96377259bcbf80b3b1a103b9387bef083d362b53c566db7bdf98"
+     },
+     {
+       "path": "RECOVERY-CLI-DEV-20261011.json",
+@@ -104,8 +109,8 @@
+     },
+     {
+       "path": "coordination_health.py",
+-      "bytes": 3768,
+-      "sha256": "c9e563452619e0896d96255c0ce443c477d277f62ea4f528f55e87860e22d583"
++      "bytes": 4297,
++      "sha256": "87f9e7ae53f623d09c3d4e00ffd0a501b1818b5ffc81a45b586c03e05653d0ce"
+     },
+     {
+       "path": "coordination_recovery.py",
+@@ -149,8 +154,8 @@
+     },
+     {
+       "path": "orch-setup.py",
+-      "bytes": 3806,
+-      "sha256": "8bfc59f3bf5f0fd5de7680a4ccbfc9b3a1d608aaa358f95fdd6e3d3e30671d08"
++      "bytes": 4663,
++      "sha256": "52830ad81fff7c0aa248a9533aa21b6618451600c8e3614d0277e71bf54fec2c"
+     },
+     {
+       "path": "orch-worker.py",
+@@ -179,8 +184,8 @@
+     },
+     {
+       "path": "server.py",
+-      "bytes": 432236,
+-      "sha256": "9b388c88e82aff83d7d68c580e9f4eab3f572b7492c3e9f1ad0ec13df5c1f49f"
++      "bytes": 437562,
++      "sha256": "66b196c8996578040a3e43a6fe11626bb40e1ef4ab56c221ea7cf40502bd72ba"
+     },
+     {
+       "path": "session_rebinding.py",
+@@ -194,13 +199,13 @@
+     },
+     {
+       "path": "start-rwt-handoff.sh",
+-      "bytes": 2317,
+-      "sha256": "a0688787dfe12c1c083122ec2b0ce210f4d487d049959bd7c767568a759e4d9e"
++      "bytes": 2459,
++      "sha256": "84c5e5d10449a98e182d0b4347b6657469017c50318be1ab1763f863d5a26b5e"
+     },
+     {
+       "path": "static/index.html",
+-      "bytes": 34167,
+-      "sha256": "3db55e9b0c35228935eaaba5e4ba5accf25ba5c44d54b14430b524dddf4bca2d"
++      "bytes": 35574,
++      "sha256": "3572c6f49f3efe445c43745478d6035668db4a0609c6bdfb3e7f50f1579e61f2"
+     },
+     {
+       "path": "task-status-repair.patch",
+@@ -229,8 +234,8 @@
+     },
+     {
+       "path": "test_coordination_urgency.py",
+-      "bytes": 13330,
+-      "sha256": "205e9f32a01a24d388b4e55d9bfbe8edc8ff2922950ca79c0abeeea20778d638"
++      "bytes": 13391,
++      "sha256": "db842426b724c768ed76b6aba712a1bd0bc4200929b19ca81e1b97aa1f853d1f"
+     },
+     {
+       "path": "test_deadlock.py",
+@@ -242,6 +247,11 @@
+       "bytes": 120242,
+       "sha256": "361909d2df575411178be50afe4abf4ac1132114d999e50ebf905d62514cf18c"
+     },
++    {
++      "path": "test_delivery_health.py",
++      "bytes": 9076,
++      "sha256": "618590b5ede35bdcf67821b6bbcdf3b6713a5382ea04eb856d70f392655ac05a"
++    },
+     {
+       "path": "test_durable_checkpoints.py",
+       "bytes": 2201,
+@@ -364,8 +374,8 @@
+     },
+     {
+       "path": "test_ui.js",
+-      "bytes": 9250,
+-      "sha256": "477d2eea1d081c9576d51d343ac65d5267c0c49437592c123dbbc633791b28ea"
++      "bytes": 10175,
++      "sha256": "2e3e31a86cf9471ea2eccf06783cfaa58eaa0de05690170d14c4daa4048c46d6"
+     },
+     {
+       "path": "test_watchdog.py",
+diff --git a/README.md b/README.md
+index 2183b26..f8cd57e 100644
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,20 @@
+-# RWT Orch v4.7.14 — coordination.8-work
++# RWT Orch v4.7.14 — coordination.9-delivery-health source candidate
++
++This source increment addresses the 14 October App Dev/CLI Dev diagnosis. See
++DELIVERY-HEALTH.md. It does not certify the running Mac installation or repair an
++unobserved worker error. The earlier download ZIP is not this changed build.
++
++- The board shows an event/delivery trace, pending PM work, actual executor
++  state and the previous failed delivery/error; queueing is no longer labelled
++  a successful wake.
++- Coordinator host, install root, port, PID and boot identity distinguish an
++  absent server on one machine from an errored server on another.
++- Read-only setup checks return exit 2 for a reachable but unhealthy board.
++  Removed manual pairing controls are no longer recommended by the launcher
++  or coordination health instructions. CLI PM owns negotiation; Devs do not
++  install Orch.
++- Reading health never resets a worker, clears a failure or replays a task.
++  Native PM responses still do not constitute authenticated task-bound ACKs.
+ 
+ Only the PO downloads the package. Installation flows into the same foreground setup and launch as v4.7.7;
+ `Install_Orch.command` and `Start_Orch.command` both use that path. No LaunchAgent, login task or background
+diff --git a/coordination_health.py b/coordination_health.py
+index fbfd69f..614d023 100644
+--- a/coordination_health.py
++++ b/coordination_health.py
+@@ -26,8 +26,11 @@ def summarize(transport, agents, automation, cleanup_hold=None):
+         route = routes.get(actor, {})
+         if actor == 'cli_pm':
+             # The board executor is the PM writer. An optional role-observation route is not another writer.
+-            support.append({'actor': actor, 'state': 'executor' if transport.get('pm_configured') else 'blocked',
+-                            'detail': 'Board PM executor handles GitHub events; separate inbox is observation-only.'})
++            blocked = (not transport.get('pm_configured') or cleanup_hold or pm.get('paused')
++                       or pm.get('status') not in ('idle', 'available', 'running'))
++            support.append({'actor': actor, 'state': 'blocked' if blocked else 'executor',
++                            'detail': ('Native PM cannot invoke queued work; inspect delivery error and owned process.' if blocked else
++                                       'Board PM executor handles GitHub events; separate inbox is observation-only.')})
+             continue
+         code = None
+         if not route.get('configured'):
+@@ -51,6 +54,7 @@ def summarize(transport, agents, automation, cleanup_hold=None):
+     return {'core_ready': not core, 'all_routes_verified': not issues,
+             'owner': 'cli_pm', 'issues': issues, 'support': support,
+             'browser_pm_note': 'A browser conversation needs its own supported inbound integration. Local PM execution does not wake that conversation.',
+-            'setup_steps': ['Open Start Orch.command once.',
+-                            'Local operator connects each existing Dev recipient with Connect + test; pairing is retained.',
+-                            'Verify actual receipt/result and current listener health; never relay routine task text through PO.']}
++            'setup_steps': ['Run python3 orch-setup.py --check on the coordinator host; compare its host/install/boot identity.',
++                            'CLI PM negotiates and verifies existing recipient sessions through supported adapters; Devs do not install Orch.',
++                            'Inspect the exact event/delivery failure before recovery; preserve queue IDs and reconcile uncertain actions.',
++                            'Verify actual task-bound ACK/result and current listener health; never relay routine task text through PO.']}
+diff --git a/orch-setup.py b/orch-setup.py
+index 49da777..39a1a22 100644
+--- a/orch-setup.py
++++ b/orch-setup.py
+@@ -12,6 +12,9 @@ import webbrowser
+ import package_integrity
+ from foreground_startup import prepare_foreground
+ 
++REQUESTED_VERSION = '4.7.14'
++REQUESTED_BUILD = 'coordination.9-delivery-health'
++
+ 
+ def running_board(port):
+     # Loopback only, no proxy/redirect or implicit credential forwarding.
+@@ -58,13 +61,20 @@ def main():
+     if live:
+         # Keep existing installation and its work/leases; never create a second PM executor.
+         health = live['transport'].get('coordination', {})
++        same_build = live.get('version') == REQUESTED_VERSION and live.get('build') == REQUESTED_BUILD
+         print(json.dumps({'existing_board': True, 'coordination': health,
+-                          'running_version': live.get('version'), 'requested_version': '4.7.14',
+-                          'next': ('CLI PM handles listed route/recovery work' if live.get('version') == '4.7.14'
+-                                   else 'The older foreground board is still running. Stop its terminal with Ctrl-C when idle, then run this installer again; no upgrade has occurred.')}))
+-        if not args.check and live.get('version') == '4.7.14':
++                          'coordination_ready': health.get('core_ready') is True,
++                          'coordinator': live['transport'].get('coordinator'),
++                          'delivery_pipeline': live['transport'].get('delivery_pipeline'),
++                          'running_version': live.get('version'), 'running_build': live.get('build'),
++                          'requested_version': REQUESTED_VERSION, 'requested_build': REQUESTED_BUILD,
++                          'next': ('CLI PM handles listed route/recovery work' if same_build
++                                   else 'A different board build is running; no upgrade occurred. Preserve its work and use the reviewed foreground upgrade procedure when idle.')}))
++        if not args.check and same_build:
+             webbrowser.open(f'http://127.0.0.1:{port}/')
+-        return 0
++        # A reachable HTTP server is not healthy coordination. A read-only
++        # check must signal a worker/route failure to its calling operator.
++        return (0 if same_build and health.get('core_ready') is True else 2) if args.check else 0
+     issues = package_integrity.verify(root)
+     if issues:
+         print(json.dumps({'ready': False, 'owner': 'cli_pm', 'issues': issues}))
+@@ -74,8 +84,9 @@ def main():
+         print(json.dumps({'ready': False, 'owner': 'cli_pm', 'issues': issues}))
+         return 1
+     if args.check:
+-        print(json.dumps({'ready': True, 'board_running': False, 'next': 'Start Orch.command'}))
+-        return 0
++        print(json.dumps({'ready': False, 'prerequisites_ready': True, 'board_running': False,
++                          'state': 'board_not_running', 'next': 'Use the reviewed foreground launcher on this coordinator host.'}))
++        return 2
+     prepare_foreground(root, os.environ)
+     # Existing launcher owns verified migration, singleton locks and retained settings.
+     return subprocess.call(['bash', str(root / 'start-rwt-handoff.sh')], cwd=root)
+diff --git a/server.py b/server.py
+index a1893a0..990feaf 100644
+--- a/server.py
++++ b/server.py
+@@ -8,6 +8,7 @@ import hashlib
+ import math
+ import hmac
+ import secrets
++import socket
+ from guarded_pm import Executor, Hold, KINDS as PM_ACTION_KINDS, canonical_key
+ import os
+ import shlex
+@@ -94,7 +95,7 @@ GITHUB_WEBHOOK_EVENTS = frozenset({"issues", "issue_comment", "pull_request", "p
+ CONTROL_ISSUE = int(os.environ.get("RWT_CONTROL_ISSUE", "1593"))
+ WATCH_ISSUES = os.environ.get('RWT_WATCH_ISSUES', '1304')
+ BOARD_VERSION = "4.7.14"
+-BOARD_BUILD = "coordination.8-work"
++BOARD_BUILD = "coordination.9-delivery-health"
+ GH_BACKOFF_UNTIL = 0.0
+ PR_DISPLAY_CACHE = {}
+ PR_DISPLAY_LOCK = threading.RLock()
+@@ -2426,6 +2427,15 @@ def emit_github_event(events, snap, cfg):
+         qids.append(_coalesced_github_enqueue(aid,'pm',msg))
+     if cfg.get('dev_github'):
+         qids.append(_coalesced_github_enqueue(aid,'dev',msg))
++    # Queueing is not an invoked turn, recipient ACK or completed action. Keep
++    # the event/delivery join across restarts so operators can find the break.
++    set_setting('github_watch_latest_dispatch', json.dumps({
++        'activity_id': aid, 'queue_ids': qids, 'pr': snap.get('pr'),
++        'head': snap.get('head'), 'comment_id': snap.get('latest_control_comment_id'),
++        'observed_review_id': snap.get('latest_review_id'),
++        'observed_inline_comment_id': snap.get('latest_review_comment_id'),
++        'queued_at': now(), 'boot_id': SESSION_BOOT_ID,
++    }))
+     event_identity = {
+         'pr': snap.get('pr'), 'head': snap.get('head'), 'state': snap.get('state'),
+         'draft': snap.get('draft'), 'runs': snap.get('runs'), 'checks': snap.get('check_fingerprint'),
+@@ -6707,6 +6717,73 @@ def reconcile_registered_identity(actor):
+     return decision
+ 
+ 
++def github_delivery_health(executor_configured=None):
++    """Read-only event→native-PM trace. A returned response is not a task ACK.
++
++    No recovery is attempted here: an errored worker may own an uncertain
++    side effect and must not be reset or replaced by a dashboard refresh.
++    """
++    raw = get_setting('github_watch_latest_dispatch', '')
++    try:
++        event = json.loads(raw) if raw else None
++        if event is not None and (not isinstance(event, dict)
++                                  or not isinstance(event.get('queue_ids'), list)
++                                  or type(event.get('activity_id')) is not int
++                                  or any(type(qid) is not int or qid <= 0 for qid in event['queue_ids'])):
++            raise ValueError('invalid dispatch trace')
++    except (ValueError, TypeError):
++        event = None
++    with DB_LOCK, con() as c:
++        pending = c.execute("SELECT count(*) FROM queue WHERE recipient='pm' AND status='queued'").fetchone()[0]
++        failure = c.execute("SELECT id,error,finished_at,session_id FROM queue WHERE recipient='pm' "
++                            "AND status IN ('failed','failed_uncertain') ORDER BY id DESC LIMIT 1").fetchone()
++        delivery = None
++        # Match activity AND queue id, not the nearest timestamp or last wake.
++        for qid in reversed((event or {}).get('queue_ids', [])):
++            row = c.execute("SELECT * FROM queue WHERE id=? AND activity_id=? AND recipient='pm' "
++                            "AND source_actor='GITHUB'", (qid, event.get('activity_id'))).fetchone()
++            if row:
++                delivery = dict(row)
++                break
++    pm = get_agent('pm') or {}
++    cleanup = get_setting('pm_cleanup_unverified', '')
++    state = 'trace_unavailable' if raw and event is None else 'awaiting_event'
++    if event:
++        state = 'event_not_routed'
++    detail = None
++    if delivery:
++        status = delivery['status']
++        state = {'queued': 'queued', 'claimed': 'claimed_not_invoked',
++                 'delivering': 'invocation_started', 'responded': 'response_returned'}.get(status, status)
++        detail = {key: delivery.get(key) for key in (
++            'id', 'activity_id', 'recipient', 'status', 'session_id', 'started_at',
++            'finished_at', 'process_started_at', 'process_pid', 'error')}
++        detail.update(blocker=queue_dispatch_blocker(delivery),
++                      receipt_at=delivery.get('task_receipt_at'), result_at=delivery.get('task_result_at'))
++    if cleanup:
++        state = 'cleanup_unverified'
++    elif executor_configured is False:
++        state = 'executor_unavailable'
++    elif pm.get('paused'):
++        state = 'executor_paused'
++    elif pm.get('status') in ('error', 'auth_required', 'not_configured'):
++        state = 'executor_' + pm['status']
++    return {
++        'state': state, 'owner': 'cli_pm', 'pending_pm_deliveries': pending,
++        'latest_event': event, 'latest_delivery': detail,
++        'last_failure': dict(failure) if failure else None,
++        'event_on_current_boot': bool(event and event.get('boot_id') == SESSION_BOOT_ID),
++        # Native responses do not implement a task-bound recipient ACK protocol.
++        # Do not turn process start, identity negotiation or a response into one.
++        'end_to_end_proven': False,
++        'next_action': ('Host PM inspects the failed delivery/error and owned process before recovery; '
++                        'preserve queued work and reconcile side effects, never start a second PM writer.'
++                        if state.startswith(('executor_', 'cleanup_')) else
++                        'CLI PM follows this exact event/delivery through its current turn and records task/head ACK and result; '
++                        'event enqueue and a response alone do not prove completed coordination.'),
++    }
++
++
+ def transport_status():
+     mode = pm_transport_mode()
+     codex_binary = resolved_bin(CODEX_BIN)
+@@ -6727,10 +6804,17 @@ def transport_status():
+             # recipient. Missing actor-routes.json must not disable its startup.
+             native = get_agent('pm') or {}
+             identity = registration_snapshot().get('cli_pm', {})
++            ready = bool(configured and not native.get('paused')
++                         and native.get('status') in ('idle', 'available')
++                         and not get_setting('pm_cleanup_unverified', ''))
+             actors[actor_id] = {'configured': configured, 'transport': 'native_pm_executor',
+                 'session_id': native.get('session_id'), 'remote': False,
+                 'live_delivery_proven': False, 'identity_state': identity.get('state','starting'),
+-                'blocker': '' if configured else 'Native PM runtime unavailable: ' + pm_label}
++                'executor_ready': ready, 'executor_state': native.get('status') or 'not_observed',
++                'blocker': ('' if ready else 'Native PM executor ' + str(native.get('status') or 'not_observed')
++                            + (' (paused)' if native.get('paused') else '')
++                            + ('; cleanup unverified' if get_setting('pm_cleanup_unverified', '') else '')
++                            + ('; runtime unavailable: ' + pm_label if not configured else ''))}
+             continue
+         try:
+             route = configured_actor_route(actor_id)
+@@ -6761,6 +6845,9 @@ def transport_status():
+                                 'host_preflight': 'Blocked: recipient route is missing or invalid'}
+     external_ready = all(actors[x]['configured'] for x in ('app_dev', 'browser_pm'))
+     result = {
++        'coordinator': {'host': socket.gethostname(), 'pid': os.getpid(), 'boot_id': SESSION_BOOT_ID,
++                        'port': PORT, 'install_root': str(APP), 'version': BOARD_VERSION, 'build': BOARD_BUILD},
++        'delivery_pipeline': github_delivery_health(configured),
+         "pm_mode": mode,
+         "pm_configured": configured,
+         "pm_mutations_enabled": bool_setting("pm_bounded_actions", True),
+diff --git a/start-rwt-handoff.sh b/start-rwt-handoff.sh
+index 15e1469..d9bda53 100644
+--- a/start-rwt-handoff.sh
++++ b/start-rwt-handoff.sh
+@@ -17,7 +17,8 @@ URL="http://127.0.0.1:${RWT_PORT}/"
+ python3 -c 'from pathlib import Path; import os; from foreground_startup import prepare_foreground; prepare_foreground(Path.cwd(), os.environ)'
+ python3 migrate_state.py
+ 
+-echo "RWT Board v4.7.14 (coordination.8-work): $URL"
++echo "RWT Board v4.7.14 (coordination.9-delivery-health): $URL"
++echo "This foreground launcher supervises the server; an idle parent process alone is not evidence of a setup prompt."
+ echo "Use 127.0.0.1, not localhost."
+ echo "Control issue: #${RWT_CONTROL_ISSUE}"
+ 
+@@ -33,8 +34,8 @@ else
+ fi
+ 
+ if [ -z "${RWT_AGENT_ROUTES_JSON:-}" ] && [ ! -f .agent-work/agent-routes.json ]; then
+-  echo "Agent delivery needs one-time recipient pairing: open Advanced > Recipient pairing."
+-  echo "Pairing persists across board restarts; a recipient receipt/result is still required."
++  echo "CLI PM owns recipient negotiation; no manual pairing pane or Dev installation is required."
++  echo "Missing routes remain blocked until the existing intended recipients return verified ACKs."
+ else
+   echo "Persisted or environment actor routes present; dashboard validates each recipient. Receipt/result proof still required."
+ fi
+diff --git a/static/index.html b/static/index.html
+index 83ffbf5..091cdb6 100644
+--- a/static/index.html
++++ b/static/index.html
+@@ -24,7 +24,7 @@ details.advanced{border:1px solid var(--line);border-radius:10px;background:#fff
+ <body><main>
+ <header id="top"><div><div class="goal">RWT STATUS</div><div class="version">Board v4.7.14 · MAIN GOAL: RWT CLOSED</div></div><div id="transport" class="tiny muted">Loading…</div></header>
+ 
+-<section class="card"><div class="sectionTitle">PM monitoring and reply health</div><div id="commsHealth" class="muted">Checking local runtime…</div></section>
++<section class="card"><div class="sectionTitle">GitHub → CLI PM delivery</div><div id="deliveryPipeline" role="status">Checking delivery evidence…</div><div id="coordinatorIdentity" class="tiny muted"></div><div id="commsHealth" class="muted">Checking local runtime…</div></section>
+ <section class="card"><div class="sectionTitle">Coordination — local operator owns setup</div><div id="coordinationHealth" role="status">Checking routes…</div><button onclick="recoverPmCleanup()">Verify PM cleanup and resume safely</button><div id="coordinationResult" role="status" class="tiny"></div></section>
+ <section id="decisionGrid">
+   <div class="card"><div class="sectionTitle">Immediate blocker</div><div id="blocker" class="decision"><div id="blockerTitle" class="big">Loading…</div><div id="blockerMeta" class="muted" style="margin-top:5px"></div><div id="blockerNext" style="margin-top:8px"></div></div></div>
+@@ -73,7 +73,8 @@ const N={po:'PO',cli_pm:'CLI PM',cli_dev:'CLI Dev',app_dev:'App Dev',browser_pm:
+ let dashboard=null;
+ const CONTROL_TOKEN='__RWT_CONTROL_TOKEN__';async function api(p,o={}){let r=await fetch(p,{headers:{'Content-Type':'application/json','X-RWT-Control-Token':CONTROL_TOKEN},...o});let j=await r.json();if(!r.ok)throw Error(j.error||'request failed');return j}
+ async function recoverPmCleanup(){try{const r=await api('/api/pm-cleanup-recover',{method:'POST',body:'{}'});coordinationResult.textContent=r.detail;await refreshLive()}catch(e){coordinationResult.textContent=e.message}}
+-function renderCoordination(h){const issues=h?.issues||[];coordinationHealth.innerHTML=`<div>${h?.core_ready?'Local PM/Dev channels verified':'CLI PM is negotiating recipient connections'} · owner: CLI PM</div>`+issues.map(x=>`<div class="tiny warn">${esc(N[x.actor]||x.actor)}: ${esc(x.code)} · ${esc(x.action)}</div>`).join('')+`<div class="tiny muted">${esc(h?.browser_pm_note||'')}</div>`;}
++function renderCoordination(h){const issues=h?.issues||[];coordinationHealth.innerHTML=`<div>${h?.core_ready?'Channel checks passed; inspect task delivery evidence':'Coordination blocked — inspect the failures below'} · owner: CLI PM</div>`+issues.map(x=>`<div class="tiny warn">${esc(N[x.actor]||x.actor)}: ${esc(x.code)} · ${esc(x.action)}</div>`).join('')+`<div class="tiny muted">${esc(h?.browser_pm_note||'')}</div>`;}
++function renderDeliveryPipeline(t){const p=t.delivery_pipeline||{},q=p.latest_delivery,e=p.latest_event,f=p.last_failure,c=t.coordinator||{};const lines=[`Delivery: ${p.state||'trace unavailable'} · pending PM: ${p.pending_pm_deliveries??'unknown'}`,e?`Local event #${e.activity_id} · PR ${e.pr||'control issue'} · head ${e.head||'unknown'} · observed control comment ${e.comment_id||'not recorded'}`:'No event-to-delivery trace recorded',q?`Delivery #${q.id} · ${q.status} · session ${q.session_id||'not invoked'} · invocation ${q.started_at||'not observed'} · receipt ${q.receipt_at||'missing'} · result ${q.result_at||'missing'}`:'No matching native PM delivery',q?.blocker||q?.error||'',f?`Last failed PM delivery #${f.id}: ${f.error||'error not recorded'}`:'',p.next_action||'','A poll, queued event or returned response is not a task-bound ACK/result.'];deliveryPipeline.innerHTML=lines.filter(Boolean).map(x=>`<div class="tiny">${esc(x)}</div>`).join('');coordinatorIdentity.textContent=`Coordinator host ${c.host||'unknown'} · port ${c.port||'unknown'} · PID ${c.pid||'unknown'} · boot ${c.boot_id||'unknown'} · build ${c.build||'unknown'} · ${c.install_root||'install unknown'}`;}
+ function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+ function age(sec){if(sec==null)return 'unknown';sec=Math.max(0,Math.floor(sec));if(sec<60)return sec+'s';let m=Math.floor(sec/60);if(m<60)return m+'m';let h=Math.floor(m/60);if(h<24)return h+'h '+(m%60)+'m';return Math.floor(h/24)+'d '+(h%24)+'h'}
+ function statusNorm(s,p={}){s=String(s||'').toLowerCase();if(p.player_id==='po')return s==='action-needed'?['DECISION NEEDED','s-waiting']:['NO DECISION PENDING','s-idle'];if(s==='unknown'||s==='stale')return ['UNKNOWN','s-waiting'];if(s==='queued'||s==='delivering')return ['WAITING','s-waiting'];if(s==='responded_unpublished')return ['UNPUBLISHED','s-blocked'];if(s==='responded_unreconciled')return ['UNRECONCILED','s-blocked'];if(s==='reported')return ['REPORTED','s-waiting'];if(s==='responded')return ['REPLY RETURNED','s-waiting'];if(s.startsWith('failed'))return ['FAILED','s-blocked'];if(s==='active'||s==='running')return ['WORKING','s-working'];if(s==='blocked'||s==='error'||s==='auth_required'||p.holding)return ['BLOCKED','s-blocked'];if(s==='waiting'||s==='action-needed')return ['WAITING','s-waiting'];if(s==='done'||s==='closed'||s==='merged'||s==='completed')return ['COMPLETED','s-done'];return ['IDLE','s-idle']}
+@@ -93,7 +94,7 @@ function renderLedger(d){const asks=d.asks||[],hs=d.review_handoffs||[],bl=d.act
+ function renderDashboard(d){dashboard=d;document.querySelector('.version').textContent='Board v'+d.version+' ('+(d.build||'original')+') · MAIN GOAL: RWT CLOSED · observed '+(d.observed_at||'unknown')+' · GitHub checked '+(d.github_observed_at||'unknown')+(d.github_error?' · GitHub error: '+d.github_error:'')+' · '+(d.reconciliation||'Reconciliation unknown')+' · '+(d.comms?.outbox||'Outbox pending')+(d.comms?.error?' · Watcher error: '+d.comms.error:'');let b=d.blocker||{};let po=Object.values(d.players||{}).find(x=>x.player_id==='po')||{};let poNeed=!!b.po_required||String(po.status||'').toLowerCase()==='action-needed';blockerTitle.textContent=b.text||'No blocker recorded';blockerMeta.textContent=`Owner: ${N[b.owner]||b.owner||'Unassigned'} · blocked ${age(b.age_seconds)} · ${b.cause||'No cause recorded'}`;blockerNext.innerHTML=`<span class="strong">Next:</span> ${esc(b.next_action||'No next action recorded')}`;blocker.className='decision '+(String(b.text||'').toLowerCase().includes('failed')?'bad':'warn');poDecisionTitle.textContent=poNeed?'ACTION NEEDED':'NO ACTION NEEDED';poDecisionMeta.textContent=poNeed?(po.task||b.next_action||'Decision requested'):'No PO decision is currently recorded; execution gates still apply.';poDecision.className='decision '+(poNeed?'warn':'good');renderAgents(d.players||{});renderQueue(d.priority_queue||[]);renderPrs(d);renderLedger(d);const selectedAgent=detailBox.dataset.agent;if(selectedAgent)showAgent(selectedAgent,true)}
+ async function refreshDashboard(){try{renderDashboard(await api('/api/dashboard'))}catch(e){blockerTitle.textContent='Dashboard error';blockerMeta.textContent=e.message}}
+ function deliveryHtml(d){let [t,c]=statusNorm(d.status);let task=d.work_item_key?` · task ${esc(d.work_item_key)} · ${esc(d.target_branch||'branch unknown')} · ${esc(d.target_worktree||'worktree unknown')}`:'';return `<div class="delivery"><strong>#${d.id}</strong> ${esc(d.source_actor)}→${esc(d.recipient)} <span class="statusBadge ${c}">${esc(d.delivery_label||t)}</span> · attempt ${d.attempts||0} · ${d.historical?'history':'current'} · ${age(d.age_seconds)}<div class="muted">${esc(d.delivery_stage||t)}${task}</div>${d.target_actor_id?`<div class="tiny">Recipient: ${esc(d.target_actor_id)} · ${esc(d.target_transport||'route unknown')} · session ${esc(d.target_session_id||'unknown')} · action ${esc(d.task_action_id||'not assigned')} · ${d.task_receipt_at?'receipt recorded':'receipt missing'} · ${d.task_result_at?'result recorded':'result missing'}</div>`:''}${d.github_comment_id&&d.status!=='responded'?`<div class="muted">Prior publication: GitHub comment ${esc(d.github_comment_id)} · current attempt ${esc(d.status)}</div>`:''}${d.dispatch_blocker?`<div class="warn">${esc(d.dispatch_blocker)}</div>`:''}${d.error?`<div class="error">${esc(d.error)}</div>`:''}${d.recovery_action?`<div class="muted">${esc(d.recovery_action)}</div>`:''}${String(d.status).startsWith('failed')&&!d.recovery_action?.startsWith('PM recovery queued')?`<button onclick="retryDelivery(${d.id})">retry</button>`:''}</div>`}
+-async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const identities=t.session_registration||{};const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(identities[id]?.state||'identity not requested')+' · '+(r.transport==='native_pm_executor'?'native coordinator':!r.configured?'route awaiting coordinator'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'route configured; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last wake: ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
++async function refreshLive(){try{let s=await api('/api/live'),t=s.transport;renderCoordination(t.coordination);const identities=t.session_registration||{};const routeText=id=>{const r=t.agent_routes?.[id]||{};return N[id]+' '+(identities[id]?.state||'identity not requested')+' · '+(r.transport==='native_pm_executor'?'native coordinator':!r.configured?'route awaiting coordinator'+(r.blocker?' · '+r.blocker:''):r.live_delivery_proven?'automatic wake proven':'route configured; wake unproven')+(r.transport==='local_inbox'?(r.listener_recent?' · inbox listening':r.listener_state==='waiting_for_rearm'?' · inbox needs rearming':r.listener_state==='stopped'?' · inbox stopped':' · inbox listener stale/not observed'):'')};transport.textContent=`${t.pm_configured?(t.pm_mutations_enabled===false?'CLI PM configured · read-only':'CLI PM configured · bounded executor'):'CLI PM blocked'} · ${routeText('cli_dev')} · ${routeText('app_dev')} · ${routeText('browser_pm')} · ${routeText('cli_pm')}`;activity.innerHTML=(s.activity||[]).map(x=>`<div class="item"><strong>${esc(x.actor)}:</strong> ${esc(x.message)}</div>`).join('');deliveries.innerHTML=(s.deliveries||[]).map(deliveryHtml).join('')||'<div class="muted">No deliveries</div>';let b=t.github_request_budget||{};commsHealth.textContent=`GitHub budget: ${b.used??'—'}/${b.limit??'—'} requests this minute · resets ${b.reset_at||'unknown'} · Last poll: ${t.github_watch_last_poll||'not observed'} · Last event queued (not wake): ${t.github_watch_last_wake||'not observed'} · Reply: ${t.pm_outbox_status||'not observed'}${t.pm_outbox_error?' · ERROR: '+t.pm_outbox_error:''}${t.pm_pending_packet?' · WAIT: '+t.pm_pending_packet:''}`;renderDeliveryPipeline(t);let a=s.automation||{};a_pm_review.checked=!!a.pm_github_review;a_pm_ci.checked=!!a.pm_github_ci;a_pm_head.checked=!!a.pm_github_head;a_pm_deploy.checked=!!a.pm_github_deploy;a_dev_github.checked=!!a.dev_github;a_dev_pm.checked=!!a.dev_to_pm;a_pm_dev.checked=!!a.pm_to_dev;if(document.activeElement!==a_interval)a_interval.value=a.watch_interval_seconds||20}catch(e){transport.textContent='Live error: '+e.message}}
+ async function refreshPr(){try{let s=await api('/api/pr-state');wtStatus.textContent=s.worktree&&s.worktree.is_git?`CLI Dev worktree: ${s.worktree.path} · ${(s.worktree.head||'').slice(0,9)} · ${s.worktree.clean?'clean':'DIRTY'}`:'CLI Dev worktree not selected/ready'}catch(e){wtStatus.textContent='Worktree error: '+e.message}}
+ async function readFiles(){let out=[];let el=document.getElementById('files');if(!el)return out;for(const f of el.files){let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)});out.push({name:f.name,data})}return out}
+ async function send(){let selected=document.querySelector('input[name=route]:checked');let route=selected?selected.value:'pm';sessionStorage.setItem('rwtSendRoute',route);let text=msg.value.trim();if(!text&&!document.getElementById('files').files.length){sendStatus.textContent='Type a message or attach files first.';return}sendStatus.textContent='Sending…';try{let fs=await readFiles();let sent=await api('/api/send',{method:'POST',body:JSON.stringify({actor:'PO',route,message:text,files:fs,handoff_pr:handoffPr.value,handoff_topic:handoffTopic.value})});msg.value='';let f=document.getElementById('files');if(f)f.value='';sendStatus.textContent=route==='none'?'Posted to GitHub #1258.':'Queued deliveries '+(sent.delivery_ids||[]).join(', ')+'; acknowledgment appears in Delivery queue';if(sent.handoff_manifest)sendStatus.textContent+=' · Handoff: '+sent.handoff_manifest;await refreshAll()}catch(e){sendStatus.textContent='Not sent: '+e.message}}
+diff --git a/test_coordination_urgency.py b/test_coordination_urgency.py
+index e4bcf0d..0575ace 100644
+--- a/test_coordination_urgency.py
++++ b/test_coordination_urgency.py
+@@ -171,7 +171,7 @@ class RegisteredWorkerTests(unittest.TestCase):
+         with patch.object(sys := __import__('sys'), 'argv', ['orch-setup.py', '--check']), \
+              patch.object(setup, 'running_board', return_value={'transport': {'coordination': {'core_ready': False}}}), \
+              patch.object(setup, 'prerequisites') as check, patch.object(setup.subprocess, 'call') as start:
+-            self.assertEqual(setup.main(), 0)
++            self.assertEqual(setup.main(), 2)  # reachable but unhealthy; no installer/worker side effects
+             check.assert_not_called()
+             start.assert_not_called()
+ 
+diff --git a/test_delivery_health.py b/test_delivery_health.py
+new file mode 100644
+index 0000000..fda05fd
+--- /dev/null
++++ b/test_delivery_health.py
+@@ -0,0 +1,173 @@
++import json
++import importlib.util
++import contextlib
++import io
++import sys
++from pathlib import Path
++import unittest
++from unittest.mock import patch
++
++import server
++import test_comms
++
++
++class DeliveryHealthTests(unittest.TestCase):
++    setUp = test_comms.CommsTests.setUp
++    tearDown = test_comms.CommsTests.tearDown
++
++    def event(self, comment=71, head='a' * 40):
++        server.emit_github_event(['review packet ' + str(comment)], {
++            'pr': 1612, 'head': head, 'latest_control_comment_id': comment,
++        }, {'pm_github_control': True})
++        return server.github_delivery_health()
++
++    def test_fresh_poll_and_queue_are_not_recipient_wake(self):
++        server.set_setting('github_watch_last_poll', server.now())
++        health = self.event()
++        self.assertEqual(health['state'], 'queued')
++        self.assertEqual(health['latest_event']['comment_id'], 71)
++        self.assertEqual(health['latest_delivery']['recipient'], 'pm')
++        self.assertIsNone(health['latest_delivery']['receipt_at'])
++        self.assertFalse(health['end_to_end_proven'])
++
++    def test_error_names_failed_delivery_without_replaying_or_clearing_it(self):
++        first = self.event()
++        old = first['latest_delivery']['id']
++        server.update_queue(old, status='failed', error='executor exited before a response', finished_at=server.now())
++        server.set_agent('pm', status='error')
++        health = self.event(72)
++        self.assertEqual(health['state'], 'executor_error')
++        self.assertEqual(health['last_failure']['id'], old)
++        self.assertEqual(health['last_failure']['error'], 'executor exited before a response')
++        self.assertIn('state=error', health['latest_delivery']['blocker'])
++        self.assertNotEqual(old, health['latest_delivery']['id'])
++        self.assertIsNone(server.next_queue('pm'))
++        self.assertEqual(server.get_agent('pm')['status'], 'error')
++
++    def test_coalesced_event_links_current_head_to_the_same_pending_delivery(self):
++        first = self.event()
++        second = self.event(72, 'b' * 40)
++        self.assertEqual(first['latest_delivery']['id'], second['latest_delivery']['id'])
++        self.assertEqual(second['latest_event']['comment_id'], 72)
++        self.assertEqual(second['latest_event']['head'], 'b' * 40)
++        self.assertEqual(second['latest_event']['activity_id'], second['latest_delivery']['activity_id'])
++
++    def test_disabled_routing_is_not_a_successful_wake(self):
++        server.emit_github_event(['observed only'], {'pr': 1612}, {})
++        health = server.github_delivery_health()
++        self.assertEqual(health['state'], 'event_not_routed')
++        self.assertIsNone(health['latest_delivery'])
++        self.assertFalse(health['end_to_end_proven'])
++
++    def test_started_and_returned_response_are_separate_from_matching_ack(self):
++        health = self.event()
++        qid = health['latest_delivery']['id']
++        server.update_queue(qid, status='delivering', session_id='native-session', started_at=server.now())
++        self.assertEqual(server.github_delivery_health()['state'], 'invocation_started')
++        server.update_queue(qid, status='responded', finished_at=server.now())
++        returned = server.github_delivery_health()
++        self.assertEqual(returned['state'], 'response_returned')
++        self.assertFalse(returned['end_to_end_proven'])
++        self.assertIsNone(returned['latest_delivery']['receipt_at'])
++
++    def test_restart_keeps_delivery_trace_but_does_not_claim_a_current_boot_wake(self):
++        first = self.event()
++        with patch.object(server, 'SESSION_BOOT_ID', 'new-boot'):
++            health = server.github_delivery_health()
++        self.assertEqual(first['latest_delivery']['id'], health['latest_delivery']['id'])
++        self.assertFalse(health['event_on_current_boot'])
++        self.assertFalse(health['end_to_end_proven'])
++
++    def test_health_is_read_only_and_does_not_publish_or_start_workers(self):
++        self.event()
++        before = server.list_queue()
++        with patch.object(server, 'enqueue') as enqueue, patch.object(server, 'run_pm') as invoke:
++            server.github_delivery_health()
++            server.github_delivery_health()
++        enqueue.assert_not_called()
++        invoke.assert_not_called()
++        self.assertEqual(before, server.list_queue())
++
++    def test_unrelated_or_damaged_dispatch_identity_is_not_claimed_as_delivery(self):
++        health = self.event()
++        intent = health['latest_event']
++        intent['activity_id'] = -1
++        server.set_setting('github_watch_latest_dispatch', json.dumps(intent))
++        self.assertEqual(server.github_delivery_health()['state'], 'event_not_routed')
++        server.set_setting('github_watch_latest_dispatch', 'not-json')
++        self.assertEqual(server.github_delivery_health()['state'], 'trace_unavailable')
++        server.set_setting('github_watch_latest_dispatch', json.dumps({'activity_id': 1, 'queue_ids': [{}]}))
++        self.assertEqual(server.github_delivery_health()['state'], 'trace_unavailable')
++
++    def test_cleanup_pause_and_missing_runtime_take_precedence_over_queued(self):
++        self.event()
++        self.assertEqual(server.github_delivery_health(False)['state'], 'executor_unavailable')
++        server.set_agent('pm', paused=1)
++        self.assertEqual(server.github_delivery_health()['state'], 'executor_paused')
++        server.set_setting('pm_cleanup_unverified', 'owned process must be reconciled')
++        self.assertEqual(server.github_delivery_health()['state'], 'cleanup_unverified')
++
++    def test_native_executor_error_is_not_labelled_as_negotiation_or_removed_pairing_steps(self):
++        t = {'pm_configured': True, 'agent_routes': {}}
++        h = server.coordination_health.summarize(t, {'pm': {'status': 'error'}}, {})
++        native = next(a for a in h['support'] if a['actor'] == 'cli_pm')
++        self.assertEqual(native['state'], 'blocked')
++        self.assertNotIn('Connect + test', ' '.join(h['setup_steps']))
++        self.assertIn('Devs do not install', ' '.join(h['setup_steps']))
++
++    def test_existing_native_error_is_visible_in_transport_and_coordinator_identity(self):
++        self.event()
++        server.set_agent('pm', status='error')
++        with patch.object(server, 'pm_transport_mode', return_value='codex'), patch.object(server, 'resolved_bin', return_value='/fixture/codex'), patch.object(server, 'CODEX_AUTH_OK', True):
++            status = server.transport_status()
++        native = status['agent_routes']['cli_pm']
++        self.assertFalse(native['executor_ready'])
++        self.assertIn('error', native['blocker'])
++        self.assertEqual(status['delivery_pipeline']['state'], 'executor_error')
++        for key in ('host', 'pid', 'boot_id', 'port', 'install_root', 'build'):
++            self.assertTrue(status['coordinator'][key])
++
++
++class SetupHealthTests(unittest.TestCase):
++    def setUp(self):
++        spec = importlib.util.spec_from_file_location('orch_setup_health_test', Path(__file__).parent / 'orch-setup.py')
++        self.setup = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(self.setup)
++
++    def check(self, live):
++        output = io.StringIO()
++        with patch.object(sys, 'argv', ['orch-setup.py', '--check']), \
++             patch.object(self.setup, 'running_board', return_value=live), \
++             patch.object(self.setup, 'prerequisites', return_value=[]), \
++             patch.object(self.setup.package_integrity, 'verify', return_value=[]), \
++             patch.object(self.setup.subprocess, 'call') as start, contextlib.redirect_stdout(output):
++            code = self.setup.main()
++        start.assert_not_called()
++        return code, json.loads(output.getvalue())
++
++    def test_absent_board_is_not_a_healthy_coordination_check(self):
++        code, report = self.check(None)
++        self.assertEqual(code, 2)
++        self.assertEqual(report['state'], 'board_not_running')
++        self.assertFalse(report['ready'])
++
++    def test_old_build_of_same_version_is_not_mistaken_for_an_upgrade(self):
++        code, report = self.check({'version': '4.7.14', 'build': 'coordination.8-work',
++                                   'transport': {'coordination': {'core_ready': True}}})
++        self.assertEqual(code, 2)
++        self.assertIn('no upgrade occurred', report['next'])
++
++    def test_current_build_exposes_actual_worker_failure_and_host_identity(self):
++        live = {'version': '4.7.14', 'build': self.setup.REQUESTED_BUILD, 'transport': {
++            'coordination': {'core_ready': False}, 'coordinator': {'host': 'coordinator-A', 'boot_id': 'boot-A'},
++            'delivery_pipeline': {'state': 'executor_error', 'last_failure': {'id': 11, 'error': 'worker failed'}}}}
++        code, report = self.check(live)
++        self.assertEqual(code, 2)
++        self.assertEqual(report['coordinator'], live['transport']['coordinator'])
++        self.assertEqual(report['delivery_pipeline']['last_failure']['id'], 11)
++        live['transport']['coordination']['core_ready'] = True
++        self.assertEqual(self.check(live)[0], 0)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/test_ui.js b/test_ui.js
+index b5a780b..5dfb00d 100644
+--- a/test_ui.js
++++ b/test_ui.js
+@@ -9,4 +9,4 @@ const current={number:1558,title:'Filler count',state:'OPEN',head:'d371fe1b5',st
+ const dashboard={version:'4.6.17',build:'deadlock.5',observed_at:'2026-10-05T14:15:00Z',github_error:'fixture lookup failure',current,blocker:{text:'CI running; failed/cancelled rows also present'},players:{app_dev:{player_id:'app_dev',status:'reported',task:'PDF packet from checkpoint'}},reconciliation:'Task/player checkpoint applied',priority_queue:[{title:'PDF'},{title:'Coaching'},{title:'Share Feedback fix'},{title:'Telemetry'},{title:'#1560 Navigation'}],open_prs:[{number:1554,title:'PDF',isDraft:true},{number:1559,title:'Coaching',isDraft:true},{number:1560,title:'Navigation',isDraft:true},{number:1557,title:'Other',isDraft:true},{number:1488,title:'Parked',updatedAt:'2099'}],recent_completed:[],packet_verifications:[{pr_or_task:1258,ref:'f'.repeat(40),packet_path:'handoffs/PR-1258/orchestration/pkt',status:'pending',attempts:2,next_attempt_in_seconds:30,last_error:'temporary timeout'}]};
+ const sandbox={...elements,location:{hostname:'127.0.0.1',port:'4417'},document:{getElementById:element,querySelector:()=>element('version'),querySelectorAll:()=>[],activeElement:null},sessionStorage:{getItem(){},setItem(){}},setInterval(){},console,fetch:async path=>({ok:true,json:async()=>path==='/api/dashboard'?dashboard:path==='/api/live'?{transport:{},deliveries:[],activity:[],automation:{}}:{}})};
+ vm.createContext(sandbox);vm.runInContext(code,sandbox);
+-(async()=>{await vm.runInContext('refreshAll()',sandbox);assert(element('version').textContent.includes('4.6.17'));assert(element('version').textContent.includes('deadlock.5'));assert(element('version').textContent.includes('fixture lookup failure'));assert(element('agents').innerHTML.includes('REPORTED'));assert(element('currentPr').innerHTML.includes('#1558'));assert(element('queue').innerHTML.includes('Share Feedback fix'));assert(element('queue').innerHTML.includes('#1560 Navigation'));assert(element('openPrs').innerHTML.indexOf('#1554')<element('openPrs').innerHTML.indexOf('#1559'));assert(!element('openPrs').innerHTML.includes('#1488'));assert(!html.includes('Open · 4 most recent'));assert(element('version').textContent.includes('Task/player checkpoint applied'));assert(element('currentPr').innerHTML.includes('1 running; 1 failed/cancelled'));assert(html.indexOf('id="deliveries"')<html.indexOf('<details class="advanced">'));assert.equal((html.match(/id="deliveries"/g)||[]).length,1);const failedDelivery=vm.runInContext(`deliveryHtml({id:36,status:'failed',source_actor:'PM',recipient:'dev',work_item_key:'PR-1570-P1',target_branch:'fix/1258-readback-boot-control',target_worktree:'/tmp/1570-boot',attempts:0,historical:true,age_seconds:4,delivery_stage:'BLOCKED BEFORE DEV INVOCATION',error:'target worktree is missing',recovery_action:'PM recovery queued #37 (queued)'})`,sandbox);assert(failedDelivery.includes('BLOCKED BEFORE DEV INVOCATION'));assert(failedDelivery.includes('target worktree is missing'));assert(failedDelivery.includes('PM recovery queued #37'));assert(failedDelivery.includes('fix/1258-readback-boot-control'));assert(!failedDelivery.includes('onclick="retryDelivery(36)"'));const ledgerFixture=Object.assign({},dashboard,{asks:[{id:4,source_comment_id:6047886074,ask_index:2,source_actor:'App Dev',age_seconds:700,request:'a route for PR 4 evidence',next_action:'PM recovery woke once; awaiting typed disposition'}],ask_blocker:'1 ask(s) still undispositioned after one PM recovery',review_handoffs:[{id:1,token:'RH-1-aaaaaaaa',pr_number:1570,head:'a'.repeat(40),owner:'app_dev',disposition:'fix_now',state:'delivered'}],action_blockers:[{detail:'BLOCKED (unsupported PM action): kind=\'merge\''}],share:{pr_or_task:1258,remote_branch:'docs/1258-orchestration-deadlock5-20261007',remote_path:'handoffs/PR-1258/',tree_url:'https://github.com/x',publication:'push pin + readback'}});vm.runInContext('renderLedger(ledgerFixture)',Object.assign(sandbox,{ledgerFixture}));const ledgerHtml=element('ledger').innerHTML;for(const want of ['ASK 4','6047886074','item 2','a route for PR 4 evidence','BOARD BLOCKER','RH-1-aaaaaaaa','receipt not yet echoed','FIX_NOW','unsupported PM action','handoffs/PR-1258/','PACKET READ PENDING','retry in 30s','temporary timeout'])assert(ledgerHtml.includes(want),want);vm.runInContext("showAgent('cli_dev')",sandbox);dashboard.players.cli_dev={player_id:'cli_dev',status:'active',task:'Navigation proof running',blocker:''};vm.runInContext('renderDashboard(dashboardFixture)',Object.assign(sandbox,{dashboardFixture:dashboard}));assert(element('detailBox').innerHTML.includes('WORKING'));assert(element('detailBox').innerHTML.includes('Navigation proof running'));dashboard.players.cli_dev.status='blocked';dashboard.players.cli_dev.blocker='Fixture transport error';vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert(element('detailBox').innerHTML.includes('BLOCKED'));assert(element('detailBox').innerHTML.includes('Fixture transport error'));vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'block');vm.runInContext('closeDetail()',sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert.equal(element('detail').style.display,'none');dashboard.agent_routes={cli_dev:{configured:true,transport:'codex_app_server',session_id:'fixture-session',host_preflight:'Not verified on installed host',last_task_delivery:{id:849,action_id:'task-849',status:'failed',error:'Fixture host preflight missing'}}};vm.runInContext("showAgent('cli_dev',true)",sandbox);for(const want of ['codex_app_server','fixture-session','#849','task-849','receipt missing','result missing','Fixture host preflight missing','Not verified on installed host'])assert(element('detailBox').innerHTML.includes(want),want);const routedDelivery=vm.runInContext("deliveryHtml({id:849,status:'failed',target_actor_id:'cli_dev',target_transport:'codex_app_server',target_session_id:'fixture-session',task_action_id:'task-849'})",sandbox);for(const want of ['fixture-session','task-849','receipt missing','result missing'])assert(routedDelivery.includes(want),want);const sent=[];sandbox.fetch=async(path,opts)=>{sent.push([path,opts]);return {ok:true,json:async()=>({ok:true})}};await vm.runInContext("api('/api/pause',{method:'POST',body:'{}'})",sandbox);assert.equal(sent[0][1].headers['Content-Type'],'application/json');assert.equal(sent[0][1].headers['X-RWT-Control-Token'],'__RWT_CONTROL_TOKEN__');for(const removed of ['pairActor','pairProvider','pairSession','pairSessionPicker','pairResult','pairRecipient','connectRecipient','listRecipientSessions','probeRecipient'])assert(!html.includes(removed),removed+' must stay internal');assert(!element('transport').textContent.includes('Live error'));const liveFixture={transport:{pm_configured:true,session_registration:{cli_dev:{state:'identity-reported'}},agent_routes:{cli_pm:{configured:true,transport:'native_pm_executor'},cli_dev:{configured:true,transport:'local_inbox',listener_recent:true,live_delivery_proven:false}}},activity:[{actor:'CLI PM',message:'Recipient negotiation in progress'}],deliveries:[{id:999,status:'awaiting_receipt',target_actor_id:'cli_dev',task_action_id:'fixture-999'}],automation:{}};sandbox.fetch=async path=>({ok:true,json:async()=>path==='/api/live'?liveFixture:{}});await vm.runInContext('refreshLive()',sandbox);assert(!element('transport').textContent.includes('Live error'));assert(element('transport').textContent.includes('identity-reported'));assert(element('transport').textContent.includes('native coordinator'));assert(element('transport').textContent.includes('wake unproven'));assert(!element('transport').textContent.includes('automatic wake proven'));assert(element('activity').innerHTML.includes('Recipient negotiation in progress'));assert(element('deliveries').innerHTML.includes('fixture-999'));liveFixture.transport.agent_routes.cli_dev.live_delivery_proven=true;await vm.runInContext('refreshLive()',sandbox);assert(element('transport').textContent.includes('automatic wake proven'));console.log('UI smoke passed: actual script runs; control requests carry the server-injected token; delivery stages, exact failed route, bounded PM recovery, no false Dev ACK/retry; open asks, review handoff receipts, packet-read retry state, named blockers, share location; dashboard and queue.');})().catch(e=>{console.error(e);process.exitCode=1});
++(async()=>{await vm.runInContext('refreshAll()',sandbox);assert(element('version').textContent.includes('4.6.17'));assert(element('version').textContent.includes('deadlock.5'));assert(element('version').textContent.includes('fixture lookup failure'));assert(element('agents').innerHTML.includes('REPORTED'));assert(element('currentPr').innerHTML.includes('#1558'));assert(element('queue').innerHTML.includes('Share Feedback fix'));assert(element('queue').innerHTML.includes('#1560 Navigation'));assert(element('openPrs').innerHTML.indexOf('#1554')<element('openPrs').innerHTML.indexOf('#1559'));assert(!element('openPrs').innerHTML.includes('#1488'));assert(!html.includes('Open · 4 most recent'));assert(element('version').textContent.includes('Task/player checkpoint applied'));assert(element('currentPr').innerHTML.includes('1 running; 1 failed/cancelled'));assert(html.indexOf('id="deliveries"')<html.indexOf('<details class="advanced">'));assert.equal((html.match(/id="deliveries"/g)||[]).length,1);const failedDelivery=vm.runInContext(`deliveryHtml({id:36,status:'failed',source_actor:'PM',recipient:'dev',work_item_key:'PR-1570-P1',target_branch:'fix/1258-readback-boot-control',target_worktree:'/tmp/1570-boot',attempts:0,historical:true,age_seconds:4,delivery_stage:'BLOCKED BEFORE DEV INVOCATION',error:'target worktree is missing',recovery_action:'PM recovery queued #37 (queued)'})`,sandbox);assert(failedDelivery.includes('BLOCKED BEFORE DEV INVOCATION'));assert(failedDelivery.includes('target worktree is missing'));assert(failedDelivery.includes('PM recovery queued #37'));assert(failedDelivery.includes('fix/1258-readback-boot-control'));assert(!failedDelivery.includes('onclick="retryDelivery(36)"'));const ledgerFixture=Object.assign({},dashboard,{asks:[{id:4,source_comment_id:6047886074,ask_index:2,source_actor:'App Dev',age_seconds:700,request:'a route for PR 4 evidence',next_action:'PM recovery woke once; awaiting typed disposition'}],ask_blocker:'1 ask(s) still undispositioned after one PM recovery',review_handoffs:[{id:1,token:'RH-1-aaaaaaaa',pr_number:1570,head:'a'.repeat(40),owner:'app_dev',disposition:'fix_now',state:'delivered'}],action_blockers:[{detail:'BLOCKED (unsupported PM action): kind=\'merge\''}],share:{pr_or_task:1258,remote_branch:'docs/1258-orchestration-deadlock5-20261007',remote_path:'handoffs/PR-1258/',tree_url:'https://github.com/x',publication:'push pin + readback'}});vm.runInContext('renderLedger(ledgerFixture)',Object.assign(sandbox,{ledgerFixture}));const ledgerHtml=element('ledger').innerHTML;for(const want of ['ASK 4','6047886074','item 2','a route for PR 4 evidence','BOARD BLOCKER','RH-1-aaaaaaaa','receipt not yet echoed','FIX_NOW','unsupported PM action','handoffs/PR-1258/','PACKET READ PENDING','retry in 30s','temporary timeout'])assert(ledgerHtml.includes(want),want);vm.runInContext("showAgent('cli_dev')",sandbox);dashboard.players.cli_dev={player_id:'cli_dev',status:'active',task:'Navigation proof running',blocker:''};vm.runInContext('renderDashboard(dashboardFixture)',Object.assign(sandbox,{dashboardFixture:dashboard}));assert(element('detailBox').innerHTML.includes('WORKING'));assert(element('detailBox').innerHTML.includes('Navigation proof running'));dashboard.players.cli_dev.status='blocked';dashboard.players.cli_dev.blocker='Fixture transport error';vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert(element('detailBox').innerHTML.includes('BLOCKED'));assert(element('detailBox').innerHTML.includes('Fixture transport error'));vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext("showAgent('cli_dev')",sandbox);assert.equal(element('detail').style.display,'block');vm.runInContext('closeDetail()',sandbox);assert.equal(element('detail').style.display,'none');vm.runInContext('renderDashboard(dashboardFixture)',sandbox);assert.equal(element('detail').style.display,'none');dashboard.agent_routes={cli_dev:{configured:true,transport:'codex_app_server',session_id:'fixture-session',host_preflight:'Not verified on installed host',last_task_delivery:{id:849,action_id:'task-849',status:'failed',error:'Fixture host preflight missing'}}};vm.runInContext("showAgent('cli_dev',true)",sandbox);for(const want of ['codex_app_server','fixture-session','#849','task-849','receipt missing','result missing','Fixture host preflight missing','Not verified on installed host'])assert(element('detailBox').innerHTML.includes(want),want);const routedDelivery=vm.runInContext("deliveryHtml({id:849,status:'failed',target_actor_id:'cli_dev',target_transport:'codex_app_server',target_session_id:'fixture-session',task_action_id:'task-849'})",sandbox);for(const want of ['fixture-session','task-849','receipt missing','result missing'])assert(routedDelivery.includes(want),want);const sent=[];sandbox.fetch=async(path,opts)=>{sent.push([path,opts]);return {ok:true,json:async()=>({ok:true})}};await vm.runInContext("api('/api/pause',{method:'POST',body:'{}'})",sandbox);assert.equal(sent[0][1].headers['Content-Type'],'application/json');assert.equal(sent[0][1].headers['X-RWT-Control-Token'],'__RWT_CONTROL_TOKEN__');for(const removed of ['pairActor','pairProvider','pairSession','pairSessionPicker','pairResult','pairRecipient','connectRecipient','listRecipientSessions','probeRecipient'])assert(!html.includes(removed),removed+' must stay internal');assert(!element('transport').textContent.includes('Live error'));const liveFixture={transport:{pm_configured:true,session_registration:{cli_dev:{state:'identity-reported'}},agent_routes:{cli_pm:{configured:true,transport:'native_pm_executor'},cli_dev:{configured:true,transport:'local_inbox',listener_recent:true,live_delivery_proven:false}}},activity:[{actor:'CLI PM',message:'Recipient negotiation in progress'}],deliveries:[{id:999,status:'awaiting_receipt',target_actor_id:'cli_dev',task_action_id:'fixture-999'}],automation:{}};sandbox.fetch=async path=>({ok:true,json:async()=>path==='/api/live'?liveFixture:{}});await vm.runInContext('refreshLive()',sandbox);assert(!element('transport').textContent.includes('Live error'));assert(element('transport').textContent.includes('identity-reported'));assert(element('transport').textContent.includes('native coordinator'));assert(element('transport').textContent.includes('wake unproven'));assert(!element('transport').textContent.includes('automatic wake proven'));assert(element('activity').innerHTML.includes('Recipient negotiation in progress'));assert(element('deliveries').innerHTML.includes('fixture-999'));liveFixture.transport.agent_routes.cli_dev.live_delivery_proven=true;await vm.runInContext('refreshLive()',sandbox);assert(element('transport').textContent.includes('automatic wake proven'));liveFixture.transport.delivery_pipeline={state:'executor_error',pending_pm_deliveries:2,latest_event:{activity_id:20,pr:1612,head:'head-fixture',comment_id:71},latest_delivery:{id:3884,status:'queued',blocker:'Recipient state=error'},last_failure:{id:3878,error:'<worker failed>'},end_to_end_proven:false};liveFixture.transport.coordinator={host:'coordinator-mac',port:4317,pid:123,boot_id:'boot-fixture',build:'coordination.9-delivery-health',install_root:'/fixture/Orch'};await vm.runInContext('refreshLive()',sandbox);for(const want of ['executor_error','3884','71','receipt missing','result missing','&lt;worker failed&gt;'])assert(element('deliveryPipeline').innerHTML.includes(want),want);assert(element('coordinatorIdentity').textContent.includes('coordinator-mac'));assert(element('commsHealth').textContent.includes('Last event queued (not wake)'));assert(!element('commsHealth').textContent.includes('Last wake:'));console.log('UI smoke passed: actual script runs; control requests carry the server-injected token; delivery stages, exact failed route, bounded PM recovery, no false Dev ACK/retry; open asks, review handoff receipts, packet-read retry state, named blockers, share location; dashboard and queue.');})().catch(e=>{console.error(e);process.exitCode=1});
