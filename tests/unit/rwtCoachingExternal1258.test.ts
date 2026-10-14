@@ -740,3 +740,50 @@ describe('Codex P1 r4277023741 (PM 6180080622) — Focus first-take save is prov
         }
     });
 });
+
+describe('Codex P1 r4277350691 (PM 6180758593) — Open Mic re-reads the save proof at outage classification', () => {
+    const UID = 'uid-om';
+    const PERSISTED = 'take-om';
+    const row = (id: string, status = 'completed'): Row => ({ id, user_id: UID, status });
+    /** The proof the spec runs at classification, fed into the real parent verdict with an otherwise-proved outage. */
+    const classify = async (rows: Row[], o?: Parameters<typeof sessionsAdmin>[1]) => {
+        const firstSave = await firstTakeSavedExactlyOnce(sessionsAdmin(rows, o) as never, UID, PERSISTED);
+        return { firstSave, parent: coachingParentVerdict({ rendered: false, evidence: provider503, graceful: { ...graceful, savedTakeProven: firstSave.proven } }) };
+    };
+
+    it('RED-case from the review: count 1 at save time, then a duplicate before classification → EXTERNAL refused', async () => {
+        const rows = [row(PERSISTED)];
+        // Save time: the spec's earlier account-wide count sees exactly one…
+        expect((await firstTakeSavedExactlyOnce(sessionsAdmin(rows) as never, UID, PERSISTED)).accountCompletedSessions).toBe(1);
+        rows.push(row('take-om-dup')); // …and a duplicate lands during the filler/coaching waits.
+        const { firstSave, parent } = await classify(rows);
+        expect(firstSave).toEqual({ proven: false, accountCompletedSessions: 2, thisTakeCompleted: true });
+        expect(parent.verdict).toBe('FAIL');
+    });
+    it.each([
+        ['a non-completed expected row beside a different sole completed row', [row(PERSISTED, 'recording'), row('other')]],
+        ['an expected id that does not exist, with a different sole completed row', [row('other')]],
+    ])('%s → EXTERNAL refused', async (_label, rows) => {
+        const { firstSave, parent } = await classify(rows);
+        expect(firstSave).toMatchObject({ proven: false, accountCompletedSessions: 1, thisTakeCompleted: false });
+        expect(parent.verdict).toBe('FAIL');
+    });
+    it('the current count is 1 and the expected row is completed → EXTERNAL-eligible (with the other graceful/request evidence)', async () => {
+        const { firstSave, parent } = await classify([row(PERSISTED)]);
+        expect(firstSave.proven).toBe(true);
+        expect(parent).toMatchObject({ verdict: 'EXTERNAL', external: 'provider_5xx' });
+    });
+    it.each([[{ fail: 'count' as const }], [{ nullCount: true }], [{ fail: 'own' as const }]])('a failed or null read %j → EXTERNAL refused', async (o) => {
+        expect((await classify([row(PERSISTED)], o)).parent.verdict).toBe('FAIL');
+    });
+    it('wiring contract: the spec re-reads the proof after the waits, uses it for the verdict AND the receipt, before Practice-again', () => {
+        const src = readFileSync(path.resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        const proof = src.indexOf('await firstTakeSavedExactlyOnce(admin! as never, capturedUid, persistedId)');
+        expect(proof).toBeGreaterThan(src.indexOf('await settleCoachingReason(generations.settle());'));
+        expect(proof).toBeLessThan(src.indexOf('const coachingParent = coachingParentVerdict({'));
+        expect(proof).toBeLessThan(src.indexOf('await practiceAgainEvidence('));
+        expect(src).toContain('graceful: { savedTakeProven: firstSave?.proven ?? false,');
+        expect(src).toContain('savedTakeProven: rendered ? null : firstSave?.proven ?? false,');
+        expect(src).not.toContain('Boolean(persistedId) && saved === 1');
+    });
+});

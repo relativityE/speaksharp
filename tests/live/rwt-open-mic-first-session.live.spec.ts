@@ -92,6 +92,7 @@ import {
     exactCountVerdict,
     backFromProgressRestoresSession,
     backFromProgressRows,
+    firstTakeSavedExactlyOnce,
 } from './helpers/rwtJourney';
 import {
     classifySavedCoaching, coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
@@ -457,19 +458,25 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const take = persistedId ? takeExchangeEvidence(generations.forSession(persistedId)) : takeExchangeEvidence([]);
                 coachingTakeRequestId = take.diagnosticRequestId;
                 // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage the app handled gracefully is EXTERNAL —
-                // non-blocking, never PASS. The saved take is proven independently (exactly one completed row, this id).
+                // non-blocking, never PASS.
                 const rendered = terminal && twoPhrases;
                 const ui = rendered ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
+                // Codex P1 r4277350691 (PM 6180758593): the save proof is re-read HERE, after the filler and coaching waits —
+                // not the save-time count. This fresh run-owned account must hold exactly one completed session and it must be
+                // this take's own row (the first take: Practice-again comes later). Missing/error/null/wrong id/duplicate can
+                // never authorize EXTERNAL.
+                const firstSave = rendered || !persistedId ? null : await firstTakeSavedExactlyOnce(admin! as never, capturedUid, persistedId);
                 const coachingParent = coachingParentVerdict({
                     rendered,
                     evidence: take.evidence,
-                    graceful: { savedTakeProven: Boolean(persistedId) && saved === 1, reviewState: state, ...ui, requestBoundToSession: take.unique },
+                    graceful: { savedTakeProven: firstSave?.proven ?? false, reviewState: state, ...ui, requestBoundToSession: take.unique },
                 });
                 coachingParentOutcome = coachingParent;
                 receipt.row('coaching rendered', coachingParent.verdict, coachingParent.detail,
                     { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, providerStatus: take.evidence.providerStatus,
                         takeExchangeUnique: take.unique, externalOutcome: coachingParent.external, unavailableShown: rendered ? null : ui.unavailableShown,
-                        savedTakeProven: rendered ? null : Boolean(persistedId) && saved === 1,
+                        savedTakeProven: rendered ? null : firstSave?.proven ?? false,
+                        accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,
                         retryEnabled: rendered ? null : ui.retryEnabled, stopToCoachingMs: coachingMs });
                 // PM 6171519534 §4: request provenance is its own row on every path — never waived by an external outcome.
                 const binding = coachingRequestBindingRow(generations, persistedId);
