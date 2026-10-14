@@ -31,6 +31,9 @@ assert.equal(process.env.DOCKER_HOST, 'unix:///var/run/docker.sock', 'remote Doc
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   !key.startsWith('PG') && !key.startsWith('SUPABASE_') && !['DATABASE_URL', 'GITHUB_TOKEN', 'GH_TOKEN',
     'DOCKER_CONTEXT', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH'].includes(key)));
+// setup-cli uses the public GHCR mirror to avoid anonymous Docker Hub limits.
+// This is an image location, not a Supabase project or credential setting.
+env.SUPABASE_INTERNAL_IMAGE_REGISTRY = 'ghcr.io';
 const evidence = resolve('artifacts/account-closure-full-chain');
 mkdirSync(evidence, { recursive: true });
 const resourcesFile = join(evidence, 'resources.json');
