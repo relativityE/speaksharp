@@ -17,6 +17,14 @@ const cli = resolve('scripts/account-closure-schema-gate.mjs');
 function gate(mode, success) {
     const result = spawnSync(process.execPath, [cli, mode], { env, encoding: 'utf8', timeout: 30_000 });
     assert.equal(result.status, success ? 0 : 1, `${mode}: ${result.stdout} ${result.stderr}`);
+    if (!success) assert.equal(result.stdout.trim(), '', 'failed verification emitted partial success');
+    else {
+        const lines = result.stdout.trim().split('\n');
+        assert.equal(lines.length, 1, 'must emit only one terminal verification');
+        const terminal = JSON.parse(lines[0]);
+        assert.equal(terminal.passed, true);
+        assert.equal(terminal.stages.length, mode === 'after' ? 2 : 1);
+    }
 }
 let started = false;
 try {
@@ -35,7 +43,10 @@ try {
         'ALTER TABLE account_closure_tokens DISABLE ROW LEVEL SECURITY',
         'GRANT EXECUTE ON FUNCTION claim_account_closure_token(uuid,text) TO PUBLIC',
         'ALTER TABLE user_profiles DISABLE TRIGGER account_closure_billing_guard',
+        'DROP TRIGGER account_closure_billing_guard ON user_profiles; CREATE TRIGGER account_closure_billing_guard BEFORE INSERT ON user_profiles FOR EACH ROW EXECUTE FUNCTION guard_account_closure_billing()',
+        'DROP TRIGGER account_closure_billing_guard ON user_profiles; CREATE TRIGGER account_closure_billing_guard BEFORE INSERT OR UPDATE ON user_profiles FOR EACH ROW WHEN(false) EXECUTE FUNCTION guard_account_closure_billing()',
         "UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='unproved'",
+        'DELETE FROM account_billing_coordination',
     ]) {
         // Mutations persist only in this owned, disposable cluster; restore from
         // fresh database fixture for each case. The CLI itself is always read-only.
@@ -44,7 +55,7 @@ try {
         sql(fixture[1]); sql(`SET ROLE closure_owner; ${source} RESET ROLE;`); gate('after', true);
     }
     console.log(JSON.stringify({ result: 'PASS', postgres: sql('SHOW server_version'),
-        gateCases: 12, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
+        gateCases: 18, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
 } finally {
     if (started || existsSync(join(data, 'postmaster.pid'))) {
         execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });

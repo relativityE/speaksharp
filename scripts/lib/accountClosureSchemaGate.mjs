@@ -54,7 +54,10 @@ export function accountClosureSchemaQuery(mode, source) {
                 WHERE a.grantee=0 OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon','authenticated','service_role')))))
       UNION ALL SELECT 'billing_guard_enabled', EXISTS(SELECT 1 FROM pg_trigger
         WHERE tgrelid=to_regclass('public.user_profiles') AND tgname='account_closure_billing_guard'
-          AND tgfoid=to_regprocedure('public.guard_account_closure_billing()') AND tgenabled='O' AND NOT tgisinternal)
+          AND tgfoid=to_regprocedure('public.guard_account_closure_billing()') AND tgenabled='O' AND NOT tgisinternal
+          AND tgtype=23 AND tgattr::text='' AND tgqual IS NULL AND tgnargs=0 AND octet_length(tgargs)=0
+          AND tgconstraint=0 AND tgconstrrelid=0 AND NOT tgdeferrable AND NOT tginitdeferred
+          AND tgoldtable IS NULL AND tgnewtable IS NULL)
     `;
     // Do not access a missing table: callers run catalog checks first, then the
     // separately exported SELECT for the default-disabled activation boundary.
@@ -78,4 +81,11 @@ export function assertAccountClosureSchema(result, expectedMode) {
         throw new Error(`account closure ${expectedMode} schema gate failed`);
     }
     return { mode: expectedMode, passed: true, checks: parsed.checks };
+}
+
+export function assertAccountClosureTerminal(outputs, mode) {
+    const modes = mode === 'before' ? ['before'] : mode === 'after' ? ['after', 'disabled'] : [];
+    if (!modes.length || outputs.length !== modes.length) throw new Error('incomplete schema verification');
+    const stages = outputs.map((output, index) => assertAccountClosureSchema(output, modes[index]));
+    return { mode, passed: true, stages };
 }

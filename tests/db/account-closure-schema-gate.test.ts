@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
-import { accountClosureSchemaQuery, accountClosureDisabledQuery, assertAccountClosureSchema } from '../../scripts/lib/accountClosureSchemaGate.mjs';
+import { accountClosureSchemaQuery, accountClosureDisabledQuery, assertAccountClosureSchema, assertAccountClosureTerminal } from '../../scripts/lib/accountClosureSchemaGate.mjs';
 
 const source = readFileSync('backend/supabase/migrations/20261013180000_account_closure_tokens.sql', 'utf8');
 const fixture = readFileSync('tests/db/account-closure-tokens.integration.test.ts', 'utf8')
@@ -39,6 +39,10 @@ describe('account closure read-only schema gate', () => {
         'ALTER FUNCTION claim_account_closure_token(uuid,text) SECURITY INVOKER',
         "ALTER FUNCTION claim_account_closure_token(uuid,text) SET search_path TO public",
         'ALTER TABLE user_profiles DISABLE TRIGGER account_closure_billing_guard',
+        'DROP TRIGGER account_closure_billing_guard ON user_profiles; CREATE TRIGGER account_closure_billing_guard BEFORE INSERT ON user_profiles FOR EACH ROW EXECUTE FUNCTION guard_account_closure_billing()',
+        'DROP TRIGGER account_closure_billing_guard ON user_profiles; CREATE TRIGGER account_closure_billing_guard BEFORE INSERT OR UPDATE ON user_profiles FOR EACH ROW WHEN(false) EXECUTE FUNCTION guard_account_closure_billing()',
+        'DROP TRIGGER account_closure_billing_guard ON user_profiles; CREATE TRIGGER account_closure_billing_guard AFTER INSERT OR UPDATE ON user_profiles FOR EACH ROW EXECUTE FUNCTION guard_account_closure_billing()',
+        'DROP TRIGGER account_closure_billing_guard ON user_profiles; CREATE TRIGGER account_closure_billing_guard BEFORE INSERT OR UPDATE OF stripe_customer_id ON user_profiles FOR EACH ROW EXECUTE FUNCTION guard_account_closure_billing()',
         'CREATE POLICY unexpected ON account_closure_tokens USING (true)',
         "CREATE FUNCTION claim_account_closure_token(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
         'DROP TABLE account_closure_billing_permits',
@@ -67,5 +71,13 @@ describe('account closure read-only schema gate', () => {
         expect(() => accountClosureSchemaQuery('activate', source)).toThrow('before or after');
         expect(() => assertAccountClosureSchema({ mode: 'after', passed: true, checks: {} }, 'after')).toThrow();
         expect(() => assertAccountClosureSchema({ mode: 'before', passed: true, checks: {} }, 'after')).toThrow();
+    });
+    it('cannot return overall PASS before the disabled stage succeeds', async () => {
+        await apply();
+        const output = (await db.query<{ json_build_object: string }>(accountClosureSchemaQuery('after', source))).rows[0].json_build_object;
+        expect(() => assertAccountClosureTerminal([output], 'after')).toThrow('incomplete');
+        expect(() => assertAccountClosureTerminal([output, { mode: 'disabled', passed: false, checks: { rollout_disabled: false } }], 'after')).toThrow();
+        const state = (await db.query<{ json_build_object: string }>(accountClosureDisabledQuery)).rows[0].json_build_object;
+        expect(assertAccountClosureTerminal([output, state], 'after').passed).toBe(true);
     });
 });
