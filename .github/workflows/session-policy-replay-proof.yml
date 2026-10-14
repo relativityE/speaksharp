@@ -33,6 +33,11 @@ jobs:
         env:
           PG_MAJOR: ${{ matrix.pg }}
         run: |
+          # Ubuntu's stock repository has only its default major. Use the
+          # official PostgreSQL signed repository for all declared matrix rows.
+          curl -fsS https://www.postgresql.org/media/keys/ACCC4CF8.asc -o "$RUNNER_TEMP/postgresql.asc"
+          sudo install -m 0644 "$RUNNER_TEMP/postgresql.asc" /usr/share/keyrings/postgresql.asc
+          echo 'deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/postgresql.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq "postgresql-$PG_MAJOR"
           echo "/usr/lib/postgresql/$PG_MAJOR/bin" >> "$GITHUB_PATH"
