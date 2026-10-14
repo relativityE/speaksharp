@@ -127,10 +127,32 @@ describe('#1258 Codex P2 r4273828962 / r4275389955 — a reused attempt keeps it
         await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
         expect(setOpenAttempt).not.toHaveBeenCalled();
         // The retry, an hour later: the server reports the committed attempt; the server's own clock is never used.
-        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-lost' });
+        // The server accepted it 2 s after the press (its own clock) — within the match window, so it is this press's attempt.
+        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-lost', acceptedAtIso: '2026-10-14T11:00:02.000Z' });
         await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-lost', acceptedAtIso: '2026-10-14T11:00:00.000Z' }));
+    });
+    it('Codex P2 r4275718056: a stale marker from a create that genuinely failed is not borrowed by an attempt created elsewhere later', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        recordAttempt.mockResolvedValueOnce(null); // this create genuinely failed: nothing was created
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        await pressAt('2026-10-14T09:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
+        // Another device accepted the same recommendation at 11:30 (server clock); this browser then retries at 12:00.
+        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-other-device', acceptedAtIso: '2026-10-14T11:30:00.000Z' });
+        await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-other-device', acceptedAtIso: '2026-10-14T12:00:00.000Z' }));
+    });
+    it('an unknown server acceptance time cannot confirm the marker: this press is kept', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        recordAttempt.mockResolvedValueOnce(null);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
+        readPending.mockResolvedValue({ status: 'one', attemptId: 'attempt-lost', acceptedAtIso: null });
+        await pressAt('2026-10-14T12:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ acceptedAtIso: '2026-10-14T12:00:00.000Z' }));
     });
     it('a reused attempt this browser never pressed (created elsewhere) keeps THIS press — never an earlier guess', async () => {
         loadProgress.mockResolvedValue(ELIGIBLE);

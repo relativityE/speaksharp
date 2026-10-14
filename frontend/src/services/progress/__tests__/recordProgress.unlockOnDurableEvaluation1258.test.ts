@@ -496,3 +496,34 @@ describe('Codex P2 r4275389965 — on load, an earlier page\'s owed recommendati
         await load;
     });
 });
+
+describe('Codex P1 r4275718048 — a take queued first WITHOUT its start (server-obligation hydration) gains it from its save', () => {
+    const startOf = (sessionId: string) => {
+        const raw = Object.keys(localStorage).filter((k) => k.startsWith(PROGRESS_QUEUE_V2_PREFIX))
+            .map((k) => JSON.parse(localStorage.getItem(k) ?? '{}') as { sessionId?: string; takeStartedAtIso?: string })
+            .find((e) => e.sessionId === sessionId);
+        return raw?.takeStartedAtIso;
+    };
+    it('the save merges its start into the existing entry, and a later retry round binds the accepted attempt to that take', async () => {
+        acceptAttempt('att-hydrated', 'sess-source', USER, '2026-10-14T10:00:00.000Z');
+        expect(enqueueProgressReconcile(N, USER, '2026-10-14T10:02:00.000Z').ok).toBe(true); // hydration: no boundary
+        expect(startOf(N)).toBeUndefined();
+        rpcImpl.set('record_progress_evaluation', async () => ({ data: null, error: { message: 'x' } }));
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+            expect(await wireProgressEvaluationOnSave(SAVE(N, USER, '2026-10-14T10:01:00.000Z'))).toEqual({ kind: 'queued' });
+        } finally { vi.useRealTimers(); }
+        expect(startOf(N)).toBe('2026-10-14T10:01:00.000Z');
+        expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
+        rpcImpl.delete('record_progress_evaluation');
+        await attemptProgressDebtRound(USER, 'retry');
+        await settle();
+        expect(callsTo('advance_recommendation_attempt').map((c) => c[1].p_practice_session_id)).toEqual([N]);
+    });
+    it('an existing earlier start is kept; a missing start never erases a known one', () => {
+        expect(enqueueProgressReconcile(N1, USER, '2026-10-14T10:02:00.000Z', '2026-10-14T10:01:00.000Z').ok).toBe(true);
+        expect(enqueueProgressReconcile(N1, USER, '2026-10-14T10:03:00.000Z', '2026-10-14T10:01:30.000Z').ok).toBe(true);
+        expect(enqueueProgressReconcile(N1, USER, '2026-10-14T10:04:00.000Z').ok).toBe(true);
+        expect(startOf(N1)).toBe('2026-10-14T10:01:00.000Z');
+    });
+});

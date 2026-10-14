@@ -421,8 +421,16 @@ export function enqueueProgressReconcile(sessionId: string, userId: string, nowI
     if (!migrated.ok) return migrated;
     const own = readOwnEntry(userId, sessionId);
     if (!own.ok) return { ok: false, failure: own.failure };
-    // Already queued is a durable success: the debt is recorded, which is all `queued` claims.
-    if (own.entry) return { ok: true, verified: true };
+    // Already queued is a durable success: the debt is recorded, which is all `queued` claims — unless this caller knows
+    // the take's recording start and the entry does not (#1258 Codex P1 r4275718048: server-obligation hydration queues
+    // a take with no boundary first). That start is merged in (the earliest wins) and verified, or a later retry round
+    // would see an unknown boundary and leave the accepted attempt unbound.
+    if (own.entry) {
+        const known = own.entry.takeStartedAtIso;
+        if (!takeStartedAtIso || (known !== undefined && known <= takeStartedAtIso)) return { ok: true, verified: true };
+        return writeEntryMonotonic({ ...own.entry, takeStartedAtIso },
+            (stored) => stored.takeStartedAtIso !== undefined && stored.takeStartedAtIso <= takeStartedAtIso);
+    }
     const fresh: QueueEntry = { sessionId, userId, enqueuedAtIso: nowIso, ...(takeStartedAtIso ? { takeStartedAtIso } : {}) };
     // A tombstone that would retire THIS new obligation (same stamp, or a clock that moved backwards) is removed first.
     // A stale v1 copy it was guarding carries the same session and a stamp no newer, so it is this same obligation.

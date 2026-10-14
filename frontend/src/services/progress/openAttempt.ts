@@ -82,6 +82,22 @@ export function recordAttemptPress(userId: string, recommendationId: string, pre
     }
 }
 
+/**
+ * #1258 (Codex P2 r4275718056): a recorded press is adopted for a REUSED attempt only when the server accepted that
+ * attempt within this window of the press. The press marker names the owner and recommendation but cannot name an
+ * attempt id (the create's answer was lost), so a marker left by a create that genuinely failed must not be borrowed by
+ * an attempt created later elsewhere. The server time only CONFIRMS identity; ordering stays on the client clock.
+ */
+export const ATTEMPT_PRESS_MATCH_WINDOW_MS = 120_000;
+
+/** The recorded press if it plausibly created the attempt the server accepted at `serverAcceptedAtIso`; else null. */
+export function attemptPressMatching(userId: string, recommendationId: string, serverAcceptedAtIso: string | null): string | null {
+    const press = attemptPressFor(userId, recommendationId);
+    if (press === null || serverAcceptedAtIso === null) return null;
+    const gap = Math.abs(Date.parse(serverAcceptedAtIso) - Date.parse(press));
+    return Number.isFinite(gap) && gap <= ATTEMPT_PRESS_MATCH_WINDOW_MS ? press : null;
+}
+
 /** The recorded press for exactly this owner and recommendation, or null (unknown — the caller keeps its own press). */
 export function attemptPressFor(userId: string, recommendationId: string): string | null {
     if (typeof localStorage === 'undefined') return null;

@@ -162,7 +162,8 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
     it('authoritatively distinguishes zero, one, ambiguous, and failed pending-attempt readback', async () => {
         expect(await readPendingRecommendationAttempt('rec-1')).toEqual({ status: 'none' });
         pendingRows = [{ id: 'att-1', recommendation_id: 'rec-1', lifecycle: 'pending' }];
-        expect(await readPendingRecommendationAttempt('rec-1')).toEqual({ status: 'one', attemptId: 'att-1' });
+        // #1258 (Codex P2 r4275718056): the server acceptance time comes back for identity confirmation only (null here).
+        expect(await readPendingRecommendationAttempt('rec-1')).toEqual({ status: 'one', attemptId: 'att-1', acceptedAtIso: null });
         pendingRows = [
             { id: 'att-1', recommendation_id: 'rec-1', lifecycle: 'pending' },
             { id: 'att-2', recommendation_id: 'rec-1', lifecycle: 'pending' },

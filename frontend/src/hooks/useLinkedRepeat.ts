@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 import { abandonRecommendationAttempt, readPendingRecommendationAttempt, recordRecommendationAttempt } from '@/services/progress/recordProgress';
-import { attemptPressFor, clearAttemptPress, recordAttemptPress, setOpenAttempt } from '@/services/progress/openAttempt';
+import { attemptPressMatching, clearAttemptPress, recordAttemptPress, setOpenAttempt } from '@/services/progress/openAttempt';
 import logger from '@/lib/logger';
 
 /**
@@ -77,9 +77,11 @@ export function useLinkedRepeat(sessionId: string) {
                 ? pending.attemptId
                 : await recordRecommendationAttempt(recommendationId);
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
-            // Codex P2 r4273828962: a REUSED attempt keeps the press that created it when this browser recorded one;
-            // unknown (created elsewhere) keeps this press — the conservative choice: it never binds an earlier take.
-            const originalPress = pending.status === 'one' ? attemptPressFor(userId, recommendationId) : null;
+            // Codex P2 r4273828962: a REUSED attempt keeps the press that created it when this browser recorded one AND
+            // the server accepted it within the match window of that press (Codex P2 r4275718056: a stale marker from a
+            // create that genuinely failed is never borrowed by an attempt created elsewhere). Otherwise this press — the
+            // conservative choice: it never binds an earlier take.
+            const originalPress = pending.status === 'one' ? attemptPressMatching(userId, recommendationId, pending.acceptedAtIso) : null;
             const handoffAcceptedAt = originalPress && originalPress < acceptedAtIso ? originalPress : acceptedAtIso;
             const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso: handoffAcceptedAt });
             if (!handoffStored) {
