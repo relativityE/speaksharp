@@ -1,0 +1,53 @@
+// Scoped real-PostgreSQL proof. No full-chain, provider, or live rollout claim.
+import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import process from 'node:process';
+import console from 'node:console';
+
+const root = mkdtempSync('/private/tmp/closure-schema-proof-');
+const data = join(root, 'data'); const socket = join(root, 'socket'); mkdirSync(socket);
+const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    !key.startsWith('PG') && !key.startsWith('SUPABASE') && key !== 'DB_URL')),
+PGHOST: socket, PGPORT: '5432', PGUSER: 'closure_schema_admin', PGDATABASE: 'postgres' };
+const sql = (text) => execFileSync('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
+    { env: { ...env, PGOPTIONS: '-c client_min_messages=warning' }, encoding: 'utf8', timeout: 10_000 }).trim();
+const cli = resolve('scripts/account-closure-schema-gate.mjs');
+function gate(mode, success) {
+    const result = spawnSync(process.execPath, [cli, mode], { env, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(result.status, success ? 0 : 1, `${mode}: ${result.stdout} ${result.stderr}`);
+}
+let started = false;
+try {
+    execFileSync('initdb', ['-D', data, '-U', env.PGUSER, '-A', 'trust', '--no-locale', '--encoding=UTF8'], { encoding: 'utf8' });
+    execFileSync('pg_ctl', ['-D', data, '-l', join(root, 'server.log'), '-w', 'start', '-o',
+        `-F -k ${socket} -h '' -p 5432 -c max_connections=10`], { encoding: 'utf8' }); started = true;
+    assert.equal(sql("SELECT current_setting('data_directory')"), data);
+    const fixture = readFileSync('tests/db/account-closure-tokens.integration.test.ts', 'utf8')
+        .match(/await db\.exec\(`\n([\s\S]*?)`\);/);
+    assert.ok(fixture, 'scoped fixture missing'); sql(fixture[1]);
+    gate('before', true); gate('after', false);
+    const source = readFileSync('backend/supabase/migrations/20261013180000_account_closure_tokens.sql', 'utf8');
+    sql(`SET ROLE closure_owner; ${source} RESET ROLE;`);
+    gate('before', false); gate('after', true);
+    for (const mutation of [
+        'ALTER TABLE account_closure_tokens DISABLE ROW LEVEL SECURITY',
+        'GRANT EXECUTE ON FUNCTION claim_account_closure_token(uuid,text) TO PUBLIC',
+        'ALTER TABLE user_profiles DISABLE TRIGGER account_closure_billing_guard',
+        "UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='unproved'",
+    ]) {
+        // Mutations persist only in this owned, disposable cluster; restore from
+        // fresh database fixture for each case. The CLI itself is always read-only.
+        sql(mutation); gate('after', false);
+        sql('DROP SCHEMA public CASCADE; DROP SCHEMA auth CASCADE; DROP SCHEMA storage CASCADE; CREATE SCHEMA public; DROP ROLE closure_owner; DROP ROLE anon; DROP ROLE authenticated; DROP ROLE service_role;');
+        sql(fixture[1]); sql(`SET ROLE closure_owner; ${source} RESET ROLE;`); gate('after', true);
+    }
+    console.log(JSON.stringify({ result: 'PASS', postgres: sql('SHOW server_version'),
+        gateCases: 12, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
+} finally {
+    if (started || existsSync(join(data, 'postmaster.pid'))) {
+        execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });
+    }
+    rmSync(root, { recursive: true, force: true });
+}
