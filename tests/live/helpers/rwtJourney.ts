@@ -23,7 +23,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
 import {
-    coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence, UNAVAILABLE_HEADLINE,
+    coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
+    UNAVAILABLE_HEADLINE,
 } from './coachingExternal';
 import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
@@ -54,19 +55,8 @@ export const RWT_ACCOUNT_PREFIX = 'rwt-journey-';
 export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
-/**
- * #1258 — the closed failure reasons `get-ai-suggestions` returns in its 502 body. Read so a failed coaching row names its
- * cause in the receipt itself. Anything outside the closed set reads 'unrecognized', so no free text enters the receipt.
- */
-export const COACHING_FAILURE_REASONS = [
-    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
-    'over_character_ceiling', 'missing_model_version',
-] as const;
-export function coachingFailureReason(body: unknown): string | null {
-    const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined;
-    if (reason === undefined || reason === null) return null;
-    return typeof reason === 'string' && (COACHING_FAILURE_REASONS as readonly string[]).includes(reason) ? reason : 'unrecognized';
-}
+// #1258 (PM 6174134686): the closed coaching failure vocabulary lives with the EXTERNAL classifier, which publishes it.
+export { COACHING_FAILURE_REASONS, coachingFailureReason } from './coachingExternal';
 
 /**
  * #1258 (Codex r4188372882 / r4188372897) — read a failed coaching response's closed reason as a PROMISE the spec

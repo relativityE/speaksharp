@@ -94,7 +94,7 @@ import {
     backFromProgressRows,
 } from './helpers/rwtJourney';
 import {
-    boundFailureOutcomeSent, coachingParentVerdict, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
+    coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
     type CoachingParentVerdict,
 } from './helpers/coachingExternal';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
@@ -787,7 +787,7 @@ test.describe('RWT — Open Mic first session @live', () => {
             // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path (requested + failed) must have left
             // the page instead; success events are never assumed.
             // PM 6173420642 §2: the failure outcome bound to THIS take's request id — never whole-run counts.
-            const boundFailure = boundFailureOutcomeSent(tap.events, coachingTakeRequestId);
+            const boundFailure = failureTelemetryBinding(tap.events, coachingTakeRequestId);
             const coachingTelemetry = coachingTelemetryVerdict(coachingParentOutcome ?? { verdict: 'FAIL', detail: '', external: null },
                 boundFailure, sentVerdict(coachingSent, tap, stoppedAt),
                 coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'

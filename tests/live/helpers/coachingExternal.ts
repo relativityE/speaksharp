@@ -17,6 +17,22 @@
  */
 import type { ReceiptRow, Verdict } from './rwtAcceptance';
 import type { CoachingExchange } from './coachingGenerationTap';
+import { bindFailureReports, type ObservedEvent } from './coachingFeedbackAdapter';
+
+/**
+ * #1258 — the closed failure reasons `get-ai-suggestions` returns in its 502 body. Read so a failed coaching row names its
+ * cause in the receipt itself. Anything outside the closed set reads 'unrecognized', so no free text enters the receipt.
+ */
+export const COACHING_FAILURE_REASONS = [
+    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
+    'over_character_ceiling', 'missing_model_version',
+] as const;
+export function coachingFailureReason(body: unknown): string | null {
+    const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined;
+    if (reason === undefined || reason === null) return null;
+    return typeof reason === 'string' && (COACHING_FAILURE_REASONS as readonly string[]).includes(reason) ? reason : 'unrecognized';
+}
+
 
 /** The closed provider-outcome classes that may prove an external outage. */
 export type ExternalProviderOutcome = 'provider_5xx' | 'provider_timeout';
@@ -108,31 +124,45 @@ export function successDependentRow(parent: CoachingParentVerdict, own: { verdic
 }
 
 /**
- * The coaching telemetry the page SENT. Success requires completed + persisted + rendered (+ the review_rendered stage) —
- * unchanged. Under an EXTERNAL parent the failure outcome must have left the page FOR THAT EXACT REQUEST (PM 6173420642
- * §2): the practice-loop events carry no request or session id, so whole-run counts could borrow a later take's events.
- * The bound proof is the `ai_coaching_diagnostic` event whose `diagnostic_request_id` is the request's own id and whose
- * outcome is `failure`. `boundFailureSent` null = the request carried no id, so the binding cannot be established → FAIL.
- * Success events are never assumed.
+ * The coaching failure telemetry the page SENT for one request (PM 6173420642 §2, 6174134686 §2). Both are required and
+ * both are bound to the request's own `diagnostic_request_id`: its terminal `ai_coaching_diagnostic`, AND the app's
+ * `practice_loop_review_failed` report, bound to that diagnostic by the page's provable same-boot emission order
+ * (`bindFailureReports`, the existing authority). Whole-run counts are never used.
+ *   • `bound`        — exactly one in-vocabulary report provably follows this request's failure diagnostic;
+ *   • `absent`       — no report is bound to this request (including when its failure diagnostic never left) → FAIL;
+ *   • `invalid`      — a report bound to it carried an out-of-vocabulary reason → FAIL;
+ *   • `ambiguous`    — the order cannot be proven, or more than one report could be its → unproven (HOLD);
+ *   • `unbindable`   — the request carried no diagnostic id → FAIL.
  */
-export function coachingTelemetryVerdict(parent: CoachingParentVerdict, boundFailureSent: boolean | null,
-    successVerdict: Verdict, successDetail: string): { verdict: Verdict; detail: string } {
-    if (parent.verdict !== 'EXTERNAL') return { verdict: successVerdict, detail: successDetail };
-    if (boundFailureSent === null) {
-        return { verdict: 'FAIL', detail: 'the coaching provider was unavailable, but the request carried no diagnostic id, so its failure outcome cannot be bound to it' };
-    }
-    return boundFailureSent
-        ? { verdict: 'EXTERNAL', detail: 'the failure outcome for this exact request left the page (ai_coaching_diagnostic, outcome failure); success telemetry not exercised — external provider outage' }
-        : { verdict: 'FAIL', detail: 'the coaching provider was unavailable, but no failure outcome for this exact request left the page' };
+export type FailureTelemetryBinding = 'bound' | 'absent' | 'invalid' | 'ambiguous' | 'unbindable';
+
+export function failureTelemetryBinding(events: readonly ObservedEvent[], diagnosticRequestId: string | null): FailureTelemetryBinding {
+    if (!diagnosticRequestId) return 'unbindable';
+    const binding = bindFailureReports(events).get(diagnosticRequestId);
+    if (!binding) return 'absent';
+    return binding.state === 'bound' ? 'bound' : binding.state === 'observed_invalid' ? 'invalid' : 'ambiguous';
 }
 
-/** Whether a sent `ai_coaching_diagnostic` failure names exactly this request id (null when the request had no id). */
-export function boundFailureOutcomeSent(
-    events: ReadonlyArray<{ event: string; diagnosticRequestId?: string; diagnosticOutcome?: string }>,
-    diagnosticRequestId: string | null,
-): boolean | null {
-    if (!diagnosticRequestId) return null;
-    return events.some((e) => e.event === 'ai_coaching_diagnostic' && e.diagnosticRequestId === diagnosticRequestId && e.diagnosticOutcome === 'failure');
+/**
+ * The coaching telemetry row. Success requires completed + persisted + rendered (+ the review_rendered stage) —
+ * unchanged. Under an EXTERNAL parent, only a `bound` failure report for this exact request is EXTERNAL; ambiguity is
+ * unproven (HOLD); anything else is FAIL. Success events are never assumed.
+ */
+export function coachingTelemetryVerdict(parent: CoachingParentVerdict, failure: FailureTelemetryBinding,
+    successVerdict: Verdict, successDetail: string): { verdict: Verdict; detail: string } {
+    if (parent.verdict !== 'EXTERNAL') return { verdict: successVerdict, detail: successDetail };
+    switch (failure) {
+        case 'bound':
+            return { verdict: 'EXTERNAL', detail: 'this request\'s failure diagnostic and the app\'s failure report (bound by emission order) left the page; success telemetry not exercised — external provider outage' };
+        case 'ambiguous':
+            return { verdict: 'HOLD', detail: 'the app\'s failure report for this request cannot be proven (ambiguous emission order or more than one candidate)' };
+        case 'invalid':
+            return { verdict: 'FAIL', detail: 'the app\'s failure report for this request carried a reason outside its vocabulary' };
+        case 'unbindable':
+            return { verdict: 'FAIL', detail: 'the request carried no diagnostic id, so its failure telemetry cannot be bound to it' };
+        default:
+            return { verdict: 'FAIL', detail: 'the coaching provider was unavailable, but no app failure report bound to this exact request left the page' };
+    }
 }
 
 /**
@@ -155,8 +185,9 @@ export function takeExchangeEvidence(forSession: readonly CoachingExchange[]): {
     return {
         evidence: {
             httpStatus: exchange.status,
-            // The Edge diagnostic's closed reason; anything else is unrecognized and proves nothing.
-            reason: typeof reason === 'string' && /^[a-z0-9_]{1,48}$/.test(reason) ? reason : exchange.diagnostics ? 'unrecognized' : null,
+            // PM 6174134686 §1: ONLY the closed coaching failure vocabulary (else `unrecognized`) — a shape check would publish an
+            // arbitrary slug into the receipt and the row detail. Absent diagnostics stay null; neither proves anything.
+            reason: exchange.diagnostics ? coachingFailureReason({ reason }) ?? 'unrecognized' : null,
             providerStatus: providerStatusFrom({ diagnostics: exchange.diagnostics }),
         },
         diagnosticRequestId: exchange.sent.requestId,

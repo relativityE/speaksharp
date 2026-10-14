@@ -23,7 +23,7 @@ import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
 import { coachingPromptBindingRow } from './rwtCoachingCollector';
 import { coachingContract } from './rwtCoachingEvidence';
-import { boundFailureOutcomeSent, coachingTelemetryVerdict, takeExchangeEvidence } from './coachingExternal';
+import { coachingTelemetryVerdict, failureTelemetryBinding, takeExchangeEvidence } from './coachingExternal';
 import {
     AnalyticsTap,
     RwtReceipt,
@@ -778,7 +778,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path must have left the page instead.
         const focusExternal = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
         // PM 6173420642 §2: bound to THIS take's request id — never whole-run counts a later take could satisfy.
-        const focusBoundFailure = boundFailureOutcomeSent(tap.events,
+        const focusBoundFailure = failureTelemetryBinding(tap.events,
             persistedId ? takeExchangeEvidence(generations.forSession(persistedId)).diagnosticRequestId : null);
         const focusCoachingTelemetry = coachingTelemetryVerdict(
             { verdict: focusExternal ? 'EXTERNAL' : 'PASS', detail: '', external: focusExternal ? 'provider_5xx' : null },

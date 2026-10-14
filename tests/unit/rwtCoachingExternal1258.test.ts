@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    boundFailureOutcomeSent, coachingParentVerdict, coachingRequestBindingRow, coachingTelemetryVerdict, focusExternalDependentRows,
+    coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, focusExternalDependentRows,
     gracefulFailures, provenExternalOutcome, providerStatusFrom, successDependentRow, takeExchangeEvidence,
     type CoachingFailureEvidence, type GracefulDegradation,
 } from '../live/helpers/coachingExternal';
@@ -82,33 +82,78 @@ describe('success-dependent rows and failure-path telemetry', () => {
         expect(successDependentRow(parent(provider503, { ...graceful, retryEnabled: false }), { verdict: 'HOLD', detail: 'x' }).verdict).toBe('HOLD');
         expect(successDependentRow(parent(provider503, graceful, true), { verdict: 'FAIL', detail: 'mismatch' }).verdict).toBe('FAIL');
     });
-    it('8. under EXTERNAL the failure outcome bound to THIS request left the page → EXTERNAL', () => {
-        expect(coachingTelemetryVerdict(parent(provider503), true, 'FAIL', 'x').verdict).toBe('EXTERNAL');
+    it('8. under EXTERNAL a bound app failure report for THIS request → EXTERNAL', () => {
+        expect(coachingTelemetryVerdict(parent(provider503), 'bound', 'FAIL', 'x').verdict).toBe('EXTERNAL');
     });
-    it('9. under EXTERNAL a missing bound failure outcome, or an unbindable request, stays FAIL', () => {
-        expect(coachingTelemetryVerdict(parent(provider503), false, 'FAIL', 'x').verdict).toBe('FAIL');
-        expect(coachingTelemetryVerdict(parent(provider503), null, 'FAIL', 'x').verdict).toBe('FAIL');
+    it('9. under EXTERNAL an absent, invalid or unbindable report stays FAIL; an ambiguous one is unproven (HOLD)', () => {
+        for (const f of ['absent', 'invalid', 'unbindable'] as const) expect(coachingTelemetryVerdict(parent(provider503), f, 'FAIL', 'x').verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(parent(provider503), 'ambiguous', 'FAIL', 'x').verdict).toBe('HOLD');
     });
     it('without an EXTERNAL parent the success verdict is unchanged (success events are never assumed)', () => {
-        expect(coachingTelemetryVerdict(parent(provider503, graceful, true), true, 'FAIL', 'missing').verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(parent(provider503, graceful, true), 'bound', 'FAIL', 'missing').verdict).toBe('FAIL');
     });
 });
 
-describe('PM 6173420642 §2 — the failure outcome is bound to the exact request, never whole-run counts', () => {
-    const diag = (id: string, outcome: string) => ({ event: 'ai_coaching_diagnostic', diagnosticRequestId: id, diagnosticOutcome: outcome });
-    it('RED-case: the first take\'s request has no failure outcome; a LATER take\'s failure cannot satisfy it', () => {
-        const events = [{ event: 'practice_loop_review_requested' }, { event: 'practice_loop_review_failed' }, diag('req-take-2', 'failure')];
-        expect(boundFailureOutcomeSent(events, 'req-take-1')).toBe(false);
-        expect(coachingTelemetryVerdict(parent(provider503), boundFailureOutcomeSent(events, 'req-take-1'), 'FAIL', 'x').verdict).toBe('FAIL');
+describe('PM 6174134686 §2 — the APP failure report is bound to the exact request (existing bindFailureReports)', () => {
+    // One page boot; `batch` / `batchIndex` give the page's provable emission order inside one PostHog payload.
+    let i = 0;
+    const ev = (event: string, extra: Record<string, unknown> = {}) => ({ event, at: 0, bootId: 'boot-1', batch: 1, batchIndex: i++, ...extra });
+    const diag = (id: string, outcome = 'failure') => ev('ai_coaching_diagnostic', { diagnosticRequestId: id, diagnosticOutcome: outcome });
+    const failed = (reason = 'unavailable') => ev('practice_loop_review_failed', { reason });
+
+    it('valid: this request\'s failure diagnostic followed by its app report → bound → EXTERNAL', () => {
+        i = 0;
+        const events = [diag('req-1'), failed()];
+        expect(failureTelemetryBinding(events, 'req-1')).toBe('bound');
+        expect(coachingTelemetryVerdict(parent(provider503), failureTelemetryBinding(events, 'req-1'), 'FAIL', 'x').verdict).toBe('EXTERNAL');
     });
-    it('the take\'s own failure diagnostic satisfies it', () => {
-        expect(boundFailureOutcomeSent([diag('req-take-2', 'failure'), diag('req-take-1', 'failure')], 'req-take-1')).toBe(true);
+    it('RED-case: the diagnostic is present but the app failure report never left → absent → FAIL (never EXTERNAL)', () => {
+        i = 0;
+        expect(failureTelemetryBinding([diag('req-1')], 'req-1')).toBe('absent');
+        expect(coachingTelemetryVerdict(parent(provider503), 'absent', 'FAIL', 'x').verdict).toBe('FAIL');
     });
-    it('a success or retrying outcome for the same id is not a failure outcome', () => {
-        expect(boundFailureOutcomeSent([diag('req-take-1', 'retrying'), diag('req-take-1', 'success')], 'req-take-1')).toBe(false);
+    it('a DIFFERENT take\'s report cannot satisfy this request', () => {
+        i = 0;
+        const events = [diag('req-1'), diag('req-2'), failed()];
+        expect(failureTelemetryBinding(events, 'req-1')).toBe('absent');
+        expect(failureTelemetryBinding(events, 'req-2')).toBe('bound');
     });
-    it('a request with no diagnostic id cannot be bound (null → FAIL under EXTERNAL)', () => {
-        expect(boundFailureOutcomeSent([diag('req-take-1', 'failure')], null)).toBeNull();
+    it('reordered / unprovable payload evidence is ambiguous (unproven), never bound', () => {
+        // Separate payloads with no capture times: the report's predecessor cannot be proven.
+        const events = [
+            { event: 'ai_coaching_diagnostic', at: 0, bootId: 'boot-1', batch: 2, batchIndex: 0, diagnosticRequestId: 'req-1', diagnosticOutcome: 'failure' },
+            { event: 'practice_loop_review_failed', at: 0, bootId: 'boot-1', batch: 3, batchIndex: 0, reason: 'unavailable' },
+        ];
+        expect(failureTelemetryBinding(events, 'req-1')).toBe('ambiguous');
+    });
+    it('an out-of-vocabulary report bound to the request is invalid (FAIL)', () => {
+        i = 0;
+        expect(failureTelemetryBinding([diag('req-1'), failed('customer said something')], 'req-1')).toBe('invalid');
+    });
+    it('no diagnostic id → unbindable', () => {
+        expect(failureTelemetryBinding([], null)).toBe('unbindable');
+    });
+});
+
+describe('PM 6174134686 §1 — only the CLOSED reason vocabulary can reach the receipt', () => {
+    const exchange = (reason: unknown, providerStatus: unknown = null) => ({
+        sent: { sessionId: 's', product: null, requestId: 'r', attemptId: null, clientAttempt: null, clientReleaseId: null },
+        status: 502, diagnostics: { reason, provider_status: providerStatus }, suggestions: null, clientMs: 1, at: 1,
+    });
+    it('an arbitrary slug is `unrecognized` — it never reaches the evidence or the row detail', () => {
+        const take = takeExchangeEvidence([exchange('customer_content_123')]);
+        expect(take.evidence.reason).toBe('unrecognized');
+        const v = parent(take.evidence);
+        expect(v.verdict).toBe('FAIL');
+        expect(v.detail).not.toContain('customer_content_123');
+    });
+    it('the permitted provider outcomes stay intact', () => {
+        expect(takeExchangeEvidence([exchange('provider_http_5xx', 503)]).evidence).toEqual({ httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503 });
+        expect(takeExchangeEvidence([exchange('provider_timeout')]).evidence.reason).toBe('provider_timeout');
+    });
+    it('a non-string or absent reason is unrecognized / null', () => {
+        expect(takeExchangeEvidence([exchange(42)]).evidence.reason).toBe('unrecognized');
+        expect(takeExchangeEvidence([{ ...exchange('x'), diagnostics: null }]).evidence.reason).toBeNull();
     });
 });
 
@@ -142,7 +187,8 @@ describe('PM 6173420642 §3 — external proof is the take\'s own request/respon
         await tap.settle();
         const a = takeExchangeEvidence(tap.forSession('sess-A'));
         const b = takeExchangeEvidence(tap.forSession('sess-B'));
-        expect(a.evidence).toEqual({ httpStatus: 502, reason: 'internal_error', providerStatus: null });
+        // `internal_error` is outside the closed coaching vocabulary, so it is `unrecognized` (PM 6174134686 §1).
+        expect(a.evidence).toEqual({ httpStatus: 502, reason: 'unrecognized', providerStatus: null });
         expect(provenExternalOutcome(a.evidence)).toBeNull();
         expect(b.evidence).toEqual({ httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503 });
         expect(a.diagnosticRequestId).toBe('req-A');
