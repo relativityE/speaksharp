@@ -57,6 +57,9 @@ export function useLinkedRepeat(sessionId: string) {
             trackSavedReviewLinkedAttempt('not_started', 0, actionSeq, intendedRoute);
             return;
         }
+        // #1258 Codex P1 r4273670998: the acceptance moment is the PRESS. Captured before either server call, so a slow
+        // readback or create cannot push it past a take another tab saves meanwhile (which would then never be bound).
+        const acceptedAtIso = new Date().toISOString();
         // #1258: the outcome of THIS attempt, emitted once in `finally`; an exception with no recorded stage is 'threw'.
         let outcome: LinkedAttemptOutcome = 'threw';
         acceptingRef.current = true;
@@ -70,7 +73,7 @@ export function useLinkedRepeat(sessionId: string) {
                 ? pending.attemptId
                 : await recordRecommendationAttempt(recommendationId);
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso: new Date().toISOString() });
+            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso });
             if (!handoffStored) {
                 const abandoned = await abandonRecommendationAttempt(attemptId);
                 setActionError(abandoned

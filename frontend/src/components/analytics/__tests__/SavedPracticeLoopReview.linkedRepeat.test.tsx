@@ -81,6 +81,27 @@ beforeEach(() => {
     recordAttempt.mockResolvedValue('attempt-1');
 });
 
+describe('#1258 Codex P1 r4273670998 — acceptance time is the PRESS, not the end of the network calls', () => {
+    it('a slow pending-attempt readback and attempt create do not move acceptedAtIso past the press', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        const pressedAt = new Date('2026-10-14T12:00:00.000Z');
+        // Both server calls take time: by the time the handoff is stored, the wall clock is 40 s later.
+        readPending.mockImplementation(async () => { vi.setSystemTime(new Date('2026-10-14T12:00:20.000Z')); return { status: 'none' }; });
+        recordAttempt.mockImplementation(async () => { vi.setSystemTime(new Date('2026-10-14T12:00:40.000Z')); return 'attempt-1'; });
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(pressedAt);
+            fireEvent.click(action());
+            await waitFor(() => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-1', acceptedAtIso: pressedAt.toISOString() }));
+    });
+});
+
 describe('#1258 P1 — the saved review never skips a valid linked repeat', () => {
     it('CASUALTY: pending progress + an immediate click navigates nowhere; once eligible, ONE linked attempt/handoff then the same set opens', async () => {
         const progress = deferred<unknown>();
