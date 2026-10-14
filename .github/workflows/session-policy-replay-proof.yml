@@ -1,0 +1,26 @@
+name: Session policy replay (disposable PostgreSQL)
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20250811062708_initial_schema.sql'
+      - 'backend/supabase/migrations/20250825065500_fix_rls_performance_issue.sql'
+      - 'tests/db/session-policy-replay-realpg.mjs'
+      - '.github/workflows/session-policy-replay-proof.yml'
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Use runner PostgreSQL binaries
+        run: echo "$(pg_config --bindir)" >> "$GITHUB_PATH"
+      - name: Prove real SQL and role isolation on an owned temporary cluster
+        run: node tests/db/session-policy-replay-realpg.mjs
