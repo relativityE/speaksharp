@@ -68,15 +68,39 @@ export function recordRecommendationObligation(
     }
 }
 
+/**
+ * Codex P2 r4273254647 — ONE INDEX PASS IS NOT A SNAPSHOT. A key another tab removes mid-walk shifts every later key down
+ * an index, so the next obligation is skipped (and on-load recovery runs once per page). As the reconcile queue does
+ * (`stableQueueKeys`), enumerate until two consecutive passes agree; a store that will not hold still is unreadable.
+ */
+const ENUMERATION_PASSES = 4;
+function ownerKeysOnce(prefix: string): string[] {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k !== null && k.startsWith(prefix)) keys.push(k);
+    }
+    return keys.sort();
+}
+function stableOwnerKeys(prefix: string): string[] | null {
+    let previous = ownerKeysOnce(prefix);
+    for (let pass = 1; pass < ENUMERATION_PASSES; pass++) {
+        const next = ownerKeysOnce(prefix);
+        if (next.length === previous.length && next.every((k, i) => k === previous[i])) return next;
+        previous = next;
+    }
+    return null;
+}
+
 /** This owner's obligations. An unreadable store is `ok: false`, never an empty list. Malformed values are skipped. */
 export function listRecommendationObligations(userId: string): { ok: true; entries: RecommendationObligation[] } | { ok: false } {
     if (typeof localStorage === 'undefined') return { ok: false };
     try {
         const prefix = `${RECOMMENDATION_OBLIGATION_PREFIX}${enc(userId)}|`;
-        const keys: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k !== null && k.startsWith(prefix)) keys.push(k);
+        const keys = stableOwnerKeys(prefix);
+        if (keys === null) {
+            logger.warn('[progress] recommendation obligations did not hold still across enumeration passes');
+            return { ok: false };
         }
         const entries: RecommendationObligation[] = [];
         for (const k of keys) {
