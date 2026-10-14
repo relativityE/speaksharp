@@ -1850,10 +1850,7 @@ export async function focusCoachingRows(
             const rows = await focusExternalDependentRows(parent, async () => {
                 const { data, error: savedErr } = await admin.from('sessions').select('ai_suggestions').eq('id', sessionId).eq('user_id', uid).single();
                 if (savedErr) return { ok: false as const };
-                const saved = (data?.ai_suggestions ?? null) as { what_worked?: unknown; what_to_try_next?: unknown } | null;
-                return { ok: true as const,
-                    well: typeof saved?.what_worked === 'string' ? saved.what_worked.trim() : '',
-                    next: typeof saved?.what_to_try_next === 'string' ? saved.what_to_try_next.trim() : '' };
+                return { ok: true as const, raw: (data as { ai_suggestions?: unknown } | null)?.ai_suggestions ?? null };
             });
             for (const r of rows) receipt.row(r.step, r.verdict, r.detail, r.evidence);
             humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',

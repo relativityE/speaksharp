@@ -7,9 +7,11 @@
  * still unproven. Everything the app owns stays PASS/FAIL, and EXTERNAL can never hide a failed save, a missing or
  * disabled Try again, missing failure telemetry, a request/session mismatch, identity or cleanup errors.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-    coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, focusExternalDependentRows,
+    classifySavedCoaching, coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, focusExternalDependentRows,
     gracefulFailures, provenExternalOutcome, providerStatusFrom, successDependentRow, takeExchangeEvidence,
     type CoachingFailureEvidence, type GracefulDegradation,
 } from '../live/helpers/coachingExternal';
@@ -214,12 +216,12 @@ describe('PM 6173420642 §3 — external proof is the take\'s own request/respon
 describe('PM 6173420642 §1 — Focus success-dependent rows read the exact saved coaching first', () => {
     const rowsOf = (rows: Array<{ step: string; verdict: string }>) => Object.fromEntries(rows.map((r) => [r.step, r.verdict]));
     it('provider 503 + a PERSISTED pair → provenance and visible = saved FAIL (never "not exercised")', async () => {
-        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, well: 'Saved well.', next: 'Saved next.' })));
+        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: { what_worked: 'Saved well.', what_to_try_next: 'Saved next.' } })));
         expect(rows['Focus coaching visible = saved']).toBe('FAIL');
         expect(rows['Focus coaching provenance']).toBe('FAIL');
     });
     it('a PARTIAL saved pair is also FAIL', async () => {
-        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, well: 'Only one.', next: '' })));
+        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: { what_worked: 'Only one.' } })));
         expect(rows['Focus coaching visible = saved']).toBe('FAIL');
     });
     it('an UNREADABLE saved row (error or throw) is HOLD — absence unproven', async () => {
@@ -227,12 +229,12 @@ describe('PM 6173420642 §1 — Focus success-dependent rows read the exact save
         expect(rowsOf(await focusExternalDependentRows(parent(provider503), async () => { throw new Error('db'); }))['Focus coaching provenance']).toBe('HOLD');
     });
     it('a confirmed ABSENCE lets every success-dependent row be "not exercised"', async () => {
-        const rows = await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, well: '', next: '' }));
+        const rows = await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: null }));
         expect(rows).toHaveLength(6);
         expect(rows.every((r) => r.verdict === 'EXTERNAL')).toBe(true);
     });
     it('no EXTERNAL parent → no rows are written here (the success path judges them)', async () => {
-        expect(await focusExternalDependentRows(parent(provider503, { ...graceful, retryEnabled: false }), async () => ({ ok: true, well: '', next: '' }))).toEqual([]);
+        expect(await focusExternalDependentRows(parent(provider503, { ...graceful, retryEnabled: false }), async () => ({ ok: true, raw: null }))).toEqual([]);
     });
 });
 
@@ -525,7 +527,7 @@ describe('Codex P1 r4275387520 — EXTERNAL is a closed claim: only the proved c
     });
     it('every row the Focus producer writes under a proved outage is inside the Focus scope', async () => {
         const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
-        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, well: '', next: '' }));
+        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, raw: null }));
         const r = new RwtReceipt('focus-points-session');
         r.row('Focus coaching rendered', 'EXTERNAL', 'd', { ...PROVED_PARENT_EVIDENCE });
         r.row('Focus coaching request bound to this take', 'PASS', 'bound');
@@ -607,7 +609,7 @@ describe('Codex P1 r4276518654 — an app-owned EXTERNAL dependent needs its own
 
     it('RED-case from the review: Focus FAIL rows for an unexpectedly SAVED pair cannot be edited to EXTERNAL', async () => {
         const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
-        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, well: 'saved anyway', next: '' }));
+        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, raw: { what_worked: 'saved anyway' } }));
         const owned = produced.filter((x) => x.step === 'Focus coaching provenance' || x.step === 'Focus coaching visible = saved');
         expect(owned.map((x) => [x.verdict, x.evidence?.savedCoachingAbsent])).toEqual([['FAIL', false], ['FAIL', false]]);
         const forged = owned.map((x) => ({ ...x, verdict: 'EXTERNAL' as const }));
@@ -638,5 +640,42 @@ describe('Codex P1 r4276518654 — an app-owned EXTERNAL dependent needs its own
             .toEqual(['row "one practice action" is EXTERNAL but the take\'s saved-coaching absence is not proved (coaching visible = saved)']);
         expect(scopeErrors('open-mic-first-session', base)).toHaveLength(1); // no absence row at all
         expect(scopeErrors('open-mic-first-session', [...base, ext('coaching visible = saved', { savedCoachingAbsent: true })])).toEqual([]);
+    });
+});
+
+describe('Codex P1 r4276817126 — only a NULL saved-coaching column is a confirmed absence', () => {
+    it.each([[null], [undefined]])('%s → absent', (raw) => {
+        expect(classifySavedCoaching(raw)).toEqual({ state: 'absent' });
+    });
+    it('a complete pair of non-blank strings → pair (trimmed)', () => {
+        expect(classifySavedCoaching({ what_worked: ' A. ', what_to_try_next: 'B.' })).toEqual({ state: 'pair', well: 'A.', next: 'B.' });
+    });
+    it.each([
+        ['a non-string field', { what_worked: 123, what_to_try_next: 'B.' }],
+        ['blank strings', { what_worked: '  ', what_to_try_next: '' }],
+        ['an empty object', {}],
+        ['one field only', { what_worked: 'A.' }],
+        ['an array', ['A.', 'B.']],
+        ['a string', 'A. B.'],
+        ['a number', 0],
+    ])('%s → malformed (never absent)', (_label, raw) => {
+        expect(classifySavedCoaching(raw)).toEqual({ state: 'malformed' });
+    });
+    it.each([
+        ['{ what_worked: 123 }', { what_worked: 123 }],
+        ['blank strings', { what_worked: '', what_to_try_next: '' }],
+    ])('RED-case from the review: a malformed persisted value (%s) under an outage is FAIL with absence false — never EXTERNAL', async (_label, raw) => {
+        const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
+        const rows = await focusExternalDependentRows(parent, async () => ({ ok: true, raw }));
+        const owned = rows.filter((x) => x.step === 'Focus coaching provenance' || x.step === 'Focus coaching visible = saved');
+        expect(owned.map((x) => [x.verdict, x.evidence?.savedCoachingAbsent, x.detail])).toEqual([
+            ['FAIL', false, 'the saved coaching value is malformed (an app persistence defect), not absent'],
+            ['FAIL', false, 'the saved coaching value is malformed (an app persistence defect), not absent'],
+        ]);
+    });
+    it('the Open Mic producer classifies the same column the same way (source contract)', () => {
+        const src = readFileSync(path.resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        expect(src).toContain("const savedPresent = classifySavedCoaching(savedRow?.ai_suggestions ?? null).state !== 'absent';");
+        expect(src).toContain('savedCoachingAbsent: !savedPresent');
     });
 });

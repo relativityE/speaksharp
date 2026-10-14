@@ -94,7 +94,7 @@ import {
     backFromProgressRows,
 } from './helpers/rwtJourney';
 import {
-    coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
+    classifySavedCoaching, coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
     type CoachingParentVerdict,
 } from './helpers/coachingExternal';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
@@ -500,7 +500,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const nextMatches = savedNext !== '' && samePhrase(shownNext, savedNext);
                 // Under EXTERNAL a saved coaching response must still be ABSENT: a pair saved for a failed request is ours, not
                 // the provider's, so it is never waived (successDependentRow only replaces a row with no answer to compare).
-                const savedPresent = savedWell !== '' || savedNext !== '';
+                // Codex P1 r4276817126: only a NULL column is a confirmed absence; a malformed value is present (an app defect).
+                const savedPresent = classifySavedCoaching(savedRow?.ai_suggestions ?? null).state !== 'absent';
                 const visibleRow = coachingParent.verdict === 'EXTERNAL' && savedPresent
                     ? { verdict: 'FAIL' as const, detail: 'a coaching response was saved for a request whose provider was unavailable' }
                     : successDependentRow(coachingParent, {

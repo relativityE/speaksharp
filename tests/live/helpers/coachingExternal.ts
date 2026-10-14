@@ -234,20 +234,39 @@ export function coachingRequestBindingRow(tap: { sentCount: number; exchanges: r
 }
 
 /**
+ * #1258 (Codex P1 r4276817126) — what the take's persisted `ai_suggestions` column holds. ONLY a null/absent column is
+ * a confirmed absence. A complete pair of non-blank strings is a saved pair; anything else (non-strings, blank strings,
+ * one field, a non-object) is MALFORMED — an app persistence defect, never "absent" and never a provider outage.
+ */
+export type SavedCoachingState = { state: 'absent' } | { state: 'pair'; well: string; next: string } | { state: 'malformed' };
+
+export function classifySavedCoaching(raw: unknown): SavedCoachingState {
+    if (raw === null || raw === undefined) return { state: 'absent' };
+    if (typeof raw !== 'object' || Array.isArray(raw)) return { state: 'malformed' };
+    const { what_worked: well, what_to_try_next: next } = raw as { what_worked?: unknown; what_to_try_next?: unknown };
+    if (typeof well === 'string' && typeof next === 'string' && well.trim() !== '' && next.trim() !== '') {
+        return { state: 'pair', well: well.trim(), next: next.trim() };
+    }
+    return { state: 'malformed' };
+}
+
+/**
  * PM 6173420642 §1 — under an EXTERNAL Focus parent, the success-dependent rows are settled only after the exact
- * owner/session saved coaching is read: an answer saved for a failed request (whole or partial) is FAIL, an unreadable
- * read is HOLD (unproven) — never "not exercised". Only a confirmed ABSENCE lets them be "not exercised".
+ * owner/session saved coaching is read: an answer saved for a failed request (whole, partial or malformed) is FAIL, an
+ * unreadable read is HOLD (unproven) — never "not exercised". Only a confirmed ABSENCE (a null column) lets them be
+ * "not exercised".
  */
 export async function focusExternalDependentRows(
     parent: CoachingParentVerdict,
-    readSavedCoaching: () => Promise<{ ok: true; well: string; next: string } | { ok: false }>,
+    readSavedCoaching: () => Promise<{ ok: true; raw: unknown } | { ok: false }>,
 ): Promise<Array<{ step: string; verdict: Verdict; detail: string; evidence?: ReceiptRow['evidence'] }>> {
     if (parent.verdict !== 'EXTERNAL') return [];
-    const saved = await readSavedCoaching().catch(() => ({ ok: false as const }));
+    const read = await readSavedCoaching().catch(() => ({ ok: false as const }));
+    const saved = read.ok ? classifySavedCoaching(read.raw) : null;
     const notExercised = successDependentRow(parent, { verdict: 'FAIL', detail: 'no coaching answer' });
     // Codex P1 r4276518654: the saved-coaching rows carry what the read proved — true only for a confirmed absence.
     const savedRows = (verdict: Verdict, detail: string) => {
-        const savedCoachingAbsent = !saved.ok ? null : saved.well === '' && saved.next === '';
+        const savedCoachingAbsent = saved === null ? null : saved.state === 'absent';
         return [
             { step: 'Focus coaching provenance', verdict, detail, evidence: { savedCoachingAbsent } },
             { step: 'Focus coaching visible = saved', verdict, detail, evidence: { savedCoachingAbsent } },
@@ -255,10 +274,9 @@ export async function focusExternalDependentRows(
     };
     const answerRows = ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt']
         .map((step) => ({ step, ...notExercised }));
-    if (!saved.ok) return [...answerRows, ...savedRows('HOLD', 'the saved coaching for this take could not be read, so its absence is unproven')];
-    if (saved.well !== '' || saved.next !== '') {
-        return [...answerRows, ...savedRows('FAIL', 'a coaching response was saved for a request whose provider was unavailable')];
-    }
+    if (saved === null) return [...answerRows, ...savedRows('HOLD', 'the saved coaching for this take could not be read, so its absence is unproven')];
+    if (saved.state === 'pair') return [...answerRows, ...savedRows('FAIL', 'a coaching response was saved for a request whose provider was unavailable')];
+    if (saved.state === 'malformed') return [...answerRows, ...savedRows('FAIL', 'the saved coaching value is malformed (an app persistence defect), not absent')];
     return [...answerRows, ...savedRows(notExercised.verdict, notExercised.detail)];
 }
 
