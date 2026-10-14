@@ -573,8 +573,8 @@ function settleDurableEvaluation(
 }
 
 /**
- * #1258 (Codex P1 r4273828969): the moment a queued take is ordered against an acceptance — its recording start when
- * recorded, else its enqueue stamp (older entries, or an older tab's rewrite that dropped the field).
+ * #1258 (Codex P1 r4273828969): the moment a queued take is ordered against an acceptance — its recording start. An
+ * entry without one (older entries, or an older tab's rewrite that dropped the field) is unknown: null, never guessed.
  */
 const takeBoundaryOf = (e: QueueEntry): string | null => e.takeStartedAtIso ?? null;
 
