@@ -74,6 +74,10 @@ try {
   execFileSync('pg_ctl', ['-D', data, '-l', join(root, 'server.log'), '-w', 'start', '-o', `-F -k ${socket} -h '' -p 5432`], { env, stdio: 'pipe' });
   started = true;
   assert.equal(sql("SHOW data_directory;"), data);
+  if (process.env.PROOF_PG_MAJOR) {
+    assert.equal(Math.floor(Number(sql('SHOW server_version_num;')) / 10000), Number(process.env.PROOF_PG_MAJOR),
+      'declared PostgreSQL matrix version differs from the executed server');
+  }
   sql(`CREATE EXTENSION "uuid-ossp"; CREATE ROLE replay_owner NOSUPERUSER;
     CREATE ROLE authenticated NOSUPERUSER; CREATE ROLE anon NOSUPERUSER;
     CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY);
