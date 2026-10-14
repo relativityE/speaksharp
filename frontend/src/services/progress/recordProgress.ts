@@ -514,6 +514,11 @@ export async function wireProgressEvaluationOnSave(ctx: {
         void reconcileProgressRecommendationDetailed(sessionId);
         return { kind: 'recorded' };
     }
+    // When the debt could not be made durable, no settlement ran — but the attempt binding is still decided here, the same
+    // way, before anything is dispatched (Codex P1 r4272602941: resolution no longer binds on its own).
+    if (!owned.value.settled && bindOpenAttemptForTake(userId, sessionId, obligationAtIso, { trigger: 'save' }) === 'failed') {
+        return { kind: 'unresolved', reason: 'attempt_binding_unavailable' };
+    }
     const settled = owned.value.settled ?? ({ ok: false, reason: 'queue_unavailable', generation: null } as const);
     // #1258 RH-13: the attempt could not be bound to this take, so nothing non-blocking was published and nothing may
     // advance it. The debt stays blocking; the round that retries it binds before it clears (`settleDurableEvaluation`).
@@ -617,11 +622,12 @@ const advancesInFlight = new Map<string, Promise<void>>();
 async function resolveOpenAttemptWith(userId: string, newSessionId: string): Promise<void> {
     const open = getOpenAttemptForUser(userId);
     if (!open || open.sourceSessionId === newSessionId) return; // never resolve a recommendation against itself
-    const resolutionSessionId = open.resolutionSessionId ?? newSessionId;
-    if (!open.resolutionSessionId && !setOpenAttempt({ ...open, resolutionSessionId })) {
-        logger.warn({ attemptId: open.attemptId, resolutionSessionId }, '[progress] resolution binding could not be persisted');
-        return;
-    }
+    // Codex P1 r4272602941: this ADVANCES an attempt that is already bound; it never binds one. Binding is decided once,
+    // by `bindOpenAttemptForTake`, before anything non-blocking is published. Binding here as well bound an attempt that
+    // decision had found NOT due (accepted after this save began, or a queued take that predates acceptance) to the wrong
+    // take, and left the take the user actually practised unlinked. An unbound attempt waits for the take it belongs to.
+    if (!open.resolutionSessionId) return;
+    const resolutionSessionId = open.resolutionSessionId;
     const key = `${userId}\u0000${open.attemptId}`;
     const existing = advancesInFlight.get(key);
     if (existing) return existing;

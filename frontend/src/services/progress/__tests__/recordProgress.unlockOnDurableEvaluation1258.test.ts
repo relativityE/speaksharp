@@ -57,7 +57,7 @@ vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info:
 
 const { wireProgressEvaluationOnSave, reconcileProgressEvaluations, attemptProgressDebtRound } = await import('../recordProgress');
 const { evaluateDurableStartGate } = await import('../progressStartGate');
-const { getQueuedSessionIdsForUser, PROGRESS_QUEUE_V2_PREFIX, PROGRESS_QUEUE_STORAGE_KEY } = await import('../progressReconcileQueue');
+const { getQueuedSessionIdsForUser, enqueueProgressReconcile, PROGRESS_QUEUE_V2_PREFIX, PROGRESS_QUEUE_STORAGE_KEY } = await import('../progressReconcileQueue');
 const { setOpenAttempt, getOpenAttemptForUser } = await import('../openAttempt');
 const { recordRecommendationObligation } = await import('../progressRecommendationObligation');
 
@@ -255,6 +255,26 @@ describe('B5 — the attempt is bound before anything non-blocking is published,
         rpcImpl.set('advance_recommendation_attempt', () => deferred().promise);
         expect(await within(wireProgressEvaluationOnSave(SAVE(N)))).toEqual({ kind: 'recorded' });
         expect(boundWhenCleared).toBe(N);
+    });
+});
+
+describe('Codex P1 r4272602941 — a not-due attempt is never bound or advanced downstream', () => {
+    it('save path: an attempt accepted AFTER this save began is left for the take that follows it', async () => {
+        acceptAttempt('att-p1-save', 'sess-source', USER, '2099-01-01T00:00:00.000Z');
+        expect(await within(wireProgressEvaluationOnSave(SAVE(N)))).toEqual({ kind: 'recorded' });
+        await settle();
+        expect(callsTo('advance_recommendation_attempt'), 'no advance for a take the attempt does not belong to').toHaveLength(0);
+        expect(getOpenAttemptForUser(USER)?.resolutionSessionId, 'and no binding to it').toBeUndefined();
+    });
+
+    it('round path: a queued take enqueued BEFORE acceptance is retired without binding or advancing the attempt', async () => {
+        enqueueProgressReconcile('sess-old', USER, '2026-10-13T09:00:00.000Z');
+        acceptAttempt('att-p1-round', 'sess-source', USER, '2026-10-13T10:00:00.000Z');
+        await attemptProgressDebtRound(USER, 'retry');
+        await settle();
+        expect(getQueuedSessionIdsForUser(USER).sessionIds).toEqual([]);
+        expect(callsTo('advance_recommendation_attempt')).toHaveLength(0);
+        expect(getOpenAttemptForUser(USER)?.resolutionSessionId).toBeUndefined();
     });
 });
 
