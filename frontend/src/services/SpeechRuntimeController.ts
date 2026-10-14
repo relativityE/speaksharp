@@ -6414,7 +6414,10 @@ export class SpeechRuntimeController {
                             pushE2EEvent('HEARTBEAT_FAILURE_THRESHOLD_REACHED', { sessionId, consecutiveFailures });
 
                             this.stopHeartbeat(); // Kill interval before transition
-                            await this.transition('FAILED', error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'));
+                            // #1258 (Codex P2 4265721146): the caught error is whatever the network threw — a `TypeError`
+                            // or `TimeoutError` names no heartbeat — so it is tagged here. Same object, same message.
+                            await this.transition('FAILED', withFailureCode(
+                                error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'), 'heartbeat_failure'));
                             return;
                         }
 
