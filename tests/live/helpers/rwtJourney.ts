@@ -22,7 +22,10 @@ import { expect, type Locator, type Page, type TestInfo } from '@playwright/test
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
-import { coachingParentVerdict, providerStatusFrom, successDependentRow, UNAVAILABLE_HEADLINE } from './coachingExternal';
+import {
+    coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence, UNAVAILABLE_HEADLINE,
+} from './coachingExternal';
+import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
     AUDIO_ARGS,
@@ -1789,16 +1792,6 @@ export async function readCoachingFailureUi(card: Locator): Promise<{ unavailabl
     return { unavailableShown: shown === UNAVAILABLE_HEADLINE, retryEnabled: enabled && label === 'Try again' };
 }
 
-/** The coaching request's own `sessionId` (request body), read from the observed POST; null when unreadable. */
-export function coachingRequestSessionId(request: { postDataJSON(): unknown }): string | null {
-    try {
-        const body = request.postDataJSON() as { sessionId?: unknown } | null;
-        return typeof body?.sessionId === 'string' ? body.sessionId : null;
-    } catch {
-        return null;
-    }
-}
-
 export async function focusCoachingRows(
     page: Page,
     receipt: RwtReceipt,
@@ -1807,8 +1800,8 @@ export async function focusCoachingRows(
     uid: string,
     request: {
         product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null;
-        /** #1258 (PM 6171519534): `diagnostics.provider_status` of a failed response, and the request's own sessionId. */
-        providerStatus?: number | null; requestSessionId?: string | null;
+        /** #1258 (PM 6173420642 §3): the request-boundary authority — each exchange is its own request/response tuple. */
+        generations?: CoachingGenerationTap;
     },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
@@ -1818,6 +1811,10 @@ export async function focusCoachingRows(
     // The failure response arrives during the terminal wait above, so its reason is settled HERE, after that wait and
     // before any row is written (Codex r4189408865). A read still pending at the bound is UNKNOWN, never `null`.
     if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
+    // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body. An
+    // exchange still unread at the bound is simply absent, so nothing is proved from it.
+    if (request.generations) await settleCoachingReason(request.generations.settle());
+    const take = takeExchangeEvidence(request.generations?.forSession(sessionId) ?? []);
     // #1258 R3b (run 38308997906 hung 24 min here): read each phrase from the review pair's own test id, bounded. The old
     // heading → div → <p> walk waited without limit when its structure did not resolve. A phrase that is absent reads as
     // '' and the row below FAILs; the rendered-vs-saved check is unchanged.
@@ -1833,33 +1830,38 @@ export async function focusCoachingRows(
         savedTakeProven = !countErr && count === 1;
     }
     const ui = two ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
+    // External proof comes ONLY from this take's exchange tuple; without one, nothing is proved.
     const parent = coachingParentVerdict({
         rendered: two,
-        evidence: { httpStatus: request.status, reason: request.reason ?? null, providerStatus: request.providerStatus ?? null },
-        graceful: { savedTakeProven, reviewState: state, ...ui, requestBoundToSession: request.requestSessionId === sessionId },
+        evidence: take.evidence,
+        graceful: { savedTakeProven, reviewState: state, ...ui, requestBoundToSession: take.unique },
     });
     receipt.row('Focus coaching rendered', parent.verdict,
         two ? 'two coaching phrases rendered after Stop without any click' : parent.detail,
-        { reviewState: state, httpStatus: request.status, failureReason: request.reason ?? null, providerStatus: request.providerStatus ?? null,
-            externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven, unavailableShown: two ? null : ui.unavailableShown,
-            retryEnabled: two ? null : ui.retryEnabled, requestBoundToSession: request.requestSessionId === sessionId });
+        { reviewState: state, httpStatus: take.unique ? take.evidence.httpStatus : request.status, failureReason: take.unique ? take.evidence.reason : request.reason ?? null,
+            providerStatus: take.evidence.providerStatus, externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven,
+            unavailableShown: two ? null : ui.unavailableShown, retryEnabled: two ? null : ui.retryEnabled, takeExchangeUnique: take.unique });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
     // PM 6171519534 §4: request provenance is judged on its own, on every path — never waived by an external outcome.
-    const boundTo = request.requestSessionId ?? null;
-    receipt.row('Focus coaching request bound to this take', boundTo === null ? 'HOLD' : boundTo === sessionId ? 'PASS' : 'FAIL',
-        boundTo === null ? 'the coaching request\'s session could not be read' : boundTo === sessionId
-            ? 'the coaching request named this saved take' : 'the coaching request named a different session than the saved take',
-        { requestBoundToSession: boundTo === null ? null : boundTo === sessionId });
+    const binding = request.generations
+        ? coachingRequestBindingRow(request.generations, sessionId)
+        : { verdict: 'HOLD' as const, detail: 'no coaching request record was attached', bound: null };
+    receipt.row('Focus coaching request bound to this take', binding.verdict, binding.detail, { requestBoundToSession: binding.bound });
     if (!two) {
         if (parent.verdict === 'EXTERNAL') {
-            // Only the assertions a SUCCESSFUL answer makes possible become "not exercised"; the human check stays unobserved.
-            for (const step of ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim',
-                'Focus coaching provenance', 'Focus coaching visible = saved', 'Focus coaching server receipt']) {
-                const dependent = successDependentRow(parent, { verdict: 'FAIL', detail: 'no coaching answer' });
-                receipt.row(step, dependent.verdict, dependent.detail);
-            }
+            // PM 6173420642 §1: the exact owner/session saved coaching is read BEFORE any row may be "not exercised" — an
+            // answer saved for a failed request is FAIL, an unreadable one is unproven. The human check stays unobserved.
+            const rows = await focusExternalDependentRows(parent, async () => {
+                const { data, error: savedErr } = await admin.from('sessions').select('ai_suggestions').eq('id', sessionId).eq('user_id', uid).single();
+                if (savedErr) return { ok: false as const };
+                const saved = (data?.ai_suggestions ?? null) as { what_worked?: unknown; what_to_try_next?: unknown } | null;
+                return { ok: true as const,
+                    well: typeof saved?.what_worked === 'string' ? saved.what_worked.trim() : '',
+                    next: typeof saved?.what_to_try_next === 'string' ? saved.what_to_try_next.trim() : '' };
+            });
+            for (const r of rows) receipt.row(r.step, r.verdict, r.detail);
             humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
                 'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
         }

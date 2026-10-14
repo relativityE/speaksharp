@@ -16,6 +16,7 @@
  * Request provenance, session binding, saves, cleanup, identity and every other row are judged on their own.
  */
 import type { ReceiptRow, Verdict } from './rwtAcceptance';
+import type { CoachingExchange } from './coachingGenerationTap';
 
 /** The closed provider-outcome classes that may prove an external outage. */
 export type ExternalProviderOutcome = 'provider_5xx' | 'provider_timeout';
@@ -107,17 +108,96 @@ export function successDependentRow(parent: CoachingParentVerdict, own: { verdic
 }
 
 /**
- * The coaching telemetry the page SENT. Success requires completed + persisted + rendered (+ the review_rendered stage).
- * Under an EXTERNAL parent the failure path must instead have sent `requested` and `failed`: then EXTERNAL; missing → FAIL.
+ * The coaching telemetry the page SENT. Success requires completed + persisted + rendered (+ the review_rendered stage) —
+ * unchanged. Under an EXTERNAL parent the failure outcome must have left the page FOR THAT EXACT REQUEST (PM 6173420642
+ * §2): the practice-loop events carry no request or session id, so whole-run counts could borrow a later take's events.
+ * The bound proof is the `ai_coaching_diagnostic` event whose `diagnostic_request_id` is the request's own id and whose
+ * outcome is `failure`. `boundFailureSent` null = the request carried no id, so the binding cannot be established → FAIL.
  * Success events are never assumed.
  */
-export function coachingTelemetryVerdict(parent: CoachingParentVerdict, sent: {
-    requested: number; completed: number; persisted: number; rendered: number; failed: number; reviewRenderedStage: number;
-}, successVerdict: Verdict, successDetail: string): { verdict: Verdict; detail: string } {
+export function coachingTelemetryVerdict(parent: CoachingParentVerdict, boundFailureSent: boolean | null,
+    successVerdict: Verdict, successDetail: string): { verdict: Verdict; detail: string } {
     if (parent.verdict !== 'EXTERNAL') return { verdict: successVerdict, detail: successDetail };
-    return sent.requested > 0 && sent.failed > 0
-        ? { verdict: 'EXTERNAL', detail: 'the failure path left the page (review requested and failed); success telemetry not exercised — external provider outage' }
-        : { verdict: 'FAIL', detail: 'the coaching provider was unavailable, but the failure outcome (requested + failed) did not leave the page' };
+    if (boundFailureSent === null) {
+        return { verdict: 'FAIL', detail: 'the coaching provider was unavailable, but the request carried no diagnostic id, so its failure outcome cannot be bound to it' };
+    }
+    return boundFailureSent
+        ? { verdict: 'EXTERNAL', detail: 'the failure outcome for this exact request left the page (ai_coaching_diagnostic, outcome failure); success telemetry not exercised — external provider outage' }
+        : { verdict: 'FAIL', detail: 'the coaching provider was unavailable, but no failure outcome for this exact request left the page' };
+}
+
+/** Whether a sent `ai_coaching_diagnostic` failure names exactly this request id (null when the request had no id). */
+export function boundFailureOutcomeSent(
+    events: ReadonlyArray<{ event: string; diagnosticRequestId?: string; diagnosticOutcome?: string }>,
+    diagnosticRequestId: string | null,
+): boolean | null {
+    if (!diagnosticRequestId) return null;
+    return events.some((e) => e.event === 'ai_coaching_diagnostic' && e.diagnosticRequestId === diagnosticRequestId && e.diagnosticOutcome === 'failure');
+}
+
+/**
+ * PM 6173420642 §3 — ONE EXCHANGE, ONE TUPLE, from the EXISTING request-boundary authority (`CoachingGenerationTap`):
+ * each coaching POST is joined to its own response by the request object, and the record is written once, when that
+ * response's body has been read — so overlapping requests or reversed body completion cannot move one take's provider
+ * evidence onto another, and nothing is overwritten later. External proof is derived ONLY from the take's own exchange:
+ * exactly one exchange for the saved session (zero = unproven; more than one = ambiguous, also unproven).
+ */
+export function takeExchangeEvidence(forSession: readonly CoachingExchange[]): {
+    evidence: CoachingFailureEvidence;
+    diagnosticRequestId: string | null;
+    unique: boolean;
+} {
+    if (forSession.length !== 1) {
+        return { evidence: { httpStatus: null, reason: null, providerStatus: null }, diagnosticRequestId: null, unique: false };
+    }
+    const exchange = forSession[0];
+    const reason = exchange.diagnostics?.reason;
+    return {
+        evidence: {
+            httpStatus: exchange.status,
+            // The Edge diagnostic's closed reason; anything else is unrecognized and proves nothing.
+            reason: typeof reason === 'string' && /^[a-z0-9_]{1,48}$/.test(reason) ? reason : exchange.diagnostics ? 'unrecognized' : null,
+            providerStatus: providerStatusFrom({ diagnostics: exchange.diagnostics }),
+        },
+        diagnosticRequestId: exchange.sent.requestId,
+        unique: true,
+    };
+}
+
+/**
+ * Request provenance, judged on its own on every path (PM 6171519534 §4): PASS when an observed coaching request named
+ * this saved take, FAIL when answered requests were observed but none named it, HOLD when none was observed.
+ */
+export function coachingRequestBindingRow(tap: { sentCount: number; exchanges: readonly CoachingExchange[]; forSession(id: string): CoachingExchange[] },
+    sessionId: string): { verdict: Verdict; detail: string; bound: boolean | null } {
+    if (tap.forSession(sessionId).length > 0) return { verdict: 'PASS', detail: 'the coaching request named this saved take', bound: true };
+    if (tap.exchanges.length > 0) return { verdict: 'FAIL', detail: 'coaching requests were observed, but none named the saved take', bound: false };
+    return { verdict: 'HOLD', detail: tap.sentCount > 0 ? 'the coaching request has no observed answer yet' : 'no coaching request was observed for this take', bound: null };
+}
+
+/**
+ * PM 6173420642 §1 — under an EXTERNAL Focus parent, the success-dependent rows are settled only after the exact
+ * owner/session saved coaching is read: an answer saved for a failed request (whole or partial) is FAIL, an unreadable
+ * read is HOLD (unproven) — never "not exercised". Only a confirmed ABSENCE lets them be "not exercised".
+ */
+export async function focusExternalDependentRows(
+    parent: CoachingParentVerdict,
+    readSavedCoaching: () => Promise<{ ok: true; well: string; next: string } | { ok: false }>,
+): Promise<Array<{ step: string; verdict: Verdict; detail: string }>> {
+    if (parent.verdict !== 'EXTERNAL') return [];
+    const saved = await readSavedCoaching().catch(() => ({ ok: false as const }));
+    const notExercised = successDependentRow(parent, { verdict: 'FAIL', detail: 'no coaching answer' });
+    const savedRows = (verdict: Verdict, detail: string) => [
+        { step: 'Focus coaching provenance', verdict, detail },
+        { step: 'Focus coaching visible = saved', verdict, detail },
+    ];
+    const answerRows = ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt']
+        .map((step) => ({ step, ...notExercised }));
+    if (!saved.ok) return [...answerRows, ...savedRows('HOLD', 'the saved coaching for this take could not be read, so its absence is unproven')];
+    if (saved.well !== '' || saved.next !== '') {
+        return [...answerRows, ...savedRows('FAIL', 'a coaching response was saved for a request whose provider was unavailable')];
+    }
+    return [...answerRows, ...savedRows(notExercised.verdict, notExercised.detail)];
 }
 
 /** True when a receipt row records a proved external coaching outcome (for summaries). */

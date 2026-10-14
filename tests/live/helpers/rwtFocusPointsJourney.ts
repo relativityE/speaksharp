@@ -23,7 +23,7 @@ import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
 import { coachingPromptBindingRow } from './rwtCoachingCollector';
 import { coachingContract } from './rwtCoachingEvidence';
-import { coachingTelemetryVerdict } from './coachingExternal';
+import { boundFailureOutcomeSent, coachingTelemetryVerdict, takeExchangeEvidence } from './coachingExternal';
 import {
     AnalyticsTap,
     RwtReceipt,
@@ -69,7 +69,7 @@ import {
     entitlementRow,
     runOwnedIdentityFailures,
     type FixtureKey,
-    type RunTarget, readCoachingFailureEvidence, coachingRequestSessionId,
+    type RunTarget, readCoachingFailureReason,
     sentVerdict,
     sentDetail,
     readbackSettlement,
@@ -155,10 +155,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     await suppressPageSnapshot(testInfo);
     // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
     // Analytics must never request coaching again.
+    // #1258 (PM 6173420642 §3): external proof comes only from the request-boundary tap's per-take exchange.
     const coaching: {
         product: string | null; status: number | null; requests: number; acceptedVersions: unknown; reason: string | null; reasonRead: Promise<void> | null;
-        providerStatus: number | null; requestSessionId: string | null;
-    } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null, reasonRead: null, providerStatus: null, requestSessionId: null };
+        generations: CoachingGenerationTap;
+    } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null, reasonRead: null, generations };
     page.on('request', (request) => {
         if (!request.url().includes('/functions/v1/get-ai-suggestions') || request.method() !== 'POST') return;
         coaching.requests += 1;
@@ -167,16 +168,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             coaching.product = body?.product ?? null;
             coaching.acceptedVersions = body?.accepted_coaching_versions ?? null;
         } catch { coaching.product = null; coaching.acceptedVersions = null; }
-        coaching.requestSessionId = coachingRequestSessionId(request);
     });
     page.on('response', (response) => {
         if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
             coaching.status = response.status();
             // #1258: a failed generation names its closed, content-free reason in the receipt.
-            // #1258 (PM 6171519534): read ONCE — the closed reason and the provider's integer status, nothing else.
-            if (response.status() >= 400) {
-                coaching.reasonRead = readCoachingFailureEvidence(response).then((e) => { coaching.reason = e.reason; coaching.providerStatus = e.providerStatus; });
-            }
+            // #1258: a failed generation names its closed, content-free reason (the exchange log keeps the per-take tuple).
+            if (response.status() >= 400) coaching.reasonRead = readCoachingFailureReason(response).then((r) => { coaching.reason = r; });
         }
     });
     let savedCoaching: SavedCoaching | null = null;
@@ -779,14 +777,16 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
         // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path must have left the page instead.
         const focusExternal = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
-        const focusReviewFailed = tap.sent('practice_loop_review_failed').length;
+        // PM 6173420642 §2: bound to THIS take's request id — never whole-run counts a later take could satisfy.
+        const focusBoundFailure = boundFailureOutcomeSent(tap.events,
+            persistedId ? takeExchangeEvidence(generations.forSession(persistedId)).diagnosticRequestId : null);
         const focusCoachingTelemetry = coachingTelemetryVerdict(
             { verdict: focusExternal ? 'EXTERNAL' : 'PASS', detail: '', external: focusExternal ? 'provider_5xx' : null },
-            { requested: focusTelemetry.reviewRequested, completed: 0, persisted: 0, rendered: focusTelemetry.reviewRendered, failed: focusReviewFailed, reviewRenderedStage: 0 },
+            focusBoundFailure,
             sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
             sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt));
         receipt.row('Focus coaching telemetry sent', focusCoachingTelemetry.verdict, focusCoachingTelemetry.detail,
-            { ...focusTelemetry, reviewFailed: focusReviewFailed, blindBeacons: tap.blindBeacons });
+            { ...focusTelemetry, boundFailureOutcome: focusBoundFailure, blindBeacons: tap.blindBeacons });
         // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
         const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
         const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);

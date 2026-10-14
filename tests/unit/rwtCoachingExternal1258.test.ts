@@ -9,9 +9,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    coachingParentVerdict, coachingTelemetryVerdict, gracefulFailures, provenExternalOutcome, providerStatusFrom, successDependentRow,
+    boundFailureOutcomeSent, coachingParentVerdict, coachingRequestBindingRow, coachingTelemetryVerdict, focusExternalDependentRows,
+    gracefulFailures, provenExternalOutcome, providerStatusFrom, successDependentRow, takeExchangeEvidence,
     type CoachingFailureEvidence, type GracefulDegradation,
 } from '../live/helpers/coachingExternal';
+import { CoachingGenerationTap } from '../live/helpers/coachingGenerationTap';
 import { readCoachingFailureEvidence, readCoachingFailureReason } from '../live/helpers/rwtJourney';
 import {
     finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, requiredAutomatedRows, validateReceipt, type ReceiptRow,
@@ -80,18 +82,111 @@ describe('success-dependent rows and failure-path telemetry', () => {
         expect(successDependentRow(parent(provider503, { ...graceful, retryEnabled: false }), { verdict: 'HOLD', detail: 'x' }).verdict).toBe('HOLD');
         expect(successDependentRow(parent(provider503, graceful, true), { verdict: 'FAIL', detail: 'mismatch' }).verdict).toBe('FAIL');
     });
-    const none = { requested: 0, completed: 0, persisted: 0, rendered: 0, failed: 0, reviewRenderedStage: 0 };
-    it('8. under EXTERNAL the failure path (requested + failed) must have left the page → EXTERNAL', () => {
-        expect(coachingTelemetryVerdict(parent(provider503), { ...none, requested: 1, failed: 1 }, 'FAIL', 'x').verdict).toBe('EXTERNAL');
+    it('8. under EXTERNAL the failure outcome bound to THIS request left the page → EXTERNAL', () => {
+        expect(coachingTelemetryVerdict(parent(provider503), true, 'FAIL', 'x').verdict).toBe('EXTERNAL');
     });
-    it.each([
-        ['no failed event', { requested: 1, failed: 0 }],
-        ['no requested event', { requested: 0, failed: 1 }],
-    ])('9. under EXTERNAL a missing failure event stays FAIL: %s', (_label, sent) => {
-        expect(coachingTelemetryVerdict(parent(provider503), { ...none, ...sent }, 'FAIL', 'x').verdict).toBe('FAIL');
+    it('9. under EXTERNAL a missing bound failure outcome, or an unbindable request, stays FAIL', () => {
+        expect(coachingTelemetryVerdict(parent(provider503), false, 'FAIL', 'x').verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(parent(provider503), null, 'FAIL', 'x').verdict).toBe('FAIL');
     });
     it('without an EXTERNAL parent the success verdict is unchanged (success events are never assumed)', () => {
-        expect(coachingTelemetryVerdict(parent(provider503, graceful, true), none, 'FAIL', 'missing').verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(parent(provider503, graceful, true), true, 'FAIL', 'missing').verdict).toBe('FAIL');
+    });
+});
+
+describe('PM 6173420642 §2 — the failure outcome is bound to the exact request, never whole-run counts', () => {
+    const diag = (id: string, outcome: string) => ({ event: 'ai_coaching_diagnostic', diagnosticRequestId: id, diagnosticOutcome: outcome });
+    it('RED-case: the first take\'s request has no failure outcome; a LATER take\'s failure cannot satisfy it', () => {
+        const events = [{ event: 'practice_loop_review_requested' }, { event: 'practice_loop_review_failed' }, diag('req-take-2', 'failure')];
+        expect(boundFailureOutcomeSent(events, 'req-take-1')).toBe(false);
+        expect(coachingTelemetryVerdict(parent(provider503), boundFailureOutcomeSent(events, 'req-take-1'), 'FAIL', 'x').verdict).toBe('FAIL');
+    });
+    it('the take\'s own failure diagnostic satisfies it', () => {
+        expect(boundFailureOutcomeSent([diag('req-take-2', 'failure'), diag('req-take-1', 'failure')], 'req-take-1')).toBe(true);
+    });
+    it('a success or retrying outcome for the same id is not a failure outcome', () => {
+        expect(boundFailureOutcomeSent([diag('req-take-1', 'retrying'), diag('req-take-1', 'success')], 'req-take-1')).toBe(false);
+    });
+    it('a request with no diagnostic id cannot be bound (null → FAIL under EXTERNAL)', () => {
+        expect(boundFailureOutcomeSent([diag('req-take-1', 'failure')], null)).toBeNull();
+    });
+});
+
+describe('PM 6173420642 §3 — external proof is the take\'s own request/response tuple (existing CoachingGenerationTap)', () => {
+    type Handler = (arg: unknown) => void;
+    const fakePage = () => {
+        const handlers: Record<string, Handler[]> = {};
+        return { on: (event: string, h: Handler) => { (handlers[event] ??= []).push(h); }, emit: (event: string, arg: unknown) => { for (const h of handlers[event] ?? []) h(arg); } };
+    };
+    const request = (sessionId: string, requestId: string) => ({
+        url: () => 'https://x.supabase.co/functions/v1/get-ai-suggestions', method: () => 'POST',
+        postDataJSON: () => ({ sessionId, diagnostic_request_id: requestId, product: 'open_mic' }),
+    });
+    const deferredBody = () => { let resolve!: (v: unknown) => void; const promise = new Promise<unknown>((r) => { resolve = r; }); return { promise, resolve }; };
+
+    it('interleaved requests with reversed response and body completion cannot move take B\'s 503 onto take A', async () => {
+        const page = fakePage();
+        const tap = new CoachingGenerationTap();
+        tap.attach(page as never);
+        const reqA = request('sess-A', 'req-A');
+        const reqB = request('sess-B', 'req-B');
+        page.emit('request', reqA);
+        page.emit('request', reqB);
+        const bodyA = deferredBody();
+        const bodyB = deferredBody();
+        // B answers first (a provider 503), A answers later (a 502 with no provider proof); B's body settles LAST.
+        page.emit('response', { url: reqB.url, request: () => reqB, status: () => 502, json: () => bodyB.promise });
+        page.emit('response', { url: reqA.url, request: () => reqA, status: () => 502, json: () => bodyA.promise });
+        bodyA.resolve({ reason: 'unrecognized', diagnostics: { reason: 'internal_error', provider_status: null } });
+        bodyB.resolve({ reason: 'provider_http_5xx', diagnostics: { reason: 'provider_http_5xx', provider_status: 503 } });
+        await tap.settle();
+        const a = takeExchangeEvidence(tap.forSession('sess-A'));
+        const b = takeExchangeEvidence(tap.forSession('sess-B'));
+        expect(a.evidence).toEqual({ httpStatus: 502, reason: 'internal_error', providerStatus: null });
+        expect(provenExternalOutcome(a.evidence)).toBeNull();
+        expect(b.evidence).toEqual({ httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503 });
+        expect(a.diagnosticRequestId).toBe('req-A');
+        expect(parent(a.evidence).verdict, 'A never borrows B\'s external proof').toBe('FAIL');
+    });
+
+    it('zero or two exchanges for one take prove nothing', () => {
+        expect(takeExchangeEvidence([]).unique).toBe(false);
+        const one = { sent: { sessionId: 's', product: null, requestId: 'r', attemptId: null, clientAttempt: null, clientReleaseId: null },
+            status: 502, diagnostics: { reason: 'provider_http_5xx', provider_status: 503 }, suggestions: null, clientMs: 1, at: 1 };
+        expect(takeExchangeEvidence([one, one])).toMatchObject({ unique: false, evidence: { httpStatus: null } });
+        expect(provenExternalOutcome(takeExchangeEvidence([one]).evidence)).toBe('provider_5xx');
+    });
+
+    it('request provenance row: PASS for the saved take, FAIL when others were answered but not it, HOLD when none observed', () => {
+        const tap = { sentCount: 1, exchanges: [] as never[], forSession: () => [] as never[] };
+        expect(coachingRequestBindingRow(tap, 's').verdict).toBe('HOLD');
+        expect(coachingRequestBindingRow({ ...tap, exchanges: [{}] as never[] }, 's').verdict).toBe('FAIL');
+        expect(coachingRequestBindingRow({ ...tap, exchanges: [{}] as never[], forSession: () => [{}] as never[] }, 's').verdict).toBe('PASS');
+    });
+});
+
+describe('PM 6173420642 §1 — Focus success-dependent rows read the exact saved coaching first', () => {
+    const rowsOf = (rows: Array<{ step: string; verdict: string }>) => Object.fromEntries(rows.map((r) => [r.step, r.verdict]));
+    it('provider 503 + a PERSISTED pair → provenance and visible = saved FAIL (never "not exercised")', async () => {
+        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, well: 'Saved well.', next: 'Saved next.' })));
+        expect(rows['Focus coaching visible = saved']).toBe('FAIL');
+        expect(rows['Focus coaching provenance']).toBe('FAIL');
+    });
+    it('a PARTIAL saved pair is also FAIL', async () => {
+        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, well: 'Only one.', next: '' })));
+        expect(rows['Focus coaching visible = saved']).toBe('FAIL');
+    });
+    it('an UNREADABLE saved row (error or throw) is HOLD — absence unproven', async () => {
+        expect(rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: false })))['Focus coaching visible = saved']).toBe('HOLD');
+        expect(rowsOf(await focusExternalDependentRows(parent(provider503), async () => { throw new Error('db'); }))['Focus coaching provenance']).toBe('HOLD');
+    });
+    it('a confirmed ABSENCE lets every success-dependent row be "not exercised"', async () => {
+        const rows = await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, well: '', next: '' }));
+        expect(rows).toHaveLength(6);
+        expect(rows.every((r) => r.verdict === 'EXTERNAL')).toBe(true);
+    });
+    it('no EXTERNAL parent → no rows are written here (the success path judges them)', async () => {
+        expect(await focusExternalDependentRows(parent(provider503, { ...graceful, retryEnabled: false }), async () => ({ ok: true, well: '', next: '' }))).toEqual([]);
     });
 });
 

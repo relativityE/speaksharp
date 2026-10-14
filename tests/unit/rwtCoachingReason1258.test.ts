@@ -35,14 +35,14 @@ describe('#1258 coaching failure reason in the receipt', () => {
         const journey = readFileSync(path.resolve(__dirname, '../live/helpers/rwtJourney.ts'), 'utf8');
         for (const src of [openMic, focus]) {
             // Codex r4188372882: the read is a retained promise (never fire-and-forget), awaited before the row is written.
-            // #1258 (PM 6171519534): read ONCE for the reason and the provider's integer status, still a retained promise.
-            expect(src).toMatch(/coaching\.reasonRead = readCoachingFailureEvidence\(response\)\.then\(\(e\) => \{ coaching\.reason = e\.reason; coaching\.providerStatus = e\.providerStatus; \}\);/);
+            expect(src).toMatch(/if \(response\.status\(\) >= 400\) coaching\.reasonRead = readCoachingFailureReason\(response\)\.then\(\(r\) => \{ coaching\.reason = r; \}\);/);
             expect(src).not.toMatch(/void response\.json\(\)/);
             // Codex r4188372897: no out-of-contract value is ever written.
             expect(src).not.toContain("'unreadable'");
         }
         expect(openMic).toMatch(/httpStatus: coaching\.status, failureReason: coaching\.reason/);
-        expect(journey).toMatch(/httpStatus: request\.status, failureReason: request\.reason \?\? null/);
+        // #1258 (PM 6173420642 §3): the Focus row's evidence comes from the take's own exchange when there is exactly one.
+        expect(journey).toMatch(/httpStatus: take\.unique \? take\.evidence\.httpStatus : request\.status, failureReason: take\.unique \? take\.evidence\.reason : request\.reason \?\? null/);
     });
 
     it('a failed response is read as an awaitable closed reason; a non-JSON body reads "unrecognized" (Codex r4188372897)', async () => {
@@ -73,7 +73,7 @@ describe('#1258 coaching failure reason in the receipt', () => {
         const focus = readFileSync(path.resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
         const journey = readFileSync(path.resolve(__dirname, '../live/helpers/rwtJourney.ts'), 'utf8');
         // Open Mic: the settle sits after the terminal-state wait and before the coaching row.
-        const omSettle = openMic.indexOf('if (!(await settleCoachingReason(coaching.reasonRead))) { coaching.reason = COACHING_REASON_UNKNOWN; coaching.providerStatus = null; }');
+        const omSettle = openMic.indexOf('if (!(await settleCoachingReason(coaching.reasonRead))) coaching.reason = COACHING_REASON_UNKNOWN;');
         expect(omSettle).toBeGreaterThan(-1);
         expect(omSettle).toBeLessThan(openMic.indexOf("receipt.row('coaching rendered'"));
         // Focus: the caller no longer settles early; focusCoachingRows settles after its 180 s terminal poll.

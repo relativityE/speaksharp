@@ -85,7 +85,7 @@ import {
     expectedReleaseSha,
     entitlementRow,
     runOwnedIdentityFailures,
-    type RunTarget, readCoachingFailureEvidence, coachingRequestSessionId, readCoachingFailureUi, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
+    type RunTarget, readCoachingFailureReason, readCoachingFailureUi, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
     sentVerdict,
     sentDetail,
     readbackSettlement,
@@ -93,7 +93,10 @@ import {
     backFromProgressRestoresSession,
     backFromProgressRows,
 } from './helpers/rwtJourney';
-import { coachingParentVerdict, coachingTelemetryVerdict, successDependentRow, type CoachingParentVerdict } from './helpers/coachingExternal';
+import {
+    boundFailureOutcomeSent, coachingParentVerdict, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
+    type CoachingParentVerdict,
+} from './helpers/coachingExternal';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 import { productFillerCount } from './helpers/rwtFillerOracle';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
@@ -223,19 +226,13 @@ test.describe('RWT — Open Mic first session @live', () => {
         generations.attach(page);
         await installMicAcquisitionCounter(page);
         await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
-        const coaching: {
-            status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null;
-            providerStatus: number | null; requestSessionId: string | null;
-        } = { status: null, requests: 0, reason: null, reasonRead: null, providerStatus: null, requestSessionId: null };
+        const coaching: { status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null } = { status: null, requests: 0, reason: null, reasonRead: null };
         page.on('response', (response: Response) => {
             if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
                 coaching.status = response.status();
-                coaching.requestSessionId = coachingRequestSessionId(response.request());
-                // #1258: a failed generation names its closed, content-free reason in the receipt. PM 6171519534: read
-                // ONCE, keeping only the reason and the provider's integer status.
-                if (response.status() >= 400) {
-                    coaching.reasonRead = readCoachingFailureEvidence(response).then((e) => { coaching.reason = e.reason; coaching.providerStatus = e.providerStatus; });
-                }
+                // #1258: a failed generation names its closed, content-free reason in the receipt. External proof is NOT read
+                // from here (PM 6173420642 §3): it comes only from `generations`, the per-take request/response tuple.
+                if (response.status() >= 400) coaching.reasonRead = readCoachingFailureReason(response).then((r) => { coaching.reason = r; });
                 coaching.requests += 1; // runbook v12: Analytics must never request coaching again
             }
         });
@@ -245,6 +242,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         let persistedId: string | null = null;
         /** #1258 (PM 6171519534): the parent coaching verdict, so the telemetry row can judge the failure path under EXTERNAL. */
         let coachingParentOutcome: CoachingParentVerdict | null = null;
+        /** The first take's own diagnostic request id (from its request body), for binding its failure telemetry. */
+        let coachingTakeRequestId: string | null = null;
         // The take's own generation count, snapshotted before the Practice-again pass records more takes.
         let generationsForTake: number | null = null;
         // Codex r4200925124: when the generation count was snapshotted — the end of its blind-beacon window.
@@ -452,30 +451,28 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const inTarget = (n: number) => n >= COACHING_WORD_TARGET_MIN && n <= COACHING_WORD_TARGET;
                 const withinTarget = twoPhrases && inTarget(well!) && inTarget(next!);
                 // The reason is read before its row is written; a read still pending at the bound is UNKNOWN, never `null`.
-                if (!(await settleCoachingReason(coaching.reasonRead))) { coaching.reason = COACHING_REASON_UNKNOWN; coaching.providerStatus = null; }
+                if (!(await settleCoachingReason(coaching.reasonRead))) coaching.reason = COACHING_REASON_UNKNOWN;
+                // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body.
+                await settleCoachingReason(generations.settle());
+                const take = persistedId ? takeExchangeEvidence(generations.forSession(persistedId)) : takeExchangeEvidence([]);
+                coachingTakeRequestId = take.diagnosticRequestId;
                 // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage the app handled gracefully is EXTERNAL —
                 // non-blocking, never PASS. The saved take is proven independently (exactly one completed row, this id).
                 const rendered = terminal && twoPhrases;
                 const ui = rendered ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
                 const coachingParent = coachingParentVerdict({
                     rendered,
-                    evidence: { httpStatus: coaching.status, reason: coaching.reason, providerStatus: coaching.providerStatus },
-                    graceful: {
-                        savedTakeProven: Boolean(persistedId) && saved === 1, reviewState: state, ...ui,
-                        requestBoundToSession: coaching.requestSessionId === persistedId,
-                    },
+                    evidence: take.evidence,
+                    graceful: { savedTakeProven: Boolean(persistedId) && saved === 1, reviewState: state, ...ui, requestBoundToSession: take.unique },
                 });
                 coachingParentOutcome = coachingParent;
                 receipt.row('coaching rendered', coachingParent.verdict, coachingParent.detail,
-                    { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, providerStatus: coaching.providerStatus,
-                        externalOutcome: coachingParent.external, unavailableShown: rendered ? null : ui.unavailableShown,
+                    { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, providerStatus: take.evidence.providerStatus,
+                        takeExchangeUnique: take.unique, externalOutcome: coachingParent.external, unavailableShown: rendered ? null : ui.unavailableShown,
                         retryEnabled: rendered ? null : ui.retryEnabled, stopToCoachingMs: coachingMs });
                 // PM 6171519534 §4: request provenance is its own row on every path — never waived by an external outcome.
-                const boundTo = coaching.requestSessionId;
-                receipt.row('coaching request bound to this take', boundTo === null ? 'HOLD' : boundTo === persistedId ? 'PASS' : 'FAIL',
-                    boundTo === null ? 'the coaching request\'s session could not be read' : boundTo === persistedId
-                        ? 'the coaching request named this saved take' : 'the coaching request named a different session than the saved take',
-                    { requestBoundToSession: boundTo === null ? null : boundTo === persistedId });
+                const binding = coachingRequestBindingRow(generations, persistedId);
+                receipt.row('coaching request bound to this take', binding.verdict, binding.detail, { requestBoundToSession: binding.bound });
                 const lengthRow = successDependentRow(coachingParent, {
                     verdict: twoPhrases ? 'PASS' : 'HOLD',
                     detail: !twoPhrases ? 'no phrases to measure'
@@ -789,11 +786,13 @@ test.describe('RWT — Open Mic first session @live', () => {
             const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
             // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path (requested + failed) must have left
             // the page instead; success events are never assumed.
+            // PM 6173420642 §2: the failure outcome bound to THIS take's request id — never whole-run counts.
+            const boundFailure = boundFailureOutcomeSent(tap.events, coachingTakeRequestId);
             const coachingTelemetry = coachingTelemetryVerdict(coachingParentOutcome ?? { verdict: 'FAIL', detail: '', external: null },
-                coachingEvents, sentVerdict(coachingSent, tap, stoppedAt),
+                boundFailure, sentVerdict(coachingSent, tap, stoppedAt),
                 coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
                     : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt));
-            receipt.row('coaching telemetry sent', coachingTelemetry.verdict, coachingTelemetry.detail, { ...coachingEvents, blindBeacons: tap.blindBeacons });
+            receipt.row('coaching telemetry sent', coachingTelemetry.verdict, coachingTelemetry.detail, { ...coachingEvents, boundFailureOutcome: boundFailure, blindBeacons: tap.blindBeacons });
             // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
             // RECEIVED is the deployed PostHog readback for this journey.
             const inventory = {
