@@ -14,6 +14,11 @@ export interface OpenAttempt {
     sourceSessionId: string;
     /** Once resolution starts, retries remain durably bound to this exact repeat session. */
     resolutionSessionId?: string;
+    /**
+     * #1258 RH-13: when the user accepted it. A reconcile round binds the attempt only to the first owed take enqueued
+     * after this moment; an attempt stored before this field existed is bound by the next save, as before.
+     */
+    acceptedAtIso?: string;
 }
 
 export function setOpenAttempt(a: OpenAttempt): boolean {
