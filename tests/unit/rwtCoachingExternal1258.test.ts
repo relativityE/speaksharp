@@ -402,7 +402,7 @@ describe('§2–§4 — a consumer-built EXTERNAL receipt through the real valid
     it('§2: the consumer writes every coaching-dependent Analytics row as EXTERNAL, and the receipt finalizes INCOMPLETE (not a binding error)', () => {
         const rows = externalOpenMicRows();
         for (const step of ['analytics detail shows both AI suggestions', 'saved review is the first block', '"From this session" evidence', 'one practice action']) {
-            expect(rows.find((x) => x.step === step)?.verdict, step).toBe('EXTERNAL');
+            expect({ step, verdict: rows.find((x) => x.step === step)?.verdict }).toEqual({ step, verdict: 'EXTERNAL' });
         }
         const receipt = receiptWith(rows);
         expect(validateReceipt(receipt).errors).toEqual([]);
