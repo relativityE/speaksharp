@@ -39,11 +39,20 @@ const run = (bin, args, options = {}) => {
   if (result.error || result.status !== 0) throw new Error(`${bin} ${args[0]} failed: ${result.error?.message ?? result.stderr?.slice(-4000)}`);
   return result.stdout.trim();
 };
-function cleanupOwned({ id, stage, networkName }) {
+const firewallArgs = (id, subnet) => ['DOCKER-USER', '-s', subnet, '!', '-d', subnet,
+  '-m', 'comment', '--comment', id, '-j', 'DROP'];
+function cleanupOwned({ id, stage, networkName, subnet }) {
   assert.match(id, /^closure-proof-[a-f0-9]{16}$/);
   assert.equal(networkName, `${id}-internal`);
   assert.equal(resolve(stage).startsWith(`${resolve(process.env.RUNNER_TEMP)}/closure-chain-`), true);
   if (existsSync(stage)) run('supabase', ['stop', '--no-backup', '--workdir', stage]);
+  if (subnet) {
+    assert.match(subnet, /^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/);
+    const args = firewallArgs(id, subnet);
+    const rule = spawnSync('sudo', ['iptables', '-w', '-C', ...args], { env, encoding: 'utf8' });
+    if (rule.status === 0) run('sudo', ['iptables', '-w', '-D', ...args]);
+    else assert.equal(rule.status, 1, 'cannot verify owned firewall teardown');
+  }
   const networks = run('docker', ['network', 'ls', '--filter', `name=^${networkName}$`, '--format', '{{.Name}}']);
   if (networks) {
     const network = JSON.parse(run('docker', ['network', 'inspect', networkName]))[0];
@@ -69,6 +78,7 @@ writeFileSync(resourcesFile, JSON.stringify({ id, stage, networkName }));
 let primaryError;
 let cleanupError;
 let realSupabaseSchema = false;
+let subnet;
 const cli = (args) => run('supabase', [...args, '--workdir', stage]);
 const sql = (text) => run('docker', ['exec', '-i', containerName, 'psql', '-X', '-qAt', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], {
   input: `SET statement_timeout='30s'; SET lock_timeout='5s';\n${text}`,
@@ -81,10 +91,19 @@ try {
   // operator credentials from the application or an installed local stack.
   writeFileSync(join(directory, 'config.toml'), `project_id = "${id}"\n[db]\nmajor_version = 17\n[db.seed]\nenabled = false\n`);
   for (const file of files.filter((name) => name !== candidate)) cpSync(join(root, file), join(directory, 'migrations', file));
-  run('docker', ['network', 'create', '--internal', '--label', `speaksharp.closure-proof=${id}`, networkName]);
+  // Internal-only bridges do not publish the localhost DB port used by the
+  // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
+  // established before starting any database/service container instead.
+  run('docker', ['network', 'create', '--opt', 'com.docker.network.bridge.host_binding_ipv4=127.0.0.1',
+    '--label', `speaksharp.closure-proof=${id}`, networkName]);
   const network = JSON.parse(run('docker', ['network', 'inspect', networkName]))[0];
-  assert.equal(network.Internal, true, 'test network must not route provider requests');
   assert.equal(network.Labels['speaksharp.closure-proof'], id);
+  assert.equal(network.EnableIPv6, false, 'unfiltered IPv6 is refused');
+  subnet = network.IPAM.Config[0].Subnet;
+  assert.match(subnet, /^\d{1,3}(\.\d{1,3}){3}\/\d{1,2}$/);
+  writeFileSync(resourcesFile, JSON.stringify({ id, stage, networkName, subnet }));
+  run('sudo', ['iptables', '-w', '-I', ...firewallArgs(id, subnet)]);
+  run('sudo', ['iptables', '-w', '-C', ...firewallArgs(id, subnet)]);
   cli(['start', '--network-id', network.Id, '--exclude', 'studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor']);
   const container = JSON.parse(run('docker', ['inspect', containerName]))[0];
   assert.deepEqual(Object.keys(container.NetworkSettings.Networks), [networkName], 'database escaped the owned internal network');
@@ -104,7 +123,7 @@ try {
   primaryError = error;
 } finally {
   try {
-    cleanupOwned({ id, stage, networkName });
+    cleanupOwned({ id, stage, networkName, subnet });
   } catch (error) { cleanupError = error; }
   writeFileSync(join(evidence, 'verdict.json'), JSON.stringify({
     status: primaryError || cleanupError ? 'FAIL' : 'PASS',
