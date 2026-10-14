@@ -10,19 +10,23 @@ import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import { profileService } from '@/services/domainServices';
-import { membershipPresentation } from './membershipPresentation';
+import { membershipPresentation, trialPresentationState } from './membershipPresentation';
 
 export default function AccountPage() {
   const location = useLocation();
   const { data: profile, isLoading, isError } = useUserProfile();
-  const { data: usageLimit, isError: usageError } = useUsageLimit();
+  const usage = useUsageLimit();
   const queryClient = useQueryClient();
   const profileId = profile?.id;
   const [opening, setOpening] = useState<'manage' | 'cancel' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const returned = new URLSearchParams(location.search).get('billing') === 'returned';
-  const membership = membershipPresentation(profile, !usageError && usageLimit?.trial_active === true);
+  const membership = membershipPresentation(profile, trialPresentationState(usage));
+  const membershipLabel = membership.status === 'Active' || membership.status === 'Ending'
+    ? `Pro · ${membership.status}` : membership.status === 'Free' ? 'Free · Free'
+      : membership.status === 'Checking' ? 'Checking membership…'
+        : membership.status === 'Unavailable' ? 'Membership status unavailable' : 'Trial';
   const hasPaidAccount = hasPaidProEntitlement(profile);
   // A recoverable payment lapse removes product entitlement, not the ability to
   // repair billing for an already linked Stripe customer.
@@ -99,7 +103,7 @@ export default function AccountPage() {
             ) : (
               <>
                 <div className="rounded-xl border border-border bg-muted/30 p-4" data-testid="membership-status">
-                  <p className="font-semibold">{membership.status === 'Trial' ? 'Trial' : `${membership.status === 'Free' ? 'Free' : 'Pro'} · ${membership.status}`}</p>
+                  <p className="font-semibold">{membershipLabel}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{membership.detail}</p>
                 </div>
                 {returned && <p className="text-sm text-muted-foreground" role="status">

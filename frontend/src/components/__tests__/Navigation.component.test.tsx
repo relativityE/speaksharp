@@ -605,6 +605,19 @@ describe('Navigation', () => {
             expect(screen.queryByText(/· Trial$/)).not.toBeInTheDocument();
         });
 
+        it.each([
+            { state: 'pending', data: undefined, isLoading: true, isError: false, label: /· Checking membership…$/ },
+            { state: 'failed with cached trial', data: { trial_active: true }, isLoading: false, isError: true, label: /· Membership status unavailable$/ },
+            { state: 'missing flag', data: {}, isLoading: false, isError: false, label: /· Membership status unavailable$/ },
+        ])('does not label an unconfirmed account Free, Trial or Pro when usage is $state', async (usage) => {
+            mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free' }, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue(usage);
+            renderNavigation('/');
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
+            expect(screen.getByText(usage.label)).toBeVisible();
+            expect(screen.queryByText(/· (Free|Trial|Pro)$/)).not.toBeInTheDocument();
+        });
+
         it.each(['/session', '/session/', '/Session', '/session/abc123', '/analytics', '/ANALYTICS', '/analytics/42', '/pricing'])(
             'hides the upgrade CTA on %s (route checks go through the shared resolver)',
             (route) => {

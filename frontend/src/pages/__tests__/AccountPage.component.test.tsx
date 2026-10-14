@@ -29,7 +29,7 @@ describe('Membership on Account', () => {
   const setQueryData = vi.fn();
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useUsageLimit).mockReturnValue({ data: undefined, isError: false } as ReturnType<typeof useUsageLimit>);
+    vi.mocked(useUsageLimit).mockReturnValue({ data: { trial_active: false }, isError: false } as ReturnType<typeof useUsageLimit>);
     vi.mocked(useQueryClient).mockReturnValue({ setQueryData } as unknown as ReturnType<typeof useQueryClient>);
     vi.mocked(arePaymentsEnabled).mockReturnValue(true);
     vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke } } as unknown as ReturnType<typeof getSupabaseClient>);
@@ -90,7 +90,7 @@ describe('Membership on Account', () => {
     });
     expect(membershipPresentation({ ...paid, stripe_cancel_at_period_end: true, stripe_current_period_end: '2026-10-25T00:00:00Z' }).detail).toContain('2026');
     expect(membershipPresentation({ ...paid, stripe_cancel_at_period_end: false }).status).toBe('Active');
-    expect(membershipPresentation({ ...paid, subscription_status: 'free' }).status).toBe('Free');
+    expect(membershipPresentation({ ...paid, subscription_status: 'free' }, 'inactive').status).toBe('Free');
   });
 
   it('shows a direct cancellation action for a paid member and sends a scoped portal flow', async () => {
@@ -141,20 +141,32 @@ describe('Membership on Account', () => {
   });
 
   it('does not infer a trial from client dates or override a confirmed paid membership', () => {
-    expect(membershipPresentation({ ...paid, subscription_status: 'free', trial_expires_at: '2999-01-01T00:00:00Z' }, false).status).toBe('Free');
-    expect(membershipPresentation(paid, true).status).toBe('Active');
+    expect(membershipPresentation({ ...paid, subscription_status: 'free', trial_expires_at: '2999-01-01T00:00:00Z' }, 'inactive').status).toBe('Free');
+    expect(membershipPresentation(paid, 'active').status).toBe('Active');
   });
 
   it.each([
-    { state: 'expired', data: { trial_active: false }, isError: false },
-    { state: 'unknown', data: undefined, isError: false },
-    { state: 'failed', data: { trial_active: true }, isError: true },
-  ])('does not claim a server-confirmed active trial when usage is $state', (usage) => {
+    { state: 'expired', data: { trial_active: false }, isError: false, isLoading: false, label: 'Free · Free' },
+    { state: 'pending', data: undefined, isError: false, isLoading: true, label: 'Checking membership…' },
+    { state: 'failed', data: { trial_active: true }, isError: true, isLoading: false, label: 'Membership status unavailable' },
+    { state: 'absent flag', data: {}, isError: false, isLoading: false, label: 'Membership status unavailable' },
+    { state: 'malformed flag', data: { trial_active: 'false' }, isError: false, isLoading: false, label: 'Membership status unavailable' },
+  ])('shows truthful membership when usage is $state', (usage) => {
     vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null, trial_expires_at: '2999-01-01T00:00:00Z' }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
     vi.mocked(useUsageLimit).mockReturnValue(usage as unknown as ReturnType<typeof useUsageLimit>);
     render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText(usage.label)).toBeVisible();
     expect(screen.queryByText('Trial')).not.toBeInTheDocument();
     expect(screen.queryByText(/Your trial is active/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+  });
+
+  it('unavailable trial evidence does not remove linked-customer billing management', () => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free' }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    vi.mocked(useUsageLimit).mockReturnValue({ data: { trial_active: true }, isError: true } as ReturnType<typeof useUsageLimit>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText('Membership status unavailable')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Manage billing' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
   });
 });

@@ -11,6 +11,7 @@ import { useUserProfile } from "@/hooks/useUserProfile";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { getEffectiveSubscriptionStatus, isPro, hasPaidProEntitlement } from "@/constants/subscriptionTiers";
 import { arePaymentsEnabled } from "@/config/appRuntimeConfig";
+import { membershipPresentation, trialPresentationState } from '@/pages/membershipPresentation';
 import logger from "@/lib/logger";
 import {
   buildCheckoutBody,
@@ -35,7 +36,8 @@ const Navigation = () => {
   const navigate = useNavigate();
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
-  const { data: usageLimit, isError: usageError } = useUsageLimit();
+  const usage = useUsageLimit();
+  const usageLimit = usage.data;
   // Feedback carries an opaque account reference for support follow-up and never carries transcript
   // or audio. Product analytics receives only content-free feedback state through the governed boundary.
   const reportSttMode = useSessionStore(state => state.sttMode);
@@ -61,8 +63,10 @@ const Navigation = () => {
   // hasPaidProEntitlement is the canonical paid signal and is unaffected by that override.
   const hasActiveProductAccess = isPro(effectiveSubscriptionStatus) || hasPaidProEntitlement(profile);
   const isConfirmedPaidUser = hasPaidProEntitlement(profile);
+  const membershipStatus = membershipPresentation(profile, trialPresentationState(usage)).status;
   const accountMembershipLabel = isConfirmedPaidUser ? 'Pro'
-    : !usageError && usageLimit?.trial_active === true ? 'Trial' : 'Free';
+    : membershipStatus === 'Trial' ? 'Trial' : membershipStatus === 'Free' ? 'Free'
+      : membershipStatus === 'Checking' ? 'Checking membership…' : 'Membership status unavailable';
 
   const handleSignOut = async () => {
     await signOut();
