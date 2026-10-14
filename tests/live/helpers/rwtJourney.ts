@@ -22,6 +22,7 @@ import { expect, type Locator, type Page, type TestInfo } from '@playwright/test
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
+import { coachingParentVerdict, providerStatusFrom, successDependentRow, UNAVAILABLE_HEADLINE } from './coachingExternal';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
     AUDIO_ARGS,
@@ -81,10 +82,20 @@ export function bandSide(well: number, next: number, min: number, max: number): 
 }
 
 export async function readCoachingFailureReason(response: { json(): Promise<unknown> }): Promise<string | null> {
+    return (await readCoachingFailureEvidence(response)).reason;
+}
+
+/**
+ * #1258 (PM 6171519534) — the failed response read ONCE, keeping only allowlisted scalars: the closed reason and the
+ * provider's integer HTTP status from `diagnostics.provider_status`. Never throws; an unparseable body is `unrecognized`
+ * with no provider status, so it can never prove an external outage.
+ */
+export async function readCoachingFailureEvidence(response: { json(): Promise<unknown> }): Promise<{ reason: string | null; providerStatus: number | null }> {
     try {
-        return coachingFailureReason(await response.json());
+        const body = await response.json();
+        return { reason: coachingFailureReason(body), providerStatus: providerStatusFrom(body) };
     } catch {
-        return 'unrecognized';
+        return { reason: 'unrecognized', providerStatus: null };
     }
 }
 
@@ -1764,13 +1775,41 @@ export async function readCoachingPhrase(card: Locator, testId: 'review-what-wen
     return (await node.innerText({ timeout: COACHING_PHRASE_READ_MS }).catch(() => '')).trim();
 }
 
+/**
+ * #1258 (PM 6171519534) — the review card's own handling of a failed generation, read without pressing anything (a
+ * press would be another provider request). Bounded reads; a missing control reads as not shown / not enabled.
+ */
+export async function readCoachingFailureUi(card: Locator): Promise<{ unavailableShown: boolean; retryEnabled: boolean }> {
+    const headline = card.getByTestId('ai-suggestions-headline');
+    const shown = (await headline.innerText({ timeout: 5_000 }).catch(() => '')).trim();
+    const retry = card.getByTestId('ai-suggestions-retry');
+    const visible = await retry.isVisible().catch(() => false);
+    const enabled = visible && await retry.isEnabled({ timeout: 5_000 }).catch(() => false);
+    const label = visible ? (await retry.innerText({ timeout: 5_000 }).catch(() => '')).trim() : '';
+    return { unavailableShown: shown === UNAVAILABLE_HEADLINE, retryEnabled: enabled && label === 'Try again' };
+}
+
+/** The coaching request's own `sessionId` (request body), read from the observed POST; null when unreadable. */
+export function coachingRequestSessionId(request: { postDataJSON(): unknown }): string | null {
+    try {
+        const body = request.postDataJSON() as { sessionId?: unknown } | null;
+        return typeof body?.sessionId === 'string' ? body.sessionId : null;
+    } catch {
+        return null;
+    }
+}
+
 export async function focusCoachingRows(
     page: Page,
     receipt: RwtReceipt,
     admin: SupabaseClient,
     sessionId: string,
     uid: string,
-    request: { product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null },
+    request: {
+        product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null;
+        /** #1258 (PM 6171519534): `diagnostics.provider_status` of a failed response, and the request's own sessionId. */
+        providerStatus?: number | null; requestSessionId?: string | null;
+    },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
     const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
@@ -1786,13 +1825,46 @@ export async function focusCoachingRows(
     const well = await phrase('review-what-went-well');
     const next = await phrase('review-try-next');
     const two = terminal && state === 'ready' && well !== '' && next !== '';
-    receipt.row('Focus coaching rendered', two ? 'PASS' : 'FAIL',
-        two ? 'two coaching phrases rendered after Stop without any click' : `coaching did not render (state=${String(state)}, http=${String(request.status)})`,
-        { reviewState: state, httpStatus: request.status, failureReason: request.reason ?? null });
+    // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage that the app handled gracefully is EXTERNAL, never PASS.
+    let savedTakeProven = false;
+    if (!two) {
+        const { count, error: countErr } = await admin.from('sessions').select('id', { count: 'exact', head: true })
+            .eq('id', sessionId).eq('user_id', uid).eq('status', 'completed');
+        savedTakeProven = !countErr && count === 1;
+    }
+    const ui = two ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
+    const parent = coachingParentVerdict({
+        rendered: two,
+        evidence: { httpStatus: request.status, reason: request.reason ?? null, providerStatus: request.providerStatus ?? null },
+        graceful: { savedTakeProven, reviewState: state, ...ui, requestBoundToSession: request.requestSessionId === sessionId },
+    });
+    receipt.row('Focus coaching rendered', parent.verdict,
+        two ? 'two coaching phrases rendered after Stop without any click' : parent.detail,
+        { reviewState: state, httpStatus: request.status, failureReason: request.reason ?? null, providerStatus: request.providerStatus ?? null,
+            externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven, unavailableShown: two ? null : ui.unavailableShown,
+            retryEnabled: two ? null : ui.retryEnabled, requestBoundToSession: request.requestSessionId === sessionId });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
-    if (!two) return null;
+    // PM 6171519534 §4: request provenance is judged on its own, on every path — never waived by an external outcome.
+    const boundTo = request.requestSessionId ?? null;
+    receipt.row('Focus coaching request bound to this take', boundTo === null ? 'HOLD' : boundTo === sessionId ? 'PASS' : 'FAIL',
+        boundTo === null ? 'the coaching request\'s session could not be read' : boundTo === sessionId
+            ? 'the coaching request named this saved take' : 'the coaching request named a different session than the saved take',
+        { requestBoundToSession: boundTo === null ? null : boundTo === sessionId });
+    if (!two) {
+        if (parent.verdict === 'EXTERNAL') {
+            // Only the assertions a SUCCESSFUL answer makes possible become "not exercised"; the human check stays unobserved.
+            for (const step of ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim',
+                'Focus coaching provenance', 'Focus coaching visible = saved', 'Focus coaching server receipt']) {
+                const dependent = successDependentRow(parent, { verdict: 'FAIL', detail: 'no coaching answer' });
+                receipt.row(step, dependent.verdict, dependent.detail);
+            }
+            humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
+                'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
+        }
+        return null;
+    }
     const inTarget = (n: number) => n >= COACHING_PHRASE_TARGET_MIN_WORDS && n <= COACHING_PHRASE_TARGET_WORDS;
     const withinTarget = inTarget(countWords(well)) && inTarget(countWords(next));
     receipt.row('Focus coaching length', 'PASS',

@@ -43,7 +43,13 @@ export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; repo
  * `HUMAN`: a named human RWT observation — a runbook check no automation can judge. Never a permanent HOLD: it names
  * the question and pass criterion, and becomes PASS/FAIL only through the finalization step.
  */
-export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN';
+/**
+ * `EXTERNAL` (PO 2026-10-14, PM 6171519534): the coaching provider was PROVABLY unavailable (request-bound provider 5xx
+ * or provider timeout) AND the app independently degraded gracefully. Never PASS and never FAIL: it does not block
+ * progress, but successful-coaching coverage stays outstanding, so acceptance stays INCOMPLETE. Set only by
+ * `coachingExternal.ts`; a suite cannot otherwise declare it.
+ */
+export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN' | 'EXTERNAL';
 export interface ReceiptRow { step: string; verdict: Verdict; detail: string; evidence?: Record<string, string | number | boolean | null> }
 export type Acceptance = 'PASS' | 'FAIL' | 'INCOMPLETE';
 
@@ -68,11 +74,19 @@ export function receiptAcceptance(rows: readonly ReceiptRow[]): {
     automatedRowsAllPass: boolean;
     humanObservations: HumanObservationState[];
     nonGating: { step: string; verdict: string; reason: string }[];
+    /** Rows that recorded a proved external provider outcome — non-blocking, named, and never counted as a pass. */
+    external: { step: string; detail: string }[];
+    /** True whenever any row is EXTERNAL: a non-blocking provider outage is not proof that coaching works. */
+    successfulCoachingOutstanding: boolean;
 } {
     const gating = rows.filter((r) => !exempt(r));
+    const external = rows.filter((r) => r.verdict === 'EXTERNAL').map((r) => ({ step: r.step, detail: r.detail }));
     return {
+        // FAIL dominates; an EXTERNAL row (like a HOLD) leaves the run INCOMPLETE, never PASS.
         acceptance: gating.some((r) => r.verdict === 'FAIL') ? 'FAIL'
-            : gating.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN') ? 'INCOMPLETE' : 'PASS',
+            : gating.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN' || r.verdict === 'EXTERNAL') ? 'INCOMPLETE' : 'PASS',
+        external,
+        successfulCoachingOutstanding: external.length > 0,
         // #1532 Codex P2 r4126745144: every GATING automated row must be PASS; a gating HOLD is not "all pass". Rows in
         // NON_GATING_ROWS are already excluded from `gating`, and human observations are never automated.
         automatedRowsAllPass: gating.filter((r) => !isHumanObservation(r)).every((r) => r.verdict === 'PASS'),
@@ -170,7 +184,7 @@ export interface ReceiptForFinalization {
     readback?: { journeys?: ReadbackBinding[]; reportedJourneyIds?: string[]; missingBindings?: string[] };
 }
 
-const VERDICTS: ReadonlySet<string> = new Set(['PASS', 'FAIL', 'HOLD', 'HUMAN']);
+const VERDICTS: ReadonlySet<string> = new Set(['PASS', 'FAIL', 'HOLD', 'HUMAN', 'EXTERNAL']);
 
 /**
  * PM RETURN 2026-09-26 — the human observations each RWT suite MUST carry. A receipt missing one of them cannot be
@@ -450,6 +464,9 @@ export interface FinalizationResult {
     rows: ReceiptRow[];
     humanObservations: HumanObservationState[];
     automatedRowsAllPass: boolean;
+    /** PM 6171519534: proved external provider outcomes stay visible after finalization — never folded into PASS or FAIL. */
+    external: { step: string; detail: string }[];
+    successfulCoachingOutstanding: boolean;
 }
 
 /**
@@ -480,6 +497,8 @@ export interface ReadbackVerdicts {
     coachingDiagnostic?: { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: string[]; release?: string; expected?: Record<string, unknown> };
 }
 const RECEIVED_ROW = 'journey telemetry received';
+/** The coaching rows whose EXTERNAL verdict explains a readback HOLD on the success chain (D1). */
+const EXTERNAL_COACHING_PARENTS: ReadonlySet<string> = new Set(['coaching rendered', 'Focus coaching rendered']);
 const FEEDBACK_CHAIN_ROW = 'feedback diagnostic chain';
 /** The row's sent-boundary binding, in the evaluator's expectation shape (compared field by field, exactly). */
 const rowBinding = (row: ReceiptRow): Record<string, unknown> | null => {
@@ -584,12 +603,18 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     }
     const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
+    // D1 (PM 6171519534): the product completeness gate still requires a rendered review in the post-Stop chain, so a run
+    // whose coaching was provably unavailable cannot qualify it. That HOLD is named, never relabelled received PASS or
+    // EXTERNAL; an observed FAIL still dominates.
+    const externalCoaching = receipt.rows.some((r) => r.verdict === 'EXTERNAL' && EXTERNAL_COACHING_PARENTS.has(r.step));
     return receipt.rows.map((r) => (r.step === FEEDBACK_CHAIN_ROW ? settleFeedbackChain(r, coaching) : r.step !== RECEIVED_ROW ? settleBlindHold(receipt.suite, r, journeys) : {
         ...r,
         verdict: failed > 0 ? 'FAIL' : qualified ? 'PASS' : 'HOLD',
         detail: failed > 0 ? 'the PostHog readback RECEIVED an observed failure for a bound journey (merged at finalization)'
             : qualified ? 'every bound journey qualified in the PostHog readback (merged at finalization)'
-                : 'the PostHog readback did not qualify every bound journey',
+                : externalCoaching
+                    ? 'the PostHog readback did not qualify every bound journey; the post-Stop success chain (review_rendered) cannot complete while the coaching provider was unavailable (EXTERNAL; product gate unchanged, D1)'
+                    : 'the PostHog readback did not qualify every bound journey',
         evidence: { ...(r.evidence ?? {}), readbackJourneys: journeys.length, readbackQualified: journeys.filter((j) => j.verdict === 'QUALIFIED').length, readbackFailed: failed },
     }));
 }
@@ -598,7 +623,8 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
     const validated = validateReceipt(raw);
     if (!validated.receipt) {
         // Unusable receipt: nothing can be finalized from it — INCOMPLETE, never PASS.
-        return { status: 'binding_error', finalAcceptance: 'INCOMPLETE', errors: validated.errors, rows: [], humanObservations: [], automatedRowsAllPass: false };
+        return { status: 'binding_error', finalAcceptance: 'INCOMPLETE', errors: validated.errors, rows: [], humanObservations: [], automatedRowsAllPass: false,
+            external: [], successfulCoachingOutstanding: false };
     }
     const receipt = validated.receipt;
     const errors: string[] = [...validated.errors];
@@ -627,7 +653,8 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
         const a = receiptAcceptance(receipt.rows);
         // A FAIL already present in the automated rows stays a FAIL; otherwise the run is INCOMPLETE, never PASS.
         return { status: 'binding_error', finalAcceptance: a.acceptance === 'FAIL' ? 'FAIL' : 'INCOMPLETE', errors, rows: receipt.rows,
-            humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass };
+            humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass,
+            external: a.external, successfulCoachingOutstanding: a.successfulCoachingOutstanding };
     }
     const rows = readbackRows.map((r) => {
         if (!isHumanObservation(r)) return r;
@@ -636,7 +663,8 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
         return { ...r, verdict, detail: `recorded by the human reviewer: ${verdict}`, evidence: { ...r.evidence!, recorded: verdict, observer: entry.observer } };
     });
     const a = receiptAcceptance(rows);
-    return { status: 'final', finalAcceptance: a.acceptance, errors: [], rows, humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass };
+    return { status: 'final', finalAcceptance: a.acceptance, errors: [], rows, humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass,
+        external: a.external, successfulCoachingOutstanding: a.successfulCoachingOutstanding };
 }
 
 /**

@@ -85,7 +85,7 @@ import {
     expectedReleaseSha,
     entitlementRow,
     runOwnedIdentityFailures,
-    type RunTarget, readCoachingFailureReason, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
+    type RunTarget, readCoachingFailureEvidence, coachingRequestSessionId, readCoachingFailureUi, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
     sentVerdict,
     sentDetail,
     readbackSettlement,
@@ -93,6 +93,7 @@ import {
     backFromProgressRestoresSession,
     backFromProgressRows,
 } from './helpers/rwtJourney';
+import { coachingParentVerdict, coachingTelemetryVerdict, successDependentRow, type CoachingParentVerdict } from './helpers/coachingExternal';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 import { productFillerCount } from './helpers/rwtFillerOracle';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
@@ -222,12 +223,19 @@ test.describe('RWT — Open Mic first session @live', () => {
         generations.attach(page);
         await installMicAcquisitionCounter(page);
         await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
-        const coaching: { status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null } = { status: null, requests: 0, reason: null, reasonRead: null };
+        const coaching: {
+            status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null;
+            providerStatus: number | null; requestSessionId: string | null;
+        } = { status: null, requests: 0, reason: null, reasonRead: null, providerStatus: null, requestSessionId: null };
         page.on('response', (response: Response) => {
             if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
                 coaching.status = response.status();
-                // #1258: a failed generation names its closed, content-free reason in the receipt.
-                if (response.status() >= 400) coaching.reasonRead = readCoachingFailureReason(response).then((r) => { coaching.reason = r; });
+                coaching.requestSessionId = coachingRequestSessionId(response.request());
+                // #1258: a failed generation names its closed, content-free reason in the receipt. PM 6171519534: read
+                // ONCE, keeping only the reason and the provider's integer status.
+                if (response.status() >= 400) {
+                    coaching.reasonRead = readCoachingFailureEvidence(response).then((e) => { coaching.reason = e.reason; coaching.providerStatus = e.providerStatus; });
+                }
                 coaching.requests += 1; // runbook v12: Analytics must never request coaching again
             }
         });
@@ -235,6 +243,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         await suppressPageSnapshot(testInfo);
 
         let persistedId: string | null = null;
+        /** #1258 (PM 6171519534): the parent coaching verdict, so the telemetry row can judge the failure path under EXTERNAL. */
+        let coachingParentOutcome: CoachingParentVerdict | null = null;
         // The take's own generation count, snapshotted before the Practice-again pass records more takes.
         let generationsForTake: number | null = null;
         // Codex r4200925124: when the generation count was snapshotted — the end of its blind-beacon window.
@@ -442,18 +452,43 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const inTarget = (n: number) => n >= COACHING_WORD_TARGET_MIN && n <= COACHING_WORD_TARGET;
                 const withinTarget = twoPhrases && inTarget(well!) && inTarget(next!);
                 // The reason is read before its row is written; a read still pending at the bound is UNKNOWN, never `null`.
-                if (!(await settleCoachingReason(coaching.reasonRead))) coaching.reason = COACHING_REASON_UNKNOWN;
-                receipt.row('coaching rendered', terminal && twoPhrases ? 'PASS' : 'FAIL',
-                    twoPhrases ? 'exactly two coaching phrases rendered without any click' : `coaching did not render (state=${String(state)}, http=${String(coaching.status)})`,
-                    { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, stopToCoachingMs: coachingMs });
-                receipt.row('coaching length', twoPhrases ? 'PASS' : 'HOLD',
-                    !twoPhrases ? 'no phrases to measure'
+                if (!(await settleCoachingReason(coaching.reasonRead))) { coaching.reason = COACHING_REASON_UNKNOWN; coaching.providerStatus = null; }
+                // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage the app handled gracefully is EXTERNAL —
+                // non-blocking, never PASS. The saved take is proven independently (exactly one completed row, this id).
+                const rendered = terminal && twoPhrases;
+                const ui = rendered ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
+                const coachingParent = coachingParentVerdict({
+                    rendered,
+                    evidence: { httpStatus: coaching.status, reason: coaching.reason, providerStatus: coaching.providerStatus },
+                    graceful: {
+                        savedTakeProven: Boolean(persistedId) && saved === 1, reviewState: state, ...ui,
+                        requestBoundToSession: coaching.requestSessionId === persistedId,
+                    },
+                });
+                coachingParentOutcome = coachingParent;
+                receipt.row('coaching rendered', coachingParent.verdict, coachingParent.detail,
+                    { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, providerStatus: coaching.providerStatus,
+                        externalOutcome: coachingParent.external, unavailableShown: rendered ? null : ui.unavailableShown,
+                        retryEnabled: rendered ? null : ui.retryEnabled, stopToCoachingMs: coachingMs });
+                // PM 6171519534 §4: request provenance is its own row on every path — never waived by an external outcome.
+                const boundTo = coaching.requestSessionId;
+                receipt.row('coaching request bound to this take', boundTo === null ? 'HOLD' : boundTo === persistedId ? 'PASS' : 'FAIL',
+                    boundTo === null ? 'the coaching request\'s session could not be read' : boundTo === persistedId
+                        ? 'the coaching request named this saved take' : 'the coaching request named a different session than the saved take',
+                    { requestBoundToSession: boundTo === null ? null : boundTo === persistedId });
+                const lengthRow = successDependentRow(coachingParent, {
+                    verdict: twoPhrases ? 'PASS' : 'HOLD',
+                    detail: !twoPhrases ? 'no phrases to measure'
                         : withinTarget ? `both phrases within the ${COACHING_WORD_TARGET_MIN}-${COACHING_WORD_TARGET}-word target`
                             : `served whole; a phrase is outside the ${COACHING_WORD_TARGET_MIN}-${COACHING_WORD_TARGET}-word band (${bandSide(well!, next!, COACHING_WORD_TARGET_MIN, COACHING_WORD_TARGET)}; a quality measure, not a failure)`,
-                    { wellWords: well, nextWords: next, withinTarget });
+                });
+                receipt.row('coaching length', lengthRow.verdict, lengthRow.detail, { wellWords: well, nextWords: next, withinTarget });
                 const distinct = twoPhrases && samePhrase(shownWell, shownNext) === false;
-                receipt.row('coaching phrases distinct', distinct ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
-                    distinct ? 'the two phrases are different suggestions' : twoPhrases ? 'both headings show the same phrase' : 'no phrases to compare');
+                const distinctRow = successDependentRow(coachingParent, {
+                    verdict: distinct ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
+                    detail: distinct ? 'the two phrases are different suggestions' : twoPhrases ? 'both headings show the same phrase' : 'no phrases to compare',
+                });
+                receipt.row('coaching phrases distinct', distinctRow.verdict, distinctRow.detail);
 
                 // The visible text must BE the saved coaching response, field for field (compared in Node only).
                 const { data: savedRow, error: savedAiErr } = await admin!.from('sessions').select('ai_suggestions')
@@ -465,10 +500,18 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.forbid(savedWell, savedNext);
                 const wellMatches = savedWell !== '' && samePhrase(shownWell, savedWell);
                 const nextMatches = savedNext !== '' && samePhrase(shownNext, savedNext);
-                receipt.row('coaching visible = saved', wellMatches && nextMatches ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
-                    wellMatches && nextMatches ? 'both visible phrases equal the saved coaching response'
-                        : savedWell === '' || savedNext === '' ? 'the session row holds no complete saved coaching response'
-                            : 'a visible phrase differs from the saved coaching response',
+                // Under EXTERNAL a saved coaching response must still be ABSENT: a pair saved for a failed request is ours, not
+                // the provider's, so it is never waived (successDependentRow only replaces a row with no answer to compare).
+                const savedPresent = savedWell !== '' || savedNext !== '';
+                const visibleRow = coachingParent.verdict === 'EXTERNAL' && savedPresent
+                    ? { verdict: 'FAIL' as const, detail: 'a coaching response was saved for a request whose provider was unavailable' }
+                    : successDependentRow(coachingParent, {
+                        verdict: wellMatches && nextMatches ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
+                        detail: wellMatches && nextMatches ? 'both visible phrases equal the saved coaching response'
+                            : savedWell === '' || savedNext === '' ? 'the session row holds no complete saved coaching response'
+                                : 'a visible phrase differs from the saved coaching response',
+                    });
+                receipt.row('coaching visible = saved', visibleRow.verdict, visibleRow.detail,
                     { wellMatchesSaved: wellMatches, nextMatchesSaved: nextMatches, savedResponsePresent: savedWell !== '' && savedNext !== '' });
                 humanObservation(receipt, 'open_mic_coaching_relevant', 'Product 1 row 5', 'coaching is about this speech',
                     'each phrase relates to what was said in this take — not generic advice');
@@ -476,8 +519,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const { data: authority, error } = await admin!.from('ai_suggestion_authority_receipts')
                     .select('session_id,provider_request_made').eq('session_id', persistedId).eq('user_id', capturedUid).maybeSingle();
                 if (error) throw new Error(`coaching receipt query failed (fail closed): ${error.code ?? 'unknown'}`);
-                receipt.row('coaching server receipt', authority?.provider_request_made ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
-                    authority ? 'the server recorded the provider request for this session' : 'no server receipt for this session');
+                // The success authority (written only when a pair is persisted) is inapplicable under EXTERNAL.
+                const authorityRow = successDependentRow(coachingParent, {
+                    verdict: authority?.provider_request_made ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
+                    detail: authority ? 'the server recorded the provider request for this session' : 'no server receipt for this session',
+                });
+                receipt.row('coaching server receipt', authorityRow.verdict, authorityRow.detail);
             });
 
             // ── Row 4 (continued) — fillers: seen vs saved vs the corpus ────────────────────────────────
@@ -567,7 +614,13 @@ test.describe('RWT — Open Mic first session @live', () => {
                 if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
                 // With a complete saved response, the detail must also show both suggestions before and after its reload.
                 const savedCoaching = savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : undefined;
-                if (!savedCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
+                if (!savedCoaching) {
+                    // #1258 (PM 6171519534): with no answer to show, the row is "not exercised" under a proved external outage.
+                    const analyticsCoaching = coachingParentOutcome
+                        ? successDependentRow(coachingParentOutcome, { verdict: 'HOLD', detail: 'no saved coaching response to look for' })
+                        : { verdict: 'HOLD' as const, detail: 'no saved coaching response to look for' };
+                    receipt.row('analytics detail shows both AI suggestions', analyticsCoaching.verdict, analyticsCoaching.detail);
+                }
                 let pdfAttempted = false;
                 const downloadPdf = async (): Promise<void> => {
                     pdfAttempted = true;
@@ -734,9 +787,13 @@ test.describe('RWT — Open Mic first session @live', () => {
                 reviewRenderedStage: reviewRendered,
             };
             const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
-            receipt.row('coaching telemetry sent', sentVerdict(coachingSent, tap, stoppedAt),
+            // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path (requested + failed) must have left
+            // the page instead; success events are never assumed.
+            const coachingTelemetry = coachingTelemetryVerdict(coachingParentOutcome ?? { verdict: 'FAIL', detail: '', external: null },
+                coachingEvents, sentVerdict(coachingSent, tap, stoppedAt),
                 coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
-                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt), { ...coachingEvents, blindBeacons: tap.blindBeacons });
+                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt));
+            receipt.row('coaching telemetry sent', coachingTelemetry.verdict, coachingTelemetry.detail, { ...coachingEvents, blindBeacons: tap.blindBeacons });
             // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
             // RECEIVED is the deployed PostHog readback for this journey.
             const inventory = {
