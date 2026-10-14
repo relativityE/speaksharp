@@ -1786,6 +1786,24 @@ export async function readCoachingFailureUi(card: Locator): Promise<{ unavailabl
     return { unavailableShown: shown === UNAVAILABLE_HEADLINE, retryEnabled: enabled && label === 'Try again' };
 }
 
+/**
+ * #1258 (Codex P1 r4277023741, PM 6180080622) — the FIRST-TAKE save proof for the Focus suites. Their account is a fresh
+ * run-owned account and this checkpoint runs before Practice-again or any product switch, so the account must hold
+ * EXACTLY ONE completed session, and it must be this take's exact owner/session row. A count filtered by the session id
+ * could never see a duplicate saved under a second id. Any read error, null count, missing row or duplicate is NOT
+ * proven — it can never authorize EXTERNAL.
+ */
+export async function firstTakeSavedExactlyOnce(admin: SupabaseClient, uid: string, sessionId: string): Promise<{
+    proven: boolean; accountCompletedSessions: number | null; thisTakeCompleted: boolean | null;
+}> {
+    const account = await admin.from('sessions').select('id', { count: 'exact', head: true })
+        .eq('user_id', uid).eq('status', 'completed');
+    const accountCompletedSessions = account.error || typeof account.count !== 'number' ? null : account.count;
+    const own = await admin.from('sessions').select('id').eq('id', sessionId).eq('user_id', uid).eq('status', 'completed').maybeSingle();
+    const thisTakeCompleted = own.error ? null : (own.data as { id?: unknown } | null)?.id === sessionId;
+    return { proven: accountCompletedSessions === 1 && thisTakeCompleted === true, accountCompletedSessions, thisTakeCompleted };
+}
+
 export async function focusCoachingRows(
     page: Page,
     receipt: RwtReceipt,
@@ -1817,12 +1835,9 @@ export async function focusCoachingRows(
     const next = await phrase('review-try-next');
     const two = terminal && state === 'ready' && well !== '' && next !== '';
     // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage that the app handled gracefully is EXTERNAL, never PASS.
-    let savedTakeProven = false;
-    if (!two) {
-        const { count, error: countErr } = await admin.from('sessions').select('id', { count: 'exact', head: true })
-            .eq('id', sessionId).eq('user_id', uid).eq('status', 'completed');
-        savedTakeProven = !countErr && count === 1;
-    }
+    // Codex P1 r4277023741: exactly one completed save on the fresh run-owned account, and it is this take's row.
+    const firstSave = two ? null : await firstTakeSavedExactlyOnce(admin, uid, sessionId);
+    const savedTakeProven = firstSave?.proven ?? false;
     const ui = two ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
     // External proof comes ONLY from this take's exchange tuple; without one, nothing is proved.
     const parent = coachingParentVerdict({
@@ -1834,6 +1849,7 @@ export async function focusCoachingRows(
         two ? 'two coaching phrases rendered after Stop without any click' : parent.detail,
         { reviewState: state, httpStatus: take.unique ? take.evidence.httpStatus : request.status, failureReason: take.unique ? take.evidence.reason : request.reason ?? null,
             providerStatus: take.evidence.providerStatus, externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven,
+            accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,
             unavailableShown: two ? null : ui.unavailableShown, retryEnabled: two ? null : ui.retryEnabled, takeExchangeUnique: take.unique });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',

@@ -16,7 +16,7 @@ import {
     type CoachingFailureEvidence, type GracefulDegradation,
 } from '../live/helpers/coachingExternal';
 import { CoachingGenerationTap } from '../live/helpers/coachingGenerationTap';
-import { analyticsRows, readCoachingFailureEvidence, readCoachingFailureReason, RwtReceipt } from '../live/helpers/rwtJourney';
+import { analyticsRows, firstTakeSavedExactlyOnce, readCoachingFailureEvidence, readCoachingFailureReason, RwtReceipt } from '../live/helpers/rwtJourney';
 import {
     finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, requiredAutomatedRows, validateReceipt, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
@@ -677,5 +677,66 @@ describe('Codex P1 r4276817126 — only a NULL saved-coaching column is a confir
         const src = readFileSync(path.resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
         expect(src).toContain("const savedPresent = classifySavedCoaching(savedRow?.ai_suggestions ?? null).state !== 'absent';");
         expect(src).toContain('savedCoachingAbsent: !savedPresent');
+    });
+});
+
+/**
+ * A filter-honouring stand-in for `admin.from('sessions')`: `eq` filters rows, a head count resolves `{ count }`,
+ * `maybeSingle` resolves one row. `fail` makes the account count or the own-row read return an error; `nullCount`
+ * returns a null count without an error.
+ */
+type Row = { id: string; user_id: string; status: string };
+const sessionsAdmin = (rows: Row[], o: { fail?: 'count' | 'own'; nullCount?: boolean } = {}) => ({
+    from: () => ({
+        select: (_cols: string, opts?: { count?: string; head?: boolean }) => {
+            const filters: Array<[keyof Row, string]> = [];
+            const match = () => rows.filter((r) => filters.every(([k, v]) => r[k] === v));
+            const b = {
+                eq: (k: keyof Row, v: string) => { filters.push([k, v]); return b; },
+                maybeSingle: async () => (o.fail === 'own' ? { data: null, error: { message: 'x' } } : { data: match()[0] ?? null, error: null }),
+                then: (resolve: (v: unknown) => void) => resolve(o.fail === 'count' ? { count: null, error: { message: 'x' } }
+                    : { count: o.nullCount ? null : opts?.head ? match().length : null, error: null }),
+            };
+            return b;
+        },
+    }),
+});
+
+describe('Codex P1 r4277023741 (PM 6180080622) — Focus first-take save is proved exactly once on the run-owned account', () => {
+    const UID = 'uid-1';
+    const take = (id: string, status = 'completed'): Row => ({ id, user_id: UID, status });
+    const prove = (rows: Row[], o?: Parameters<typeof sessionsAdmin>[1]) => firstTakeSavedExactlyOnce(sessionsAdmin(rows, o) as never, UID, 'take-1');
+
+    it('RED-case from the review: the same first take saved twice under two ids is NOT proven', async () => {
+        expect(await prove([take('take-1'), take('take-1-dup')])).toEqual({ proven: false, accountCompletedSessions: 2, thisTakeCompleted: true });
+    });
+    it('exactly one completed row, and it is this take → proven', async () => {
+        expect(await prove([take('take-1'), take('draft', 'recording')])).toEqual({ proven: true, accountCompletedSessions: 1, thisTakeCompleted: true });
+    });
+    it('one completed row that is NOT this take → not proven', async () => {
+        expect(await prove([take('other')])).toEqual({ proven: false, accountCompletedSessions: 1, thisTakeCompleted: false });
+    });
+    it('another account\'s rows are not counted', async () => {
+        expect((await prove([take('take-1'), { id: 'x', user_id: 'someone-else', status: 'completed' }])).proven).toBe(true);
+    });
+    it.each([
+        ['an account-count error', { fail: 'count' as const }, { accountCompletedSessions: null, thisTakeCompleted: true }],
+        ['a null count', { nullCount: true }, { accountCompletedSessions: null, thisTakeCompleted: true }],
+        ['an own-row read error', { fail: 'own' as const }, { accountCompletedSessions: 1, thisTakeCompleted: null }],
+    ])('%s fails closed (never proven)', async (_label, o, expected) => {
+        expect(await prove([take('take-1')], o)).toEqual({ proven: false, ...expected });
+    });
+    it('phase contract: the checkpoint runs once, at the FIRST take, before Practice-again and any later recording', () => {
+        const journey = readFileSync(path.resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
+        const helper = readFileSync(path.resolve(__dirname, '../live/helpers/rwtJourney.ts'), 'utf8');
+        expect(journey.match(/await focusCoachingRows\(/g)).toHaveLength(1);
+        expect(journey.indexOf('await focusCoachingRows(')).toBeLessThan(journey.indexOf('await practiceAgainEvidence('));
+        expect(journey.indexOf('signUpDisposableAccount(page, owner.email)')).toBeLessThan(journey.indexOf('await focusCoachingRows('));
+        // The account-wide count is used by focusCoachingRows alone.
+        expect(helper.match(/await firstTakeSavedExactlyOnce\(/g)).toHaveLength(1);
+        // Both Focus suites run this one journey.
+        for (const spec of ['rwt-focus-points-session.live.spec.ts', 'rwt-focus-points-partial.live.spec.ts']) {
+            expect(readFileSync(path.resolve(__dirname, '../live', spec), 'utf8')).toContain('focusPointsJourney');
+        }
     });
 });
