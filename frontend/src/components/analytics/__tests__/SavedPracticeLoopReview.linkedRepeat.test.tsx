@@ -133,7 +133,7 @@ describe('#1548 — the saved review names the target actually measured by its l
         expect(screen.getAllByRole('button')).toHaveLength(1); // review still owns the only practice action
         expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
         expect(recordAttempt).toHaveBeenCalledTimes(1); // reloading the outcome never accepts another attempt
-        if (outcome !== 'moved') expect(result).not.toHaveTextContent('shows movement');
+        expect(result.textContent?.includes('shows movement')).toBe(outcome === 'moved');
     });
 });
 
