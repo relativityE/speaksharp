@@ -56,6 +56,8 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
         await wireProgressEvaluationOnSave(ctx());
         expect(rpc).toHaveBeenCalledWith('record_progress_evaluation', { p_session_id: 's1' });
         // The recommendation is recorded WITHOUT a caller-supplied source metric value (RPC derives it).
+        // #1258 RH-13: it is dispatched after the outcome, so the save no longer waits for it — wait for it here.
+        await vi.waitFor(() => expect(rpc.mock.calls.some((c) => c[0] === 'record_progress_recommendation')).toBe(true));
         const recCall = rpc.mock.calls.find((c) => c[0] === 'record_progress_recommendation');
         expect(recCall).toBeTruthy();
         expect(recCall![1]).not.toHaveProperty('p_source_metric_value');

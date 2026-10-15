@@ -81,6 +81,83 @@ beforeEach(() => {
     recordAttempt.mockResolvedValue('attempt-1');
 });
 
+describe('#1258 Codex P1 r4273670998 — acceptance time is the PRESS, not the end of the network calls', () => {
+    it('a slow pending-attempt readback and attempt create do not move acceptedAtIso past the press', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        const pressedAt = new Date('2026-10-14T12:00:00.000Z');
+        // Both server calls take time: by the time the handoff is stored, the wall clock is 40 s later.
+        readPending.mockImplementation(async () => { vi.setSystemTime(new Date('2026-10-14T12:00:20.000Z')); return { status: 'none' }; });
+        recordAttempt.mockImplementation(async () => { vi.setSystemTime(new Date('2026-10-14T12:00:40.000Z')); return 'attempt-1'; });
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(pressedAt);
+            fireEvent.click(action());
+            await waitFor(() => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-1', acceptedAtIso: pressedAt.toISOString() }));
+    });
+});
+
+describe('#1258 Codex P2 r4275718056 (PM 6178959404) — a reused attempt of unproved identity is accepted at THIS press', () => {
+    /** Press the action at `at` (client clock) and wait until `settled`. */
+    const pressAt = async (at: string, settled: () => void) => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date(at));
+            staleClick(action());
+            await waitFor(settled);
+        } finally {
+            vi.useRealTimers();
+        }
+    };
+    /** A local create at 11:00:00 that fails, then a retry press at 11:01:00 that finds a pending attempt. */
+    const failedLocalThenReuse = async (pending: Record<string, unknown>) => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        recordAttempt.mockResolvedValueOnce(null);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
+        expect(setOpenAttempt).not.toHaveBeenCalled();
+        readPending.mockResolvedValue({ status: 'one', ...pending });
+        await pressAt('2026-10-14T11:01:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        expect(recordAttempt).toHaveBeenCalledTimes(1);
+        return setOpenAttempt.mock.calls[0][0] as { attemptId: string; acceptedAtIso: string };
+    };
+    it.each([
+        // Another device accepted the same recommendation 30 s after the failed local press — inside any proximity window.
+        ['another device, 30 s after the failed press', { attemptId: 'attempt-other-device', acceptedAtIso: '2026-10-14T11:00:30.000Z' }],
+        // Clock skew either way: a server time just BEFORE the failed press, or well after it.
+        ['a server clock behind the browser', { attemptId: 'attempt-x', acceptedAtIso: '2026-10-14T10:59:10.000Z' }],
+        ['a server clock ahead of the browser', { attemptId: 'attempt-x', acceptedAtIso: '2026-10-14T11:00:55.000Z' }],
+        ['an unknown server time', { attemptId: 'attempt-x', acceptedAtIso: null }],
+        ['a malformed server time', { attemptId: 'attempt-x', acceptedAtIso: 'not-a-time' }],
+        ['no server time at all', { attemptId: 'attempt-x' }],
+    ])('%s → acceptance is the retry press, never the failed press nor the server time', async (_label, pending) => {
+        const stored = await failedLocalThenReuse(pending);
+        expect(stored).toMatchObject({ attemptId: pending.attemptId, acceptedAtIso: '2026-10-14T11:01:00.000Z' });
+    });
+    it('exact association — the create answered with its id — keeps that create\'s own press', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(setOpenAttempt).toHaveBeenCalledTimes(1));
+        expect(setOpenAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt-1', acceptedAtIso: '2026-10-14T11:00:00.000Z' }));
+    });
+    it('nothing is written on this device for a create whose answer has not arrived (no marker to borrow later)', async () => {
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        recordAttempt.mockResolvedValueOnce(null);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        const before = Object.keys(localStorage).length;
+        await pressAt('2026-10-14T11:00:00.000Z', () => expect(linkedAttempt).toHaveBeenCalledTimes(1));
+        expect(Object.keys(localStorage).length).toBe(before);
+    });
+});
+
 describe('#1258 P1 — the saved review never skips a valid linked repeat', () => {
     it('CASUALTY: pending progress + an immediate click navigates nowhere; once eligible, ONE linked attempt/handoff then the same set opens', async () => {
         const progress = deferred<unknown>();
@@ -105,7 +182,8 @@ describe('#1258 P1 — the saved review never skips a valid linked repeat', () =
         expect(readPending).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledTimes(1);
         expect(recordAttempt).toHaveBeenCalledWith('rec-1');
-        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1' });
+        // #1258 RH-13: the handoff also records WHEN it was accepted, so a reconcile round can bind it to the right take.
+        expect(setOpenAttempt).toHaveBeenCalledWith({ attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
         expect(setActiveObjectiveBrief).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'b1', points: ['One', 'Two'] }));
         expect(navigate).toHaveBeenCalledTimes(1);
         expect(practiceSelected).toHaveBeenCalledWith('focus_points', true);

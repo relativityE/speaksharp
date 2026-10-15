@@ -61,6 +61,13 @@ export interface QueueEntry {
      * still owed: it stays in the queue and is retried on later loads until its evaluation is durably recorded.
      */
     releasedAtIso?: string;
+    /**
+     * #1258 (Codex P1 r4273828969): when this take's RECORDING began — the boundary a "Practice this next" acceptance is
+     * compared with. The enqueue stamp is the late Progress seam, after the save, so it cannot order a take against an
+     * acceptance made meanwhile. Optional: older entries (and older tabs' rewrites) have none, and such a take is then
+     * never bound to an attempt (fail closed).
+     */
+    takeStartedAtIso?: string;
 }
 
 /** #1476: a retired obligation. Any v1 copy of this (owner, session) enqueued at or before `clearedThroughIso` stays retired. */
@@ -101,7 +108,8 @@ const validEntry = (e: unknown): e is QueueEntry =>
     && ((e as QueueEntry).attempts === undefined
         || (Number.isInteger((e as QueueEntry).attempts) && ((e as QueueEntry).attempts as number) >= 0))
     && optionalString((e as QueueEntry).lastAttemptAtIso)
-    && optionalString((e as QueueEntry).releasedAtIso);
+    && optionalString((e as QueueEntry).releasedAtIso)
+    && optionalString((e as QueueEntry).takeStartedAtIso);
 const validTomb = (t: unknown): t is Tombstone =>
     !!t && typeof t === 'object'
     && typeof (t as Tombstone).sessionId === 'string' && (t as Tombstone).sessionId !== ''
@@ -142,6 +150,8 @@ function mergeEntries(a: QueueEntry, b: QueueEntry): QueueEntry {
     if (lastAttemptAtIso !== undefined) merged.lastAttemptAtIso = lastAttemptAtIso;
     const releasedAtIso = earlierIso(a.releasedAtIso, b.releasedAtIso);
     if (releasedAtIso !== undefined) merged.releasedAtIso = releasedAtIso;
+    const takeStartedAtIso = earlierIso(a.takeStartedAtIso, b.takeStartedAtIso);
+    if (takeStartedAtIso !== undefined) merged.takeStartedAtIso = takeStartedAtIso;
     return merged;
 }
 
@@ -405,15 +415,23 @@ function migrateV1(): QueueWriteResult {
  * already there, or the write was confirmed by readback. Anything else is a failure the caller must
  * treat as "not durably queued".
  */
-export function enqueueProgressReconcile(sessionId: string, userId: string, nowIso: string): QueueWriteResult {
+export function enqueueProgressReconcile(sessionId: string, userId: string, nowIso: string, takeStartedAtIso?: string | null): QueueWriteResult {
     if (!sessionId || !userId) return { ok: false, failure: 'write_failed' };
     const migrated = migrateV1();
     if (!migrated.ok) return migrated;
     const own = readOwnEntry(userId, sessionId);
     if (!own.ok) return { ok: false, failure: own.failure };
-    // Already queued is a durable success: the debt is recorded, which is all `queued` claims.
-    if (own.entry) return { ok: true, verified: true };
-    const fresh: QueueEntry = { sessionId, userId, enqueuedAtIso: nowIso };
+    // Already queued is a durable success: the debt is recorded, which is all `queued` claims — unless this caller knows
+    // the take's recording start and the entry does not (#1258 Codex P1 r4275718048: server-obligation hydration queues
+    // a take with no boundary first). That start is merged in (the earliest wins) and verified, or a later retry round
+    // would see an unknown boundary and leave the accepted attempt unbound.
+    if (own.entry) {
+        const known = own.entry.takeStartedAtIso;
+        if (!takeStartedAtIso || (known !== undefined && known <= takeStartedAtIso)) return { ok: true, verified: true };
+        return writeEntryMonotonic({ ...own.entry, takeStartedAtIso },
+            (stored) => stored.takeStartedAtIso !== undefined && stored.takeStartedAtIso <= takeStartedAtIso);
+    }
+    const fresh: QueueEntry = { sessionId, userId, enqueuedAtIso: nowIso, ...(takeStartedAtIso ? { takeStartedAtIso } : {}) };
     // A tombstone that would retire THIS new obligation (same stamp, or a clock that moved backwards) is removed first.
     // A stale v1 copy it was guarding carries the same session and a stamp no newer, so it is this same obligation.
     const s = takeSnapshot();
