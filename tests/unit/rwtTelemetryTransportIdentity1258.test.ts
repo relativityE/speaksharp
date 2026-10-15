@@ -20,87 +20,129 @@ const { evaluateCoachingDiagnosticReceipt, terminalIdentity } = await import('..
 class FakePage extends EventEmitter {
     mainFrame() { return null; }
 }
-const req = (events: string[] | null, outcome?: { status?: number | null; failure?: string }) => ({
+type Ev = { event: string; journey?: string; attempt?: string };
+const FIRST = { journeyId: 'journey-1', attemptId: 'attempt-1' };
+const SECOND = { journeyId: 'journey-1', attemptId: 'attempt-2' };
+const of = (take: { journeyId: string; attemptId: string }, event: string): Ev => ({ event, journey: take.journeyId, attempt: take.attemptId });
+/** `response` may be a deferred promise, so a response can resolve AFTER capture closed. */
+const req = (events: Ev[] | null, outcome?: { status?: number | null; failure?: string; response?: Promise<unknown> }) => ({
     url: () => 'https://us.i.posthog.com/e/?ip=1',
     method: () => 'POST',
     isNavigationRequest: () => false,
     frame: () => ({}),
-    postDataBuffer: () => (events === null ? null : Buffer.from(JSON.stringify(events.map((event) => ({ event, properties: { journey_id: 'j' } }))))),
-    response: async () => (outcome?.status === null ? null : { status: () => outcome?.status ?? 200 }),
+    postDataBuffer: () => (events === null ? null : Buffer.from(JSON.stringify(events.map((e) => ({
+        event: e.event, properties: { ...(e.journey ? { journey_id: e.journey } : {}), ...(e.attempt ? { attempt_id: e.attempt } : {}) },
+    }))))),
+    response: () => outcome?.response ?? Promise.resolve(outcome?.status === null ? null : { status: () => outcome?.status ?? 200 }),
     failure: () => (outcome?.failure ? { errorText: outcome.failure } : null),
 });
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const SAVE = ['session_saved', 'transcript_authority', 'filler_measurement', 'model_attribution_receipt'];
+const tapOn = () => { const page = new FakePage(); const tap = new AnalyticsTap(); tap.attach(page as never); return { page, tap }; };
 
-describe('smoke item 2 — the HTTP outcome of the SAME request that carried each family', () => {
+describe('smoke item 2 — the HTTP outcome of the SAME request that carried each of the FIRST take\'s events', () => {
     it.each([
         [200, '2xx'], [204, '2xx'], [301, '3xx'], [400, '4xx'], [413, '4xx'], [503, '5xx'], [99, 'other_status'], [null, 'other_status'],
     ] as const)('status %s → %s', (status, cls) => expect(statusClass(status as number | null)).toBe(cls));
     it.each([['net::ERR_ABORTED', 'aborted'], ['NS_BINDING_ABORTED', 'aborted'], ['net::ERR_CONNECTION_RESET', 'failed'], [null, 'failed']] as const)(
         'browser failure %s → %s', (text, cls) => expect(failureClass(text)).toBe(cls));
 
-    it('success, rejection, failure and abort are each bound to the request that carried the family', async () => {
-        const page = new FakePage(); const tap = new AnalyticsTap(); tap.attach(page as never);
-        const ok = req(['session_saved']); const rejected = req(['transcript_authority'], { status: 400 });
-        const failed = req(['filler_measurement'], { failure: 'net::ERR_CONNECTION_RESET' }); const aborted = req(['model_attribution_receipt'], { failure: 'net::ERR_ABORTED' });
+    it('success, rejection, failure and abort are each bound to the request that carried the first take\'s event', async () => {
+        const { page, tap } = tapOn();
+        const ok = req([of(FIRST, 'session_saved')]); const rejected = req([of(FIRST, 'transcript_authority')], { status: 400 });
+        const failed = req([of(FIRST, 'filler_measurement')], { failure: 'net::ERR_CONNECTION_RESET' }); const aborted = req([of(FIRST, 'model_attribution_receipt')], { failure: 'net::ERR_ABORTED' });
         for (const r of [ok, rejected, failed, aborted]) page.emit('request', r);
         page.emit('requestfinished', ok); page.emit('requestfinished', rejected);
         page.emit('requestfailed', failed); page.emit('requestfailed', aborted);
         await settle();
-        expect(tap.transportEvidence(SAVE)).toMatchObject({
+        expect(tap.transportEvidence(FIRST, SAVE)).toMatchObject({
             transport_session_saved: '2xx:1', transport_transcript_authority: '4xx:1', transport_filler_measurement: 'failed:1', transport_model_attribution_receipt: 'aborted:1',
-            transport_blind_requests: 0,
+            transport_unbound_events: 0, transport_blind_requests: 0,
         });
     });
-    it('concurrent requests settle out of order and each keeps its own outcome', async () => {
-        const page = new FakePage(); const tap = new AnalyticsTap(); tap.attach(page as never);
-        const a = req(['session_saved', 'transcript_authority'], { status: 500 }); const b = req(['filler_measurement']);
+    it.each([
+        ['first take failed, later take 2xx', { net: 'net::ERR_CONNECTION_RESET' }, undefined, 'failed:1'],
+        ['first take 2xx, later take failed', undefined, { net: 'net::ERR_CONNECTION_RESET' }, '2xx:1'],
+    ])('%s → only the FIRST take\'s own request decides (never the newest take)', async (_l, firstFail, secondFail, expected) => {
+        const { page, tap } = tapOn();
+        const a = req([of(FIRST, 'session_saved')], firstFail ? { failure: firstFail.net } : undefined);
+        const b = req([of(SECOND, 'session_saved')], secondFail ? { failure: secondFail.net } : undefined);
         page.emit('request', a); page.emit('request', b);
-        page.emit('requestfinished', b); page.emit('requestfinished', a);
+        page.emit(firstFail ? 'requestfailed' : 'requestfinished', a); page.emit(secondFail ? 'requestfailed' : 'requestfinished', b);
         await settle();
-        expect(tap.transportEvidence(SAVE)).toMatchObject({ transport_session_saved: '5xx:1', transport_transcript_authority: '5xx:1', transport_filler_measurement: '2xx:1', transport_model_attribution_receipt: 'none' });
+        expect(tap.transportEvidence(FIRST, ['session_saved']).transport_session_saved).toBe(expected);
+        expect(tap.transportEvidence(SECOND, ['session_saved']).transport_session_saved).toBe(firstFail ? '2xx:1' : 'failed:1');
     });
-    it('a retried batch is a new request: both outcomes are kept for the family', async () => {
-        const page = new FakePage(); const tap = new AnalyticsTap(); tap.attach(page as never);
-        const first = req(['session_saved'], { failure: 'net::ERR_TIMED_OUT' }); const retry = req(['session_saved']);
+    it('a mixed batch (two takes in one request) gives its outcome to the selected take\'s events only', async () => {
+        const { page, tap } = tapOn();
+        const mixed = req([of(FIRST, 'session_saved'), of(SECOND, 'session_saved'), of(SECOND, 'transcript_authority')], { status: 500 });
+        page.emit('request', mixed); page.emit('requestfinished', mixed);
+        await settle();
+        expect(tap.transportEvidence(FIRST, ['session_saved', 'transcript_authority'])).toMatchObject({ transport_session_saved: '5xx:1', transport_transcript_authority: 'none' });
+    });
+    it('a retried batch is a new request: both outcomes are kept for the first take\'s family', async () => {
+        const { page, tap } = tapOn();
+        const first = req([of(FIRST, 'session_saved')], { failure: 'net::ERR_TIMED_OUT' }); const retry = req([of(FIRST, 'session_saved')]);
         page.emit('request', first); page.emit('requestfailed', first);
         page.emit('request', retry); page.emit('requestfinished', retry);
         await settle();
-        expect(tap.transportEvidence(['session_saved']).transport_session_saved).toBe('2xx:1,failed:1');
+        expect(tap.transportEvidence(FIRST, ['session_saved']).transport_session_saved).toBe('2xx:1,failed:1');
     });
-    it('an opaque (blind) request is counted apart and never attributed to a family; an unsettled one is pending, then unobservable', async () => {
-        const page = new FakePage(); const tap = new AnalyticsTap(); tap.attach(page as never);
-        const blind = req(null); const unsettled = req(['session_saved']);
-        page.emit('request', blind); page.emit('request', unsettled);
-        page.emit('requestfinished', blind);
+    it('opaque requests and identity-less events are counted apart, never bound; an unknown take is take_unknown', async () => {
+        const { page, tap } = tapOn();
+        const blind = req(null); const unbound = req([{ event: 'session_saved' }]);
+        page.emit('request', blind); page.emit('request', unbound);
+        page.emit('requestfinished', blind); page.emit('requestfinished', unbound);
         await settle();
-        expect(tap.transportEvidence(['session_saved'])).toEqual({ transport_session_saved: 'pending:1', transport_blind_requests: 1, transport_blind_outcomes: '2xx:1' });
-        tap.detachTransport();
-        expect(tap.transportEvidence(['session_saved']).transport_session_saved).toBe('unobservable:1');
+        expect(tap.transportEvidence(FIRST, ['session_saved'])).toEqual({ transport_session_saved: 'none', transport_unbound_events: 1, transport_blind_requests: 1, transport_blind_outcomes: '2xx:1' });
+        expect(tap.transportEvidence(null, ['session_saved']).transport_session_saved).toBe('take_unknown');
     });
-    it('a finished request with no response object is unobservable, not 2xx', async () => {
-        const page = new FakePage(); const tap = new AnalyticsTap(); tap.attach(page as never);
-        const r = req(['session_saved'], { status: null });
+    it('the evidence is content-free: closed outcomes and counts only', async () => {
+        const { page, tap } = tapOn();
+        const r = req([of(FIRST, 'session_saved')]); page.emit('request', r); page.emit('requestfinished', r); await settle();
+        const ev = tap.transportEvidence(FIRST, SAVE);
+        for (const v of Object.values(ev)) expect(String(v)).toMatch(/^(none|take_unknown|\d+|([a-z0-9_]+:\d+)(,[a-z0-9_]+:\d+)*)$/);
+        expect(JSON.stringify(ev)).not.toMatch(/posthog|https?:|journey|attempt-/);
+    });
+});
+
+describe('smoke item 2 — capture shutdown (PM 6182647952 §2)', () => {
+    it('a response that resolves AFTER detach never rewrites the unobservable record', async () => {
+        const { page, tap } = tapOn();
+        let resolve!: (v: unknown) => void;
+        const r = req([of(FIRST, 'session_saved')], { response: new Promise((res) => { resolve = res; }) });
+        page.emit('request', r); page.emit('requestfinished', r); // the callback is now awaiting response()
+        tap.detachTransport();
+        resolve({ status: () => 200 });
+        await settle();
+        expect(tap.transportEvidence(FIRST, ['session_saved']).transport_session_saved).toBe('unobservable:1');
+    });
+    it('a NEW request after detach makes no transport record (the sent-event capture itself is unchanged)', async () => {
+        const { page, tap } = tapOn();
+        tap.detachTransport();
+        const r = req([of(FIRST, 'session_saved')]);
         page.emit('request', r); page.emit('requestfinished', r);
         await settle();
-        expect(tap.transportEvidence(['session_saved']).transport_session_saved).toBe('unobservable:1');
-    });
-    it('detach removes the outcome listeners: a later outcome does not rewrite the record', async () => {
-        const page = new FakePage(); const tap = new AnalyticsTap(); tap.attach(page as never);
-        const r = req(['session_saved'], { failure: 'net::ERR_FAILED' });
-        page.emit('request', r);
-        tap.detachTransport();
+        expect(tap.transports).toHaveLength(0);
+        expect(tap.sent('session_saved')).toHaveLength(1);
         expect(page.listenerCount('requestfinished') + page.listenerCount('requestfailed')).toBe(0);
-        page.emit('requestfailed', r);
-        await settle();
-        expect(tap.transportEvidence(['session_saved']).transport_session_saved).toBe('unobservable:1');
     });
-    it('the evidence is content-free: names, closed outcomes and counts only', async () => {
-        const page = new FakePage(); const tap = new AnalyticsTap(); tap.attach(page as never);
-        const r = req(['session_saved']); page.emit('request', r); page.emit('requestfinished', r); await settle();
-        const ev = tap.transportEvidence(SAVE);
-        for (const v of Object.values(ev)) expect(String(v)).toMatch(/^(none|\d+|([a-z0-9_]+:\d+)(,[a-z0-9_]+:\d+)*)$/);
-        expect(JSON.stringify(ev)).not.toMatch(/posthog|https?:|journey/);
+    it('a repeated attach does not stack outcome listeners or duplicate a request\'s record', async () => {
+        const page = new FakePage(); const tap = new AnalyticsTap();
+        tap.attach(page as never); tap.attach(page as never);
+        expect([page.listenerCount('requestfinished'), page.listenerCount('requestfailed')]).toEqual([1, 1]);
+        const r = req([of(FIRST, 'session_saved')]);
+        page.emit('request', r); page.emit('requestfinished', r);
+        await settle();
+        expect(tap.transports).toHaveLength(1);
+        expect(tap.transportEvidence(FIRST, ['session_saved']).transport_session_saved).toBe('2xx:1');
+    });
+    it('the spec closes transport capture on every exit (the afterEach backstop, beside the sampler)', async () => {
+        const { readFileSync } = await import('node:fs');
+        const src = readFileSync(new URL('../live/rwt-open-mic-first-session.live.spec.ts', import.meta.url), 'utf8');
+        expect(src).toContain('activeTap?.detachTransport();');
+        expect(src).toContain('activeTap = tap;');
+        expect(src).toContain('tap.transportEvidence(takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length), FIRST_TAKE_SAVE_FAMILIES)');
     });
 });
 
@@ -150,6 +192,23 @@ describe('smoke item 3 — terminal-row identity (diagnostic only; FAIL and exac
         const r = judge([diag(), diag({ uuid: U2, ...over }), feedback]);
         expect(r.verdict).toBe('FAIL');
         expect(r.terminalIdentity.classification).toBe('unknown');
+    });
+    it.each([
+        ['a malformed attempt id on both rows', { attemptId: 'not-a-uuid' }, { attemptId: 'not-a-uuid', uuid: U2 }],
+        ['a whitespace-padded attempt id', {}, { attemptId: ` ${ATT} `, uuid: U2 }],
+    ])('%s → unknown, never distinct_records_one_attempt', (_l, a, b) => {
+        expect(terminalIdentity([diag(a), diag(b)] as never).classification).toBe('unknown');
+    });
+    it('attempt ids are case-normalized: the same id in another case is the same attempt', () => {
+        expect(terminalIdentity([diag(), diag({ uuid: U2, attemptId: ATT.toUpperCase() })] as never)).toMatchObject({ distinctAttemptIds: 1, classification: 'distinct_records_one_attempt' });
+    });
+    it.each([['a missing uuid', { uuid: null }], ['a malformed attempt id', { attemptId: 'x' }]])('a SINGLE terminal row with %s is unknown, not single', (_l, over) => {
+        expect(terminalIdentity([diag(over)] as never)).toMatchObject({ terminalRows: 1, classification: 'unknown' });
+    });
+    it('zero terminal rows are explicitly none (terminalRows 0), and the verdict stays HOLD', () => {
+        const r = judge([feedback]);
+        expect(r.verdict).toBe('HOLD');
+        expect(r.terminalIdentity).toMatchObject({ terminalRows: 0, classification: 'none' });
     });
     it('a missing or malformed client attempt is reported as missing, not guessed', () => {
         expect(terminalIdentity([diag({ clientAttempt: undefined }), diag({ uuid: U2, clientAttempt: 'x' })] as never).rows)

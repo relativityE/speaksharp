@@ -582,7 +582,10 @@ export function analyticsRoute(path: string | null | undefined): boolean {
  */
 export type TransportOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other_status' | 'failed' | 'aborted' | 'pending' | 'unobservable';
 /** One PostHog request the tap saw carry events (decoded) or an opaque body (blind), and its outcome. Names only. */
-export interface BatchTransport { batch: number | null; names: string[]; blind: boolean; outcome: TransportOutcome }
+export interface BatchTransport {
+    /** Every decoded batch number taken from this request (a repeated attach decodes the same request again). */
+    batches: number[]; names: string[]; blind: boolean; outcome: TransportOutcome;
+}
 export function statusClass(status: number | null | undefined): TransportOutcome {
     if (typeof status !== 'number' || !Number.isInteger(status)) return 'other_status';
     return status >= 200 && status < 300 ? '2xx' : status >= 300 && status < 400 ? '3xx'
@@ -600,6 +603,10 @@ export class AnalyticsTap {
     private readonly transportByRequest = new Map<Request, BatchTransport>();
     private listeners: Array<[string, (...args: never[]) => void]> = [];
     private attachedTo: Page | null = null;
+    /** PM 6182647952 §2: transport capture is open only between `attach` and `detachTransport`; a callback started under one
+     * capture never writes after it closed (the generation it captured no longer matches). */
+    private transportOpen = false;
+    private transportGeneration = 0;
     readonly events: SentEvent[] = [];
     readonly actionBindings: ReadbackActionBinding[] = [];
     /** #1258 F3: every capture attempt's closed outcome, so a missing binding says WHY in the receipt (content-free). */
@@ -621,17 +628,23 @@ export class AnalyticsTap {
     }
 
     attach(page: Page): void {
+        // A repeated attach replaces the outcome listeners instead of stacking a second set.
+        this.removeTransportListeners();
         this.attachedTo = page;
+        this.transportOpen = true;
+        const generation = ++this.transportGeneration;
+        const live = () => this.transportOpen && this.transportGeneration === generation;
         // Smoke item 2: the outcome is read from the SAME request object the batch was decoded from.
         const onFinished = (request: Request) => {
             const transport = this.transportByRequest.get(request);
-            if (!transport) return;
-            void request.response().then((response) => { transport.outcome = response ? statusClass(response.status()) : 'unobservable'; })
-                .catch(() => { transport.outcome = 'unobservable'; });
+            if (!transport || !live()) return;
+            // The response may resolve after capture closed: only a still-open capture may write it.
+            void request.response().then((response) => { if (live()) transport.outcome = response ? statusClass(response.status()) : 'unobservable'; })
+                .catch(() => { if (live()) transport.outcome = 'unobservable'; });
         };
         const onFailed = (request: Request) => {
             const transport = this.transportByRequest.get(request);
-            if (!transport) return;
+            if (!transport || !live()) return;
             let text: string | null = null;
             try { text = request.failure()?.errorText ?? null; } catch { text = null; }
             transport.outcome = failureClass(text);
@@ -650,7 +663,7 @@ export class AnalyticsTap {
             // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
             if (request.method() === 'POST' && (!body || body.length === 0)) {
                 this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest();
-                this.track(request, { batch: null, names: [], blind: true, outcome: 'pending' });
+                this.track(request, { batches: [], names: [], blind: true, outcome: 'pending' });
                 return;
             }
             const before = this.events.length;
@@ -690,14 +703,24 @@ export class AnalyticsTap {
             }
             if (this.events.length > before) {
                 this.notePosthogRequest();
-                this.track(request, { batch, names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
+                this.track(request, { batches: [batch], names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
             }
         });
     }
 
     private track(request: Request, transport: BatchTransport): void {
+        // After capture closed no new transport record is made; the sent-event capture itself is unchanged.
+        if (!this.transportOpen) return;
+        // The SAME request decoded again (a repeated attach) joins its existing record — one request, one outcome.
+        const existing = this.transportByRequest.get(request);
+        if (existing) { existing.batches.push(...transport.batches); return; }
         this.transports.push(transport);
         this.transportByRequest.set(request, transport);
+    }
+
+    private removeTransportListeners(): void {
+        if (this.attachedTo) for (const [name, fn] of this.listeners) this.attachedTo.off(name as 'requestfinished', fn as never);
+        this.listeners = [];
     }
 
     /**
@@ -705,24 +728,43 @@ export class AnalyticsTap {
      * the browser reported it, which is never read as delivered or as lost.
      */
     detachTransport(): void {
-        if (this.attachedTo) for (const [name, fn] of this.listeners) this.attachedTo.off(name as 'requestfinished', fn as never);
-        this.listeners = [];
+        this.transportOpen = false;
+        this.transportGeneration += 1;
+        this.removeTransportListeners();
         this.attachedTo = null;
         for (const t of this.transports) if (t.outcome === 'pending') t.outcome = 'unobservable';
     }
 
     /**
-     * Content-free transport evidence for named event families: for each, the outcomes of EVERY decoded request that
-     * carried it, as `outcome:count` sorted (`none` when no decoded request carried it). Opaque (blind) requests are counted
-     * separately: they may have carried any family, so they can never prove one was or was not sent.
+     * Content-free transport evidence for named event families of ONE take: for each, the outcome of the request that
+     * carried each of that take's decoded events, as `outcome:count` sorted (`none` when none was decoded; `take_unknown`
+     * when the take's identity is unknown). Opaque (blind) requests are counted separately: they may have carried any
+     * family, so they can never prove one was or was not sent.
      */
-    transportEvidence(names: readonly string[]): Record<string, string | number> {
+    transportEvidence(take: { journeyId: string; attemptId: string } | null, names: readonly string[]): Record<string, string | number> {
+        // PM 6182647952 §1: ONLY the selected take's own decoded events — the exact journey AND attempt its `session_started`
+        // named (`takeStartedAfter`) — each mapped back through its batch to the request that carried it. Never inferred from
+        // the event name or the newest take; a mixed batch contributes its outcome for the selected events only.
         const out: Record<string, string | number> = {};
+        const byBatch = new Map<number, BatchTransport>();
+        for (const t of this.transports) for (const b of t.batches) byBatch.set(b, t);
         for (const name of names) {
+            if (!take) { out[`transport_${name}`] = 'take_unknown'; continue; }
+            // Counted per distinct REQUEST, so a decoded duplicate of one request never counts twice.
+            const requests = new Set<BatchTransport>();
+            let untracked = 0;
+            for (const e of this.events) {
+                if (e.event !== name || e.journeyId !== take.journeyId || e.attemptId !== take.attemptId || e.batch === undefined) continue;
+                const transport = byBatch.get(e.batch);
+                if (transport) requests.add(transport); else untracked += 1;
+            }
             const counts = new Map<TransportOutcome, number>();
-            for (const t of this.transports) if (!t.blind && t.names.includes(name)) counts.set(t.outcome, (counts.get(t.outcome) ?? 0) + 1);
+            for (const r of requests) counts.set(r.outcome, (counts.get(r.outcome) ?? 0) + 1);
+            if (untracked > 0) counts.set('unobservable', (counts.get('unobservable') ?? 0) + untracked);
             out[`transport_${name}`] = counts.size === 0 ? 'none' : [...counts].map(([o, n]) => `${o}:${n}`).sort().join(',');
         }
+        // Same-family events that carry no journey/attempt identity cannot be attributed to any take: counted, never bound.
+        out.transport_unbound_events = this.events.filter((e) => names.includes(e.event) && (!e.journeyId || !e.attemptId)).length;
         const blind = this.transports.filter((t) => t.blind);
         out.transport_blind_requests = blind.length;
         out.transport_blind_outcomes = blind.length === 0 ? 'none'
