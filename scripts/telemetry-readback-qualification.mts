@@ -388,6 +388,8 @@ async function main(): Promise<void> {
                 error_category: cells[34] ?? null,
                 // Codex r4197007868: the producer time (`$ts`) that orders outcome correlation.
                 producer_ts: cells[35] ?? null,
+                // #1258 — a take's own save outcome (`transcript_authority` finalize/save), so the review rule judges per take.
+                persisted: cells[36] ?? null,
             },
         };
     });

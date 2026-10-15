@@ -41,6 +41,9 @@ import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthorit
 import type { TranscriptView } from '@/lib/storage';
 import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
 
+/** #1258 — how long a settled review may wait for its saved transcript before reporting it as not shown. */
+const REVIEW_RECEIPT_UNBOUND_SETTLE_MS = 2_000;
+
 /** Source envelope resolution: finer than any track needs (a 1920px track holds 480 lines at the 4px pitch). */
 const WAVEFORM_SOURCE_LEVELS = 480;
 
@@ -742,14 +745,22 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      */
     const renderedReviewTokens = isObjective && fpTokens ? fpTokens : tokens;
     const renderedReviewText = renderedReviewTokens.map((t) => t.text).join(' ');
+    // #1258 (run 38790238983, PM 6200367845) — a settled review whose saved transcript is not YET bound (`unavailable`, the
+    // default before the authority arrives) emitted a blank receipt one render before the real one. The three resolved
+    // states report at once; `unavailable` reports only if it is STILL unavailable after a bounded settle, so a persisted
+    // take whose transcript never arrives still produces its honest failing receipt — never hidden, never faked.
+    const reviewKind = effectiveReview.kind;
     React.useEffect(() => {
         if (!reviewSettled) return;
-        emitTranscriptAuthority({
+        const emit = () => emitTranscriptAuthority({
             stage: 'review_rendered',
             authoritative: reviewText === null ? null : tokensFromTranscript(reviewText).map((t) => t.text).join(' '),
             rendered: renderedReviewText,
         });
-    }, [reviewSettled, reviewText, renderedReviewText]);
+        if (reviewKind !== 'unavailable') { emit(); return; }
+        const timer = setTimeout(emit, REVIEW_RECEIPT_UNBOUND_SETTLE_MS);
+        return () => clearTimeout(timer);
+    }, [reviewSettled, reviewKind, reviewText, renderedReviewText]);
 
     // §2 nudge — the live coaching for Focus Points, computed here (hook called unconditionally) and rendered
     // INSIDE the Coverage & pace card. Silent unless the pace ratio breaks (or the no-guide coverage fallback).

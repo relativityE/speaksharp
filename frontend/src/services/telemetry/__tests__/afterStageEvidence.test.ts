@@ -32,7 +32,10 @@ const chainRows = (chain: readonly string[], start = 1_000, attemptId: string | 
         { stage: name, duration_ms: 10, ...(attemptId === null ? {} : { attempt_id: attemptId }) },
         { timestamp: start + i }));
 const reviewReceipt = (over: Record<string, unknown> = {}) =>
-    row('transcript_authority', { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, ...over });
+    row('transcript_authority', { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, attempt_id: 'attempt-1', ...over });
+/** #1258 — a take's own save outcome, as `transcript_authority { stage: 'save' }` carries it. */
+const saveReceipt = (attemptId: string, persisted: boolean | string) =>
+    row('transcript_authority', { stage: 'save', persisted, attempt_id: attemptId });
 
 const COACHING_RENDERED = { phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true, attempt_id: 'attempt-1' };
 const RAIL_ONLY = {
@@ -43,6 +46,7 @@ const RAIL_ONLY = {
 /** Everything an After stage needs besides the two families under test. */
 const base = (s: typeof OPEN_MIC): DecodedTelemetryRow[] => [
     row('session_saved', { attempt_id: 'attempt-1', attempt_seq: 1 }, { journeyId: 'journey-1', bootId: 'boot-1' }),
+    saveReceipt('attempt-1', true),
     row('model_attribution_receipt', {
         subject_boot_id: 'boot-1', subject_journey_id: 'journey-1', subject_attempt_id: 'attempt-1',
         subject_attempt_seq: 1, attribution_status: 'verified',
@@ -88,6 +92,30 @@ describe('#1421 P1 `3984043479` — the After stages require a successful review
     it('CASUALTY: one successful receipt does not excuse another that was wrong on screen', () => {
         const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), reviewReceipt({ transcript_visibly_present: false })]);
         expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).toMatch(/did not show the saved transcript/);
+    });
+
+    // #1258 (run 38790238983, PM 6200367845) — judged per take, with the PM's negative controls.
+    it('CONTROL: an UNSAVED take\'s honest empty review does not fail the saved take\'s good one', () => {
+        const unsaved = [saveReceipt('attempt-2', false), reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })];
+        const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), ...unsaved]);
+        expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).not.toMatch(/review_rendered|saved transcript/);
+    });
+
+    it('CASUALTY (proved failure): a SAVED take that rendered blank still HOLDs', () => {
+        const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt({ transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).toMatch(/did not show the saved transcript/);
+    });
+
+    it('CASUALTY (missing outcome): a review whose take has no save outcome is unverified, never exempt', () => {
+        const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), reviewReceipt({ attempt_id: 'attempt-3', transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).toMatch(/no save outcome for its own take/);
+    });
+
+    it('CASUALTY (wrong take): another take\'s saved flag cannot excuse this take; a receipt with no take identity HOLDs', () => {
+        const wrong = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [saveReceipt('attempt-2', false), reviewReceipt({ attempt_id: 'attempt-2' }), reviewReceipt({ transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, wrong).join(' | ')).toMatch(/did not show the saved transcript/);
+        const anonymous = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt({ attempt_id: undefined })]);
+        expect(evaluateQualificationStage(OPEN_MIC, anonymous).join(' | ')).toMatch(/names no take/);
     });
 });
 
