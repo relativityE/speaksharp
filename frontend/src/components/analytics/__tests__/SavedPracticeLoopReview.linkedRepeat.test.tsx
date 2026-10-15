@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { SavedSessionReview } from '@/services/review/savedSessionReview';
+import type { SessionProgressResult } from '@/services/progress/loadSessionProgress';
 
 /**
  * #1258 (PM RETURN, #1535 cycle 1, P1) — "Practice this again" must never skip a valid linked Progress repeat.
@@ -41,7 +42,10 @@ vi.mock('@/services/progress/recordProgress', () => ({
     abandonRecommendationAttempt: (id: string) => abandon(id),
 }));
 const setOpenAttempt = vi.fn((_attempt: unknown) => true);
-vi.mock('@/services/progress/openAttempt', () => ({ setOpenAttempt: (a: unknown) => setOpenAttempt(a) }));
+vi.mock('@/services/progress/openAttempt', () => ({
+    setOpenAttempt: (a: unknown) => setOpenAttempt(a),
+    clearOpenAttemptIfMatches: vi.fn(),
+}));
 const practiceSelected = vi.fn();
 const practiceAction = vi.fn();
 const practiceState = vi.fn();
@@ -57,6 +61,7 @@ const setActiveObjectiveBrief = vi.fn();
 vi.mock('@/stores/useSessionStore', () => ({ useSessionStore: { getState: () => ({ setActiveObjectiveBrief }) } }));
 
 const { SavedPracticeLoopReview } = await import('../SavedPracticeLoopReview');
+const { ProgressPanel } = await import('../../progress/ProgressPanel');
 
 const FOCUS: SavedSessionReview = {
     coaching: { kind: 'review', review: { whatWorked: 'Clear opening.', whatToTryNext: 'Name the price first.' } },
@@ -65,9 +70,12 @@ const FOCUS: SavedSessionReview = {
 const ELIGIBLE = { status: 'eligible', sessionId: 's1', recommendationId: 'rec-1' };
 
 let client: QueryClient;
-const renderReview = () => {
+const renderReview = (withProgress = false) => {
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return render(<QueryClientProvider client={client}><SavedPracticeLoopReview sessionId="s1" /></QueryClientProvider>);
+    return render(<QueryClientProvider client={client}>
+        <SavedPracticeLoopReview sessionId="s1" />
+        {withProgress && <ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview />}
+    </QueryClientProvider>);
 };
 const action = () => screen.getByTestId('saved-review-practice') as HTMLButtonElement;
 /** A click that still reaches the handler even if the control rendered disabled a frame earlier. */
@@ -79,6 +87,54 @@ beforeEach(() => {
     setOpenAttempt.mockReturnValue(true);
     readPending.mockResolvedValue({ status: 'none' });
     recordAttempt.mockResolvedValue('attempt-1');
+});
+
+describe('#1548 — the saved review names the target actually measured by its linked repeat', () => {
+    const persistedProgress: Extract<SessionProgressResult, { status: 'eligible' }> = {
+        status: 'eligible', sessionId: 's1', recommendationId: 'rec-1', comparison: 'baseline',
+        direction: { direction: 'baseline', deltaPoints: null, deltaPercent: null, reason: null, text: 'Baseline established.' },
+        baselineContext: 'This is your first comparable session.', disclosure: null,
+        takeaways: {
+            whatWorked: 'A completed session', practiceThisNext: 'Cut filler words toward 7%',
+            target: { metric: 'filler_rate', direction: 'decrease', targetValue: 7, units: 'percent of words' },
+        },
+        latestAttempt: null,
+    };
+
+    it.each([
+        ['completed', 'moved', 'The stored repeat shows movement in the practiced direction.'],
+        ['completed', 'did_not_move', 'The stored repeat did not show movement in the practiced direction.'],
+        ['not_comparable', 'not_comparable', 'The stored repeat was not comparable.'],
+    ] as const)('accepts the saved target, then qualifies the reloaded %s/%s result without crediting unrelated AI advice', async (lifecycle, outcome, resultText) => {
+        // The AI suggestion is deliberately unrelated to the persisted filler-rate target, whose 7% value
+        // also differs from today's computed 3% default. Neither AI prose nor a new calculation is authority.
+        loadProgress.mockResolvedValue(persistedProgress);
+        const initial = renderReview(true);
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        expect(screen.getByTestId('saved-review')).toHaveTextContent('Name the price first.');
+        expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
+        fireEvent.click(action());
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/session', PRACTICE_NAV));
+        expect(recordAttempt).toHaveBeenCalledExactlyOnceWith('rec-1');
+        expect(setOpenAttempt).toHaveBeenCalledExactlyOnceWith({
+            attemptId: 'attempt-1', userId: 'user-1', sourceSessionId: 's1', acceptedAtIso: expect.any(String),
+        });
+
+        initial.unmount(); client.clear();
+        loadProgress.mockResolvedValue({ ...persistedProgress, latestAttempt: { id: 'attempt-1', lifecycle, outcome } });
+        renderReview(true);
+        const result = await screen.findByTestId('progress-attempt-outcome');
+        expect(result).toHaveTextContent(resultText);
+        const measuredTarget = screen.getByTestId('progress-attempt-target');
+        expect(measuredTarget).toHaveTextContent('Measured repeat target: Filler rate; decrease toward 7 percent of words.');
+        expect(result.parentElement).toContainElement(measuredTarget);
+        expect(measuredTarget).not.toHaveTextContent(/price|3 percent/);
+        expect(screen.getByTestId('saved-review')).toHaveTextContent('Name the price first.');
+        expect(screen.getAllByRole('button')).toHaveLength(1); // review still owns the only practice action
+        expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
+        expect(recordAttempt).toHaveBeenCalledTimes(1); // reloading the outcome never accepts another attempt
+        if (outcome !== 'moved') expect(result).not.toHaveTextContent('shows movement');
+    });
 });
 
 describe('#1258 Codex P1 r4273670998 — acceptance time is the PRESS, not the end of the network calls', () => {
