@@ -61,7 +61,10 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // encodes operational prerequisite order, not version chronology (see validateExactMigrationAllowlist).
         version: '20260819120000',
         file: '20260819120000_complete_session_v2_atomic_retention_1314.sql',
-        sha256: 'b70efd30a0ee0f5806ef9484f5c9eb3ca889d4122eaf4773d22f47486d9c7584',
+        // Replay-only ACL correction supersedes source SHA b70efd30a0ee0f5806ef9484f5c9eb3ca889d4122eaf4773d22f47486d9c7584.
+        // The historical applied/approved identity is preserved above, not rewritten in a remote ledger.
+        // A new source pin changes the exact authorization phrase; it never permits reapplication.
+        sha256: 'da6392389dc74ab1d7cf06ca9326a089d565eff497745473ab61379d7dd5c41e',
         classification: 'staged',
     }),
     Object.freeze({
