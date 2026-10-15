@@ -13,7 +13,7 @@ const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) =
 PGHOST: socket, PGPORT: '5432', PGUSER: 'closure_schema_admin', PGDATABASE: 'postgres' };
 const sql = (text) => execFileSync('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
     { env: { ...env, PGOPTIONS: '-c client_min_messages=warning' }, encoding: 'utf8', timeout: 10_000 }).trim();
-const cli = resolve('scripts/account-closure-schema-gate.mjs');
+const cli = resolve('scripts/account-closure-rollout-gate.mjs');
 function gate(mode, success) {
     const result = spawnSync(process.execPath, [cli, mode], { env, encoding: 'utf8', timeout: 30_000 });
     assert.equal(result.status, success ? 0 : 1, `${mode}: ${result.stdout} ${result.stderr}`);
@@ -23,7 +23,7 @@ function gate(mode, success) {
         assert.equal(lines.length, 1, 'must emit only one terminal verification');
         const terminal = JSON.parse(lines[0]);
         assert.equal(terminal.passed, true);
-        assert.equal(terminal.stages.length, mode === 'after' ? 2 : 1);
+        assert.equal(terminal.stages.length, mode === 'after' ? 3 : 2);
     }
 }
 let started = false;
@@ -35,6 +35,8 @@ try {
     const fixture = readFileSync('tests/db/account-closure-tokens.integration.test.ts', 'utf8')
         .match(/await db\.exec\(`\n([\s\S]*?)`\);/);
     assert.ok(fixture, 'scoped fixture missing'); sql(fixture[1]);
+    const baseline = readFileSync('backend/supabase/migrations/20260812041600_trial_commercial_grant_on_conflict_1294.sql', 'utf8');
+    sql(`SET ROLE closure_owner; ${baseline} RESET ROLE;`);
     gate('before', true); gate('after', false);
     const source = readFileSync('backend/supabase/migrations/20261013180000_account_closure_tokens.sql', 'utf8');
     sql(`SET ROLE closure_owner; ${source} RESET ROLE;`);
@@ -47,15 +49,18 @@ try {
         'DROP TRIGGER account_closure_billing_guard ON user_profiles; CREATE TRIGGER account_closure_billing_guard BEFORE INSERT OR UPDATE ON user_profiles FOR EACH ROW WHEN(false) EXECUTE FUNCTION guard_account_closure_billing()',
         "UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='unproved'",
         'DELETE FROM account_billing_coordination',
+        'ALTER TABLE account_closure_tokens RENAME COLUMN token_hash TO wrong_hash',
+        'ALTER TABLE account_closure_tokens ALTER COLUMN expires_at SET DEFAULT now()',
+        'ALTER TABLE account_checkout_operations DROP CONSTRAINT account_checkout_operations_phase_check',
     ]) {
         // Mutations persist only in this owned, disposable cluster; restore from
         // fresh database fixture for each case. The CLI itself is always read-only.
         sql(mutation); gate('after', false);
         sql('DROP SCHEMA public CASCADE; DROP SCHEMA auth CASCADE; DROP SCHEMA storage CASCADE; CREATE SCHEMA public; DROP ROLE closure_owner; DROP ROLE anon; DROP ROLE authenticated; DROP ROLE service_role;');
-        sql(fixture[1]); sql(`SET ROLE closure_owner; ${source} RESET ROLE;`); gate('after', true);
+        sql(fixture[1]); sql(`SET ROLE closure_owner; ${baseline} ${source} RESET ROLE;`); gate('after', true);
     }
     console.log(JSON.stringify({ result: 'PASS', postgres: sql('SHOW server_version'),
-        gateCases: 18, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
+        gateCases: 24, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
 } finally {
     if (started || existsSync(join(data, 'postmaster.pid'))) {
         execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });
