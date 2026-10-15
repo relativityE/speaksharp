@@ -296,6 +296,9 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.complete_session_v2(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB, TEXT) FROM PUBLIC;
+-- Replay compatibility: PUBLIC revocation does not remove a direct anon grant,
+-- including one inherited from the creating role's default function privileges.
+-- Keep Stage B's anonymous-execution refusal unchanged; close this exact ACL here.
+REVOKE EXECUTE ON FUNCTION public.complete_session_v2(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB, TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.complete_session_v2(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.complete_session_v2(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB, TEXT) TO service_role;

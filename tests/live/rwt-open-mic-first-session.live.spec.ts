@@ -109,6 +109,8 @@ import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 
 const SUITE = 'open-mic-first-session';
+/** Smoke item 2 (run 38654466793): the first take's save-time families the readback held as never received. */
+const FIRST_TAKE_SAVE_FAMILIES = ['session_saved', 'transcript_authority', 'filler_measurement', 'model_attribution_receipt'] as const;
 /** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
 const STOP_BOUND_MS = 240_000;
 /**
@@ -174,6 +176,7 @@ test.use({
 
 test.describe('RWT — Open Mic first session @live', () => {
     let activeSampler: ProcessSampler | null = null;
+    let activeTap: AnalyticsTap | null = null;
     let createdEmail = '';
     let capturedUid = '';
     let feedbackReportId: string | null = null;
@@ -183,6 +186,9 @@ test.describe('RWT — Open Mic first session @live', () => {
         // Backstop: the sampler stops in the test's own finally; this covers a body that never reached it.
         activeSampler?.stop();
         activeSampler = null;
+        // Smoke item 2 (PM 6182647952 §2): transport capture closes on every exit, including a body that threw.
+        activeTap?.detachTransport();
+        activeTap = null;
         // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product
         // policy (user_issue_reports.user_id is SET NULL on account deletion); the test body deletes the account first
         // and proves that retention (#1532 Codex P1 r4105978630). This is the fallback when the body did not.
@@ -221,6 +227,7 @@ test.describe('RWT — Open Mic first session @live', () => {
 
         const tap = new AnalyticsTap();
         tap.attach(page);
+        activeTap = tap;
         const entitlement = new EntitlementTap();
         entitlement.attach(page);
         // #1258 (PM 6114590729): every coaching exchange at the request boundary — the ids the page sent and the Edge
@@ -773,10 +780,14 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
             const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
             const telemetrySeen = tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0;
+            // The journey's capture ends here: outcome listeners are removed and any request still pending is unobservable.
+            tap.detachTransport();
             const telemetryReceivedBy = ['session_after_open_mic', 'share_feedback'] as const;
             receipt.row('telemetry sent', sentVerdict(telemetrySeen, tap, stoppedAt),
                 sentDetail('session_saved and feedback_submit left the page (sent, not yet received)', telemetrySeen, tap, stoppedAt, telemetryReceivedBy),
-                { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length, ...readbackSettlement(telemetryReceivedBy, tap, stoppedAt) });
+                { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length, ...readbackSettlement(telemetryReceivedBy, tap, stoppedAt),
+                    // Smoke item 2 (PM 6182446740): each family's decoded request(s) and their HTTP outcome — diagnostic only.
+                    ...tap.transportEvidence(takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length), FIRST_TAKE_SAVE_FAMILIES) });
             // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
             // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
             // Sent here; received is the deployed PostHog readback. Closed enums and integers only.
