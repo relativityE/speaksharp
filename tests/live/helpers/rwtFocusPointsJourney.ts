@@ -23,6 +23,7 @@ import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
 import { coachingPromptBindingRow } from './rwtCoachingCollector';
 import { coachingContract } from './rwtCoachingEvidence';
+import { coachingTelemetryVerdict, failureTelemetryBinding, takeExchangeEvidence } from './coachingExternal';
 import {
     AnalyticsTap,
     RwtReceipt,
@@ -73,7 +74,10 @@ import {
     sentDetail,
     readbackSettlement,
     exactCountVerdict,
+    stopIfPageTornDown,
 } from './rwtJourney';
+import { openProductsItem, resolveProductsTrigger } from './productsMenu';
+import { PACE_GUIDE_DEFAULT_SECONDS, parsePaceGuideSeconds } from './rwtPaceGuide';
 
 const JOURNEY = 'focus_points';
 export const WEBGPU = process.env.RWT_WEBGPU === '1';
@@ -151,7 +155,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     await suppressPageSnapshot(testInfo);
     // #1258: the coaching request as sent (its product marker only) and every coaching request of the journey —
     // Analytics must never request coaching again.
-    const coaching: { product: string | null; status: number | null; requests: number; acceptedVersions: unknown; reason: string | null; reasonRead: Promise<void> | null } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null, reasonRead: null };
+    // #1258 (PM 6173420642 §3): external proof comes only from the request-boundary tap's per-take exchange.
+    const coaching: {
+        product: string | null; status: number | null; requests: number; acceptedVersions: unknown; reason: string | null; reasonRead: Promise<void> | null;
+        generations: CoachingGenerationTap;
+    } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null, reasonRead: null, generations };
     page.on('request', (request) => {
         if (!request.url().includes('/functions/v1/get-ai-suggestions') || request.method() !== 'POST') return;
         coaching.requests += 1;
@@ -165,6 +173,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
             coaching.status = response.status();
             // #1258: a failed generation names its closed, content-free reason in the receipt.
+            // #1258: a failed generation names its closed, content-free reason (the exchange log keeps the per-take tuple).
             if (response.status() >= 400) coaching.reasonRead = readCoachingFailureReason(response).then((r) => { coaching.reason = r; });
         }
     });
@@ -213,12 +222,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const switched = await performCandidateSwitch(page, run, JOURNEY);
             receipt.meta.switchOutcome = switched;
             if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
-            const desktop = page.getByTestId('nav-products-button');
-            if (await desktop.isVisible().catch(() => false)) {
-                await desktop.click();
+            const { trigger, isDesktop } = await resolveProductsTrigger(page);
+            await trigger.click();
+            if (isDesktop) {
                 await page.getByTestId('nav-products-focus-points').click();
             } else {
-                await page.getByTestId('nav-mobile-products-button').click();
                 await page.getByTestId('nav-mobile-products-focus-points').or(page.getByTestId('nav-mobile-focus-points-link')).first().click();
             }
             const opened = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
@@ -236,8 +244,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 if ((await page.getByTestId(`objective-point-label-${i}`).count()) === 0) await page.getByTestId('objective-add-point').click();
                 await page.getByTestId(`objective-point-label-${i}`).fill(points[i]);
             }
-            const pace = parseClock(await page.getByTestId('objective-pace-value').innerText());
-            receipt.row('pace guide', pace === GUIDE_SECONDS ? 'PASS' : 'FAIL', pace === GUIDE_SECONDS ? 'the default guide is 1:00 per point' : 'the guide is not 1:00', { paceSeconds: pace });
+            // #1258 R5: the guide is minutes per point ("1 min"), compared as seconds; a missing guide is read, not awaited.
+            const paceValue = page.getByTestId('objective-pace-value');
+            const paceShown = (await paceValue.count()) > 0;
+            const pace = paceShown ? parsePaceGuideSeconds(await paceValue.innerText({ timeout: 5_000 }).catch(() => null)) : null;
+            receipt.row('pace guide', pace === PACE_GUIDE_DEFAULT_SECONDS ? 'PASS' : 'FAIL',
+                pace === PACE_GUIDE_DEFAULT_SECONDS ? 'the default guide is 1 min per point'
+                    : paceShown ? 'the guide is not 1 min per point' : 'no pace guide was shown',
+                { paceSeconds: pace, paceShown });
             await page.getByTestId('objective-setup-submit').click();
             const arrived = await page.waitForURL(/\/session/, { timeout: 45_000 }).then(() => true).catch(() => false);
             const mic = (await micAcquisitions(page)).length;
@@ -463,9 +477,13 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             const digest = sha256Hex(row?.transcript);
             // Through the on-screen Analytics action the person clicks after Stop, then the session's own control.
             const requestsBefore = coaching.requests;
-            if (!savedCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
+            // #1258 (PM 6175763509 §2): under a proved EXTERNAL outage `analyticsRows` writes every coaching-dependent row as
+            // not exercised; otherwise a missing saved pair is the existing HOLD.
+            const focusExternalCoaching = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
+            if (!savedCoaching && !focusExternalCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
             // Focus Points evidence is the saved point results ("Detected: point 1 at 0:21." / "Not detected: point 3.").
-            analyticsRows(receipt, await analyticsThroughActions(page, persistedId, digest, savedCoaching ?? undefined, /(Detected|Not detected): point \d/));
+            analyticsRows(receipt, await analyticsThroughActions(page, persistedId, digest, savedCoaching ?? undefined, /(Detected|Not detected): point \d/),
+                focusExternalCoaching);
             receipt.row('Analytics generates no coaching', coaching.requests === requestsBefore ? 'PASS' : 'FAIL',
                 coaching.requests === requestsBefore ? 'opening and reloading Analytics requested no new review' : 'Analytics requested coaching again (regeneration / quota)',
                 { coachingRequestsBefore: requestsBefore, coachingRequestsAfter: coaching.requests });
@@ -512,7 +530,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                 await generations.settle();
                 await feedbackDiagnosticChainRow({
                     receipt, admin: admin as never, userId: owner.uid, reportId: feedbackReportId, currentSessionId: persistedId,
-                    exchanges: generations.exchanges, configuredModel: coachingContract.model, product: 'focus_points',
+                    exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'focus_points',
                 });
             });
         }
@@ -522,7 +540,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             generationsForTake = tap.sent('practice_loop_review_requested').length;
             rowsGenerationsAt = Date.now();
             if (!persistedId) {
-                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null });
+                practiceAgainRows(receipt, 'focus_points', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null, saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null });
                 await productMarkerRows(receipt, admin as never, owner.uid, 'focus_points', []);
                 return;
             }
@@ -556,6 +574,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
         // ── #1258 Focus-only: the product-switch take, then New Set / Edit from that take's completed review ──
         if (fixtureKey === 'focus_points_tts') {
+            // Both steps drive the current page without navigating first: a page torn down by a failed Start stops here.
+            stopIfPageTornDown(receipt, page, 'next Start without a hold', 'Open Mic take, then a Focus take right after the product switch');
             // The switch step's saved Focus take is the completed review New Set / Edit starts from (Browser PM 6097978379).
             let switchFocusId: string | null = null;
             // ── #1258 (Browser PM 6089889070) — Open Mic → Focus Points: the take right after the switch hears only itself ──
@@ -567,16 +587,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
                     return { product: (data?.product as string | null) ?? null, digest: data ? sha256Hex(data.transcript) : null, transcript: typeof data?.transcript === 'string' ? data.transcript : '' };
                 };
                 const lastSaved = () => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
-                const openProduct = async (item: 'open-mic' | 'focus-points') => {
-                    const desktop = page.getByTestId('nav-products-button');
-                    if (await desktop.isVisible().catch(() => false)) {
-                        await desktop.click();
-                        await page.getByTestId(`nav-products-${item}`).click();
-                    } else {
-                        await page.getByTestId('nav-mobile-products-button').click();
-                        await page.getByTestId(`nav-mobile-products-${item}`).click();
-                    }
-                };
+                const openProduct = (item: 'open-mic' | 'focus-points') => openProductsItem(page, item);
                 // 1. A full Open Mic take: the replayed Focus fixture speaks all four points into it.
                 const before = await lastSaved();
                 await openProduct('open-mic');
@@ -746,6 +757,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             });
         }
     } finally {
+        // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
+        receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { coverage_evaluation: 1 })).observed;
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         const coverageSeen = tap.sent('coverage_evaluation').length > 0;
         const coverageReceivedBy = ['session_after_focus_points'] as const;
@@ -761,11 +774,24 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             savedReviewRevisited: tap.sent('saved_review_revisited').length,
         };
         const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
-        receipt.row('Focus coaching telemetry sent', sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
-            sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt), { ...focusTelemetry, blindBeacons: tap.blindBeacons });
+        // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path must have left the page instead.
+        const focusExternal = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
+        // PM 6173420642 §2: bound to THIS take's request id — never whole-run counts a later take could satisfy.
+        const focusBoundFailure = failureTelemetryBinding(tap.events,
+            persistedId ? takeExchangeEvidence(generations.forSession(persistedId)).diagnosticRequestId : null);
         // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
         const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
         const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
+        const focusCoachingTelemetry = coachingTelemetryVerdict(
+            { verdict: focusExternal ? 'EXTERNAL' : 'PASS', detail: '', external: focusExternal ? 'provider_5xx' : null },
+            focusBoundFailure,
+            sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
+            sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt),
+            // Codex P1 r4277621594: the FIRST take's request proof, from the same first-take window as the generation row.
+            generationVerdict);
+        receipt.row('Focus coaching telemetry sent', focusCoachingTelemetry.verdict, focusCoachingTelemetry.detail,
+            { ...focusTelemetry, boundFailureOutcome: focusBoundFailure, blindBeacons: tap.blindBeacons,
+                firstTakeRequestCount: generationsForFirstTake, firstTakeRequestProof: generationVerdict });
         receipt.row('revisit is not a generation', generationVerdict,
             generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD' : 'the generation count is not exactly one for this take',
             { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });

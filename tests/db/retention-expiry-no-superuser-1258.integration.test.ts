@@ -38,6 +38,9 @@ const CHAIN = [
 ].map(M);
 const FIX_FILE = '20261013120000_retention_expiry_without_superuser_1258.sql';
 const FIX = M(FIX_FILE);
+/** #1258 P0 follow-up: the same expiry with its two empty-array literals typed (Production lint, run 38428832342). */
+const TYPED_FILE = '20261013140000_retention_expiry_typed_empty_array_1258.sql';
+const TYPED = M(TYPED_FILE);
 
 const U = '11111111-1111-4111-8111-111111111111';
 const OWNER = 'ss_function_owner';
@@ -108,11 +111,13 @@ const PRODUCTION_OWNERSHIP = `
   GRANT SELECT, UPDATE ON public.sessions TO authenticated;
 `;
 
-async function freshDb(withFix: boolean): Promise<PGlite> {
+/** `typed` (default: with the fix) also applies 20261013140000, so every behaviour test runs the final definition. */
+async function freshDb(withFix: boolean, typed = withFix): Promise<PGlite> {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     for (const sql of CHAIN) await db.exec(sql);
     if (withFix) await db.exec(FIX);
+    if (typed) await db.exec(TYPED);
     await db.query('SELECT public.activate_transcript_retention_newest_one()');
     await db.exec(PRODUCTION_OWNERSHIP);
     return db;
@@ -401,6 +406,7 @@ const EXPIRE_BEFORE_MD5 = 'b69060cd8e903e4f51870034557be1e8';
 const TRIGGER_BEFORE_MD5 = '794bf7c4e293ed215152d56d706a44a7';
 const EXPIRE_AFTER_MD5 = 'e966ca4e86e1be90e95b708baa2da836';
 const TRIGGER_AFTER_MD5 = '400700738ca78de10d259b550499b5ac';
+const EXPIRE_TYPED_MD5 = '0970783e8e75686029b1462069168dcc';
 const DIGESTS = `SELECT md5(pg_get_functiondef('public.expire_transcripts_newest_one(uuid, integer)'::regprocedure)) AS expire,
                         md5(pg_get_functiondef('public.sessions_set_transcript_state()'::regprocedure)) AS trigger`;
 
@@ -409,9 +415,29 @@ describe('#1258 P0 — function identity pinned for the Production gate', () => 
         const before = await freshDb(false);
         expect((await before.query(DIGESTS)).rows[0]).toEqual({ expire: EXPIRE_BEFORE_MD5, trigger: TRIGGER_BEFORE_MD5 });
         await before.close();
-        const after = await freshDb(true);
+        const after = await freshDb(true, false);
         expect((await after.query(DIGESTS)).rows[0]).toEqual({ expire: EXPIRE_AFTER_MD5, trigger: TRIGGER_AFTER_MD5 });
         await after.close();
+    });
+
+    it('20261013140000: only the expiry changes, to exactly the typed body; the trigger is untouched', async () => {
+        const typed = await freshDb(true);
+        expect((await typed.query(DIGESTS)).rows[0]).toEqual({ expire: EXPIRE_TYPED_MD5, trigger: TRIGGER_AFTER_MD5 });
+        await typed.close();
+    });
+
+    it('20261013140000 differs from the deployed expiry by exactly the two typed empty-array literals', () => {
+        const fn = (sql: string) => sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.expire_transcripts_newest_one('),
+            sql.indexOf('$$;', sql.indexOf('CREATE OR REPLACE FUNCTION public.expire_transcripts_newest_one(')) + 3);
+        const [shipped, typed] = [fn(FIX).split('\n'), fn(TYPED).split('\n')];
+        expect(typed).toHaveLength(shipped.length);
+        const changed = shipped.flatMap((line, i) => (line === typed[i] ? [] : [[line.trim(), typed[i].trim()]]));
+        expect(changed).toEqual([
+            ["v_new_tombstones uuid[] := '{}';", "v_new_tombstones uuid[] := '{}'::uuid[];"],
+            ["SELECT coalesce(array_agg(session_id), '{}') INTO v_new_tombstones FROM inserted;",
+                "SELECT coalesce(array_agg(session_id), '{}'::uuid[]) INTO v_new_tombstones FROM inserted;"],
+        ]);
+        expect(TYPED).not.toMatch(/sessions_set_transcript_state|CREATE TABLE/);
     });
 });
 

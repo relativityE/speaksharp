@@ -41,6 +41,7 @@ import {
     PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_INFO_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS,
     PROVIDER_TOKEN_MAX,
 } from './telemetry/providerCodes';
+import { RECORDING_FAILURE_CODES } from './recordingFailureCode';
 
 /** The checked-in Report Issue vocabularies — the same slugs the database stores. */
 const ISSUE_CATEGORIES = [
@@ -345,6 +346,8 @@ export const EVENT_SCHEMAS = Object.freeze({
         to_state: enumOf(RUNTIME_STATES),
         transition_cause: slug(),
         ms_since_intent: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        // #1258 (PO 2026-10-12): which failure, as a closed code — never the error message.
+        failure_code: enumOf(RECORDING_FAILURE_CODES),
     },
     /** One stage per row. A single stop-to-review total answers none of F16's six questions. */
     stage_latency: {

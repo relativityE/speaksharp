@@ -60,6 +60,7 @@ jobs:
 
       - name: Install psql client and record server version
         run: |
+          set -o pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
           psql -XAtc 'select version()' | tee server-version.txt

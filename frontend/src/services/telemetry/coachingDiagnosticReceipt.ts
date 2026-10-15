@@ -38,6 +38,54 @@ export interface ReceivedCoachingRow {
     providerAttempts: unknown;
     clientReleaseId: unknown;
     coachingDiagnosticId: unknown;
+    /** #1258 smoke item 3 (PM 6182446740): PostHog's event `uuid` and the page's `client_attempt` — identity diagnostics only. */
+    uuid?: unknown;
+    clientAttempt?: unknown;
+}
+
+/**
+ * #1258 smoke item 3 (PM 6182446740) — the IDENTITY of the bound request's terminal rows, content-free: counts and closed
+ * values only, never a raw id. It does not change the verdict or the exactly-once rule.
+ *  - `repeated_event_identity`: some terminal rows share one event uuid — a repeated record of the same event. Which layer
+ *    repeated it (SDK, transport, ingestion, or a duplicating query) is NOT established by this.
+ *  - `distinct_records_one_attempt`: distinct uuids, one attempt id — distinct records for one attempt; the layer that
+ *    created them is not established either.
+ *  - `distinct_attempts`: distinct uuids across more than one attempt id.
+ *  - `unknown`: a uuid or attempt id is missing or malformed on ANY terminal row (one row included), so identity cannot be
+ *    decided. Both ids must be the emitted UUID form (`crypto.randomUUID()`), case-normalized; whitespace is malformed.
+ *  - `single`: exactly one terminal row with valid identity; `none`: no terminal row.
+ */
+export type TerminalIdentityClass = 'none' | 'single' | 'repeated_event_identity' | 'distinct_records_one_attempt' | 'distinct_attempts' | 'unknown';
+export interface TerminalIdentity {
+    terminalRows: number;
+    distinctEventUuids: number; missingEventUuid: number;
+    distinctAttemptIds: number; missingAttemptId: number;
+    /** Each terminal row's closed outcome and client attempt (1–9, else `missing`), in received order. */
+    rows: Array<{ outcome: string; clientAttempt: number | 'missing' }>;
+    classification: TerminalIdentityClass;
+}
+const EVENT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function terminalIdentity(terminal: readonly ReceivedCoachingRow[]): TerminalIdentity {
+    const uuids = terminal.map((r) => (typeof r.uuid === 'string' && EVENT_UUID.test(r.uuid) ? r.uuid.toLowerCase() : null));
+    // PM 6182647952 §3: the attempt id is the page's `crypto.randomUUID()` — anything else is malformed, never an identity.
+    const attempts = terminal.map((r) => (typeof r.attemptId === 'string' && EVENT_UUID.test(r.attemptId) ? r.attemptId.toLowerCase() : null));
+    const missingEventUuid = uuids.filter((u) => u === null).length;
+    const missingAttemptId = attempts.filter((a) => a === null).length;
+    const distinctEventUuids = new Set(uuids.filter((u): u is string => u !== null)).size;
+    const distinctAttemptIds = new Set(attempts.filter((a): a is string => a !== null)).size;
+    const classification: TerminalIdentityClass = terminal.length === 0 ? 'none'
+        : missingEventUuid > 0 || missingAttemptId > 0 ? 'unknown'
+            : terminal.length === 1 ? 'single'
+            : distinctEventUuids < terminal.length ? 'repeated_event_identity'
+                : distinctAttemptIds === 1 ? 'distinct_records_one_attempt' : 'distinct_attempts';
+    return {
+        terminalRows: terminal.length, distinctEventUuids, missingEventUuid, distinctAttemptIds, missingAttemptId,
+        rows: terminal.map((r) => ({
+            outcome: String(r.outcome),
+            clientAttempt: Number.isInteger(r.clientAttempt) && Number(r.clientAttempt) >= 1 && Number(r.clientAttempt) <= 9 ? Number(r.clientAttempt) : 'missing',
+        })),
+        classification,
+    };
 }
 
 export type CoachingReceiptReason =
@@ -80,6 +128,8 @@ export function evaluateCoachingDiagnosticReceipt(
     sha256: (value: string) => string,
 ): {
     verdict: CoachingReceiptVerdict; reasons: CoachingReceiptReason[]; diagnosticsForRequest: number; feedbackOutcomes: number;
+    /** Diagnostic only (smoke item 3): never part of the verdict. */
+    terminalIdentity: TerminalIdentity;
     /** The exact binding this verdict was computed for, so finalization can refuse a result about anything else. */
     release: string; expected: CoachingDiagnosticExpectation;
 } {
@@ -120,7 +170,10 @@ export function evaluateCoachingDiagnosticReceipt(
 
     const list = [...reasons];
     const verdict: CoachingReceiptVerdict = list.length === 0 ? 'PASS' : list.some((r) => !HOLD_REASONS.has(r)) ? 'FAIL' : 'HOLD';
-    return { verdict, reasons: list, diagnosticsForRequest: forRequest.length, feedbackOutcomes: stored.length, release: releaseSha, expected: { ...expected } };
+    return {
+        verdict, reasons: list, diagnosticsForRequest: forRequest.length, feedbackOutcomes: stored.length, release: releaseSha, expected: { ...expected },
+        terminalIdentity: terminalIdentity(terminal),
+    };
 }
 
 /**

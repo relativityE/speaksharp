@@ -57,6 +57,9 @@ export function useLinkedRepeat(sessionId: string) {
             trackSavedReviewLinkedAttempt('not_started', 0, actionSeq, intendedRoute);
             return;
         }
+        // #1258 Codex P1 r4273670998: the acceptance moment is the PRESS. Captured before either server call, so a slow
+        // readback or create cannot push it past a take another tab saves meanwhile (which would then never be bound).
+        const acceptedAtIso = new Date().toISOString();
         // #1258: the outcome of THIS attempt, emitted once in `finally`; an exception with no recorded stage is 'threw'.
         let outcome: LinkedAttemptOutcome = 'threw';
         acceptingRef.current = true;
@@ -70,7 +73,12 @@ export function useLinkedRepeat(sessionId: string) {
                 ? pending.attemptId
                 : await recordRecommendationAttempt(recommendationId);
             if (!attemptId) { outcome = 'server_failed'; throw new Error('server-attempt-failed'); }
-            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId });
+            // A REUSED attempt (its create committed but the answer was lost) is accepted at THIS press (Codex P2 r4273828962,
+            // r4275389955, r4275718056; PM 6178959404). No request names an attempt before the server answers, so nothing
+            // proves which earlier press — on this device or another — created it, and the server's clock is never mixed
+            // into client ordering. Known limitation: a take recorded between the lost create and this press stays
+            // unlinked; it is never bound to a take that may predate the attempt.
+            const handoffStored = setOpenAttempt({ attemptId, userId, sourceSessionId: sessionId, acceptedAtIso });
             if (!handoffStored) {
                 const abandoned = await abandonRecommendationAttempt(attemptId);
                 setActionError(abandoned

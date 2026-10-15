@@ -61,7 +61,10 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // encodes operational prerequisite order, not version chronology (see validateExactMigrationAllowlist).
         version: '20260819120000',
         file: '20260819120000_complete_session_v2_atomic_retention_1314.sql',
-        sha256: 'b70efd30a0ee0f5806ef9484f5c9eb3ca889d4122eaf4773d22f47486d9c7584',
+        // Replay-only ACL correction supersedes source SHA b70efd30a0ee0f5806ef9484f5c9eb3ca889d4122eaf4773d22f47486d9c7584.
+        // The historical applied/approved identity is preserved above, not rewritten in a remote ledger.
+        // A new source pin changes the exact authorization phrase; it never permits reapplication.
+        sha256: 'da6392389dc74ab1d7cf06ca9326a089d565eff497745473ab61379d7dd5c41e',
         classification: 'staged',
     }),
     Object.freeze({
@@ -156,6 +159,17 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         version: '20261013120000',
         file: '20261013120000_retention_expiry_without_superuser_1258.sql',
         sha256: 'a00a578f0d474bf319b05cf9dc6f64a205bb366959dbb8ee033db75880477adb',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // #1258 P0 follow-up — 20261013120000's apply (run 38428832342) deployed the reviewed definitions but failed the
+        // lint-delta gate on one plpgsql_check 42804 warning (untyped empty-array literal). This types the two literals.
+        // Applied AFTER 20261013120000, before the held commercial-activation entry. Its pre-apply gate refuses anything
+        // but the deployed 20261013120000 bodies; its postflight proves the typed expiry and unchanged ACLs/grants table.
+        // Allowlisting is implementation, not authorization: applying it needs the PO's exact dispatch with the phrase.
+        version: '20261013140000',
+        file: '20261013140000_retention_expiry_typed_empty_array_1258.sql',
+        sha256: 'a0116bf92e81f0a87c7bbc2528f6cc60c78b2f32a55253fcf49bbadc5eb4c6b1',
         classification: 'staged',
     }),
     Object.freeze({
@@ -586,6 +600,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20260928120000', targetFile: '20260928120000_focus_points_trial_capability' }),
     // #1258 P0 retention expiry: two-routine function identity + ACLs + the closed, empty grants table, read-only.
     Object.freeze({ id: 'postflight_20261013120000', targetFile: '20261013120000_retention_expiry_without_superuser_1258' }),
+    // #1258 P0 follow-up: typed expiry identity + unchanged trigger/ACLs/grants table, read-only.
+    Object.freeze({ id: 'postflight_20261013140000', targetFile: '20261013140000_retention_expiry_typed_empty_array_1258' }),
 ]);
 
 /**

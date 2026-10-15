@@ -97,13 +97,18 @@ export function emitRecordingIntent(input: {
     }, 'HIGH');
 }
 
-/** A runtime state transition. Transitions only — never a poll of unchanged state. */
-export function emitRecordingState(from: string, to: string, cause: string | null): void {
+/**
+ * A runtime state transition. Transitions only — never a poll of unchanged state.
+ * #1258 (PO 2026-10-12): a transition into FAILED also names WHICH failure as a closed code (`recordingFailureCode`);
+ * `transition_cause` alone was "Error" for every save failure.
+ */
+export function emitRecordingState(from: string, to: string, cause: string | null, failureCode: string | null = null): void {
     safeEmit('recording_state', {
         from_state: from,
         to_state: to,
         transition_cause: cause,
         ms_since_intent: since(lastIntentAt),
+        ...(failureCode ? { failure_code: failureCode } : {}),
     }, 'LOW');
 }
 

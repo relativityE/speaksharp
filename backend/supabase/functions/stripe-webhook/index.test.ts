@@ -106,6 +106,16 @@ Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
     assertEquals(sb.calls().p_has_approved_price, true);
   });
 
+  await t.step("un-cancel forwards the cleared flag", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e_resumed", type: "customer.subscription.updated", created: 2400,
+      data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ status: "active", cancel_at_period_end: false }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "active");
+    assertEquals(sb.calls().p_cancel_at_period_end, false);
+  });
+
   await t.step("active sub with the WRONG price → snapshot revokes/refuses Pro, then non-2xx", async () => {
     const sb = mkSupabase();
     const wrong = sub({ items: { data: [{ price: { id: "price_other", active: true, unit_amount: 500, currency: "usd", recurring: { interval: "month", interval_count: 1 } } }] } });

@@ -9,7 +9,7 @@
  */
 import type { CoachingExchange } from './coachingGenerationTap';
 import { createHash } from 'node:crypto';
-import { validateFeedbackDiagnostics } from './feedbackDiagnosticContract';
+import { FAILURE_CATEGORY_AMBIGUOUS, FAILURE_CATEGORY_OBSERVED_INVALID, validateFeedbackDiagnostics } from './feedbackDiagnosticContract';
 import type {
     AiRequestDiagnostic, AiRequestOutcome, DiagnosticExpectation, FeedbackDiagnosticLookup, FeedbackReportDiagnostic,
     ReportAssociation, ReportStorage,
@@ -61,6 +61,116 @@ export function echoMismatch(exchange: CoachingExchange): 'request' | 'attempt' 
     if (exchange.diagnostics.request_id !== exchange.sent.requestId) return 'request';
     if (exchange.diagnostics.attempt_id !== exchange.sent.attemptId) return 'attempt';
     return null;
+}
+
+/** The page's closed failure reasons (AISuggestions `PracticeLoopReviewFailureReason`, telemetry `practice_loop_review_failed`). */
+export const PAGE_FAILURE_REASONS: readonly string[] = [
+    'access_denied', 'invalid_response', 'network', 'not_found', 'rate_limited', 'service_configuration', 'transcript_unavailable', 'unavailable',
+];
+/**
+ * The tap's view of an event: page boot, page capture time, the PostHog payload that carried it and its position there,
+ * and closed fields only. `at` is when the TAP observed it — arrival order, never proof of page order.
+ */
+export interface ObservedEvent {
+    event: string; at: number; capturedAt?: number; bootId?: string; reason?: string;
+    batch?: number; batchIndex?: number;
+    diagnosticRequestId?: string; diagnosticOutcome?: string;
+}
+/**
+ * `bound`: exactly one provable report, with a reason in the page vocabulary. `observed_invalid`: at least one report
+ * provably bound to this request carried a reason OUTSIDE that vocabulary (or none) — a contradiction that no other
+ * report's ambiguity can erase; the raw reason is not kept. `ambiguous`: otherwise, more than one report could be this
+ * request's.
+ */
+export type FailureReportBinding = { state: 'bound'; reason: string } | { state: 'observed_invalid' } | { state: 'ambiguous' };
+
+const TERMINAL_FAILURE_OUTCOMES: ReadonlySet<string> = new Set(['failure', 'network_failure']);
+const UNPROVABLE = Symbol('unprovable');
+
+/**
+ * The event the page emitted immediately before `report` (among this boot's coaching events), when that order is PROVABLE:
+ *  - within one PostHog payload, position is capture order (the payload is the page's FIFO queue at flush, so nothing
+ *    captured between two of its events can sit in another payload);
+ *  - across payloads, only page capture times that are ALL present and STRICTLY ordered prove order.
+ * A missing or tied capture time makes the order unprovable. Arrival order and observation time are never used.
+ */
+function provablePredecessor(report: ObservedEvent, boot: readonly ObservedEvent[]): ObservedEvent | null | typeof UNPROVABLE {
+    const inBatch = report.batch !== undefined && report.batchIndex !== undefined;
+    if (inBatch) {
+        const earlier = boot.filter((x) => x.batch === report.batch && x.batchIndex !== undefined && x.batchIndex < report.batchIndex!);
+        if (earlier.length > 0) return earlier.reduce((a, b) => (b.batchIndex! > a.batchIndex! ? b : a));
+    }
+    const others = boot.filter((x) => x !== report && !(inBatch && x.batch === report.batch));
+    if (others.length === 0) return null;
+    const at = report.capturedAt;
+    if (at === undefined || others.some((x) => x.capturedAt === undefined || x.capturedAt === at)) return UNPROVABLE;
+    const before = others.filter((x) => x.capturedAt! < at);
+    if (before.length === 0) return null;
+    const latest = Math.max(...before.map((x) => x.capturedAt!));
+    const top = before.filter((x) => x.capturedAt === latest);
+    return top.length === 1 ? top[0] : UNPROVABLE;
+}
+
+/**
+ * #1258 R11 (PM RETURN 6144366004; Browser PM RETURN 6145711360) — BIND each page failure report to ITS request, by the
+ * page's own PROVABLE emission order.
+ *
+ * On a terminal failure AISuggestions emits, synchronously and in this order: `ai_coaching_diagnostic` (carrying the
+ * request's `diagnostic_request_id` and outcome `failure` / `network_failure`), then `practice_loop_review_failed` (the
+ * page's closed `reason`). So a report is bound to request X only when, within the SAME page boot, the coaching event
+ * provably immediately before it is X's terminal failure. A report with any other provable predecessor binds to nothing; a
+ * request that collects more than one report is `ambiguous`. A report whose predecessor CANNOT be proven (missing or tied
+ * capture times across payloads) is placed nowhere, and every terminal failure in that boot becomes `ambiguous` — it may
+ * have been theirs — except that a PROVEN out-of-vocabulary report stays `observed_invalid` (FAIL) whatever else is
+ * ambiguous (Browser PM RETURN 6149274471). No report serves two requests, and nothing binds by timestamp proximity or
+ * arrival order.
+ */
+export function bindFailureReports(events: readonly ObservedEvent[]): Map<string, FailureReportBinding> {
+    const byBoot = new Map<string, ObservedEvent[]>();
+    for (const e of events) {
+        if ((e.event !== 'ai_coaching_diagnostic' && e.event !== 'practice_loop_review_failed') || !e.bootId) continue;
+        byBoot.set(e.bootId, [...(byBoot.get(e.bootId) ?? []), e]);
+    }
+    // Per request: whether any provably bound report was invalid, how many were bound, the valid reason, and ambiguity.
+    const evidence = new Map<string, { invalid: boolean; count: number; reason?: string; ambiguous: boolean }>();
+    const of = (id: string) => evidence.get(id) ?? (evidence.set(id, { invalid: false, count: 0, ambiguous: false }), evidence.get(id)!);
+    const isTerminalFailure = (e: ObservedEvent) => e.event === 'ai_coaching_diagnostic'
+        && typeof e.diagnosticRequestId === 'string' && e.diagnosticRequestId !== ''
+        && typeof e.diagnosticOutcome === 'string' && TERMINAL_FAILURE_OUTCOMES.has(e.diagnosticOutcome);
+    for (const boot of byBoot.values()) {
+        let unplaced = false;
+        for (const report of boot.filter((e) => e.event === 'practice_loop_review_failed')) {
+            const prev = provablePredecessor(report, boot);
+            if (prev === UNPROVABLE) { unplaced = true; continue; }
+            if (!prev || !isTerminalFailure(prev)) continue;
+            const record = of(prev.diagnosticRequestId!);
+            record.count += 1;
+            if (typeof report.reason === 'string' && PAGE_FAILURE_REASONS.includes(report.reason)) record.reason = report.reason;
+            else record.invalid = true;
+        }
+        if (unplaced) for (const e of boot) if (isTerminalFailure(e)) of(e.diagnosticRequestId!).ambiguous = true;
+    }
+    const bindings = new Map<string, FailureReportBinding>();
+    for (const [id, r] of evidence) {
+        bindings.set(id, r.invalid ? { state: 'observed_invalid' }
+            : r.count === 1 && !r.ambiguous && r.reason !== undefined ? { state: 'bound', reason: r.reason }
+                : { state: 'ambiguous' });
+    }
+    return bindings;
+}
+
+/**
+ * The page-reported category for one exchange, from `bindFailureReports`: a success carries none; an unbound failure is
+ * `null` (unobserved → HOLD); an ambiguous one is FAILURE_CATEGORY_AMBIGUOUS (HOLD); a bound reason outside the page
+ * vocabulary is FAILURE_CATEGORY_OBSERVED_INVALID (stays invalid → FAIL). The raw reason never leaves this function.
+ */
+export function capturedFailureCategory(exchange: CoachingExchange, bindings: ReadonlyMap<string, FailureReportBinding>): string | null {
+    if (exchange.status !== null && exchange.status >= 200 && exchange.status < 300) return null;
+    const binding = exchange.sent.requestId ? bindings.get(exchange.sent.requestId) : undefined;
+    if (!binding) return null;
+    if (binding.state === 'ambiguous') return FAILURE_CATEGORY_AMBIGUOUS;
+    if (binding.state === 'observed_invalid') return FAILURE_CATEGORY_OBSERVED_INVALID;
+    return binding.reason;
 }
 
 /** One exchange as the contract's request record. `failureCategory` is the product category the page reported. */
@@ -236,10 +346,13 @@ export async function feedbackDiagnosticChainRow(input: {
      */
     acknowledgementVisible?: boolean;
     exchanges: readonly CoachingExchange[];
+    /** #1258 R11: the tap's observed events; failure reports are bound to their request by `bindFailureReports`. */
+    observedEvents?: readonly ObservedEvent[];
     configuredModel: string;
     product: 'open_mic' | 'focus_points';
 }): Promise<void> {
     const { receipt } = input;
+    const failureBindings = bindFailureReports(input.observedEvents ?? []);
     const reportedSessionId = input.reportedSessionId === undefined ? input.currentSessionId : input.reportedSessionId;
     if (!input.reportId || !input.currentSessionId || !reportedSessionId) {
         receipt.row('feedback diagnostic chain', 'HOLD', 'no stored report or no saved take to resolve',
@@ -268,7 +381,9 @@ export async function feedbackDiagnosticChainRow(input: {
         acknowledgementVisible: input.acknowledgementVisible ?? receipt.rows.some((r) => r.step === 'feedback' && r.verdict === 'PASS'),
         telemetryReceived: false,
         exchanges: input.exchanges,
-        failureCategory: () => null,
+        // #1258 R11 (run 38304068207): this was `() => null`, which the contract rejected for EVERY failed request
+        // (`request_field_invalid`), so a coaching timeout read as a contradiction. The page's own report is used now.
+        failureCategory: (e) => capturedFailureCategory(e, failureBindings),
     }) : null;
     const v = validateFeedbackDiagnostics(lookup, expected);
     // Echoed-id evidence is preserved as a count (content-free); a mismatch already FAILs the request's record.

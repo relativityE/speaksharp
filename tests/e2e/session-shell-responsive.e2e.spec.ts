@@ -41,7 +41,7 @@ const heightFor = (w: number) => (w < MD_BREAKPOINT ? 844 : 900);
  *
  * `setViewportSize` resolves when the viewport is resized, not when the document has responded to it.
  * Measuring straight afterwards can read the PREVIOUS layout: the captured failures show
- * `div#practice-root w=375` and `button#nav-sign-out-button right=430` while the viewport is 320 — a nav
+ * `div#practice-root w=375` and an account control past the viewport at 320 — a nav
  * still positioned for the wider layout. That is not a product overflow, it is a stale frame, and it
  * produced failures on branches containing no frontend files at all while passing on same-commit reruns.
  *

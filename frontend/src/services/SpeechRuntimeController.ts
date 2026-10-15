@@ -1,4 +1,5 @@
 import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
+import { engineFailureCode, recordingFailureCode, withFailureCode } from './recordingFailureCode';
 import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './loginSessionLog';
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
@@ -1125,6 +1126,21 @@ export class SpeechRuntimeController {
      *  which land in non-locked states (FAILED/FAILED_VISIBLE/TERMINATED/READY/IDLE). A PRE-recording failure
      *  never sets it, so it correctly unlocks. Preserves the transcript/recovery-draft window. */
     private recordingStartedUnresolved = false;
+    /**
+     * #1258 (Codex P1 r4273828969): when each take's RECORDING began, by its session id — the boundary a "Practice this
+     * next" acceptance is compared with at its Progress seam (which runs after the save, and on retries much later).
+     * Bounded to the most recent takes; a take with no entry falls back to its seam stamp.
+     */
+    private takeStartedAtBySession: Map<string, string> | undefined;
+    private rememberTakeStart(sessionId: string, startedAtIso: string): void {
+        const starts = (this.takeStartedAtBySession ??= new Map<string, string>());
+        starts.set(sessionId, startedAtIso);
+        while (starts.size > 16) {
+            const oldest = starts.keys().next().value;
+            if (oldest === undefined) break;
+            starts.delete(oldest);
+        }
+    }
     /** #1033: engine selection is locked while (a) Start intent, (b) the recording lifecycle, (c) a pending
      *  attribution retry, OR (d) a started recording has not yet durably resolved (post-start failure window).
      *  THE single authoritative predicate — consumed by the UI selector AND enforced in the controller. */
@@ -2621,7 +2637,8 @@ export class SpeechRuntimeController {
                      * the correct outcome — recording did not cleanly terminate, so nothing is claimed.
                      */
                 }
-                emitRecordingState(previousState, newState, error?.name ?? null);
+                emitRecordingState(previousState, newState, error?.name ?? null,
+                    newState === 'FAILED' ? recordingFailureCode(error) : null);
             } catch {
                 /* telemetry must never affect the state machine */
             }
@@ -3047,7 +3064,9 @@ export class SpeechRuntimeController {
         store.setSTTStatus({ type: 'error', message: displayMessage });
 
         void this.enqueue(async (token) => {
-            await this.transition('FAILED', new Error(displayMessage), token);
+            // #1258: an engine-reported message is not authored text, so the code is tagged here, at its source — from the
+            // engine's own error (its browser name, then a strict permission vocabulary), not the display heuristic above.
+            await this.transition('FAILED', withFailureCode(new Error(displayMessage), engineFailureCode(error)), token);
         });
     }
 
@@ -4171,7 +4190,10 @@ export class SpeechRuntimeController {
                     type: 'error',
                     message: '⛔ Active session in another tab.'
                 });
-                await this.transition('FAILED', undefined, _token);
+                // #1258 (Codex P2 4261513195, PM 6150665406): the FAILED transition carries a closed `failure_code`
+                // (start_gate_closed) instead of none. A FAILED error's message becomes the status line, so the error
+                // keeps the exact display text above and the code travels as a tag; only the code leaves the device.
+                await this.transition('FAILED', withFailureCode(new Error('⛔ Active session in another tab.'), 'start_gate_closed'), _token);
                 return;
             }
 
@@ -4495,6 +4517,11 @@ export class SpeechRuntimeController {
 
                     this.updateSessionPersisted(false);
                     pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: negMode });
+                    // #1258 (Codex P1 r4273828969, r4275389946): the take began when the SERVICE confirmed recording — its own
+                    // stamp at ENGINE_STARTED, taken before the invariant check and this save, so an acceptance made in that gap
+                    // still sorts after this take. An unknown start is not remembered, so the binding fails closed.
+                    const serviceStartedAtMs = service.getStartTime();
+                    const takeStartedAtIso = serviceStartedAtMs ? new Date(serviceStartedAtMs).toISOString() : null;
                     const saveResult = await saveSession(
                         { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode, ...productMarkerFor(this.recordingProgressMode) },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
@@ -4521,6 +4548,7 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        if (takeStartedAtIso) this.rememberTakeStart(dbSession.id, takeStartedAtIso);
                         this.applyPrivateTelemetryContext();
                         // #1161 (Option 2): ATOMICALLY bind the pre-session intent (registered before start) to the
                         // session this recording just produced. AWAITED; a bind failure/miss ⇒ the session resolves
@@ -5124,6 +5152,8 @@ export class SpeechRuntimeController {
                                 throw new Error(saveResult.reason === 'lease_not_held' ? LEASE_NOT_HELD_MESSAGE : 'Session save failed');
                             }
                             sessionId = saveResult.session.id;
+                            // #1258 (Codex P1 r4273828969): a take saved only at Stop still began at its recording start.
+                            if (startTime) this.rememberTakeStart(sessionId, new Date(startTime).toISOString());
                             // A's late session-create must not become B's controller session.
                             this.publishIfStopOwner(stopAuthority, token, 'late_session_id', () => {
                                 this.sessionId = sessionId;
@@ -6137,6 +6167,7 @@ export class SpeechRuntimeController {
                     attributionStatus,
                     metricsPersisted,
                     userId: this.capturedUserId,
+                    takeStartedAtIso: this.takeStartedAtBySession?.get(sessionId) ?? null,
                 });
             } catch (progressErr) {
                 // A throw is NOT durability. Fail closed rather than inferring success from silence.
@@ -6408,7 +6439,10 @@ export class SpeechRuntimeController {
                             pushE2EEvent('HEARTBEAT_FAILURE_THRESHOLD_REACHED', { sessionId, consecutiveFailures });
 
                             this.stopHeartbeat(); // Kill interval before transition
-                            await this.transition('FAILED', error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'));
+                            // #1258 (Codex P2 4265721146): the caught error is whatever the network threw — a `TypeError`
+                            // or `TimeoutError` names no heartbeat — so it is tagged here. Same object, same message.
+                            await this.transition('FAILED', withFailureCode(
+                                error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'), 'heartbeat_failure'));
                             return;
                         }
 
