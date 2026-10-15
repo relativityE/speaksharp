@@ -1214,7 +1214,18 @@ export interface PracticeAgainEvidence {
     saveTakePersisted: boolean | null; saveTakeNewSession: boolean | null;
     /** Content-free page state when the review's repeat Start did not begin recording; null when it began or was not tried. */
     startFailure: StartFailureState | null;
+    /**
+     * #1258 smoke run 38654466793 (PM 6181247850): the closed sub-step at which the SAVE take stopped progressing — the step
+     * being attempted when it failed. Null when the review was reached or the save take was never tried.
+     */
+    saveTakeFailedStep: PracticeSaveTakeStep | null;
+    /** Whether the save take's Start and Stop presses were actually completed (never inferred from teardown). */
+    saveTakeStartPressed: boolean; saveTakeStopPressed: boolean;
+    /** Content-free page state read BEFORE teardown when the save take did not reach the review (bounded; may be unread). */
+    saveTakeFailure: StartFailureState | null;
 }
+/** The save take's sub-steps, in order: mic ready → Start pressed → recording confirmed → Stop pressed → review shown. */
+export type PracticeSaveTakeStep = 'mic_ready' | 'start' | 'recording_started' | 'stop' | 'review';
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
@@ -1225,6 +1236,7 @@ export async function practiceAgainEvidence(
         analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null,
         holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null, savedSessionId: null,
         actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null,
+        saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null,
     };
     await page.goto(`/analytics/${sessionId}`);
     const practice = page.getByTestId('saved-review-practice');
@@ -1254,13 +1266,23 @@ export async function practiceAgainEvidence(
         }).catch(() => false);
         ev.sameSetPending = shown;
     }
+    // PM 6181247850: one catch used to cover the whole save take and lose which boundary failed. Each sub-step is now
+    // named before it is attempted, and the presses that actually completed are recorded.
+    let step: PracticeSaveTakeStep = 'mic_ready';
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
+        step = 'start';
         await startBenchmarkRecording(page, `${label}-save`);
+        ev.saveTakeStartPressed = true;
+        step = 'recording_started';
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
         await page.waitForTimeout(7_000); // past the 5 s no-persist guard, so this take saves
-        await stopBenchmarkRecording(page, `${label}-save`);
+        step = 'stop';
+        // Codex P2 r4278702635: the flag is set when the CLICK resolves, inside the helper — so `stop` with the flag true
+        // means the click happened and the post-Stop settle failed; false means the click itself failed.
+        await stopBenchmarkRecording(page, `${label}-save`, undefined, () => { ev.saveTakeStopPressed = true; });
         onSaveTakeStopped?.();
+        step = 'review';
         await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
         ev.reviewReached = true;
         ev.savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
@@ -1268,8 +1290,11 @@ export async function practiceAgainEvidence(
         ev.saveTakeNewSession = ev.savedSessionId !== null ? ev.savedSessionId !== sessionId : null;
     } catch {
         ev.reviewReached = false;
+        ev.saveTakeFailedStep = step;
+        // Read WHY before teardown navigates away; a timed-out read stays marked unread and the failure stands.
+        ev.saveTakeFailure = await readStartFailureState(page).catch(() => UNREAD_START_FAILURE);
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-save`);
-        ev.reason = 'the practice take did not reach the completed-session review';
+        ev.reason = `the practice take did not reach the completed-session review (stopped at: ${step})`;
         return ev;
     }
     // The completed review's own repeat action, pressed as soon as it is offered.
@@ -1360,8 +1385,14 @@ export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'fo
             { sameSetPending: ev.sameSetPending, ...practiceActionEvidence(ev) });
     }
     if (ev.reviewReached !== true) {
-        receipt.row('review Practice again starts, no hold', 'HOLD', ev.reason ?? 'the completed-session review was not reached');
-        receipt.row('repeated take stopped, microphone off', 'HOLD', ev.reason ?? 'not reached', { liveTracksAfterStop: ev.liveTracksAfterStop });
+        // The sub-step and page state EXPLAIN an incomplete save take; they never turn it into PASS. A zero live-track count
+        // after teardown does not prove the repeated take stopped, so that row stays HOLD as well.
+        const saveTake = {
+            saveTakeFailedStep: ev.saveTakeFailedStep, saveTakeStartPressed: ev.saveTakeStartPressed, saveTakeStopPressed: ev.saveTakeStopPressed,
+            ...startFailureEvidence(ev.saveTakeFailure),
+        };
+        receipt.row('review Practice again starts, no hold', 'HOLD', ev.reason ?? 'the completed-session review was not reached', saveTake);
+        receipt.row('repeated take stopped, microphone off', 'HOLD', ev.reason ?? 'not reached', { liveTracksAfterStop: ev.liveTracksAfterStop, ...saveTake });
         return;
     }
     const startOk = ev.afterStartMs !== null && !ev.holdSeen && (ev.afterActionEnabledMs ?? Infinity) < 5_000 && ev.afterStartMs < 15_000;

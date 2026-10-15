@@ -812,11 +812,17 @@ export async function readBenchmarkTranscript(page: Page): Promise<BenchmarkTran
         : { ok: false, invalidReason: 'transcript_surface_absent' };
 }
 
-export async function stopBenchmarkRecording(page: Page, label: string, timeout = 120_000) {
+/**
+ * `onClicked` (#1258, Codex P2 r4278702635 / PM 6192426838): called synchronously the moment the Stop CLICK resolves, before
+ * the recorder-bar and phase-log postconditions — so a caller can tell a failed click from a failure after it. Optional;
+ * every existing caller is unchanged, and postcondition or logging failures still throw exactly as before.
+ */
+export async function stopBenchmarkRecording(page: Page, label: string, timeout = 120_000, onClicked?: () => void) {
     const stop = page.getByTestId(RECORDER_STOP);
     try {
         await expect(stop, `${label}: stop control`).toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
         await stop.click();
+        onClicked?.();
         await expect(page.getByTestId(RECORDER_BAR), `${label}: the recorder bar must disappear on stop`)
             .toHaveCount(0, { timeout });
         await logBenchmarkPhase(page, `PROOF_RUNTIME_RECORDING_STOPPED_${label.toUpperCase()}`);
