@@ -869,6 +869,34 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     }
   });
 
+  // #1258 (Codex P2 r4288823216, PM 6203482045): a RECEIVED answer keeps its HTTP status even when its body cannot be
+  // parsed. The status is captured as soon as fetch resolves, before either body is read. (Its reason/retry
+  // classification is unchanged here: a known limitation carried to the option-A checkpoint.)
+  await t.step('a received 200 with a malformed body keeps its 200 status in the attempt diagnostic', async () => {
+    resetProvider();
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        return new Response('{"candidates":[{"content":', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 502);
+      const text = await response.text();
+      const diagnostics = JSON.parse(text).diagnostics;
+      assertEquals(diagnostics.attempt_1_status, 200, 'the answer was received, so its status is known');
+      assertEquals(diagnostics.attempt_2_status, 200);
+      assertEquals(diagnostics.provider_status, 200);
+      assertEquals(fetchCount, 2, 'the retry ceiling is unchanged');
+      assertEquals(text.includes('"content":'), false, 'the malformed body is never echoed');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   /*
    * #1258 (run 36955422629, PM 5945472679) — EVERY 502 NAMES ITS CAUSE, CONTENT-FREE.
    *

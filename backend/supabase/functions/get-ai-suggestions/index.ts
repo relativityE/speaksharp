@@ -804,6 +804,9 @@ export async function handler(
             generationConfig: GEMINI_GENERATION_CONFIG,
           }),
         });
+        // #1258 (Codex P2 r4288823216): a received answer's status is known the moment fetch resolves, before either
+        // body is read, so a malformed or truncated body still reports the status that actually arrived.
+        providerStatus = geminiResponse.status;
 
         if (!geminiResponse.ok) {
           // #1258 (PM 5953504835): the provider's error body can echo anything, so it is never logged or returned.
@@ -815,7 +818,6 @@ export async function handler(
             error_status: providerErrorCodes.error_status, error_reason: providerErrorCodes.error_reason,
           }));
           providerFailureIsRetryable = geminiResponse.status >= 500;
-          providerStatus = geminiResponse.status;
           failureReason = geminiResponse.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
         } else {
           const responseData = await geminiResponse.json();
@@ -825,7 +827,6 @@ export async function handler(
             && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
             ? responseData.modelVersion
             : null;
-          providerStatus = geminiResponse.status;
           // The model's FRESH answer — the one place the budget is enforced.
           const classified = classifyGeneratedSuggestions(rawText);
           if ('suggestions' in classified) suggestions = classified.suggestions;
