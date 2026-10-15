@@ -1278,8 +1278,9 @@ export async function practiceAgainEvidence(
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
         await page.waitForTimeout(7_000); // past the 5 s no-persist guard, so this take saves
         step = 'stop';
-        await stopBenchmarkRecording(page, `${label}-save`);
-        ev.saveTakeStopPressed = true;
+        // Codex P2 r4278702635: the flag is set when the CLICK resolves, inside the helper — so `stop` with the flag true
+        // means the click happened and the post-Stop settle failed; false means the click itself failed.
+        await stopBenchmarkRecording(page, `${label}-save`, undefined, () => { ev.saveTakeStopPressed = true; });
         onSaveTakeStopped?.();
         step = 'review';
         await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });

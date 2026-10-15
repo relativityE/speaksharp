@@ -31,7 +31,11 @@ vi.mock('../live/helpers/benchmark-utils', async (importOriginal) => ({
     ...(await importOriginal<Record<string, unknown>>()),
     startBenchmarkRecording: async (_p: unknown, label: string) => { script.calls.push(`start:${label}`); fail('start'); },
     expectBenchmarkRecordingStarted: async (_p: unknown, label: string) => { script.calls.push(`started:${label}`); fail('recording_started'); },
-    stopBenchmarkRecording: async (_p: unknown, label: string) => { script.calls.push(`stop:${label}`); if (!label.endsWith('-teardown')) fail('stop'); },
+    // A scripted 'stop' failure here is a failed CLICK, so the post-click callback is not reached (the real helper's
+    // click-vs-postcondition timing is exercised in rwtStopClickCallback1258.test.ts).
+    stopBenchmarkRecording: async (_p: unknown, label: string, _timeout?: number, onClicked?: () => void) => {
+        script.calls.push(`stop:${label}`); if (!label.endsWith('-teardown')) fail('stop'); onClicked?.();
+    },
 }));
 vi.mock('../live/helpers/rwtStepDiagnostics', async (importOriginal) => ({
     ...(await importOriginal<Record<string, unknown>>()),
