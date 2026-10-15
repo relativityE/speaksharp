@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import process from 'node:process';
 import console from 'node:console';
 
-const root = mkdtempSync('/private/tmp/closure-schema-proof-');
+const root = mkdtempSync(join(tmpdir(), 'closure-s-'));
 const data = join(root, 'data'); const socket = join(root, 'socket'); mkdirSync(socket);
 const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     !key.startsWith('PG') && !key.startsWith('SUPABASE') && key !== 'DB_URL')),

@@ -4,11 +4,12 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import process from 'node:process';
 import console from 'node:console';
 import { setTimeout } from 'node:timers';
 
-const root = mkdtempSync('/private/tmp/account-closure-realpg-');
+const root = mkdtempSync(join(tmpdir(), 'closure-c-'));
 const data = join(root, 'data');
 const socket = join(root, 'socket');
 mkdirSync(socket);
