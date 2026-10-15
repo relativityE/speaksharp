@@ -1,0 +1,45 @@
+name: Session policy replay (disposable PostgreSQL)
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20250811062708_initial_schema.sql'
+      - 'backend/supabase/migrations/20250812032300_update_usage_tracking.sql'
+      - 'backend/supabase/migrations/20250819072116_add_accuracy_to_sessions.sql'
+      - 'backend/supabase/migrations/20250825065500_fix_rls_performance_issue.sql'
+      - 'tests/db/session-policy-replay-realpg.mjs'
+      - '.github/workflows/session-policy-replay-proof.yml'
+permissions:
+  contents: read
+jobs:
+  policy:
+    name: policy (PostgreSQL ${{ matrix.pg }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+    env:
+      PROOF_PG_MAJOR: ${{ matrix.pg }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install and select the declared PostgreSQL version
+        env:
+          PG_MAJOR: ${{ matrix.pg }}
+        run: |
+          # Ubuntu's stock repository has only its default major. Use the
+          # official PostgreSQL signed repository for all declared matrix rows.
+          curl -fsS https://www.postgresql.org/media/keys/ACCC4CF8.asc -o "$RUNNER_TEMP/postgresql.asc"
+          sudo install -m 0644 "$RUNNER_TEMP/postgresql.asc" /usr/share/keyrings/postgresql.asc
+          echo 'deb [signed-by=/usr/share/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/postgresql.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "postgresql-$PG_MAJOR"
+          echo "/usr/lib/postgresql/$PG_MAJOR/bin" >> "$GITHUB_PATH"
+      - name: Prove real SQL and role isolation on an owned temporary cluster
+        run: node tests/db/session-policy-replay-realpg.mjs
