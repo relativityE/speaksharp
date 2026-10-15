@@ -91,6 +91,32 @@ test.describe('#1258 C10 — Honest Start (mock browser, engine setup delayed)',
         await expect(page.getByTestId('recorder-bar')).toBeVisible({ timeout: 15_000 });
     });
 
+    test('RECORDING without real-frame readiness shows NO live cue; the engine\'s readiness makes the single live moment', async ({ page }) => {
+        test.setTimeout(60_000);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        await navigateToRoute(page, '/session');
+        const start = page.getByTestId('mic-start');
+        await expect(start).toBeEnabled({ timeout: 30_000 });
+        // Hold the labelled mock readiness stimulus so the runtime reaches RECORDING with NO real frames.
+        await page.evaluate(() => { (window as unknown as { __SS_E2E_HOLD_CAPTURE_READY__?: boolean }).__SS_E2E_HOLD_CAPTURE_READY__ = true; });
+        await start.click();
+        await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
+        await page.waitForTimeout(1_000);
+        await expect(page.getByTestId('recorder-bar'), 'no recording bar / timer / waveform before real frames').toHaveCount(0);
+        expect(await bodyText(page)).toContain(GETTING_READY);
+        await expect(start).toContainText('Starting…');
+
+        // Deliver the engine's own readiness (what the real gate fires) — the one live moment.
+        await page.evaluate(() => {
+            const w = window as unknown as { __PrivateWhisper_INT_TEST__?: { onStatusChange?: (s: { type: string; message: string }) => void } };
+            w.__PrivateWhisper_INT_TEST__?.onStatusChange?.({ type: 'recording', message: 'Speak now' });
+        });
+        await expect(page.getByTestId('recorder-bar')).toBeVisible({ timeout: 5_000 });
+        await expect.poll(() => bodyText(page), { timeout: 5_000 }).toContain('Recording active');
+        expect(await bodyText(page)).not.toContain(GETTING_READY);
+    });
+
     test('10 s from the press: the notice and Try again; Try again cancels with confirmed release and starts exactly one engine', async ({ page }) => {
         test.setTimeout(90_000);
         await page.setViewportSize({ width: 1280, height: 800 });

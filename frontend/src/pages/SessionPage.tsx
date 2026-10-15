@@ -466,6 +466,20 @@ export const SessionPage: React.FC = () => {
     }, [reviewParam, idleState, restoreId, restoredFresh, restored.isError, restored.isSuccess, restored.data, authUserId, setReviewParam]);
     const restoredSession = restorableSession(restoredFreshSuccess ? restored.data : undefined, restoreId, authUserId);
 
+    // #1258 PR A — prepare the NEXT take's fresh engine while this review is on screen, so `Practice again?` does not pay
+    // the engine build inside the press. Only once this take is fully done: save + finalization published, Progress gate
+    // clear, no Retry Save/attribution recovery pending, runtime READY, page visible. The controller enforces
+    // destroy-before-create and stands down on any change; a Start joins it.
+    const progressGateClear = progressGate === null;
+    const nextTakeEligible = showAnalyticsPrompt && !!finalizedAnalysis; // == postSaveReady, computed before the early return
+    useEffect(() => {
+        if (!nextTakeEligible || !progressGateClear || pendingResolutionKind !== null || runtimeState !== 'READY') return;
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+        if (mode !== 'private') return;
+        void import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) =>
+            speechRuntimeController.prepareNextTake(mode)).catch(() => undefined);
+    }, [nextTakeEligible, progressGateClear, pendingResolutionKind, runtimeState, mode]);
+
     if (!metrics) return <SessionPageSkeleton />;
 
     // Dual-State Status Derivation (FSM + Service State)
@@ -503,18 +517,6 @@ export const SessionPage: React.FC = () => {
     // reconciliation + formatting reaches complete/failed and the final text is applied. Until
     // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
     const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
-    // #1258 PR A — prepare the NEXT take's fresh engine while this review is on screen, so `Practice again?` does not pay
-    // the engine build inside the press. Only once this take is fully done: save + finalization published, Progress gate
-    // clear, no Retry Save/attribution recovery pending, runtime READY, page visible. The controller enforces
-    // destroy-before-create and stands down on any change; a Start joins it.
-    const progressGateClear = progressGate === null;
-    useEffect(() => {
-        if (!postSaveReady || !progressGateClear || pendingResolutionKind !== null || runtimeState !== 'READY') return;
-        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-        if (mode !== 'private') return;
-        void import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) =>
-            speechRuntimeController.prepareNextTake(mode)).catch(() => undefined);
-    }, [postSaveReady, progressGateClear, pendingResolutionKind, runtimeState, mode]);
 
     /**
      * #1422 — REVIEW readiness is not COPY readiness.

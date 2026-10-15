@@ -874,6 +874,8 @@ export class SpeechRuntimeController {
         if (expected && current !== expected) return null;
         this.service = null;
         this.serviceGeneration += 1;
+        // #1258 C10 — a detached service's readiness can never vouch for its successor (ownership loss / replacement).
+        this.engineReportedRealFrames = false;
         // The accepted attempt named this service. With it detached the tuple can no longer be
         // satisfied, and leaving it in place would keep a dead attempt nominally able to publish.
         if (this.acceptedAttempt && (!expected || this.acceptedAttempt.service === expected)) {
@@ -2898,7 +2900,9 @@ export class SpeechRuntimeController {
         } else {
             // Leaving RECORDING (or entering any start/stop phase) ends live capture for this take.
             store.setCaptureLive(false);
-            if (newState === 'INITIATING') this.engineReportedRealFrames = false;
+            // The latch survives ONLY across ENGINE_INITIALIZING, where a same-attempt real-frame signal may legitimately
+            // arrive before RECORDING. Every other state — a new Start (INITIATING), Stop, failure, reset, idle — clears it.
+            if (newState !== 'ENGINE_INITIALIZING') this.engineReportedRealFrames = false;
             // A take that has stopped, failed or been torn down is no longer starting: the honest wait never outlives it.
             if (newState === 'STOPPING' || newState === 'FAILED' || newState === 'FAILED_VISIBLE' || newState === 'TERMINATED') {
                 store.setStartupWaitStartedAt(null);
