@@ -44,11 +44,11 @@ function createWorkspaceFixture() {
 }
 
 describe('exact migration gate', () => {
-    it('rejects the historical v2 source authorization hash after the explicit replay ACL correction', () => {
+    it('pins corrected v2 bytes and rejects the old hash through the legacy source-check interface', () => {
         const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: '20260819120000' });
         expect(config.targetSha256).toBe('da6392389dc74ab1d7cf06ca9326a089d565eff497745473ab61379d7dd5c41e');
         expect(() => verifyMigrationSourceIdentity(resolve(process.cwd(), 'backend/supabase'), {
-            ...config, targetSha256: 'b70efd30a0ee0f5806ef9484f5c9eb3ca889d4122eaf4773d22f47486d9c7584',
+            ...config, allowlisted: false, targetSha256: 'b70efd30a0ee0f5806ef9484f5c9eb3ca889d4122eaf4773d22f47486d9c7584',
         })).toThrow(/hash/);
     });
     it('accepts a workflow-pinned target while preserving the webhook contract as the default', () => {
