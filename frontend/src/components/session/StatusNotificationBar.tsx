@@ -35,6 +35,11 @@ interface StatusNotificationBarProps {
      * once — so a second session finalized WITHOUT unmounting SessionPage re-triggers it. Leave it
      * undefined for no cue.
      */
+    /**
+     * #1258 C10 — the long-wait `Try again` in the bar's right-hand slot (spec row 3). Present only after 10 s of a
+     * start that has not reached live capture. `pending` disables it while a confirmed-release retry is in flight.
+     */
+    startupRetry?: { pending: boolean; onRetry: () => void };
     analyticsAction?: {
         cueKey?: string | number;
         onSelect?: () => void;
@@ -128,7 +133,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
  * Displays above the Live Recording card to inform users of initialization,
  * fallback, and error states.
  */
-export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction }) => {
+export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction, startupRetry }) => {
     // Primary Status Configuration
     const config = statusConfig[status.type];
     const Icon = config.icon;
@@ -333,6 +338,19 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         </Link>
                     )}
                 </div>
+            )}
+
+            {startupRetry && (
+                <button
+                    type="button"
+                    onClick={startupRetry.onRetry}
+                    disabled={startupRetry.pending}
+                    aria-disabled={startupRetry.pending}
+                    data-testid="startup-try-again"
+                    className="ml-auto inline-flex min-h-9 shrink-0 items-center rounded-md border border-neutral-border-strong bg-white px-3 py-1.5 text-[13px] font-bold text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                    Try again
+                </button>
             )}
 
             {/* Secondary Status Indicator (Background Task) - Far Right */}

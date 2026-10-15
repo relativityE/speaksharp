@@ -613,6 +613,10 @@ export const useSessionLifecycle = () => {
                 return;
             }
 
+            // #1258 C10 — the honest wait begins at the accepted press, before any lease check or engine work, so the
+            // `Starting…` label and the 10 s notice count from the press itself. Cleared below on any refusal/failure;
+            // once the take is RECORDING it stays until capture is live on real frames (SessionPage clears it then).
+            useSessionStore.getState().setStartupWaitStartedAt(Date.now());
             try {
                 setSTTStatus({ type: 'idle', message: 'Ready to record' });
 
@@ -910,6 +914,14 @@ export const useSessionLifecycle = () => {
                     isProcessingRef.current = false;
                     return;
                 }
+                // #1258 C10 — the user chose `Try again`, which cancels this start with a confirmed release before ONE
+                // new start. Its retired intent is that deliberate cancel, not an engine failure: no failure telemetry,
+                // no error status, no reset (the cancel already tore the engine down and proved it off).
+                if (useSessionStore.getState().startupRetryCancelling
+                    && typeof err?.message === 'string' && err.message.startsWith('RECORDING_INTENT_RETIRED:')) {
+                    isProcessingRef.current = false;
+                    return;
+                }
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode;
                 const message = getStartFailureMessage(err, latestMode);
@@ -972,6 +984,10 @@ export const useSessionLifecycle = () => {
                 setSTTStatus({ type: 'error', message: `⚠️ ${message}` });
             } finally {
                 isProcessingRef.current = false;
+                // #1258 C10 — a start that did not reach RECORDING (refused, failed, cancelled) is no longer waiting.
+                if (useSessionStore.getState().runtimeState !== 'RECORDING') {
+                    useSessionStore.getState().setStartupWaitStartedAt(null);
+                }
             }
         }
     }, [

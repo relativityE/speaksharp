@@ -33,6 +33,10 @@ import { resolveTranscriptView } from '@/lib/storage';
  * row (RLS) or a failed read, and is dropped the same way.
  */
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+/** #1258 C10 — the long-wait notice threshold, counted from the press (spec row 3). An escalation, not a target. */
+const STARTUP_SLOW_NOTICE_MS = 10_000;
+/** How long Try again waits for the cancelled attempt to unwind before giving up (it then starts nothing). */
+const STARTUP_RETRY_SETTLE_MS = 5_000;
 
 /**
  * ARCHITECTURE:
@@ -82,6 +86,25 @@ export const SessionPage: React.FC = () => {
     // (which the useFillerWords sync zeroes once the chunks are purged).
     const finalizedWordCount = useSessionStore(state => state.finalizedWordCount);
     const finalizedFillerData = useSessionStore(state => state.finalizedFillerData);
+    // #1258 C10 — the honest wait: from the accepted press until capture is live on real frames.
+    const startupWaitStartedAt = useSessionStore(state => state.startupWaitStartedAt);
+    const captureLive = useSessionStore(state => state.captureLive);
+    const startupWaiting = startupWaitStartedAt !== null && !captureLive;
+    const [startupSlow, setStartupSlow] = React.useState(false);
+    const [startupRetryPending, setStartupRetryPending] = React.useState(false);
+    React.useEffect(() => {
+        // Live capture ends the wait; the press time is never carried into the next take.
+        if (captureLive && startupWaitStartedAt !== null) useSessionStore.getState().setStartupWaitStartedAt(null);
+    }, [captureLive, startupWaitStartedAt]);
+    React.useEffect(() => {
+        if (!startupWaiting || startupWaitStartedAt === null) { setStartupSlow(false); return; }
+        // 10 s counted from the PRESS (a joined attempt keeps its original clock; a replacement sets a new one).
+        const remaining = STARTUP_SLOW_NOTICE_MS - (Date.now() - startupWaitStartedAt);
+        if (remaining <= 0) { setStartupSlow(true); return; }
+        setStartupSlow(false);
+        const timer = setTimeout(() => setStartupSlow(true), remaining);
+        return () => clearTimeout(timer);
+    }, [startupWaiting, startupWaitStartedAt]);
     // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
     // session finalizes; null for Open Mic sessions (and cleared at the next recording start).
     const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
@@ -480,6 +503,18 @@ export const SessionPage: React.FC = () => {
     // reconciliation + formatting reaches complete/failed and the final text is applied. Until
     // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
     const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
+    // #1258 PR A — prepare the NEXT take's fresh engine while this review is on screen, so `Practice again?` does not pay
+    // the engine build inside the press. Only once this take is fully done: save + finalization published, Progress gate
+    // clear, no Retry Save/attribution recovery pending, runtime READY, page visible. The controller enforces
+    // destroy-before-create and stands down on any change; a Start joins it.
+    const progressGateClear = progressGate === null;
+    useEffect(() => {
+        if (!postSaveReady || !progressGateClear || pendingResolutionKind !== null || runtimeState !== 'READY') return;
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+        if (mode !== 'private') return;
+        void import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) =>
+            speechRuntimeController.prepareNextTake(mode)).catch(() => undefined);
+    }, [postSaveReady, progressGateClear, pendingResolutionKind, runtimeState, mode]);
 
     /**
      * #1422 — REVIEW readiness is not COPY readiness.
@@ -534,6 +569,22 @@ export const SessionPage: React.FC = () => {
         // 2. Medium Priority: Download Required (Pre-session)
         if (sttStatus.type === 'download-required') {
             return sttStatus as SttStatus;
+        }
+
+        // 2a. #1258 C10 — a start in progress owns the bar from the press until capture is live, so no earlier take's
+        // copy (`Session saved.`, `Finalizing your transcript…`) can show during the new take. FAILED/download stay above.
+        if (startupWaiting) {
+            return {
+                type: 'initializing',
+                message: 'Getting your mic ready…',
+                ...(startupSlow ? { detail: 'This is taking longer than usual.' } : {}),
+            } as SttStatus;
+        }
+        // Live capture of a NEW take: its own status, never the previous take's post-save copy (C10 row 4).
+        if (captureLive && runtimeState === 'RECORDING') {
+            return (sttStatus as SttStatus).type === 'recording'
+                ? sttStatus as SttStatus
+                : { type: 'recording', message: 'Recording active' } as SttStatus;
         }
 
         // 2b. Post-save (TERMINAL success only): the mode-aware reconciliation copy is the authoritative
@@ -630,7 +681,38 @@ export const SessionPage: React.FC = () => {
                         // #1047: the page owns the gap below the status bar, not the shared component.
                         className="mb-[26px]"
                         status={displayStatus}
-                        analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                        analyticsAction={postSaveReady && !startupWaiting ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                        startupRetry={startupWaiting && startupSlow ? {
+                            pending: startupRetryPending,
+                            onRetry: () => {
+                                if (startupRetryPending) return;
+                                setStartupRetryPending(true);
+                                // C10 Try again: cancel with CONFIRMED release, then exactly one new start. A destroy that
+                                // rejects, or an engine not proven off, starts nothing (no second engine); the start stays
+                                // disabled and the existing start-failure path reports it.
+                                void import('@/services/SpeechRuntimeController').then(async ({ speechRuntimeController }) => {
+                                    useSessionStore.getState().setStartupRetryCancelling(true);
+                                    try {
+                                        await speechRuntimeController.hardResetAwaited('startup_retry');
+                                        if (!speechRuntimeController.isEngineTerminal()) return;
+                                        // The cancelled attempt's own handler clears its wait when it unwinds; a new Start
+                                        // issued before that would be refused as already in flight. Bounded: if it never
+                                        // unwinds, nothing new starts.
+                                        const settleBy = Date.now() + STARTUP_RETRY_SETTLE_MS;
+                                        while (useSessionStore.getState().startupWaitStartedAt !== null && Date.now() < settleBy) {
+                                            await new Promise((resolve) => setTimeout(resolve, 50));
+                                        }
+                                        if (useSessionStore.getState().startupWaitStartedAt !== null) return;
+                                        await handleStartStop();
+                                    } catch {
+                                        // Release unconfirmed: never start over a possibly-live engine.
+                                    } finally {
+                                        useSessionStore.getState().setStartupRetryCancelling(false);
+                                        setStartupRetryPending(false);
+                                    }
+                                });
+                            },
+                        } : undefined}
                     />
                 )}
                 {/* #1033 Part-2b (A3/A4): unresolved-recording recovery. Driven by the controller's

@@ -7,6 +7,10 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { deriveFocusCoverage } from '@/utils/focusCoverage';
 
+// #1258 C10 — these cases model a LIVE take ("listening"), which under the one-live definition also means capture is live on
+// real microphone frames. The C10 suite covers the RECORDING-without-frames start state separately.
+beforeEach(() => { useSessionStore.setState({ captureLive: true }); });
+
 const base: SessionOverhaulViewProps = {
     authUserId: 'user-1',
     isListening: false,

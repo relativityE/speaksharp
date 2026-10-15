@@ -225,8 +225,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     history,
 }) => {
     const permissionError = sttStatus.type === 'error';
+    const captureLiveForState = useSessionStore((st) => st.captureLive);
     const sessionState = resolveSessionState({
-        firstAudioFrameReceived: isListening,
+        // #1258 C10 — ONE definition of "recording begins": the take is live only when capture is live on real microphone
+        // frames (`captureLive`), not merely when the runtime entered RECORDING. Until then the page stays in its start
+        // state (`Starting…`, `Getting your mic ready…`) and shows no live indicator.
+        firstAudioFrameReceived: isListening && captureLiveForState,
         // PO 2026-08-10: the post-Stop FINALIZING window (decode still running, save/analytics not yet
         // fired) must resolve to `after`, not `before`. Without `isFinalizing` here the transcript card
         // briefly reverted to the "Not sure what to say?" prompt offer during finalizing, and the
@@ -808,6 +812,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // window is what removes the enabled frame. The button is a CUE, never the gate — `startRecording`
     // re-reads the durable queue on every attempt regardless of what is rendered.
     const progressGate = useSessionStore((st) => st.progressGate);
+    // #1258 C10 — a Start is in progress (accepted press → capture live on real frames).
+    const startupWaiting = useSessionStore((st) => st.startupWaitStartedAt !== null && !st.captureLive);
     const progressGateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
     // Owner-scoped: an answer determined for a DIFFERENT account is not an answer for this one, so an
     // account transition reverts to "not determined" immediately rather than inheriting an enabled
@@ -891,6 +897,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     onDownloadModel,
                     disabled: isButtonDisabled || gateBlocksStart,
                     blockedReason: gateNotice,
+                    starting: startupWaiting,
                 }}
                 transcript={{
                     offerDismissed: offer.dismissed,
@@ -990,7 +997,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             {!isObjective && (
                 <div className={practiceLoopReview ? 'mt-4' : undefined}>
                     <SessionVerdict verdictLine={null} fix={null} onPracticeAgain={choosePracticeAgain} onSeeAllSessions={chooseSeeAllSessions}
-                        practiceAgainDisabled={repeatActionDisabled} practiceAgainDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
+                        practiceAgainDisabled={repeatActionDisabled} practiceAgainDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}
+                        practiceAgainStarting={startupWaiting} />
                 </div>
             )}
         </>
