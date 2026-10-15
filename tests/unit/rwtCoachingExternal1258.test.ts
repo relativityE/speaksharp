@@ -894,3 +894,31 @@ describe('Codex P1 r4277621600 (PM 6182054477) — EXTERNAL needs a confirmed VI
         ]);
     });
 });
+
+describe('Codex P1 r4278164966 (PM 6182647772) — an answered failure is terminal: a retry after it is never a proved outage', () => {
+    const ex = (o: { attemptId: string; clientAttempt: number; status: number | null; reason?: string }) => ({
+        sent: { sessionId: 's', product: null, requestId: 'life-1', attemptId: o.attemptId, clientAttempt: o.clientAttempt, clientReleaseId: null },
+        status: o.status,
+        diagnostics: o.status === null ? null : { reason: o.reason ?? 'provider_http_5xx', provider_status: 503 },
+        suggestions: null, clientMs: 1, at: 1,
+    });
+    const first503 = ex({ attemptId: 'a1', clientAttempt: 1, status: 502 });
+    const second503 = ex({ attemptId: 'a2', clientAttempt: 2, status: 502 });
+    it.each([['in order', [first503, second503]], ['reversed', [second503, first503]]])(
+        'RED-case from the review: answered 503 at attempt 1, then 503 at attempt 2 (%s) → UNPROVEN', (_l, exchanges) => {
+            const take = takeExchangeEvidence(exchanges);
+            expect(take.unique).toBe(false);
+            // …so the parent can never become EXTERNAL for the invalid retry (the request is not provably bound).
+            const parent = coachingParentVerdict({ rendered: false, evidence: take.evidence, graceful: { ...graceful, requestBoundToSession: take.unique } });
+            expect(parent.verdict).toBe('FAIL');
+        });
+    it.each([
+        ['a single 503', [ex({ attemptId: 'a1', clientAttempt: 1, status: 502 })]],
+        ['unanswered (network) then 503', [ex({ attemptId: 'a1', clientAttempt: 1, status: null }), second503]],
+        ['425 pending then 503 at the same attempt', [ex({ attemptId: 'a1', clientAttempt: 1, status: 425, reason: 'focus_results_pending' }), ex({ attemptId: 'a1b', clientAttempt: 1, status: 502 })]],
+    ])('%s → still proved, and the parent is EXTERNAL under its valid binding', (_l, exchanges) => {
+        const take = takeExchangeEvidence(exchanges);
+        expect(take).toMatchObject({ unique: true, evidence: { httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503 } });
+        expect(coachingParentVerdict({ rendered: false, evidence: take.evidence, graceful: { ...graceful, requestBoundToSession: take.unique } }).verdict).toBe('EXTERNAL');
+    });
+});

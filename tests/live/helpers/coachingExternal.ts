@@ -210,6 +210,11 @@ export function takeExchangeEvidence(forSession: readonly CoachingExchange[]): {
     if (echoConflicts) return { ...UNPROVEN };
     const terminal = forSession.filter((e) => e.status !== null && e.status !== 425);
     if (terminal.length === 0) return { ...UNPROVEN };
+    // Codex P1 r4278164966 (PM 6182647772): on this client an ANSWERED failure is terminal (`unavailable` is a terminal
+    // reason; only an unanswered transport failure may retry), so the lifecycle may hold exactly ONE answered non-425
+    // exchange. Any other — e.g. a 503 at attempt 1 before the selected 503 at attempt 2 — is an app retry the provider
+    // did not cause, so the outage is unproven, never EXTERNAL.
+    if (terminal.length !== 1) return { ...UNPROVEN };
     const attemptOf = (e: CoachingExchange) => e.sent.clientAttempt ?? 0;
     const last = Math.max(...terminal.map(attemptOf));
     const atLast = terminal.filter((e) => attemptOf(e) === last);
