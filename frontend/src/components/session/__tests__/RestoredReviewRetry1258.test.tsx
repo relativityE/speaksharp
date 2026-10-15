@@ -20,7 +20,7 @@ describe('RestoredReviewRetry', () => {
     it('transcript kept: the failed band with Try again; nothing is requested until the press, then ONE review for this session', () => {
         render(<RestoredReviewRetry sessionId="s-9" product="open_mic" sessionLabel="7 Oct, 18:12" transcriptAvailable />);
         expect(screen.getByTestId('restored-review-retry')).toHaveTextContent("The review didn't load. Your session is saved.");
-        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent("Sends this session's transcript to Google Gemini");
+        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent("Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider to create AI coaching. Audio is never sent.");
         expect(mounted).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByTestId('restored-review-retry-button'));
@@ -49,13 +49,13 @@ describe('RestoredReviewRetry', () => {
     // #1577 Codex P2 4235535994: with no resolved product the coaching function answers product_unknown (422), so a retry
     // could never generate coaching: terminal, no button, no claimed send, no request. Open Mic and Focus still retry.
     it.each([
-        ['open_mic', true, "Sends this session's transcript to Google Gemini"],
-        ['focus_points', true, 'your Focus Points topic and points'],
+        ['open_mic', true, "Sends this session's transcript and speaking measurements (filler counts and pace) to the AI service provider"],
+        ['focus_points', true, 'saved Focus Points topic, points and results'],
         [null, false, null],
     ] as const)('CASUALTY (Codex 4235535994): product %s → Try again offered: %s', (product, offered, disclosure) => {
         render(<RestoredReviewRetry sessionId="s-9" product={product} transcriptAvailable action={<button data-testid="practice-again">Practice again?</button>} />);
         const band = screen.getByTestId('restored-review-retry');
-        expect([screen.queryAllByTestId('restored-review-retry-button').length, band.textContent?.includes('Google Gemini')])
+        expect([screen.queryAllByTestId('restored-review-retry-button').length, band.textContent?.includes('AI service provider')])
             .toEqual([offered ? 1 : 0, offered]);
         expect(disclosure === null || band.textContent?.includes(disclosure)).toBe(true);
         expect(screen.queryAllByTestId('restored-review-not-available').length).toBe(offered ? 0 : 1);
@@ -65,7 +65,7 @@ describe('RestoredReviewRetry', () => {
 
     it('CASUALTY (Codex 4236200867): Focus results not saved → terminal, no button, no disclosure, NO request; ready Focus retries', () => {
         const { unmount } = render(<RestoredReviewRetry sessionId="s-9" product="focus_points" transcriptAvailable resultsReady={false} action={<button data-testid="practice-again">Practice again?</button>} />);
-        expect([screen.queryAllByTestId('restored-review-retry-button').length, screen.getByTestId('restored-review-retry').textContent?.includes('Google Gemini')])
+        expect([screen.queryAllByTestId('restored-review-retry-button').length, screen.getByTestId('restored-review-retry').textContent?.includes('AI service provider')])
             .toEqual([0, false]);
         expect(screen.getByTestId('restored-review-not-available')).toBeInTheDocument();
         expect(screen.getByTestId('practice-again')).toBeInTheDocument();
@@ -76,9 +76,9 @@ describe('RestoredReviewRetry', () => {
         expect(mounted).toHaveBeenCalledTimes(1);
     });
 
-    it('Focus Points: the disclosure names the topic and points it sends', () => {
+    it('Focus Points: restored disclosure names saved inputs and relevant measurements', () => {
         render(<RestoredReviewRetry sessionId="s-9" product="focus_points" transcriptAvailable />);
-        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent('your Focus Points topic and points');
+        expect(screen.getByTestId('restored-review-retry')).toHaveTextContent("Sends this session's transcript, saved Focus Points topic, points and results, and relevant speaking measurements to the AI service provider to create AI coaching. Audio is never sent.");
     });
 
     it('CASUALTY: transcript no longer kept → "Review isn\'t available for this session", no button, nothing requested', () => {

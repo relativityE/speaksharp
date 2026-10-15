@@ -41,7 +41,8 @@ describe('#1258 coaching failure reason in the receipt', () => {
             expect(src).not.toContain("'unreadable'");
         }
         expect(openMic).toMatch(/httpStatus: coaching\.status, failureReason: coaching\.reason/);
-        expect(journey).toMatch(/httpStatus: request\.status, failureReason: request\.reason \?\? null/);
+        // #1258 (PM 6173420642 §3): the Focus row's evidence comes from the take's own exchange when there is exactly one.
+        expect(journey).toMatch(/httpStatus: take\.unique \? take\.evidence\.httpStatus : request\.status, failureReason: take\.unique \? take\.evidence\.reason : request\.reason \?\? null/);
     });
 
     it('a failed response is read as an awaitable closed reason; a non-JSON body reads "unrecognized" (Codex r4188372897)', async () => {
