@@ -779,16 +779,19 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         // PM 6173420642 §2: bound to THIS take's request id — never whole-run counts a later take could satisfy.
         const focusBoundFailure = failureTelemetryBinding(tap.events,
             persistedId ? takeExchangeEvidence(generations.forSession(persistedId)).diagnosticRequestId : null);
+        // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
+        const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
+        const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
         const focusCoachingTelemetry = coachingTelemetryVerdict(
             { verdict: focusExternal ? 'EXTERNAL' : 'PASS', detail: '', external: focusExternal ? 'provider_5xx' : null },
             focusBoundFailure,
             sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
-            sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt));
+            sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt),
+            // Codex P1 r4277621594: the FIRST take's request proof, from the same first-take window as the generation row.
+            generationVerdict);
         receipt.row('Focus coaching telemetry sent', focusCoachingTelemetry.verdict, focusCoachingTelemetry.detail,
-            { ...focusTelemetry, boundFailureOutcome: focusBoundFailure, blindBeacons: tap.blindBeacons });
-        // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
-        const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
-        const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
+            { ...focusTelemetry, boundFailureOutcome: focusBoundFailure, blindBeacons: tap.blindBeacons,
+                firstTakeRequestCount: generationsForFirstTake, firstTakeRequestProof: generationVerdict });
         receipt.row('revisit is not a generation', generationVerdict,
             generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD' : 'the generation count is not exactly one for this take',
             { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });

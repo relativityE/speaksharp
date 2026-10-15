@@ -9,14 +9,14 @@
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     classifySavedCoaching, coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, focusExternalDependentRows,
     gracefulFailures, provenExternalOutcome, providerStatusFrom, successDependentRow, takeExchangeEvidence,
     type CoachingFailureEvidence, type GracefulDegradation,
 } from '../live/helpers/coachingExternal';
 import { CoachingGenerationTap } from '../live/helpers/coachingGenerationTap';
-import { analyticsRows, firstTakeSavedExactlyOnce, readCoachingFailureEvidence, readCoachingFailureReason, RwtReceipt } from '../live/helpers/rwtJourney';
+import { analyticsRows, exactCountVerdict, firstTakeSavedExactlyOnce, observeCoachingPhrase, readCoachingFailureEvidence, readCoachingFailureReason, RwtReceipt, visibleCoachingAbsence } from '../live/helpers/rwtJourney';
 import {
     finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, requiredAutomatedRows, validateReceipt, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
@@ -85,14 +85,14 @@ describe('success-dependent rows and failure-path telemetry', () => {
         expect(successDependentRow(parent(provider503, graceful, true), { verdict: 'FAIL', detail: 'mismatch' }).verdict).toBe('FAIL');
     });
     it('8. under EXTERNAL a bound app failure report for THIS request → EXTERNAL', () => {
-        expect(coachingTelemetryVerdict(parent(provider503), 'bound', 'FAIL', 'x').verdict).toBe('EXTERNAL');
+        expect(coachingTelemetryVerdict(parent(provider503), 'bound', 'FAIL', 'x', 'PASS').verdict).toBe('EXTERNAL');
     });
     it('9. under EXTERNAL an absent, invalid or unbindable report stays FAIL; an ambiguous one is unproven (HOLD)', () => {
-        for (const f of ['absent', 'invalid', 'unbindable'] as const) expect(coachingTelemetryVerdict(parent(provider503), f, 'FAIL', 'x').verdict).toBe('FAIL');
-        expect(coachingTelemetryVerdict(parent(provider503), 'ambiguous', 'FAIL', 'x').verdict).toBe('HOLD');
+        for (const f of ['absent', 'invalid', 'unbindable'] as const) expect(coachingTelemetryVerdict(parent(provider503), f, 'FAIL', 'x', 'PASS').verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(parent(provider503), 'ambiguous', 'FAIL', 'x', 'PASS').verdict).toBe('HOLD');
     });
     it('without an EXTERNAL parent the success verdict is unchanged (success events are never assumed)', () => {
-        expect(coachingTelemetryVerdict(parent(provider503, graceful, true), 'bound', 'FAIL', 'missing').verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(parent(provider503, graceful, true), 'bound', 'FAIL', 'missing', 'PASS').verdict).toBe('FAIL');
     });
 });
 
@@ -107,12 +107,12 @@ describe('PM 6174134686 §2 — the APP failure report is bound to the exact req
         i = 0;
         const events = [diag('req-1'), failed()];
         expect(failureTelemetryBinding(events, 'req-1')).toBe('bound');
-        expect(coachingTelemetryVerdict(parent(provider503), failureTelemetryBinding(events, 'req-1'), 'FAIL', 'x').verdict).toBe('EXTERNAL');
+        expect(coachingTelemetryVerdict(parent(provider503), failureTelemetryBinding(events, 'req-1'), 'FAIL', 'x', 'PASS').verdict).toBe('EXTERNAL');
     });
     it('RED-case: the diagnostic is present but the app failure report never left → absent → FAIL (never EXTERNAL)', () => {
         i = 0;
         expect(failureTelemetryBinding([diag('req-1')], 'req-1')).toBe('absent');
-        expect(coachingTelemetryVerdict(parent(provider503), 'absent', 'FAIL', 'x').verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(parent(provider503), 'absent', 'FAIL', 'x', 'PASS').verdict).toBe('FAIL');
     });
     it('a DIFFERENT take\'s report cannot satisfy this request', () => {
         i = 0;
@@ -216,25 +216,25 @@ describe('PM 6173420642 §3 — external proof is the take\'s own request/respon
 describe('PM 6173420642 §1 — Focus success-dependent rows read the exact saved coaching first', () => {
     const rowsOf = (rows: Array<{ step: string; verdict: string }>) => Object.fromEntries(rows.map((r) => [r.step, r.verdict]));
     it('provider 503 + a PERSISTED pair → provenance and visible = saved FAIL (never "not exercised")', async () => {
-        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: { what_worked: 'Saved well.', what_to_try_next: 'Saved next.' } })));
+        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: { what_worked: 'Saved well.', what_to_try_next: 'Saved next.' } }), true));
         expect(rows['Focus coaching visible = saved']).toBe('FAIL');
         expect(rows['Focus coaching provenance']).toBe('FAIL');
     });
     it('a PARTIAL saved pair is also FAIL', async () => {
-        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: { what_worked: 'Only one.' } })));
+        const rows = rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: { what_worked: 'Only one.' } }), true));
         expect(rows['Focus coaching visible = saved']).toBe('FAIL');
     });
     it('an UNREADABLE saved row (error or throw) is HOLD — absence unproven', async () => {
-        expect(rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: false })))['Focus coaching visible = saved']).toBe('HOLD');
-        expect(rowsOf(await focusExternalDependentRows(parent(provider503), async () => { throw new Error('db'); }))['Focus coaching provenance']).toBe('HOLD');
+        expect(rowsOf(await focusExternalDependentRows(parent(provider503), async () => ({ ok: false }), true))['Focus coaching visible = saved']).toBe('HOLD');
+        expect(rowsOf(await focusExternalDependentRows(parent(provider503), async () => { throw new Error('db'); }, true))['Focus coaching provenance']).toBe('HOLD');
     });
     it('a confirmed ABSENCE lets every success-dependent row be "not exercised"', async () => {
-        const rows = await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: null }));
+        const rows = await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: null }), true);
         expect(rows).toHaveLength(6);
         expect(rows.every((r) => r.verdict === 'EXTERNAL')).toBe(true);
     });
     it('no EXTERNAL parent → no rows are written here (the success path judges them)', async () => {
-        expect(await focusExternalDependentRows(parent(provider503, { ...graceful, retryEnabled: false }), async () => ({ ok: true, raw: null }))).toEqual([]);
+        expect(await focusExternalDependentRows(parent(provider503, { ...graceful, retryEnabled: false }), async () => ({ ok: true, raw: null }), true)).toEqual([]);
     });
 });
 
@@ -390,7 +390,7 @@ describe('§2–§4 — a consumer-built EXTERNAL receipt through the real valid
         r.row('coaching rendered', 'EXTERNAL', 'external provider unavailable (provider 503)', { ...PROVED_PARENT_EVIDENCE });
         r.row('coaching request bound to this take', 'PASS', 'the coaching request named this saved take');
         // As the consumer writes it (Codex P1 r4276518654): the confirmed read found no saved coaching.
-        r.row('coaching visible = saved', 'EXTERNAL', 'not exercised', { savedCoachingAbsent: true });
+        r.row('coaching visible = saved', 'EXTERNAL', 'not exercised', { savedCoachingAbsent: true, visibleCoachingAbsent: true });
         analyticsRows(r, { actionClicked: true, listed: true, detailOpened: true, detailMatches: true, reloadMatches: true,
             coachingBefore: undefined, coachingAfter: undefined } as never, true);
         return r.rows;
@@ -510,7 +510,7 @@ describe('Codex P1 r4275387520 — EXTERNAL is a closed claim: only the proved c
             .toMatch(/"coaching request bound to this take" is not PASS/);
     });
     it('a dependent row is EXTERNAL only under an EXTERNAL parent', () => {
-        const absent = { ...external('coaching visible = saved'), evidence: { savedCoachingAbsent: true } };
+        const absent = { ...external('coaching visible = saved'), evidence: { savedCoachingAbsent: true, visibleCoachingAbsent: true } };
         expect(errorsOf(openMic([provedParent('coaching rendered'), absent, external('coaching length'), external('one practice action')]))).toBe('');
         expect(errorsOf(openMic([external('coaching length')]))).toMatch(/"coaching length" is EXTERNAL without an EXTERNAL "coaching rendered" parent/);
         // Another suite's coaching row is not this suite's dependent.
@@ -527,12 +527,12 @@ describe('Codex P1 r4275387520 — EXTERNAL is a closed claim: only the proved c
     });
     it('every row the Focus producer writes under a proved outage is inside the Focus scope', async () => {
         const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
-        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, raw: null }));
+        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, raw: null }), true);
         const r = new RwtReceipt('focus-points-session');
         r.row('Focus coaching rendered', 'EXTERNAL', 'd', { ...PROVED_PARENT_EVIDENCE });
         r.row('Focus coaching request bound to this take', 'PASS', 'bound');
         for (const x of produced) r.row(x.step, x.verdict, x.detail, x.evidence); // exactly as rwtJourney writes them
-        r.row('Focus coaching telemetry sent', 'EXTERNAL', 'bound failure report', { boundFailureOutcome: 'bound' });
+        r.row('Focus coaching telemetry sent', 'EXTERNAL', 'bound failure report', { boundFailureOutcome: 'bound', firstTakeRequestCount: 1, firstTakeRequestProof: 'PASS' });
         analyticsRows(r, { actionClicked: true, listed: true, detailOpened: true, detailMatches: true, reloadMatches: true,
             coachingBefore: undefined, coachingAfter: undefined } as never, true);
         const errors = validateReceipt({ suite: 'focus-points-session', release: SHA, rows: r.rows,
@@ -609,7 +609,7 @@ describe('Codex P1 r4276518654 — an app-owned EXTERNAL dependent needs its own
 
     it('RED-case from the review: Focus FAIL rows for an unexpectedly SAVED pair cannot be edited to EXTERNAL', async () => {
         const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
-        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, raw: { what_worked: 'saved anyway' } }));
+        const produced = await focusExternalDependentRows(parent, async () => ({ ok: true, raw: { what_worked: 'saved anyway' } }), true);
         const owned = produced.filter((x) => x.step === 'Focus coaching provenance' || x.step === 'Focus coaching visible = saved');
         expect(owned.map((x) => [x.verdict, x.evidence?.savedCoachingAbsent])).toEqual([['FAIL', false], ['FAIL', false]]);
         const forged = owned.map((x) => ({ ...x, verdict: 'EXTERNAL' as const }));
@@ -618,7 +618,7 @@ describe('Codex P1 r4276518654 — an app-owned EXTERNAL dependent needs its own
     });
     it('an unreadable saved-coaching read (HOLD, absence null) cannot be edited to EXTERNAL either', async () => {
         const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
-        const produced = await focusExternalDependentRows(parent, async () => ({ ok: false }));
+        const produced = await focusExternalDependentRows(parent, async () => ({ ok: false }), true);
         const owned = produced.filter((x) => x.step === 'Focus coaching visible = saved').map((x) => ({ ...x, verdict: 'EXTERNAL' as const }));
         expect(owned[0].evidence?.savedCoachingAbsent).toBeNull();
         expect(scopeErrors('focus-points-session', [provedParent('Focus coaching rendered'), pass('Focus coaching request bound to this take'), ...owned]))
@@ -632,14 +632,15 @@ describe('Codex P1 r4276518654 — an app-owned EXTERNAL dependent needs its own
         });
     it('a bound failure report and a confirmed absence are accepted', () => {
         expect(scopeErrors('open-mic-first-session', [provedParent('coaching rendered'), pass('coaching request bound to this take'),
-            ext('coaching telemetry sent', { boundFailureOutcome: 'bound' }), ext('coaching visible = saved', { savedCoachingAbsent: true })])).toEqual([]);
+            ext('coaching telemetry sent', { boundFailureOutcome: 'bound', firstTakeRequestCount: 1, firstTakeRequestProof: 'PASS' }),
+            ext('coaching visible = saved', { savedCoachingAbsent: true, visibleCoachingAbsent: true })])).toEqual([]);
     });
     it('the coaching-dependent Analytics rows are EXTERNAL only when the take\'s saved-coaching absence is proved', () => {
         const base = [provedParent('coaching rendered'), pass('coaching request bound to this take'), ext('one practice action')];
         expect(scopeErrors('open-mic-first-session', [...base, { step: 'coaching visible = saved', verdict: 'FAIL', detail: 'saved anyway' }]))
             .toEqual(['row "one practice action" is EXTERNAL but the take\'s saved-coaching absence is not proved (coaching visible = saved)']);
         expect(scopeErrors('open-mic-first-session', base)).toHaveLength(1); // no absence row at all
-        expect(scopeErrors('open-mic-first-session', [...base, ext('coaching visible = saved', { savedCoachingAbsent: true })])).toEqual([]);
+        expect(scopeErrors('open-mic-first-session', [...base, ext('coaching visible = saved', { savedCoachingAbsent: true, visibleCoachingAbsent: true })])).toEqual([]);
     });
 });
 
@@ -666,7 +667,7 @@ describe('Codex P1 r4276817126 — only a NULL saved-coaching column is a confir
         ['blank strings', { what_worked: '', what_to_try_next: '' }],
     ])('RED-case from the review: a malformed persisted value (%s) under an outage is FAIL with absence false — never EXTERNAL', async (_label, raw) => {
         const parent = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
-        const rows = await focusExternalDependentRows(parent, async () => ({ ok: true, raw }));
+        const rows = await focusExternalDependentRows(parent, async () => ({ ok: true, raw }), true);
         const owned = rows.filter((x) => x.step === 'Focus coaching provenance' || x.step === 'Focus coaching visible = saved');
         expect(owned.map((x) => [x.verdict, x.evidence?.savedCoachingAbsent, x.detail])).toEqual([
             ['FAIL', false, 'the saved coaching value is malformed (an app persistence defect), not absent'],
@@ -785,5 +786,111 @@ describe('Codex P1 r4277350691 (PM 6180758593) — Open Mic re-reads the save pr
         expect(src).toContain('graceful: { savedTakeProven: firstSave?.proven ?? false,');
         expect(src).toContain('savedTakeProven: rendered ? null : firstSave?.proven ?? false,');
         expect(src).not.toContain('Boolean(persistedId) && saved === 1');
+    });
+});
+
+describe('Codex P1 r4277621594 (PM 6182054477) — the first take\'s review request must be proved before telemetry is EXTERNAL', () => {
+    const outage = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
+    /** The producers' first-take proof: `exactCountVerdict(count, 1, tap, stoppedAt, firstTakeWindowEnd)`. */
+    const proof = (count: number, blindAt: number[] = []) => exactCountVerdict(count, 1, { blindAt } as never, 1_000, 2_000);
+    it.each([[0, 'FAIL'], [2, 'FAIL'], [1, 'EXTERNAL']])('bound failure + %i first-take request(s) → %s', (count, expected) => {
+        expect(coachingTelemetryVerdict(outage, 'bound', 'FAIL', 'x', proof(count as number)).verdict).toBe(expected);
+    });
+    it('an opaque beacon INSIDE the first-take window leaves the count unproven → HOLD, never EXTERNAL', () => {
+        expect(proof(1, [1_500])).toBe('HOLD');
+        expect(proof(0, [1_500])).toBe('HOLD');
+        expect(coachingTelemetryVerdict(outage, 'bound', 'FAIL', 'x', proof(0, [1_500])).verdict).toBe('HOLD');
+    });
+    it('a beacon OUTSIDE the window (e.g. the later Practice-again take) neither satisfies nor breaks the first take', () => {
+        expect(proof(1, [2_500])).toBe('PASS');
+        expect(proof(0, [2_500])).toBe('FAIL');
+    });
+    it('a missing proof argument fails closed; the failure-binding outcomes keep their own verdicts', () => {
+        expect(coachingTelemetryVerdict(outage, 'bound', 'FAIL', 'x', undefined as never).verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(outage, 'ambiguous', 'FAIL', 'x', 'PASS').verdict).toBe('HOLD');
+        expect(coachingTelemetryVerdict(outage, 'invalid', 'FAIL', 'x', 'PASS').verdict).toBe('FAIL');
+        expect(coachingTelemetryVerdict(outage, 'unbindable', 'FAIL', 'x', 'PASS').verdict).toBe('FAIL');
+    });
+    it('the success path is unchanged by the request proof', () => {
+        expect(coachingTelemetryVerdict({ verdict: 'PASS', detail: '', external: null }, 'absent', 'PASS', 'ok', 'FAIL')).toEqual({ verdict: 'PASS', detail: 'ok' });
+    });
+    it('wiring contract: both producers count the FIRST take in its window (closed before Practice-again) and record normalized keys', () => {
+        const om = readFileSync(path.resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        const fp = readFileSync(path.resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
+        expect(om).toContain("const firstTakeRequestCount = generationsForTake ?? tap.sent('practice_loop_review_requested').length;");
+        expect(om).toContain('const firstTakeRequestProof = exactCountVerdict(firstTakeRequestCount, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);');
+        expect(om).toContain('firstTakeRequestCount, firstTakeRequestProof });');
+        expect(fp.indexOf('const generationVerdict = exactCountVerdict(')).toBeLessThan(fp.indexOf('const focusCoachingTelemetry = coachingTelemetryVerdict('));
+        expect(fp).toContain('firstTakeRequestCount: generationsForFirstTake, firstTakeRequestProof: generationVerdict });');
+    });
+    it.each([
+        ['missing', {}], ['count 0', { firstTakeRequestCount: 0, firstTakeRequestProof: 'FAIL' }], ['HOLD proof', { firstTakeRequestCount: 1, firstTakeRequestProof: 'HOLD' }],
+        ['null proof', { firstTakeRequestCount: 1, firstTakeRequestProof: null }], ['count 2', { firstTakeRequestCount: 2, firstTakeRequestProof: 'PASS' }],
+    ])('validator: a forged EXTERNAL telemetry row with %s request evidence is refused', (_label, ev) => {
+        const errors = validateReceipt({ suite: 'open-mic-first-session', release: 'a'.repeat(40), rows: [pass('telemetry decodable'), provedParent('coaching rendered'),
+            pass('coaching request bound to this take'), { ...external('coaching telemetry sent'), evidence: { boundFailureOutcome: 'bound', ...ev } }],
+            readback: { journeys: [{ journeyId: 'j', stages: ['x'] }], reportedJourneyIds: [] } }).errors.filter((e) => e.includes('EXTERNAL'));
+        expect(errors).toEqual(['row "coaching telemetry sent" is EXTERNAL without the first take\'s proved review request (firstTakeRequestProof / firstTakeRequestCount)']);
+    });
+});
+
+describe('Codex P1 r4277621600 (PM 6182054477) — EXTERNAL needs a confirmed VISIBLE absence (tri-state, unreadable is never absent)', () => {
+    /** A stand-in review card: per test id, the node count (or a count failure) and whether the text read succeeds. */
+    const card = (nodes: Record<string, { count: number | 'error' | 'hang'; text?: 'ok' | 'error' }>) => ({
+        getByTestId: (id: string) => {
+            const n = nodes[id] ?? { count: 0 };
+            return {
+                count: () => (n.count === 'error' ? Promise.reject(new Error('detached')) : n.count === 'hang' ? new Promise<number>(() => undefined) : Promise.resolve(n.count)),
+                first: () => ({ innerText: () => (n.text === 'error' ? Promise.reject(new Error('timeout')) : Promise.resolve('phrase')) }),
+            };
+        },
+    }) as never;
+    const W = 'review-what-went-well';
+    const N = 'review-try-next';
+    it.each([
+        ['both nodes absent', { [W]: { count: 0 }, [N]: { count: 0 } }, 'absent', 'absent', true],
+        ['one visible phrase (saved null)', { [W]: { count: 1, text: 'ok' as const }, [N]: { count: 0 } }, 'present', 'absent', false],
+        ['a stale visible pair', { [W]: { count: 1, text: 'ok' as const }, [N]: { count: 1, text: 'ok' as const } }, 'present', 'present', false],
+        ['a failed phrase-count read', { [W]: { count: 'error' as const }, [N]: { count: 0 } }, 'unreadable', 'absent', null],
+        ['a failed text read', { [W]: { count: 1, text: 'error' as const }, [N]: { count: 0 } }, 'unreadable', 'absent', null],
+    ])('%s', async (_label, nodes, well, next, absent) => {
+        const c = card(nodes);
+        const [w, n] = [await observeCoachingPhrase(c, W), await observeCoachingPhrase(c, N)];
+        expect([w, n]).toEqual([well, next]);
+        expect(visibleCoachingAbsence(w, n)).toBe(absent);
+    });
+    it('a phrase-count read that never settles is bounded and unreadable (never absent)', async () => {
+        vi.useFakeTimers();
+        try {
+            const pending = observeCoachingPhrase(card({ [W]: { count: 'hang' } }), W);
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(await pending).toBe('unreadable');
+        } finally { vi.useRealTimers(); }
+    });
+    it.each([[true, 'EXTERNAL'], [false, 'FAIL'], [null, 'HOLD']])('Focus producer: saved null + visible absence %s → visible = saved %s', async (visible, verdict) => {
+        const outage = { verdict: 'EXTERNAL' as const, detail: 'd', external: 'provider_5xx' as const };
+        const rows = await focusExternalDependentRows(outage, async () => ({ ok: true, raw: null }), visible as boolean | null);
+        const row = rows.find((x) => x.step === 'Focus coaching visible = saved')!;
+        expect([row.verdict, row.evidence?.visibleCoachingAbsent, row.evidence?.savedCoachingAbsent]).toEqual([verdict, visible, true]);
+        expect(rows.find((x) => x.step === 'Focus coaching provenance')?.verdict).toBe('EXTERNAL'); // saved absence alone decides provenance
+    });
+    it('Open Mic wiring contract: the visible tri-state is read under EXTERNAL and gates "visible = saved" before successDependentRow', () => {
+        const om = readFileSync(path.resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        const read = om.indexOf("visibleCoachingAbsence(await observeCoachingPhrase(card, 'review-what-went-well'), await observeCoachingPhrase(card, 'review-try-next'))");
+        expect(read).toBeGreaterThan(-1);
+        expect(read).toBeLessThan(om.indexOf("receipt.row('coaching visible = saved'"));
+        expect(om).toContain("coachingParent.verdict === 'EXTERNAL' && visibleCoachingAbsent === false");
+        expect(om).toContain("coachingParent.verdict === 'EXTERNAL' && visibleCoachingAbsent === null");
+        expect(om).toContain('savedCoachingAbsent: !savedPresent, visibleCoachingAbsent });');
+    });
+    it.each([['missing', undefined], ['false', false], ['null', null]])('validator: a forged EXTERNAL visible = saved row with %s visible absence is refused, and so are the Analytics rows', (_l, v) => {
+        const visibleRow = { ...external('coaching visible = saved'), evidence: { savedCoachingAbsent: true, ...(v === undefined ? {} : { visibleCoachingAbsent: v }) } };
+        const errors = validateReceipt({ suite: 'open-mic-first-session', release: 'a'.repeat(40), rows: [pass('telemetry decodable'), provedParent('coaching rendered'),
+            pass('coaching request bound to this take'), visibleRow, external('one practice action')],
+            readback: { journeys: [{ journeyId: 'j', stages: ['x'] }], reportedJourneyIds: [] } }).errors.filter((e) => e.includes('EXTERNAL'));
+        expect(errors).toEqual([
+            'row "coaching visible = saved" is EXTERNAL without a confirmed visible absence of coaching (visibleCoachingAbsent)',
+            'row "one practice action" is EXTERNAL but the take\'s saved-coaching absence is not proved (coaching visible = saved)',
+        ]);
     });
 });

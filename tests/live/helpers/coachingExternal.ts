@@ -149,11 +149,20 @@ export function failureTelemetryBinding(events: readonly ObservedEvent[], diagno
  * unproven (HOLD); anything else is FAIL. Success events are never assumed.
  */
 export function coachingTelemetryVerdict(parent: CoachingParentVerdict, failure: FailureTelemetryBinding,
-    successVerdict: Verdict, successDetail: string): { verdict: Verdict; detail: string } {
+    successVerdict: Verdict, successDetail: string,
+    /**
+     * Codex P1 r4277621594 (PM 6182054477): the FIRST take's `practice_loop_review_requested` proof, from the existing
+     * first-take window and blind-beacon policy (`exactCountVerdict(count, 1, …)`): PASS = exactly one decoded request;
+     * HOLD = an opaque beacon in that window leaves the count unproven; FAIL = none or more than one.
+     */
+    firstTakeRequest: 'PASS' | 'FAIL' | 'HOLD'): { verdict: Verdict; detail: string } {
     if (parent.verdict !== 'EXTERNAL') return { verdict: successVerdict, detail: successDetail };
     switch (failure) {
         case 'bound':
-            return { verdict: 'EXTERNAL', detail: 'this request\'s failure diagnostic and the app\'s failure report (bound by emission order) left the page; success telemetry not exercised — external provider outage' };
+            if (firstTakeRequest === 'HOLD') return { verdict: 'HOLD', detail: 'the first take\'s review request event cannot be proven: an analytics beacon body in its window was not exposed by the browser' };
+            // Anything but an explicit PASS fails closed (a missing proof is never a proved request).
+            if (firstTakeRequest !== 'PASS') return { verdict: 'FAIL', detail: 'the first take\'s practice_loop_review_requested event did not leave the page exactly once' };
+            return { verdict: 'EXTERNAL', detail: 'the first take\'s review request, this request\'s failure diagnostic and the app\'s failure report (bound by emission order) left the page; success telemetry not exercised — external provider outage' };
         case 'ambiguous':
             return { verdict: 'HOLD', detail: 'the app\'s failure report for this request cannot be proven (ambiguous emission order or more than one candidate)' };
         case 'invalid':
@@ -259,6 +268,8 @@ export function classifySavedCoaching(raw: unknown): SavedCoachingState {
 export async function focusExternalDependentRows(
     parent: CoachingParentVerdict,
     readSavedCoaching: () => Promise<{ ok: true; raw: unknown } | { ok: false }>,
+    /** Codex P1 r4277621600: confirmed VISIBLE absence of both phrases (`visibleCoachingAbsence`); null = unproven. */
+    visibleCoachingAbsent: boolean | null,
 ): Promise<Array<{ step: string; verdict: Verdict; detail: string; evidence?: ReceiptRow['evidence'] }>> {
     if (parent.verdict !== 'EXTERNAL') return [];
     const read = await readSavedCoaching().catch(() => ({ ok: false as const }));
@@ -267,9 +278,15 @@ export async function focusExternalDependentRows(
     // Codex P1 r4276518654: the saved-coaching rows carry what the read proved — true only for a confirmed absence.
     const savedRows = (verdict: Verdict, detail: string) => {
         const savedCoachingAbsent = saved === null ? null : saved.state === 'absent';
+        // Codex P1 r4277621600: "visible = saved" is "not exercised" only when NOTHING is shown either — a visible phrase
+        // with nothing saved is the app's own defect (FAIL); an unproven visible read is HOLD.
+        const visible = verdict !== notExercised.verdict ? { verdict, detail }
+            : visibleCoachingAbsent === true ? { verdict, detail }
+                : visibleCoachingAbsent === false ? { verdict: 'FAIL' as const, detail: 'a coaching phrase is visible but no coaching was saved for this take' }
+                    : { verdict: 'HOLD' as const, detail: 'whether a coaching phrase is visible could not be read, so its absence is unproven' };
         return [
             { step: 'Focus coaching provenance', verdict, detail, evidence: { savedCoachingAbsent } },
-            { step: 'Focus coaching visible = saved', verdict, detail, evidence: { savedCoachingAbsent } },
+            { step: 'Focus coaching visible = saved', ...visible, evidence: { savedCoachingAbsent, visibleCoachingAbsent } },
         ];
     };
     const answerRows = ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt']

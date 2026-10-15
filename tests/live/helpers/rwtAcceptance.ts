@@ -89,6 +89,9 @@ export const COACHING_DEPENDENT_ANALYTICS_ROWS = Object.freeze([
  * parent. Anywhere else EXTERNAL is a validation error — it can never turn an observed FAIL into a non-blocking
  * INCOMPLETE or report a provider outage the run did not prove.
  */
+/** The "visible = saved" rows: EXTERNAL needs confirmed saved AND visible absence (Codex P1 r4277621600). */
+const VISIBLE_ABSENCE_ROWS: ReadonlySet<string> = new Set(['coaching visible = saved', 'Focus coaching visible = saved']);
+
 interface ExternalScope {
     parent: string;
     binding: string;
@@ -167,7 +170,9 @@ function externalScopeErrors(suite: string, rows: readonly ReceiptRow[]): string
     // Codex P1 r4276518654: an APP-OWNED dependent is EXTERNAL only with its own proof — the parent alone never
     // excuses what the app did. The success-only rows (length, distinct, omission claim, server receipt) are never
     // written FAIL under a proved parent, so for them the parent is the whole claim.
-    const absenceProved = (row: ReceiptRow | undefined) => row?.verdict === 'EXTERNAL' && row.evidence?.savedCoachingAbsent === true;
+    // Codex P1 r4277621600: a "visible = saved" row also needs a confirmed VISIBLE absence (closed scalar, true only).
+    const absenceProved = (row: ReceiptRow | undefined) => row?.verdict === 'EXTERNAL' && row.evidence?.savedCoachingAbsent === true
+        && (!VISIBLE_ABSENCE_ROWS.has(row.step) || row.evidence?.visibleCoachingAbsent === true);
     const absenceRows = scope.absence.map((step) => rows.find((x) => x.step === step && !isHumanObservation(x)));
     for (const r of externalRows) {
         if (r === parent) continue;
@@ -175,9 +180,14 @@ function externalScopeErrors(suite: string, rows: readonly ReceiptRow[]): string
         if (!scope.dependents.includes(r.step)) { errors.push(`row "${r.step}" is EXTERNAL, but EXTERNAL is allowed only on the coaching rows of ${suite}`); continue; }
         if (!parentExternal) { errors.push(`row "${r.step}" is EXTERNAL without an EXTERNAL "${scope.parent}" parent`); continue; }
         if (scope.absence.includes(r.step) && !absenceProved(r)) {
-            errors.push(`row "${r.step}" is EXTERNAL without a confirmed read of no saved coaching (savedCoachingAbsent)`);
+            errors.push(VISIBLE_ABSENCE_ROWS.has(r.step) && r.evidence?.savedCoachingAbsent === true
+                ? `row "${r.step}" is EXTERNAL without a confirmed visible absence of coaching (visibleCoachingAbsent)`
+                : `row "${r.step}" is EXTERNAL without a confirmed read of no saved coaching (savedCoachingAbsent)`);
         } else if (r.step === scope.telemetry && r.evidence?.boundFailureOutcome !== 'bound') {
             errors.push(`row "${r.step}" is EXTERNAL without this request's bound failure report (boundFailureOutcome)`);
+        } else if (r.step === scope.telemetry && (r.evidence?.firstTakeRequestProof !== 'PASS' || r.evidence?.firstTakeRequestCount !== 1)) {
+            // Codex P1 r4277621594: the first take's review request must be proved exactly once (normalized keys, both suites).
+            errors.push(`row "${r.step}" is EXTERNAL without the first take's proved review request (firstTakeRequestProof / firstTakeRequestCount)`);
         } else if ((COACHING_DEPENDENT_ANALYTICS_ROWS as readonly string[]).includes(r.step) && !absenceRows.every(absenceProved)) {
             errors.push(`row "${r.step}" is EXTERNAL but the take's saved-coaching absence is not proved (${scope.absence.join(', ')})`);
         }

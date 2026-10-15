@@ -1773,6 +1773,31 @@ export async function readCoachingPhrase(card: Locator, testId: 'review-what-wen
 }
 
 /**
+ * #1258 (Codex P1 r4277621600, PM 6182054477) — a BOUNDED tri-state observation of one review phrase node (the shared
+ * `PracticeLoopReviewPair` test ids). `absent` only when the node count is a proved zero; `present` when the node exists
+ * and its text was read; `unreadable` when the count or the text read failed, timed out or the node detached. Unlike
+ * `readCoachingPhrase`, an error is never collapsed into '' — so it can never be taken for a confirmed absence. The text
+ * itself is not returned (nothing visible is written to a receipt).
+ */
+export type PhraseObservation = 'absent' | 'present' | 'unreadable';
+export async function observeCoachingPhrase(card: Locator, testId: 'review-what-went-well' | 'review-try-next'): Promise<PhraseObservation> {
+    const nodes = card.getByTestId(testId);
+    const count = await Promise.race([
+        nodes.count(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('phrase count timed out')), COACHING_PHRASE_READ_MS)),
+    ]).catch(() => null);
+    if (count === null) return 'unreadable';
+    if (count === 0) return 'absent';
+    return nodes.first().innerText({ timeout: COACHING_PHRASE_READ_MS }).then(() => 'present' as const).catch(() => 'unreadable' as const);
+}
+
+/** Confirmed VISIBLE absence of both phrases: true only when both are proved absent; false if either is shown; else unknown. */
+export function visibleCoachingAbsence(well: PhraseObservation, next: PhraseObservation): boolean | null {
+    if (well === 'present' || next === 'present') return false;
+    return well === 'absent' && next === 'absent' ? true : null;
+}
+
+/**
  * #1258 (PM 6171519534) — the review card's own handling of a failed generation, read without pressing anything (a
  * press would be another provider request). Bounded reads; a missing control reads as not shown / not enabled.
  */
@@ -1867,7 +1892,8 @@ export async function focusCoachingRows(
                 const { data, error: savedErr } = await admin.from('sessions').select('ai_suggestions').eq('id', sessionId).eq('user_id', uid).single();
                 if (savedErr) return { ok: false as const };
                 return { ok: true as const, raw: (data as { ai_suggestions?: unknown } | null)?.ai_suggestions ?? null };
-            });
+            }, // Codex P1 r4277621600: a bounded tri-state read of the shared review-pair nodes — unreadable is never absence.
+            visibleCoachingAbsence(await observeCoachingPhrase(card, 'review-what-went-well'), await observeCoachingPhrase(card, 'review-try-next')));
             for (const r of rows) receipt.row(r.step, r.verdict, r.detail, r.evidence);
             humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
                 'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');

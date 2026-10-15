@@ -93,6 +93,8 @@ import {
     backFromProgressRestoresSession,
     backFromProgressRows,
     firstTakeSavedExactlyOnce,
+    observeCoachingPhrase,
+    visibleCoachingAbsence,
 } from './helpers/rwtJourney';
 import {
     classifySavedCoaching, coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
@@ -509,9 +511,18 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // the provider's, so it is never waived (successDependentRow only replaces a row with no answer to compare).
                 // Codex P1 r4276817126: only a NULL column is a confirmed absence; a malformed value is present (an app defect).
                 const savedPresent = classifySavedCoaching(savedRow?.ai_suggestions ?? null).state !== 'absent';
+                // Codex P1 r4277621600 (PM 6182054477): under EXTERNAL, nothing may be SHOWN either — read as a bounded tri-state
+                // from the shared review-pair nodes; an unreadable read is never a confirmed absence.
+                const visibleCoachingAbsent = coachingParent.verdict === 'EXTERNAL'
+                    ? visibleCoachingAbsence(await observeCoachingPhrase(card, 'review-what-went-well'), await observeCoachingPhrase(card, 'review-try-next'))
+                    : null;
                 const visibleRow = coachingParent.verdict === 'EXTERNAL' && savedPresent
                     ? { verdict: 'FAIL' as const, detail: 'a coaching response was saved for a request whose provider was unavailable' }
-                    : successDependentRow(coachingParent, {
+                    : coachingParent.verdict === 'EXTERNAL' && visibleCoachingAbsent === false
+                        ? { verdict: 'FAIL' as const, detail: 'a coaching phrase is visible but no coaching was saved for this take' }
+                        : coachingParent.verdict === 'EXTERNAL' && visibleCoachingAbsent === null
+                            ? { verdict: 'HOLD' as const, detail: 'whether a coaching phrase is visible could not be read, so its absence is unproven' }
+                            : successDependentRow(coachingParent, {
                         verdict: wellMatches && nextMatches ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
                         detail: wellMatches && nextMatches ? 'both visible phrases equal the saved coaching response'
                             : savedWell === '' || savedNext === '' ? 'the session row holds no complete saved coaching response'
@@ -520,7 +531,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('coaching visible = saved', visibleRow.verdict, visibleRow.detail,
                     { wellMatchesSaved: wellMatches, nextMatchesSaved: nextMatches, savedResponsePresent: savedWell !== '' && savedNext !== '',
                         // The read above fails closed, so this is a CONFIRMED absence (Codex P1 r4276518654).
-                        savedCoachingAbsent: !savedPresent });
+                        savedCoachingAbsent: !savedPresent, visibleCoachingAbsent });
                 humanObservation(receipt, 'open_mic_coaching_relevant', 'Product 1 row 5', 'coaching is about this speech',
                     'each phrase relates to what was said in this take — not generic advice');
 
@@ -796,11 +807,17 @@ test.describe('RWT — Open Mic first session @live', () => {
             // the page instead; success events are never assumed.
             // PM 6173420642 §2: the failure outcome bound to THIS take's request id — never whole-run counts.
             const boundFailure = failureTelemetryBinding(tap.events, coachingTakeRequestId);
+            // Codex P1 r4277621594 (PM 6182054477): the FIRST take's request, counted in the existing first-take window (closed
+            // before Practice-again generates its own request) under the existing blind-beacon policy.
+            const firstTakeRequestCount = generationsForTake ?? tap.sent('practice_loop_review_requested').length;
+            const firstTakeRequestProof = exactCountVerdict(firstTakeRequestCount, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
             const coachingTelemetry = coachingTelemetryVerdict(coachingParentOutcome ?? { verdict: 'FAIL', detail: '', external: null },
                 boundFailure, sentVerdict(coachingSent, tap, stoppedAt),
                 coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
-                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt));
-            receipt.row('coaching telemetry sent', coachingTelemetry.verdict, coachingTelemetry.detail, { ...coachingEvents, boundFailureOutcome: boundFailure, blindBeacons: tap.blindBeacons });
+                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt),
+                firstTakeRequestProof);
+            receipt.row('coaching telemetry sent', coachingTelemetry.verdict, coachingTelemetry.detail,
+                { ...coachingEvents, boundFailureOutcome: boundFailure, blindBeacons: tap.blindBeacons, firstTakeRequestCount, firstTakeRequestProof });
             // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
             // RECEIVED is the deployed PostHog readback for this journey.
             const inventory = {
