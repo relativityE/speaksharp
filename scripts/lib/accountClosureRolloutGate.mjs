@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 const BASELINE_SHA256 = '76188035d2b050aa4bcd4cf4753fa86d1cc030a12f371f05c9c143378beff030';
 const columns = {
-    'auth.users': { id: 'uuid', email: 'text', email_confirmed_at: 'timestamp with time zone' },
+    'auth.users': { id: 'uuid', email: 'text-compatible', email_confirmed_at: 'timestamp with time zone' },
     'public.user_profiles': { id: 'uuid', subscription_status: 'text', stripe_customer_id: 'text', stripe_subscription_id: 'text',
         subscription_id: 'text', stripe_cancel_at_period_end: 'boolean', updated_at: 'timestamp with time zone',
         private_sample_limit_seconds: 'integer', private_sample_seconds_used: 'integer', trial_started_at: 'timestamp with time zone',
@@ -40,7 +40,9 @@ export function accountClosureRolloutQuery(mode, baseline) {
         AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0)) AS ok
       UNION ALL SELECT 'required_columns', NOT EXISTS(SELECT 1 FROM (VALUES ${required}) AS required(relation,name,type)
         LEFT JOIN pg_attribute a ON a.attrelid=to_regclass(required.relation) AND a.attname=required.name AND a.attnum>0 AND NOT a.attisdropped
-        WHERE a.attnum IS NULL OR format_type(a.atttypid,a.atttypmod)<>required.type)
+        WHERE a.attnum IS NULL OR CASE WHEN required.type='text-compatible'
+          THEN a.atttypid NOT IN ('text'::regtype,'varchar'::regtype)
+          ELSE format_type(a.atttypid,a.atttypmod)<>required.type END)
     ` : `
       SELECT 'exact_table_definitions' AS name, NOT EXISTS(SELECT 1 FROM
         (VALUES ${Object.entries(tableDigests).map(([name, hash]) => `(${literal(name)},'${hash}')`).join(',')}) AS expected(name,digest)

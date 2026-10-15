@@ -35,6 +35,7 @@ try {
     const fixture = readFileSync('tests/db/account-closure-tokens.integration.test.ts', 'utf8')
         .match(/await db\.exec\(`\n([\s\S]*?)`\);/);
     assert.ok(fixture, 'scoped fixture missing'); sql(fixture[1]);
+    sql('ALTER TABLE auth.users ALTER COLUMN email TYPE varchar(255)');
     const baseline = readFileSync('backend/supabase/migrations/20260812041600_trial_commercial_grant_on_conflict_1294.sql', 'utf8');
     sql(`SET ROLE closure_owner; ${baseline} RESET ROLE;`);
     gate('before', true); gate('after', false);

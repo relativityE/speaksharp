@@ -32,6 +32,12 @@ describe('account closure rollout schema — no application/activation', () => {
         await db.exec('ALTER TABLE user_profiles DROP COLUMN stripe_customer_id');
         await expect(check('before')).rejects.toThrow();
     });
+    it('accepts Supabase Auth varchar email and rejects incompatible email types', async () => {
+        await db.exec('ALTER TABLE auth.users ALTER COLUMN email TYPE varchar(255)');
+        await check('before');
+        await db.exec('ALTER TABLE auth.users ALTER COLUMN email TYPE integer USING email::integer');
+        await expect(check('before')).rejects.toThrow();
+    });
     it.each([
         'ALTER TABLE account_closure_tokens RENAME COLUMN token_hash TO wrong_hash',
         'ALTER TABLE account_closure_tokens ALTER COLUMN expires_at SET DEFAULT now()',
