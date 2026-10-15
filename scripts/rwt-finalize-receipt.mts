@@ -54,6 +54,9 @@ const final = {
     status: result.status,
     finalAcceptance: result.finalAcceptance,
     automatedRowsAllPass: result.automatedRowsAllPass,
+    // PO 2026-10-14 / PM 6171519534: a proved provider outage is non-blocking but keeps the run INCOMPLETE (exit 2).
+    external: result.external,
+    successfulCoachingOutstanding: result.successfulCoachingOutstanding,
     humanObservations: result.humanObservations,
     errors: result.errors,
 };
@@ -61,4 +64,6 @@ const out = path.join(path.dirname(receiptPath), `${suite}.final.json`);
 writeFileSync(out, `${JSON.stringify(final, null, 2)}\n`);
 console.log(`RWT_FINAL ${JSON.stringify(final)}`);
 if (result.errors.length > 0) for (const e of result.errors) console.error(`binding error: ${e}`);
+// Exit codes: 0 PASS · 1 FAIL (a product or binding failure) · 2 INCOMPLETE (HOLD, pending human checks, or EXTERNAL —
+// a proved provider outage is NOT a product FAIL and NOT a pass; successful-coaching coverage is still outstanding).
 process.exit(result.finalAcceptance === 'PASS' ? 0 : result.finalAcceptance === 'FAIL' ? 1 : 2);
