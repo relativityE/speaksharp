@@ -5,7 +5,8 @@ const columns = {
     'auth.users': { id: 'uuid', email: 'text-compatible', email_confirmed_at: 'timestamp with time zone' },
     'public.user_profiles': { id: 'uuid', subscription_status: 'text', stripe_customer_id: 'text', stripe_subscription_id: 'text',
         subscription_id: 'text', stripe_cancel_at_period_end: 'boolean', updated_at: 'timestamp with time zone',
-        private_sample_limit_seconds: 'integer', private_sample_seconds_used: 'integer', trial_started_at: 'timestamp with time zone',
+        private_sample_limit_seconds: 'integer', private_sample_seconds_used: 'integer', // Historical database columns required by the pinned signup function; not current product limits.
+        trial_started_at: 'timestamp with time zone',
         trial_expires_at: 'timestamp with time zone', commercial_trial_granted_at: 'timestamp with time zone' },
     'public.trial_entitlements': { email: 'text', user_id: 'uuid', trial_started_at: 'timestamp with time zone',
         trial_expires_at: 'timestamp with time zone', updated_at: 'timestamp with time zone' },
