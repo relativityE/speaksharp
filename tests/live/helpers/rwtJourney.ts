@@ -490,6 +490,13 @@ export interface SentEvent {
      */
     diagnosticRequestId?: string;
     diagnosticOutcome?: string;
+    /**
+     * #1258 (Codex P2 r4286195504, PM 6198278021): `model_attribution_receipt` only — the take it SETTLED (`subject_*`).
+     * A Retry Save can settle take A while take B is current, so the envelope names B; the subject names A
+     * (telemetryAllowlist contract, completenessGate binding). In memory like `journeyId`; never written to a receipt.
+     */
+    subjectJourneyId?: string;
+    subjectAttemptId?: string;
     journeyId?: string;
     attemptId?: string;
     bootId?: string;
@@ -600,6 +607,16 @@ export function failureClass(errorText: string | null | undefined): TransportOut
     return typeof errorText === 'string' && /ERR_ABORTED|NS_BINDING_ABORTED|\babort/i.test(errorText) ? 'aborted' : 'failed';
 }
 
+/**
+ * The take a decoded event belongs to, for transport evidence. `model_attribution_receipt` is bound by its SUBJECT take
+ * (Codex P2 r4286195504) — and only by a complete subject identity: an absent or partial subject is unbound, never
+ * rescued by the envelope. Every other family is bound by its envelope journey/attempt.
+ */
+function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: string } | null {
+    const [journeyId, attemptId] = e.event === 'model_attribution_receipt' ? [e.subjectJourneyId, e.subjectAttemptId] : [e.journeyId, e.attemptId];
+    return journeyId && attemptId ? { journeyId, attemptId } : null;
+}
+
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
 export class AnalyticsTap {
     /** #1258 smoke item 2: every event-carrying PostHog request and its outcome, in send order (retries are new entries). */
@@ -687,6 +704,8 @@ export class AnalyticsTap {
                     batchIndex: batchIndex++,
                     ...(capturedAt === undefined ? {} : { capturedAt }),
                     ...(record.event === 'ai_coaching_diagnostic' ? { diagnosticRequestId: text('diagnostic_request_id'), diagnosticOutcome: text('outcome') } : {}),
+                    ...(record.event === 'model_attribution_receipt'
+                        ? { subjectJourneyId: text('subject_journey_id'), subjectAttemptId: text('subject_attempt_id') } : {}),
                     journeyId: text('journey_id'),
                     attemptId: text('attempt_id'),
                     bootId: text('boot_id'),
@@ -758,7 +777,8 @@ export class AnalyticsTap {
             const requests = new Set<BatchTransport>();
             let untracked = 0;
             for (const e of this.events) {
-                if (e.event !== name || e.journeyId !== take.journeyId || e.attemptId !== take.attemptId || e.batch === undefined) continue;
+                const id = transportIdentityOf(e);
+                if (e.event !== name || !id || id.journeyId !== take.journeyId || id.attemptId !== take.attemptId || e.batch === undefined) continue;
                 const transport = byBatch.get(e.batch);
                 if (transport) requests.add(transport); else untracked += 1;
             }
@@ -768,7 +788,7 @@ export class AnalyticsTap {
             out[`transport_${name}`] = counts.size === 0 ? 'none' : [...counts].map(([o, n]) => `${o}:${n}`).sort().join(',');
         }
         // Same-family events that carry no journey/attempt identity cannot be attributed to any take: counted, never bound.
-        out.transport_unbound_events = this.events.filter((e) => names.includes(e.event) && (!e.journeyId || !e.attemptId)).length;
+        out.transport_unbound_events = this.events.filter((e) => names.includes(e.event) && !transportIdentityOf(e)).length;
         const blind = this.transports.filter((t) => t.blind);
         out.transport_blind_requests = blind.length;
         out.transport_blind_outcomes = blind.length === 0 ? 'none'

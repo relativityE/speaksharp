@@ -20,7 +20,7 @@ const { evaluateCoachingDiagnosticReceipt, terminalIdentity } = await import('..
 class FakePage extends EventEmitter {
     mainFrame() { return null; }
 }
-type Ev = { event: string; journey?: string; attempt?: string };
+type Ev = { event: string; journey?: string; attempt?: string; subjectJourney?: string; subjectAttempt?: string };
 const FIRST = { journeyId: 'journey-1', attemptId: 'attempt-1' };
 const SECOND = { journeyId: 'journey-1', attemptId: 'attempt-2' };
 const of = (take: { journeyId: string; attemptId: string }, event: string): Ev => ({ event, journey: take.journeyId, attempt: take.attemptId });
@@ -31,7 +31,10 @@ const req = (events: Ev[] | null, outcome?: { status?: number | null; failure?: 
     isNavigationRequest: () => false,
     frame: () => ({}),
     postDataBuffer: () => (events === null ? null : Buffer.from(JSON.stringify(events.map((e) => ({
-        event: e.event, properties: { ...(e.journey ? { journey_id: e.journey } : {}), ...(e.attempt ? { attempt_id: e.attempt } : {}) },
+        event: e.event, properties: {
+            ...(e.journey ? { journey_id: e.journey } : {}), ...(e.attempt ? { attempt_id: e.attempt } : {}),
+            ...(e.subjectJourney ? { subject_journey_id: e.subjectJourney } : {}), ...(e.subjectAttempt ? { subject_attempt_id: e.subjectAttempt } : {}),
+        },
     }))))),
     response: () => outcome?.response ?? Promise.resolve(outcome?.status === null ? null : { status: () => outcome?.status ?? 200 }),
     failure: () => (outcome?.failure ? { errorText: outcome.failure } : null),
@@ -50,7 +53,7 @@ describe('smoke item 2 — the HTTP outcome of the SAME request that carried eac
     it('success, rejection, failure and abort are each bound to the request that carried the first take\'s event', async () => {
         const { page, tap } = tapOn();
         const ok = req([of(FIRST, 'session_saved')]); const rejected = req([of(FIRST, 'transcript_authority')], { status: 400 });
-        const failed = req([of(FIRST, 'filler_measurement')], { failure: 'net::ERR_CONNECTION_RESET' }); const aborted = req([of(FIRST, 'model_attribution_receipt')], { failure: 'net::ERR_ABORTED' });
+        const failed = req([of(FIRST, 'filler_measurement')], { failure: 'net::ERR_CONNECTION_RESET' }); const aborted = req([{ ...of(FIRST, 'model_attribution_receipt'), subjectJourney: FIRST.journeyId, subjectAttempt: FIRST.attemptId }], { failure: 'net::ERR_ABORTED' });
         for (const r of [ok, rejected, failed, aborted]) page.emit('request', r);
         page.emit('requestfinished', ok); page.emit('requestfinished', rejected);
         page.emit('requestfailed', failed); page.emit('requestfailed', aborted);
@@ -227,5 +230,49 @@ describe('smoke item 3 — terminal-row identity (diagnostic only; FAIL and exac
         const src = readFileSync(new URL('../../scripts/telemetry-readback-qualification.mts', import.meta.url), 'utf8');
         expect(src).toMatch(/properties\.provider_attempts,\s*uuid, properties\.client_attempt\s*FROM events/);
         expect(src).toContain('uuid: c[13], clientAttempt: c[14],');
+    });
+});
+
+describe('Codex P2 r4286195504 (PM 6198278021) — model_attribution_receipt is bound by its SUBJECT take, not the envelope', () => {
+    const RECEIPT = 'model_attribution_receipt';
+    /** A receipt: envelope = the take current when it was pushed; subject = the take it settled. */
+    const receipt = (envelope: { journeyId: string; attemptId: string }, subject: { journeyId?: string; attemptId?: string }): Ev => ({
+        event: RECEIPT, journey: envelope.journeyId, attempt: envelope.attemptId, subjectJourney: subject.journeyId, subjectAttempt: subject.attemptId,
+    });
+    it('RED-case from the review: a Retry Save receipt for A emitted while B is current is A\'s, not B\'s', async () => {
+        const { page, tap } = tapOn();
+        const r = req([receipt(SECOND, FIRST)]);
+        page.emit('request', r); page.emit('requestfinished', r); await settle();
+        expect(tap.transportEvidence(FIRST, [RECEIPT])[`transport_${RECEIPT}`]).toBe('2xx:1');
+        expect(tap.transportEvidence(SECOND, [RECEIPT])[`transport_${RECEIPT}`]).toBe('none');
+    });
+    it('a first-try receipt (envelope = subject = A) is A\'s', async () => {
+        const { page, tap } = tapOn();
+        const r = req([receipt(FIRST, FIRST)], { failure: 'net::ERR_CONNECTION_RESET' });
+        page.emit('request', r); page.emit('requestfailed', r); await settle();
+        expect(tap.transportEvidence(FIRST, [RECEIPT])[`transport_${RECEIPT}`]).toBe('failed:1');
+    });
+    it.each([
+        ['absent subject identity', {}],
+        ['a subject journey without its attempt', { journeyId: FIRST.journeyId }],
+        ['a subject attempt without its journey', { attemptId: FIRST.attemptId }],
+    ])('%s is UNBOUND — never rescued by a valid envelope', async (_l, subject) => {
+        const { page, tap } = tapOn();
+        const r = req([receipt(FIRST, subject)]);
+        page.emit('request', r); page.emit('requestfinished', r); await settle();
+        expect(tap.transportEvidence(FIRST, [RECEIPT])).toMatchObject({ [`transport_${RECEIPT}`]: 'none', transport_unbound_events: 1 });
+    });
+    it('other families keep envelope binding, and a mixed request stays isolated per take', async () => {
+        const { page, tap } = tapOn();
+        // One request carrying A's session_saved (envelope A), B's session_saved (envelope B) and A's receipt pushed while B is current.
+        const mixed = req([of(FIRST, 'session_saved'), of(SECOND, 'session_saved'), receipt(SECOND, FIRST)], { status: 503 });
+        page.emit('request', mixed); page.emit('requestfinished', mixed); await settle();
+        expect(tap.transportEvidence(FIRST, ['session_saved', RECEIPT])).toMatchObject({ transport_session_saved: '5xx:1', [`transport_${RECEIPT}`]: '5xx:1', transport_unbound_events: 0 });
+        expect(tap.transportEvidence(SECOND, ['session_saved', RECEIPT])).toMatchObject({ transport_session_saved: '5xx:1', [`transport_${RECEIPT}`]: 'none' });
+    });
+    it('the subject identity stays in memory only: evidence output carries no id', async () => {
+        const { page, tap } = tapOn();
+        const r = req([receipt(SECOND, FIRST)]); page.emit('request', r); page.emit('requestfinished', r); await settle();
+        expect(JSON.stringify(tap.transportEvidence(FIRST, [RECEIPT]))).not.toMatch(/journey-1|attempt-1|attempt-2/);
     });
 });
