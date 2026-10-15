@@ -18,7 +18,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
-import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, type Locator, type Page, type Request, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
@@ -575,8 +575,31 @@ export function analyticsRoute(path: string | null | undefined): boolean {
     return typeof path === 'string' && /^\/analytics(\/[^/]+)?\/?$/.test(path);
 }
 
+/**
+ * #1258 smoke item 2 (PM 6182446740) — the closed HTTP outcome of ONE PostHog request, taken from that same Playwright
+ * request object. A `2xx` is an HTTP acknowledgement, NOT proof of ingestion. `failed`/`aborted` only when the browser
+ * reported that request failed; `pending` while no outcome is known; `unobservable` when capture ended first.
+ */
+export type TransportOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other_status' | 'failed' | 'aborted' | 'pending' | 'unobservable';
+/** One PostHog request the tap saw carry events (decoded) or an opaque body (blind), and its outcome. Names only. */
+export interface BatchTransport { batch: number | null; names: string[]; blind: boolean; outcome: TransportOutcome }
+export function statusClass(status: number | null | undefined): TransportOutcome {
+    if (typeof status !== 'number' || !Number.isInteger(status)) return 'other_status';
+    return status >= 200 && status < 300 ? '2xx' : status >= 300 && status < 400 ? '3xx'
+        : status >= 400 && status < 500 ? '4xx' : status >= 500 && status < 600 ? '5xx' : 'other_status';
+}
+/** A request failure reported by the browser: an abort only when its error text says so; anything else is a failure. */
+export function failureClass(errorText: string | null | undefined): TransportOutcome {
+    return typeof errorText === 'string' && /ERR_ABORTED|NS_BINDING_ABORTED|\babort/i.test(errorText) ? 'aborted' : 'failed';
+}
+
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
 export class AnalyticsTap {
+    /** #1258 smoke item 2: every event-carrying PostHog request and its outcome, in send order (retries are new entries). */
+    readonly transports: BatchTransport[] = [];
+    private readonly transportByRequest = new Map<Request, BatchTransport>();
+    private listeners: Array<[string, (...args: never[]) => void]> = [];
+    private attachedTo: Page | null = null;
     readonly events: SentEvent[] = [];
     readonly actionBindings: ReadbackActionBinding[] = [];
     /** #1258 F3: every capture attempt's closed outcome, so a missing binding says WHY in the receipt (content-free). */
@@ -598,6 +621,24 @@ export class AnalyticsTap {
     }
 
     attach(page: Page): void {
+        this.attachedTo = page;
+        // Smoke item 2: the outcome is read from the SAME request object the batch was decoded from.
+        const onFinished = (request: Request) => {
+            const transport = this.transportByRequest.get(request);
+            if (!transport) return;
+            void request.response().then((response) => { transport.outcome = response ? statusClass(response.status()) : 'unobservable'; })
+                .catch(() => { transport.outcome = 'unobservable'; });
+        };
+        const onFailed = (request: Request) => {
+            const transport = this.transportByRequest.get(request);
+            if (!transport) return;
+            let text: string | null = null;
+            try { text = request.failure()?.errorText ?? null; } catch { text = null; }
+            transport.outcome = failureClass(text);
+        };
+        page.on('requestfinished', onFinished);
+        page.on('requestfailed', onFailed);
+        this.listeners.push(['requestfinished', onFinished as never], ['requestfailed', onFailed as never]);
         page.on('request', (request) => {
             let mainDocument = false;
             try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
@@ -607,7 +648,11 @@ export class AnalyticsTap {
             if (!/posthog\.com$/i.test(host)) return;
             const body = request.postDataBuffer();
             // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
-            if (request.method() === 'POST' && (!body || body.length === 0)) { this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest(); return; }
+            if (request.method() === 'POST' && (!body || body.length === 0)) {
+                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest();
+                this.track(request, { batch: null, names: [], blind: true, outcome: 'pending' });
+                return;
+            }
             const before = this.events.length;
             const batch = ++this.batchSeq;
             let batchIndex = 0;
@@ -643,8 +688,46 @@ export class AnalyticsTap {
                     } } : {}),
                 });
             }
-            if (this.events.length > before) this.notePosthogRequest();
+            if (this.events.length > before) {
+                this.notePosthogRequest();
+                this.track(request, { batch, names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
+            }
         });
+    }
+
+    private track(request: Request, transport: BatchTransport): void {
+        this.transports.push(transport);
+        this.transportByRequest.set(request, transport);
+    }
+
+    /**
+     * Smoke item 2: stop listening for outcomes; every request still `pending` becomes `unobservable` — capture ended before
+     * the browser reported it, which is never read as delivered or as lost.
+     */
+    detachTransport(): void {
+        if (this.attachedTo) for (const [name, fn] of this.listeners) this.attachedTo.off(name as 'requestfinished', fn as never);
+        this.listeners = [];
+        this.attachedTo = null;
+        for (const t of this.transports) if (t.outcome === 'pending') t.outcome = 'unobservable';
+    }
+
+    /**
+     * Content-free transport evidence for named event families: for each, the outcomes of EVERY decoded request that
+     * carried it, as `outcome:count` sorted (`none` when no decoded request carried it). Opaque (blind) requests are counted
+     * separately: they may have carried any family, so they can never prove one was or was not sent.
+     */
+    transportEvidence(names: readonly string[]): Record<string, string | number> {
+        const out: Record<string, string | number> = {};
+        for (const name of names) {
+            const counts = new Map<TransportOutcome, number>();
+            for (const t of this.transports) if (!t.blind && t.names.includes(name)) counts.set(t.outcome, (counts.get(t.outcome) ?? 0) + 1);
+            out[`transport_${name}`] = counts.size === 0 ? 'none' : [...counts].map(([o, n]) => `${o}:${n}`).sort().join(',');
+        }
+        const blind = this.transports.filter((t) => t.blind);
+        out.transport_blind_requests = blind.length;
+        out.transport_blind_outcomes = blind.length === 0 ? 'none'
+            : [...blind.reduce((m, t) => m.set(t.outcome, (m.get(t.outcome) ?? 0) + 1), new Map<TransportOutcome, number>())].map(([o, n]) => `${o}:${n}`).sort().join(',');
+        return out;
     }
 
     /** Same encodings as the practice-loop journey: JSON, form `data=` (base64, maybe gzip), gzip, deflate, base64. */
