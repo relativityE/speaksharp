@@ -1,0 +1,11 @@
+{
+  "version": "4.7.15",
+  "build": "coordination.10-idle-delivery",
+  "sha256": "5a95e3802138b3156086024db8a0ec240438421bfe3cbab2a40072d8aa3a9c72",
+  "bytes": 349362,
+  "packageFiles": 83,
+  "pythonTests": 843,
+  "dashboardSmoke": "PASS",
+  "installedMacIdleWake": "UNPROVEN",
+  "sourceBase": "c3693626078b9e3ae1f7ed326bf924076765680b"
+}
