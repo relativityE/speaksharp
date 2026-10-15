@@ -831,10 +831,10 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
       {/*
         Persistent provider disclosure: visible before AND after generation (including when suggestions
-        are prefilled), so the user can always see where this session's transcript goes.
+        are prefilled), so the user can see which saved session inputs go to the provider.
 
         #1416 P2-4 — THIS MATTERS MORE NOW THAT THE SEND IS AUTOMATIC. A user must not learn their
-        transcript went to Google from text attached to a button they never touched, so it sits in the card
+        session inputs went to the AI service provider from text attached to a button they never touched, so it sits in the card
         body, in the same region as the review and its progress state. It is a statement, not a gate.
       */}
       {!(stillComing && !inFlight) && (
