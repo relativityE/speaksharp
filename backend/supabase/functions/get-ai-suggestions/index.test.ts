@@ -869,6 +869,35 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     }
   });
 
+  // #1258 (Codex P2 r4289041570, PM 6204153627): decoding a 5xx's error body is diagnostic and bounded by one deadline, so
+  // a body that stalls cannot hold the retry; the attempt still reports its received 503 and the second attempt answers.
+  await t.step('a 503 whose error body stalls still reaches its retry promptly, with the 503 recorded', async () => {
+    resetProvider();
+    geminiText = JSON.stringify(suggestionA);
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN && fetchCount === 0) {
+        fetchCount++; // the stalled first attempt; the retry is counted by the shared provider fake
+        {
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.enqueue(new TextEncoder().encode('{"error":{"status":"UNAVAIL')); },
+          }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 200, 'the retry answered instead of the stalled body holding the request');
+      const diagnostics = (await response.json()).diagnostics;
+      assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
+      assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
+      assertEquals(fetchCount, 2, 'the retry ceiling is unchanged');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   // #1258 (Codex P2 r4288823216, PM 6203482045): a RECEIVED answer keeps its HTTP status even when its body cannot be
   // parsed. The status is captured as soon as fetch resolves, before either body is read. (Its reason/retry
   // classification is unchanged here: a known limitation carried to the option-A checkpoint.)

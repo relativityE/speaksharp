@@ -77,3 +77,49 @@ Deno.test('#1258 readBoundedBody — an oversized body is not buffered', async (
   assertEquals(await readBoundedBody(new Response('x'.repeat(PROVIDER_ERROR_BODY_MAX_BYTES + 1))), null);
   assertEquals(await readBoundedBody(new Response(null)), null);
 });
+
+// #1258 (Codex P2 r4289041570, PM 6204153627): the error-body read is diagnostic, so it must never extend the failure path.
+// One independent deadline bounds the WHOLE read (not each chunk); a stalled or trickling body, or a cancel() that never
+// settles, returns null by that deadline. Timing is asserted structurally (the read settles before a guard that is far
+// longer than the deadline), never against a tight wall-clock threshold.
+Deno.test('#1258 readBoundedBody — one bounded deadline for the whole read', async (t) => {
+  const GUARD_MS = 2_000;
+  const settlesBeforeGuard = async (read: Promise<string | null>): Promise<string | null | 'HUNG'> => {
+    let guard: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([read, new Promise<'HUNG'>((resolve) => { guard = setTimeout(() => resolve('HUNG'), GUARD_MS); })]);
+    } finally {
+      clearTimeout(guard);
+    }
+  };
+  const stalledBody = (cancel?: () => Promise<void>) => new Response(new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new TextEncoder().encode('{"error":')); },
+    ...(cancel ? { cancel } : {}),
+  }), { status: 503 });
+
+  await t.step('a normal short body still decodes within the deadline', async () => {
+    assertEquals(await settlesBeforeGuard(readBoundedBody(new Response('{"error":{"status":"UNAVAILABLE"}}'), 20)),
+      '{"error":{"status":"UNAVAILABLE"}}');
+  });
+
+  await t.step('a stalled body returns null by the deadline instead of holding the retry', async () => {
+    assertEquals(await settlesBeforeGuard(readBoundedBody(stalledBody(), 20)), null);
+  });
+
+  await t.step('a trickling body cannot extend the TOTAL deadline (not reset per chunk)', async () => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const trickle = new Response(new ReadableStream<Uint8Array>({
+      start(controller) { timer = setInterval(() => controller.enqueue(new TextEncoder().encode(' ')), 5); },
+      cancel() { clearInterval(timer); },
+    }), { status: 503 });
+    try {
+      assertEquals(await settlesBeforeGuard(readBoundedBody(trickle, 30)), null);
+    } finally {
+      clearInterval(timer);
+    }
+  });
+
+  await t.step('a cancel() that never settles cannot hold the return', async () => {
+    assertEquals(await settlesBeforeGuard(readBoundedBody(stalledBody(() => new Promise<void>(() => undefined)), 20)), null);
+  });
+});

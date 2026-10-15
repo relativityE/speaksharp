@@ -107,27 +107,53 @@ export function decodeProviderAnswer(responseData: unknown): ProviderAnswerCodes
   };
 }
 
-/** Read at most `PROVIDER_ERROR_BODY_MAX_BYTES` of a body as text; the rest is cancelled, never buffered. */
-export async function readBoundedBody(response: Response): Promise<string | null> {
+/**
+ * #1258 (Codex P2 r4289041570, PM 6204153627) — the WHOLE diagnostic error-body read is bounded by this one deadline, so
+ * decoding a provider's error never extends the failure path (a 5xx whose body stalls or trickles must not hold the retry).
+ */
+export const PROVIDER_ERROR_BODY_DEADLINE_MS = 1_000;
+
+/**
+ * Read at most `PROVIDER_ERROR_BODY_MAX_BYTES` of a body as text, within ONE deadline for the whole read (not per chunk).
+ * Anything over the byte ceiling, a read failure, or the deadline returns null — the caller's closed "unparseable" path.
+ * Cancellation is requested but never awaited, so a `cancel()` that never settles cannot hold the return; late read or
+ * cancel rejections are absorbed, and nothing is logged.
+ */
+export async function readBoundedBody(response: Response, deadlineMs: number = PROVIDER_ERROR_BODY_DEADLINE_MS): Promise<string | null> {
   const reader = response.body?.getReader();
   if (!reader) return null;
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (size < PROVIDER_ERROR_BODY_MAX_BYTES) {
+  let stopped = false;
+  const release = () => {
+    stopped = true;
+    reader.cancel().catch(() => undefined);
+  };
+  const consume = async (): Promise<Uint8Array[] | null> => {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (!stopped && size <= PROVIDER_ERROR_BODY_MAX_BYTES) {
       const { done, value } = await reader.read();
-      if (done || !value) break;
+      if (stopped) return null;
+      if (done || !value) return chunks;
       chunks.push(value);
       size += value.byteLength;
     }
-  } catch {
-    return null;
+    return stopped || size > PROVIDER_ERROR_BODY_MAX_BYTES ? null : chunks;
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const reading = consume().catch(() => null);
+  const deadline = new Promise<'deadline'>((resolve) => { timer = setTimeout(() => resolve('deadline'), deadlineMs); });
+  try {
+    const outcome = await Promise.race([reading, deadline]);
+    if (outcome === 'deadline' || outcome === null) return null;
+    let total = 0;
+    for (const chunk of outcome) total += chunk.byteLength;
+    if (total > PROVIDER_ERROR_BODY_MAX_BYTES) return null;
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of outcome) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder().decode(bytes);
   } finally {
-    await reader.cancel().catch(() => undefined);
+    clearTimeout(timer);
+    release();
   }
-  if (size > PROVIDER_ERROR_BODY_MAX_BYTES) return null;
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-  return new TextDecoder().decode(bytes);
 }
