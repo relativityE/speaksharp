@@ -118,13 +118,14 @@ describe('Navigation', () => {
             expect(screen.getByTestId('nav-mobile-focus-points-link')).toHaveTextContent('Focus Points');
         });
 
-        it('should render Sign Out button when authenticated', () => {
+        it('should render Sign Out in the account menu when authenticated', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
             expect(screen.getByTestId('nav-sign-out-button')).toBeInTheDocument();
         });
 
@@ -133,7 +134,7 @@ describe('Navigation', () => {
          * action group into the nav links and overflowed the bar. The avatar has a fixed width — but
          * an initial is not an accessible name, so the identity must still be announced.
          */
-        it('shows an avatar with a real accessible name and keeps the email out of the visual header', () => {
+        it('shows an account menu with a real accessible name and keeps the email out of the visual header', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user', email: 'averyveryverylongaddress@example.com' } },
                 signOut: mockSignOut,
@@ -141,10 +142,12 @@ describe('Navigation', () => {
 
             renderNavigation();
             const avatar = screen.getByTestId('nav-account-avatar');
-            expect(avatar).toHaveAccessibleName('Signed in as averyveryverylongaddress@example.com');
+            expect(avatar).toHaveAccessibleName('Account · signed in as averyveryverylongaddress@example.com');
             // Visible content is the initial only.
             expect(avatar).toHaveTextContent('A');
             expect(screen.queryByText('averyveryverylongaddress@example.com')).not.toBeInTheDocument();
+            await userEvent.click(avatar);
+            expect(screen.getByTestId('nav-account-link')).toHaveAttribute('href', '/account');
         });
     });
 
@@ -157,6 +160,7 @@ describe('Navigation', () => {
 
             renderNavigation();
 
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
             const signOutButton = screen.getByTestId('nav-sign-out-button');
             fireEvent.click(signOutButton);
 
@@ -564,7 +568,7 @@ describe('Navigation', () => {
             expect(screen.queryByText('PRO')).not.toBeInTheDocument();
         });
 
-        it('does not present an active trial as paid Pro', () => {
+        it('does not present an active trial as paid Pro and labels its account menu Trial', async () => {
             mockUseUserProfile.mockReturnValue({
                 data: { subscription_status: 'free', stripe_subscription_id: null, trial_expires_at: '2999-01-01T00:00:00Z' },
                 isLoading: false,
@@ -579,6 +583,39 @@ describe('Navigation', () => {
             expect(screen.queryByTestId('nav-upgrade-button')).not.toBeInTheDocument();
             expect(screen.queryByTestId('pro-badge')).not.toBeInTheDocument();
             expect(screen.queryByText('PRO')).not.toBeInTheDocument();
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
+            expect(screen.getByText(/· Trial$/)).toBeVisible();
+        });
+
+        it('keeps a confirmed paid account labeled Pro even if usage also reports an active trial', async () => {
+            mockUseUserProfile.mockReturnValue({ data: paidProProfile, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { trial_active: true } });
+            renderNavigation('/');
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
+            expect(screen.getByText(/· Pro$/)).toBeVisible();
+            expect(screen.queryByText(/· Trial$/)).not.toBeInTheDocument();
+        });
+
+        it('does not infer a menu Trial label from a future profile date when the server says inactive', async () => {
+            mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free', trial_expires_at: '2999-01-01T00:00:00Z' }, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { trial_active: false } });
+            renderNavigation('/');
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
+            expect(screen.getByText(/· Free$/)).toBeVisible();
+            expect(screen.queryByText(/· Trial$/)).not.toBeInTheDocument();
+        });
+
+        it.each([
+            { state: 'pending', data: undefined, isLoading: true, isError: false, label: /· Checking membership…$/ },
+            { state: 'failed with cached trial', data: { trial_active: true }, isLoading: false, isError: true, label: /· Membership status unavailable$/ },
+            { state: 'missing flag', data: {}, isLoading: false, isError: false, label: /· Membership status unavailable$/ },
+        ])('does not label an unconfirmed account Free, Trial or Pro when usage is $state', async (usage) => {
+            mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free' }, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue(usage);
+            renderNavigation('/');
+            await userEvent.click(screen.getByTestId('nav-account-avatar'));
+            expect(screen.getByText(usage.label)).toBeVisible();
+            expect(screen.queryByText(/· (Free|Trial|Pro)$/)).not.toBeInTheDocument();
         });
 
         it.each(['/session', '/session/', '/Session', '/session/abc123', '/analytics', '/ANALYTICS', '/analytics/42', '/pricing'])(
