@@ -39,7 +39,12 @@ mkdirSync(evidence, { recursive: true });
 const resourcesFile = join(evidence, 'resources.json');
 const run = (bin, args, options = {}) => {
   const result = spawnSync(bin, args, { env, encoding: 'utf8', timeout: 12 * 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
-  if (result.error || result.status !== 0) throw new Error(`${bin} ${args[0]} failed: ${result.error?.message ?? result.stderr?.slice(-4000)}`);
+  if (result.error || result.status !== 0) {
+    const stderr = result.stderr ?? '';
+    const diagnostic = stderr.length > 8000
+      ? `${stderr.slice(0, 4000)}\n[bounded diagnostic: middle omitted]\n${stderr.slice(-4000)}` : stderr;
+    throw new Error(`${bin} ${args[0]} failed: ${result.error?.message ?? diagnostic}`);
+  }
   return result.stdout.trim();
 };
 const firewallArgs = (id, subnet) => ['DOCKER-USER', '-s', subnet, '!', '-d', subnet,
