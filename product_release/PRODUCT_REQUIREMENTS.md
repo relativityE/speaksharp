@@ -109,15 +109,17 @@ The implementation and attribution contracts belong to `STT.md`.
 
 > **Standalone.** Everything needed to build C10 is in this section. It's scoped to the gaps found in the App Dev gap check (mock browser, engine setup delayed 6 s, 15 Oct 2026). Behaviour that already works is listed under **Keep** so it isn't rebuilt.
 
-**Problem.** Starting a take waits about 6 s: about 5.8 s to build the speech engine and about 0.5 s to open the mic. Speech during that time isn't recorded. Today the screen doesn't say so. After `Practice again?`, the button only dims and the review stays unchanged. On a first take, the card keeps saying `Mic ready on this device`. When recording begins, the status bar still shows the previous take's `Finalizing your transcript…`.
+**Problem.** Starting a repeat take waits about 6 s: the diagnostic measured about 5.8 s in repeat-start preparation and about 0.5 s in the engine and mic start that follows. How much of the 5.8 s is releasing the previous engine versus preparing the new one isn't separately measured yet. Speech during that time isn't recorded. Today the screen doesn't say so. After `Practice again?`, the button only dims and the review stays unchanged. On a first take, the card keeps saying `Mic ready on this device`. When recording begins, the status bar still shows the previous take's `Finalizing your transcript…`.
 
 **Keep (already correct, don't change):**
 - One start at a time: the pressed button is disabled within 0.3 s, and repeat presses do nothing.
 - The live state: `● RECORDING 00:00`, the stop button, the waveform and `Live Transcript`, shown when recording begins.
-- `Speak now`, gated on real mic frames. *To be confirmed on the next real-device run; if it doesn't show, that's a separate bug, not part of C10.*
+- `Speak now`, gated on real mic frames. *The existing cue is reused. If the real-frame check shows it absent or early, it remains a required RWT start-up defect to fix.*
 - The status bar's `Recording active` once live.
 
 **Where the waiting state appears.** The **status bar** (the full-width bar under the header) is the single place for start-up status, because it's where the app already shows `Session saved.` and `Recording active`. The pressed button shows that it's working. Nothing else on the page changes during the wait. The review, transcript and `THIS RUN` stay as they are until recording begins, as today.
+
+**One definition of "recording begins".** Recording begins when capture is ready on real microphone frames, including silence. Entering the recording state or finishing warm-up is not enough on its own. Every live indicator uses this one moment: `Speak now`, the timer, `● RECORDING` with its red dot, the live waveform and `Recording active`.
 
 **Build these four things:**
 
@@ -125,7 +127,7 @@ The implementation and attribution contracts belong to `STT.md`.
 |---|---|---|
 | 1 | From the press until recording begins | The pressed button keeps its size and position, is disabled, and its label changes to `Starting…`. This applies to `Practice again?` and to `Start recording` (and the space-bar start). |
 | 2 | Same period | The status bar shows a small spinner and `Getting your mic ready…`. It **replaces** whatever the bar showed (`Session saved.`, `Finalizing your transcript…`, etc.), and the bar's right-hand action (e.g. `Progress →`) is hidden. On a first take, the recorder card's `Mic ready on this device` indicator is **hidden** for this period. No timer, red dot, `RECORDING` or waveform appears anywhere until recording begins. |
-| 3 | 10 s after the press, if recording hasn't begun | The status bar adds `This is taking longer than usual.` after the message, and shows a `Try again` button in its right-hand slot. `Try again` either rejoins the start in progress, or cancels it and waits until the old engine and mic are confirmed released before beginning one new start. If that release can't be confirmed, the button stays disabled and today's start-failure message shows. **It never creates a second engine.** After the press, go back to row 2 and restart the 10 s count. |
+| 3 | 10 s after the press, if recording hasn't begun | The status bar adds `This is taking longer than usual.` after the message, and shows a `Try again` button in its right-hand slot. `Try again` either rejoins the start in progress, or cancels it and waits until the old engine and mic are confirmed released before beginning one new start. If that release can't be confirmed, the button stays disabled and today's start-failure message shows. **It never creates a second engine.** If `Try again` rejoins the same attempt, the original press time and the long-wait notice stay. The 10 s count restarts (back to row 2) only when the previous attempt has been confirmed cancelled and released **and** a new attempt actually starts. |
 | 4 | Recording begins | The status bar shows `Recording active` (existing). **Any previous take's message is cleared,** and `Finalizing your transcript…` must never show during a new take. |
 
 If the start fails, use today's start-failure message and behaviour, unchanged. The pressed button goes back to its original label, and is enabled again only once the old engine and mic are confirmed released.
@@ -144,7 +146,7 @@ No other copy changes.
 1. At 0.3 s after `Practice again?` (and after `Start recording`), the button reads `Starting…` and is disabled. The status bar reads `Getting your mic ready…`.
 2. At 3 s, the same. On a first take, `Mic ready on this device` is not visible. No timer, `RECORDING` or waveform is visible.
 3. When recording begins, the status bar reads `Recording active`. `Finalizing your transcript…` doesn't appear at any point during the new take.
-4. With setup delayed 11 s, `This is taking longer than usual.` and `Try again` appear at 10 s. Pressing `Try again` leaves exactly one engine (spy on the engine constructor), and the notice clears.
+4. With setup delayed 11 s, `This is taking longer than usual.` and `Try again` appear at 10 s. Pressing `Try again` leaves exactly one engine (spy on the engine constructor). If it rejoins the attempt in progress, the notice stays and the 10 s count isn't reset. The notice clears and the count restarts only when a confirmed-released replacement attempt starts.
 5. Pressing the start button five times quickly creates one engine.
 6. On a real device, `Speak now` and the timer appear only once the mic delivers real audio frames (silence counts; the user doesn't have to speak first).
 
