@@ -30,6 +30,7 @@ export const REC = JSON.stringify({ reasonCode: 'HIGH_FILLER_RATE', actionCode: 
 // 20260801000000) and a stub retention coordinator whose behaviour each test can steer.
 export const BOOTSTRAP = `
   DO $r$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF;
   END $r$;
