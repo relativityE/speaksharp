@@ -20,8 +20,13 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
+import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
+import {
+    coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
+    UNAVAILABLE_HEADLINE,
+} from './coachingExternal';
+import type { CoachingGenerationTap } from './coachingGenerationTap';
 import type { ActionCaptureAttempt, ActionCaptureOutcome } from './rwtOracles';
 import {
     AUDIO_ARGS,
@@ -50,19 +55,8 @@ export const RWT_ACCOUNT_PREFIX = 'rwt-journey-';
 export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
-/**
- * #1258 — the closed failure reasons `get-ai-suggestions` returns in its 502 body. Read so a failed coaching row names its
- * cause in the receipt itself. Anything outside the closed set reads 'unrecognized', so no free text enters the receipt.
- */
-export const COACHING_FAILURE_REASONS = [
-    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
-    'over_character_ceiling', 'missing_model_version',
-] as const;
-export function coachingFailureReason(body: unknown): string | null {
-    const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined;
-    if (reason === undefined || reason === null) return null;
-    return typeof reason === 'string' && (COACHING_FAILURE_REASONS as readonly string[]).includes(reason) ? reason : 'unrecognized';
-}
+// #1258 (PM 6174134686): the closed coaching failure vocabulary lives with the EXTERNAL classifier, which publishes it.
+export { COACHING_FAILURE_REASONS, coachingFailureReason } from './coachingExternal';
 
 /**
  * #1258 (Codex r4188372882 / r4188372897) — read a failed coaching response's closed reason as a PROMISE the spec
@@ -81,10 +75,20 @@ export function bandSide(well: number, next: number, min: number, max: number): 
 }
 
 export async function readCoachingFailureReason(response: { json(): Promise<unknown> }): Promise<string | null> {
+    return (await readCoachingFailureEvidence(response)).reason;
+}
+
+/**
+ * #1258 (PM 6171519534) — the failed response read ONCE, keeping only allowlisted scalars: the closed reason and the
+ * provider's integer HTTP status from `diagnostics.provider_status`. Never throws; an unparseable body is `unrecognized`
+ * with no provider status, so it can never prove an external outage.
+ */
+export async function readCoachingFailureEvidence(response: { json(): Promise<unknown> }): Promise<{ reason: string | null; providerStatus: number | null }> {
     try {
-        return coachingFailureReason(await response.json());
+        const body = await response.json();
+        return { reason: coachingFailureReason(body), providerStatus: providerStatusFrom(body) };
     } catch {
-        return 'unrecognized';
+        return { reason: 'unrecognized', providerStatus: null };
     }
 }
 
@@ -1210,7 +1214,18 @@ export interface PracticeAgainEvidence {
     saveTakePersisted: boolean | null; saveTakeNewSession: boolean | null;
     /** Content-free page state when the review's repeat Start did not begin recording; null when it began or was not tried. */
     startFailure: StartFailureState | null;
+    /**
+     * #1258 smoke run 38654466793 (PM 6181247850): the closed sub-step at which the SAVE take stopped progressing — the step
+     * being attempted when it failed. Null when the review was reached or the save take was never tried.
+     */
+    saveTakeFailedStep: PracticeSaveTakeStep | null;
+    /** Whether the save take's Start and Stop presses were actually completed (never inferred from teardown). */
+    saveTakeStartPressed: boolean; saveTakeStopPressed: boolean;
+    /** Content-free page state read BEFORE teardown when the save take did not reach the review (bounded; may be unread). */
+    saveTakeFailure: StartFailureState | null;
 }
+/** The save take's sub-steps, in order: mic ready → Start pressed → recording confirmed → Stop pressed → review shown. */
+export type PracticeSaveTakeStep = 'mic_ready' | 'start' | 'recording_started' | 'stop' | 'review';
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
@@ -1221,6 +1236,7 @@ export async function practiceAgainEvidence(
         analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null,
         holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null, savedSessionId: null,
         actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null,
+        saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null,
     };
     await page.goto(`/analytics/${sessionId}`);
     const practice = page.getByTestId('saved-review-practice');
@@ -1250,13 +1266,23 @@ export async function practiceAgainEvidence(
         }).catch(() => false);
         ev.sameSetPending = shown;
     }
+    // PM 6181247850: one catch used to cover the whole save take and lose which boundary failed. Each sub-step is now
+    // named before it is attempted, and the presses that actually completed are recorded.
+    let step: PracticeSaveTakeStep = 'mic_ready';
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
+        step = 'start';
         await startBenchmarkRecording(page, `${label}-save`);
+        ev.saveTakeStartPressed = true;
+        step = 'recording_started';
         await expectBenchmarkRecordingStarted(page, `${label}-save`);
         await page.waitForTimeout(7_000); // past the 5 s no-persist guard, so this take saves
-        await stopBenchmarkRecording(page, `${label}-save`);
+        step = 'stop';
+        // Codex P2 r4278702635: the flag is set when the CLICK resolves, inside the helper — so `stop` with the flag true
+        // means the click happened and the post-Stop settle failed; false means the click itself failed.
+        await stopBenchmarkRecording(page, `${label}-save`, undefined, () => { ev.saveTakeStopPressed = true; });
         onSaveTakeStopped?.();
+        step = 'review';
         await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
         ev.reviewReached = true;
         ev.savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
@@ -1264,8 +1290,11 @@ export async function practiceAgainEvidence(
         ev.saveTakeNewSession = ev.savedSessionId !== null ? ev.savedSessionId !== sessionId : null;
     } catch {
         ev.reviewReached = false;
+        ev.saveTakeFailedStep = step;
+        // Read WHY before teardown navigates away; a timed-out read stays marked unread and the failure stands.
+        ev.saveTakeFailure = await readStartFailureState(page).catch(() => UNREAD_START_FAILURE);
         ev.liveTracksAfterStop = await boundedTeardown(page, `${label}-save`);
-        ev.reason = 'the practice take did not reach the completed-session review';
+        ev.reason = `the practice take did not reach the completed-session review (stopped at: ${step})`;
         return ev;
     }
     // The completed review's own repeat action, pressed as soon as it is offered.
@@ -1356,8 +1385,14 @@ export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'fo
             { sameSetPending: ev.sameSetPending, ...practiceActionEvidence(ev) });
     }
     if (ev.reviewReached !== true) {
-        receipt.row('review Practice again starts, no hold', 'HOLD', ev.reason ?? 'the completed-session review was not reached');
-        receipt.row('repeated take stopped, microphone off', 'HOLD', ev.reason ?? 'not reached', { liveTracksAfterStop: ev.liveTracksAfterStop });
+        // The sub-step and page state EXPLAIN an incomplete save take; they never turn it into PASS. A zero live-track count
+        // after teardown does not prove the repeated take stopped, so that row stays HOLD as well.
+        const saveTake = {
+            saveTakeFailedStep: ev.saveTakeFailedStep, saveTakeStartPressed: ev.saveTakeStartPressed, saveTakeStopPressed: ev.saveTakeStopPressed,
+            ...startFailureEvidence(ev.saveTakeFailure),
+        };
+        receipt.row('review Practice again starts, no hold', 'HOLD', ev.reason ?? 'the completed-session review was not reached', saveTake);
+        receipt.row('repeated take stopped, microphone off', 'HOLD', ev.reason ?? 'not reached', { liveTracksAfterStop: ev.liveTracksAfterStop, ...saveTake });
         return;
     }
     const startOk = ev.afterStartMs !== null && !ev.holdSeen && (ev.afterActionEnabledMs ?? Infinity) < 5_000 && ev.afterStartMs < 15_000;
@@ -1596,7 +1631,7 @@ export async function openProductsMenuInPlace(page: Page): Promise<boolean> {
     return opened;
 }
 
-export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof analyticsThroughActions>>): void {
+export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof analyticsThroughActions>>, externalCoaching = false): void {
     receipt.row('Analytics action', a.actionClicked && a.listed ? 'PASS' : 'FAIL',
         a.actionClicked ? (a.listed ? 'the on-screen Analytics action opened Analytics and it lists this session' : 'Analytics opened but does not list this session')
             : 'the post-save Analytics action was not shown or did not open Analytics');
@@ -1625,6 +1660,10 @@ export function analyticsRows(receipt: RwtReceipt, a: Awaited<ReturnType<typeof 
             { evidenceShown: after.evidenceShown, evidenceMatches: after.evidenceMatches });
         receipt.row('one practice action', a.coachingBefore.oneAction && after.oneAction ? 'PASS' : 'FAIL',
             after.oneAction ? 'exactly one practice action, with no competing Progress sentence or button' : 'zero or several practice actions, or a competing Progress action');
+    } else if (externalCoaching) {
+        for (const step of COACHING_DEPENDENT_ANALYTICS_ROWS) {
+            receipt.row(step, 'EXTERNAL', 'not exercised: the take has no saved coaching because the provider was unavailable (external, non-blocking per PO)');
+        }
     }
 }
 
@@ -1764,13 +1803,74 @@ export async function readCoachingPhrase(card: Locator, testId: 'review-what-wen
     return (await node.innerText({ timeout: COACHING_PHRASE_READ_MS }).catch(() => '')).trim();
 }
 
+/**
+ * #1258 (Codex P1 r4277621600, PM 6182054477) — a BOUNDED tri-state observation of one review phrase node (the shared
+ * `PracticeLoopReviewPair` test ids). `absent` only when the node count is a proved zero; `present` when the node exists
+ * and its text was read; `unreadable` when the count or the text read failed, timed out or the node detached. Unlike
+ * `readCoachingPhrase`, an error is never collapsed into '' — so it can never be taken for a confirmed absence. The text
+ * itself is not returned (nothing visible is written to a receipt).
+ */
+export type PhraseObservation = 'absent' | 'present' | 'unreadable';
+export async function observeCoachingPhrase(card: Locator, testId: 'review-what-went-well' | 'review-try-next'): Promise<PhraseObservation> {
+    const nodes = card.getByTestId(testId);
+    const count = await Promise.race([
+        nodes.count(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('phrase count timed out')), COACHING_PHRASE_READ_MS)),
+    ]).catch(() => null);
+    if (count === null) return 'unreadable';
+    if (count === 0) return 'absent';
+    return nodes.first().innerText({ timeout: COACHING_PHRASE_READ_MS }).then(() => 'present' as const).catch(() => 'unreadable' as const);
+}
+
+/** Confirmed VISIBLE absence of both phrases: true only when both are proved absent; false if either is shown; else unknown. */
+export function visibleCoachingAbsence(well: PhraseObservation, next: PhraseObservation): boolean | null {
+    if (well === 'present' || next === 'present') return false;
+    return well === 'absent' && next === 'absent' ? true : null;
+}
+
+/**
+ * #1258 (PM 6171519534) — the review card's own handling of a failed generation, read without pressing anything (a
+ * press would be another provider request). Bounded reads; a missing control reads as not shown / not enabled.
+ */
+export async function readCoachingFailureUi(card: Locator): Promise<{ unavailableShown: boolean; retryEnabled: boolean }> {
+    const headline = card.getByTestId('ai-suggestions-headline');
+    const shown = (await headline.innerText({ timeout: 5_000 }).catch(() => '')).trim();
+    const retry = card.getByTestId('ai-suggestions-retry');
+    const visible = await retry.isVisible().catch(() => false);
+    const enabled = visible && await retry.isEnabled({ timeout: 5_000 }).catch(() => false);
+    const label = visible ? (await retry.innerText({ timeout: 5_000 }).catch(() => '')).trim() : '';
+    return { unavailableShown: shown === UNAVAILABLE_HEADLINE, retryEnabled: enabled && label === 'Try again' };
+}
+
+/**
+ * #1258 (Codex P1 r4277023741, PM 6180080622) — the FIRST-TAKE save proof for the Focus suites. Their account is a fresh
+ * run-owned account and this checkpoint runs before Practice-again or any product switch, so the account must hold
+ * EXACTLY ONE completed session, and it must be this take's exact owner/session row. A count filtered by the session id
+ * could never see a duplicate saved under a second id. Any read error, null count, missing row or duplicate is NOT
+ * proven — it can never authorize EXTERNAL.
+ */
+export async function firstTakeSavedExactlyOnce(admin: SupabaseClient, uid: string, sessionId: string): Promise<{
+    proven: boolean; accountCompletedSessions: number | null; thisTakeCompleted: boolean | null;
+}> {
+    const account = await admin.from('sessions').select('id', { count: 'exact', head: true })
+        .eq('user_id', uid).eq('status', 'completed');
+    const accountCompletedSessions = account.error || typeof account.count !== 'number' ? null : account.count;
+    const own = await admin.from('sessions').select('id').eq('id', sessionId).eq('user_id', uid).eq('status', 'completed').maybeSingle();
+    const thisTakeCompleted = own.error ? null : (own.data as { id?: unknown } | null)?.id === sessionId;
+    return { proven: accountCompletedSessions === 1 && thisTakeCompleted === true, accountCompletedSessions, thisTakeCompleted };
+}
+
 export async function focusCoachingRows(
     page: Page,
     receipt: RwtReceipt,
     admin: SupabaseClient,
     sessionId: string,
     uid: string,
-    request: { product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null },
+    request: {
+        product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null;
+        /** #1258 (PM 6173420642 §3): the request-boundary authority — each exchange is its own request/response tuple. */
+        generations?: CoachingGenerationTap;
+    },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
     const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
@@ -1779,6 +1879,10 @@ export async function focusCoachingRows(
     // The failure response arrives during the terminal wait above, so its reason is settled HERE, after that wait and
     // before any row is written (Codex r4189408865). A read still pending at the bound is UNKNOWN, never `null`.
     if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
+    // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body. An
+    // exchange still unread at the bound is simply absent, so nothing is proved from it.
+    if (request.generations) await settleCoachingReason(request.generations.settle());
+    const take = takeExchangeEvidence(request.generations?.forSession(sessionId) ?? []);
     // #1258 R3b (run 38308997906 hung 24 min here): read each phrase from the review pair's own test id, bounded. The old
     // heading → div → <p> walk waited without limit when its structure did not resolve. A phrase that is absent reads as
     // '' and the row below FAILs; the rendered-vs-saved check is unchanged.
@@ -1786,13 +1890,47 @@ export async function focusCoachingRows(
     const well = await phrase('review-what-went-well');
     const next = await phrase('review-try-next');
     const two = terminal && state === 'ready' && well !== '' && next !== '';
-    receipt.row('Focus coaching rendered', two ? 'PASS' : 'FAIL',
-        two ? 'two coaching phrases rendered after Stop without any click' : `coaching did not render (state=${String(state)}, http=${String(request.status)})`,
-        { reviewState: state, httpStatus: request.status, failureReason: request.reason ?? null });
+    // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage that the app handled gracefully is EXTERNAL, never PASS.
+    // Codex P1 r4277023741: exactly one completed save on the fresh run-owned account, and it is this take's row.
+    const firstSave = two ? null : await firstTakeSavedExactlyOnce(admin, uid, sessionId);
+    const savedTakeProven = firstSave?.proven ?? false;
+    const ui = two ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
+    // External proof comes ONLY from this take's exchange tuple; without one, nothing is proved.
+    const parent = coachingParentVerdict({
+        rendered: two,
+        evidence: take.evidence,
+        graceful: { savedTakeProven, reviewState: state, ...ui, requestBoundToSession: take.unique },
+    });
+    receipt.row('Focus coaching rendered', parent.verdict,
+        two ? 'two coaching phrases rendered after Stop without any click' : parent.detail,
+        { reviewState: state, httpStatus: take.unique ? take.evidence.httpStatus : request.status, failureReason: take.unique ? take.evidence.reason : request.reason ?? null,
+            providerStatus: take.evidence.providerStatus, externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven,
+            accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,
+            unavailableShown: two ? null : ui.unavailableShown, retryEnabled: two ? null : ui.retryEnabled, takeExchangeUnique: take.unique });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',
         request.product === 'focus_points' ? 'the request asked for coaching about this take\'s chosen points' : 'the request was not marked focus_points',
         { requestProduct: request.product });
-    if (!two) return null;
+    // PM 6171519534 §4: request provenance is judged on its own, on every path — never waived by an external outcome.
+    const binding = request.generations
+        ? coachingRequestBindingRow(request.generations, sessionId)
+        : { verdict: 'HOLD' as const, detail: 'no coaching request record was attached', bound: null };
+    receipt.row('Focus coaching request bound to this take', binding.verdict, binding.detail, { requestBoundToSession: binding.bound });
+    if (!two) {
+        if (parent.verdict === 'EXTERNAL') {
+            // PM 6173420642 §1: the exact owner/session saved coaching is read BEFORE any row may be "not exercised" — an
+            // answer saved for a failed request is FAIL, an unreadable one is unproven. The human check stays unobserved.
+            const rows = await focusExternalDependentRows(parent, async () => {
+                const { data, error: savedErr } = await admin.from('sessions').select('ai_suggestions').eq('id', sessionId).eq('user_id', uid).single();
+                if (savedErr) return { ok: false as const };
+                return { ok: true as const, raw: (data as { ai_suggestions?: unknown } | null)?.ai_suggestions ?? null };
+            }, // Codex P1 r4277621600: a bounded tri-state read of the shared review-pair nodes — unreadable is never absence.
+            visibleCoachingAbsence(await observeCoachingPhrase(card, 'review-what-went-well'), await observeCoachingPhrase(card, 'review-try-next')));
+            for (const r of rows) receipt.row(r.step, r.verdict, r.detail, r.evidence);
+            humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
+                'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
+        }
+        return null;
+    }
     const inTarget = (n: number) => n >= COACHING_PHRASE_TARGET_MIN_WORDS && n <= COACHING_PHRASE_TARGET_WORDS;
     const withinTarget = inTarget(countWords(well)) && inTarget(countWords(next));
     receipt.row('Focus coaching length', 'PASS',
