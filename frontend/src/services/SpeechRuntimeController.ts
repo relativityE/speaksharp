@@ -1,4 +1,5 @@
 import { LEASE_NOT_HELD_MESSAGE, LEASE_UNCONFIRMED_MESSAGE } from './recordingLeasePolicy';
+import { engineFailureCode, recordingFailureCode, withFailureCode } from './recordingFailureCode';
 import { currentLogin, recordSavedSessionFor, type LoginIdentity } from './loginSessionLog';
 import { confirmTakeLease } from './recordingLease';
 import { analyticsBuffer } from './AnalyticsBuffer';
@@ -2636,7 +2637,8 @@ export class SpeechRuntimeController {
                      * the correct outcome — recording did not cleanly terminate, so nothing is claimed.
                      */
                 }
-                emitRecordingState(previousState, newState, error?.name ?? null);
+                emitRecordingState(previousState, newState, error?.name ?? null,
+                    newState === 'FAILED' ? recordingFailureCode(error) : null);
             } catch {
                 /* telemetry must never affect the state machine */
             }
@@ -3062,7 +3064,9 @@ export class SpeechRuntimeController {
         store.setSTTStatus({ type: 'error', message: displayMessage });
 
         void this.enqueue(async (token) => {
-            await this.transition('FAILED', new Error(displayMessage), token);
+            // #1258: an engine-reported message is not authored text, so the code is tagged here, at its source — from the
+            // engine's own error (its browser name, then a strict permission vocabulary), not the display heuristic above.
+            await this.transition('FAILED', withFailureCode(new Error(displayMessage), engineFailureCode(error)), token);
         });
     }
 
@@ -4186,7 +4190,10 @@ export class SpeechRuntimeController {
                     type: 'error',
                     message: '⛔ Active session in another tab.'
                 });
-                await this.transition('FAILED', undefined, _token);
+                // #1258 (Codex P2 4261513195, PM 6150665406): the FAILED transition carries a closed `failure_code`
+                // (start_gate_closed) instead of none. A FAILED error's message becomes the status line, so the error
+                // keeps the exact display text above and the code travels as a tag; only the code leaves the device.
+                await this.transition('FAILED', withFailureCode(new Error('⛔ Active session in another tab.'), 'start_gate_closed'), _token);
                 return;
             }
 
@@ -6432,7 +6439,10 @@ export class SpeechRuntimeController {
                             pushE2EEvent('HEARTBEAT_FAILURE_THRESHOLD_REACHED', { sessionId, consecutiveFailures });
 
                             this.stopHeartbeat(); // Kill interval before transition
-                            await this.transition('FAILED', error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'));
+                            // #1258 (Codex P2 4265721146): the caught error is whatever the network threw — a `TypeError`
+                            // or `TimeoutError` names no heartbeat — so it is tagged here. Same object, same message.
+                            await this.transition('FAILED', withFailureCode(
+                                error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'), 'heartbeat_failure'));
                             return;
                         }
 
