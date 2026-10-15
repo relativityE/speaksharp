@@ -99,6 +99,8 @@ let fetchThrows = false;
 /** #1258: what a non-OK provider answer's body says, and what a transport error's message says. */
 let providerErrorBody = 'upstream unavailable';
 let fetchErrorMessage = 'network unreachable';
+/** #1258 (PO 2026-10-12): extra top-level fields on a 200 answer (finishReason / usageMetadata cases). */
+let geminiExtra: Record<string, unknown> = {};
 let lastPrompt = '';
 let lastRequestBody: Record<string, unknown> = {};
 let lastRequestUrl = '';
@@ -138,6 +140,7 @@ globalThis.fetch = async (url, init) => {
   return new Response(JSON.stringify({
     ...(geminiModelVersion === null ? {} : { modelVersion: geminiModelVersion }),
     candidates: [{ content: { parts: [{ text }] } }],
+    ...geminiExtra,
   }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -289,6 +292,7 @@ function resetProvider() {
   fetchThrows = false;
   providerErrorBody = 'upstream unavailable';
   fetchErrorMessage = 'network unreachable';
+  geminiExtra = {};
   lastPrompt = '';
   lastRequestUrl = '';
   outboundRequests.length = 0;
@@ -783,6 +787,143 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(response.status, 502);
     assertEquals(fetchCount, 1, 'a contract violation is answered, not re-asked');
     assertEquals(mock.state.quotaCount, 1);
+  });
+
+  /*
+   * #1258 (PO 2026-10-12) — DECODE THE PROVIDER'S CODES. Alpha runs recorded only `provider_timeout` or a bare status;
+   * Gemini's own closed codes say WHY. They are decoded into the diagnostic, and the provider's free text never leaves.
+   */
+  await t.step('a Gemini 429 decodes to RESOURCE_EXHAUSTED / RATE_LIMIT_EXCEEDED, with no provider text anywhere', async () => {
+    resetProvider();
+    const echo = 'provider echoed secret words';
+    fetchStatus = 429;
+    providerErrorBody = JSON.stringify({ error: {
+      code: 429, message: echo, status: 'RESOURCE_EXHAUSTED',
+      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'RATE_LIMIT_EXCEEDED' }],
+    } });
+    const logged: string[] = [];
+    const original = { error: console.error, info: console.info };
+    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    console.info = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let text = '';
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      text = await response.text();
+      assertEquals(response.status, 502);
+    } finally {
+      console.error = original.error;
+      console.info = original.info;
+    }
+    const diagnostics = JSON.parse(text).diagnostics;
+    assertEquals(diagnostics.reason, 'provider_http_4xx');
+    assertEquals(diagnostics.provider_status, 429);
+    assertEquals(diagnostics.provider_error_status, 'RESOURCE_EXHAUSTED');
+    assertEquals(diagnostics.provider_error_reason, 'RATE_LIMIT_EXCEEDED');
+    assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status, diagnostics.attempt_2_reason],
+      ['provider_http_4xx', 429, null]);
+    assertEquals(fetchCount, 1, 'a 4xx is still not retried');
+    assertEquals(text.includes(echo), false, 'the response never carries provider text');
+    assertEquals(logged.some((line) => line.includes(echo)), false, 'no log line carries provider text');
+    assertEquals(logged.some((line) => line.includes('RESOURCE_EXHAUSTED')), true, 'the decoded code IS logged');
+  });
+
+  await t.step('each attempt is recorded: a 503 then a success names both, with the answer\'s token counts', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerErrorBody = JSON.stringify({ error: { status: 'UNAVAILABLE', message: 'overloaded' } });
+    geminiExtra = {
+      usageMetadata: { promptTokenCount: 812, candidatesTokenCount: 46, thoughtsTokenCount: 1903, totalTokenCount: 2761 },
+    };
+    geminiText = JSON.stringify(suggestionA);
+    const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+    assertEquals(response.status, 200);
+    const diagnostics = (await response.json()).diagnostics;
+    assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
+    assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
+    assertEquals(diagnostics.provider_error_status, null, 'the codes describe the LAST attempt, which succeeded');
+    assertEquals([diagnostics.provider_prompt_tokens, diagnostics.provider_output_tokens, diagnostics.provider_thinking_tokens,
+      diagnostics.provider_total_tokens], [812, 46, 1903, 2761]);
+  });
+
+  await t.step('a timed-out attempt is recorded as provider_timeout with no status', async () => {
+    resetProvider();
+    fetchThrows = true;
+    fetchErrorMessage = 'signal timed out';
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        throw new DOMException('Signal timed out.', 'TimeoutError');
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 502);
+      const diagnostics = (await response.json()).diagnostics;
+      assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_timeout', null]);
+      assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['provider_timeout', null]);
+      assertEquals(diagnostics.provider_error_status, null, 'a timeout has no provider code to decode');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #1258 (Codex P2 r4289041570, PM 6204153627): decoding a 5xx's error body is diagnostic and bounded by one deadline, so
+  // a body that stalls cannot hold the retry; the attempt still reports its received 503 and the second attempt answers.
+  await t.step('a 503 whose error body stalls still reaches its retry promptly, with the 503 recorded', async () => {
+    resetProvider();
+    geminiText = JSON.stringify(suggestionA);
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN && fetchCount === 0) {
+        fetchCount++; // the stalled first attempt; the retry is counted by the shared provider fake
+        {
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.enqueue(new TextEncoder().encode('{"error":{"status":"UNAVAIL')); },
+          }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 200, 'the retry answered instead of the stalled body holding the request');
+      const diagnostics = (await response.json()).diagnostics;
+      assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
+      assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
+      assertEquals(fetchCount, 2, 'the retry ceiling is unchanged');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #1258 (Codex P2 r4288823216, PM 6203482045): a RECEIVED answer keeps its HTTP status even when its body cannot be
+  // parsed. The status is captured as soon as fetch resolves, before either body is read. (Its reason/retry
+  // classification is unchanged here: a known limitation carried to the option-A checkpoint.)
+  await t.step('a received 200 with a malformed body keeps its 200 status in the attempt diagnostic', async () => {
+    resetProvider();
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        return new Response('{"candidates":[{"content":', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 502);
+      const text = await response.text();
+      const diagnostics = JSON.parse(text).diagnostics;
+      assertEquals(diagnostics.attempt_1_status, 200, 'the answer was received, so its status is known');
+      assertEquals(diagnostics.attempt_2_status, 200);
+      assertEquals(diagnostics.provider_status, 200);
+      assertEquals(fetchCount, 2, 'the retry ceiling is unchanged');
+      assertEquals(text.includes('"content":'), false, 'the malformed body is never echoed');
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   /*

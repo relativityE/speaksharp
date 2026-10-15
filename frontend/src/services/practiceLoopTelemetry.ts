@@ -1,6 +1,7 @@
 /** Content-free Practice Loop review telemetry. Generated coaching and provider errors never enter it. */
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import type { GovernedEvent } from '@/services/telemetryAllowlist';
+import type { ProviderCodeFields } from '@/services/telemetry/providerCodes';
 
 export type PracticeLoopReviewFailureReason =
   | 'access_denied'
@@ -41,7 +42,7 @@ export const trackPracticeLoopReviewRendered = (): void =>
 export const trackPracticeLoopReviewFailed = (reason: PracticeLoopReviewFailureReason): void =>
   emit('practice_loop_review_failed', { reason });
 
-export interface AiCoachingDiagnosticTelemetry {
+export interface AiCoachingDiagnosticTelemetry extends Partial<ProviderCodeFields> {
   diagnostic_request_id?: string;
   diagnostic_attempt_id?: string;
   client_attempt: number;
