@@ -355,6 +355,31 @@ describe('AISuggestions Integration', () => {
             expect(await screen.findByText(/the review didn't load/i)).toBeInTheDocument();
         });
 
+        it('#1258 (PM 6171519534): after a provider 5xx outage the unavailable message and an enabled Try again are shown, and one press sends ONE new request', async () => {
+            // The live receipt only OBSERVES Try again (pressing it there would be another provider request); this proves
+            // the control is wired: the outage is terminal for the automatic lifecycle, the press starts exactly one more.
+            const user = userEvent.setup();
+            mockSupabaseClient.functions.invoke.mockReset();
+            mockSupabaseClient.functions.invoke
+                .mockResolvedValueOnce(httpErrorWithBody(502, async () => ({
+                    error: 'AI coaching could not be generated. Please try again.', reason: 'provider_http_5xx',
+                    diagnostics: { provider_status: 503 },
+                })))
+                .mockResolvedValueOnce(okResponse);
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-provider-outage" retryBackoffMs={10} />);
+
+            await waitFor(() => expect(card()).toHaveAttribute('data-review-state', 'error'));
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent("The review didn't load. Your session is saved.");
+            const retry = screen.getByTestId('ai-suggestions-retry');
+            expect(retry).toHaveTextContent('Try again');
+            await waitFor(() => expect(retry).toBeEnabled());
+            expect(mockSupabaseClient.functions.invoke, 'the outage itself sends no second request').toHaveBeenCalledTimes(1);
+
+            await user.click(retry);
+            expect(await screen.findByText('Clear opening.')).toBeInTheDocument();
+            expect(mockSupabaseClient.functions.invoke, 'one press, one new request').toHaveBeenCalledTimes(2);
+        });
+
         /**
          * #1486 Codex P1 — THE COMPONENT IS TESTED THE WAY THE APP RENDERS IT.
          *
