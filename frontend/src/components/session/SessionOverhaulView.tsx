@@ -866,7 +866,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         : undefined;
     const objectiveAfterSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={chooseRetryPoints} onNewSet={onNewSet ? chooseNewSet : undefined}
-            retryDisabled={repeatActionDisabled} retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
+            retryDisabled={repeatActionDisabled} retryStarting={startupWaiting} retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined} />
         : isObjective
             ? <FocusPointsRail
                 rows={pendingObjectiveRows}
@@ -878,6 +878,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 checkUnavailable={coverageTerminallyUnavailable}
                 onRetry={chooseRetryPoints}
                 retryDisabled={repeatActionDisabled}
+                retryStarting={startupWaiting}
                 retryDescribedBy={gateBlocksStart ? 'run-shape-blocked-reason' : undefined}
                 onNewSet={onNewSet ? chooseNewSet : undefined}
             />

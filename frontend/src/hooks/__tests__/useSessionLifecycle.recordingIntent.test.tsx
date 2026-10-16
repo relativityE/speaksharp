@@ -560,6 +560,18 @@ describe('#1258 C10 — start-attempt identity through the real hook', () => {
         expect(store.getState().captureLive).toBe(false);
     });
 
+    it('CI 38852128235 regression: the minimum-duration guard reads the LIVE clock, not a lagging tick — 5.3 s live saves; 3 s live is too short', async () => {
+        // The clock is re-based at the live moment; the last 1 Hz tick can still read one second short (4 for 5.3 s).
+        const live = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 4, startTime: Date.now() - 5_300 });
+        await act(async () => { await live.result.current.handleStartStop(); });
+        expect(String(live.store.getState().sttStatus.message ?? ''), 'a 5.3 s live take is not refused as too short').not.toMatch(/too short/i);
+        live.unmount();
+
+        const short = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 4, startTime: Date.now() - 3_000 });
+        await act(async () => { await short.result.current.handleStartStop(); });
+        expect(String(short.store.getState().sttStatus.message ?? '')).toMatch(/too short \(3s\)/i);
+    });
+
     it('a Start-only call never stops a recording', async () => {
         const { result } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 30 });
         await act(async () => { await result.current.handleStartStop({ startOnly: true }); });

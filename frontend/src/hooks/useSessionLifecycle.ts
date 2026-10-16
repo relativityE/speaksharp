@@ -240,6 +240,8 @@ export const useSessionLifecycle = () => {
     }), [userFillerWords, session, profile]);
 
     const isListening = useSessionStore(state => state.isListening);
+    // #1258 C10: the session clock's start (re-based at the live moment); the 1 Hz heartbeat restarts when it moves.
+    const sessionStartTime = useSessionStore(state => state.startTime);
     // #1089: post-Stop finalization is authoritative and OUTLIVES runtimeState leaving STOPPING.
     // The record control must stay non-interactive for its whole duration (see isButtonDisabled).
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
@@ -361,7 +363,11 @@ export const useSessionLifecycle = () => {
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
             // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
-            if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
+            // #1258 C10: measured NOW from the live clock (startTime), not from the last 1 Hz tick or a render-time value,
+            // which can trail the re-based clock by up to a second and refuse a take that did reach the minimum.
+            const liveStart = useSessionStore.getState().startTime;
+            const elapsedAtStop = liveStart ? Math.floor((Date.now() - liveStart) / 1000) : elapsedTime;
+            if (elapsedAtStop < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 try {
                     await speechRuntimeController.stopRecording();
                     saveLatency.settle('discarded');
@@ -376,7 +382,7 @@ export const useSessionLifecycle = () => {
                 setShowAnalyticsPrompt(false);
                 setSTTStatus({
                     type: 'info',
-                    message: `⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
+                    message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
                 });
                 isProcessingRef.current = false;
                 return;
@@ -1059,7 +1065,9 @@ export const useSessionLifecycle = () => {
             }, 1000);
             return () => clearInterval(interval);
         }
-    }, [isListening, tick]);
+        // #1258 C10: the clock is re-based at the live moment (setCaptureLive), so the heartbeat restarts with it — its
+        // ticks stay aligned to whole seconds of LIVE capture instead of lagging one second behind for the whole take.
+    }, [isListening, tick, sessionStartTime]);
 
     useEffect(() => {
         if (typeof document === 'undefined') return;
