@@ -262,6 +262,10 @@ export default class TranscriptionService {
    * and the service then publishes its CURRENT state once — `ready`, or a genuine failure, truthfully.
    */
   private backgroundPreparation: boolean = false;
+  /** The latest outcome a background preparation produced, handed to the page by the claim (review 6215165137). */
+  private deferredStatus: SttStatus | null = null;
+  private deferredError: Error | null = null;
+  private deferredReady: boolean = false;
   private currentTranscript: string = '';
   private partialTranscript: string = '';
 
@@ -272,11 +276,45 @@ export default class TranscriptionService {
   public setBackgroundPreparation(on: boolean): void {
     if (this.backgroundPreparation === on) return;
     this.backgroundPreparation = on;
-    if (on || this.isDestroyed) return;
+    if (on) return;
+    const deferredStatus = this.deferredStatus;
+    const deferredError = this.deferredError;
+    const deferredReady = this.deferredReady;
+    this.deferredStatus = null;
+    this.deferredError = null;
+    this.deferredReady = false;
+    if (this.isDestroyed) return; // a disposed preparation hands nothing to anyone
     const state = this.fsm.getState();
     if (this.mode !== null) syncForensicAnchors(mapToRuntimeState(state), this.mode);
     else syncForensicAnchors(mapToRuntimeState(state));
+    // The genuine latest outcome, now the user's — in the order a foreground warm-up publishes it.
+    if (state === 'INIT_FAILED') this.markPrivateModelInitFailed(deferredError);
     this.handleStateChange(state);
+    if (deferredError) {
+      this.options.onError?.(deferredError);
+      return;
+    }
+    if (state === 'READY' && this.privateModelReady) this.markPrivateModelReady();
+    else if (state !== 'INIT_FAILED' && deferredStatus) this.options.onStatusChange?.(deferredStatus);
+    if (deferredReady) this.options.onReady?.();
+  }
+
+  /** #1258 A — the one door for a status reaching the page: held (latest wins) while preparing in the background. */
+  private emitStatus(status: SttStatus): void {
+    if (this.backgroundPreparation) {
+      this.deferredStatus = status;
+      return;
+    }
+    this.options.onStatusChange?.(status);
+  }
+
+  /** #1258 A — the one door for an error reaching the controller: held while preparing in the background. */
+  private emitError(error: Error): void {
+    if (this.backgroundPreparation) {
+      this.deferredError = error;
+      return;
+    }
+    this.options.onError?.(error);
   }
 
   public isBackgroundPreparation(): boolean {
@@ -293,6 +331,8 @@ export default class TranscriptionService {
     this.privateModelReady = true;
     this.privateDownloadAlternativeToastShown = false;
     this.modelLoadingProgress = 100;
+    // #1258 A — a background preparation's ready state, toast and delayed progress clear belong to the claim.
+    if (this.backgroundPreparation) return;
 
     const state = (useSessionStore as unknown as {
       getState: () => {
@@ -334,6 +374,7 @@ export default class TranscriptionService {
 
     this.privateModelReady = false;
     this.modelLoadingProgress = null;
+    if (this.backgroundPreparation) return; // #1258 A — published by the claim
     this.setEngineReady(false);
 
     const state = (useSessionStore as unknown as {
@@ -495,7 +536,7 @@ export default class TranscriptionService {
         }
       },
       onModelLoadProgress: (p) => {
-        if (this.isTerminated || this.backgroundPreparation) return;
+        if (this.isTerminated) return;
         this.processModelLoadProgress(p);
       },
       onReady: () => {
@@ -503,14 +544,18 @@ export default class TranscriptionService {
         if (this.mode === 'private' && this.modelLoadingProgress !== null) {
           this.processModelLoadProgress(100);
         }
+        if (this.backgroundPreparation) {
+          this.deferredReady = true; // #1258 A — delivered by the claim
+          return;
+        }
         this.options.onReady?.();
       },
       onStatusChange: (status) => {
-        if (this.isTerminated || this.backgroundPreparation) return;
+        if (this.isTerminated) return;
         if (typeof status.progress === 'number') {
           this.processModelLoadProgress(status.progress);
         }
-        this.options.onStatusChange?.(status);
+        this.emitStatus(status);
       },
       onError: (error) => {
         if (this.isTerminated) return;
@@ -519,11 +564,11 @@ export default class TranscriptionService {
         // #1320: Native/Web-Speech is retired — there is no cross-engine fallback. Private's only internal
         // fallback (v2 <-> v4) is handled downstream, so a strategy error is terminal.
         this.fsm.transition({ type: 'ERROR_OCCURRED', error });
-        this.options.onError?.(error);
+        this.emitError(error);
       },
       onConnectionStateChange: (s) => {
         // Connection state is usually global to the strategy/service
-        this.options.onStatusChange?.({ type: s === 'connected' ? 'ready' : 'info', message: `Connection ${s}` });
+        this.emitStatus({ type: s === 'connected' ? 'ready' : 'info', message: `Connection ${s}` });
       },
       session: options.session || null,
       navigate: options.navigate || ((() => { }) as unknown as NavigateFunction),
@@ -733,7 +778,7 @@ export default class TranscriptionService {
           this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
         }
 
-        this.options.onStatusChange?.({
+        this.emitStatus({
           type: 'download-required',
           message: 'Private model needs a one-time download.',
           // The consent copy is the STRATEGY'S, not a generic line: it names the real maximum for the
@@ -767,7 +812,7 @@ export default class TranscriptionService {
             );
             logger.error({ mode }, '[TranscriptionService] Strategy cannot record model consent; refusing to initialize');
             this.fsm.transition({ type: 'ERROR_OCCURRED', error });
-            this.options.onStatusChange?.({ type: 'error', message: 'Private model consent could not be saved.' });
+            this.emitStatus({ type: 'error', message: 'Private model consent could not be saved.' });
             throw error;
           }
           try {
@@ -787,7 +832,7 @@ export default class TranscriptionService {
             // facade legitimately asks again.
             logger.warn({ mode, cause }, '[TranscriptionService] Consent could not be persisted; continuing this session unsaved');
             this.consentGrantedThisSession = true;
-            this.options.onStatusChange?.({
+            this.emitStatus({
               type: 'warning',
               message: 'Setup couldn\u2019t be saved. You may be asked to set up Private again next time.',
             });
@@ -808,7 +853,7 @@ export default class TranscriptionService {
             availability = { isAvailable: true };
           }
           if (availability.isAvailable) {
-            this.options.onStatusChange?.({ type: 'download-required', message: 'Preparing the private model…', progress: 0 });
+            this.emitStatus({ type: 'download-required', message: 'Preparing the private model…', progress: 0 });
           }
         }
         // explicit init — fall through to strategy.init()
@@ -825,7 +870,7 @@ export default class TranscriptionService {
         const error = TranscriptionError.engineFailure(mode, availability.message || 'Strategy unavailable');
         logger.error({ mode, reason: availability.reason }, '[TranscriptionService] Strategy NOT AVAILABLE. Gating execution.');
         this.fsm.transition({ type: 'ERROR_OCCURRED', error });
-        this.options.onStatusChange?.({
+        this.emitStatus({
           type: 'error',
           message: availability.message || 'Strategy blocked'
         });
@@ -877,7 +922,7 @@ export default class TranscriptionService {
         if (!this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
           this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
         }
-        this.options.onStatusChange?.({
+        this.emitStatus({
           type: 'download-required',
           message: 'Private model needs a one-time download.',
           detail: 'Download once to use offline transcription in this browser.',
@@ -904,7 +949,7 @@ export default class TranscriptionService {
           this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
         }
 
-        this.options.onStatusChange?.({
+        this.emitStatus({
           type: 'download-required',
           message: 'Private model setup did not complete.',
           detail: 'Retry the local model setup. Check browser storage if setup fails again. Your audio stays on your machine.',
@@ -1311,7 +1356,7 @@ export default class TranscriptionService {
     } catch (error: unknown) {
       logger.error({ mode: this.mode, error: error as Error }, '[TranscriptionService] stopTranscription failed');
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
-      this.options.onError?.(error as Error);
+      this.emitError(error as Error);
       this.startTime = null;
       this.isModeLocked = false; // 🔓 Release lock always on completion
       return { success: false, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } };
@@ -1335,7 +1380,7 @@ export default class TranscriptionService {
         await this.strategy.pause();
       }
       this.fsm.transition({ type: 'PAUSE_COMPLETED' });
-      this.options.onStatusChange?.({ type: 'paused', message: 'Paused' });
+      this.emitStatus({ type: 'paused', message: 'Paused' });
     } catch (error) {
       logger.error({ error }, '[TranscriptionService] pauseTranscription failed');
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
@@ -1360,7 +1405,7 @@ export default class TranscriptionService {
         await this.strategy.resume();
       }
       this.fsm.transition({ type: 'RESUME_COMPLETED' });
-      this.options.onStatusChange?.({ type: 'recording', message: 'Recording' });
+      this.emitStatus({ type: 'recording', message: 'Recording' });
     } catch (error) {
       logger.error({ error }, '[TranscriptionService] resumeTranscription failed');
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
@@ -1626,7 +1671,8 @@ export default class TranscriptionService {
       this.fsm.setState(targetState);
     }
 
-    // Sync UI
+    // Sync UI — only for the page's owner. A background preparation disposed unclaimed (#1258 A, review 6215165137)
+    // never touched the page, so its teardown must not overwrite the page's own state either.
     const state = (useSessionStore as unknown as {
       getState: () => {
         setActiveEngine: (m: unknown) => void;
@@ -1636,7 +1682,7 @@ export default class TranscriptionService {
       }
     }).getState?.();
 
-    if (state) {
+    if (state && !this.backgroundPreparation) {
       state.setActiveEngine(null);
       state.setModelLoadingProgress(null);
       state.setSTTStatus({
@@ -1749,7 +1795,7 @@ export default class TranscriptionService {
    */
   public handleHeartbeatFailure(error: Error): void {
     logger.error({ error, serviceId: this.options.session?.user?.id }, '[TranscriptionService] 🚨 Heartbeat Failure Escalated');
-    this.options.onError?.(error);
+    this.emitError(error);
   }
 
   private startWatchdog(): void {
@@ -1766,7 +1812,7 @@ export default class TranscriptionService {
         if (!this.isFrozen) {
           this.isFrozen = true;
           // Private has a continuous heartbeat expected, so real drift is worth a calm, actionable notice.
-          this.options.onStatusChange?.({
+          this.emitStatus({
             type: 'warning',
             message: 'Transcription is taking longer than expected. You can keep recording.',
             isFrozen: true
@@ -1774,7 +1820,7 @@ export default class TranscriptionService {
         }
       } else if (this.isFrozen) {
         this.isFrozen = false;
-        this.options.onStatusChange?.({
+        this.emitStatus({
           type: 'info',
           message: 'Speech recognition recovered',
           isFrozen: false
@@ -1878,8 +1924,9 @@ export default class TranscriptionService {
     // capping both fields to <=101 writes and eliminating duplicate-percent churn.
     if (percent === this.lastProcessedPercent) return;
     this.lastProcessedPercent = percent;
-    this.options.onModelLoadProgress(percent);
     this.modelLoadingProgress = percent; // Keep internal state in sync
+    if (this.backgroundPreparation) return; // #1258 A — a background preparation shows no progress
+    this.options.onModelLoadProgress(percent);
     const state = (useSessionStore as unknown as {
       getState: () => {
         setActiveEngine: (m: unknown) => void;
