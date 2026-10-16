@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { parse } from 'yaml';
@@ -83,7 +84,7 @@ describe('deployment invalidates deletion authority before any worker change', (
         const workflow = parse(readFileSync('.github/workflows/deploy-supabase-migrations.yml', 'utf8'));
         const resolve = workflow.jobs['validate-edge-configuration'].steps.find((step) => step.id === 'resolve');
         expect(resolve.env.CONFIRM_INPUT).toBe('${{ inputs.confirm }}');
-        const directory = mkdtempSync('/private/tmp/closure-deploy-contract-');
+        const directory = mkdtempSync(join(tmpdir(), 'closure-deploy-contract-'));
         function run(confirm) {
             return spawnSync('bash', ['-c', resolve.run], { env: { PATH: '/usr/bin:/bin',
                 EVENT_NAME: 'workflow_dispatch', OPERATION: operation, CONFIRM_INPUT: confirm,
