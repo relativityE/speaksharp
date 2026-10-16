@@ -53,7 +53,9 @@ beforeEach(async () => {
   const validation = { version: 1, validation: 'OFFLINE_VALID', activationAuthorized: false,
     bindingDigest: BINDING, evidenceDigest: record.evidenceDigest, quarantined: [] };
   await service(`SELECT record_account_closure_drain_attestation('${A}',0,${quote(record)},${quote(validation)})`);
-  await service(`SELECT issue_account_closure_token('${U}','${TOKEN}')`);
+  // Fixture only: the legacy body is owner-only after enforcement; production
+  // service callers must use guarded issuance (tested below).
+  await db.exec(`SET LOCAL ROLE closure_owner; SELECT issue_account_closure_token('${U}','${TOKEN}'); RESET ROLE`);
 });
 afterEach(async () => { await db.exec('ROLLBACK'); });
 
@@ -148,6 +150,8 @@ describe('current drain authority — actual SQL boundaries', () => {
 
   it.each([
     ['claim_account_closure_token', `('${U}','${TOKEN}')`],
+    ['issue_account_closure_token', `('${U}','${TOKEN}')`],
+    ['reconcile_expired_account_checkout', `('${U}','${TOKEN}','${OTHER}','cs')`],
     ['record_account_closure_auth_state', `('${U}','${OTHER}','auth_unknown')`],
     ['settle_account_closure_billing', `('${U}','${OTHER}','cus','[]')`],
     ['require_account_closure_drain', `(${grant()})`],

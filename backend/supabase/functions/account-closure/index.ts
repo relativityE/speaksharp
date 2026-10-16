@@ -18,16 +18,17 @@ async function hashToken(token: string): Promise<string> {
   return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export function buildDependencies(env: Env, admin: SupabaseClient, auth: SupabaseClient, stripe: Stripe | null): ClosureRequestDependencies {
+export function buildDependencies(env: Env, admin: SupabaseClient, auth: SupabaseClient, stripe: Stripe | null,
+  initialBinding = readAccountClosureRuntimeBinding(env)): ClosureRequestDependencies {
   // One invocation, one backend target, one pinned grant. Never refresh a grant
   // or adopt a new deployment after a provider operation may have started.
-  let binding: ReturnType<typeof readAccountClosureRuntimeBinding> | undefined;
+  const binding = initialBinding;
   let activeProof: ClosureProof | null = null;
   let irreversibleAttempted = false;
+  let authDeleteAttempted = false;
   const currentBinding = () => {
     const next = readAccountClosureRuntimeBinding(env);
     if (binding && JSON.stringify(next) !== JSON.stringify(binding)) throw new Error('closure_runtime_context_changed');
-    binding ??= next;
     return next;
   };
   const rpc = async (name: string, args: Record<string, unknown>) => {
@@ -84,6 +85,7 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
   return {
     siteUrl: env('SITE_URL') ?? '', randomToken, hashToken,
     authenticate: async () => {
+      currentBinding();
       const { data, error } = await auth.auth.getUser();
       return !error && data.user?.email && data.user.email_confirmed_at
         ? { id: data.user.id, email: data.user.email } : null;
@@ -233,15 +235,33 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
         },
         deleteAuthUser: async (userId) => {
           if (!proof || proof.userId !== userId) throw new Error('closure_proof_missing');
+          // This invocation may resume a lost JOURNAL acknowledgment while it
+          // still knows no DELETE was sent. It never replays an issued DELETE.
+          if (authDeleteAttempted) return { deleted: null };
           // Commit the reconciliation hold before the destructive request. This record has
           // no auth FK and survives deletion, process death and lost HTTP responses.
           await assertAuthority();
-          await drainVoid('record_account_closure_auth_state_with_drain', {
-            p_user_id: userId, p_request_id: proof.requestId, p_state: 'auth_unknown',
+          const markUnknown = () => drainVoid('record_account_closure_auth_state_with_drain', {
+            p_user_id: userId, p_request_id: proof!.requestId, p_state: 'auth_unknown',
           });
+          try { await markUnknown(); }
+          catch {
+            // The authoritative read waits behind any still-running SQL write.
+            // A retained same-request hold or untouched processing state may
+            // receive ONE bounded acknowledgment retry; no provider retry.
+            await assertAuthority(['processing', 'auth_unknown']);
+            const before = await admin.auth.admin.getUserById(userId);
+            await assertAuthority(['processing', 'auth_unknown']);
+            if (before.data?.user === null && before.error?.status === 404 && before.error.code === 'user_not_found') {
+              return { deleted: (await recovery()).accountDeleted };
+            }
+            if (before.error !== null || before.data?.user?.id !== userId) return { deleted: null };
+            await markUnknown();
+          }
           try {
             await assertAuthority(['auth_unknown']);
             irreversibleAttempted = true;
+            authDeleteAttempted = true;
             const { error } = await admin.auth.admin.deleteUser(userId, false);
             if (error) return { deleted: null };
             const result = await recovery();
@@ -268,14 +288,19 @@ export async function handler(req: Request, env: Env = (key) => Deno.env.get(key
   if (!url || !anon || !secret || !env('SITE_URL')) {
     return new Response(JSON.stringify({ error: 'account_closure_unavailable' }), { status: 503, headers });
   }
+  let verified: ReturnType<typeof readAccountClosureRuntimeBinding>;
+  try { verified = readAccountClosureRuntimeBinding(env); }
+  catch {
+    return new Response(JSON.stringify({ error: 'account_closure_unavailable' }), { status: 503, headers });
+  }
   const authorization = req.headers.get('Authorization');
   if (!authorization?.startsWith('Bearer ')) return new Response(JSON.stringify({ error: 'sign_in_required' }), { status: 401, headers });
   const options = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
-  const admin = createClient(url, secret, options);
-  const auth = createClient(url, anon, { ...options, global: { headers: { Authorization: authorization } } });
+  const admin = createClient(verified.target.url, secret, options);
+  const auth = createClient(verified.target.url, anon, { ...options, global: { headers: { Authorization: authorization } } });
   const stripeKey = env('STRIPE_SECRET_KEY');
   const stripe = stripeKey ? new Stripe(stripeKey, { httpClient: Stripe.createFetchHttpClient(), timeout: 10_000, maxNetworkRetries: 0 }) : null;
-  const response = await handleClosureRequest(req, buildDependencies(env, admin, auth, stripe));
+  const response = await handleClosureRequest(req, buildDependencies(env, admin, auth, stripe, verified));
   for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
   return response;
 }

@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type Stripe from 'npm:stripe@16';
-import { buildDependencies } from './index.ts';
+import { buildDependencies, handler } from './index.ts';
 import { handleClosureRequest } from '../_shared/accountClosureRequest.ts';
 
 const OWNER = '10000000-0000-4000-8000-000000000001';
@@ -12,9 +12,11 @@ function fixture() {
   const calls: { name: string; args: unknown }[] = [];
   const settings = { deletedCustomer: false, authAbsent: true, customerOwner: 'cus', storageRemains: false,
     deleteThrows: false, readThrows: false, authorityExpired: false, authorityPhase: 'processing',
+    journalResponseLost: '' as '' | 'committed' | 'not-committed', journalFailures: 0,
+    authUnknownBeforeDelete: false,
     checkouts: [] as {id:string;status:string;client_reference_id:string;metadata:{userId:string};customer:string|null}[],
     pending: [] as {operation_id:string;session_id:string|null}[] };
-  let removed = false;
+  let removed = false; let deleteSent = false;
   const validFrom = Date.now() - 1000; const expiresAt = validFrom + 600_000;
   const scope = { attestationId: ATTESTATION, generation: '0', bindingDigest: 'a'.repeat(64),
     context: { candidateSha: 'b'.repeat(40), configDigest: 'c'.repeat(64), migrationDigest: 'd'.repeat(64),
@@ -25,7 +27,11 @@ function fixture() {
   const admin = {
     rpc: async (name: string, args: Record<string, unknown>) => {
       calls.push({ name, args });
+      const lost = name === 'record_account_closure_auth_state_with_drain' && args.p_state === 'auth_unknown'
+        && settings.journalResponseLost && settings.journalFailures++ === 0;
+      if (lost && settings.journalResponseLost === 'not-committed') throw new Error('lost journal response');
       if (name === 'record_account_closure_auth_state_with_drain') settings.authorityPhase = String(args.p_state);
+      if (lost) throw new Error('lost journal response');
       const data = name === 'inspect_account_closure_checkouts' ? settings.pending
         : name === 'inspect_account_closure_authority' ? {
           attempt: { userId: OWNER, requestId: REQUEST, email: 'user@example.test', phase: settings.authorityPhase },
@@ -39,8 +45,12 @@ function fixture() {
     },
     auth: { admin: {
       deleteUser: async (id: string, soft: boolean) => { calls.push({ name: 'deleteUser', args: { id, soft } });
+        deleteSent = true;
         if (settings.deleteThrows) throw new Error('lost delete response'); return { error: null }; },
-      getUserById: async () => { if (settings.readThrows) throw new Error('read timeout'); return settings.authAbsent
+      getUserById: async () => { calls.push({ name: 'getUserById', args: OWNER });
+        if (settings.readThrows) throw new Error('read timeout');
+        if (!deleteSent && settings.authUnknownBeforeDelete) return { data: { user: null }, error: null };
+        return settings.authAbsent && deleteSent
         ? { data: { user: null }, error: { status: 404, code: 'user_not_found' } }
         : { data: { user: { id: OWNER } }, error: null }; },
     } },
@@ -78,6 +88,36 @@ Deno.test('production adapter constructs the Supabase OTP call, disables new-use
   assertEquals(calls, [{ name: 'sendLink', args: { email: 'user@example.test', options: {
     shouldCreateUser: false, emailRedirectTo: 'https://example.test/account/delete?account_deletion_token=secret',
   } } }]);
+});
+for (const outcome of ['committed', 'not-committed'] as const) {
+  Deno.test(`ambiguous pre-DELETE journal ${outcome} acknowledgment resumes only the same unsent action`, async () => {
+    const { adapters, calls, settings } = fixture();
+    await adapters.consumeProof(OWNER, 'a'.repeat(64)); settings.journalResponseLost = outcome;
+    assertEquals(await adapters.deleteAuthUser(OWNER), { deleted: true });
+    const acknowledgments = calls.filter((c) => c.name === 'record_account_closure_auth_state_with_drain'
+      && (c.args as { p_state: string }).p_state === 'auth_unknown');
+    assertEquals(acknowledgments.length, 2);
+    assertEquals(acknowledgments.every((c) => (c.args as { p_user_id: string; p_request_id: string }).p_user_id === OWNER
+      && (c.args as { p_request_id: string }).p_request_id === REQUEST), true);
+    assertEquals(calls.filter((c) => c.name === 'deleteUser').length, 1);
+    assertEquals(calls.findIndex((c) => c.name === 'getUserById') < calls.findIndex((c) => c.name === 'deleteUser'), true);
+  });
+}
+Deno.test('unknown Auth during pre-DELETE continuation preserves the hold and never dispatches DELETE', async () => {
+  const { adapters, calls, settings } = fixture();
+  await adapters.consumeProof(OWNER, 'a'.repeat(64));
+  settings.journalResponseLost = 'committed'; settings.authUnknownBeforeDelete = true;
+  assertEquals(await adapters.deleteAuthUser(OWNER), { deleted: null });
+  assertEquals(settings.authorityPhase, 'auth_unknown');
+  assertEquals(calls.some((c) => c.name === 'deleteUser'), false);
+});
+Deno.test('an already dispatched uncertain DELETE is never retried within the invocation', async () => {
+  const { adapters, calls, settings } = fixture();
+  await adapters.consumeProof(OWNER, 'a'.repeat(64)); settings.deleteThrows = true;
+  assertEquals(await adapters.deleteAuthUser(OWNER), { deleted: null });
+  assertEquals(await adapters.deleteAuthUser(OWNER), { deleted: null });
+  assertEquals(calls.filter((c) => c.name === 'deleteUser').length, 1);
+  assertEquals(settings.authorityPhase, 'auth_unknown');
 });
 Deno.test('production token claim sends only SHA-256, and uses the authoritative proof for billing settlement', async () => {
   const { calls, adapters, scope } = fixture();
@@ -170,7 +210,7 @@ Deno.test('auth deletion requires authoritative not-found readback, never a succ
   await adapters.consumeProof(OWNER, 'a'.repeat(64));
   assertEquals(await adapters.deleteAuthUser(OWNER), { deleted: null });
   // A second destructive attempt cannot adopt the retained auth_unknown claim.
-  await assertRejects(() => adapters.deleteAuthUser(OWNER));
+  assertEquals(await adapters.deleteAuthUser(OWNER), { deleted: null });
   const fresh = fixture(); await fresh.adapters.consumeProof(OWNER, 'a'.repeat(64));
   assertEquals(await fresh.adapters.deleteAuthUser(OWNER), { deleted: true });
 });
@@ -191,6 +231,25 @@ Deno.test('missing binding or wrong executing worker refuses before claim/provid
     const { environment, adapters, calls } = fixture(); delete environment[setting];
     await assertRejects(() => adapters.consumeProof(OWNER, 'a'.repeat(64)));
     assertEquals(calls.length, 0);
+  }
+});
+Deno.test('handler rejects missing, malformed and mismatched backend bindings before any outbound bearer request', async () => {
+  for (const mode of ['missing', 'malformed', 'foreign', 'worker']) {
+    const { environment } = fixture();
+    Object.assign(environment, { SUPABASE_ANON_KEY: 'synthetic-anon', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-service' });
+    if (mode === 'missing') delete environment.ACCOUNT_CLOSURE_RUNTIME_BINDING;
+    else if (mode === 'malformed') environment.ACCOUNT_CLOSURE_RUNTIME_BINDING = 'not-json';
+    else if (mode === 'foreign') environment.SUPABASE_URL = 'https://foreign.example.test';
+    else environment.DENO_DEPLOYMENT_ID = 'fixture-project_different_2';
+    const original = globalThis.fetch; const outbound: string[] = [];
+    globalThis.fetch = (input) => { outbound.push(String(input)); return Promise.resolve(new Response('{}', { status: 401 })); };
+    try {
+      const response = await handler(new Request('https://example.test', { method: 'POST',
+        headers: { Authorization: 'Bearer synthetic-user-token' },
+        body: JSON.stringify({ action: 'request' }) }), (key) => environment[key]);
+      assertEquals(outbound.length, 0, `${mode}: bearer authentication escaped before target validation`);
+      assertEquals(response.status, 503);
+    } finally { globalThis.fetch = original; }
   }
 });
 Deno.test('expired current drain blocks every subsequent irreversible provider/storage boundary', async () => {

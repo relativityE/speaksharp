@@ -543,12 +543,12 @@ try {
       evidenceDigest: 'e'.repeat(64), bindingDigest: drainBinding, legacyWriters: [], inventory: {} };
     const validation = { version: 1, validation: 'OFFLINE_VALID', activationAuthorized: false,
       bindingDigest: drainBinding, evidenceDigest: record.evidenceDigest, quarantined: [] };
+    const authority = `'${attestation}',${generation},'${drainBinding}',${quote(drainContext)}`;
     sql(`UPDATE account_billing_coordination SET checkout_workers_drained=false,evidence_reference=NULL;
       INSERT INTO auth.users VALUES('${user}','drain-${n}@example.test',now()); SET ROLE service_role;
       SELECT record_account_closure_drain_attestation('${attestation}',${generation},${quote(record)},${quote(validation)});
-      SELECT issue_account_closure_token('${user}','${token}'); RESET ROLE;
-      UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${attestation}';`);
-    const authority = `'${attestation}',${generation},'${drainBinding}',${quote(drainContext)}`;
+      RESET ROLE; UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${attestation}';
+      SET ROLE service_role; SELECT issue_account_closure_token_with_drain('${user}','${token}',${authority}); RESET ROLE;`);
     const claim = `SET ROLE service_role; SELECT row_to_json(t) FROM claim_account_closure_token_with_drain('${user}','${token}',${authority}) t`;
     const request = () => JSON.parse(sql(claim)).request_id;
     const transition = (id, phase) => `SET ROLE service_role; SELECT record_account_closure_auth_state_with_drain('${user}','${id}','${phase}',${authority})`;

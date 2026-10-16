@@ -259,6 +259,8 @@ $$;
 
 -- Legacy bodies remain internal building blocks, not service-role bypasses.
 REVOKE ALL ON FUNCTION public.claim_account_closure_token(uuid,text),
+  public.issue_account_closure_token(uuid,text),
+  public.reconcile_expired_account_checkout(uuid,text,uuid,text),
   public.record_account_closure_auth_state(uuid,uuid,text),
   public.settle_account_closure_billing(uuid,uuid,text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
