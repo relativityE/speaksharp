@@ -61,7 +61,8 @@ async function readSessionRows(uid: string): Promise<SessionRowFacts[]> {
 
 /** The words on the page, as a length only: the live transcript or its container, whichever the page renders. */
 async function transcriptOnPageLength(page: Page): Promise<number> {
-    for (const id of ['live-transcript', 'transcript-container']) {
+    // `review-transcript` is the saved review's own surface (Sam 6218045990); the live surfaces are checked too.
+    for (const id of ['live-transcript', 'transcript-container', 'review-transcript']) {
         const el = page.getByTestId(id).first();
         if (await el.count() === 0) continue;
         const text = await el.innerText({ timeout: 5_000 }).catch(() => '');

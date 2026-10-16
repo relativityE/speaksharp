@@ -136,7 +136,13 @@ export function completionDropDisposition(variant: SaveRetryVariant, drop: Compl
         : { status: 'HOLD', detail: 'the server did not save the take before the answer was dropped, so the lost-response case was not exercised' };
 }
 
-/** The recovery banner must say what is true: the take is unsaved, the words are on the page, and Retry Save is offered. */
+/**
+ * The recovery banner must say what is true: the take is unsaved, and Retry Save is offered. #1258 C (Sam 6218045990) —
+ * the WORDS claim is CONDITIONAL by contract (SessionPage passes `hasTranscriptText` from the page's own text; a failed
+ * Stop deliberately purges live text while the retry payload keeps it): "Your words are still here" must appear exactly
+ * when words are on the page, and must NOT appear when none are. Whether the spoken words survive for Retry Save is
+ * proven by the retry's own completion and readback rows, not by this copy.
+ */
 export function recoveryBannerVerdict(o: {
     bannerShown: boolean; resolution: string | null; message: string; retryOffered: boolean; wordsOnPage: number;
 }): Verdict {
@@ -148,9 +154,12 @@ export function recoveryBannerVerdict(o: {
     if (!o.message.startsWith(RECOVERY_COPY[o.resolution])) {
         return { status: 'FAIL', detail: 'the banner copy does not match its unresolved state' };
     }
-    if (!o.message.includes(RECOVERY_COPY.words)) return { status: 'FAIL', detail: 'the banner does not say the words are still here' };
-    if (o.wordsOnPage === 0) return { status: 'FAIL', detail: 'the banner says the words are still here, but none are on the page' };
-    return { status: 'PASS', detail: 'the banner says the take is not saved, the words are on the page, and Retry Save is offered' };
+    const claimsWords = o.message.includes(RECOVERY_COPY.words);
+    if (claimsWords && o.wordsOnPage === 0) return { status: 'FAIL', detail: 'the banner says the words are still here, but none are on the page' };
+    if (!claimsWords && o.wordsOnPage > 0) return { status: 'FAIL', detail: 'words are on the page, but the banner does not say they are still here' };
+    return claimsWords
+        ? { status: 'PASS', detail: 'the banner says the take is not saved, the words are on the page, and Retry Save is offered' }
+        : { status: 'PASS', detail: 'the banner says the take is not saved and offers Retry Save, and truthfully makes no words claim for a page with none' };
 }
 
 /** After Retry Save: exactly one saved session for the take, the one the page bound, with its transcript retained. */
