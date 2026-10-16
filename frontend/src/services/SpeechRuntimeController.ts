@@ -3391,7 +3391,7 @@ export class SpeechRuntimeController {
     }
 
     private handleStatusChange(status: SttStatus) {
-        // #1258 C10 — the Private engine's real-frame readiness (#891): `warming` until stable microphone frames arrive,
+        // #1258 C10 — the Private engine's real-frame readiness, per #891: `warming` until stable microphone frames arrive,
         // then `recording`. Published so every live indicator waits for real capture, not for the FSM state.
         if (status.type === 'warming') {
             this.engineReportedRealFrames = false;
