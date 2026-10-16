@@ -19,6 +19,7 @@ REVOKE ALL ON public.account_closure_tokens FROM PUBLIC, anon, authenticated, se
 CREATE TABLE public.account_closure_attempts (
   user_id uuid PRIMARY KEY,
   request_id uuid NOT NULL UNIQUE,
+  claimed_email text NOT NULL CHECK (claimed_email<>'' AND claimed_email=lower(btrim(claimed_email))),
   phase text NOT NULL CHECK (phase IN ('processing', 'auth_unknown', 'auth_deleted', 'completed', 'failed')),
   updated_at timestamptz NOT NULL DEFAULT statement_timestamp()
 );
@@ -215,13 +216,27 @@ REVOKE EXECUTE ON FUNCTION public.guard_account_closure_billing() FROM PUBLIC,an
 CREATE OR REPLACE FUNCTION public.ensure_trial_profile_for_new_user()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE v_email text := lower(btrim(NEW.email)); v_started timestamptz; v_expires timestamptz;
+  v_owner uuid; v_owners uuid[]; v_prior_email text;
 BEGIN
   IF v_email IS NULL OR v_email = '' THEN RETURN NEW; END IF;
+  -- The touched address must have exactly one current authoritative Auth owner.
+  -- Hold those rows through the entitlement repair; an email change cannot race
+  -- the stale-owner check. Never infer ownership from a historical trial link.
+  SELECT array_agg(id) INTO v_owners FROM
+    (SELECT id FROM auth.users WHERE lower(btrim(email))=v_email ORDER BY id FOR SHARE) owners;
+  IF cardinality(v_owners) IS DISTINCT FROM 1 OR v_owners[1] IS DISTINCT FROM NEW.id
+    THEN RAISE EXCEPTION 'ambiguous trial email ownership'; END IF;
   INSERT INTO public.trial_entitlements(email, user_id, trial_started_at, trial_expires_at)
     VALUES (v_email, NEW.id, now(), now() + interval '30 days')
-    ON CONFLICT (email) DO UPDATE SET
-      user_id = COALESCE(public.trial_entitlements.user_id, EXCLUDED.user_id), updated_at = now()
-    RETURNING trial_started_at, trial_expires_at INTO v_started, v_expires;
+    ON CONFLICT (email) DO NOTHING;
+  SELECT user_id,trial_started_at,trial_expires_at INTO STRICT v_owner,v_started,v_expires
+    FROM public.trial_entitlements WHERE email=v_email FOR UPDATE;
+  IF v_owner IS NOT NULL AND v_owner<>NEW.id THEN
+    SELECT lower(btrim(email)) INTO v_prior_email FROM auth.users WHERE id=v_owner FOR SHARE;
+    IF v_prior_email=v_email THEN RAISE EXCEPTION 'trial identity conflict'; END IF;
+  END IF;
+  -- Rebind only a proven stale/null link. Keep both historical trial dates exact.
+  UPDATE public.trial_entitlements SET user_id=NEW.id,updated_at=now() WHERE email=v_email;
   INSERT INTO public.user_profiles(id, subscription_status, private_sample_limit_seconds,
     private_sample_seconds_used, trial_started_at, trial_expires_at, commercial_trial_granted_at)
     VALUES (NEW.id, 'free', 300, 0, v_started, v_expires, v_started)
@@ -302,9 +317,11 @@ BEGIN
   END IF;
   UPDATE public.account_closure_tokens t SET consumed_at = statement_timestamp(), phase = 'processing'
     WHERE t.user_id = p_user_id AND t.request_id = v_row.request_id;
-  INSERT INTO public.account_closure_attempts(user_id,request_id,phase)
-    VALUES(p_user_id,v_row.request_id,'processing') ON CONFLICT ON CONSTRAINT account_closure_attempts_pkey DO UPDATE
-    SET request_id=EXCLUDED.request_id,phase='processing',updated_at=statement_timestamp()
+  -- This request's verified normalized email survives Auth/token cascade. Only
+  -- a new authorized claim replacing a failed request may establish a new binding.
+  INSERT INTO public.account_closure_attempts(user_id,request_id,claimed_email,phase)
+    VALUES(p_user_id,v_row.request_id,v_row.email_normalized,'processing') ON CONFLICT ON CONSTRAINT account_closure_attempts_pkey DO UPDATE
+    SET request_id=EXCLUDED.request_id,claimed_email=EXCLUDED.claimed_email,phase='processing',updated_at=statement_timestamp()
     WHERE account_closure_attempts.phase='failed';
   RETURN QUERY SELECT v_row.user_id, v_row.email_normalized, v_customer,
     v_row.request_id, v_row.expires_at;
@@ -329,6 +346,7 @@ $$;
 
 CREATE FUNCTION public.record_account_closure_auth_state(p_user_id uuid,p_request_id uuid,p_state text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE v_email text;
 BEGIN
   -- Serialize terminal cleanup with checkout/fence changes. This routine never
   -- locks or writes a profile, so it introduces no advisory-to-profile order.
@@ -337,7 +355,8 @@ BEGIN
     WHERE user_id=p_user_id AND request_id=p_request_id AND
       ((p_state='auth_unknown' AND phase='processing') OR
        (p_state='auth_deleted' AND phase='auth_unknown') OR
-       (p_state='completed' AND phase='auth_deleted'));
+       (p_state='completed' AND phase='auth_deleted'))
+    RETURNING claimed_email INTO v_email;
   IF NOT FOUND THEN RAISE EXCEPTION 'invalid closure transition'; END IF;
   IF p_state IN ('auth_deleted','completed') THEN
     IF EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id)
@@ -353,8 +372,8 @@ BEGIN
       DELETE FROM public.account_checkout_operations WHERE user_id=p_user_id AND phase='settled';
       DELETE FROM public.account_billing_fences
         WHERE user_id=p_user_id AND request_id=p_request_id AND phase='closing';
-    ELSIF EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id)
-      OR EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id)
+    ELSIF v_email IS NULL OR v_email='' OR v_email<>lower(btrim(v_email))
+      OR public.verify_account_closure_residue(p_user_id,v_email) IS DISTINCT FROM true
       THEN RAISE EXCEPTION 'account residue remains'; END IF;
   END IF;
 END;
@@ -362,14 +381,24 @@ $$;
 
 CREATE FUNCTION public.preserve_account_trial_email(p_user_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_email text; v_owner uuid;
+DECLARE v_email text; v_owner uuid; v_owners uuid[]; v_prior_email text;
 BEGIN
-  SELECT lower(btrim(email)) INTO v_email FROM auth.users WHERE id = p_user_id;
+  SELECT lower(btrim(email)) INTO v_email FROM auth.users WHERE id = p_user_id FOR SHARE;
   IF v_email IS NULL OR v_email = '' THEN RAISE EXCEPTION 'email unavailable'; END IF;
+  SELECT array_agg(id) INTO v_owners FROM
+    (SELECT id FROM auth.users WHERE lower(btrim(email))=v_email ORDER BY id FOR SHARE) owners;
+  IF cardinality(v_owners) IS DISTINCT FROM 1 OR v_owners[1] IS DISTINCT FROM p_user_id
+    THEN RAISE EXCEPTION 'ambiguous trial email ownership'; END IF;
   INSERT INTO public.trial_entitlements(email, user_id, trial_started_at, trial_expires_at)
     VALUES (v_email, p_user_id, now(), now()) ON CONFLICT (email) DO NOTHING;
-  SELECT user_id INTO v_owner FROM public.trial_entitlements WHERE email = v_email FOR UPDATE;
-  IF v_owner IS NOT NULL AND v_owner <> p_user_id THEN RAISE EXCEPTION 'trial identity conflict'; END IF;
+  SELECT user_id INTO STRICT v_owner FROM public.trial_entitlements WHERE email = v_email FOR UPDATE;
+  IF v_owner IS NOT NULL AND v_owner <> p_user_id THEN
+    SELECT lower(btrim(email)) INTO v_prior_email FROM auth.users WHERE id=v_owner FOR SHARE;
+    IF v_prior_email=v_email THEN RAISE EXCEPTION 'trial identity conflict'; END IF;
+  END IF;
+  IF v_owner IS DISTINCT FROM p_user_id THEN
+    UPDATE public.trial_entitlements SET user_id=p_user_id,updated_at=now() WHERE email=v_email;
+  END IF;
 END;
 $$;
 

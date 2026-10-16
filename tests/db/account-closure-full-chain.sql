@@ -123,10 +123,57 @@ DO $$ DECLARE request uuid; BEGIN
     RAISE EXCEPTION 'terminal cleanup retained checkout/fence identity rows';
   END IF;
   IF NOT EXISTS(SELECT 1 FROM public.account_closure_attempts
-    WHERE user_id='11111111-1111-4111-8111-111111111111' AND request_id=request AND phase='auth_deleted') THEN
+    WHERE user_id='11111111-1111-4111-8111-111111111111' AND request_id=request AND phase='auth_deleted'
+      AND claimed_email='closure-proof@example.test') THEN
     RAISE EXCEPTION 'auth cascade erased reconciliation evidence';
   END IF;
 END $$;
+-- A future/unvalidated Auth FK must also block the terminal transition. This
+-- exercises the catalog-enumerated verifier, not a special-cased billing check.
+CREATE TABLE public.closure_residue_fixture(user_id uuid);
+INSERT INTO public.closure_residue_fixture VALUES('11111111-1111-4111-8111-111111111111');
+ALTER TABLE public.closure_residue_fixture ADD FOREIGN KEY(user_id) REFERENCES auth.users(id) NOT VALID;
+DO $$ DECLARE verifier_owner text; BEGIN
+  SELECT pg_get_userbyid(proowner) INTO STRICT verifier_owner FROM pg_proc
+    WHERE oid='public.verify_account_closure_residue(uuid,text)'::regprocedure;
+  EXECUTE format('GRANT SELECT ON public.closure_residue_fixture TO %I',verifier_owner);
+END $$;
+DO $$ DECLARE request uuid; BEGIN
+  SELECT request_id INTO STRICT request FROM public.account_closure_attempts
+    WHERE user_id='11111111-1111-4111-8111-111111111111';
+  SET LOCAL ROLE service_role;
+  BEGIN
+    PERFORM public.record_account_closure_auth_state('11111111-1111-4111-8111-111111111111',request,'completed');
+    RAISE EXCEPTION 'completion accepted residual user data';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM<>'account residue remains' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+  IF (SELECT phase FROM public.account_closure_attempts
+      WHERE user_id='11111111-1111-4111-8111-111111111111')<>'auth_deleted' THEN
+    RAISE EXCEPTION 'failed completion lost recoverable journal';
+  END IF;
+  DELETE FROM public.closure_residue_fixture;
+  UPDATE public.trial_entitlements SET email='unrelated-proof@example.test' WHERE email='closure-proof@example.test';
+  SET LOCAL ROLE service_role;
+  BEGIN
+    PERFORM public.record_account_closure_auth_state('11111111-1111-4111-8111-111111111111',request,'completed');
+    RAISE EXCEPTION 'completion accepted missing retained-email binding';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM<>'account residue remains' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+  UPDATE public.trial_entitlements SET email='closure-proof@example.test' WHERE email='unrelated-proof@example.test';
+  SET LOCAL ROLE service_role;
+  PERFORM public.record_account_closure_auth_state('11111111-1111-4111-8111-111111111111',request,'completed');
+  RESET ROLE;
+  IF NOT EXISTS(SELECT 1 FROM public.account_closure_attempts
+      WHERE user_id='11111111-1111-4111-8111-111111111111' AND phase='completed'
+        AND claimed_email='closure-proof@example.test') THEN
+    RAISE EXCEPTION 'clean completion lost immutable claimed-email binding';
+  END IF;
+END $$;
+DROP TABLE public.closure_residue_fixture;
 INSERT INTO auth.users(id,email,email_confirmed_at,raw_app_meta_data,raw_user_meta_data)
 VALUES ('22222222-2222-4222-8222-222222222222','closure-proof@example.test',now(),'{}','{}');
 DO $$ BEGIN
@@ -135,6 +182,24 @@ DO $$ BEGIN
       AND p.trial_expires_at=t.trial_expires_at AND p.trial_expires_at<now()) THEN
     RAISE EXCEPTION 'recreated account obtained another trial';
   END IF;
+END $$;
+-- Existing live A changes address; B legitimately receives its historical
+-- address, and must inherit the original expired dates rather than a new trial.
+UPDATE auth.users SET email='moved-proof@example.test' WHERE id='22222222-2222-4222-8222-222222222222';
+INSERT INTO auth.users(id,email,email_confirmed_at,raw_app_meta_data,raw_user_meta_data)
+VALUES('33333333-3333-4333-8333-333333333333','closure-proof@example.test',now(),'{}','{}');
+DO $$ DECLARE started timestamptz; expired timestamptz; BEGIN
+  SELECT trial_started_at,trial_expires_at INTO STRICT started,expired FROM public.trial_entitlements
+    WHERE email='closure-proof@example.test' AND user_id='33333333-3333-4333-8333-333333333333';
+  IF expired>=now() OR NOT EXISTS(SELECT 1 FROM public.user_profiles
+      WHERE id='33333333-3333-4333-8333-333333333333' AND trial_started_at=started AND trial_expires_at=expired) THEN
+    RAISE EXCEPTION 'reused email refreshed the historical trial';
+  END IF;
+  SET LOCAL ROLE service_role;
+  PERFORM public.preserve_account_trial_email('33333333-3333-4333-8333-333333333333');
+  RESET ROLE;
+  IF NOT EXISTS(SELECT 1 FROM auth.users WHERE id='22222222-2222-4222-8222-222222222222'
+      AND email='moved-proof@example.test') THEN RAISE EXCEPTION 'email reuse erased prior owner'; END IF;
 END $$;
 ROLLBACK;
 SELECT 'ACCOUNT CLOSURE FULL-CHAIN INVARIANTS PASSED';

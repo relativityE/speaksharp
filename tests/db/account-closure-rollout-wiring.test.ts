@@ -44,6 +44,8 @@ describe('account closure rollout schema — no application/activation', () => {
         'ALTER TABLE account_checkout_operations DROP CONSTRAINT account_checkout_operations_phase_check',
         'ALTER TABLE account_closure_tokens DROP CONSTRAINT account_closure_tokens_user_id_fkey',
         'ALTER TABLE account_closure_billing_permits ALTER COLUMN transaction_id DROP NOT NULL',
+        'ALTER TABLE account_closure_attempts ALTER COLUMN claimed_email DROP NOT NULL',
+        'ALTER TABLE account_closure_attempts DROP CONSTRAINT account_closure_attempts_claimed_email_check',
     ])('rejects changed table identity: %s', async (mutation) => {
         await db.exec(`SET ROLE closure_owner; ${source} RESET ROLE;`); await check('after');
         await db.exec(mutation); await expect(check('after')).rejects.toThrow();
@@ -57,7 +59,7 @@ describe('exact-apply workflow composition', () => {
     it('binds the reviewed closure checksum and leaves commercial activation held', () => {
         const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: '20261013180000' });
         expect(config.targetFile).toBe(target);
-        expect(config.targetSha256).toBe('a8a7d528c1e15286b3b376de8e203fa9fad7b23b57bf96010a3c91c29856f1c7');
+        expect(config.targetSha256).toBe('c8872f8a2d3eec7c3de5e9b66e130895e6c9aaebdda6c2c1dd9ca5dd37fa7fef');
         expect(config.requiredAppliedVersions).toContain('20260812041600');
         expect(config.requiredAppliedVersions).not.toContain('20260812042000');
         expect(config.excludedMigrations.map((item: { version: string }) => item.version)).toContain('20260812042000');
