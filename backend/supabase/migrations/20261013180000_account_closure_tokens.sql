@@ -419,11 +419,21 @@ CREATE FUNCTION public.settle_account_closure_billing(
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE v_sub jsonb; v_bound text; v_customer text;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.account_closure_tokens WHERE user_id = p_user_id
-    AND request_id = p_request_id AND phase = 'processing') THEN RAISE EXCEPTION 'closure not claimed'; END IF;
+  -- Match claim/webhook ordering. A claim observed before this profile wait can
+  -- be failed by finish while settlement is blocked; authorize only AFTER both
+  -- serialization locks, against the same live token, attempt and closing fence.
   SELECT stripe_subscription_id, stripe_customer_id INTO v_bound, v_customer
     FROM public.user_profiles WHERE id = p_user_id FOR UPDATE;
-  IF NOT FOUND OR v_customer IS DISTINCT FROM p_customer_id OR p_customer_id IS NULL THEN
+  IF NOT FOUND THEN RAISE EXCEPTION 'billing identity mismatch'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  PERFORM 1 FROM public.account_closure_tokens t
+    JOIN public.account_closure_attempts a ON a.user_id=t.user_id AND a.request_id=t.request_id
+    JOIN public.account_billing_fences f ON f.user_id=t.user_id AND f.request_id=t.request_id
+    WHERE t.user_id=p_user_id AND t.request_id=p_request_id AND t.phase='processing'
+      AND a.phase='processing' AND f.phase='closing'
+    FOR UPDATE OF t,a,f;
+  IF NOT FOUND THEN RAISE EXCEPTION 'closure not claimed'; END IF;
+  IF v_customer IS DISTINCT FROM p_customer_id OR p_customer_id IS NULL THEN
     RAISE EXCEPTION 'billing identity mismatch';
   END IF;
   IF jsonb_typeof(p_subscriptions) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'complete snapshot required'; END IF;

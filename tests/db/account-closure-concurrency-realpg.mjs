@@ -68,6 +68,106 @@ try {
     .split('-- Usage counters remain content-free telemetry.')[0];
   assert.ok(canonical.includes('CREATE OR REPLACE FUNCTION public.apply_stripe_subscription_snapshot('));
   sql(`SET ROLE closure_owner; ${canonical} RESET ROLE;`);
+
+  // One native settlement/finish regression, with deterministic database lock
+  // barriers and state/rollback controls. No sleep is used to infer ordering.
+  let settlementCases = 0;
+  async function settlementFixture() {
+    settlementCases += 1;
+    const suffix = String(settlementCases);
+    const user = `a0000000-0000-4000-8000-${suffix.padStart(12, '0')}`;
+    const token = settlementCases.toString(16).padStart(64, '0');
+    const customer = `cus_settlement_${suffix}`; const subscription = `sub_settlement_${suffix}`;
+    sql(`INSERT INTO auth.users VALUES('${user}','settlement-${suffix}@example.test',now());
+      UPDATE user_profiles SET stripe_customer_id='${customer}',stripe_subscription_id='${subscription}',
+        subscription_id='${subscription}',subscription_status='pro' WHERE id='${user}';
+      SET ROLE service_role; SELECT issue_account_closure_token('${user}','${token}');`);
+    const request = JSON.parse(sql(`SET ROLE service_role;
+      SELECT row_to_json(t) FROM claim_account_closure_token('${user}','${token}') t;`)).request_id;
+    const settle = `SET ROLE service_role; SELECT settle_account_closure_billing('${user}','${request}',
+      '${customer}','[{"id":"${subscription}","status":"canceled"}]'::jsonb);`;
+    const finish = `SET ROLE service_role; SELECT finish_account_closure_attempt('${user}','${request}');`;
+    const snapshot = () => sql(`SELECT json_build_object(
+      'profile',(SELECT row_to_json(p) FROM user_profiles p WHERE id='${user}'),
+      'tombstones',(SELECT json_agg(t ORDER BY subscription_id) FROM stripe_subscription_tombstones t WHERE customer_id='${customer}'),
+      'permits',(SELECT json_agg(p) FROM account_closure_billing_permits p WHERE user_id='${user}'),
+      'attempt',(SELECT row_to_json(a) FROM account_closure_attempts a WHERE user_id='${user}'),
+      'token',(SELECT row_to_json(t) FROM account_closure_tokens t WHERE user_id='${user}'),
+      'fence',(SELECT row_to_json(f) FROM account_billing_fences f WHERE user_id='${user}'))`);
+    return { user, request, customer, subscription, settle, finish, snapshot };
+  }
+  const race = await settlementFixture();
+  const profileHolder = client('settlement_profile_holder', `BEGIN;
+    SELECT 1 FROM user_profiles WHERE id='${race.user}' FOR UPDATE; SELECT pg_sleep(20); COMMIT;`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='settlement_profile_holder' AND wait_event='PgSleep')");
+  const staleSettlement = client('settlement_blocked_claim', race.settle);
+  await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity b WHERE b.application_name='settlement_blocked_claim'
+    AND (SELECT pid FROM pg_stat_activity WHERE application_name='settlement_profile_holder')=ANY(pg_blocking_pids(b.pid)))`);
+  const finished = await client('settlement_release_claim', race.finish);
+  assert.equal(finished.code, 0, finished.stderr);
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${race.user}'`), 'failed');
+  assert.equal(sql(`SELECT phase FROM account_closure_tokens WHERE user_id='${race.user}'`), 'failed');
+  assert.equal(sql(`SELECT phase FROM account_billing_fences WHERE user_id='${race.user}'`), 'open');
+  const heldState = race.snapshot();
+  sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='settlement_profile_holder'");
+  await profileHolder;
+  const staleResult = await staleSettlement;
+  console.log(JSON.stringify({ settlementFinishRace: { settlementCode: staleResult.code,
+    paidStatePreserved: race.snapshot() === heldState,
+    tombstones: sql(`SELECT count(*) FROM stripe_subscription_tombstones WHERE customer_id='${race.customer}'`) } }));
+  assert.notEqual(staleResult.code, 0, 'released failed claim incorrectly settled billing');
+  assert.match(staleResult.stderr, /closure not claimed/);
+  assert.equal(race.snapshot(), heldState, 'stale settlement changed paid state, tombstones, permits or claim state');
+
+  const finishFirst = await settlementFixture();
+  sql(finishFirst.finish);
+  const failedState = finishFirst.snapshot();
+  const refused = await client('settlement_finish_first', finishFirst.settle);
+  assert.notEqual(refused.code, 0); assert.match(refused.stderr, /closure not claimed/);
+  assert.equal(finishFirst.snapshot(), failedState);
+
+  const first = await settlementFixture();
+  const commitBarrier = client('settlement_commit_barrier', 'SELECT pg_advisory_lock(88150); SELECT pg_sleep(20)');
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='settlement_commit_barrier' AND wait_event='PgSleep')");
+  const committedSettlement = client('settlement_first', `BEGIN; ${first.settle}
+    SELECT pg_advisory_xact_lock(88150); COMMIT;`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='settlement_first' AND wait_event_type='Lock' AND wait_event='advisory')");
+  const finishing = client('settlement_finish_waiter', first.finish);
+  await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity f WHERE f.application_name='settlement_finish_waiter'
+    AND (SELECT pid FROM pg_stat_activity WHERE application_name='settlement_first')=ANY(pg_blocking_pids(f.pid)))`);
+  sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='settlement_commit_barrier'");
+  await commitBarrier;
+  const [settledFirst, finishedLast] = await Promise.all([committedSettlement, finishing]);
+  assert.equal(settledFirst.code, 0, settledFirst.stderr); assert.equal(finishedLast.code, 0, finishedLast.stderr);
+  assert.equal(sql(`SELECT subscription_status FROM user_profiles WHERE id='${first.user}'`), 'free');
+  assert.equal(sql(`SELECT count(*) FROM stripe_subscription_tombstones WHERE customer_id='${first.customer}'`), '1');
+  assert.equal(sql(`SELECT count(*) FROM account_closure_billing_permits WHERE user_id='${first.user}'`), '0');
+
+  for (const mutation of [
+    (r) => `DELETE FROM account_closure_attempts WHERE user_id='${r.user}'`,
+    (r) => `UPDATE account_closure_attempts SET request_id=gen_random_uuid() WHERE user_id='${r.user}'`,
+    ...['failed','auth_unknown','auth_deleted','completed'].map((phase) => (r) =>
+      `UPDATE account_closure_attempts SET phase='${phase}' WHERE user_id='${r.user}'`),
+    (r) => `DELETE FROM account_billing_fences WHERE user_id='${r.user}'`,
+    (r) => `UPDATE account_billing_fences SET phase='open' WHERE user_id='${r.user}'`,
+    (r) => `UPDATE account_billing_fences SET request_id=gen_random_uuid() WHERE user_id='${r.user}'`,
+    (r) => `UPDATE account_closure_tokens SET phase='failed' WHERE user_id='${r.user}'`,
+    (r) => `DELETE FROM account_closure_tokens WHERE user_id='${r.user}'`,
+    (r) => `UPDATE account_closure_tokens SET request_id=gen_random_uuid() WHERE user_id='${r.user}'`,
+  ]) {
+    const r = await settlementFixture(); sql(mutation(r)); const before = r.snapshot();
+    const result = await client(`settlement_invalid_${settlementCases}`, r.settle);
+    assert.notEqual(result.code, 0); assert.match(result.stderr, /closure not claimed/);
+    assert.equal(r.snapshot(), before, 'invalid ownership/phase changed settlement state');
+  }
+  const valid = await settlementFixture(); const beforeValid = valid.snapshot();
+  sql(`BEGIN; ${valid.settle} ROLLBACK;`);
+  assert.equal(valid.snapshot(), beforeValid, 'rollback leaked tombstones, profile changes or permits');
+  sql(valid.settle);
+  assert.equal(sql(`SELECT subscription_status FROM user_profiles WHERE id='${valid.user}'`), 'free');
+  assert.equal(sql(`SELECT count(*) FROM stripe_subscription_tombstones WHERE customer_id='${valid.customer}'`), '1');
+  assert.equal(sql(`SELECT count(*) FROM account_closure_billing_permits WHERE user_id='${valid.user}'`), '0');
+  console.log(JSON.stringify({ settlementCases, result: 'PASS', boundary: 'profile→billing advisory→current claim/journal/owned fence', providerCalls: 0 }));
   sql(`CREATE FUNCTION public.test_webhook_profile_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN IF NEW.stripe_customer_id IN ('cus_race','cus_checkout_race') THEN
       PERFORM pg_advisory_xact_lock(88001); END IF; RETURN NEW; END; $$;
