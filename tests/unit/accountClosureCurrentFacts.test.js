@@ -123,6 +123,46 @@ describe('available live-fact acquisition — mocked providers, missing global d
     expect((await s.collector.readAvailableFacts()).facts.databaseInventory.operations[0])
       .toMatchObject({ providerStatus: 'UNVERIFIED', disposition: 'REQUIRES_SEPARATE_SETTLEMENT_PROOF' });
   });
+  it.each(['open', 'complete', 'expired'])('retains an unmatched provider %s session as quarantined evidence, without exposing owner metadata', async (status) => {
+    const s = setup((state) => { state.providerPages[0].data.push({ id: 'cs_unmatched', status,
+      client_reference_id: 'private-owner@example.test', metadata: { userId: 'private-owner@example.test' } }); });
+    const result = await s.collector.readAvailableFacts();
+    expect(result).toMatchObject({ status: 'HOLD', activationAuthorized: false });
+    expect(result.facts.providerInventory.sessions).toHaveLength(2);
+    expect(result.facts.providerInventory.sessions).toContainEqual({ sessionId: 'cs_unmatched', providerStatus: status,
+      databaseOperationIds: [], linkage: 'SESSION_ID_MATCH_ONLY', disposition: 'quarantined' });
+    expect(JSON.stringify(result)).not.toContain('private-owner@example.test');
+  });
+  it('retains exact provider-to-database correlation without treating a settled row as settlement proof', async () => {
+    const s = setup((state) => { state.dbPages[0][0].phase = 'settled'; });
+    const result = await s.collector.readAvailableFacts();
+    expect(result.facts.databaseInventory.operations[0]).toMatchObject({ sessionId: 'cs_fixture' });
+    expect(result.facts.providerInventory.sessions).toEqual([{ sessionId: 'cs_fixture', providerStatus: 'complete',
+      databaseOperationIds: [operation], linkage: 'SESSION_ID_MATCH_ONLY', disposition: 'REQUIRES_SEPARATE_SETTLEMENT_PROOF' }]);
+    expect(result.activationAuthorized).toBe(false);
+  });
+  function databaseRows() {
+    return Array.from({ length: 101 }, (_, index) => ({ operation_id: `44444444-4444-4444-8444-${String(index + 1).padStart(12, '0')}`,
+      user_id: user, session_id: null, phase: 'issuing' }));
+  }
+  it('exhausts database keyset pages across the 101-row lookahead without dropping or duplicating operations', async () => {
+    const rows = databaseRows();
+    const s = setup((state) => { state.dbPages = [rows, [rows[100]]]; });
+    const result = await s.collector.readAvailableFacts();
+    expect(result.facts.databaseInventory.operations).toHaveLength(101);
+    expect(result.facts.databaseInventory.operations.at(-1).operationId).toBe(rows[100].operation_id);
+    expect(result.facts.databaseInventory.pages.map((page) => [page.cursor, page.nextCursor]))
+      .toEqual([[null, rows[99].operation_id], [rows[99].operation_id, null]]);
+    const queries = s.fetcher.mock.calls.filter(([url, options]) => url.endsWith('/database/query')
+      && JSON.parse(options.body).query.includes('operation_id::text'));
+    expect(queries.map(([, options]) => JSON.parse(options.body).parameters)).toEqual([[null], [rows[99].operation_id]]);
+    expect(result.facts.databaseInventory.snapshotConsistency).toBe('UNVERIFIED_UNTIL_DRAIN');
+  });
+  it('refuses a repeated operation at a database page boundary rather than claiming inventory exhaustion', async () => {
+    const rows = databaseRows();
+    const s = setup((state) => { state.dbPages = [rows, [rows[99]]]; });
+    expect(await s.collector.readAvailableFacts()).toMatchObject({ status: 'HOLD', reason: 'DB_INVENTORY_UNREADABLE' });
+  });
   it('refuses unknown database phases rather than upgrading them to settled', async () => {
     const s = setup((state) => { state.dbPages[0][0].phase = 'complete'; });
     expect(await s.collector.readAvailableFacts()).toMatchObject({ reason: 'DB_INVENTORY_UNREADABLE' });

@@ -147,20 +147,35 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
     const after = await snapshot();
     if (digest(before) !== digest(after)) stop('CONTEXT_DRIFT');
     const bySession = new Map(provider.sessions.map((s) => [s.id, s]));
+    const operationsBySession = new Map();
+    for (const operation of database.operations) {
+      if (operation.session_id === null) continue;
+      const linked = operationsBySession.get(operation.session_id) ?? [];
+      linked.push(operation); operationsBySession.set(operation.session_id, linked);
+    }
     const observations = database.operations.map((operation) => {
       const session = bySession.get(operation.session_id);
       const ownershipMatches = !!session && [session.clientReferenceId, session.metadataUserId].some((id) => id === operation.user_id)
         && [session.clientReferenceId, session.metadataUserId].every((id) => id === null || id === operation.user_id);
       // Never upgrade an unknown DB operation to settled from a provider list.
-      return { operationId: operation.operation_id, userId: operation.user_id, phase: operation.phase,
+      return { operationId: operation.operation_id, userId: operation.user_id, sessionId: operation.session_id, phase: operation.phase,
         providerStatus: ownershipMatches ? session.status : 'UNVERIFIED',
         disposition: ['issuing', 'unknown', 'open'].includes(operation.phase) ? 'quarantined' : 'REQUIRES_SEPARATE_SETTLEMENT_PROOF' };
+    });
+    // Counts/page hashes cannot identify a provider-only checkout for later
+    // reconciliation. Retain every opaque session ID, including unmatched and
+    // closed sessions. A session-ID join is not ownership or settlement proof.
+    const providerObservations = provider.sessions.map((session) => {
+      const linked = operationsBySession.get(session.id) ?? [];
+      return { sessionId: session.id, providerStatus: session.status, databaseOperationIds: linked.map((row) => row.operation_id),
+        linkage: 'SESSION_ID_MATCH_ONLY', disposition: linked.length > 0 && linked.every((row) => row.phase === 'settled')
+          ? 'REQUIRES_SEPARATE_SETTLEMENT_PROOF' : 'quarantined' };
     });
     return { status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE', missingCapabilities: missing,
       activationAuthorized: false, facts: { target, candidateSha, migrationDigest: ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256,
         ...after, schemaReceipt: { mode: 'verify', passed: true, stages: schema }, databaseInventory: { ...database, operations: observations },
         providerInventory: { accountId: provider.accountId, pages: provider.pages, sessionCount: provider.sessions.length,
-          observedPaginationExhausted: provider.observedPaginationExhausted },
+          sessions: providerObservations, observedPaginationExhausted: provider.observedPaginationExhausted },
         regionalWorkerCoverage: 'UNVERIFIED', effectiveRuntimeValuesVerified: false } };
   }
   async function readAvailableFacts(requestTarget = target, externalSignal) {
