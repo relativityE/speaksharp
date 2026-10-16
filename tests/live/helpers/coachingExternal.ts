@@ -25,7 +25,7 @@ import { bindFailureReports, type ObservedEvent } from './coachingFeedbackAdapte
  */
 export const COACHING_FAILURE_REASONS = [
     'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
-    'over_character_ceiling', 'missing_model_version',
+    'over_character_ceiling', 'missing_model_version', 'request_cancelled', 'provider_malformed_response',
 ] as const;
 export function coachingFailureReason(body: unknown): string | null {
     const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined;

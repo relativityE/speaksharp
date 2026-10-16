@@ -8,6 +8,18 @@ import { fileURLToPath } from 'node:url';
  * tree (`backend/supabase/functions/`) into the live typecheck, which `scripts/verify-live-typecheck-scope.mjs` forbids.
  * Same file, same value — the configured-model check below is unchanged.
  */
+/**
+ * #1258 option A (Codex r4290615974, PM 6207410484) — the Edge function's OWN attempt ceiling, read from its source so
+ * the evidence bound and the server policy cannot drift. Fails closed if the constant cannot be read.
+ */
+export const EDGE_MAX_PROVIDER_ATTEMPTS = (() => {
+  const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)),
+    '../../../backend/supabase/functions/get-ai-suggestions/providerRetry.ts'), 'utf8');
+  const n = Number(/export const MAX_PROVIDER_ATTEMPTS = (\d+);/.exec(src)?.[1]);
+  if (!Number.isInteger(n) || n < 1) throw new Error('rwtCoachingEvidence: the Edge MAX_PROVIDER_ATTEMPTS could not be read');
+  return n;
+})();
+
 export const coachingContract = JSON.parse(readFileSync(
     resolve(dirname(fileURLToPath(import.meta.url)), '../../../backend/supabase/functions/get-ai-suggestions/contract.json'), 'utf8',
 )) as { model: string; promptTemplate: string };
@@ -358,8 +370,8 @@ function validateTake(take: RwtCoachingTakeEvidence, releaseSha: string, label: 
   }
   if (!UUID_V4.test(take.diagnosticRequestId) || !UUID_V4.test(take.diagnosticAttemptId)
     || take.diagnosticStatus !== 200 || take.diagnosticOutcome !== 'success' || take.diagnosticReason !== 'none'
-    || !Number.isInteger(take.providerAttempts) || take.providerAttempts < 0 || take.providerAttempts > 2
-    || !Number.isInteger(take.retryCount) || take.retryCount < 0 || take.retryCount > 1
+    || !Number.isInteger(take.providerAttempts) || take.providerAttempts < 0 || take.providerAttempts > EDGE_MAX_PROVIDER_ATTEMPTS
+    || !Number.isInteger(take.retryCount) || take.retryCount < 0 || take.retryCount > EDGE_MAX_PROVIDER_ATTEMPTS - 1
     || !MODEL_ID.test(take.configuredModel) || take.configuredModel !== coachingContract.model
     || !Number.isFinite(take.providerDurationMs) || take.providerDurationMs < 0
     || !Number.isFinite(take.totalDurationMs) || take.totalDurationMs < take.providerDurationMs
