@@ -56,6 +56,24 @@ beforeEach(() => {
 });
 
 describe('#1047 U2 ProgressPanel', () => {
+    it.each([
+        ['filler_rate', 'decrease', 7, 'percent of words', 'Filler rate; decrease toward 7 percent of words.'],
+        ['pace', 'increase', 130, 'words per minute', 'Pace; increase toward 130 words per minute.'],
+        ['clear_delivery', 'maintain', 94, 'clear-delivery points', 'Clear delivery; maintain at 94 clear-delivery points.'],
+    ] as const)('identifies the persisted %s target beside its outcome when the saved review owns the action', async (metric, direction, targetValue, units, expected) => {
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            takeaways: { ...VIEW.takeaways, target: { metric, direction, targetValue, units } },
+            latestAttempt: { id: 'att-1', lifecycle: 'completed', outcome: 'moved' },
+        });
+        renderPanel(true);
+        const target = await screen.findByTestId('progress-attempt-target');
+        expect(target).toHaveTextContent(`Measured repeat target: ${expected}`);
+        expect(screen.getByTestId('progress-attempt-outcome').parentElement).toContainElement(target);
+        expect(screen.queryByTestId('progress-practice-next')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
     it('renders loading without coaching or success navigation', () => {
         loadSessionProgress.mockReturnValue(new Promise(() => undefined));
         renderPanel();
