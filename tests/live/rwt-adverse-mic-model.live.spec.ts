@@ -52,7 +52,9 @@ async function setSiteMicrophone(page: Page, browser: Browser, setting: 'denied'
     const browserSession = await browser.newBrowserCDPSession();
     try {
         await browserSession.send('Browser.setPermission', {
-            permission: { name: 'audioCapture' }, setting, origin: new URL(page.url()).origin,
+            // CDP `Browser.setPermission` takes a W3C PermissionDescriptor (`microphone`); `audioCapture` is the distinct
+            // `Browser.grantPermissions` PermissionType, which Chrome rejects here (run 38876633963).
+            permission: { name: 'microphone' }, setting, origin: new URL(page.url()).origin,
             browserContextId: targetInfo.browserContextId,
         });
     } finally {
