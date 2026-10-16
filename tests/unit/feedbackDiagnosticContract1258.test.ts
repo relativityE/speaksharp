@@ -131,6 +131,15 @@ describe('#1258 feedback diagnostic contract — fail closed', () => {
                     .toEqual({ cls, reasons: expect.arrayContaining([expect.any(String)]) });
             }
         });
+        it('#1625: a received-2xx timeout without a positive provider leg is self-contradictory and rejected', () => {
+            const t = { outcome: 'timeout', serverReason: 'provider_timeout' } as const;
+            for (const providerMs of [null, 0]) {
+                expect({ providerMs, reasons: as({ ...t, statusClass: '5xx', providerStatusClass: '2xx', providerMs }, t).reasons })
+                    .toEqual({ providerMs, reasons: expect.arrayContaining(['request_field_invalid']) });
+            }
+            // A timeout before any headers legitimately has no provider leg.
+            expect(as({ ...t, statusClass: '5xx', providerStatusClass: 'none', providerMs: null }, t).verdict).toBe('PASS');
+        });
         it('a client network loss genuinely has no endpoint status, no server reason, unknown source', () => {
             expect(as({ outcome: 'client_network', failureCategory: 'network', serverReason: null, statusClass: 'none', providerStatusClass: 'none', providerMs: null, source: 'unknown' },
                 { outcome: 'client_network', failureCategory: 'network', serverReason: null }).verdict).toBe('PASS');
