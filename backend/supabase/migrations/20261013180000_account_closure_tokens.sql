@@ -216,7 +216,7 @@ REVOKE EXECUTE ON FUNCTION public.guard_account_closure_billing() FROM PUBLIC,an
 CREATE OR REPLACE FUNCTION public.ensure_trial_profile_for_new_user()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 DECLARE v_email text := lower(btrim(NEW.email)); v_started timestamptz; v_expires timestamptz;
-  v_owner uuid; v_owners uuid[]; v_prior_email text;
+  v_owner uuid; v_discovered_owner uuid; v_owners uuid[]; v_prior_email text;
 BEGIN
   IF v_email IS NULL OR v_email = '' THEN RETURN NEW; END IF;
   -- The touched address must have exactly one current authoritative Auth owner.
@@ -226,15 +226,23 @@ BEGIN
     (SELECT id FROM auth.users WHERE lower(btrim(email))=v_email ORDER BY id FOR SHARE) owners;
   IF cardinality(v_owners) IS DISTINCT FROM 1 OR v_owners[1] IS DISTINCT FROM NEW.id
     THEN RAISE EXCEPTION 'ambiguous trial email ownership'; END IF;
+  -- Discover only a candidate lock target. Auth DELETE locks that row before
+  -- its FK SET NULL touches the entitlement, so acquire Auth BEFORE entitlement.
+  SELECT user_id INTO v_discovered_owner FROM public.trial_entitlements WHERE email=v_email;
+  IF v_discovered_owner IS NOT NULL AND v_discovered_owner<>NEW.id THEN
+    SELECT lower(btrim(email)) INTO v_prior_email FROM auth.users WHERE id=v_discovered_owner FOR SHARE;
+    IF v_prior_email=v_email THEN RAISE EXCEPTION 'trial identity conflict'; END IF;
+  END IF;
   INSERT INTO public.trial_entitlements(email, user_id, trial_started_at, trial_expires_at)
     VALUES (v_email, NEW.id, now(), now() + interval '30 days')
     ON CONFLICT (email) DO NOTHING;
   SELECT user_id,trial_started_at,trial_expires_at INTO STRICT v_owner,v_started,v_expires
     FROM public.trial_entitlements WHERE email=v_email FOR UPDATE;
-  IF v_owner IS NOT NULL AND v_owner<>NEW.id THEN
-    SELECT lower(btrim(email)) INTO v_prior_email FROM auth.users WHERE id=v_owner FOR SHARE;
-    IF v_prior_email=v_email THEN RAISE EXCEPTION 'trial identity conflict'; END IF;
-  END IF;
+  -- Reread under the mutation lock; the discovery was never authority. NULL
+  -- (including FK SET NULL after the locked owner's deletion) or our locked
+  -- current owner is safe. A different, unlocked owner requires a fresh attempt.
+  IF v_owner IS NOT NULL AND v_owner<>NEW.id AND v_owner IS DISTINCT FROM v_discovered_owner
+    THEN RAISE EXCEPTION 'trial ownership changed'; END IF;
   -- Rebind only a proven stale/null link. Keep both historical trial dates exact.
   UPDATE public.trial_entitlements SET user_id=NEW.id,updated_at=now() WHERE email=v_email;
   INSERT INTO public.user_profiles(id, subscription_status, private_sample_limit_seconds,
@@ -381,7 +389,7 @@ $$;
 
 CREATE FUNCTION public.preserve_account_trial_email(p_user_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_email text; v_owner uuid; v_owners uuid[]; v_prior_email text;
+DECLARE v_email text; v_owner uuid; v_discovered_owner uuid; v_owners uuid[]; v_prior_email text;
 BEGIN
   SELECT lower(btrim(email)) INTO v_email FROM auth.users WHERE id = p_user_id FOR SHARE;
   IF v_email IS NULL OR v_email = '' THEN RAISE EXCEPTION 'email unavailable'; END IF;
@@ -389,13 +397,16 @@ BEGIN
     (SELECT id FROM auth.users WHERE lower(btrim(email))=v_email ORDER BY id FOR SHARE) owners;
   IF cardinality(v_owners) IS DISTINCT FROM 1 OR v_owners[1] IS DISTINCT FROM p_user_id
     THEN RAISE EXCEPTION 'ambiguous trial email ownership'; END IF;
+  SELECT user_id INTO v_discovered_owner FROM public.trial_entitlements WHERE email=v_email;
+  IF v_discovered_owner IS NOT NULL AND v_discovered_owner<>p_user_id THEN
+    SELECT lower(btrim(email)) INTO v_prior_email FROM auth.users WHERE id=v_discovered_owner FOR SHARE;
+    IF v_prior_email=v_email THEN RAISE EXCEPTION 'trial identity conflict'; END IF;
+  END IF;
   INSERT INTO public.trial_entitlements(email, user_id, trial_started_at, trial_expires_at)
     VALUES (v_email, p_user_id, now(), now()) ON CONFLICT (email) DO NOTHING;
   SELECT user_id INTO STRICT v_owner FROM public.trial_entitlements WHERE email = v_email FOR UPDATE;
-  IF v_owner IS NOT NULL AND v_owner <> p_user_id THEN
-    SELECT lower(btrim(email)) INTO v_prior_email FROM auth.users WHERE id=v_owner FOR SHARE;
-    IF v_prior_email=v_email THEN RAISE EXCEPTION 'trial identity conflict'; END IF;
-  END IF;
+  IF v_owner IS NOT NULL AND v_owner<>p_user_id AND v_owner IS DISTINCT FROM v_discovered_owner
+    THEN RAISE EXCEPTION 'trial ownership changed'; END IF;
   IF v_owner IS DISTINCT FROM p_user_id THEN
     UPDATE public.trial_entitlements SET user_id=p_user_id,updated_at=now() WHERE email=v_email;
   END IF;
