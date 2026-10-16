@@ -10,6 +10,7 @@
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
 import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
+import { ADVERSE_SUITE } from './rwtAdverse';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -357,6 +358,9 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         case ABANDON_NAVIGATE_SUITE:
         case ABANDON_CLOSE_TAB_SUITE:
         case TWO_TAB_SUITE:
+        case ADVERSE_MIC_DENIED_SUITE:
+        case ADVERSE_DOWNLOAD_FAILS_SUITE:
+        case ADVERSE_OFFLINE_SUITE:
             return [];
         default:
             return null; // not an RWT suite this finalizer knows
@@ -503,6 +507,21 @@ const TWO_TAB_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'second tab is refused truthfully', 'take-over moves the one engine',
     'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
 ]);
+/**
+ * #1258 R3 (row 17) — `rwt-adverse-mic-model`: a blocked microphone, a failing model download, and offline mid-download.
+ * No journey readback is qualified; each carries its own cleanup row.
+ */
+export const ADVERSE_MIC_DENIED_SUITE = `${ADVERSE_SUITE}-mic-denied`;
+export const ADVERSE_DOWNLOAD_FAILS_SUITE = `${ADVERSE_SUITE}-download-fails`;
+export const ADVERSE_OFFLINE_SUITE = `${ADVERSE_SUITE}-offline-mid-download`;
+const ADVERSE_MIC_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', 'after allowing the microphone a take saves',
+    'no Cloud STT request', 'coaching request budget',
+]);
+const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
+    'no Cloud STT request', 'coaching request budget',
+]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
@@ -536,6 +555,13 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case TWO_TAB_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: TWO_TAB_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ADVERSE_MIC_DENIED_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_MIC_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ADVERSE_DOWNLOAD_FAILS_SUITE:
+        case ADVERSE_OFFLINE_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_DOWNLOAD_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         default:
             return null;

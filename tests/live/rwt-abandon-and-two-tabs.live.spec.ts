@@ -15,9 +15,10 @@ import type { Page, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
-    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, liveMicTracks, loadRwtFixture, rwtLaunchArgs,
+    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, rwtLaunchArgs,
     suppressPageSnapshot, telemetryClassRows,
 } from './helpers/rwtJourney';
+import { flatTabState, isRecording, observeCloudStt, persistedId, tabState } from './helpers/rwtPageState';
 import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAccount';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
@@ -26,10 +27,9 @@ import { openProductsItem } from './helpers/productsMenu';
 import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
-import { RECORDER_BAR } from '../helpers/micControls';
 import {
-    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, type TabState, nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
+    TWO_TAB_SUITE, nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
     returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
@@ -48,24 +48,8 @@ test.use({
 });
 test.describe.configure({ mode: 'serial' });
 
-async function tabState(page: Page): Promise<TabState> {
-    return {
-        runtimeState: await page.locator('html').getAttribute('data-runtime-state').catch(() => null),
-        recorderVisible: await page.getByTestId(RECORDER_BAR).count().then((n) => n > 0).catch(() => false),
-        liveTracks: await liveMicTracks(page).catch(() => 0),
-    };
-}
-/** Receipt evidence is flat scalars: one tab's state under a prefix. */
-const flat = (prefix: string, s: TabState) => ({
-    [`${prefix}RuntimeState`]: s.runtimeState, [`${prefix}RecorderVisible`]: s.recorderVisible, [`${prefix}LiveTracks`]: s.liveTracks,
-});
-const isRecording = (page: Page, timeout: number) => page.waitForFunction(
-    (bar) => document.documentElement.getAttribute('data-runtime-state') === 'RECORDING' && document.querySelector(`[data-testid="${bar}"]`) !== null,
-    RECORDER_BAR, { timeout }).then(() => true).catch(() => false);
 const refusalShown = (page: Page) => page.getByText(BLOCKED_COPY).or(page.getByText(SAME_BROWSER_TAB_COPY)).first()
     .waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
-const persistedId = (page: Page) => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
-
 async function readRows(uid: string): Promise<RowFacts[]> {
     const { data, error } = await admin!.from('sessions').select('id,status').eq('user_id', uid).order('created_at');
     if (error || !Array.isArray(data)) throw new Error(`session row read failed (fail closed): ${error?.code ?? 'unreadable'}`);
@@ -75,8 +59,7 @@ async function readRows(uid: string): Promise<RowFacts[]> {
 /** Every page of the scenario: analytics, coaching and the Cloud STT observer (request URLs and sockets, never bodies). */
 function observe(page: Page, tap: AnalyticsTap, generations: CoachingGenerationTap, cloud: { requests: number }): void {
     tap.attach(page); generations.attach(page);
-    page.on('request', (r) => { if (CLOUD_STT_REQUEST.test(r.url())) cloud.requests += 1; });
-    page.on('websocket', (ws) => { if (CLOUD_STT_REQUEST.test(ws.url())) cloud.requests += 1; });
+    observeCloudStt(page, cloud);
 }
 
 async function openOpenMic(page: Page): Promise<void> {
@@ -256,7 +239,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const [refusedB, stillA] = [await tabState(tabB), await tabState(tabA)];
             const blocked = secondTabBlockedVerdict({ refusalCopyShown, tabB: refusedB, tabA: stillA });
             receipt.row('second tab is refused truthfully', blocked.status, blocked.detail,
-                { refusalCopyShown, ...flat('tabB', refusedB), ...flat('tabA', stillA) });
+                { refusalCopyShown, ...flatTabState('tabB', refusedB), ...flatTabState('tabA', stillA) });
 
             // The person's explicit second press is the take-over.
             await tabB.getByTestId('mic-start').click();
@@ -266,7 +249,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const [displacedA, takingB] = [await tabState(tabA), await tabState(tabB)];
             const moved = takeOverVerdict({ tabA: displacedA, tabB: takingB, displacedCopyShown });
             receipt.row('take-over moves the one engine', moved.status, moved.detail,
-                { displacedCopyShown, ...flat('tabA', displacedA), ...flat('tabB', takingB) });
+                { displacedCopyShown, ...flatTabState('tabA', displacedA), ...flatTabState('tabB', takingB) });
 
             await tabB.waitForTimeout(6_000);
             await stopBenchmarkRecording(tabB, 'two-tab-b', 180_000);
