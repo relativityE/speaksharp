@@ -59,6 +59,26 @@ async function service(sql: string, args: unknown[] = []) {
 const issue = () => service('SELECT * FROM public.issue_account_closure_token($1,$2)', [U, HASH]);
 const claim = (id = U, hash = HASH) => service('SELECT * FROM public.claim_account_closure_token($1,$2)', [id, hash]);
 
+async function pendingAuthCleanup() {
+  await apply();
+  const operation = (await service('SELECT begin_account_checkout($1) AS id', [U])).rows[0] as { id: string };
+  await service('SELECT record_account_checkout($1,$2,$3)', [U, operation.id, 'cs_cleanup']);
+  await service('SELECT reconcile_account_checkout_expiry($1,$2,$3)', [U, operation.id, 'cs_cleanup']);
+  await issue();
+  const proof = (await claim()).rows[0] as { request_id: string };
+  await service('SELECT preserve_account_trial_email($1)', [U]);
+  await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, proof.request_id, 'auth_unknown']);
+  return { requestId: proof.request_id, operationId: operation.id };
+}
+
+async function cleanupState() {
+  return {
+    operations: (await db.query('SELECT * FROM account_checkout_operations ORDER BY operation_id')).rows,
+    fences: (await db.query('SELECT * FROM account_billing_fences ORDER BY user_id')).rows,
+    attempts: (await db.query('SELECT * FROM account_closure_attempts ORDER BY user_id')).rows,
+  };
+}
+
 describe('account deletion — actual SQL grants, durable claims and retained-trial behavior', () => {
   it('full-chain invariant SQL executes and rolls back the disabled gate on the scoped fixture', async () => {
     await apply(false);
@@ -261,5 +281,88 @@ describe('account deletion — actual SQL grants, durable claims and retained-tr
     expect((await service('SELECT * FROM list_account_closure_storage($1)', [U])).rows).toEqual([{ bucket_id: 'bucket', name: 'legacy' }]);
     await db.exec(`UPDATE storage.objects SET owner_id='${OTHER}' WHERE name='legacy'`);
     await expect(service('SELECT * FROM list_account_closure_storage($1)', [U])).rejects.toThrow('ambiguous storage ownership');
+  });
+
+  it('rejects false-clean checkout/fence residue until authoritative owned terminal cleanup', async () => {
+    const { requestId } = await pendingAuthCleanup();
+    const other = (await service('SELECT begin_account_checkout($1) AS id', [OTHER])).rows[0] as { id: string };
+    const otherBefore = (await db.query('SELECT * FROM account_checkout_operations WHERE operation_id=$1', [other.id])).rows;
+    await db.exec(`DELETE FROM auth.users WHERE id='${U}'`);
+    expect((await service('SELECT verify_account_closure_residue($1,$2) AS clean', [U, 'user@example.test'])).rows[0])
+      .toEqual({ clean: false });
+    expect((await db.query('SELECT phase FROM account_closure_attempts WHERE user_id=$1', [U])).rows)
+      .toEqual([{ phase: 'auth_unknown' }]);
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'auth_deleted']);
+    expect((await db.query('SELECT * FROM account_checkout_operations WHERE user_id=$1', [U])).rows).toEqual([]);
+    expect((await db.query('SELECT * FROM account_billing_fences WHERE user_id=$1', [U])).rows).toEqual([]);
+    expect((await db.query('SELECT * FROM account_checkout_operations WHERE operation_id=$1', [other.id])).rows).toEqual(otherBefore);
+    expect((await db.query('SELECT phase FROM account_billing_fences WHERE user_id=$1', [OTHER])).rows).toEqual([{ phase: 'open' }]);
+    expect((await service('SELECT verify_account_closure_residue($1,$2) AS clean', [U, 'user@example.test'])).rows[0])
+      .toEqual({ clean: true });
+    expect((await db.query('SELECT user_id FROM trial_entitlements WHERE email=$1', ['user@example.test'])).rows)
+      .toEqual([{ user_id: null }]);
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'completed']);
+    expect((await db.query('SELECT phase FROM account_closure_attempts WHERE user_id=$1', [U])).rows)
+      .toEqual([{ phase: 'completed' }]);
+  });
+
+  it('preserves unknown Auth outcomes and refuses cleanup while Auth still exists', async () => {
+    const { requestId } = await pendingAuthCleanup();
+    const before = await cleanupState();
+    await expect(service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'auth_deleted']))
+      .rejects.toThrow('auth absence unconfirmed');
+    expect(await cleanupState()).toEqual(before);
+    await service('SELECT finish_account_closure_attempt($1,$2)', [U, requestId]);
+    expect(await cleanupState()).toEqual(before);
+  });
+
+  it.each(['issuing', 'open', 'unknown'])('preserves %s checkout holds and the journal after Auth absence', async (phase) => {
+    const { requestId } = await pendingAuthCleanup();
+    await db.exec(`UPDATE account_checkout_operations SET phase='${phase}' WHERE user_id='${U}';
+      DELETE FROM auth.users WHERE id='${U}'`);
+    const before = await cleanupState();
+    await expect(service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'auth_deleted']))
+      .rejects.toThrow('checkout reconciliation required');
+    expect(await cleanupState()).toEqual(before);
+    expect((await service('SELECT verify_account_closure_residue($1,$2) AS clean', [U, 'user@example.test'])).rows[0])
+      .toEqual({ clean: false });
+  });
+
+  it.each(['request', 'fence-request', 'fence-phase', 'missing-fence'])('refuses terminal cleanup with mismatched %s ownership', async (mismatch) => {
+    const { requestId } = await pendingAuthCleanup();
+    await db.exec(`DELETE FROM auth.users WHERE id='${U}'`);
+    if (mismatch === 'fence-request') await db.exec(`UPDATE account_billing_fences SET request_id='${OTHER}' WHERE user_id='${U}'`);
+    if (mismatch === 'fence-phase') await db.exec(`UPDATE account_billing_fences SET phase='open' WHERE user_id='${U}'`);
+    if (mismatch === 'missing-fence') await db.exec(`DELETE FROM account_billing_fences WHERE user_id='${U}'`);
+    const before = await cleanupState();
+    await expect(service('SELECT record_account_closure_auth_state($1,$2,$3)',
+      [U, mismatch === 'request' ? OTHER : requestId, 'auth_deleted'])).rejects.toThrow();
+    expect(await cleanupState()).toEqual(before);
+  });
+
+  it('rolls back cleanup and the authoritative transition together', async () => {
+    const { requestId } = await pendingAuthCleanup();
+    await db.exec(`DELETE FROM auth.users WHERE id='${U}'`);
+    const before = await cleanupState();
+    await db.exec(`BEGIN; SET LOCAL ROLE service_role;
+      SELECT record_account_closure_auth_state('${U}','${requestId}','auth_deleted'); RESET ROLE;`);
+    expect((await db.query('SELECT * FROM account_checkout_operations WHERE user_id=$1', [U])).rows).toEqual([]);
+    expect((await db.query('SELECT * FROM account_billing_fences WHERE user_id=$1', [U])).rows).toEqual([]);
+    await db.exec('ROLLBACK');
+    expect(await cleanupState()).toEqual(before);
+  });
+
+  it.each(['checkout', 'fence'])('completion and residue verification reject reintroduced %s identity rows', async (kind) => {
+    const { requestId } = await pendingAuthCleanup();
+    await db.exec(`DELETE FROM auth.users WHERE id='${U}'`);
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'auth_deleted']);
+    if (kind === 'checkout') await db.exec(`INSERT INTO account_checkout_operations(user_id,phase) VALUES('${U}','unknown')`);
+    else await db.exec(`INSERT INTO account_billing_fences(user_id,phase,request_id) VALUES('${U}','closing','${requestId}')`);
+    const before = await cleanupState();
+    expect((await service('SELECT verify_account_closure_residue($1,$2) AS clean', [U, 'user@example.test'])).rows[0])
+      .toEqual({ clean: false });
+    await expect(service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'completed']))
+      .rejects.toThrow('account residue remains');
+    expect(await cleanupState()).toEqual(before);
   });
 });

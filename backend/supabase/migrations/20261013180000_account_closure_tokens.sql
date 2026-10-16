@@ -330,12 +330,33 @@ $$;
 CREATE FUNCTION public.record_account_closure_auth_state(p_user_id uuid,p_request_id uuid,p_state text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
+  -- Serialize terminal cleanup with checkout/fence changes. This routine never
+  -- locks or writes a profile, so it introduces no advisory-to-profile order.
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
   UPDATE public.account_closure_attempts SET phase=p_state,updated_at=statement_timestamp()
     WHERE user_id=p_user_id AND request_id=p_request_id AND
       ((p_state='auth_unknown' AND phase='processing') OR
        (p_state='auth_deleted' AND phase='auth_unknown') OR
        (p_state='completed' AND phase='auth_deleted'));
   IF NOT FOUND THEN RAISE EXCEPTION 'invalid closure transition'; END IF;
+  IF p_state IN ('auth_deleted','completed') THEN
+    IF EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id)
+      THEN RAISE EXCEPTION 'auth absence unconfirmed'; END IF;
+    IF p_state='auth_deleted' THEN
+      PERFORM 1 FROM public.account_billing_fences
+        WHERE user_id=p_user_id AND request_id=p_request_id AND phase='closing' FOR UPDATE;
+      IF NOT FOUND THEN RAISE EXCEPTION 'closure fence ownership missing'; END IF;
+      IF EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id AND phase<>'settled')
+        THEN RAISE EXCEPTION 'checkout reconciliation required'; END IF;
+      -- Retain uncertain journal/checkout state. These deletes and the owned
+      -- auth_unknown→auth_deleted transition commit or roll back together.
+      DELETE FROM public.account_checkout_operations WHERE user_id=p_user_id AND phase='settled';
+      DELETE FROM public.account_billing_fences
+        WHERE user_id=p_user_id AND request_id=p_request_id AND phase='closing';
+    ELSIF EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id)
+      OR EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id)
+      THEN RAISE EXCEPTION 'account residue remains'; END IF;
+  END IF;
 END;
 $$;
 
@@ -393,6 +414,10 @@ DECLARE r record; v_count bigint;
 BEGIN
   IF EXISTS (SELECT 1 FROM auth.users WHERE id = p_user_id) THEN RETURN false; END IF;
   IF EXISTS (SELECT 1 FROM public.list_account_closure_storage(p_user_id)) THEN RETURN false; END IF;
+  -- These deliberately have no Auth FK: uncertain checkout work must survive
+  -- Auth loss. Successful terminal cleanup must nevertheless remove identity rows.
+  IF EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id)
+    OR EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id) THEN RETURN false; END IF;
   -- Enumerate real referencing tables, including future migrations; unsupported composite FKs fail closed.
   FOR r IN SELECT c.conkey, c.confkey, n.nspname, t.relname, a.attname, target.attname AS target_column FROM pg_catalog.pg_constraint c
     JOIN pg_catalog.pg_class t ON t.oid = c.conrelid

@@ -99,17 +99,31 @@ END $$;
 UPDATE public.trial_entitlements SET trial_started_at=now()-interval '60 days',
   trial_expires_at=now()-interval '30 days' WHERE email='closure-proof@example.test';
 DELETE FROM auth.users WHERE id='11111111-1111-4111-8111-111111111111';
-SET LOCAL ROLE service_role;
-DO $$ BEGIN
+DO $$ DECLARE request uuid; BEGIN
+  SELECT request_id INTO STRICT request FROM public.account_closure_attempts
+    WHERE user_id='11111111-1111-4111-8111-111111111111' AND phase='auth_unknown';
+  IF public.verify_account_closure_residue(
+    '11111111-1111-4111-8111-111111111111','closure-proof@example.test') THEN
+    RAISE EXCEPTION 'retained checkout/fence identity falsely passed residue verification';
+  END IF;
+  -- Auth is independently absent in this disposable database. The caller uses
+  -- the actual owned request; the RPC itself must enforce all cleanup guards.
+  SET LOCAL ROLE service_role;
+  PERFORM public.record_account_closure_auth_state(
+    '11111111-1111-4111-8111-111111111111',request,'auth_deleted');
   IF NOT public.verify_account_closure_residue(
     '11111111-1111-4111-8111-111111111111','closure-proof@example.test') THEN
-    RAISE EXCEPTION 'auth cascade or retained-email residue mismatch';
+    RAISE EXCEPTION 'terminal cleanup or retained-email residue mismatch';
   END IF;
-END $$;
-RESET ROLE;
-DO $$ BEGIN
+  RESET ROLE;
+  IF EXISTS(SELECT 1 FROM public.account_checkout_operations
+      WHERE user_id='11111111-1111-4111-8111-111111111111')
+    OR EXISTS(SELECT 1 FROM public.account_billing_fences
+      WHERE user_id='11111111-1111-4111-8111-111111111111') THEN
+    RAISE EXCEPTION 'terminal cleanup retained checkout/fence identity rows';
+  END IF;
   IF NOT EXISTS(SELECT 1 FROM public.account_closure_attempts
-    WHERE user_id='11111111-1111-4111-8111-111111111111' AND phase='auth_unknown') THEN
+    WHERE user_id='11111111-1111-4111-8111-111111111111' AND request_id=request AND phase='auth_deleted') THEN
     RAISE EXCEPTION 'auth cascade erased reconciliation evidence';
   END IF;
 END $$;

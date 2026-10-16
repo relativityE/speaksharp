@@ -135,6 +135,9 @@ try {
   assert.equal(sql(`SELECT count(*) FROM account_checkout_operations WHERE user_id IN
     ('${missingAccountUid}','${missingProfileUid}','${closingUid}')`), '0');
 
+  const cleanupOperation = sql(`SET ROLE service_role; SELECT begin_account_checkout('${uid}');`);
+  sql(`SET ROLE service_role; SELECT record_account_checkout('${uid}','${cleanupOperation}','cs_cleanup');
+    SELECT reconcile_account_checkout_expiry('${uid}','${cleanupOperation}','cs_cleanup');`);
   const barrier = client('closure_test_barrier', 'SELECT pg_advisory_lock(88001); SELECT pg_sleep(20)');
   await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='closure_test_barrier' AND wait_event='PgSleep')");
   const webhook = client('closure_test_webhook', `SET ROLE service_role;
@@ -152,10 +155,83 @@ try {
   assert.equal(JSON.parse(write.stdout).success, true, write.stdout);
   assert.equal(JSON.parse(claim.stdout).customer_id, 'cus_race', claim.stdout);
   assert.equal(sql(`SELECT phase FROM account_billing_fences WHERE user_id='${uid}'`), 'closing');
+  const request = JSON.parse(claim.stdout).request_id;
+  const transition = (state, requestId = request) => `SET ROLE service_role;
+    SELECT record_account_closure_auth_state('${uid}','${requestId}','${state}');`;
+  const cleanupSnapshot = () => sql(`SELECT json_build_object(
+    'operations',(SELECT json_agg(o ORDER BY operation_id) FROM account_checkout_operations o WHERE user_id='${uid}'),
+    'fences',(SELECT json_agg(f) FROM account_billing_fences f WHERE user_id='${uid}'),
+    'journal',(SELECT row_to_json(a) FROM account_closure_attempts a WHERE user_id='${uid}'))`);
+  async function rejectsTransition(name, state, message, requestId = request) {
+    const before = cleanupSnapshot();
+    const result = await client(name, transition(state, requestId));
+    assert.notEqual(result.code, 0, `${name} unexpectedly accepted a terminal transition`);
+    assert.match(result.stderr, message);
+    assert.equal(cleanupSnapshot(), before, `${name} changed held rows or journal`);
+  }
+  sql(`SET ROLE service_role; SELECT settle_account_closure_billing('${uid}','${request}','cus_race',
+    '[{"id":"sub_race","status":"canceled"}]'::jsonb);
+    SELECT preserve_account_trial_email('${uid}');`);
+  sql(transition('auth_unknown'));
+  await rejectsTransition('cleanup_auth_present', 'auth_deleted', /auth absence unconfirmed/);
+  sql(`DELETE FROM auth.users WHERE id='${uid}'`);
+  assert.equal(sql(`SET ROLE service_role; SELECT verify_account_closure_residue('${uid}','user@example.test')`), 'f');
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${uid}'`), 'auth_unknown');
+  await rejectsTransition('cleanup_wrong_request', 'auth_deleted', /invalid closure transition/, missingAccountUid);
+  for (const phase of ['issuing', 'open', 'unknown']) {
+    sql(`UPDATE account_checkout_operations SET phase='${phase}' WHERE user_id='${uid}'`);
+    await rejectsTransition(`cleanup_${phase}`, 'auth_deleted', /checkout reconciliation required/);
+  }
+  sql(`UPDATE account_checkout_operations SET phase='settled' WHERE user_id='${uid}'`);
+  for (const mismatch of ['request', 'phase', 'missing']) {
+    if (mismatch === 'request') sql(`UPDATE account_billing_fences SET request_id='${missingAccountUid}' WHERE user_id='${uid}'`);
+    if (mismatch === 'phase') sql(`UPDATE account_billing_fences SET phase='open' WHERE user_id='${uid}'`);
+    if (mismatch === 'missing') sql(`DELETE FROM account_billing_fences WHERE user_id='${uid}'`);
+    await rejectsTransition(`cleanup_fence_${mismatch}`, 'auth_deleted', /closure fence ownership missing/);
+    sql(`INSERT INTO account_billing_fences(user_id,phase,request_id) VALUES('${uid}','closing','${request}')
+      ON CONFLICT(user_id) DO UPDATE SET phase='closing',request_id=EXCLUDED.request_id`);
+  }
+  const beforeRollback = cleanupSnapshot();
+  sql(`BEGIN; ${transition('auth_deleted')} RESET ROLE;
+    DO $$ BEGIN IF EXISTS(SELECT 1 FROM account_checkout_operations WHERE user_id='${uid}')
+      OR EXISTS(SELECT 1 FROM account_billing_fences WHERE user_id='${uid}')
+      THEN RAISE EXCEPTION 'transaction did not clean owned rows'; END IF; END $$; ROLLBACK;`);
+  assert.equal(cleanupSnapshot(), beforeRollback, 'rollback lost held rows or journal');
+
+  // Demonstrate real serialization, not just in-process fixture assertions.
+  const interlock = client('cleanup_interlock', `SELECT pg_advisory_lock(hashtextextended('account-billing:${uid}',0)); SELECT pg_sleep(20)`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='cleanup_interlock' AND wait_event='PgSleep')");
+  const cleanup = client('cleanup_terminal', transition('auth_deleted'));
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='cleanup_terminal' AND wait_event_type='Lock' AND wait_event='advisory')");
+  assert.equal(cleanupSnapshot(), beforeRollback, 'cleanup bypassed the billing interlock');
+  sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='cleanup_interlock'");
+  await interlock;
+  const cleaned = await cleanup;
+  assert.equal(cleaned.code, 0, cleaned.stderr);
+  assert.equal(sql(`SELECT count(*) FROM account_checkout_operations WHERE user_id='${uid}'`), '0');
+  assert.equal(sql(`SELECT count(*) FROM account_billing_fences WHERE user_id='${uid}'`), '0');
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${uid}'`), 'auth_deleted');
+  assert.equal(sql(`SET ROLE service_role; SELECT verify_account_closure_residue('${uid}','user@example.test')`), 't');
+  assert.equal(sql(`SELECT phase FROM account_checkout_operations WHERE user_id='${eligibleUid}'`), 'unknown');
+  assert.equal(sql(`SELECT phase FROM account_billing_fences WHERE user_id='${eligibleUid}'`), 'open');
+  for (const kind of ['checkout', 'fence']) {
+    if (kind === 'checkout') sql(`INSERT INTO account_checkout_operations(user_id,phase) VALUES('${uid}','unknown')`);
+    else sql(`INSERT INTO account_billing_fences(user_id,phase,request_id) VALUES('${uid}','closing','${request}')`);
+    assert.equal(sql(`SET ROLE service_role; SELECT verify_account_closure_residue('${uid}','user@example.test')`), 'f');
+    await rejectsTransition(`cleanup_completion_${kind}`, 'completed', /account residue remains/);
+    if (kind === 'checkout') sql(`DELETE FROM account_checkout_operations WHERE user_id='${uid}'`);
+    else sql(`DELETE FROM account_billing_fences WHERE user_id='${uid}'`);
+  }
+  sql(transition('completed'));
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${uid}'`), 'completed');
   console.log(JSON.stringify({ postgres: sql('SHOW server_version'),
     result: 'PASS', boundary: 'canonical webhook row-lock → checkout refusal and closure claim',
     checkoutCases: ['webhook-before-checkout', 'eligible-once', 'issuing', 'open', 'unknown',
-      'missing-account', 'missing-profile', 'closing'], providerCalls: 0,
+      'missing-account', 'missing-profile', 'closing'],
+    cleanupCases: ['unknown-auth-held', 'auth-present', 'request', 'issuing', 'open', 'unknown',
+      'fence-request', 'fence-phase', 'missing-fence', 'rollback', 'billing-interlock',
+      'settled-owned-cleanup', 'other-user-isolation', 'completion-checkout', 'completion-fence', 'retained-journal'],
+    providerCalls: 0,
     fullMigrationChain: 'UNVERIFIED' }));
 } finally {
   if (started || existsSync(join(data, 'postmaster.pid'))) execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });
