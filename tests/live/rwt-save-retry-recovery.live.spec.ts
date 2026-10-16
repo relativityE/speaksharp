@@ -27,8 +27,9 @@ import {
     stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
-    SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition, nextTakeRetentionVerdict,
-    recoveryBannerVerdict, savedTakeReadbackVerdict,
+    type CompletionOutcome, SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition,
+    completionOutcomesEvidence, nextTakeRetentionVerdict, recoveryBannerVerdict, sanitizedCompletionOutcome,
+    savedTakeReadbackVerdict,
 } from './helpers/rwtSaveRetry';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -82,7 +83,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     let claimed = false;
     let accountDeleted = false;
     // The ONE altered request. Every other completion request, including Retry Save's replay, reaches the server untouched.
-    const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false };
+    const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false, outcomes: [] as CompletionOutcome[] };
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
@@ -94,7 +95,13 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         await page.route(COMPLETION_RPC, async (route: Route) => {
             if (route.request().method() !== 'POST') return route.fallback();
             drop.completionPosts += 1;
-            if (drop.dropped) return route.fallback();
+            if (drop.dropped) {
+                // #1258 C — still untouched: the identical server response is handed to the page. Only its content-free
+                // outcome (status + allowlisted error code) is kept, so a non-completing call says WHY.
+                const response = await route.fetch();
+                drop.outcomes.push(sanitizedCompletionOutcome(response.status(), await response.text().catch(() => '')));
+                return route.fulfill({ response });
+            }
             drop.dropped = true;
             if (variant === 'request-lost') return route.abort('failed');
             // Response lost: the request reaches the real server and commits; the page never sees the answer.
@@ -124,7 +131,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         const dropDisposition = completionDropDisposition(variant, drop, rowsBeforeRetry);
         receipt.row('completion request altered once', dropDisposition.status, dropDisposition.detail,
             { completionPosts: drop.completionPosts, droppedStatus: drop.droppedStatus, rowsBeforeRetry: rowsBeforeRetry.length,
-                completedBeforeRetry: rowsBeforeRetry.filter((r) => r.status === 'completed').length });
+                completedBeforeRetry: rowsBeforeRetry.filter((r) => r.status === 'completed').length,
+                completionOutcomes: completionOutcomesEvidence(drop.outcomes) });
         const bannerVerdict = recoveryBannerVerdict({ bannerShown, resolution, message, retryOffered, wordsOnPage });
         receipt.row('recovery banner is truthful', bannerVerdict.status, bannerVerdict.detail,
             { bannerShown, resolution, retryOffered, wordsOnPageLength: wordsOnPage, discardOfferedBeforeRetry,
@@ -146,7 +154,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         const saved = savedTakeReadbackVerdict(rowsAfterRetry, savedId);
         receipt.row('Retry Save leaves one saved session', saved.status, saved.detail,
             { rows: rowsAfterRetry.length, completed: rowsAfterRetry.filter((r) => r.status === 'completed').length,
-                persistedIdBound: savedId !== null, completionPosts: drop.completionPosts });
+                persistedIdBound: savedId !== null, completionPosts: drop.completionPosts, completionOutcomes: completionOutcomesEvidence(drop.outcomes) });
 
         // The next Start, from the completed review's own repeat action, saves only itself.
         const again = page.getByTestId('verdict-practice-again');

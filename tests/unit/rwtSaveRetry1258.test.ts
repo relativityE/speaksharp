@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     RECOVERY_COPY, SAVE_RETRY_SUITE, type SessionRowFacts, completionDropDisposition, nextTakeRetentionVerdict,
-    recoveryBannerVerdict, savedTakeReadbackVerdict,
+    completionOutcomesEvidence, recoveryBannerVerdict, sanitizedCompletionOutcome, savedTakeReadbackVerdict,
 } from '../live/helpers/rwtSaveRetry';
 import {
     SAVE_RETRY_REQUEST_LOST_SUITE, SAVE_RETRY_RESPONSE_LOST_SUITE, requiredAutomatedRows, requiredHumanObservations,
@@ -116,7 +116,9 @@ describe('guards — the spec, the acceptance map and the banner stay in step', 
 
     it('only the first completion request is altered; Retry Save\'s replay reaches the server untouched', () => {
         expect(spec).toContain("const COMPLETION_RPC = '**/rest/v1/rpc/complete_session_v2';");
-        expect(spec).toContain('if (drop.dropped) return route.fallback();');
+        // #1258 C: after the one drop, every completion call is passed through UNALTERED — fetched once from the real server
+        // and fulfilled with that exact response — so its content-free outcome can be recorded. No abort, no edit.
+        expect(spec).toMatch(/if \(drop\.dropped\) \{[\s\S]*?const response = await route\.fetch\(\);[\s\S]*?return route\.fulfill\(\{ response \}\);\s*\}/);
         expect(spec).toContain("if (variant === 'request-lost') return route.abort('failed');");
         expect(spec).toMatch(/const response = await route\.fetch\(\);\s+drop\.droppedStatus = response\.status\(\);\s+return route\.abort\('failed'\);/);
     });
@@ -125,5 +127,39 @@ describe('guards — the spec, the acceptance map and the banner stay in step', 
         expect(spec).toContain('transcriptLength: typeof row.transcript === \'string\' ? row.transcript.length : 0');
         expect(spec).toContain('messageLength: message.length');
         expect(spec).not.toMatch(/message: message|transcript: row\.transcript/);
+    });
+});
+
+describe('#1258 RWT round 2 C — a completion call\'s server answer is recorded content-free (Sam 6216156003)', () => {
+    it('a success keeps only the status', () => {
+        expect(sanitizedCompletionOutcome(200, '{"final_status":"completed","transcript":"words"}')).toEqual({ status: 200, code: null });
+    });
+    it('a PostgreSQL SQLSTATE or PostgREST code is kept; message, details and hint never are', () => {
+        const body = JSON.stringify({ code: '42501', message: 'permission denied: the user said something private', details: 'x', hint: 'y' });
+        const out = sanitizedCompletionOutcome(403, body);
+        expect(out).toEqual({ status: 403, code: '42501' });
+        expect(JSON.stringify(out)).not.toMatch(/private|permission|details|hint/);
+        expect(sanitizedCompletionOutcome(404, JSON.stringify({ code: 'PGRST202', message: 'no function' }))).toEqual({ status: 404, code: 'PGRST202' });
+    });
+    it('a code that is not an allowlisted shape is named, never echoed (it could carry content)', () => {
+        const out = sanitizedCompletionOutcome(400, JSON.stringify({ code: 'my transcript text', message: 'm' }));
+        expect(out).toEqual({ status: 400, code: 'unrecognized' });
+        expect(sanitizedCompletionOutcome(400, JSON.stringify({ code: 'p0001' }))).toEqual({ status: 400, code: 'unrecognized' });
+    });
+    it('an unparseable body or a missing code is reported as such', () => {
+        expect(sanitizedCompletionOutcome(502, '<html>Bad gateway: the transcript</html>')).toEqual({ status: 502, code: 'unparseable' });
+        expect(sanitizedCompletionOutcome(500, JSON.stringify({ message: 'boom' }))).toEqual({ status: 500, code: 'absent' });
+        expect(sanitizedCompletionOutcome(500, 'null')).toEqual({ status: 500, code: 'absent' });
+    });
+    it('source guard: the live spec records every non-dropped completion call\'s outcome and still passes the identical response through', () => {
+        const spec = src('tests/live/rwt-save-retry-recovery.live.spec.ts');
+        expect(spec).toContain('drop.outcomes.push(sanitizedCompletionOutcome(response.status()');
+        expect(spec).toContain('return route.fulfill({ response });');
+        expect(spec.match(/completionOutcomes: completionOutcomesEvidence\(drop\.outcomes\)/g)?.length).toBe(2);
+    });
+    it('the receipt evidence is one flat, content-free string in call order', () => {
+        expect(completionOutcomesEvidence([{ status: 403, code: '42501' }, { status: 200, code: null }, { status: 502, code: 'unparseable' }]))
+            .toBe('403:42501,200:ok,502:unparseable');
+        expect(completionOutcomesEvidence([])).toBe('');
     });
 });

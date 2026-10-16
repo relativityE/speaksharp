@@ -20,6 +20,32 @@ export type SessionRowFacts = {
 export type CompletionDrop = { completionPosts: number; droppedStatus: number | null; dropped: boolean };
 
 /**
+ * #1258 RWT round 2 C (run 38876571451) — ONE completion call's server answer, content-free. Three completion calls the
+ * harness did not intercept left the session uncompleted, and nothing recorded what the server said. This keeps only the
+ * HTTP status and the PostgREST error `code` when it is an allowlisted SQLSTATE or PGRST code — never the message,
+ * details, hint, body or payload, which can quote the transcript. Anything else is named, not echoed.
+ */
+export type CompletionOutcome = { status: number; code: string | null };
+const ALLOWED_ERROR_CODE = /^(?:[0-9A-Z]{5}|PGRST\d{3})$/;
+export function sanitizedCompletionOutcome(status: number, body: string): CompletionOutcome {
+    if (status >= 200 && status < 300) return { status, code: null };
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(body);
+    } catch {
+        return { status, code: 'unparseable' };
+    }
+    const code = parsed !== null && typeof parsed === 'object' ? (parsed as { code?: unknown }).code : undefined;
+    if (typeof code !== 'string') return { status, code: 'absent' };
+    return { status, code: ALLOWED_ERROR_CODE.test(code) ? code : 'unrecognized' };
+}
+
+/** Receipt evidence is flat scalars: the outcomes in call order as `status:code` (`ok` for success), e.g. `403:42501,200:ok`. */
+export function completionOutcomesEvidence(outcomes: readonly CompletionOutcome[]): string {
+    return outcomes.map((o) => `${o.status}:${o.code ?? 'ok'}`).join(',');
+}
+
+/**
  * Was the intended fault actually exercised? HOLD, never PASS or FAIL, when it was not: the later rows then describe a
  * different situation than the one the variant names.
  */
