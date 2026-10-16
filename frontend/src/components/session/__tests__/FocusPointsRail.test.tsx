@@ -1,5 +1,5 @@
 import { render, screen } from '../../../../tests/support/test-utils';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { FocusPointsRail } from '../FocusPointsRail';
 import type { FocusCoverageRow } from '@/utils/focusCoverage';
 
@@ -298,5 +298,18 @@ describe('FocusPointsRail — state colours, legend and pending label (#1258 RWT
         expect(screen.getByTestId('focus-point-1-status')).toHaveTextContent(/^Partly detected$/);
         expect(screen.getByTestId('focus-point-2-status')).toHaveTextContent(/^Not detected$/);
         expect(document.querySelectorAll('[data-testid="focus-points-rail-list"] .sr-only')).toHaveLength(0);
+    });
+});
+
+// #1258 C10 (Codex r4291014872) — the Focus Points repeat-start entry point follows the same honest start state.
+describe('FocusPointsRail — Retry this set while a Start is in progress', () => {
+    it('reads Starting… and is disabled; otherwise Retry this set', () => {
+        const onRetry = vi.fn();
+        const { rerender } = render(<FocusPointsRail rows={rows} topic="T" sessionState="after" onRetry={onRetry} retryStarting />);
+        expect(screen.getByTestId('focus-points-retry')).toHaveTextContent('Starting…');
+        expect(screen.getByTestId('focus-points-retry')).toBeDisabled();
+        rerender(<FocusPointsRail rows={rows} topic="T" sessionState="after" onRetry={onRetry} />);
+        expect(screen.getByTestId('focus-points-retry')).toHaveTextContent('Retry this set');
+        expect(screen.getByTestId('focus-points-retry')).toBeEnabled();
     });
 });

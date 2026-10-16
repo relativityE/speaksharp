@@ -18,7 +18,7 @@ import type {
 type StatusClass = AiRequestDiagnostic['statusClass'];
 
 const PROVIDER_ERROR = new Set(['provider_http_4xx', 'provider_http_5xx']);
-const INVALID_RESPONSE = new Set(['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version']);
+const INVALID_RESPONSE = new Set(['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'provider_malformed_response']);
 const SERVER_ERROR = new Set(['invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
     'focus_context_unavailable', 'transcript_unavailable', 'product_unknown', 'service_configuration', 'entitlement_unavailable',
     'access_denied', 'quota_unavailable', 'authority_unverified', 'persist_failed', 'internal_error']);

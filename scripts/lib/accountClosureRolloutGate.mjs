@@ -19,7 +19,7 @@ const tableDigests = {
     account_billing_coordination: '5a471d2dc0fd1f38b9c765ba48257248',
     account_billing_fences: 'eeac01599bd6120bf76beaba2938a12b',
     account_checkout_operations: 'd434a9f9f8ce0b7747b4ec15a2e3eb34',
-    account_closure_attempts: '2010fccaa03e68a4ae79f7e29c999c8b',
+    account_closure_attempts: 'a6b310cd84dfbdc25d22a63486169c30',
     account_closure_billing_permits: 'ef061d1e2bcaf40325d97bed894f7754',
     account_closure_tokens: '07dbce1136efb181e2a17f6284f2927e',
 };

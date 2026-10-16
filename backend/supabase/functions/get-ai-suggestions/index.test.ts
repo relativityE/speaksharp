@@ -13,7 +13,9 @@ import {
   buildFocusCoachingText,
   parseSuggestions,
   COACHING_WORD_TARGET_MIN,
+  providerRetryHooks,
 } from './index.ts';
+import { MAX_PROVIDER_ATTEMPTS, PROVIDER_BUDGET_MS } from './providerRetry.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
@@ -113,6 +115,32 @@ let lastRequestUrl = '';
  * well-formed.
  */
 const outboundRequests: string[] = [];
+/**
+ * #1258 option A — the retry policy runs on an injected clock, random source and sleep, so no test spends real time.
+ * `providerCallMs` is how long each provider call "takes" on that clock; `sleeps` records every wait the handler asked for.
+ */
+const retryClock = { mono: 0, wall: Date.parse('2026-10-13T12:00:00Z'), random: 0.5, providerCallMs: 0, sleepOvershootMs: 0 };
+let sleeps: number[] = [];
+let providerRetryAfter: string | null = null;
+/** Abort the caller's request while the provider call is in flight / while the handler is waiting between attempts. */
+let abortDuringFetch: AbortController | null = null;
+let abortDuringSleep: AbortController | null = null;
+/** Each attempt's own timeout, as a controllable signal (no real timers): the latest one can be fired by a test. */
+let lastAttemptTimeout: AbortController | null = null;
+providerRetryHooks.runtime = {
+  timeout: () => { lastAttemptTimeout = new AbortController(); return lastAttemptTimeout.signal; },
+  now: () => retryClock.mono,
+  wallNow: () => retryClock.wall,
+  random: () => retryClock.random,
+  sleep: (ms, signal) => {
+    sleeps.push(ms);
+    if (abortDuringSleep) { abortDuringSleep.abort(); abortDuringSleep = null; }
+    if (signal.aborted) return Promise.resolve(false);
+    // PM 6205858358-style late wake: a timer can fire later than asked; `sleepOvershootMs` models that.
+    retryClock.mono += ms + retryClock.sleepOvershootMs;
+    return Promise.resolve(true);
+  },
+};
 const APPROVED_GEMINI_ORIGIN = 'https://generativelanguage.googleapis.com';
 const sessionBindingDigest = async (userId: string, sessionId: string): Promise<string> =>
   [...new Uint8Array(await crypto.subtle.digest(
@@ -128,12 +156,23 @@ globalThis.fetch = async (url, init) => {
   }
   fetchCount++;
   lastRequestUrl = requested;
+  retryClock.mono += retryClock.providerCallMs;
+  if (abortDuringFetch) {
+    abortDuringFetch.abort();
+    abortDuringFetch = null;
+    throw new DOMException('The signal has been aborted', 'AbortError');
+  }
   if (fetchThrows) throw new TypeError(fetchErrorMessage);
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
   const thisStatus = fetchStatusQueue.length > 0 ? Number(fetchStatusQueue.shift()) : fetchStatus;
-  if (thisStatus !== 200) return new Response(providerErrorBody, { status: thisStatus });
+  if (thisStatus !== 200) {
+    return new Response(providerErrorBody, {
+      status: thisStatus,
+      headers: providerRetryAfter === null ? {} : { 'Retry-After': providerRetryAfter },
+    });
+  }
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
     : geminiText;
@@ -274,11 +313,12 @@ function mockSupabase(options: MockOptions = {}) {
   return { create: () => client as any, state };
 }
 
-function request(body: Record<string, unknown> = { sessionId: 'session-a' }) {
+function request(body: Record<string, unknown> = { sessionId: 'session-a' }, signal?: AbortSignal) {
   return new Request('http://localhost/get-ai-suggestions', {
     method: 'POST',
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -296,6 +336,15 @@ function resetProvider() {
   lastPrompt = '';
   lastRequestUrl = '';
   outboundRequests.length = 0;
+  retryClock.mono = 0;
+  retryClock.sleepOvershootMs = 0;
+  retryClock.random = 0.5;
+  retryClock.providerCallMs = 0;
+  sleeps = [];
+  providerRetryAfter = null;
+  abortDuringFetch = null;
+  abortDuringSleep = null;
+  lastAttemptTimeout = null;
   Deno.env.set('GEMINI_API_KEY', 'test-key');
 }
 
@@ -754,15 +803,15 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.quotaCount, 1, 'but the user was charged once');
   });
 
-  await t.step('CASUALTY: a provider 5xx that fails twice is one 502 and one charge, never a rate-limit', async () => {
+  await t.step('CASUALTY: a provider 5xx that fails every attempt is one 502 and one charge, never a rate-limit', async () => {
     resetProvider();
-    fetchStatusQueue = [502, 500];
+    fetchStatusQueue = [502, 500, 503];
     const mock = mockSupabase({ session: savedSession() });
     const response = await handler(request(), mock.create);
 
     assertEquals(response.status, 502, 'a provider outage is reported AS a provider outage');
     assertNotEquals(response.status, 429, 'never a limit the user did not reach');
-    assertEquals(fetchCount, 2, 'bounded: two attempts, not a loop');
+    assertEquals(fetchCount, 3, 'bounded: three attempts (#1258 option A), not a loop');
     assertEquals(mock.state.quotaCount, 1, 'exhausting the retry still costs exactly one slot');
   });
 
@@ -790,10 +839,280 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   /*
+   * #1258 option A (PM 6156942445) — BOUNDED BACKOFF INSIDE THE ONE QUOTA CHARGE.
+   *
+   * Retry set: provider 408, 429, 5xx, transport, timeout. One 45 s budget from attempt 1 covers every attempt and wait;
+   * full jitter (1 s after attempt 1, 2 s after attempt 2); a valid Retry-After replaces the jitter only when it fits.
+   * Every case runs on the injected clock, so the waits below are what the handler ASKED for — no real time passes.
+   */
+  const coach = async (signal?: AbortSignal) => {
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request({ sessionId: 'session-a' }, signal), mock.create);
+    return { response, mock, body: await response.json() as Record<string, unknown> & { diagnostics: Record<string, unknown> } };
+  };
+
+  for (const status of [408, 429, 503]) {
+    await t.step(`option A: a provider ${status} then a success is ONE jittered wait inside its 1 s cap, one charge`, async () => {
+      resetProvider();
+      fetchStatusQueue = [status, 200];
+      retryClock.random = 0.5;
+      const { response, mock, body } = await coach();
+      assertEquals(response.status, 200);
+      assertEquals(fetchCount, 2);
+      assertEquals(sleeps, [500], 'full jitter: random 0.5 of the 1 s cap');
+      assertEquals(mock.state.quotaCount, 1, 'retries stay behind the single app-quota consumption');
+      assertEquals(body.diagnostics.provider_wait_ms_total, 500);
+    });
+  }
+
+  await t.step('option A: 503, 503, then success — three attempts, waits within the 1 s and 2 s caps', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 503, 200];
+    retryClock.random = 0.999;
+    const { response, mock, body } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(fetchCount, 3);
+    assertEquals(sleeps, [999, 1998]);
+    assertEquals(mock.state.quotaCount, 1);
+    assertEquals([body.diagnostics.attempt_3_reason, body.diagnostics.attempt_3_status], ['none', 200]);
+  });
+
+  await t.step('option A: 429 with a valid Retry-After waits exactly that long, then succeeds', async () => {
+    resetProvider();
+    fetchStatusQueue = [429, 200];
+    providerRetryAfter = '2';
+    const { response, body } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(sleeps, [2000], 'the provider\'s own delay replaces the jitter');
+    assertEquals([body.diagnostics.retry_after_present, body.diagnostics.retry_after_malformed, body.diagnostics.retry_after_s], [true, false, 2]);
+  });
+
+  await t.step('option A: an HTTP-date Retry-After in the future is honoured', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = new Date(retryClock.wall + 3000).toUTCString();
+    const { response } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(sleeps, [3000]);
+  });
+
+  for (const [label, value] of [['negative', '-5'], ['fractional', '1.5'], ['garbage', 'soon'], ['past-date', new Date(Date.parse('2026-10-13T11:00:00Z')).toUTCString()]] as const) {
+    await t.step(`option A: a ${label} Retry-After is malformed and falls back to the jitter`, async () => {
+      resetProvider();
+      fetchStatusQueue = [503, 200];
+      providerRetryAfter = value;
+      const { response, body } = await coach();
+      assertEquals(response.status, 200);
+      assertEquals(sleeps, [500]);
+      assertEquals([body.diagnostics.retry_after_present, body.diagnostics.retry_after_malformed, body.diagnostics.retry_after_s], [true, true, null]);
+    });
+  }
+
+  await t.step('option A: a valid Retry-After that does not fit the budget stops at once, without sleeping', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = '40';
+    const { response, mock, body } = await coach();
+    assertEquals(response.status, 502);
+    assertEquals(fetchCount, 1, 'no further attempt');
+    assertEquals(sleeps, [], 'and no wait spent on an attempt that cannot fit');
+    assertEquals(body.reason, 'provider_http_5xx', 'the last failure is kept');
+    assertEquals(body.diagnostics.stopped_over_budget, true);
+    assertEquals(body.diagnostics.retry_after_s, 40);
+    assertEquals(mock.state.quotaCount, 1);
+  });
+
+  await t.step('option A: 429 on every attempt is exhausted at the attempt cap, inside the budget', async () => {
+    resetProvider();
+    fetchStatus = 429;
+    const { response, body } = await coach();
+    assertEquals(response.status, 502);
+    assertEquals(fetchCount, 3);
+    assertEquals(sleeps.length, 2);
+    assertEquals(body.diagnostics.stopped_over_budget, false, 'the cap, not the budget, ended it');
+  });
+
+  await t.step('option A: two 20 s timeouts leave no room for a third attempt — the budget, not the count, decides', async () => {
+    resetProvider();
+    retryClock.providerCallMs = 20_000;
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        retryClock.mono += retryClock.providerCallMs;
+        throw new DOMException('Signal timed out.', 'TimeoutError');
+      }
+      return original(url, init);
+    };
+    try {
+      const { response, body } = await coach();
+      assertEquals(response.status, 502);
+      assertEquals(fetchCount, 2);
+      assertEquals(body.reason, 'provider_timeout');
+      assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(retryClock.mono <= PROVIDER_BUDGET_MS, true, 'no overshoot past the declared budget');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  await t.step('option A: a caller abort DURING the provider call stops everything and persists nothing', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortDuringFetch = caller;
+    const { response, mock, body } = await coach(caller.signal);
+    assertEquals(fetchCount, 1, 'no retry for a caller who is gone');
+    assertEquals(body.reason, 'request_cancelled', 'told apart from a provider timeout');
+    assertEquals(response.status, 499);
+    assertEquals(mock.state.authorityRpcCount, 0, 'no coaching pair is persisted');
+    assertEquals(mock.state.quotaCount, 1);
+  });
+
+  /**
+   * PM 6206983551 item 1 — a caller abort while the RECEIVED answer's body is being read is the caller leaving, not a
+   * malformed provider answer: no further attempt, nothing persisted, and the received 200 kept in the attempt evidence.
+   */
+  const bodyAbortingFetch = (caller: AbortController, onAttempt: number) => {
+    const original = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin !== APPROVED_GEMINI_ORIGIN) return original(url, init);
+      fetchCount++;
+      attempts += 1;
+      if (attempts < onAttempt) return new Response('upstream unavailable', { status: 503 });
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          caller.abort();
+          controller.error(new DOMException('The signal has been aborted', 'AbortError'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    return () => { globalThis.fetch = original; };
+  };
+  for (const onAttempt of [1, 3]) {
+    await t.step(`option A: a caller abort while reading attempt ${onAttempt}'s RECEIVED body is a cancellation, never a retry`, async () => {
+      resetProvider();
+      const caller = new AbortController();
+      const restore = bodyAbortingFetch(caller, onAttempt);
+      try {
+        const { response, mock, body } = await coach(caller.signal);
+        assertEquals(response.status, 499);
+        assertEquals(body.reason, 'request_cancelled', 'not provider_malformed_response');
+        assertEquals(fetchCount, onAttempt, 'no attempt after the caller left');
+        assertEquals(mock.state.authorityRpcCount, 0, 'zero persistence');
+        assertEquals(body.diagnostics[`attempt_${onAttempt}_status`], 200, 'the received 200 is kept in the attempt evidence');
+        assertEquals(body.diagnostics[`attempt_${onAttempt}_reason`], 'request_cancelled');
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  await t.step('Codex P2 r4290479629: headers then a STALLED body past the attempt timeout is provider_timeout, not malformed', async () => {
+    resetProvider();
+    const original = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin !== APPROVED_GEMINI_ORIGIN) return original(url, init);
+      fetchCount++;
+      attempts += 1;
+      if (attempts > 1) return original(url, init); // the retry is answered normally
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          lastAttemptTimeout?.abort(new DOMException('Signal timed out.', 'TimeoutError'));
+          controller.error(new DOMException('Signal timed out.', 'TimeoutError'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    try {
+      const { response, body } = await coach();
+      assertEquals(body.diagnostics.attempt_1_reason, 'provider_timeout', 'a stalled body is a timeout, not a malformed answer');
+      assertEquals(body.diagnostics.attempt_1_status, 200, 'the received status is kept');
+      assertEquals(attempts, 2, 'retryable: the next attempt is made');
+      assertEquals(response.status, 200);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  /**
+   * PM 6206983551 item 2 — RE-ADMISSION AFTER THE WAIT. The wait was admitted against the budget before sleeping, but a
+   * timer can wake late. Immediately before the next attempt the fresh remaining time is checked again: under the
+   * minimum attempt window (or past the 45 s ceiling) nothing is fetched, the prior failure stands, and the stop is
+   * recorded as over budget.
+   */
+  for (const [label, overshootMs] of [['with under 10 s left', 20_000], ['past the 45 s ceiling', 30_000]] as const) {
+    await t.step(`option A: a wait that wakes late ${label} starts no further attempt`, async () => {
+      resetProvider();
+      fetchStatusQueue = [503, 200];
+      retryClock.providerCallMs = 20_000;
+      retryClock.sleepOvershootMs = overshootMs;
+      const { response, mock, body } = await coach();
+      assertEquals(fetchCount, 1, 'no fetch after a late wake that left no room for an attempt');
+      assertEquals(response.status, 502);
+      assertEquals(body.reason, 'provider_http_5xx', 'the prior failure stands');
+      assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(mock.state.authorityRpcCount, 0);
+      // Codex P2 r4290479635: the wait reported is the wait actually spent, the late wake included.
+      assertEquals(body.diagnostics.provider_wait_ms_total, sleeps[0] + overshootMs);
+    });
+  }
+
+  await t.step('option A: a caller abort DURING the wait stops before the next attempt', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    const caller = new AbortController();
+    abortDuringSleep = caller;
+    const { response, mock, body } = await coach(caller.signal);
+    assertEquals(fetchCount, 1);
+    assertEquals(body.reason, 'request_cancelled');
+    assertEquals(response.status, 499);
+    assertEquals(mock.state.authorityRpcCount, 0);
+  });
+
+  for (const [label, arrange] of [
+    ['an ordinary 4xx (400)', () => { fetchStatus = 400; }],
+    ['a 404', () => { fetchStatus = 404; }],
+    ['a contract-invalid 200', () => { geminiText = 'not json at all'; }],
+    ['a 200 with no model version', () => { geminiModelVersion = null; }],
+  ] as const) {
+    await t.step(`option A CONTROL: ${label} is answered once, with no wait`, async () => {
+      resetProvider();
+      arrange();
+      const { response } = await coach();
+      assertEquals(response.status, 502);
+      assertEquals(fetchCount, 1);
+      assertEquals(sleeps, []);
+    });
+  }
+
+  await t.step('option A: the Retry-After value never appears in a log line or the response', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = 'SENTINEL-retry-after-9c1e';
+    const logged: string[] = [];
+    const original = { error: console.error, info: console.info };
+    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    console.info = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let text = '';
+    try {
+      const mock = mockSupabase({ session: savedSession() });
+      text = await (await handler(request(), mock.create)).text();
+    } finally {
+      console.error = original.error;
+      console.info = original.info;
+    }
+    assertEquals(text.includes('SENTINEL-retry-after'), false);
+    assertEquals(logged.some((line) => line.includes('SENTINEL-retry-after')), false);
+  });
+
+  /*
    * #1258 (PO 2026-10-12) — DECODE THE PROVIDER'S CODES. Alpha runs recorded only `provider_timeout` or a bare status;
    * Gemini's own closed codes say WHY. They are decoded into the diagnostic, and the provider's free text never leaves.
    */
-  await t.step('a Gemini 429 decodes to RESOURCE_EXHAUSTED / RATE_LIMIT_EXCEEDED, with no provider text anywhere', async () => {
+  await t.step('a Gemini 429 on every attempt decodes to RESOURCE_EXHAUSTED / RATE_LIMIT_EXCEEDED, with no provider text anywhere', async () => {
     resetProvider();
     const echo = 'provider echoed secret words';
     fetchStatus = 429;
@@ -819,9 +1138,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(diagnostics.provider_status, 429);
     assertEquals(diagnostics.provider_error_status, 'RESOURCE_EXHAUSTED');
     assertEquals(diagnostics.provider_error_reason, 'RATE_LIMIT_EXCEEDED');
-    assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status, diagnostics.attempt_2_reason],
-      ['provider_http_4xx', 429, null]);
-    assertEquals(fetchCount, 1, 'a 4xx is still not retried');
+    // #1258 option A (PM 6156942445): a provider 429 is transient and retried inside the one app-quota charge.
+    assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status, diagnostics.attempt_3_status],
+      ['provider_http_4xx', 429, 429]);
+    assertEquals(fetchCount, 3, 'a provider 429 is retried, within the attempt cap');
     assertEquals(text.includes(echo), false, 'the response never carries provider text');
     assertEquals(logged.some((line) => line.includes(echo)), false, 'no log line carries provider text');
     assertEquals(logged.some((line) => line.includes('RESOURCE_EXHAUSTED')), true, 'the decoded code IS logged');
@@ -917,9 +1237,12 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       const text = await response.text();
       const diagnostics = JSON.parse(text).diagnostics;
       assertEquals(diagnostics.attempt_1_status, 200, 'the answer was received, so its status is known');
+      // #1258 (PM 6203482045): named for what it is — an answer that arrived malformed, not a transport failure.
+      assertEquals(diagnostics.attempt_1_reason, 'provider_malformed_response');
       assertEquals(diagnostics.attempt_2_status, 200);
       assertEquals(diagnostics.provider_status, 200);
-      assertEquals(fetchCount, 2, 'the retry ceiling is unchanged');
+      // Retryable like any transient provider failure, up to option A's bounded ceiling — never beyond it.
+      assertEquals(fetchCount, MAX_PROVIDER_ATTEMPTS, 'the retry ceiling is the bounded option-A ceiling');
       assertEquals(text.includes('"content":'), false, 'the malformed body is never echoed');
     } finally {
       globalThis.fetch = original;
@@ -936,7 +1259,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   const OVER_CEILING = 'word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w';
   const failureCases: Array<[string, () => void, string]> = [
     ['provider 4xx', () => { fetchStatus = 400; }, 'provider_http_4xx'],
-    ['provider 5xx twice', () => { fetchStatusQueue = [503, 500]; }, 'provider_http_5xx'],
+    ['provider 5xx on every attempt', () => { fetchStatusQueue = [503, 500, 502]; }, 'provider_http_5xx'],
     ['transport failure', () => { fetchThrows = true; }, 'provider_transport'],
     ['200 with no text', () => { geminiText = ''; }, 'missing_text'],
     ['200 with the wrong JSON shape', () => { geminiText = '{"advice":"speak slower"}'; }, 'invalid_shape'],
@@ -980,7 +1303,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   const SENTINEL = 'SENTINEL-7f3c-provider-said-this';
   const leakCases: Array<[string, () => void, string]> = [
     ['a provider 4xx whose body echoes text', () => { fetchStatus = 400; providerErrorBody = `{"error":{"message":"${SENTINEL} in your prompt"}}`; }, 'provider_http_4xx'],
-    ['a provider 5xx whose body echoes text', () => { fetchStatusQueue = [503, 500]; providerErrorBody = `${SENTINEL} upstream detail`; }, 'provider_http_5xx'],
+    ['a provider 5xx whose body echoes text', () => { fetchStatusQueue = [503, 500, 502]; providerErrorBody = `${SENTINEL} upstream detail`; }, 'provider_http_5xx'],
     ['a transport error whose message carries the URL and key', () => { fetchThrows = true; fetchErrorMessage = `error sending request for url (https://generativelanguage.googleapis.com/x?key=${SENTINEL})`; }, 'provider_transport'],
     ['unparseable model text', () => { geminiText = `${SENTINEL} not json`; }, 'invalid_shape'],
   ];
@@ -1009,11 +1332,11 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       assertEquals(logged.length > 0, true, 'the failure is still logged — by reason and status');
     });
   }
-  await t.step('#1258: the retry rule is unchanged — a provider 5xx is asked twice, a 4xx once', async () => {
+  await t.step('#1258: the retry rule — a provider 5xx is asked up to three times (option A), a 4xx once', async () => {
     resetProvider();
-    fetchStatusQueue = [503, 500];
+    fetchStatusQueue = [503, 500, 502];
     await handler(request(), mockSupabase({ session: savedSession() }).create);
-    assertEquals(fetchCount, 2);
+    assertEquals(fetchCount, 3);
     resetProvider();
     fetchStatus = 400;
     await handler(request(), mockSupabase({ session: savedSession() }).create);

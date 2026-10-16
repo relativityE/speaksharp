@@ -25,7 +25,7 @@ import { bindFailureReports, type ObservedEvent } from './coachingFeedbackAdapte
  */
 export const COACHING_FAILURE_REASONS = [
     'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
-    'over_character_ceiling', 'missing_model_version',
+    'over_character_ceiling', 'missing_model_version', 'request_cancelled', 'provider_malformed_response',
 ] as const;
 export function coachingFailureReason(body: unknown): string | null {
     const reason = body && typeof body === 'object' ? (body as { reason?: unknown }).reason : undefined;
@@ -294,7 +294,8 @@ export async function focusExternalDependentRows(
             { step: 'Focus coaching visible = saved', ...visible, evidence: { savedCoachingAbsent, visibleCoachingAbsent } },
         ];
     };
-    const answerRows = ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt']
+    const answerRows = ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt',
+        'Focus coaching within the character ceiling', 'Focus coaching refers to an open point']
         .map((step) => ({ step, ...notExercised }));
     if (saved === null) return [...answerRows, ...savedRows('HOLD', 'the saved coaching for this take could not be read, so its absence is unproven')];
     if (saved.state === 'pair') return [...answerRows, ...savedRows('FAIL', 'a coaching response was saved for a request whose provider was unavailable')];

@@ -136,6 +136,13 @@ test('leaving during a cold Start does not leave a recording or session behind @
         const micAtLeave = await readMicEvidence(page);
         await openProductsItem(page, 'focus-points');
         await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 });
+        // #1258 (live round 1, run 38847635290): Focus Points opens its setup as a MODAL over the header. A person closes it
+        // before using Products again — exactly as the returning-user journey does — so the return below is reachable.
+        const setupOpen = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+        if (setupOpen) {
+            await page.keyboard.press('Escape');
+            await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0, { timeout: 10_000 });
+        }
         // Codex P1 r4247193687: a correctly CANCELLED Start retires the engine on unmount and publishes `idle` (or returns
         // to `download-required`); completion publishes `ready`, failure `error`/`init-failed`. Any readable status other
         // than `loading` is a settled abandoned Start — requiring completion or failure would HOLD every good cancellation.

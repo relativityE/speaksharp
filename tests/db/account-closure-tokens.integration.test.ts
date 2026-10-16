@@ -365,4 +365,107 @@ describe('account deletion — actual SQL grants, durable claims and retained-tr
       .rejects.toThrow('account residue remains');
     expect(await cleanupState()).toEqual(before);
   });
+
+  it.each(['storage', 'foreign-key', 'unreadable-foreign-key', 'retained-email'])('full terminal verification holds recoverable auth_deleted for %s residue', async (kind) => {
+    const { requestId } = await pendingAuthCleanup();
+    await db.exec(`DELETE FROM auth.users WHERE id='${U}'`);
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'auth_deleted']);
+    if (kind === 'storage') await db.query('INSERT INTO storage.objects VALUES($1,$2,$3)', ['fixture', 'still-owned', U]);
+    if (kind.includes('foreign-key')) await db.exec(`CREATE TABLE legacy_notes(user_id uuid);
+      INSERT INTO legacy_notes VALUES('${U}'); ALTER TABLE legacy_notes ADD FOREIGN KEY(user_id) REFERENCES auth.users(id) NOT VALID;`);
+    if (kind === 'foreign-key') await db.exec('GRANT SELECT ON legacy_notes TO closure_owner');
+    const retained = (await db.query('SELECT * FROM trial_entitlements WHERE email=$1', ['user@example.test'])).rows[0];
+    if (kind === 'retained-email') await db.query('DELETE FROM trial_entitlements WHERE email=$1', ['user@example.test']);
+    const before = await cleanupState();
+    await expect(service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'completed']))
+      .rejects.toThrow(kind === 'unreadable-foreign-key' ? 'permission denied' : 'account residue remains');
+    expect(await cleanupState()).toEqual(before);
+    if (kind === 'storage') await db.exec('DELETE FROM storage.objects');
+    if (kind.includes('foreign-key')) await db.exec('DELETE FROM legacy_notes; GRANT SELECT ON legacy_notes TO closure_owner');
+    if (kind === 'retained-email') await db.query('INSERT INTO trial_entitlements VALUES($1,$2,$3,$4,$5)',
+      [retained.email, retained.user_id, retained.trial_started_at, retained.trial_expires_at, retained.updated_at]);
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'completed']);
+    expect((await db.query('SELECT phase FROM account_closure_attempts WHERE user_id=$1', [U])).rows)
+      .toEqual([{ phase: 'completed' }]);
+  });
+
+  it('binds normalized claimed email before cascade and never rewrites it during auth-state transitions', async () => {
+    const { requestId } = await pendingAuthCleanup();
+    expect((await db.query('SELECT claimed_email FROM account_closure_attempts WHERE user_id=$1', [U])).rows)
+      .toEqual([{ claimed_email: 'user@example.test' }]);
+    await expect(service('UPDATE account_closure_attempts SET claimed_email=$1 WHERE user_id=$2', ['other@example.test', U]))
+      .rejects.toThrow('permission denied');
+    await db.exec(`DELETE FROM auth.users WHERE id='${U}'`);
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'auth_deleted']);
+    await service('SELECT record_account_closure_auth_state($1,$2,$3)', [U, requestId, 'completed']);
+    expect((await db.query('SELECT claimed_email FROM account_closure_attempts WHERE user_id=$1', [U])).rows)
+      .toEqual([{ claimed_email: 'user@example.test' }]);
+  });
+
+  it.each([false, true])('signup reuse preserves dates and permits both owners to close (A closes first=%s)', async (aFirst) => {
+    await apply();
+    const b = '33333333-3333-4333-8333-333333333333';
+    await db.exec(`INSERT INTO trial_entitlements(email,user_id,trial_started_at,trial_expires_at)
+      VALUES('user@example.test','${U}','2020-01-01Z','2020-01-31Z');
+      UPDATE auth.users SET email='moved@example.test' WHERE id='${U}';
+      INSERT INTO auth.users VALUES('${b}','  USER@example.test  ',now());`);
+    const historical = (await db.query('SELECT trial_started_at,trial_expires_at FROM trial_entitlements WHERE email=$1', ['user@example.test'])).rows[0];
+    expect((await db.query('SELECT user_id FROM trial_entitlements WHERE email=$1', ['user@example.test'])).rows)
+      .toEqual([{ user_id: b }]);
+    expect((await db.query('SELECT trial_started_at,trial_expires_at FROM user_profiles WHERE id=$1', [b])).rows[0]).toEqual(historical);
+    expect(new Date(historical.trial_expires_at as string).getTime()).toBeLessThan(Date.now());
+    for (const id of aFirst ? [U, b] : [b, U]) {
+      await service('SELECT * FROM issue_account_closure_token($1,$2)', [id, id === b ? 'b'.repeat(64) : HASH]);
+      const row = (await service('SELECT * FROM claim_account_closure_token($1,$2)', [id, id === b ? 'b'.repeat(64) : HASH])).rows[0] as { request_id: string };
+      await service('SELECT preserve_account_trial_email($1)', [id]);
+      await service('SELECT record_account_closure_auth_state($1,$2,$3)', [id, row.request_id, 'auth_unknown']);
+      await db.query('DELETE FROM auth.users WHERE id=$1', [id]);
+      await service('SELECT record_account_closure_auth_state($1,$2,$3)', [id, row.request_id, 'auth_deleted']);
+      await service('SELECT record_account_closure_auth_state($1,$2,$3)', [id, row.request_id, 'completed']);
+      const survivor = id === (aFirst ? U : b) ? (aFirst ? b : U) : OTHER;
+      expect((await db.query('SELECT id FROM auth.users WHERE id=$1', [survivor])).rows).toEqual([{ id: survivor }]);
+    }
+    expect((await db.query('SELECT trial_started_at,trial_expires_at FROM trial_entitlements WHERE email=$1', ['user@example.test'])).rows[0])
+      .toEqual(historical);
+    expect((await db.query('SELECT user_id FROM trial_entitlements WHERE email=$1', ['user@example.test'])).rows).toEqual([{ user_id: null }]);
+  });
+
+  it.each(['stale', 'null', 'deleted'])('preservation repairs only %s trial ownership without refreshing dates', async (kind) => {
+    await apply();
+    await db.exec(`INSERT INTO trial_entitlements(email,user_id,trial_started_at,trial_expires_at)
+      VALUES('user@example.test','${U}','2020-01-01Z','2020-01-31Z');
+      UPDATE auth.users SET email='moved@example.test' WHERE id='${U}';
+      UPDATE auth.users SET email=' USER@example.test ' WHERE id='${OTHER}';`);
+    if (kind === 'null') await db.exec("UPDATE trial_entitlements SET user_id=NULL WHERE email='user@example.test'");
+    if (kind === 'deleted') await db.query('DELETE FROM auth.users WHERE id=$1', [U]);
+    const dates = (await db.query('SELECT trial_started_at,trial_expires_at FROM trial_entitlements')).rows;
+    await service('SELECT preserve_account_trial_email($1)', [OTHER]);
+    expect((await db.query('SELECT user_id FROM trial_entitlements')).rows).toEqual([{ user_id: OTHER }]);
+    expect((await db.query('SELECT trial_started_at,trial_expires_at FROM trial_entitlements')).rows).toEqual(dates);
+  });
+
+  it('refuses ambiguous normalized live owners at signup and preservation without changing the ledger', async () => {
+    await apply();
+    await db.exec(`INSERT INTO trial_entitlements(email,user_id) VALUES('user@example.test','${U}')`);
+    const before = (await db.query('SELECT * FROM trial_entitlements')).rows;
+    await expect(db.query('INSERT INTO auth.users VALUES($1,$2,now())', ['33333333-3333-4333-8333-333333333333', ' USER@example.test ']))
+      .rejects.toThrow();
+    await db.query('UPDATE auth.users SET email=$1 WHERE id=$2', [' USER@example.test ', OTHER]);
+    await expect(service('SELECT preserve_account_trial_email($1)', [OTHER])).rejects.toThrow();
+    expect((await db.query('SELECT * FROM trial_entitlements')).rows).toEqual(before);
+    expect((await db.query('SELECT id FROM auth.users ORDER BY id')).rows).toEqual([{ id: U }, { id: OTHER }]);
+  });
+
+  it('rolls back repaired ownership and keeps the original trial dates on transaction failure', async () => {
+    await apply();
+    await db.exec(`INSERT INTO trial_entitlements(email,user_id,trial_started_at,trial_expires_at)
+      VALUES('user@example.test','${U}','2020-01-01Z','2020-01-31Z');
+      UPDATE auth.users SET email='moved@example.test' WHERE id='${U}';
+      UPDATE auth.users SET email='user@example.test' WHERE id='${OTHER}';`);
+    const before = (await db.query('SELECT * FROM trial_entitlements')).rows;
+    await db.exec(`BEGIN; SET LOCAL ROLE service_role; SELECT preserve_account_trial_email('${OTHER}'); RESET ROLE;`);
+    expect((await db.query('SELECT user_id FROM trial_entitlements')).rows).toEqual([{ user_id: OTHER }]);
+    await db.exec('ROLLBACK');
+    expect((await db.query('SELECT * FROM trial_entitlements')).rows).toEqual(before);
+  });
 });

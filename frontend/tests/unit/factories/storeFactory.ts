@@ -4,6 +4,8 @@ import { vi } from 'vitest';
 
 const initialState: SessionState = {
     isListening: false,
+    startupWaitStartedAt: null,
+    captureLive: false,
     isReady: false,
     transcript: {
         transcript: '',
@@ -146,6 +148,8 @@ export function createTestSessionStore(
             })),
 
         setEngineSelectionLock: vi.fn(),
+        setStartupWaitStartedAt: vi.fn((startupWaitStartedAt) => set({ startupWaitStartedAt })),
+        setCaptureLive: vi.fn((captureLive) => set({ captureLive })),
         setRuntimeState: vi.fn((state) =>
             set({
                 runtimeState: state,

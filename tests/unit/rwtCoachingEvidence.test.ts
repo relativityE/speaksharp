@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../fixtures/rwt/rwt-fixtures.manifest.json';
 import {
+  EDGE_MAX_PROVIDER_ATTEMPTS,
   buildRwtCoachingEvidenceArtifact,
   canonicalSuggestionSha256,
   coachingContract,
@@ -371,5 +372,37 @@ describe('RWT restricted synthetic coaching evidence', () => {
       chmodSync(parent, 0o700);
       rmSync(parent, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * #1258 option A (Codex r4290615974, PM 6207410484) — a truthful three-attempt success must produce the evidence artifact.
+ * The bound is the Edge function's own MAX_PROVIDER_ATTEMPTS; the fresh/cache consistency checks are unchanged.
+ */
+describe('coaching evidence — the option A attempt ceiling', () => {
+  const build = (first: RwtCoachingTakeEvidence) =>
+    buildRwtCoachingEvidenceArtifact({ releaseSha: 'a'.repeat(40), firstTake: first, repeatTake: take('2') });
+  const withAttempts = (attempts: number, retries: number, source: 'fresh' | 'cache' = 'fresh') => {
+    const t = take('1', source);
+    t.providerAttempts = attempts;
+    t.retryCount = retries;
+    return t;
+  };
+
+  it('the bound is pinned to the Edge MAX_PROVIDER_ATTEMPTS (3)', () => {
+    const edge = readFileSync(path.resolve(__dirname, '../../backend/supabase/functions/get-ai-suggestions/providerRetry.ts'), 'utf8');
+    expect(edge).toContain(`export const MAX_PROVIDER_ATTEMPTS = ${EDGE_MAX_PROVIDER_ATTEMPTS};`);
+    expect(EDGE_MAX_PROVIDER_ATTEMPTS).toBe(3);
+  });
+
+  it('POSITIVE: a fresh 3-attempt / 2-retry recovery builds (as do 1/0 and 2/1)', () => {
+    for (const [a, r] of [[1, 0], [2, 1], [3, 2]]) expect(() => build(withAttempts(a, r))).not.toThrow();
+  });
+
+  it('beyond the ceiling (4/3), an inconsistent fresh retry (3/1), a cache with attempts, or a fraction is rejected', () => {
+    expect(() => build(withAttempts(4, 3))).toThrow();
+    expect(() => build(withAttempts(3, 1))).toThrow();
+    expect(() => build(withAttempts(1, 0, 'cache'))).toThrow();
+    expect(() => build(withAttempts(2.5, 1.5))).toThrow();
   });
 });

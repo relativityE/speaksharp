@@ -23,7 +23,7 @@ const sql = (text) => execFileSync('psql', [...connection, '-X', '-qAt', '-v', '
   { env, encoding: 'utf8', timeout: 10_000 }).trim();
 const clients = [];
 function client(name, text) {
-  const child = spawn('psql', [...connection, '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
+  const child = spawn('psql', [...connection, '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-c', text],
     { env: { ...env, PGAPPNAME: name }, stdio: ['ignore', 'pipe', 'pipe'] });
   const done = new Promise((resolveResult, reject) => {
     let stdout = ''; let stderr = '';
@@ -222,15 +222,120 @@ try {
     if (kind === 'checkout') sql(`DELETE FROM account_checkout_operations WHERE user_id='${uid}'`);
     else sql(`DELETE FROM account_billing_fences WHERE user_id='${uid}'`);
   }
+  assert.equal(sql(`SELECT claimed_email FROM account_closure_attempts WHERE user_id='${uid}'`), 'user@example.test');
+  const oldOwner = '88888888-8888-4888-8888-888888888888';
+  const newOwner = '99999999-9999-4999-8999-999999999999';
+  sql(`INSERT INTO auth.users VALUES('${oldOwner}','reused@example.test',now());
+    UPDATE trial_entitlements SET trial_started_at='2000-01-01Z',trial_expires_at='2000-01-31Z' WHERE email='reused@example.test';
+    UPDATE auth.users SET email='moved@example.test' WHERE id='${oldOwner}';
+    INSERT INTO auth.users VALUES('${newOwner}',' REUSED@example.test ',now())`);
+  const historicalDates = sql("SELECT json_build_array(trial_started_at,trial_expires_at) FROM trial_entitlements WHERE email='reused@example.test'");
+  assert.equal(sql("SELECT user_id FROM trial_entitlements WHERE email='reused@example.test'"), newOwner);
+  assert.equal(sql(`SELECT json_build_array(trial_started_at,trial_expires_at) FROM user_profiles WHERE id='${newOwner}'`), historicalDates);
+  // Existing stale links must be repaired only after observing the old owner's
+  // actual locked Auth row, not an entitlement snapshot or caller assertion.
+  sql(`UPDATE trial_entitlements SET user_id='${oldOwner}' WHERE email='reused@example.test'`);
+  const emailBarrier = client('email_barrier', 'SELECT pg_advisory_lock(88100); SELECT pg_sleep(20)');
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='email_barrier' AND wait_event='PgSleep')");
+  const emailChange = client('email_owner_change', `BEGIN; UPDATE auth.users SET email='moved-again@example.test'
+    WHERE id='${oldOwner}'; SELECT pg_advisory_xact_lock(88100); COMMIT;`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='email_owner_change' AND wait_event_type='Lock' AND wait_event='advisory')");
+  const preserving = client('email_preservation', `SET ROLE service_role; SELECT preserve_account_trial_email('${newOwner}')`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='email_preservation' AND wait_event_type='Lock')");
+  assert.equal(sql("SELECT user_id FROM trial_entitlements WHERE email='reused@example.test'"), oldOwner);
+  sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='email_barrier'");
+  await emailBarrier;
+  assert.equal((await emailChange).code, 0);
+  const preserved = await preserving; assert.equal(preserved.code, 0, preserved.stderr);
+  assert.equal(sql("SELECT user_id FROM trial_entitlements WHERE email='reused@example.test'"), newOwner);
+  assert.equal(sql("SELECT json_build_array(trial_started_at,trial_expires_at) FROM trial_entitlements WHERE email='reused@example.test'"), historicalDates);
+  const deletionRaces = [];
+  for (const [index, action] of ['preservation', 'signup', 'preservation-drift', 'signup-drift'].entries()) {
+    const a = `${index + 4}1111111-1111-4111-8111-111111111111`;
+    const b = `${index + 4}2222222-2222-4222-8222-222222222222`;
+    const email = `delete-race-${action}@example.test`; const barrierKey = 88200 + index;
+    const drift = action.endsWith('-drift'); const preservation = action.startsWith('preservation');
+    const changedOwner = `a${index}333333-3333-4333-8333-333333333333`;
+    sql(`INSERT INTO auth.users VALUES('${a}','${email}',now());
+      UPDATE trial_entitlements SET trial_started_at='2000-01-01Z',trial_expires_at='2000-01-31Z' WHERE email='${email}';
+      UPDATE auth.users SET email='moved-${email}' WHERE id='${a}'`);
+    const beforeDates = sql(`SELECT json_build_array(trial_started_at,trial_expires_at) FROM trial_entitlements WHERE email='${email}'`);
+    if (preservation) sql(`INSERT INTO auth.users VALUES('${b}','other-${email}',now());
+      UPDATE auth.users SET email='${email}' WHERE id='${b}'`);
+    if (drift) sql(`INSERT INTO auth.users VALUES('${changedOwner}','third-${email}',now())`);
+    const barrierName = `delete_barrier_${action}`; const deletionName = `auth_delete_${action}`;
+    const operationName = `ownership_${action}`;
+    const blocker = client(barrierName, `SELECT pg_advisory_lock(${barrierKey}); SELECT pg_sleep(20)`);
+    await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='${barrierName}' AND wait_event='PgSleep')`);
+    const deletion = client(deletionName, `BEGIN; SELECT id FROM auth.users WHERE id='${a}' FOR UPDATE;
+      SELECT pg_advisory_xact_lock(${barrierKey}); DELETE FROM auth.users WHERE id='${a}'; COMMIT;`);
+    await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='${deletionName}' AND wait_event_type='Lock' AND wait_event='advisory')`);
+    const operation = client(operationName, preservation
+      ? `SET ROLE service_role; SELECT preserve_account_trial_email('${b}')`
+      : `INSERT INTO auth.users VALUES('${b}','${email}',now())`);
+    await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity p WHERE p.application_name='${operationName}'
+      AND p.wait_event_type='Lock' AND (SELECT pid FROM pg_stat_activity WHERE application_name='${deletionName}')=ANY(pg_blocking_pids(p.pid)))`);
+    if (drift) sql(`UPDATE trial_entitlements SET user_id='${changedOwner}' WHERE email='${email}'`);
+    sql(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='${barrierName}'`);
+    await blocker;
+    const [deleted, operated] = await Promise.all([deletion, operation]);
+    deletionRaces.push({ action, deleted, operated, a, b, email, beforeDates, drift, preservation, changedOwner });
+  }
+  console.log(JSON.stringify({ authDeleteRaces: deletionRaces.map(({ action, deleted, operated }) => ({ action,
+    deletionCode: deleted.code, operationCode: operated.code,
+    deadlock: [deleted.stderr, operated.stderr].some((message) => message.includes('40P01')),
+    errors: [deleted.stderr, operated.stderr].filter(Boolean) })) }));
+  for (const { action, deleted, operated, a, b, email, beforeDates, drift, preservation, changedOwner } of deletionRaces) {
+    assert.equal(deleted.code, 0, `${action} Auth DELETE failed: ${deleted.stderr}`);
+    if (drift) {
+      assert.notEqual(operated.code, 0, 'changed link must require a fresh authoritative attempt');
+      assert.match(operated.stderr, /trial ownership changed/);
+      assert.doesNotMatch(operated.stderr, /40P01/);
+    } else assert.equal(operated.code, 0, `${action} ownership repair failed: ${operated.stderr}`);
+    assert.equal(sql(`SELECT count(*) FROM auth.users WHERE id='${a}'`), '0');
+    assert.equal(sql(`SELECT count(*) FROM auth.users WHERE id='${b}'`), drift && !preservation ? '0' : '1');
+    assert.equal(sql(`SELECT user_id FROM trial_entitlements WHERE email='${email}'`), drift ? changedOwner : b);
+    assert.equal(sql(`SELECT json_build_array(trial_started_at,trial_expires_at) FROM trial_entitlements WHERE email='${email}'`), beforeDates);
+  }
+  sql(`UPDATE auth.users SET email='reused@example.test' WHERE id='${oldOwner}'`);
+  const ambiguous = await client('email_ambiguous', `SET ROLE service_role; SELECT preserve_account_trial_email('${newOwner}')`);
+  assert.notEqual(ambiguous.code, 0); assert.match(ambiguous.stderr, /ambiguous trial email ownership/);
+  sql(`UPDATE auth.users SET email='moved-again@example.test' WHERE id='${oldOwner}';
+    SET ROLE service_role; SELECT issue_account_closure_token('${newOwner}','${'c'.repeat(64)}');`);
+  const newRequest = JSON.parse(sql(`SET ROLE service_role; SELECT row_to_json(t) FROM claim_account_closure_token('${newOwner}','${'c'.repeat(64)}') t`)).request_id;
+  sql(`SET ROLE service_role; SELECT record_account_closure_auth_state('${newOwner}','${newRequest}','auth_unknown');
+    RESET ROLE; DELETE FROM auth.users WHERE id='${newOwner}'; SET ROLE service_role;
+    SELECT record_account_closure_auth_state('${newOwner}','${newRequest}','auth_deleted');
+    SELECT record_account_closure_auth_state('${newOwner}','${newRequest}','completed');`);
+  assert.equal(sql(`SELECT count(*) FROM auth.users WHERE id='${oldOwner}'`), '1');
+  assert.equal(sql("SELECT user_id IS NULL FROM trial_entitlements WHERE email='reused@example.test'"), 't');
+  assert.equal(sql("SELECT json_build_array(trial_started_at,trial_expires_at) FROM trial_entitlements WHERE email='reused@example.test'"), historicalDates);
+  sql(`INSERT INTO storage.objects(bucket_id,name,owner_id) VALUES('fixture','retained-object','${uid}')`);
+  await rejectsTransition('completion_owned_storage', 'completed', /account residue remains/);
+  sql('DELETE FROM storage.objects');
+  sql(`CREATE TABLE legacy_notes(user_id uuid); INSERT INTO legacy_notes VALUES('${uid}');
+    ALTER TABLE legacy_notes ADD FOREIGN KEY(user_id) REFERENCES auth.users(id) NOT VALID;
+    GRANT SELECT ON legacy_notes TO closure_owner`);
+  await rejectsTransition('completion_residual_fk', 'completed', /account residue remains/);
+  sql('DELETE FROM legacy_notes');
+  sql("UPDATE trial_entitlements SET email='not-the-claimed-address@example.test' WHERE email='user@example.test'");
+  await rejectsTransition('completion_missing_retained_binding', 'completed', /account residue remains/);
+  sql("UPDATE trial_entitlements SET email='user@example.test' WHERE email='not-the-claimed-address@example.test'");
   sql(transition('completed'));
   assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${uid}'`), 'completed');
+  assert.equal(sql(`SELECT claimed_email FROM account_closure_attempts WHERE user_id='${uid}'`), 'user@example.test');
   console.log(JSON.stringify({ postgres: sql('SHOW server_version'),
     result: 'PASS', boundary: 'canonical webhook row-lock → checkout refusal and closure claim',
     checkoutCases: ['webhook-before-checkout', 'eligible-once', 'issuing', 'open', 'unknown',
       'missing-account', 'missing-profile', 'closing'],
     cleanupCases: ['unknown-auth-held', 'auth-present', 'request', 'issuing', 'open', 'unknown',
       'fence-request', 'fence-phase', 'missing-fence', 'rollback', 'billing-interlock',
-      'settled-owned-cleanup', 'other-user-isolation', 'completion-checkout', 'completion-fence', 'retained-journal'],
+      'settled-owned-cleanup', 'other-user-isolation', 'completion-checkout', 'completion-fence', 'retained-journal',
+      'completion-owned-storage', 'completion-residual-fk', 'completion-missing-retained-binding', 'immutable-claimed-email'],
+    emailOwnershipCases: ['signup-reuse', 'unchanged-trial-dates', 'old-owner-lock-wait',
+      'stale-link-repair', 'ambiguous-owner-refusal', 'new-owner-closes', 'old-owner-survives',
+      'actual-auth-delete-vs-preservation', 'actual-auth-delete-vs-signup',
+      'preservation-link-drift-held', 'signup-link-drift-rolled-back'],
     providerCalls: 0,
     fullMigrationChain: 'UNVERIFIED' }));
 } finally {

@@ -54,6 +54,8 @@ try {
         'ALTER TABLE account_closure_tokens RENAME COLUMN token_hash TO wrong_hash',
         'ALTER TABLE account_closure_tokens ALTER COLUMN expires_at SET DEFAULT now()',
         'ALTER TABLE account_checkout_operations DROP CONSTRAINT account_checkout_operations_phase_check',
+        'ALTER TABLE account_closure_attempts ALTER COLUMN claimed_email DROP NOT NULL',
+        'ALTER TABLE account_closure_attempts DROP CONSTRAINT account_closure_attempts_claimed_email_check',
     ]) {
         // Mutations persist only in this owned, disposable cluster; restore from
         // fresh database fixture for each case. The CLI itself is always read-only.
@@ -62,7 +64,7 @@ try {
         sql(fixture[1]); sql(`SET ROLE closure_owner; ${baseline} ${source} RESET ROLE;`); gate('after', true);
     }
     console.log(JSON.stringify({ result: 'PASS', postgres: sql('SHOW server_version'),
-        gateCases: 24, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
+        gateCases: 28, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
 } finally {
     if (started || existsSync(join(data, 'postmaster.pid'))) {
         execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });

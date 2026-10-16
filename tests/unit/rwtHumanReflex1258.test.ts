@@ -86,10 +86,11 @@ describe('applyHumanReflex — every action waits, and only while applied', () =
 });
 
 describe('every RWT scenario runs with it, and the dispatch can choose it', () => {
-    it('all six RWT specs (the seven scenarios) use the RWT production base that applies the think-time', () => {
+    it('all nine RWT specs use the RWT production base that applies the think-time', () => {
         const live = path.join(ROOT, 'tests/live');
         const specs = readdirSync(live).filter((f) => /^rwt-.*\.live\.spec\.ts$/.test(f));
-        expect(specs.length).toBe(6);
+        // Six, plus #1258 R1–R3: save-retry-recovery, abandon-and-two-tabs, adverse-mic-model.
+        expect(specs.length).toBe(9);
         for (const spec of specs) {
             const src = readFileSync(path.join(live, spec), 'utf8');
             expect({ spec, usesRwtBase: /from '\.\/helpers\/rwtProductionTest'/.test(src) }).toEqual({ spec, usesRwtBase: true });

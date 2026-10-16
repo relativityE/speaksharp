@@ -188,6 +188,7 @@ Each canonical document carries this header:
 
 - [`archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md`](./archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md) — completed historical source→target inventory; never current product authority.
 - [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) — current posture (SSOT).
+- [`PRODUCT_REQUIREMENTS.md` §5 — C10 Honest Start and repeat-take readiness](./PRODUCT_REQUIREMENTS.md#c10--honest-start-and-repeat-take-readiness) — the start-up states for `Practice again?` and `Start recording`.
 
 *This portal is navigational and structural. It records no changing release status; that lives only in `RELEASE_STATUS.md`.*
 

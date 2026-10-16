@@ -8,6 +8,9 @@
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
+import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
+import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
+import { ADVERSE_SUITE } from './rwtAdverse';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -108,6 +111,7 @@ const FOCUS_EXTERNAL_SCOPE: ExternalScope = Object.freeze({
     telemetry: 'Focus coaching telemetry sent',
     dependents: Object.freeze([
         'Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt',
+        'Focus coaching within the character ceiling', 'Focus coaching refers to an open point',
         'Focus coaching provenance', 'Focus coaching visible = saved', 'Focus coaching telemetry sent', ...COACHING_DEPENDENT_ANALYTICS_ROWS,
     ]),
 });
@@ -119,6 +123,7 @@ const EXTERNAL_SCOPES: Readonly<Record<string, ExternalScope>> = Object.freeze({
         telemetry: 'coaching telemetry sent',
         dependents: Object.freeze([
             'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt', 'coaching telemetry sent',
+            'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',
             ...COACHING_DEPENDENT_ANALYTICS_ROWS,
         ]),
     }),
@@ -350,6 +355,14 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         case FEEDBACK_OLDER_TAKE_SUITE:
         case FEEDBACK_NO_SESSION_SUITE:
         case PENDING_START_SUITE:
+        case SAVE_RETRY_REQUEST_LOST_SUITE:
+        case SAVE_RETRY_RESPONSE_LOST_SUITE:
+        case ABANDON_NAVIGATE_SUITE:
+        case ABANDON_CLOSE_TAB_SUITE:
+        case TWO_TAB_SUITE:
+        case ADVERSE_MIC_DENIED_SUITE:
+        case ADVERSE_DOWNLOAD_FAILS_SUITE:
+        case ADVERSE_OFFLINE_SUITE:
             return [];
         default:
             return null; // not an RWT suite this finalizer knows
@@ -404,6 +417,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
+    // #1258 R4: the coaching checks text can prove — ceiling, no contradiction with saved fillers, not identical across takes.
+    'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',
     // #1258 (Codex P2 r4274573839, PM 6175763509 §3): request provenance is mandatory evidence on every path.
     'coaching request bound to this take',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
@@ -411,7 +426,7 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'session PDF',
     'Analytics generates no coaching', 'feedback', 'Progress evaluation', 'Progress debt',
-    'Analytics Practice again opens the product', 'review Practice again starts, no hold', 'repeated take stopped, microphone off',
+    'Analytics Practice again opens the product', 'review Practice again starts after the gate clears', 'repeated take stopped, microphone off',
     'saved product marker', 'next Start', 'next take stopped, microphone off', 'telemetry sent', 'coaching telemetry sent',
     'inventory events sent', 'revisit is not a generation', 'model download vs setup timing', 'feedback retention',
     'Practice again press → arrival (sent)', 'feedback outcome (sent)',
@@ -426,11 +441,12 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching request bound to this take',
     'Focus coaching length',
     'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching provenance',
+    'Focus coaching within the character ceiling', 'Focus coaching refers to an open point',
     'Focus coaching visible = saved', 'Focus coaching server receipt', 'Products menu opened in the session',
     'Focus Back from Progress and reload keep the saved session',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'Analytics generates no coaching',
-    'analytics point detail', 'Analytics Practice again opens the product', 'review Practice again starts, no hold',
+    'analytics point detail', 'Analytics Practice again opens the product', 'review Practice again starts after the gate clears',
     'repeated take stopped, microphone off', 'saved product marker', 'next Start', 'next take stopped, microphone off',
     'coverage_evaluation sent', 'Focus coaching telemetry sent', 'revisit is not a generation', 'inventory events sent',
     'model download vs setup timing', 'Practice again press → arrival (sent)',
@@ -469,6 +485,49 @@ const PENDING_START_PRODUCT_ROWS = Object.freeze([
     'return to Open Mic exposes truthful Start state', 'return does not resume abandoned recording', 'coaching request budget',
 ]);
 const NO_COACHING_RESULT_ROWS = Object.freeze(['feedback diagnostic chain', 'coaching prompt binding']);
+/**
+ * #1258 R1 (row 15) — `rwt-save-retry-recovery`, one receipt per variant. Like pending Start it qualifies no journey
+ * readback (its fault is injected on the page's own request), so it carries no journey readback rows; its own cleanup
+ * row is required. Fully automated: no human check.
+ */
+export const SAVE_RETRY_REQUEST_LOST_SUITE = `${SAVE_RETRY_SUITE}-request-lost`;
+export const SAVE_RETRY_RESPONSE_LOST_SUITE = `${SAVE_RETRY_SUITE}-response-lost`;
+const SAVE_RETRY_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'completion request altered once', 'recovery banner is truthful', 'no Discard after the save resolves',
+    'Retry Save leaves one saved session', 'next take saves only itself', 'coaching request budget',
+]);
+/**
+ * #1258 R2 (row 16) — `rwt-abandon-and-two-tabs`: leaving mid-recording (navigate away; close the tab) and the same
+ * account's two-tab take-over. No journey readback is qualified (like pending Start); each carries its own cleanup row.
+ */
+export const ABANDON_NAVIGATE_SUITE = `${ABANDON_SUITE}-navigate-away`;
+export const ABANDON_CLOSE_TAB_SUITE = `${ABANDON_SUITE}-close-tab`;
+export { TWO_TAB_SUITE };
+const ABANDON_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'take is recording before leaving', 'leaving mid-recording releases the microphone',
+    'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
+    'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
+]);
+const TWO_TAB_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'same-browser tab is refused', 'another device is refused by the account lease',
+    'take-over moves the one engine',
+    'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
+]);
+/**
+ * #1258 R3 (row 17) — `rwt-adverse-mic-model`: a blocked microphone, a failing model download, and offline mid-download.
+ * No journey readback is qualified; each carries its own cleanup row.
+ */
+export const ADVERSE_MIC_DENIED_SUITE = `${ADVERSE_SUITE}-mic-denied`;
+export const ADVERSE_DOWNLOAD_FAILS_SUITE = `${ADVERSE_SUITE}-download-fails`;
+export const ADVERSE_OFFLINE_SUITE = `${ADVERSE_SUITE}-offline-mid-download`;
+const ADVERSE_MIC_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', 'after allowing the microphone a take saves',
+    'no Cloud STT request', 'coaching request budget',
+]);
+const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
+    'no Cloud STT request', 'coaching request budget',
+]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
@@ -491,6 +550,24 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_NO_SESSION_PRODUCT_ROWS, absent: NO_COACHING_RESULT_ROWS };
         case PENDING_START_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: PENDING_START_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case SAVE_RETRY_REQUEST_LOST_SUITE:
+        case SAVE_RETRY_RESPONSE_LOST_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ABANDON_NAVIGATE_SUITE:
+        case ABANDON_CLOSE_TAB_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case TWO_TAB_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: TWO_TAB_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ADVERSE_MIC_DENIED_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_MIC_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ADVERSE_DOWNLOAD_FAILS_SUITE:
+        case ADVERSE_OFFLINE_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_DOWNLOAD_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         default:
             return null;

@@ -1,7 +1,9 @@
 import React, { useRef, useEffect } from 'react';
 // ... existing imports ...
 import { useClarityMove } from '@/hooks/useClarityMove';
-import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+import { ENGINE_RETIRE_UNCONFIRMED_MESSAGE, useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+import { cancelStartupAndRetry } from '@/services/startupRetry';
+import { clearRetryCancelled, currentStartAttempt, markRetryCancelled } from '@/services/startAttemptRegistry';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Button } from '@/components/ui/button';
@@ -33,6 +35,13 @@ import { resolveTranscriptView } from '@/lib/storage';
  * row (RLS) or a failed read, and is dropped the same way.
  */
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+/** #1258 C10 — the long-wait notice threshold, counted from the press (spec row 3). An escalation, not a target. */
+const STARTUP_SLOW_NOTICE_MS = 10_000;
+/** How long Try again waits for the cancelled attempt to unwind before giving up (it then starts nothing). */
+const STARTUP_RETRY_SETTLE_MS = 5_000;
+/** #1258 C10: the live slot's copy at the real-frame boundary, replacing the controller's generic RECORDING message. */
+const SPEAK_NOW_MESSAGE = 'Speak now';
+const RECORDING_ACTIVE_MESSAGE = 'Recording active';
 
 /**
  * ARCHITECTURE:
@@ -49,6 +58,12 @@ export const SessionPage: React.FC = () => {
     // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
     // fail closed while it is unresolved — never an unscoped read.
     const authUserId = authSession?.user?.id ?? null;
+    // C10 Try again re-reads the CURRENT owner at its destructive boundary, not the one captured when it rendered.
+    const authUserIdRef = useRef(authUserId);
+    useEffect(() => { authUserIdRef.current = authUserId; }, [authUserId]);
+    // ...and whether this page is still the one on screen (a left page never restarts a take).
+    const mountedRef = useRef(true);
+    useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
     // #1415 — the SAME gate reason the desktop mic card renders, derived from the same authority.
     // Mobile previously had no access to it at all, so a blocked cold press on a phone was a dead
     // control with no explanation available even in principle.
@@ -82,6 +97,25 @@ export const SessionPage: React.FC = () => {
     // (which the useFillerWords sync zeroes once the chunks are purged).
     const finalizedWordCount = useSessionStore(state => state.finalizedWordCount);
     const finalizedFillerData = useSessionStore(state => state.finalizedFillerData);
+    // #1258 C10 — the honest wait: from the accepted press until capture is live on real frames.
+    const startupWaitStartedAt = useSessionStore(state => state.startupWaitStartedAt);
+    const captureLive = useSessionStore(state => state.captureLive);
+    const startupWaiting = startupWaitStartedAt !== null && !captureLive;
+    const [startupSlow, setStartupSlow] = React.useState(false);
+    const [startupRetryPending, setStartupRetryPending] = React.useState(false);
+    React.useEffect(() => {
+        // Live capture ends the wait; the press time is never carried into the next take.
+        if (captureLive && startupWaitStartedAt !== null) useSessionStore.getState().setStartupWaitStartedAt(null);
+    }, [captureLive, startupWaitStartedAt]);
+    React.useEffect(() => {
+        if (!startupWaiting || startupWaitStartedAt === null) { setStartupSlow(false); return; }
+        // 10 s counted from the PRESS (a joined attempt keeps its original clock; a replacement sets a new one).
+        const remaining = STARTUP_SLOW_NOTICE_MS - (Date.now() - startupWaitStartedAt);
+        if (remaining <= 0) { setStartupSlow(true); return; }
+        setStartupSlow(false);
+        const timer = setTimeout(() => setStartupSlow(true), remaining);
+        return () => clearTimeout(timer);
+    }, [startupWaiting, startupWaitStartedAt]);
     // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
     // session finalizes; null for Open Mic sessions (and cleared at the next recording start).
     const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
@@ -443,6 +477,28 @@ export const SessionPage: React.FC = () => {
     }, [reviewParam, idleState, restoreId, restoredFresh, restored.isError, restored.isSuccess, restored.data, authUserId, setReviewParam]);
     const restoredSession = restorableSession(restoredFreshSuccess ? restored.data : undefined, restoreId, authUserId);
 
+    // #1258 PR A — prepare the NEXT take's fresh engine while this review is on screen, so `Practice again?` does not pay
+    // the engine build inside the press. Only once this take is fully done: save + finalization published, Progress gate
+    // clear, no Retry Save/attribution recovery pending, runtime READY, page visible. The controller enforces
+    // destroy-before-create and stands down on any change; a Start joins it.
+    const progressGateClear = progressGate === null;
+    const nextTakeEligible = showAnalyticsPrompt && !!finalizedAnalysis; // == postSaveReady, computed before the early return
+    // Codex r4291244687: visibility is STATE, so a review that became eligible while the tab was hidden prewarms on return.
+    const [pageVisible, setPageVisible] = React.useState(() => typeof document === 'undefined' || document.visibilityState === 'visible');
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        const onVisibility = () => setPageVisible(document.visibilityState === 'visible');
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => document.removeEventListener('visibilitychange', onVisibility);
+    }, []);
+    useEffect(() => {
+        if (!nextTakeEligible || !progressGateClear || pendingResolutionKind !== null || runtimeState !== 'READY') return;
+        if (!pageVisible) return;
+        if (mode !== 'private') return;
+        void import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) =>
+            speechRuntimeController.prepareNextTake(mode)).catch(() => undefined);
+    }, [nextTakeEligible, progressGateClear, pendingResolutionKind, runtimeState, mode, pageVisible]);
+
     if (!metrics) return <SessionPageSkeleton />;
 
     // Dual-State Status Derivation (FSM + Service State)
@@ -534,6 +590,24 @@ export const SessionPage: React.FC = () => {
         // 2. Medium Priority: Download Required (Pre-session)
         if (sttStatus.type === 'download-required') {
             return sttStatus as SttStatus;
+        }
+
+        // 2a. #1258 C10 — a start in progress owns the bar from the press until capture is live, so no earlier take's
+        // copy (`Session saved.`, `Finalizing your transcript…`) can show during the new take. FAILED/download stay above.
+        if (startupWaiting) {
+            return {
+                type: 'initializing',
+                message: 'Getting your mic ready…',
+                ...(startupSlow ? { detail: 'This is taking longer than usual.' } : {}),
+            } as SttStatus;
+        }
+        // Live capture of a NEW take: its own status, never the previous take's post-save copy (C10 row 4). PM 6205858358:
+        // `Speak now` takes the live slot at the one real-frame boundary, in place of the generic `Recording active`.
+        if (captureLive && runtimeState === 'RECORDING') {
+            const live = sttStatus as SttStatus;
+            return live.type === 'recording' && live.message && live.message !== RECORDING_ACTIVE_MESSAGE
+                ? live
+                : { type: 'recording', message: SPEAK_NOW_MESSAGE } as SttStatus;
         }
 
         // 2b. Post-save (TERMINAL success only): the mode-aware reconciliation copy is the authoritative
@@ -630,7 +704,49 @@ export const SessionPage: React.FC = () => {
                         // #1047: the page owns the gap below the status bar, not the shared component.
                         className="mb-[26px]"
                         status={displayStatus}
-                        analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                        analyticsAction={postSaveReady && !startupWaiting ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                        startupRetry={startupWaiting && startupSlow ? {
+                            pending: startupRetryPending,
+                            onRetry: () => {
+                                // Bound to the ONE accepted start attempt pressed for (PM 6207105255), not to the UI wait.
+                                // A settled hook call can still be waiting for real frames (PM 6207494433): the wait decides.
+                                const attempt = currentStartAttempt();
+                                if (startupRetryPending || !attempt || useSessionStore.getState().startupWaitStartedAt === null) return;
+                                setStartupRetryPending(true);
+                                const ownerAtRender = authUserId;
+                                void import('@/services/SpeechRuntimeController').then(async ({ speechRuntimeController }) => {
+                                    const store = useSessionStore.getState;
+                                    await cancelStartupAndRetry({
+                                        attemptId: attempt.id,
+                                        ownerAtRender,
+                                        read: () => {
+                                            const latest = currentStartAttempt();
+                                            return {
+                                                attemptId: latest?.id ?? null,
+                                                attemptSettled: latest?.id === attempt.id ? attempt.isSettled() : true,
+                                                waitPending: store().startupWaitStartedAt !== null,
+                                                captureLive: store().captureLive,
+                                                runtimeState: store().runtimeState,
+                                                owner: authUserIdRef.current,
+                                                mounted: mountedRef.current,
+                                            };
+                                        },
+                                        waitForSettled: (ms) => Promise.race([
+                                            attempt.settled.then(() => true),
+                                            new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
+                                        ]),
+                                        controller: speechRuntimeController,
+                                        markCancelled: () => markRetryCancelled(attempt.id),
+                                        clearCancelled: () => clearRetryCancelled(attempt.id),
+                                        clearWait: () => store().setStartupWaitStartedAt(null),
+                                        reportFailure: (message) => store().setSTTStatus({ type: 'error', message: `⚠️ ${message}` }),
+                                        unconfirmedMessage: ENGINE_RETIRE_UNCONFIRMED_MESSAGE,
+                                        restartStartOnly: () => handleStartStop({ startOnly: true }),
+                                        settleMs: STARTUP_RETRY_SETTLE_MS,
+                                    }).catch(() => undefined).finally(() => { if (mountedRef.current) setStartupRetryPending(false); });
+                                });
+                            },
+                        } : undefined}
                     />
                 )}
                 {/* #1033 Part-2b (A3/A4): unresolved-recording recovery. Driven by the controller's
@@ -880,6 +996,7 @@ export const SessionPage: React.FC = () => {
             {/* Mobile Sticky Action Bar — not on the restored read-only session (#1258 PR 4): it has no Start. */}
             {!restoreId && <MobileActionBar
                 isListening={isListening}
+                starting={startupWaiting}
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={visibleModelLoadingProgress}
                 onStartStop={() => { void handleStartStop(); }}
