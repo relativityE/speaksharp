@@ -111,6 +111,9 @@ export async function recoverAccountClosure(
 
     async function absent() {
       stage = 'auth';
+      // Each required verification replaces earlier evidence, including when
+      // the port rejects or cannot return a readable response at all.
+      accountDeleted = null;
       await authority();
       const response = await deps.readAuthUser(userId);
       await authority();

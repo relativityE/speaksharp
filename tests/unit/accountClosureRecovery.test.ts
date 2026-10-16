@@ -83,6 +83,28 @@ describe('account closure recovery after an uncertain Auth deletion', () => {
     expect(deps.recordAuthState).not.toHaveBeenCalled();
   });
 
+  it.each([null, {}, { data: null }, { data: { user: null }, error: null }])('clears earlier absence when the next Auth response is unknown: %j', async (response) => {
+    const { deps } = fixture('completed');
+    vi.mocked(deps.readAuthUser)
+      .mockResolvedValueOnce({ data: { user: null }, error: { status: 404, code: 'user_not_found' } })
+      .mockResolvedValue(response);
+    expect(await recoverAccountClosure({ userId, requestId }, deps)).toMatchObject({
+      outcome: 'hold', reason: 'auth_unknown', accountDeleted: null,
+    });
+    expect(deps.recordAuthState).not.toHaveBeenCalled();
+  });
+
+  it('clears earlier absence when a subsequent Auth verification rejects', async () => {
+    const { deps } = fixture('completed');
+    vi.mocked(deps.readAuthUser)
+      .mockResolvedValueOnce({ data: { user: null }, error: { status: 404, code: 'user_not_found' } })
+      .mockRejectedValueOnce(new Error('read unavailable'));
+    expect(await recoverAccountClosure({ userId, requestId }, deps)).toMatchObject({
+      outcome: 'hold', reason: 'operation_unknown', accountDeleted: null,
+    });
+    expect(deps.recordAuthState).not.toHaveBeenCalled();
+  });
+
   it.each([
     { userId: otherId }, { requestId: otherId }, { email: 'CHANGED@example.test' },
     { email: '' },
