@@ -1,7 +1,8 @@
 import React, { useRef, useEffect } from 'react';
 // ... existing imports ...
 import { useClarityMove } from '@/hooks/useClarityMove';
-import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+import { ENGINE_RETIRE_UNCONFIRMED_MESSAGE, useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+import { cancelStartupAndRetry } from '@/services/startupRetry';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Button } from '@/components/ui/button';
@@ -53,6 +54,9 @@ export const SessionPage: React.FC = () => {
     // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
     // fail closed while it is unresolved — never an unscoped read.
     const authUserId = authSession?.user?.id ?? null;
+    // C10 Try again re-reads the CURRENT owner at its destructive boundary, not the one captured when it rendered.
+    const authUserIdRef = useRef(authUserId);
+    useEffect(() => { authUserIdRef.current = authUserId; }, [authUserId]);
     // #1415 — the SAME gate reason the desktop mic card renders, derived from the same authority.
     // Mobile previously had no access to it at all, so a blocked cold press on a phone was a dead
     // control with no explanation available even in principle.
@@ -687,31 +691,31 @@ export const SessionPage: React.FC = () => {
                         startupRetry={startupWaiting && startupSlow ? {
                             pending: startupRetryPending,
                             onRetry: () => {
-                                if (startupRetryPending) return;
+                                if (startupRetryPending || startupWaitStartedAt === null) return;
                                 setStartupRetryPending(true);
-                                // C10 Try again: cancel with CONFIRMED release, then exactly one new start. A destroy that
-                                // rejects, or an engine not proven off, starts nothing (no second engine); the start stays
-                                // disabled and the existing start-failure path reports it.
+                                // C10 Try again (PM 6205858358 item 3): for THIS pending attempt only, re-read at the
+                                // destructive boundary; confirmed release, then exactly one new start (startupRetry.ts).
+                                const attemptStartedAt = startupWaitStartedAt;
+                                const ownerAtRender = authUserId;
                                 void import('@/services/SpeechRuntimeController').then(async ({ speechRuntimeController }) => {
-                                    useSessionStore.getState().setStartupRetryCancelling(true);
-                                    try {
-                                        await speechRuntimeController.hardResetAwaited('startup_retry');
-                                        if (!speechRuntimeController.isEngineTerminal()) return;
-                                        // The cancelled attempt's own handler clears its wait when it unwinds; a new Start
-                                        // issued before that would be refused as already in flight. Bounded: if it never
-                                        // unwinds, nothing new starts.
-                                        const settleBy = Date.now() + STARTUP_RETRY_SETTLE_MS;
-                                        while (useSessionStore.getState().startupWaitStartedAt !== null && Date.now() < settleBy) {
-                                            await new Promise((resolve) => setTimeout(resolve, 50));
-                                        }
-                                        if (useSessionStore.getState().startupWaitStartedAt !== null) return;
-                                        await handleStartStop();
-                                    } catch {
-                                        // Release unconfirmed: never start over a possibly-live engine.
-                                    } finally {
-                                        useSessionStore.getState().setStartupRetryCancelling(false);
-                                        setStartupRetryPending(false);
-                                    }
+                                    const store = useSessionStore.getState;
+                                    await cancelStartupAndRetry({
+                                        attemptStartedAt,
+                                        ownerAtRender,
+                                        read: () => ({
+                                            startupWaitStartedAt: store().startupWaitStartedAt,
+                                            captureLive: store().captureLive,
+                                            runtimeState: store().runtimeState,
+                                            owner: authUserIdRef.current,
+                                        }),
+                                        controller: speechRuntimeController,
+                                        setCancelling: (v) => store().setStartupRetryCancelling(v),
+                                        clearWait: () => store().setStartupWaitStartedAt(null),
+                                        reportFailure: (message) => store().setSTTStatus({ type: 'error', message: `⚠️ ${message}` }),
+                                        unconfirmedMessage: ENGINE_RETIRE_UNCONFIRMED_MESSAGE,
+                                        restart: handleStartStop,
+                                        settleMs: STARTUP_RETRY_SETTLE_MS,
+                                    }).catch(() => undefined).finally(() => setStartupRetryPending(false));
                                 });
                             },
                         } : undefined}
