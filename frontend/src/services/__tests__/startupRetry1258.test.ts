@@ -72,7 +72,7 @@ describe('C10 Try again — bound to the attempt it was pressed for', () => {
         expect(await cancelStartupAndRetry(deps)).toBe('unwind_timeout');
         expect(deps.restartStartOnly).not.toHaveBeenCalled();
         expect(calls).toContain(`failure:${STARTUP_RETRY_UNWIND_FAILED_MESSAGE}`);
-        expect(calls.at(-1)).toBe('cancelling:none');
+        expect(calls[calls.length - 1]).toBe('cancelling:none');
     });
 
     it.each([
