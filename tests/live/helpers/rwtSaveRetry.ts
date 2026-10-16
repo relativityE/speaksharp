@@ -20,6 +20,105 @@ export type SessionRowFacts = {
 export type CompletionDrop = { completionPosts: number; droppedStatus: number | null; dropped: boolean };
 
 /**
+ * #1258 RWT round 2 C (run 38876571451) — ONE completion call's server answer, content-free. Three completion calls the
+ * harness did not intercept left the session uncompleted, and nothing recorded what the server said. This keeps only the
+ * HTTP status and the PostgREST error `code` when it is an allowlisted SQLSTATE or PGRST code — never the message,
+ * details, hint, body or payload, which can quote the transcript. Anything else is named, not echoed.
+ */
+export type CompletionOutcome = { status: number; code: string | null };
+const ALLOWED_ERROR_CODE = /^(?:[0-9A-Z]{5}|PGRST\d{3})$/;
+export function sanitizedCompletionOutcome(status: number, body: string | null): CompletionOutcome {
+    if (status >= 200 && status < 300) return { status, code: null };
+    if (body === null) return { status, code: 'unreadable' };
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(body);
+    } catch {
+        return { status, code: 'unparseable' };
+    }
+    const code = parsed !== null && typeof parsed === 'object' ? (parsed as { code?: unknown }).code : undefined;
+    if (typeof code !== 'string') return { status, code: 'absent' };
+    return { status, code: ALLOWED_ERROR_CODE.test(code) ? code : 'unrecognized' };
+}
+
+/** A completion call that got no HTTP response, by a fixed content-free class (never the browser's error text). */
+export type TransportFailure = 'aborted' | 'timed_out' | 'connection' | 'other';
+export function classifyTransportFailure(errorText: string | null | undefined): TransportFailure {
+    const t = (errorText ?? '').toUpperCase();
+    if (t.includes('ABORT')) return 'aborted';
+    if (t.includes('TIMED_OUT') || t.includes('TIMEOUT')) return 'timed_out';
+    if (/CONNECTION|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|ADDRESS_UNREACHABLE|REFUSED|RESET/.test(t)) return 'connection';
+    return 'other';
+}
+
+/**
+ * Sam 6216511222 / 6217065780 — the harness must not stand in the request path to learn the answer: non-dropped calls keep
+ * `route.fallback()`, and this observer reads the browser's own `response` / `requestfailed` events, correlated to each
+ * call by REQUEST IDENTITY (the object Playwright passes to the route and to both events) and numbered in CALL order at
+ * routing time — so completion order can never be mistaken for call order. The one deliberately dropped request is
+ * excluded; requests it never tracked are ignored.
+ *
+ * ONE RECORD PER REQUEST. Playwright can emit `response` (headers) and then `requestfailed` (the body transfer died), so
+ * a received status is kept and the failure becomes `transfer_failed` — never a contradictory second "no response" entry.
+ * The evidence is a SNAPSHOT of every tracked call: one still waiting for headers reads `pending`, one whose body is
+ * still loading reads `<status>:body_pending`. Nothing tracked is silently omitted. Codex r4295679559: body reads are
+ * given a BOUNDED grace (`graceMs`) and then the snapshot is taken regardless — a stalled body stays `body_pending`
+ * instead of stalling the receipt until the test timeout.
+ */
+type CompletionRecord = {
+    ordinal: number; status: number | null; code: string | null;
+    failure: TransportFailure | 'transfer_failed' | null; bodyPending: boolean;
+};
+export class CompletionObserver<R extends object> {
+    private readonly records = new Map<R, CompletionRecord>();
+    private readonly dropped = new WeakSet<R>();
+    private readonly pending: Promise<void>[] = [];
+
+    track(request: R, ordinal: number): void {
+        this.records.set(request, { ordinal, status: null, code: null, failure: null, bodyPending: false });
+    }
+    markDropped(request: R): void { this.dropped.add(request); }
+    isObserved(request: R): boolean { return this.records.has(request) && !this.dropped.has(request); }
+
+    /** Headers arrived: keep the status; the allowlisted code follows from the body (`null` / a rejected read → unreadable). */
+    onResponse(request: R, status: number, body: Promise<string | null> | string | null): void {
+        if (!this.isObserved(request)) return;
+        const rec = this.records.get(request)!;
+        rec.status = status;
+        rec.bodyPending = true;
+        this.pending.push(Promise.resolve(body).catch(() => null).then((text) => {
+            rec.bodyPending = false;
+            if (rec.failure === null) rec.code = sanitizedCompletionOutcome(status, text).code;
+        }));
+    }
+
+    /** No HTTP answer (a fixed class, never the browser's error text) — or, after headers, a failed body transfer. */
+    onFailed(request: R, errorText: string | null | undefined): void {
+        if (!this.isObserved(request)) return;
+        const rec = this.records.get(request)!;
+        rec.failure = rec.status !== null ? 'transfer_failed' : classifyTransportFailure(errorText);
+        rec.bodyPending = false;
+    }
+
+    /** Flat receipt evidence, one entry per tracked call in CALL order, e.g. `2=403:42501,3=no_response:connection,4=pending`. */
+    async evidence(graceMs = 5_000): Promise<string> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+            Promise.all([...this.pending]),
+            new Promise<void>((resolve) => { timer = setTimeout(resolve, graceMs); }),
+        ]);
+        if (timer !== undefined) clearTimeout(timer);
+        const entries = [...this.records.entries()].filter(([request]) => !this.dropped.has(request)).map(([, rec]) => rec);
+        return entries.sort((a, b) => a.ordinal - b.ordinal).map((rec) => {
+            if (rec.status === null) return `${rec.ordinal}=${rec.failure ? `no_response:${rec.failure}` : 'pending'}`;
+            if (rec.failure === 'transfer_failed') return `${rec.ordinal}=${rec.status}:transfer_failed`;
+            if (rec.bodyPending) return `${rec.ordinal}=${rec.status}:body_pending`;
+            return `${rec.ordinal}=${rec.status}:${rec.code ?? 'ok'}`;
+        }).join(',');
+    }
+}
+
+/**
  * Was the intended fault actually exercised? HOLD, never PASS or FAIL, when it was not: the later rows then describe a
  * different situation than the one the variant names.
  */
