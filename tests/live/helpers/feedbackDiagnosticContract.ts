@@ -117,9 +117,11 @@ const OUTCOME_SHAPE: Record<string, { status: readonly string[]; provider: reado
     // A cache hit makes no provider call (provider `none`); a fresh success must carry the provider's 2xx (see shapeHolds).
     success: { status: ['2xx'], provider: ['2xx', 'none'], reasons: ['none'] },
     provider_error: { status: ['5xx'], provider: ['4xx', '5xx'], reasons: ['provider_http_4xx', 'provider_http_5xx'] },
-    timeout: { status: ['5xx'], provider: ['none'], reasons: ['provider_timeout'] },
+    // Codex r4290615981 (PM 6207410484): a timeout before any headers has no provider status; a BODY timeout keeps the
+    // received 2xx (the Edge function records the status as soon as headers arrive). Nothing else.
+    timeout: { status: ['5xx'], provider: ['none', '2xx'], reasons: ['provider_timeout'] },
     transport_error: { status: ['5xx'], provider: ['none'], reasons: ['provider_transport'] },
-    invalid_response: { status: ['5xx'], provider: ['2xx'], reasons: ['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version'] },
+    invalid_response: { status: ['5xx'], provider: ['2xx'], reasons: ['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'provider_malformed_response'] },
     rate_limited: { status: ['4xx'], provider: ['none'], reasons: ['quota_exceeded'] },
     server_error: {
         status: ['4xx', '5xx'], provider: ['none', '2xx'],

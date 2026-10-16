@@ -42,6 +42,15 @@ export const trackPracticeLoopReviewRendered = (): void =>
 export const trackPracticeLoopReviewFailed = (reason: PracticeLoopReviewFailureReason): void =>
   emit('practice_loop_review_failed', { reason });
 
+/**
+ * #1258 option A (PM 6206983551) — the Edge function makes at most THREE provider attempts. The browser reports exactly
+ * what the server said when it is a possible count (0–3); anything else (an impossible 4, a fraction, a string) is not
+ * clamped into a believable value — it is reported as 0, the same as an absent count, and the allowlist rejects >3.
+ */
+export const MAX_REPORTED_PROVIDER_ATTEMPTS = 3;
+export const reportedProviderAttempts = (value: unknown): number =>
+  Number.isInteger(value) && Number(value) >= 0 && Number(value) <= MAX_REPORTED_PROVIDER_ATTEMPTS ? Number(value) : 0;
+
 export interface AiCoachingDiagnosticTelemetry extends Partial<ProviderCodeFields> {
   diagnostic_request_id?: string;
   diagnostic_attempt_id?: string;

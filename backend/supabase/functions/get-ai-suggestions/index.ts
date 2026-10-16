@@ -5,6 +5,10 @@ import coachingContract from './contract.json' with { type: 'json' };
 import {
   decodeProviderAnswer, decodeProviderError, readBoundedBody, type ProviderAnswerCodes, type ProviderErrorCodes,
 } from './providerDecode.ts';
+import {
+  attemptTimeoutMs, canAdmitAttempt, isRetryableProviderStatus, MAX_PROVIDER_ATTEMPTS, parseRetryAfter, planNextAttempt,
+  realProviderRetryRuntime, type ProviderRetryRuntime, type RetryAfter,
+} from './providerRetry.ts';
 
 // #1416 — the original `gemini-3-flash-preview` endpoint was a PREVIEW channel and could disappear
 // inside a sprint. The selected stable model is pinned in contract.json; runtime URL construction uses
@@ -68,11 +72,15 @@ export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
  * their last slot the retry answers 429 — reporting a limit they never reached for what was a provider
  * outage. Retrying INSIDE the one consumption is the only place a second provider attempt costs nothing.
  *
- * Two attempts, and only for a failure another attempt could actually change: a transport error, or a 5xx
- * the provider itself served. A 4xx is our request and will be refused identically. A 200 whose body fails
- * `parseSuggestions` is a contract violation, not a blip, and is answered rather than re-asked.
+ * Only for a failure another attempt could actually change. #1258 option A (PM 6156942445): up to three attempts
+ * inside one 45 s budget, with jittered backoff and the provider's own `Retry-After` — the whole policy, and the retry
+ * set (408, 429, 5xx, transport, timeout), lives in `providerRetry.ts`. A 200 whose body fails `parseSuggestions` is a
+ * contract violation, not a blip, and is answered rather than re-asked.
  */
-export const AI_PROVIDER_ATTEMPTS = 2;
+export const AI_PROVIDER_ATTEMPTS = MAX_PROVIDER_ATTEMPTS;
+
+/** The retry policy's clock, randomness and sleep. Tests replace `runtime`; production uses the real one. */
+export const providerRetryHooks: { runtime: ProviderRetryRuntime } = { runtime: realProviderRetryRuntime };
 
 const MAX_TRANSCRIPT_CHARS = 8000;
 // #1424 A1. Lowered from 20 with #1422's P2-4 in view: the review now fires automatically at post-save
@@ -216,19 +224,23 @@ export type CoachingFailureReason =
   | 'missing_text'
   | 'invalid_shape'
   | 'over_character_ceiling'
-  | 'missing_model_version';
+  | 'missing_model_version'
+  /** #1258 option A: the caller went away during an attempt or a wait. No further attempt, nothing persisted. */
+  | 'request_cancelled'
+  /** #1258 (PM 6203482045): an answer ARRIVED (its status is recorded) but its body could not be parsed. Retryable. */
+  | 'provider_malformed_response';
 
 const DIAGNOSTIC_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_MODEL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const SHA256_HEX = /^[0-9a-f]{64}$/i;
 const CLIENT_RELEASE_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
-const PROVIDER_TIMEOUT_MS = 20_000;
 const DIAGNOSTIC_REASONS = new Set([
   'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
   'focus_context_unavailable', 'focus_results_pending', 'transcript_unavailable', 'product_unknown', 'service_configuration',
   'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded', 'provider_http_4xx',
   'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
   'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed', 'internal_error',
+  'request_cancelled', 'provider_malformed_response',
 ]);
 
 type DiagnosticSource = 'fresh' | 'cache' | 'unknown';
@@ -480,6 +492,12 @@ export async function handler(
   let providerErrorCodes: ProviderErrorCodes | null = null;
   let providerAnswerCodes: ProviderAnswerCodes | null = null;
   const providerAttemptLog: Array<{ reason: string; status: number | null; ms: number }> = [];
+  // #1258 option A: content-free retry facts — never the header's raw value.
+  let providerWaitMs = 0;
+  let retryAfterPresent = false;
+  let retryAfterMalformed = false;
+  let retryAfterS: number | null = null;
+  let stoppedOverBudget = false;
   let promptSha256: string | null = null;
   // Response-only binding for the private evidence collector. Do not include this in the content-free
   // diagnostic log or any telemetry: it is a stable pseudonymous link to the selected authenticated row.
@@ -524,6 +542,14 @@ export async function handler(
       attempt_2_reason: providerAttemptLog[1]?.reason ?? null,
       attempt_2_status: providerAttemptLog[1]?.status ?? null,
       attempt_2_ms: providerAttemptLog[1]?.ms ?? null,
+      attempt_3_reason: providerAttemptLog[2]?.reason ?? null,
+      attempt_3_status: providerAttemptLog[2]?.status ?? null,
+      attempt_3_ms: providerAttemptLog[2]?.ms ?? null,
+      provider_wait_ms_total: Math.min(600_000, Math.max(0, Math.round(providerWaitMs))),
+      retry_after_present: retryAfterPresent,
+      retry_after_malformed: retryAfterMalformed,
+      retry_after_s: retryAfterS,
+      stopped_over_budget: stoppedOverBudget,
     };
     // Structured, content-free log line is the fallback diagnostic path when Sentry is absent.
     console.info('AI_COACHING_DIAGNOSTIC', JSON.stringify(diagnostic));
@@ -783,10 +809,19 @@ export async function handler(
     let suggestions: AISuggestions | null = null;
     let failureReason: CoachingFailureReason | null = null;
 
+    // #1258 option A: ONE budget, started immediately before attempt 1, covering every attempt and every wait.
+    const retryRuntime = providerRetryHooks.runtime;
+    const budgetStartedAt = retryRuntime.now();
+    const callerSignal = req.signal;
+    let callerAborted = false;
+
     for (let providerAttempt = 1; providerAttempt <= AI_PROVIDER_ATTEMPTS; providerAttempt += 1) {
       providerAttempts = providerAttempt;
-      // Only a transport error or a provider 5xx earns the second attempt. Set where the failure is known.
+      // Only a failure in the retry set earns another attempt (`providerRetry.ts`). Set where the failure is known.
       let providerFailureIsRetryable = false;
+      let retryAfter: RetryAfter = { kind: 'absent' };
+      // This attempt's own timeout, kept so its abort can be told apart from the caller's and from a malformed body.
+      const attemptTimeout = retryRuntime.timeout(attemptTimeoutMs(retryRuntime.now() - budgetStartedAt));
       // Each attempt states its own outcome; the reason reported is the last attempt's.
       suggestions = null;
       failureReason = null;
@@ -798,7 +833,8 @@ export async function handler(
         const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+          // The caller's own abort and this attempt's timeout, composed — and told apart below by which one fired.
+          signal: AbortSignal.any([callerSignal, attemptTimeout]),
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: GEMINI_GENERATION_CONFIG,
@@ -809,6 +845,8 @@ export async function handler(
         providerStatus = geminiResponse.status;
 
         if (!geminiResponse.ok) {
+          // Header only, read for the wait decision and never logged or returned in raw form.
+          retryAfter = parseRetryAfter(geminiResponse.headers.get('retry-after'), retryRuntime.wallNow());
           // #1258 (PM 5953504835): the provider's error body can echo anything, so it is never logged or returned.
           // PO 2026-10-12: it is DECODED instead — only `error.status` and the ErrorInfo `reason`, each kept only when
           // it belongs to its closed vocabulary (providerDecode.ts); the message and every other field are not read.
@@ -817,29 +855,57 @@ export async function handler(
             status: geminiResponse.status, attempt: providerAttempt,
             error_status: providerErrorCodes.error_status, error_reason: providerErrorCodes.error_reason,
           }));
-          providerFailureIsRetryable = geminiResponse.status >= 500;
+          providerFailureIsRetryable = isRetryableProviderStatus(geminiResponse.status);
           failureReason = geminiResponse.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
         } else {
-          const responseData = await geminiResponse.json();
-          providerAnswerCodes = decodeProviderAnswer(responseData);
-          const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
-          observedProviderModel = typeof responseData?.modelVersion === 'string'
-            && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
-            ? responseData.modelVersion
-            : null;
-          // The model's FRESH answer — the one place the budget is enforced.
-          const classified = classifyGeneratedSuggestions(rawText);
-          if ('suggestions' in classified) suggestions = classified.suggestions;
-          else failureReason = classified.reason;
-          if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
+          // #1258 (PM 6203482045): a received answer whose body is malformed or truncated is NOT a transport failure — its
+          // status already arrived. Named for what it is; still retryable (a truncated body is typically transient).
+          let responseData: Awaited<ReturnType<Response['json']>> | null = null;
+          try {
+            responseData = await geminiResponse.json();
+          } catch {
+            if (callerSignal.aborted) {
+              // PM 6206983551: the CALLER left while the received answer was being read — a cancellation, never a
+              // retryable malformed answer. The received status stays in the attempt evidence.
+              callerAborted = true;
+              failureReason = 'request_cancelled';
+            } else if (attemptTimeout.aborted) {
+              // Codex P2 r4290479629: headers arrived, then the BODY stalled past this attempt's timeout — a provider
+              // timeout, not a malformed answer. Retryable; the received status stays in the attempt evidence.
+              providerFailureIsRetryable = true;
+              failureReason = 'provider_timeout';
+            } else {
+              providerFailureIsRetryable = true;
+              failureReason = 'provider_malformed_response';
+            }
+          }
+          if (responseData !== null) {
+            providerAnswerCodes = decodeProviderAnswer(responseData);
+            const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+            observedProviderModel = typeof responseData?.modelVersion === 'string'
+              && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
+              ? responseData.modelVersion
+              : null;
+            // The model's FRESH answer — the one place the budget is enforced.
+            const classified = classifyGeneratedSuggestions(rawText);
+            if ('suggestions' in classified) suggestions = classified.suggestions;
+            else failureReason = classified.reason;
+            if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
+          }
         }
       } catch (error) {
         // #1258: the error NAME only. A fetch error's message can carry the request URL, and this URL carries the API key.
         const errorName = error instanceof Error ? error.name : 'unknown';
-        const timedOut = errorName === 'TimeoutError' || errorName === 'AbortError';
         console.error('Gemini API request failed.', JSON.stringify({ error: errorName, attempt: providerAttempt }));
-        providerFailureIsRetryable = true;
-        failureReason = timedOut ? 'provider_timeout' : 'provider_transport';
+        if (callerSignal.aborted) {
+          // The CALLER went away — not a provider timeout, and not retryable: no one is waiting for the answer.
+          callerAborted = true;
+          failureReason = 'request_cancelled';
+        } else {
+          const timedOut = errorName === 'TimeoutError' || errorName === 'AbortError';
+          providerFailureIsRetryable = true;
+          failureReason = timedOut ? 'provider_timeout' : 'provider_transport';
+        }
       } finally {
         const attemptMs = Math.max(0, performance.now() - providerStartedAt);
         providerDurationMs += attemptMs;
@@ -853,6 +919,50 @@ export async function handler(
       // A complete answer ends the loop. So does a failure a second ask cannot change.
       if (suggestions && observedProviderModel) break;
       if (!providerFailureIsRetryable) break;
+
+      if (retryAfter.kind !== 'absent') {
+        retryAfterPresent = true;
+        retryAfterMalformed = retryAfter.kind === 'malformed';
+        retryAfterS = retryAfter.kind === 'valid' ? Math.min(60, Math.round(retryAfter.ms / 1000)) : null;
+      }
+      const step = planNextAttempt({
+        attemptsDone: providerAttempt,
+        elapsedMs: retryRuntime.now() - budgetStartedAt,
+        retryAfter,
+        random: retryRuntime.random(),
+      });
+      // Out of attempts or budget: stop WITHOUT sleeping, keeping the last attempt's failure.
+      if (step.kind === 'stop') {
+        stoppedOverBudget = step.why !== 'attempt_cap';
+        break;
+      }
+      if (step.ms > 0) {
+        // Codex P2 r4290479635: the wait actually spent (a late wake included), not the wait requested.
+        const sleepStartedAt = retryRuntime.now();
+        const slept = await retryRuntime.sleep(step.ms, callerSignal);
+        providerWaitMs += Math.max(0, retryRuntime.now() - sleepStartedAt);
+        if (!slept) {
+          callerAborted = true;
+          failureReason = 'request_cancelled';
+          break;
+        }
+      }
+      // PM 6206983551: re-admit with the FRESH remaining time — a late wake can leave less than an attempt needs, or none.
+      // Stop without fetching, keeping the prior failure. A caller who left during the wait is checked here too.
+      if (callerSignal.aborted) {
+        callerAborted = true;
+        failureReason = 'request_cancelled';
+        break;
+      }
+      if (!canAdmitAttempt(retryRuntime.now() - budgetStartedAt)) {
+        stoppedOverBudget = true;
+        break;
+      }
+    }
+
+    // The caller is gone: nothing more is attempted, and no coaching pair is persisted for a request no one awaits.
+    if (callerAborted || callerSignal.aborted) {
+      return finish({ error: 'AI coaching request was cancelled.', reason: 'request_cancelled' }, 499);
     }
 
     // #1538: a pair generated from the saved Focus results carries that provenance in its version.

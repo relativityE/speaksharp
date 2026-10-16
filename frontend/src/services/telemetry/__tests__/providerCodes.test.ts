@@ -26,7 +26,11 @@ const decoded = {
     provider_finish_reason: 'STOP', provider_block_reason: null,
     provider_prompt_tokens: 812, provider_output_tokens: 46, provider_thinking_tokens: 1903, provider_total_tokens: 2761,
     attempt_1_reason: 'provider_timeout', attempt_1_status: null, attempt_1_ms: 20_004,
-    attempt_2_reason: 'none', attempt_2_status: 200, attempt_2_ms: 9_812,
+    attempt_2_reason: 'provider_http_5xx', attempt_2_status: 503, attempt_2_ms: 1_204,
+    // #1258 option A: the third attempt and the content-free retry facts.
+    attempt_3_reason: 'none', attempt_3_status: 200, attempt_3_ms: 9_812,
+    provider_wait_ms_total: 2_500, retry_after_present: true, retry_after_malformed: false, retry_after_s: 2,
+    stopped_over_budget: false,
 };
 
 describe('provider code vocabularies match the Edge decoder', () => {
@@ -54,6 +58,16 @@ describe('providerCodeFields — re-validates, never forwards free text', () => 
             provider_thinking_tokens: -1, provider_prompt_tokens: 1.5, attempt_1_reason: ECHO, attempt_1_status: 42, attempt_1_ms: 700_000,
         });
         expect(Object.values(fields).every((v) => v === null)).toBe(true);
+        expect(JSON.stringify(fields)).not.toContain(ECHO);
+    });
+    it('#1258 option A: retry facts outside their type or range are null — never forwarded', () => {
+        const fields = providerCodeFields({
+            attempt_3_reason: 'request_cancelled', attempt_3_status: 700, provider_wait_ms_total: -1,
+            retry_after_present: 'yes', retry_after_malformed: 1, retry_after_s: 61, stopped_over_budget: ECHO,
+        });
+        expect(fields.attempt_3_reason).toBe('request_cancelled');
+        expect([fields.attempt_3_status, fields.provider_wait_ms_total, fields.retry_after_present, fields.retry_after_malformed,
+            fields.retry_after_s, fields.stopped_over_budget]).toEqual([null, null, null, null, null, null]);
         expect(JSON.stringify(fields)).not.toContain(ECHO);
     });
     it('a missing server diagnostic yields all-null fields', () => {
