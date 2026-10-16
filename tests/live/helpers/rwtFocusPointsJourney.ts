@@ -159,6 +159,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const coaching: {
         product: string | null; status: number | null; requests: number; acceptedVersions: unknown; reason: string | null; reasonRead: Promise<void> | null;
         generations: CoachingGenerationTap;
+        openPoints?: { labels: readonly string[]; statuses: readonly (string | null)[] };
     } = { product: null, status: null, requests: 0, acceptedVersions: null, reason: null, reasonRead: null, generations };
     page.on('request', (request) => {
         if (!request.url().includes('/functions/v1/get-ai-suggestions') || request.method() !== 'POST') return;
@@ -420,6 +421,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         await test.step('row 11 — Focus Points coaching after Stop', async () => {
             if (!persistedId) { receipt.row('Focus coaching rendered', 'HOLD', 'no saved session'); return; }
             // focusCoachingRows settles the reason after its own terminal wait (Codex r4189408865).
+            // #1258 R4: the rail's final statuses, so the advice can be checked against a point that is still open.
+            coaching.openPoints = { labels: points, statuses: firstTakeRail };
             savedCoaching = await focusCoachingRows(page, receipt, admin as never, persistedId, owner.uid, coaching);
         });
 

@@ -57,6 +57,7 @@ export const RWT_WRITES_ACK_VALUE = 'RWT-DISPOSABLE-ACCOUNT-WRITES';
 export { humanWorksheet, receiptAcceptance, type ReceiptRow, type Verdict };
 // #1258 (PM 6174134686): the closed coaching failure vocabulary lives with the EXTERNAL classifier, which publishes it.
 export { COACHING_FAILURE_REASONS, coachingFailureReason } from './coachingExternal';
+import { characterCeilingVerdict, openPointReferenceVerdict } from './rwtCoachingConsistency';
 
 /**
  * #1258 (Codex r4188372882 / r4188372897) — read a failed coaching response's closed reason as a PROMISE the spec
@@ -2075,6 +2076,8 @@ export async function focusCoachingRows(
         product: string | null; status: number | null; acceptedVersions?: unknown; reason?: string | null; reasonRead?: Promise<void> | null;
         /** #1258 (PM 6173420642 §3): the request-boundary authority — each exchange is its own request/response tuple. */
         generations?: CoachingGenerationTap;
+        /** #1258 R4: the set's labels and the rail's final statuses, so the advice can be checked against an open point. */
+        openPoints?: { labels: readonly string[]; statuses: readonly (string | null)[] };
     },
 ): Promise<SavedCoaching | null> {
     const card = page.getByTestId('ai-suggestions-card');
@@ -2147,6 +2150,14 @@ export async function focusCoachingRows(
     const claims = OMISSION_CLAIM.test(well) || OMISSION_CLAIM.test(next);
     receipt.row('Focus coaching makes no omission claim', claims ? 'FAIL' : 'PASS',
         claims ? 'a phrase claims a point was missed or skipped (the matcher cannot know that)' : 'neither phrase claims a point was missed or skipped');
+    // #1258 R4: the provider schema's own ceiling, and an evident reference to a point that is still open (never a FAIL on
+    // wording: the human check decides when no open point is named).
+    const ceiling = characterCeilingVerdict(well, next);
+    receipt.row('Focus coaching within the character ceiling', ceiling.status, ceiling.detail, { wellChars: well.length, nextChars: next.length });
+    const openPoint = request.openPoints
+        ? openPointReferenceVerdict({ well, next, labels: request.openPoints.labels, statuses: request.openPoints.statuses })
+        : { status: 'HOLD' as const, detail: 'the rail\'s final statuses were not supplied' };
+    receipt.row('Focus coaching refers to an open point', openPoint.status, openPoint.detail);
     humanObservation(receipt, 'focus_coaching_covers_points', 'Product 2 row 5', 'Focus coaching helps cover the chosen points',
         'both phrases address covering THESE points (placement, signposting or pace) supported by this speech; no invented miss');
 

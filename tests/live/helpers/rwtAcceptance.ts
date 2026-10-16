@@ -111,6 +111,7 @@ const FOCUS_EXTERNAL_SCOPE: ExternalScope = Object.freeze({
     telemetry: 'Focus coaching telemetry sent',
     dependents: Object.freeze([
         'Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt',
+        'Focus coaching within the character ceiling', 'Focus coaching refers to an open point',
         'Focus coaching provenance', 'Focus coaching visible = saved', 'Focus coaching telemetry sent', ...COACHING_DEPENDENT_ANALYTICS_ROWS,
     ]),
 });
@@ -122,6 +123,7 @@ const EXTERNAL_SCOPES: Readonly<Record<string, ExternalScope>> = Object.freeze({
         telemetry: 'coaching telemetry sent',
         dependents: Object.freeze([
             'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt', 'coaching telemetry sent',
+            'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',
             ...COACHING_DEPENDENT_ANALYTICS_ROWS,
         ]),
     }),
@@ -415,6 +417,8 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
+    // #1258 R4: the coaching checks text can prove — ceiling, no contradiction with saved fillers, not identical across takes.
+    'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',
     // #1258 (Codex P2 r4274573839, PM 6175763509 §3): request provenance is mandatory evidence on every path.
     'coaching request bound to this take',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
@@ -437,6 +441,7 @@ const FOCUS_PRODUCT_ROWS = Object.freeze([
     'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching request bound to this take',
     'Focus coaching length',
     'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching provenance',
+    'Focus coaching within the character ceiling', 'Focus coaching refers to an open point',
     'Focus coaching visible = saved', 'Focus coaching server receipt', 'Products menu opened in the session',
     'Focus Back from Progress and reload keep the saved session',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',

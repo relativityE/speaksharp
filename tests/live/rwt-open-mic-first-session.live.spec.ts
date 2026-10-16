@@ -40,6 +40,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { characterCeilingVerdict, fillerAdviceVerdict, readTwoTakesCoaching, takesDifferVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
 import { MODEL_COMPARISON_AUTH_KEY } from './helpers/practiceLoopJourney';
 import { canonicalizeForLeakCheck, extractPdfText } from '../helpers/pdfText';
@@ -503,6 +504,11 @@ test.describe('RWT — Open Mic first session @live', () => {
                     detail: distinct ? 'the two phrases are different suggestions' : twoPhrases ? 'both headings show the same phrase' : 'no phrases to compare',
                 });
                 receipt.row('coaching phrases distinct', distinctRow.verdict, distinctRow.detail);
+                // #1258 R4: the provider schema's own ceiling (240 characters per phrase), on what the person sees.
+                const ceiling = characterCeilingVerdict(shownWell ?? '', shownNext ?? '');
+                const ceilingRow = successDependentRow(coachingParent, { verdict: ceiling.status, detail: ceiling.detail });
+                receipt.row('coaching within the character ceiling', ceilingRow.verdict, ceilingRow.detail,
+                    { wellChars: (shownWell ?? '').length, nextChars: (shownNext ?? '').length });
 
                 // The visible text must BE the saved coaching response, field for field (compared in Node only).
                 const { data: savedRow, error: savedAiErr } = await admin!.from('sessions').select('ai_suggestions')
@@ -599,6 +605,12 @@ test.describe('RWT — Open Mic first session @live', () => {
                     headlineOk ? 'the headline equals the saved um+uh+ah (you know excluded)'
                         : includesYouKnow ? 'the headline counts "you know", which is not coachable' : 'the headline differs from the saved coachable count',
                     { headline: visibleFillers, coachable, youKnowTracked: counts.you_know ?? 0 });
+                // #1258 R4: the advice never contradicts the saved count — no "cut your fillers" for a take with none.
+                const fillerAdvice = fillerAdviceVerdict({ next: savedNext, savedFillerTotal: coachable });
+                const fillerAdviceRow = coachingParentOutcome
+                    ? successDependentRow(coachingParentOutcome, { verdict: fillerAdvice.status, detail: fillerAdvice.detail })
+                    : { verdict: 'HOLD' as const, detail: 'the coaching step did not settle' };
+                receipt.row('coaching consistent with saved fillers', fillerAdviceRow.verdict, fillerAdviceRow.detail, { savedCoachable: coachable });
 
                 // Against the corpus. Synthetic "uh" is a HOLD, never a pass; the run never claims all eight were heard.
                 for (const [spoken, expected] of Object.entries(fixture.entry.groundTruthFillers ?? {})) {
@@ -747,6 +759,16 @@ test.describe('RWT — Open Mic first session @live', () => {
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
                 repeatSessionId = again.savedSessionId;
+                // #1258 R4: not generic — the two takes (different saved evidence) must not get the identical pair.
+                const twoTakes = again.savedSessionId && again.savedSessionId !== persistedId
+                    ? await readTwoTakesCoaching(admin as never, capturedUid, persistedId, again.savedSessionId)
+                    : { first: null, second: null, evidenceDiffers: null };
+                const differ = takesDifferVerdict(twoTakes.first, twoTakes.second, twoTakes.evidenceDiffers);
+                const differRow = coachingParentOutcome
+                    ? successDependentRow(coachingParentOutcome, { verdict: differ.status, detail: differ.detail })
+                    : { verdict: 'HOLD' as const, detail: 'the coaching step did not settle' };
+                receipt.row('coaching differs between takes', differRow.verdict, differRow.detail,
+                    { bothPairsSaved: Boolean(twoTakes.first && twoTakes.second), evidenceDiffers: twoTakes.evidenceDiffers });
                 // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Open Mic.
                 await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', [persistedId, again.savedSessionId]);
             });

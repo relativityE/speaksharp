@@ -230,7 +230,8 @@ describe('PM 6173420642 §1 — Focus success-dependent rows read the exact save
     });
     it('a confirmed ABSENCE lets every success-dependent row be "not exercised"', async () => {
         const rows = await focusExternalDependentRows(parent(provider503), async () => ({ ok: true, raw: null }), true);
-        expect(rows).toHaveLength(6);
+        // Six, plus the two #1258 R4 rows (character ceiling, open-point reference).
+        expect(rows).toHaveLength(8);
         expect(rows.every((r) => r.verdict === 'EXTERNAL')).toBe(true);
     });
     it('no EXTERNAL parent → no rows are written here (the success path judges them)', async () => {
