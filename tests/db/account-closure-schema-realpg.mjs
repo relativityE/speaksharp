@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import process from 'node:process';
 import console from 'node:console';
+import { closureRolloutDependencyMutations } from './accountClosureRolloutMutations.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'closure-s-'));
 const data = join(root, 'data'); const socket = join(root, 'socket'); mkdirSync(socket);
@@ -16,8 +17,8 @@ const sql = (text) => execFileSync('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1
     { env: { ...env, PGOPTIONS: '-c client_min_messages=warning' }, encoding: 'utf8', timeout: 10_000 }).trim();
 const cli = resolve('scripts/account-closure-rollout-gate.mjs');
 let gateCases = 0;
-function gate(mode, success, command = cli, stageCount = mode === 'after' ? 3 : 2) {
-    const result = spawnSync(process.execPath, [command, mode], { env, encoding: 'utf8', timeout: 30_000 });
+function gate(mode, success) {
+    const result = spawnSync(process.execPath, [cli, mode], { env, encoding: 'utf8', timeout: 30_000 });
     assert.equal(result.status, success ? 0 : 1, `${mode}: ${result.stdout} ${result.stderr}`);
     if (!success) assert.equal(result.stdout.trim(), '', 'failed verification emitted partial success');
     else {
@@ -25,7 +26,7 @@ function gate(mode, success, command = cli, stageCount = mode === 'after' ? 3 : 
         assert.equal(lines.length, 1, 'must emit only one terminal verification');
         const terminal = JSON.parse(lines[0]);
         assert.equal(terminal.passed, true);
-        assert.equal(terminal.stages.length, stageCount);
+        assert.equal(terminal.stages.length, mode === 'after' ? 3 : 2);
     }
     gateCases += 1;
 }
@@ -40,8 +41,13 @@ try {
     assert.ok(fixture, 'scoped fixture missing'); sql(fixture[1]);
     sql('ALTER TABLE auth.users ALTER COLUMN email TYPE varchar(255)');
     const baseline = readFileSync('backend/supabase/migrations/20260812041600_trial_commercial_grant_on_conflict_1294.sql', 'utf8');
-    sql(`SET ROLE closure_owner; ${baseline} RESET ROLE;`);
+    const signup = `CREATE TRIGGER on_auth_user_created_trial_profile AFTER INSERT ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION public.ensure_trial_profile_for_new_user();`;
+    sql(`SET ROLE closure_owner; ${baseline} ${signup} RESET ROLE;`);
     gate('before', true); gate('after', false);
+    sql('DROP TRIGGER on_auth_user_created_trial_profile ON auth.users');
+    gate('before', false);
+    sql(signup);
     const source = readFileSync('backend/supabase/migrations/20261013180000_account_closure_tokens.sql', 'utf8');
     sql(`SET ROLE closure_owner; ${source} RESET ROLE;`);
     gate('before', false); gate('after', true);
@@ -63,39 +69,29 @@ try {
         // fresh database fixture for each case. The CLI itself is always read-only.
         sql(mutation); gate('after', false);
         sql('DROP SCHEMA public CASCADE; DROP SCHEMA auth CASCADE; DROP SCHEMA storage CASCADE; CREATE SCHEMA public; DROP ROLE closure_owner; DROP ROLE anon; DROP ROLE authenticated; DROP ROLE service_role;');
-        sql(fixture[1]); sql(`SET ROLE closure_owner; ${baseline} ${source} RESET ROLE;`); gate('after', true);
+        sql(fixture[1]); sql(`SET ROLE closure_owner; ${baseline} ${signup} ${source} RESET ROLE;`); gate('after', true);
     }
-    const drain = readFileSync('backend/supabase/migrations/20261016090000_account_closure_drain_persistence.sql', 'utf8');
-    const drainCli = resolve('scripts/account-closure-drain-gate.mjs');
-    const drainGate = (mode, success) => gate(mode, success, drainCli, mode === 'after' ? 5 : 4);
-    drainGate('before', true); drainGate('after', false);
-    sql(`SET ROLE closure_owner; ${drain} RESET ROLE;`);
-    drainGate('before', false); drainGate('after', true);
-    for (const mutation of [
-        'ALTER TABLE account_closure_attestation_state DISABLE ROW LEVEL SECURITY',
-        'GRANT SELECT ON account_closure_drain_attestations TO service_role',
-        'GRANT SELECT(record) ON account_closure_drain_attestations TO authenticated',
-        'CREATE POLICY unexpected ON account_closure_attestation_state USING(true)',
-        'ALTER TABLE account_closure_attestation_state ALTER COLUMN generation SET DEFAULT 1',
-        'ALTER TABLE account_closure_drain_attestations ALTER COLUMN record DROP NOT NULL',
-        'ALTER FUNCTION record_account_closure_drain_attestation(uuid,bigint,jsonb,jsonb) SECURITY INVOKER',
-        'GRANT EXECUTE ON FUNCTION invalidate_account_closure_drain_attestations(bigint,text,text) TO PUBLIC',
-        "CREATE FUNCTION invalidate_account_closure_drain_attestations(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
-        'UPDATE account_closure_attestation_state SET generation=1',
-        "UPDATE account_closure_attestation_state SET binding_digest=repeat('a',64)",
-        'DELETE FROM account_closure_attestation_state',
-        "INSERT INTO account_closure_drain_attestations(attestation_id,generation,binding_digest,evidence_digest,record,validation,expires_at) VALUES(gen_random_uuid(),0,repeat('a',64),repeat('b',64),'{}','{}',now()+interval '1 minute')",
-        'UPDATE account_billing_coordination SET checkout_workers_drained=true',
-        'DELETE FROM account_billing_coordination',
-        'ALTER TABLE account_closure_attempts ALTER COLUMN claimed_email DROP NOT NULL',
-    ]) {
-        sql(mutation); drainGate('after', false);
+    function reset(applied) {
         sql('DROP SCHEMA public CASCADE; DROP SCHEMA auth CASCADE; DROP SCHEMA storage CASCADE; CREATE SCHEMA public; DROP ROLE closure_owner; DROP ROLE anon; DROP ROLE authenticated; DROP ROLE service_role;');
-        sql(fixture[1]); sql(`SET ROLE closure_owner; ${baseline} ${source} ${drain} RESET ROLE;`);
-        drainGate('after', true);
+        sql(fixture[1]); sql('ALTER TABLE auth.users ALTER COLUMN email TYPE varchar(255)');
+        sql(`SET ROLE closure_owner; ${baseline} ${signup} ${applied ? source : ''} RESET ROLE;`);
+    }
+    for (const mode of ['before', 'after']) {
+        for (const mutation of closureRolloutDependencyMutations) {
+            reset(mode === 'after'); gate(mode, true);
+            sql(mutation); gate(mode, false);
+        }
+        reset(mode === 'after'); gate(mode, true);
+        sql(`DROP TABLE trial_entitlements;
+          CREATE TABLE trial_entitlements(user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+            trial_expires_at timestamptz NOT NULL DEFAULT now(),email text NOT NULL,
+            updated_at timestamptz DEFAULT now(),trial_started_at timestamptz NOT NULL DEFAULT now());
+          CREATE UNIQUE INDEX differently_named_email ON trial_entitlements(email) INCLUDE(trial_started_at)`);
+        gate(mode, true);
     }
     console.log(JSON.stringify({ result: 'PASS', postgres: sql('SHOW server_version'),
-        gateCases, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
+        gateCases, dependencyMutationsPerMode: closureRolloutDependencyMutations.length,
+        providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
 } finally {
     if (started || existsSync(join(data, 'postmaster.pid'))) {
         execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });

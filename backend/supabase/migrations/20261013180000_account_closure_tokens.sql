@@ -354,22 +354,46 @@ $$;
 
 CREATE FUNCTION public.record_account_closure_auth_state(p_user_id uuid,p_request_id uuid,p_state text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_email text;
+DECLARE v_email text; v_phase text; v_replay boolean;
 BEGIN
   -- Serialize terminal cleanup with checkout/fence changes. This routine never
   -- locks or writes a profile, so it introduces no advisory-to-profile order.
   PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
-  UPDATE public.account_closure_attempts SET phase=p_state,updated_at=statement_timestamp()
-    WHERE user_id=p_user_id AND request_id=p_request_id AND
-      ((p_state='auth_unknown' AND phase='processing') OR
-       (p_state='auth_deleted' AND phase='auth_unknown') OR
-       (p_state='completed' AND phase='auth_deleted'))
-    RETURNING claimed_email INTO v_email;
-  IF NOT FOUND THEN RAISE EXCEPTION 'invalid closure transition'; END IF;
+  SELECT phase,claimed_email INTO v_phase,v_email FROM public.account_closure_attempts
+    WHERE user_id=p_user_id AND request_id=p_request_id FOR UPDATE;
+  IF NOT FOUND OR p_state IS NULL OR p_state NOT IN ('auth_unknown','auth_deleted','completed')
+    OR NOT (v_phase=p_state OR (p_state='auth_unknown' AND v_phase='processing')
+      OR (p_state='auth_deleted' AND v_phase='auth_unknown') OR (p_state='completed' AND v_phase='auth_deleted'))
+    THEN RAISE EXCEPTION 'invalid closure transition'; END IF;
+  v_replay:=v_phase=p_state;
+  IF NOT v_replay THEN
+    UPDATE public.account_closure_attempts SET phase=p_state,updated_at=statement_timestamp()
+      WHERE user_id=p_user_id AND request_id=p_request_id AND phase=v_phase;
+    IF NOT FOUND THEN RAISE EXCEPTION 'invalid closure transition'; END IF;
+  END IF;
+  -- A same-state receipt is an acknowledgment of this durable request, never
+  -- permission to infer Auth absence, regress an advanced phase or release it.
+  IF v_replay AND p_state='auth_unknown' THEN
+    PERFORM 1 FROM public.account_billing_fences WHERE user_id=p_user_id
+      AND request_id=p_request_id AND phase='closing' FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'closure fence ownership missing'; END IF;
+    IF EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id AND phase<>'settled')
+      THEN RAISE EXCEPTION 'checkout reconciliation required'; END IF;
+    IF EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id) AND NOT EXISTS(
+      SELECT 1 FROM public.account_closure_tokens WHERE user_id=p_user_id AND request_id=p_request_id
+        AND phase='processing' AND email_normalized=v_email)
+      THEN RAISE EXCEPTION 'closure claim ownership missing'; END IF;
+  END IF;
   IF p_state IN ('auth_deleted','completed') THEN
     IF EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id)
       THEN RAISE EXCEPTION 'auth absence unconfirmed'; END IF;
-    IF p_state='auth_deleted' THEN
+    IF p_state='auth_deleted' AND v_replay THEN
+      -- First transition already removed the owned fence/settled checkouts.
+      -- Replaying it must not perform cleanup again or adopt newly added work.
+      IF EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id)
+        OR EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id)
+        THEN RAISE EXCEPTION 'terminal cleanup unverified'; END IF;
+    ELSIF p_state='auth_deleted' THEN
       PERFORM 1 FROM public.account_billing_fences
         WHERE user_id=p_user_id AND request_id=p_request_id AND phase='closing' FOR UPDATE;
       IF NOT FOUND THEN RAISE EXCEPTION 'closure fence ownership missing'; END IF;

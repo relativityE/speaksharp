@@ -11,7 +11,7 @@
  * fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import type { Page, Route, TestInfo } from '@playwright/test';
+import type { Page, Request, Route, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
@@ -27,8 +27,8 @@ import {
     stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
-    SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition, nextTakeRetentionVerdict,
-    recoveryBannerVerdict, savedTakeReadbackVerdict,
+    CompletionObserver, SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition,
+    nextTakeRetentionVerdict, recoveryBannerVerdict, savedTakeReadbackVerdict,
 } from './helpers/rwtSaveRetry';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -61,7 +61,8 @@ async function readSessionRows(uid: string): Promise<SessionRowFacts[]> {
 
 /** The words on the page, as a length only: the live transcript or its container, whichever the page renders. */
 async function transcriptOnPageLength(page: Page): Promise<number> {
-    for (const id of ['live-transcript', 'transcript-container']) {
+    // `review-transcript` is the saved review's own surface (Sam 6218045990); the live surfaces are checked too.
+    for (const id of ['live-transcript', 'transcript-container', 'review-transcript']) {
         const el = page.getByTestId(id).first();
         if (await el.count() === 0) continue;
         const text = await el.innerText({ timeout: 5_000 }).catch(() => '');
@@ -83,6 +84,12 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     let accountDeleted = false;
     // The ONE altered request. Every other completion request, including Retry Save's replay, reaches the server untouched.
     const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false };
+    // #1258 C — every non-dropped completion call's answer, read from the browser's own events by request identity.
+    const completions = new CompletionObserver<Request>();
+    page.on('response', (response) => {
+        if (completions.isObserved(response.request())) completions.onResponse(response.request(), response.status(), response.text().catch(() => null));
+    });
+    page.on('requestfailed', (request) => completions.onFailed(request, request.failure()?.errorText));
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
@@ -94,8 +101,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         await page.route(COMPLETION_RPC, async (route: Route) => {
             if (route.request().method() !== 'POST') return route.fallback();
             drop.completionPosts += 1;
+            completions.track(route.request(), drop.completionPosts);
             if (drop.dropped) return route.fallback();
             drop.dropped = true;
+            completions.markDropped(route.request());
             if (variant === 'request-lost') return route.abort('failed');
             // Response lost: the request reaches the real server and commits; the page never sees the answer.
             const response = await route.fetch();
@@ -124,7 +133,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         const dropDisposition = completionDropDisposition(variant, drop, rowsBeforeRetry);
         receipt.row('completion request altered once', dropDisposition.status, dropDisposition.detail,
             { completionPosts: drop.completionPosts, droppedStatus: drop.droppedStatus, rowsBeforeRetry: rowsBeforeRetry.length,
-                completedBeforeRetry: rowsBeforeRetry.filter((r) => r.status === 'completed').length });
+                completedBeforeRetry: rowsBeforeRetry.filter((r) => r.status === 'completed').length,
+                completionOutcomes: await completions.evidence() });
         const bannerVerdict = recoveryBannerVerdict({ bannerShown, resolution, message, retryOffered, wordsOnPage });
         receipt.row('recovery banner is truthful', bannerVerdict.status, bannerVerdict.detail,
             { bannerShown, resolution, retryOffered, wordsOnPageLength: wordsOnPage, discardOfferedBeforeRetry,
@@ -146,7 +156,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         const saved = savedTakeReadbackVerdict(rowsAfterRetry, savedId);
         receipt.row('Retry Save leaves one saved session', saved.status, saved.detail,
             { rows: rowsAfterRetry.length, completed: rowsAfterRetry.filter((r) => r.status === 'completed').length,
-                persistedIdBound: savedId !== null, completionPosts: drop.completionPosts });
+                persistedIdBound: savedId !== null, completionPosts: drop.completionPosts, completionOutcomes: await completions.evidence() });
 
         // The next Start, from the completed review's own repeat action, saves only itself.
         const again = page.getByTestId('verdict-practice-again');
@@ -160,8 +170,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         if (nextId) takes.push(nextId);
         const rowsAfterNext = await readSessionRows(owner.uid);
         const next = nextTakeRetentionVerdict(rowsAfterNext, savedId, nextId);
+        // Codex r4295679570: the next take's own completion call is tracked too — snapshot again so it is never omitted.
         receipt.row('next take saves only itself', next.status, next.detail,
-            { rows: rowsAfterNext.length, completed: rowsAfterNext.filter((r) => r.status === 'completed').length });
+            { rows: rowsAfterNext.length, completed: rowsAfterNext.filter((r) => r.status === 'completed').length,
+                completionOutcomes: await completions.evidence() });
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;

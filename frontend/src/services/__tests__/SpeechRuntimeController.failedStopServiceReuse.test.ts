@@ -401,3 +401,49 @@ describe('#1258 — a retirement superseded before it completes', () => {
         });
     });
 });
+
+/**
+ * #1258 RWT round 2 C (Sam 6218045990) — on a REAL failed Stop (not a hand-seeded retry slot), the take's words survive
+ * the page purge in the bound retry payload, and Retry Save replays exactly that transcript for the same session.
+ * The page clearing its live text is by design; the words a person spoke are not lost.
+ */
+describe('#1258 C — a real failed Stop keeps the take\'s words for Retry Save across the page purge', () => {
+    beforeEach(() => {
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        factory.queue.length = 0;
+        factory.active = null;
+        vi.mocked(saveSession).mockReset().mockResolvedValueOnce({ status: 'saved', session: { id: 'session-A' } } as never);
+        vi.mocked(completeSession).mockReset().mockResolvedValue({ success: true } as never);
+    });
+
+    it('the failed completion\'s transcript is the one Retry Save replays, after the live text is purged', async () => {
+        const c = newController();
+        c.state = 'READY';
+        const serviceA = recordingService('A');
+        factory.queue.push(serviceA);
+        enterProduct('open_mic', BRIEF_A);
+        await c.startRecording(POLICY, []);
+
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(c.stopRecording()).rejects.toThrow('SESSION_COMPLETION_FAILED');
+        await settle();
+        const calls = vi.mocked(completeSession).mock.calls;
+        type Args = { status?: string; finalTranscript?: string };
+        const completedCalls = () => calls.filter((call) => (call[1] as Args | undefined)?.status === 'completed');
+        // The failed attempt is the take's COMPLETED write (a later `status: failed` marker write carries no transcript).
+        const failed = completedCalls()[completedCalls().length - 1];
+        const original = (failed?.[1] as Args | undefined)?.finalTranscript;
+        expect(original, 'the failed completion carried the take\'s words').toContain('Alpha take words');
+        expect(useSessionStore.getState().pendingResolutionKind, 'a full-save recovery is pending').toBe('full_save');
+        expect(useSessionStore.getState().transcript.transcript, 'the page purged its live text (by design)').toBe('');
+
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: true, transcriptOutcome: 'retained', transcriptRetained: true } as never);
+        await (c as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave();
+        const replay = completedCalls()[completedCalls().length - 1];
+        expect(replay, 'Retry Save sent a new completed write').not.toBe(failed);
+        expect(replay?.[0], 'the same session').toBe(failed?.[0]);
+        expect((replay?.[1] as Args | undefined)?.finalTranscript, 'the identical words are replayed').toBe(original);
+    });
+});

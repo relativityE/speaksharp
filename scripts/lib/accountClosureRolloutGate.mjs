@@ -39,11 +39,6 @@ export function accountClosureRolloutQuery(mode, baseline) {
         AND NOT has_function_privilege('anon',p.oid,'EXECUTE') AND NOT has_function_privilege('authenticated',p.oid,'EXECUTE')
         AND NOT has_function_privilege('service_role',p.oid,'EXECUTE')
         AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0)) AS ok
-      UNION ALL SELECT 'required_columns', NOT EXISTS(SELECT 1 FROM (VALUES ${required}) AS required(relation,name,type)
-        LEFT JOIN pg_attribute a ON a.attrelid=to_regclass(required.relation) AND a.attname=required.name AND a.attnum>0 AND NOT a.attisdropped
-        WHERE a.attnum IS NULL OR CASE WHEN required.type='text-compatible'
-          THEN a.atttypid NOT IN ('text'::regtype,'varchar'::regtype)
-          ELSE format_type(a.atttypid,a.atttypmod)<>required.type END)
     ` : `
       SELECT 'exact_table_definitions' AS name, NOT EXISTS(SELECT 1 FROM
         (VALUES ${Object.entries(tableDigests).map(([name, hash]) => `(${literal(name)},'${hash}')`).join(',')}) AS expected(name,digest)
@@ -55,13 +50,50 @@ export function accountClosureRolloutQuery(mode, baseline) {
           (SELECT jsonb_agg(jsonb_build_array(x.conname,pg_get_constraintdef(x.oid)) ORDER BY x.conname)
             FROM pg_constraint x WHERE x.conrelid=c.oid AND x.contype<>'n'))::text)<>expected.digest) AS ok
     `;
-    return `WITH checks AS (${checks}) SELECT json_build_object('mode','rollout-${mode}',
+    // Shared pre/post dependencies: replacing a function does not repair its
+    // trigger, conflict arbiter or ownership FK. Resolve attribute identities
+    // through pg_catalog rather than assuming column positions/index names.
+    const dependencies = `
+      UNION ALL SELECT 'required_columns', NOT EXISTS(SELECT 1 FROM (VALUES ${required}) AS required(relation,name,type)
+        LEFT JOIN pg_attribute a ON a.attrelid=to_regclass(required.relation) AND a.attname=required.name AND a.attnum>0 AND NOT a.attisdropped
+        WHERE a.attnum IS NULL OR CASE WHEN required.type='text-compatible'
+          THEN a.atttypid NOT IN ('text'::regtype,'varchar'::regtype)
+          ELSE format_type(a.atttypid,a.atttypmod)<>required.type END)
+      UNION ALL SELECT 'signup_trigger', EXISTS(SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid=to_regclass('auth.users') AND t.tgname='on_auth_user_created_trial_profile'
+          AND t.tgfoid=to_regprocedure('public.ensure_trial_profile_for_new_user()')
+          AND t.tgenabled='O' AND NOT t.tgisinternal AND t.tgtype=5
+          AND t.tgattr::text='' AND t.tgqual IS NULL AND t.tgnargs=0 AND octet_length(t.tgargs)=0
+          AND t.tgconstraint=0 AND t.tgconstrrelid=0 AND NOT t.tgdeferrable AND NOT t.tginitdeferred
+          AND t.tgoldtable IS NULL AND t.tgnewtable IS NULL)
+      UNION ALL SELECT 'trial_email_arbiter', EXISTS(SELECT 1 FROM pg_index i JOIN pg_attribute email
+        ON email.attrelid=i.indrelid AND email.attname='email' AND email.attnum>0 AND NOT email.attisdropped
+        WHERE i.indrelid=to_regclass('public.trial_entitlements') AND i.indisunique AND i.indisvalid
+          AND i.indisready AND i.indimmediate AND i.indpred IS NULL AND i.indexprs IS NULL
+          AND i.indnkeyatts=1 AND i.indkey[0]=email.attnum)
+        AND NOT EXISTS(SELECT 1 FROM pg_index i JOIN pg_attribute email
+          ON email.attrelid=i.indrelid AND email.attname='email' AND email.attnum>0 AND NOT email.attisdropped
+          WHERE i.indrelid=to_regclass('public.trial_entitlements') AND i.indisunique AND i.indisvalid
+            AND NOT i.indimmediate AND i.indpred IS NULL AND i.indexprs IS NULL
+            AND i.indnkeyatts=1 AND i.indkey[0]=email.attnum)
+      UNION ALL SELECT 'trial_owner_fk', EXISTS(SELECT 1 FROM pg_attribute owner JOIN pg_attribute target
+        ON target.attrelid=to_regclass('auth.users') AND target.attname='id' AND target.attnum>0 AND NOT target.attisdropped
+        WHERE owner.attrelid=to_regclass('public.trial_entitlements') AND owner.attname='user_id'
+          AND owner.attnum>0 AND NOT owner.attisdropped AND NOT owner.attnotnull
+          AND (SELECT count(*) FROM pg_constraint c WHERE c.conrelid=owner.attrelid AND c.contype='f'
+            AND owner.attnum=ANY(c.conkey))=1
+          AND EXISTS(SELECT 1 FROM pg_constraint c WHERE c.conrelid=owner.attrelid AND c.contype='f'
+            AND c.conkey=ARRAY[owner.attnum]::smallint[] AND c.confrelid=target.attrelid
+            AND c.confkey=ARRAY[target.attnum]::smallint[] AND c.convalidated AND c.confdeltype='n'))
+    `;
+    return `WITH checks AS (${checks} ${dependencies}) SELECT json_build_object('mode','rollout-${mode}',
       'checks',json_object_agg(name,ok),'passed',bool_and(ok))::text FROM checks;`;
 }
 
 export function assertAccountClosureRollout(result, mode) {
     const value = typeof result === 'string' ? JSON.parse(result) : result;
-    const names = mode === 'before' ? ['baseline_function', 'required_columns'] : mode === 'after' ? ['exact_table_definitions'] : [];
+    const shared = ['required_columns', 'signup_trigger', 'trial_email_arbiter', 'trial_owner_fk'];
+    const names = mode === 'before' ? ['baseline_function', ...shared] : mode === 'after' ? ['exact_table_definitions', ...shared] : [];
     if (!names.length || value?.mode !== `rollout-${mode}` || value?.passed !== true || !value.checks
         || Object.keys(value.checks).length !== names.length || names.some((name) => value.checks[name] !== true)) throw new Error('closure rollout schema check failed');
     return value;

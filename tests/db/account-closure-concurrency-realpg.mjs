@@ -35,10 +35,10 @@ function client(name, text) {
   clients.push(done);
   return done;
 }
-async function waitFor(text) {
+async function waitFor(text, terminal = () => false) {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (sql(text) === 't') return;
+    if (terminal() || sql(text) === 't') return;
     await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error('concurrency barrier did not reach the required database state');
@@ -424,6 +424,95 @@ try {
   sql(transition('completed'));
   assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${uid}'`), 'completed');
   assert.equal(sql(`SELECT claimed_email FROM account_closure_attempts WHERE user_id='${uid}'`), 'user@example.test');
+  // Discard the first committed RPC response, then explicitly replay the SAME
+  // request/state. Concurrent acknowledgments must not repeat cleanup or mutate
+  // timestamps. No Auth DELETE/provider call is inferred from the lost receipt.
+  const replayUser = 'b0000000-0000-4000-8000-000000000001';
+  const replayToken = 'e'.repeat(64);
+  sql(`INSERT INTO auth.users VALUES('${replayUser}','replay@example.test',now());
+    SET ROLE service_role; SELECT issue_account_closure_token('${replayUser}','${replayToken}');`);
+  const replayRequest = JSON.parse(sql(`SET ROLE service_role; SELECT row_to_json(t)
+    FROM claim_account_closure_token('${replayUser}','${replayToken}') t`)).request_id;
+  const replay = (phase, request = replayRequest) => `SET ROLE service_role;
+    SELECT record_account_closure_auth_state('${replayUser}','${request}','${phase}')`;
+  const replaySnapshot = () => sql(`SELECT json_build_object(
+    'attempt',(SELECT row_to_json(a) FROM account_closure_attempts a WHERE user_id='${replayUser}'),
+    'fence',(SELECT row_to_json(f) FROM account_billing_fences f WHERE user_id='${replayUser}'),
+    'checkout',(SELECT json_agg(o) FROM account_checkout_operations o WHERE user_id='${replayUser}'))`);
+  const replayResults = [];
+  for (const [index, phase] of ['auth_unknown','auth_deleted','completed'].entries()) {
+    if (phase === 'auth_deleted') sql(`SET ROLE service_role; SELECT preserve_account_trial_email('${replayUser}');
+      RESET ROLE; DELETE FROM auth.users WHERE id='${replayUser}'`);
+    sql(replay(phase)); // committed receipt deliberately not retained/used
+    const before = replaySnapshot();
+    const result = await client(`lost_receipt_${phase}`, replay(phase));
+    const barrierName = `replay_barrier_${phase}`; const firstName = `replay_first_${phase}`;
+    const key = 88400 + index;
+    const holder = client(barrierName, `SELECT pg_advisory_lock(${key}); SELECT pg_sleep(20)`);
+    await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='${barrierName}' AND wait_event='PgSleep')`);
+    const first = client(firstName, `BEGIN; ${replay(phase)}; SELECT pg_advisory_xact_lock(${key}); COMMIT;`);
+    // Old code refuses before the barrier. Observe either that terminal outcome
+    // or the actual correct advisory wait, rather than assuming elapsed time.
+    let firstDone = false; void first.then(() => { firstDone = true; });
+    await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+      WHERE application_name='${firstName}' AND wait_event_type='Lock' AND wait_event='advisory')`, () => firstDone);
+    const secondName = `replay_second_${phase}`;
+    const second = client(secondName, replay(phase));
+    if (!firstDone) await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity w WHERE application_name='${secondName}'
+      AND (SELECT pid FROM pg_stat_activity WHERE application_name='${firstName}')=ANY(pg_blocking_pids(w.pid)))`);
+    sql(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='${barrierName}'`);
+    await holder;
+    const concurrent = await Promise.all([first, second]);
+    replayResults.push({ phase, retryCode: result.code, concurrentCodes: concurrent.map((r) => r.code), unchanged: replaySnapshot() === before });
+    if (phase === 'auth_unknown') assert.equal(sql(`SELECT count(*) FROM auth.users WHERE id='${replayUser}'`), '1');
+  }
+  console.log(JSON.stringify({ authStateReplay: replayResults }));
+  for (const result of replayResults) {
+    assert.equal(result.retryCode, 0, `${result.phase}: lost acknowledgment stranded the same request`);
+    assert.deepEqual(result.concurrentCodes, [0, 0]);
+    assert.equal(result.unchanged, true, 'replay mutated the already committed state');
+  }
+  let replayInvariantCases = 0;
+  for (const [index, phase] of ['auth_unknown','auth_deleted','completed'].entries()) {
+    const user = `b0000000-0000-4000-8000-${String(index + 2).padStart(12, '0')}`;
+    const token = 'f'.repeat(32) + String(index + 2).padStart(32, '0');
+    sql(`INSERT INTO auth.users VALUES('${user}','replay-${index}@example.test',now()); SET ROLE service_role;
+      SELECT issue_account_closure_token('${user}','${token}');`);
+    const request = JSON.parse(sql(`SET ROLE service_role; SELECT row_to_json(t) FROM claim_account_closure_token('${user}','${token}') t`)).request_id;
+    const advance = (state, id = request) => `SET ROLE service_role; SELECT record_account_closure_auth_state('${user}','${id}','${state}')`;
+    sql(advance('auth_unknown'));
+    if (phase !== 'auth_unknown') sql(`SET ROLE service_role; SELECT preserve_account_trial_email('${user}'); RESET ROLE;
+      DELETE FROM auth.users WHERE id='${user}'; ${advance('auth_deleted')}`);
+    if (phase === 'completed') sql(advance('completed'));
+    const before = sql(`SELECT row_to_json(a) FROM account_closure_attempts a WHERE user_id='${user}'`);
+    const mutations = [
+      `UPDATE account_closure_attempts SET phase='failed' WHERE user_id='${user}'`,
+      `UPDATE account_closure_attempts SET phase='${phase === 'auth_unknown' ? 'auth_deleted' : phase === 'auth_deleted' ? 'completed' : 'processing'}' WHERE user_id='${user}'`,
+      `DELETE FROM account_closure_attempts WHERE user_id='${user}'`,
+      ...(phase === 'auth_unknown' ? [
+        `DELETE FROM account_billing_fences WHERE user_id='${user}'`,
+        `UPDATE account_closure_tokens SET phase='failed' WHERE user_id='${user}'`,
+        `INSERT INTO account_checkout_operations(user_id,phase) VALUES('${user}','unknown')`,
+      ] : phase === 'auth_deleted' ? [
+        `INSERT INTO auth.users VALUES('${user}','replay-${index}@example.test',now())`,
+        `INSERT INTO account_billing_fences(user_id,phase) VALUES('${user}','open')`,
+        `INSERT INTO account_checkout_operations(user_id,phase) VALUES('${user}','settled')`,
+      ] : [
+        `INSERT INTO storage.objects VALUES('fixture','replay-residue','${user}')`,
+        `DELETE FROM trial_entitlements WHERE email='replay-${index}@example.test'`,
+      ]),
+    ];
+    for (const mutation of mutations) {
+      const result = await client(`replay_invariant_${++replayInvariantCases}`, `BEGIN; ${mutation}; ${advance(phase)}; COMMIT;`);
+      assert.notEqual(result.code, 0, `${phase}: replay ignored invalid current invariants`);
+      assert.equal(sql(`SELECT row_to_json(a) FROM account_closure_attempts a WHERE user_id='${user}'`), before);
+    }
+    for (const statement of [advance(phase, 'b9999999-9999-4999-8999-999999999999'), advance('processing')]) {
+      const refused = await client(`replay_invalid_${++replayInvariantCases}`, statement);
+      assert.notEqual(refused.code, 0); assert.match(refused.stderr, /invalid closure transition/);
+    }
+  }
+  console.log(JSON.stringify({ replayInvariantCases, result: 'PASS' }));
   // Forward drain consumption, using the same isolated real server and actual
   // RPC bodies. Registration is synthetic evidence, not a platform-drain proof.
   const redUser = 'd0000000-0000-4000-8000-000000000000';
@@ -587,8 +676,7 @@ try {
     DELETE FROM auth.users WHERE id='${recovered.user}';`);
   const recoveries = await Promise.all([client('drain_recovery_a', recovered.transition(recoveredRequest, 'auth_deleted')),
     client('drain_recovery_b', recovered.transition(recoveredRequest, 'auth_deleted'))]);
-  assert.deepEqual(recoveries.map((r) => r.code).sort(), [0, 1]);
-  assert.match(recoveries.find((r) => r.code !== 0).stderr, /invalid closure transition/);
+  assert.deepEqual(recoveries.map((r) => r.code), [0, 0]);
   assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${recovered.user}'`), 'auth_deleted');
   sql(`INSERT INTO storage.objects VALUES('native','recovery-residue','${recovered.user}')`);
   const residueRefusal = await client('drain_completion_residue', recovered.transition(recoveredRequest, 'completed'));
@@ -597,8 +685,7 @@ try {
   sql(`DELETE FROM storage.objects WHERE owner_id='${recovered.user}'`);
   const completions = await Promise.all([client('drain_completion_a', recovered.transition(recoveredRequest, 'completed')),
     client('drain_completion_b', recovered.transition(recoveredRequest, 'completed'))]);
-  assert.deepEqual(completions.map((r) => r.code).sort(), [0, 1]);
-  assert.match(completions.find((r) => r.code !== 0).stderr, /invalid closure transition/);
+  assert.deepEqual(completions.map((r) => r.code), [0, 0]);
   assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${recovered.user}'`), 'completed');
   assert.equal(sql(`SELECT count(*) FROM account_closure_billing_permits WHERE user_id='${recovered.user}'`), '0');
   assert.equal(sql(`SELECT count(*) FROM account_billing_fences WHERE user_id='${recovered.user}'`), '0');
@@ -606,8 +693,8 @@ try {
   assert.notEqual(legacyBypass.code, 0); assert.match(legacyBypass.stderr, /permission denied/);
   console.log(JSON.stringify({ drainEnforcement: 'PASS', fixtures: drainCases,
     cases: ['old-boolean-RED', 'claim-expired-during-profile-wait', 'recovery-expired-during-journal-wait',
-      'invalidation-first', 'concurrent-auth-reconciliation-CAS', 'completion-residue-rollback',
-      'concurrent-completion-CAS', 'legacy-service-bypass-refused', 'valid-terminal-cleanup'],
+      'invalidation-first', 'concurrent-auth-reconciliation-idempotent-ACK', 'completion-residue-rollback',
+      'concurrent-completion-idempotent-ACK', 'legacy-service-bypass-refused', 'valid-terminal-cleanup'],
     providerCalls: 0, externalDrainFacts: 'UNVERIFIED' }));
   console.log(JSON.stringify({ postgres: sql('SHOW server_version'),
     result: 'PASS', boundary: 'canonical webhook row-lock → checkout refusal and closure claim',

@@ -18,7 +18,6 @@
 import { computeObjectiveCoverage, type TranscriptSegment } from '@/services/objective/objectiveCoverage';
 import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
 import { emitCoverageEvaluation } from '@/services/telemetry/coverageTelemetry';
-import { markCompletionStage } from '@/services/telemetry/completionStages';
 import { COVERED_RATIO, PARTIAL_RATIO, extractKeywords } from '@/services/rehearsal/outcomeScorecard';
 import { countWords } from '@/lib/contentDigest';
 import type { CoverageRailPoint } from '@/components/session/CoverageRail';
@@ -222,10 +221,9 @@ export function deriveFocusCoverage(
         })),
     });
 
-    // #1259 F16 — coverage has a verdict, and the stage is the moment it SETTLES. Relying on
-    // `markCompletionStage` to take the mark once was the defect: the once it took was the first live
-    // render, which lands before the user has even pressed Stop.
-    if (settled) markCompletionStage('evaluation_complete');
+    // #1259 F16 / #1258 item 5 (PM 6216341052) — `evaluation_complete` is NOT marked here. A render is presentation, not
+    // the take's authoritative Focus evaluation, and it can land after `session_saved`. The stage is produced by the
+    // controller at the successful, owned Focus finalization (`finalizeObjectiveAndGateProgress`), before the save marker.
 
     const coveredCount = rows.filter((r) => r.covered).length;
     const nextIndex = rows.findIndex((r) => !r.covered);

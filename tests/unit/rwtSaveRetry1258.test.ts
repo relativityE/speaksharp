@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     RECOVERY_COPY, SAVE_RETRY_SUITE, type SessionRowFacts, completionDropDisposition, nextTakeRetentionVerdict,
-    recoveryBannerVerdict, savedTakeReadbackVerdict,
+    CompletionObserver, classifyTransportFailure, recoveryBannerVerdict, sanitizedCompletionOutcome, savedTakeReadbackVerdict,
 } from '../live/helpers/rwtSaveRetry';
 import {
     SAVE_RETRY_REQUEST_LOST_SUITE, SAVE_RETRY_RESPONSE_LOST_SUITE, requiredAutomatedRows, requiredHumanObservations,
@@ -48,10 +48,12 @@ describe('recoveryBannerVerdict — every claim is true of the page', () => {
         expect(recoveryBannerVerdict({ ...ok, resolution: 'attribution' }).detail).toMatch(/wrong unresolved state/);
         expect(recoveryBannerVerdict({ ...ok, retryOffered: false }).status).toBe('FAIL');
     });
-    it('copy for the other state, no words claim, or a words claim with no words on the page → FAIL', () => {
+    it('copy for the other state, or a words claim that disagrees with the page (either way) → FAIL', () => {
         expect(recoveryBannerVerdict({ ...ok, resolution: 'initial_save' }).detail).toMatch(/does not match/);
-        expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save }).detail).toMatch(/words are still here/);
-        expect(recoveryBannerVerdict({ ...ok, wordsOnPage: 0 }).detail).toMatch(/none are on the page/);
+        // #1258 C: the words claim is CONDITIONAL — required with words on the page, forbidden without.
+        expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save }).detail, 'words on the page but no claim').toMatch(/does not say they are still here/);
+        expect(recoveryBannerVerdict({ ...ok, wordsOnPage: 0 }).detail, 'a words claim with none on the page').toMatch(/none are on the page/);
+        expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save, wordsOnPage: 0 }).status, 'no words, no claim: truthful').toBe('PASS');
     });
 });
 
@@ -116,7 +118,10 @@ describe('guards — the spec, the acceptance map and the banner stay in step', 
 
     it('only the first completion request is altered; Retry Save\'s replay reaches the server untouched', () => {
         expect(spec).toContain("const COMPLETION_RPC = '**/rest/v1/rpc/complete_session_v2';");
+        // #1258 C (Sam 6216511222): after the one drop the harness stays OUT of the request path — plain fallback, never
+        // route.fetch/fulfill — and learns each answer from the browser's own events instead.
         expect(spec).toContain('if (drop.dropped) return route.fallback();');
+        expect(spec).not.toContain('route.fulfill(');
         expect(spec).toContain("if (variant === 'request-lost') return route.abort('failed');");
         expect(spec).toMatch(/const response = await route\.fetch\(\);\s+drop\.droppedStatus = response\.status\(\);\s+return route\.abort\('failed'\);/);
     });
@@ -125,5 +130,94 @@ describe('guards — the spec, the acceptance map and the banner stay in step', 
         expect(spec).toContain('transcriptLength: typeof row.transcript === \'string\' ? row.transcript.length : 0');
         expect(spec).toContain('messageLength: message.length');
         expect(spec).not.toMatch(/message: message|transcript: row\.transcript/);
+    });
+});
+
+describe('#1258 RWT round 2 C — a completion call\'s server answer is recorded content-free (Sam 6216156003)', () => {
+    it('a success keeps only the status', () => {
+        expect(sanitizedCompletionOutcome(200, '{"final_status":"completed","transcript":"words"}')).toEqual({ status: 200, code: null });
+    });
+    it('a PostgreSQL SQLSTATE or PostgREST code is kept; message, details and hint never are', () => {
+        const body = JSON.stringify({ code: '42501', message: 'permission denied: the user said something private', details: 'x', hint: 'y' });
+        const out = sanitizedCompletionOutcome(403, body);
+        expect(out).toEqual({ status: 403, code: '42501' });
+        expect(JSON.stringify(out)).not.toMatch(/private|permission|details|hint/);
+        expect(sanitizedCompletionOutcome(404, JSON.stringify({ code: 'PGRST202', message: 'no function' }))).toEqual({ status: 404, code: 'PGRST202' });
+    });
+    it('a code that is not an allowlisted shape is named, never echoed (it could carry content)', () => {
+        const out = sanitizedCompletionOutcome(400, JSON.stringify({ code: 'my transcript text', message: 'm' }));
+        expect(out).toEqual({ status: 400, code: 'unrecognized' });
+        expect(sanitizedCompletionOutcome(400, JSON.stringify({ code: 'p0001' }))).toEqual({ status: 400, code: 'unrecognized' });
+    });
+    it('an unparseable body or a missing code is reported as such', () => {
+        expect(sanitizedCompletionOutcome(502, '<html>Bad gateway: the transcript</html>')).toEqual({ status: 502, code: 'unparseable' });
+        expect(sanitizedCompletionOutcome(500, JSON.stringify({ message: 'boom' }))).toEqual({ status: 500, code: 'absent' });
+        expect(sanitizedCompletionOutcome(500, 'null')).toEqual({ status: 500, code: 'absent' });
+    });
+    it('an unreadable response body is named, not guessed', () => {
+        expect(sanitizedCompletionOutcome(500, null)).toEqual({ status: 500, code: 'unreadable' });
+    });
+    it('a no-response failure maps to a fixed class, never the browser error text', () => {
+        expect(classifyTransportFailure('net::ERR_ABORTED')).toBe('aborted');
+        expect(classifyTransportFailure('net::ERR_TIMED_OUT')).toBe('timed_out');
+        expect(classifyTransportFailure('net::ERR_CONNECTION_RESET')).toBe('connection');
+        expect(classifyTransportFailure('net::ERR_NAME_NOT_RESOLVED')).toBe('connection');
+        expect(classifyTransportFailure('something with the transcript in it')).toBe('other');
+        expect(classifyTransportFailure(undefined)).toBe('other');
+    });
+    it('observer: answers are correlated by REQUEST IDENTITY and reported in CALL order, whatever order they complete in', async () => {
+        const o = new CompletionObserver<{ id: string }>();
+        const r1 = { id: 'dropped' }; const r2 = { id: 'a' }; const r3 = { id: 'b' }; const r4 = { id: 'c' };
+        o.track(r1, 1); o.markDropped(r1);
+        o.track(r2, 2); o.track(r3, 3); o.track(r4, 4);
+        let releaseBody: (b: string) => void = () => undefined;
+        o.onResponse(r2, 403, new Promise<string | null>((res) => { releaseBody = res; })); // slow body: completes LAST
+        o.onFailed(r3, 'net::ERR_CONNECTION_RESET'); // no response at all
+        o.onResponse(r4, 200, '{"final_status":"completed","transcript":"secret words"}');
+        o.onFailed(r1, 'net::ERR_FAILED'); // the deliberate drop: excluded
+        o.onResponse({ id: 'unrelated' }, 500, '{}'); // never tracked: ignored
+        releaseBody(JSON.stringify({ code: '42501', message: 'the transcript text' }));
+        const ev = await o.evidence();
+        expect(ev).toBe('2=403:42501,3=no_response:connection,4=200:ok');
+        expect(ev).not.toMatch(/secret|transcript|RESET/);
+    });
+    it('observer: a body read that REJECTS still records the status (unreadable), and evidence() never throws', async () => {
+        const o = new CompletionObserver<object>();
+        const r = {};
+        o.track(r, 2);
+        o.onResponse(r, 502, Promise.reject(new Error('body stream failed')));
+        await expect(o.evidence()).resolves.toBe('2=502:unreadable');
+    });
+    it('observer: ONE record per request — headers then a failed body transfer is `<status>:transfer_failed`, not two contradictory entries', async () => {
+        const o = new CompletionObserver<object>();
+        const r = {};
+        o.track(r, 2);
+        o.onResponse(r, 200, Promise.reject(new Error('stream reset mid-body')));
+        o.onFailed(r, 'net::ERR_CONNECTION_RESET');
+        await expect(o.evidence()).resolves.toBe('2=200:transfer_failed');
+    });
+    it('observer: evidence is a truthful SNAPSHOT — a tracked call still waiting for headers reads `pending`, never disappears', async () => {
+        const o = new CompletionObserver<object>();
+        const done = {}; const waiting = {};
+        o.track(done, 2); o.track(waiting, 3);
+        o.onResponse(done, 200, '{}');
+        await expect(o.evidence()).resolves.toBe('2=200:ok,3=pending');
+    });
+    it('observer (Codex r4295679559): a STALLED body is reported `body_pending` after a bounded grace — the snapshot never hangs', async () => {
+        const o = new CompletionObserver<object>();
+        const stalled = {}; const done = {};
+        o.track(stalled, 2); o.track(done, 3);
+        o.onResponse(stalled, 200, new Promise<string | null>(() => undefined)); // never settles
+        o.onResponse(done, 409, JSON.stringify({ code: 'P0001' }));
+        await expect(o.evidence(20)).resolves.toBe('2=200:body_pending,3=409:P0001');
+    });
+    it('source guard: the spec numbers each call at routing time, excludes the drop, and feeds both browser events to the observer', () => {
+        const spec = src('tests/live/rwt-save-retry-recovery.live.spec.ts');
+        expect(spec).toContain('completions.track(route.request(), drop.completionPosts);');
+        expect(spec).toContain('completions.markDropped(route.request());');
+        expect(spec).toContain("page.on('response'");
+        expect(spec).toContain("page.on('requestfailed', (request) => completions.onFailed(request, request.failure()?.errorText));");
+        // Every completionOutcomes snapshot, including the one after the next take (Codex r4295679570).
+        expect(spec.match(/completionOutcomes: await completions\.evidence\(\)/g)?.length).toBe(3);
     });
 });
