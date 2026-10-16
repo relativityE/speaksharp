@@ -201,12 +201,21 @@ describe('#1258 RWT round 2 C — a completion call\'s server answer is recorded
         o.onResponse(done, 200, '{}');
         await expect(o.evidence()).resolves.toBe('2=200:ok,3=pending');
     });
+    it('observer (Codex r4295679559): a STALLED body is reported `body_pending` after a bounded grace — the snapshot never hangs', async () => {
+        const o = new CompletionObserver<object>();
+        const stalled = {}; const done = {};
+        o.track(stalled, 2); o.track(done, 3);
+        o.onResponse(stalled, 200, new Promise<string | null>(() => undefined)); // never settles
+        o.onResponse(done, 409, JSON.stringify({ code: 'P0001' }));
+        await expect(o.evidence(20)).resolves.toBe('2=200:body_pending,3=409:P0001');
+    });
     it('source guard: the spec numbers each call at routing time, excludes the drop, and feeds both browser events to the observer', () => {
         const spec = src('tests/live/rwt-save-retry-recovery.live.spec.ts');
         expect(spec).toContain('completions.track(route.request(), drop.completionPosts);');
         expect(spec).toContain('completions.markDropped(route.request());');
         expect(spec).toContain("page.on('response'");
         expect(spec).toContain("page.on('requestfailed', (request) => completions.onFailed(request, request.failure()?.errorText));");
-        expect(spec.match(/completionOutcomes: await completions\.evidence\(\)/g)?.length).toBe(2);
+        // Every completionOutcomes snapshot, including the one after the next take (Codex r4295679570).
+        expect(spec.match(/completionOutcomes: await completions\.evidence\(\)/g)?.length).toBe(3);
     });
 });

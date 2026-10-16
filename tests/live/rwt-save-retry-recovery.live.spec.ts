@@ -169,8 +169,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         if (nextId) takes.push(nextId);
         const rowsAfterNext = await readSessionRows(owner.uid);
         const next = nextTakeRetentionVerdict(rowsAfterNext, savedId, nextId);
+        // Codex r4295679570: the next take's own completion call is tracked too — snapshot again so it is never omitted.
         receipt.row('next take saves only itself', next.status, next.detail,
-            { rows: rowsAfterNext.length, completed: rowsAfterNext.filter((r) => r.status === 'completed').length });
+            { rows: rowsAfterNext.length, completed: rowsAfterNext.filter((r) => r.status === 'completed').length,
+                completionOutcomes: await completions.evidence() });
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;

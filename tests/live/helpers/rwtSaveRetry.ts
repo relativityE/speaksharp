@@ -61,8 +61,9 @@ export function classifyTransportFailure(errorText: string | null | undefined): 
  * ONE RECORD PER REQUEST. Playwright can emit `response` (headers) and then `requestfailed` (the body transfer died), so
  * a received status is kept and the failure becomes `transfer_failed` — never a contradictory second "no response" entry.
  * The evidence is a SNAPSHOT of every tracked call: one still waiting for headers reads `pending`, one whose body is
- * still loading reads `<status>:body_pending`. Nothing tracked is silently omitted, and no wait is unbounded: only body
- * reads already registered are awaited.
+ * still loading reads `<status>:body_pending`. Nothing tracked is silently omitted. Codex r4295679559: body reads are
+ * given a BOUNDED grace (`graceMs`) and then the snapshot is taken regardless — a stalled body stays `body_pending`
+ * instead of stalling the receipt until the test timeout.
  */
 type CompletionRecord = {
     ordinal: number; status: number | null; code: string | null;
@@ -100,8 +101,13 @@ export class CompletionObserver<R extends object> {
     }
 
     /** Flat receipt evidence, one entry per tracked call in CALL order, e.g. `2=403:42501,3=no_response:connection,4=pending`. */
-    async evidence(): Promise<string> {
-        await Promise.all([...this.pending]);
+    async evidence(graceMs = 5_000): Promise<string> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+            Promise.all([...this.pending]),
+            new Promise<void>((resolve) => { timer = setTimeout(resolve, graceMs); }),
+        ]);
+        if (timer !== undefined) clearTimeout(timer);
         const entries = [...this.records.entries()].filter(([request]) => !this.dropped.has(request)).map(([, rec]) => rec);
         return entries.sort((a, b) => a.ordinal - b.ordinal).map((rec) => {
             if (rec.status === null) return `${rec.ordinal}=${rec.failure ? `no_response:${rec.failure}` : 'pending'}`;
