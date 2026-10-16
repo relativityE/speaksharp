@@ -86,6 +86,16 @@ describe('openPointReferenceVerdict — Focus advice and the points still open',
         const v = openPointReferenceVerdict({ well: 'Clear voice.', next: 'Slow down a little.', labels, statuses: ['covered', 'partial', 'covered'] });
         expect(v.status).toBe('HOLD');
     });
+    it('PM 6207105255: missing, mismatched, pending or unreadable rail evidence HOLDs — never an invented all-covered PASS', () => {
+        const advice = { well: 'Good opening.', next: 'Slow down.' };
+        expect(openPointReferenceVerdict({ ...advice, labels: [], statuses: [] }).status).toBe('HOLD');
+        expect(openPointReferenceVerdict({ ...advice, labels, statuses: ['covered', 'covered'] }).status, 'a shorter status array').toBe('HOLD');
+        expect(openPointReferenceVerdict({ ...advice, labels, statuses: ['covered', null, 'covered'] }).status, 'an unreadable status').toBe('HOLD');
+        expect(openPointReferenceVerdict({ ...advice, labels, statuses: ['covered', 'pending', 'covered'] }).status, 'a status not yet settled').toBe('HOLD');
+        expect(openPointReferenceVerdict({ ...advice, labels: ['', 'Name the launch date', 'Thank the team'], statuses: ['covered', 'covered', 'covered'] }).status).toBe('HOLD');
+        expect(openPointReferenceVerdict({ ...advice, labels, statuses: ['covered', 'covered', 'covered'] }).status, 'CONTROL: explicitly all covered').toBe('PASS');
+    });
+
     it('short or common words never count as a reference', () => {
         expect(openPointReferenceVerdict({ well: 'Thank you.', next: 'Name your team.', labels: ['the team'], statuses: ['missing'] }).status).toBe('PASS');
         expect(openPointReferenceVerdict({ well: 'Good.', next: 'Say it with care.', labels: ['with the plan'], statuses: ['missing'] }).status).toBe('HOLD');

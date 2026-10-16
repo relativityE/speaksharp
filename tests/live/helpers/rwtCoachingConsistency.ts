@@ -63,8 +63,15 @@ export function takesDifferVerdict(
  * know), so an advice that names no open point is HOLD and the human check decides.
  */
 export function openPointReferenceVerdict(o: { well: string; next: string; labels: readonly string[]; statuses: readonly (string | null)[] }): Verdict {
+    // PM 6207105255: missing evidence never invents "all covered". The rail must be readable, complete and terminal.
+    if (o.labels.length === 0 || o.statuses.length !== o.labels.length || o.labels.some((l) => l.trim() === '')) {
+        return { status: 'HOLD', detail: 'the rail evidence is missing or does not match the set, so open points are unknown' };
+    }
+    if (o.statuses.some((s) => s !== 'covered' && s !== 'partial' && s !== 'missing')) {
+        return { status: 'HOLD', detail: 'a point\'s final status is unreadable or not yet settled, so open points are unknown' };
+    }
     const open = o.labels.filter((_, i) => o.statuses[i] === 'partial' || o.statuses[i] === 'missing');
-    if (open.length === 0) return { status: 'PASS', detail: 'every point was covered; there is no open point to name' };
+    if (open.length === 0) return { status: 'PASS', detail: 'every point was explicitly covered; there is no open point to name' };
     if (o.well === '' && o.next === '') return { status: 'HOLD', detail: 'no phrases to check' };
     const text = norm(`${o.well} ${o.next}`);
     const words = (label: string) => norm(label).split(/[^a-z0-9']+/).filter((w) => w.length >= 4 && !STOPWORDS.has(w));
