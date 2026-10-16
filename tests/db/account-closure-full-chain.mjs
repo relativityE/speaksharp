@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 import console from 'node:console';
 import { accountClosureEnforcementStages } from '../../scripts/lib/accountClosureEnforcementGate.mjs';
+import { captureOwnedDatabaseDiagnostics, proofSubprocessFailure } from './account-closure-full-chain-diagnostics.mjs';
 
 const root = resolve('backend/supabase/migrations');
 const candidate = '20261016180000_account_closure_drain_enforcement.sql';
@@ -41,14 +42,11 @@ const resourcesFile = join(evidence, 'resources.json');
 const run = (bin, args, options = {}) => {
   const result = spawnSync(bin, args, { env, encoding: 'utf8', timeout: 12 * 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
   if (result.error || result.status !== 0) {
-    const stderr = result.stderr ?? '';
-    const lines = stderr.split('\n');
-    const failure = lines.findIndex((line) => /\b(?:ERROR:|FATAL:|SQLSTATE|Error response from daemon)/.test(line));
-    const context = failure < 0 ? stderr.slice(0, 4000)
-      : lines.slice(Math.max(0, failure - 4), failure + 8).join('\n').slice(0, 4000);
-    const diagnostic = stderr.length > 8000
-      ? `${context}\n[bounded diagnostic: middle omitted]\n${stderr.slice(-4000)}` : stderr;
-    throw new Error(`${bin} ${args[0]} failed: ${result.error?.message ?? diagnostic}`);
+    const diagnostic = proofSubprocessFailure(bin, args, result);
+    const error = new Error(`${diagnostic.command} failed (status=${diagnostic.status}, signal=${diagnostic.signal}):\n`
+      + `stdout:\n${diagnostic.stdout}\nstderr:\n${diagnostic.stderr}`);
+    error.subprocess = diagnostic;
+    throw error;
   }
   return result.stdout.trim();
 };
@@ -129,6 +127,10 @@ try {
   cli(['start', '--network-id', network.Id, '--exclude', 'studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor']);
   const container = JSON.parse(run('docker', ['inspect', containerName]))[0];
   assert.deepEqual(Object.keys(container.NetworkSettings.Networks), [networkName], 'database escaped the owned internal network');
+  const databaseVersion = JSON.parse(sql(`SELECT json_build_object('version',version(),
+    'serverVersionNum',current_setting('server_version_num'),
+    'extensions',(SELECT json_agg(json_build_object('name',extname,'version',extversion) ORDER BY extname) FROM pg_extension))::text;`));
+  writeFileSync(join(evidence, 'database-version.json'), JSON.stringify(databaseVersion, null, 2));
   assert.equal(Math.floor(Number(sql("SELECT current_setting('server_version_num');")) / 10000), 17);
   assert.deepEqual(history(), migrations.filter((row) => row.name !== candidate).map((row) => row.version), 'baseline replay is incomplete');
   verifyEnforcement('before');
@@ -152,6 +154,16 @@ try {
 } catch (error) {
   primaryError = error;
 } finally {
+  // Must precede supabase stop/removal: otherwise the crashing backend's state,
+  // OOM indicator, server signal and stage output are permanently lost.
+  try {
+    writeFileSync(join(evidence, 'database-diagnostics.json'), JSON.stringify(captureOwnedDatabaseDiagnostics(containerName, env), null, 2));
+    if (primaryError?.subprocess) writeFileSync(join(evidence, 'subprocess-failure.json'), JSON.stringify(primaryError.subprocess, null, 2));
+  } catch (error) {
+    try {
+      writeFileSync(join(evidence, 'diagnostic-capture-failure.json'), JSON.stringify({ message: 'owned database diagnostics unavailable', code: error?.code ?? null }));
+    } catch { /* Artifact storage failure must not prevent owned resource cleanup. */ }
+  }
   try {
     cleanupOwned({ id, stage, networkName, subnet });
   } catch (error) { cleanupError = error; }
