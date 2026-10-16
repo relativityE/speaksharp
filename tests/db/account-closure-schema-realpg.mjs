@@ -15,8 +15,9 @@ PGHOST: socket, PGPORT: '5432', PGUSER: 'closure_schema_admin', PGDATABASE: 'pos
 const sql = (text) => execFileSync('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', text],
     { env: { ...env, PGOPTIONS: '-c client_min_messages=warning' }, encoding: 'utf8', timeout: 10_000 }).trim();
 const cli = resolve('scripts/account-closure-rollout-gate.mjs');
-function gate(mode, success) {
-    const result = spawnSync(process.execPath, [cli, mode], { env, encoding: 'utf8', timeout: 30_000 });
+let gateCases = 0;
+function gate(mode, success, command = cli, stageCount = mode === 'after' ? 3 : 2) {
+    const result = spawnSync(process.execPath, [command, mode], { env, encoding: 'utf8', timeout: 30_000 });
     assert.equal(result.status, success ? 0 : 1, `${mode}: ${result.stdout} ${result.stderr}`);
     if (!success) assert.equal(result.stdout.trim(), '', 'failed verification emitted partial success');
     else {
@@ -24,8 +25,9 @@ function gate(mode, success) {
         assert.equal(lines.length, 1, 'must emit only one terminal verification');
         const terminal = JSON.parse(lines[0]);
         assert.equal(terminal.passed, true);
-        assert.equal(terminal.stages.length, mode === 'after' ? 3 : 2);
+        assert.equal(terminal.stages.length, stageCount);
     }
+    gateCases += 1;
 }
 let started = false;
 try {
@@ -63,8 +65,37 @@ try {
         sql('DROP SCHEMA public CASCADE; DROP SCHEMA auth CASCADE; DROP SCHEMA storage CASCADE; CREATE SCHEMA public; DROP ROLE closure_owner; DROP ROLE anon; DROP ROLE authenticated; DROP ROLE service_role;');
         sql(fixture[1]); sql(`SET ROLE closure_owner; ${baseline} ${source} RESET ROLE;`); gate('after', true);
     }
+    const drain = readFileSync('backend/supabase/migrations/20261016090000_account_closure_drain_persistence.sql', 'utf8');
+    const drainCli = resolve('scripts/account-closure-drain-gate.mjs');
+    const drainGate = (mode, success) => gate(mode, success, drainCli, mode === 'after' ? 5 : 4);
+    drainGate('before', true); drainGate('after', false);
+    sql(`SET ROLE closure_owner; ${drain} RESET ROLE;`);
+    drainGate('before', false); drainGate('after', true);
+    for (const mutation of [
+        'ALTER TABLE account_closure_attestation_state DISABLE ROW LEVEL SECURITY',
+        'GRANT SELECT ON account_closure_drain_attestations TO service_role',
+        'GRANT SELECT(record) ON account_closure_drain_attestations TO authenticated',
+        'CREATE POLICY unexpected ON account_closure_attestation_state USING(true)',
+        'ALTER TABLE account_closure_attestation_state ALTER COLUMN generation SET DEFAULT 1',
+        'ALTER TABLE account_closure_drain_attestations ALTER COLUMN record DROP NOT NULL',
+        'ALTER FUNCTION record_account_closure_drain_attestation(uuid,bigint,jsonb,jsonb) SECURITY INVOKER',
+        'GRANT EXECUTE ON FUNCTION invalidate_account_closure_drain_attestations(bigint,text,text) TO PUBLIC',
+        "CREATE FUNCTION invalidate_account_closure_drain_attestations(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+        'UPDATE account_closure_attestation_state SET generation=1',
+        "UPDATE account_closure_attestation_state SET binding_digest=repeat('a',64)",
+        'DELETE FROM account_closure_attestation_state',
+        "INSERT INTO account_closure_drain_attestations(attestation_id,generation,binding_digest,evidence_digest,record,validation,expires_at) VALUES(gen_random_uuid(),0,repeat('a',64),repeat('b',64),'{}','{}',now()+interval '1 minute')",
+        'UPDATE account_billing_coordination SET checkout_workers_drained=true',
+        'DELETE FROM account_billing_coordination',
+        'ALTER TABLE account_closure_attempts ALTER COLUMN claimed_email DROP NOT NULL',
+    ]) {
+        sql(mutation); drainGate('after', false);
+        sql('DROP SCHEMA public CASCADE; DROP SCHEMA auth CASCADE; DROP SCHEMA storage CASCADE; CREATE SCHEMA public; DROP ROLE closure_owner; DROP ROLE anon; DROP ROLE authenticated; DROP ROLE service_role;');
+        sql(fixture[1]); sql(`SET ROLE closure_owner; ${baseline} ${source} ${drain} RESET ROLE;`);
+        drainGate('after', true);
+    }
     console.log(JSON.stringify({ result: 'PASS', postgres: sql('SHOW server_version'),
-        gateCases: 28, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
+        gateCases, providerCalls: 0, fullChain: 'UNVERIFIED', rolloutActivated: false }));
 } finally {
     if (started || existsSync(join(data, 'postmaster.pid'))) {
         execFileSync('pg_ctl', ['-D', data, '-w', 'stop', '-m', 'immediate'], { encoding: 'utf8' });

@@ -29,6 +29,7 @@ on:
           - '20261013120000'
           - '20261013140000'
           - '20261013180000'
+          - '20261016090000'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
@@ -165,7 +166,7 @@ jobs:
         # ONE resolution serves both. Stage B originally resolved the pooler a second time, which the
         # SEC-002 contract rejects: two resolutions can drift, leaving this proof attesting to parameters
         # the postflight never uses.
-        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') || contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') || contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') || contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') || contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') }}
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') || contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') || contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') || contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') || contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') || contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
@@ -337,6 +338,17 @@ jobs:
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
           unset DB_URL
           node scripts/account-closure-rollout-gate.mjs before
+
+      - name: Preflight drain persistence against exact disabled closure schema (read-only)
+        if: ${{ contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || { echo '::error::drain verification credentials missing BEFORE apply'; exit 1; }
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler parameters absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/account-closure-drain-gate.mjs before
 
       - name: Revalidate main IMMEDIATELY before the irreversible apply
         env:
@@ -675,6 +687,17 @@ jobs:
           node scripts/account-closure-rollout-gate.mjs after
           node scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
 
+      - name: Verify exact drain persistence and initial disabled state
+        id: postflight_20261016090000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler parameters absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/account-closure-drain-gate.mjs after
+
       - name: Require unambiguous exact-operation success
         id: terminal
         if: always()
@@ -693,7 +716,8 @@ jobs:
             "postflight_20260928120000=${{ steps.postflight_20260928120000.outcome }}" \
             "postflight_20261013120000=${{ steps.postflight_20261013120000.outcome }}" \
             "postflight_20261013140000=${{ steps.postflight_20261013140000.outcome }}" \
-            "postflight_20261013180000=${{ steps.postflight_20261013180000.outcome }}"
+            "postflight_20261013180000=${{ steps.postflight_20261013180000.outcome }}" \
+            "postflight_20261016090000=${{ steps.postflight_20261016090000.outcome }}"
 
       - name: Publish sanitized result
         if: always()
