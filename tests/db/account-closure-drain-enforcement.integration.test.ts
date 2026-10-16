@@ -3,6 +3,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { recoverAccountClosure } from '../../backend/supabase/functions/_shared/accountClosureRecovery';
+import { createAccountClosureRecoveryAdapter } from '../../backend/supabase/functions/_shared/accountClosureRecoveryAdapter';
 
 const U = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -17,10 +19,10 @@ const quote = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''"
 const grant = (id = A, generation = '0', binding = BINDING, current = context) => `'${id}',${generation},'${binding}',${quote(current)}`;
 let db: PGlite;
 
-async function service(statement: string) {
+async function service(statement: string, values: unknown[] = []) {
   // Recover a failed statement without losing the outer per-case rollback.
   await db.exec('SAVEPOINT service_call; SET LOCAL ROLE service_role');
-  try { const result = await db.query(statement); await db.exec('RESET ROLE; RELEASE SAVEPOINT service_call'); return result; }
+  try { const result = await db.query(statement, values); await db.exec('RESET ROLE; RELEASE SAVEPOINT service_call'); return result; }
   catch (error) { await db.exec('ROLLBACK TO SAVEPOINT service_call; RELEASE SAVEPOINT service_call'); throw error; }
 }
 beforeAll(async () => {
@@ -219,5 +221,58 @@ describe('current drain authority — actual SQL boundaries', () => {
     expect((await db.query(`SELECT subscription_status,stripe_subscription_id FROM user_profiles WHERE id='${U}'`)).rows)
       .toEqual([{ subscription_status: 'free', stripe_subscription_id: null }]);
     expect((await db.query('SELECT * FROM account_closure_billing_permits')).rows).toEqual([]);
+  });
+
+  it('real policy → adapter → SQL reconciles an applied transition after a lost adapter response, refuses residue, then completes without replay', async () => {
+    const { request_id: request } = await claim();
+    await service(`SELECT preserve_account_trial_email('${U}')`);
+    await transition(request, 'auth_unknown');
+    await db.exec(`DELETE FROM auth.users WHERE id='${U}'`);
+    const states: unknown[] = [];
+    let lost = false;
+    const client = {
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        // Existing in-process database fixture, emulating the SDK/PostgREST
+        // transport. This is SQL integration, not a provider/HTTP proof.
+        if (!['inspect_account_closure_authority', 'record_account_closure_auth_state_with_drain',
+          'verify_account_closure_residue_with_drain'].includes(name)) throw new Error('unexpected RPC');
+        const entries = Object.entries(args);
+        if (entries.some(([key]) => !/^p_[a-z_]+$/.test(key))) throw new Error('unexpected argument');
+        const parameters = entries.map(([key], i) => `${key}=>$${i + 1}`).join(',');
+        const result = await service(`SELECT public.${name}(${parameters}) AS value`, entries.map(([, value]) => value));
+        if (name === 'record_account_closure_auth_state_with_drain') {
+          states.push(args.p_state);
+          if (!lost) { lost = true; throw new Error('simulated lost adapter response after SQL transition'); }
+          return { data: null, error: null }; // PostgREST RETURNS void representation
+        }
+        return { data: result.rows[0].value, error: null };
+      },
+      auth: { admin: { getUserById: async (id: string) => {
+        const read = await db.query('SELECT id FROM auth.users WHERE id=$1', [id]);
+        return read.rows.length ? { data: { user: read.rows[0] }, error: null }
+          : { data: { user: null }, error: { status: 404, code: 'user_not_found' } };
+      } } },
+    };
+    const adapter = createAccountClosureRecoveryAdapter({ projectId: context.projectId, environment: 'disposable', url: 'http://127.0.0.1:54321' }, {
+      createAdminClient: () => client,
+      getCurrentScope: async () => ({ attestationId: A, generation: '0', bindingDigest: BINDING, context }),
+    });
+    const dependencies = adapter.forRequest({ userId: U, requestId: request });
+    expect(await recoverAccountClosure({ userId: U, requestId: request }, dependencies)).toMatchObject({
+      outcome: 'hold', reason: 'operation_unknown',
+    });
+    expect((await db.query('SELECT phase FROM account_closure_attempts')).rows).toEqual([{ phase: 'auth_deleted' }]);
+    await db.exec(`INSERT INTO storage.objects VALUES('audio','still-owned','${U}')`);
+    expect(await recoverAccountClosure({ userId: U, requestId: request }, dependencies)).toMatchObject({
+      outcome: 'hold', reason: 'residue_unverified',
+    });
+    expect(states).toEqual(['auth_deleted']);
+    await db.exec(`DELETE FROM storage.objects WHERE owner_id='${U}'`);
+    expect(await recoverAccountClosure({ userId: U, requestId: request }, dependencies)).toMatchObject({
+      outcome: 'completed', accountDeleted: true,
+    });
+    expect(states).toEqual(['auth_deleted', 'completed']);
+    expect((await db.query('SELECT phase FROM account_closure_attempts')).rows).toEqual([{ phase: 'completed' }]);
+    expect((await db.query('SELECT * FROM account_billing_fences')).rows).toEqual([]);
   });
 });
