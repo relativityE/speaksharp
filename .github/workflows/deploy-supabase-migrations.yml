@@ -111,6 +111,7 @@ jobs:
           supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
 
   verify-edge-functions:
     needs: [validate-edge-configuration, deploy-edge-functions]
@@ -135,7 +136,7 @@ jobs:
         run: |
           set -euo pipefail
           deployed="$(supabase functions list --project-ref "$SUPABASE_PROJECT_ID")"
-          for function_name in stripe-webhook check-usage-limit create-user observability-smoke attest-session-engine objective-register-source get-ai-suggestions stripe-checkout stripe-billing-portal; do
+          for function_name in stripe-webhook check-usage-limit create-user observability-smoke attest-session-engine objective-register-source get-ai-suggestions stripe-checkout stripe-billing-portal account-closure; do
             grep -Fq "$function_name" <<< "$deployed" || { echo "::error::$function_name missing after Edge deployment"; exit 1; }
           done
 

@@ -76,6 +76,59 @@ async function deletedFixture() {
 }
 
 describe('current drain authority — actual SQL boundaries', () => {
+  it('guarded email issuance requires enabled exact current authority', async () => {
+    await expect(service(`SELECT * FROM issue_account_closure_token_with_drain('${U}','${'f'.repeat(64)}',${grant()})`))
+      .rejects.toThrow('deletion not enabled');
+    await db.exec(`DELETE FROM account_closure_tokens;
+      UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${A}'`);
+    expect((await service(`SELECT * FROM issue_account_closure_token_with_drain('${U}','${'f'.repeat(64)}',${grant()})`)).rows).toHaveLength(1);
+    expect((await db.query('SELECT token_hash,phase FROM account_closure_tokens')).rows)
+      .toEqual([{ token_hash: 'f'.repeat(64), phase: 'issued' }]);
+  });
+
+  it('expired authority cannot issue an email token or change pending checkout state', async () => {
+    await db.exec(`UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${A}';
+      UPDATE account_closure_drain_attestations SET expires_at=clock_timestamp()-interval '1 second'`);
+    await expect(service(`SELECT * FROM issue_account_closure_token_with_drain('${U}','${'f'.repeat(64)}',${grant()})`))
+      .rejects.toThrow('stale drain authority');
+    expect((await db.query('SELECT token_hash FROM account_closure_tokens')).rows).toEqual([{ token_hash: TOKEN }]);
+  });
+
+  it.each(['issuing', 'unknown', 'open'])('never clears a mismatched/uncertain %s checkout from local timeout', async (phase) => {
+    await db.exec(`UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${A}';
+      INSERT INTO account_checkout_operations(user_id,operation_id,phase,session_id) VALUES('${U}','${OTHER}','${phase}',NULL)`);
+    await expect(service(`SELECT reconcile_account_closure_checkout_with_drain('${U}','${TOKEN}','${OTHER}','unverified',NULL,NULL,${grant()})`))
+      .rejects.toThrow('checkout ownership mismatch');
+    expect((await db.query('SELECT phase,session_id FROM account_checkout_operations')).rows).toEqual([{ phase, session_id: null }]);
+  });
+
+  it('guarded verified expiry settles only the exact known checkout and preserves the issued token', async () => {
+    await db.exec(`UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${A}';
+      INSERT INTO account_checkout_operations(user_id,operation_id,phase,session_id) VALUES('${U}','${OTHER}','open','cs_owned')`);
+    await service(`SELECT reconcile_account_closure_checkout_with_drain('${U}','${TOKEN}','${OTHER}','cs_owned',NULL,NULL,${grant()})`);
+    expect((await db.query('SELECT phase FROM account_checkout_operations')).rows).toEqual([{ phase: 'settled' }]);
+    expect((await db.query('SELECT phase FROM account_closure_tokens')).rows).toEqual([{ phase: 'issued' }]);
+  });
+
+  it('guarded completion requires the canonical customer/subscription binding', async () => {
+    await db.exec(`UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${A}';
+      INSERT INTO account_checkout_operations(user_id,operation_id,phase,session_id) VALUES('${U}','${OTHER}','open','cs_owned')`);
+    await expect(service(`SELECT reconcile_account_closure_checkout_with_drain('${U}','${TOKEN}','${OTHER}','cs_owned','cus','sub',${grant()})`))
+      .rejects.toThrow('checkout not attached');
+    await db.exec(`UPDATE user_profiles SET stripe_customer_id='cus',stripe_subscription_id='sub' WHERE id='${U}'`);
+    await service(`SELECT reconcile_account_closure_checkout_with_drain('${U}','${TOKEN}','${OTHER}','cs_owned','cus','sub',${grant()})`);
+    expect((await db.query('SELECT phase FROM account_checkout_operations')).rows).toEqual([{ phase: 'settled' }]);
+  });
+
+  it('expired emailed proof refuses checkout reconciliation even with valid drain', async () => {
+    await db.exec(`UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${A}';
+      UPDATE account_closure_tokens SET expires_at=clock_timestamp()-interval '1 second';
+      INSERT INTO account_checkout_operations(user_id,operation_id,phase,session_id) VALUES('${U}','${OTHER}','open','cs_owned')`);
+    await expect(service(`SELECT reconcile_account_closure_checkout_with_drain('${U}','${TOKEN}','${OTHER}','cs_owned',NULL,NULL,${grant()})`))
+      .rejects.toThrow('closure token expired');
+    expect((await db.query('SELECT phase FROM account_checkout_operations')).rows).toEqual([{ phase: 'open' }]);
+  });
+
   it('applying and registering never enables deletion', async () => {
     expect((await db.query('SELECT checkout_workers_drained,evidence_reference FROM account_billing_coordination')).rows)
       .toEqual([{ checkout_workers_drained: false, evidence_reference: null }]);
@@ -121,8 +174,9 @@ describe('current drain authority — actual SQL boundaries', () => {
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN (
       'claim_account_closure_token_with_drain','inspect_account_closure_authority',
       'bind_account_closure_recovery_authority','record_account_closure_auth_state_with_drain',
-      'settle_account_closure_billing_with_drain','verify_account_closure_residue_with_drain')`)).rows;
-    expect(rows).toHaveLength(6);
+      'settle_account_closure_billing_with_drain','verify_account_closure_residue_with_drain',
+      'issue_account_closure_token_with_drain','reconcile_account_closure_checkout_with_drain')`)).rows;
+    expect(rows).toHaveLength(8);
     expect(rows.every((row) => !row.anon && !row.authenticated)).toBe(true);
   });
 

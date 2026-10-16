@@ -104,6 +104,53 @@ BEGIN
 END;
 $$;
 
+-- Email issuance and known-checkout reconciliation are also consuming writes.
+-- Keep them on current authority rather than the legacy sticky rollout boolean.
+CREATE FUNCTION public.issue_account_closure_token_with_drain(
+  p_user_id uuid,p_token_hash text,p_attestation_id uuid,p_generation bigint,p_binding_digest text,p_context jsonb)
+RETURNS TABLE(request_id uuid,expires_at timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+BEGIN
+  PERFORM 1 FROM public.user_profiles WHERE id=p_user_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'account profile unavailable'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  PERFORM public.require_account_closure_drain(p_attestation_id,p_generation,p_binding_digest,p_context);
+  IF NOT EXISTS(SELECT 1 FROM public.account_billing_coordination WHERE singleton
+    AND checkout_workers_drained AND evidence_reference=p_attestation_id::text)
+    THEN RAISE EXCEPTION 'deletion not enabled for this attestation'; END IF;
+  RETURN QUERY SELECT * FROM public.issue_account_closure_token(p_user_id,p_token_hash);
+  PERFORM public.require_account_closure_drain(p_attestation_id,p_generation,p_binding_digest,p_context);
+END;
+$$;
+
+CREATE FUNCTION public.reconcile_account_closure_checkout_with_drain(
+  p_user_id uuid,p_token_hash text,p_operation_id uuid,p_session_id text,p_customer_id text,p_subscription_id text,
+  p_attestation_id uuid,p_generation bigint,p_binding_digest text,p_context jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE token_expires timestamptz;
+BEGIN
+  PERFORM 1 FROM public.user_profiles WHERE id=p_user_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'account profile unavailable'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
+  PERFORM public.require_account_closure_drain(p_attestation_id,p_generation,p_binding_digest,p_context);
+  IF NOT EXISTS(SELECT 1 FROM public.account_billing_coordination WHERE singleton
+    AND checkout_workers_drained AND evidence_reference=p_attestation_id::text)
+    THEN RAISE EXCEPTION 'deletion not enabled for this attestation'; END IF;
+  SELECT t.expires_at INTO token_expires FROM public.account_closure_tokens t JOIN auth.users u ON u.id=t.user_id
+    WHERE t.user_id=p_user_id AND t.token_hash=p_token_hash AND t.phase='issued' AND t.consumed_at IS NULL
+      AND u.email_confirmed_at IS NOT NULL AND lower(btrim(u.email))=t.email_normalized FOR UPDATE OF t;
+  IF NOT FOUND OR token_expires<=clock_timestamp() THEN RAISE EXCEPTION 'closure token expired'; END IF;
+  IF p_operation_id IS NULL OR nullif(btrim(p_session_id),'') IS NULL THEN RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
+  IF p_customer_id IS NULL AND p_subscription_id IS NULL THEN
+    PERFORM public.reconcile_expired_account_checkout(p_user_id,p_token_hash,p_operation_id,p_session_id);
+  ELSIF nullif(btrim(p_customer_id),'') IS NOT NULL AND nullif(btrim(p_subscription_id),'') IS NOT NULL THEN
+    PERFORM public.settle_account_checkout(p_user_id,p_session_id,p_customer_id,p_subscription_id,p_operation_id);
+  ELSE RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
+  PERFORM public.require_account_closure_drain(p_attestation_id,p_generation,p_binding_digest,p_context);
+  IF token_expires<=clock_timestamp() THEN RAISE EXCEPTION 'closure token expired'; END IF;
+END;
+$$;
+
 CREATE FUNCTION public.claim_account_closure_token_with_drain(
   p_user_id uuid,p_token_hash text,p_attestation_id uuid,p_generation bigint,p_binding_digest text,p_context jsonb)
 RETURNS TABLE(user_id uuid,email text,customer_id text,request_id uuid,expires_at timestamptz)
@@ -219,6 +266,8 @@ REVOKE ALL ON FUNCTION public.require_account_closure_drain(uuid,bigint,text,jso
   public.require_account_closure_request_authority(uuid,uuid,uuid,bigint,text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.claim_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb),
+  public.issue_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb),
+  public.reconcile_account_closure_checkout_with_drain(uuid,text,uuid,text,text,text,uuid,bigint,text,jsonb),
   public.inspect_account_closure_authority(uuid,uuid,uuid,bigint,text,jsonb),
   public.bind_account_closure_recovery_authority(uuid,uuid,uuid,bigint,text,jsonb),
   public.record_account_closure_auth_state_with_drain(uuid,uuid,text,uuid,bigint,text,jsonb),
@@ -226,6 +275,8 @@ REVOKE ALL ON FUNCTION public.claim_account_closure_token_with_drain(uuid,text,u
   public.verify_account_closure_residue_with_drain(uuid,uuid,uuid,bigint,text,jsonb)
   FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb),
+  public.issue_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb),
+  public.reconcile_account_closure_checkout_with_drain(uuid,text,uuid,text,text,text,uuid,bigint,text,jsonb),
   public.inspect_account_closure_authority(uuid,uuid,uuid,bigint,text,jsonb),
   public.bind_account_closure_recovery_authority(uuid,uuid,uuid,bigint,text,jsonb),
   public.record_account_closure_auth_state_with_drain(uuid,uuid,text,uuid,bigint,text,jsonb),
