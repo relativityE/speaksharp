@@ -154,10 +154,15 @@ async function submitFeedback(
     const since = new Date(Date.now() - 60_000).toISOString();
     // A missing action-time binding is retained as HOLD by bindReadbackJourneys; it must never be
     // guessed from a same-number or unrelated journey.
+    const feedbackBefore = tap.sent('feedback_submit').length;
     await page.getByTestId('issue-report-submit').click();
     const acknowledged = await page.getByText('Thanks — we’ve got it.').first()
         .waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
     if (!acknowledged) throw new Error('the feedback acknowledgement was not shown');
+    // #1258 (live round 1, run 38847643414): analytics are batched. Before this scenario reads, cleans up and closes the
+    // page, wait (bounded) until this submission's feedback_submit events — `attempted` plus its outcome — have actually
+    // LEFT the page (the main journeys' R8 settle), so the readback can receive them instead of losing them at unload.
+    await tap.awaitObserved(page, { feedback_submit: feedbackBefore + 2 });
     const { data, error } = await admin!.from('user_issue_reports')
         .select('id,session_id,metadata').eq('user_id', uid).gte('created_at', since);
     if (error) throw new Error(`feedback row read failed (fail closed): ${error.code ?? 'unknown'}`);

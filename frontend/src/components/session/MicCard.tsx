@@ -49,6 +49,11 @@ export interface MicCardProps {
      * contradiction this removes: the card must state the real reason instead.
      */
     blockedReason?: string | null;
+    /**
+     * #1258 C10 — a Start is in progress (press accepted, capture not yet live). The control keeps its size and place,
+     * reads `Starting…` and is disabled; `Mic ready on this device` is hidden because it is not yet true.
+     */
+    starting?: boolean;
 }
 
 const MicGlyph: React.FC = () => (
@@ -63,7 +68,7 @@ const MicGlyph: React.FC = () => (
 
 export const MicCard: React.FC<MicCardProps> = ({
     onStart, devices, selectedDeviceId, onSelectDevice, error,
-    privateModelStatus = 'ready', modelLoadingProgress, onDownloadModel, disabled, blockedReason,
+    privateModelStatus = 'ready', modelLoadingProgress, onDownloadModel, disabled, blockedReason, starting = false,
 }) => {
     const deviceList = devices ?? [];
     const hasPicker = deviceList.length > 0;
@@ -153,8 +158,8 @@ export const MicCard: React.FC<MicCardProps> = ({
     //
     // The retry stays unconditionally enabled: a failed model setup must never be a dead end, and
     // retrying setup starts no recording.
-    const primaryDisabled = isRetryAction ? false : (!!disabled || loading);
-    const primaryTitle = isBlockedFromStart
+    const primaryDisabled = starting || (isRetryAction ? false : (!!disabled || loading));
+    const primaryTitle = starting ? 'Starting…' : isBlockedFromStart
         ? 'Just a moment…'
         : isColdStart
         ? 'Download & start recording'
@@ -176,7 +181,8 @@ export const MicCard: React.FC<MicCardProps> = ({
                     type="button"
                     onClick={primaryHandler}
                     disabled={primaryDisabled}
-                    aria-label={isColdStart
+                    aria-disabled={primaryDisabled}
+                    aria-label={starting ? 'Starting…' : isColdStart
                         ? 'Download & start recording'
                         : modelError ? 'Retry Private setup'
                         : isBlockedFromStart ? 'Start recording — unavailable while your last session finishes'
@@ -202,10 +208,13 @@ export const MicCard: React.FC<MicCardProps> = ({
                     reading path, so slot A's left edge reads mic → label → hint and the status is never read as
                     the button's label. The input-device picker stays beside it. */}
                 <div className="flex shrink-0 items-center gap-3" data-testid="mic-status-row">
-                    <span className="flex items-center gap-1.5 text-[13px] font-extrabold" style={{ color: status.text }} data-testid="mic-status">
-                        <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: status.dot }} aria-hidden="true" />
-                        {status.label}
-                    </span>
+                    {/* #1258 C10 — hidden while a Start is in progress: "Mic ready" is not yet true. */}
+                    {!starting && (
+                        <span className="flex items-center gap-1.5 text-[13px] font-extrabold" style={{ color: status.text }} data-testid="mic-status">
+                            <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: status.dot }} aria-hidden="true" />
+                            {status.label}
+                        </span>
+                    )}
                     {hasPicker && (
                         <select
                             aria-label="Microphone input device"

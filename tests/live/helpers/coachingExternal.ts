@@ -294,7 +294,8 @@ export async function focusExternalDependentRows(
             { step: 'Focus coaching visible = saved', ...visible, evidence: { savedCoachingAbsent, visibleCoachingAbsent } },
         ];
     };
-    const answerRows = ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt']
+    const answerRows = ['Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt',
+        'Focus coaching within the character ceiling', 'Focus coaching refers to an open point']
         .map((step) => ({ step, ...notExercised }));
     if (saved === null) return [...answerRows, ...savedRows('HOLD', 'the saved coaching for this take could not be read, so its absence is unproven')];
     if (saved.state === 'pair') return [...answerRows, ...savedRows('FAIL', 'a coaching response was saved for a request whose provider was unavailable')];

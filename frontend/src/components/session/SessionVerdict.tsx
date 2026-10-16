@@ -52,6 +52,8 @@ export interface SessionVerdictProps {
     practiceAgainDisabled?: boolean;
     /** The id of the visible reason for the hold, announced with the disabled action. */
     practiceAgainDescribedBy?: string;
+    /** #1258 C10 — a Start from this action is in progress: the button reads `Starting…`, disabled, same size. */
+    practiceAgainStarting?: boolean;
 }
 
 /** Shared focus treatment: visible on the dark surface, and never removed without a replacement. */
@@ -59,6 +61,7 @@ const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:rin
 
 export const SessionVerdict: React.FC<SessionVerdictProps> = ({
     verdictLine, fix, excerpts, onPracticeAgain, onSeeAllSessions, practiceAgainDisabled = false, practiceAgainDescribedBy,
+    practiceAgainStarting = false,
 }) => {
     const line = verdictLine?.trim() || null;
     const fixLine = fix?.trim() || null;
@@ -105,12 +108,13 @@ export const SessionVerdict: React.FC<SessionVerdictProps> = ({
                 <button
                     type="button"
                     onClick={onPracticeAgain}
-                    disabled={practiceAgainDisabled}
+                    disabled={practiceAgainDisabled || practiceAgainStarting}
+                    aria-disabled={practiceAgainDisabled || practiceAgainStarting}
                     aria-describedby={practiceAgainDisabled ? practiceAgainDescribedBy : undefined}
                     data-testid="verdict-practice-again"
                     className={`rounded-lg bg-signature px-4 py-2 text-[14px] font-bold text-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS}`}
                 >
-                    Practice again?
+                    {practiceAgainStarting ? 'Starting…' : 'Practice again?'}
                 </button>
                 <button
                     type="button"

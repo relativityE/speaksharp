@@ -112,7 +112,7 @@ describe('practiceAgainEvidence on the REAL stop helper — the Stop flag is the
         expect(ev).toMatchObject({ reviewReached: false, saveTakeFailedStep: 'stop', saveTakeStartPressed: true, saveTakeStopPressed: pressed });
         const receipt = new RwtReceipt('open-mic-first-session');
         practiceAgainRows(receipt, 'open_mic', ev);
-        for (const step of ['review Practice again starts, no hold', 'repeated take stopped, microphone off']) {
+        for (const step of ['review Practice again starts after the gate clears', 'repeated take stopped, microphone off']) {
             const row = receipt.rows.find((r) => r.step === step)!;
             expect(row.verdict).toBe('HOLD');
             expect(row.evidence).toMatchObject({ saveTakeFailedStep: 'stop', saveTakeStopPressed: pressed });

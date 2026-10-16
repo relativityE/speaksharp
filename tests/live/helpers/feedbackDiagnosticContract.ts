@@ -199,6 +199,9 @@ function requestValid(q: AiRequestDiagnostic): boolean {
         && count(q.retryCount) && duration(q.totalMs)
         // The provider leg is part of the request, so it can never exceed the total (PM RETURN 6111565683).
         && (q.providerMs === null || (duration(q.providerMs) && q.providerMs <= q.totalMs))
+        // #1625 (Codex r4290777310): a received-2xx timeout is a BODY timeout, which needs a provider attempt — so its
+        // provider leg must be present and positive (the adapter sets providerMs only when provider_attempts > 0).
+        && !(q.outcome === 'timeout' && q.providerStatusClass === '2xx' && !(q.providerMs !== null && q.providerMs > 0))
         && nonEmpty(q.configuredModel) && (q.observedModel === null || nonEmpty(q.observedModel))
         && ['fresh', 'cache', 'unknown'].includes(q.source);
 }

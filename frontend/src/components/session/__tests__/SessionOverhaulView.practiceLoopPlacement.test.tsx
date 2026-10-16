@@ -4,6 +4,10 @@ import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOv
 import type { SttStatus } from '@/types/transcription';
 import { useSessionStore } from '@/stores/useSessionStore';
 
+// #1258 C10 — these cases model a LIVE take ("listening"), which under the one-live definition also means capture is live on
+// real microphone frames. The C10 suite covers the RECORDING-without-frames start state separately.
+beforeEach(() => { useSessionStore.setState({ captureLive: true }); });
+
 // #1466 PM acceptance lock (P1, PO evidence on 576c4712): after a completed session the Practice Loop must be
 // at eye level — ahead of transcript detail and secondary session actions — in every review state, on phones
 // as well as desktop, and in keyboard / screen-reader order. "Ahead" is DOM order.

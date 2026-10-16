@@ -1121,6 +1121,31 @@ export async function setupE2EManifest(
     win.__E2E_READY__ = true;
     win.TEST_MODE = true;
     
+    // #1258 C10 — MOCK STIMULUS (labelled): the E2E mic is a fake stream that never drives PrivateWhisper's real-frame
+    // readiness gate, and the product goes live only on that gate (one definition of "recording begins"). Like the
+    // injected transcripts stand in for speech, this stands in for "the mic delivered frames": once the runtime reaches
+    // RECORDING, the engine's own readiness status is delivered through its exposed E2E instance — the same callback the
+    // real gate fires. A spec that must observe the pre-frames start state sets `__SS_E2E_HOLD_CAPTURE_READY__ = true`
+    // and delivers it itself. Installed here so every spec that boots the E2E double gets it; nothing is in product code.
+    {
+      type Engine = { onStatusChange?: (s: { type: string; message: string }) => void };
+      const cw = window as unknown as { __PrivateWhisper_INT_TEST__?: Engine; __SS_E2E_HOLD_CAPTURE_READY__?: boolean };
+      let signalledFor: Engine | null = null;
+      const deliver = () => {
+        if (cw.__SS_E2E_HOLD_CAPTURE_READY__) return;
+        if (document.documentElement.getAttribute('data-runtime-state') !== 'RECORDING') { signalledFor = null; return; }
+        const engine = cw.__PrivateWhisper_INT_TEST__;
+        if (!engine || signalledFor === engine) return;
+        signalledFor = engine;
+        engine.onStatusChange?.({ type: 'recording', message: 'Speak now' });
+      };
+      const observeRuntime = () => {
+        if (!document.documentElement) { setTimeout(observeRuntime, 10); return; }
+        new MutationObserver(deliver).observe(document.documentElement, { attributes: true, attributeFilter: ['data-runtime-state'] });
+      };
+      observeRuntime();
+    }
+
     // Stamp the boot duration once the script finishes its T=0 setup
     // 🛡️ Safe-wait for document.documentElement if called too early in addInitScript
     const stampDuration = () => {

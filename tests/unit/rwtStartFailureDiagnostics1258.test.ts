@@ -113,37 +113,38 @@ describe('rows keep FAIL and carry the diagnostics', () => {
         analyticsActionOpened: true, sameSetPending: null, reviewReached: true, afterActionEnabledMs: 4, holdSeen: false,
         afterStartMs: null, stopped: false, liveTracksAfterStop: 0, reason: 'the repeat action did not begin recording',
         savedSessionId: 'take-2', actionBefore: null, actionAfter: null,
-        saveTakePersisted: false, saveTakeNewSession: true, startFailure: failedStart, ...over,
+        saveTakePersisted: false, saveTakeNewSession: true, startFailure: failedStart, enabledWhileHolding: false,
+        stopToSaveMs: null, saveToGateClearMs: null, pressToWarmupDoneMs: null, pressToRecordingMs: null, ...over,
     });
 
     it('the review repeat Start that did not begin is FAIL, with the refusal class and the take-2 save binding', () => {
         const receipt = new RwtReceipt('unit');
         practiceAgainRows(receipt, 'open_mic', ev({}));
-        const row = rowOf(receipt, 'review Practice again starts, no hold');
+        const row = rowOf(receipt, 'review Practice again starts after the gate clears');
         expect(row.verdict).toBe('FAIL');
         expect(row.evidence).toMatchObject({
             refusalClass: 'engine_unconfirmed', runtimeState: 'READY', controllerState: 'READY', serviceState: 'STOPPED',
             saveTakePersisted: false, saveTakeNewSession: true, startFailureReadTimedOut: false,
         });
-        expect(softFailed('review Practice again starts, no hold')).toBe(true);
+        expect(softFailed('review Practice again starts after the gate clears')).toBe(true);
     });
 
     it('an unreadable page stays FAIL and says the diagnostic timed out', () => {
         const receipt = new RwtReceipt('unit');
         practiceAgainRows(receipt, 'open_mic', ev({ startFailure: { ...failedStart, refusalClass: null, runtimeState: null, readTimedOut: true } }));
-        const row = rowOf(receipt, 'review Practice again starts, no hold');
+        const row = rowOf(receipt, 'review Practice again starts after the gate clears');
         expect(row.verdict).toBe('FAIL');
         expect(row.evidence).toMatchObject({ refusalClass: null, startFailureReadTimedOut: true });
-        expect(softFailed('review Practice again starts, no hold')).toBe(true);
+        expect(softFailed('review Practice again starts after the gate clears')).toBe(true);
     });
 
     it('a Start that began still PASSes, with every diagnostic field null', () => {
         const receipt = new RwtReceipt('unit');
         practiceAgainRows(receipt, 'open_mic', ev({ afterStartMs: 900, stopped: true, startFailure: null, saveTakePersisted: true }));
-        const row = rowOf(receipt, 'review Practice again starts, no hold');
+        const row = rowOf(receipt, 'review Practice again starts after the gate clears');
         expect(row.verdict).toBe('PASS');
         expect(row.evidence).toMatchObject({ refusalClass: null, startFailureReadTimedOut: null });
-        expect(softFailed('review Practice again starts, no hold')).toBe(false);
+        expect(softFailed('review Practice again starts after the gate clears')).toBe(false);
     });
 
     it('the fresh next Start that did not begin is FAIL with its refusal class', () => {

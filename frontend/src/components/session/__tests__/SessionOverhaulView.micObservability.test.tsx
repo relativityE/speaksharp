@@ -1,8 +1,13 @@
 import { render } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+
+// #1258 C10 — these cases model a LIVE take ("listening"), which under the one-live definition also means capture is live on
+// real microphone frames. The C10 suite covers the RECORDING-without-frames start state separately.
+beforeEach(() => { useSessionStore.setState({ captureLive: true }); });
 
 vi.mock('posthog-js', () => ({
     default: { capture: vi.fn(), identify: vi.fn(), reset: vi.fn(), reloadFeatureFlags: vi.fn() },

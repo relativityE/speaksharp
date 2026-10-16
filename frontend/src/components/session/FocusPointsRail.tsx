@@ -47,6 +47,8 @@ export interface FocusPointsRailProps {
     onRetry?: () => void;
     /** #1533: true while the live same-owner Progress gate holds Start (the same predicate as the mic). */
     retryDisabled?: boolean;
+    /** #1258 C10 (Codex r4291014872): a Start from this retry is in progress — `Starting…`, disabled, like every start control. */
+    retryStarting?: boolean;
     /** The id of the visible reason for the hold, announced with the disabled action. */
     retryDescribedBy?: string;
     onNewSet?: () => void;
@@ -108,6 +110,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     onEdit,
     onRetry,
     retryDisabled = false,
+    retryStarting = false,
     retryDescribedBy,
     onNewSet,
 }) => {
@@ -256,12 +259,13 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                         <button
                             type="button"
                             onClick={onRetry}
-                            disabled={retryDisabled}
+                            disabled={retryDisabled || retryStarting}
+                            aria-disabled={retryStarting || undefined}
                             aria-describedby={retryDisabled ? retryDescribedBy : undefined}
                             data-testid="focus-points-retry"
                             className="w-full rounded-lg bg-signature px-4 py-3 text-[15px] font-bold text-ink hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            Retry this set
+                            {retryStarting ? 'Starting…' : 'Retry this set'}
                         </button>
                     )}
                     {onNewSet && (

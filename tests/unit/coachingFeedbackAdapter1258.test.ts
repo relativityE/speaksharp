@@ -58,6 +58,11 @@ describe('timeout shapes, end to end through the adapter and the contract', () =
         expect(toAiRequestDiagnostic(ex[0], 'timeout')).toMatchObject({ outcome: 'timeout', providerStatusClass: 'none' });
         expect(validateFeedbackDiagnostics(lookup(ex), expectation(ex)).verdict).toBe('PASS');
     });
+    it('#1625 end to end: a 2xx timeout claiming ZERO provider attempts is rejected, never PASS', () => {
+        const ex = failed({ reason: 'provider_timeout', provider_status: 200, provider_attempts: 0, retry_count: 0 });
+        expect(toAiRequestDiagnostic(ex[0], 'timeout')).toMatchObject({ providerStatusClass: '2xx', providerMs: null });
+        expect(validateFeedbackDiagnostics(lookup(ex), expectation(ex)).verdict).not.toBe('PASS');
+    });
     it('a malformed 200 body stays invalid_response (not a timeout)', () => {
         const ex = failed({ reason: 'provider_malformed_response', provider_status: 200 });
         expect(contractOutcome(ex[0])).toBe('invalid_response');
