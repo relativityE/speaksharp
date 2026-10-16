@@ -131,6 +131,14 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(spec).toContain('new RwtReceipt(TWO_TAB_SUITE)');
     });
 
+    it('PM 6207105255: the local tab lock and the server lease are proved separately — another DEVICE is an isolated context on the same account', () => {
+        expect(spec).toContain('sameBrowserTab = await tabA.context().newPage();');
+        expect(spec).toContain("otherDevice = await browser.newContext({ baseURL, permissions: ['microphone'] });");
+        expect(spec).toContain('await owner.signInOn(deviceB);');
+        expect(spec).toContain('const leaseRefusal = await deviceB.getByText(BLOCKED_COPY)');
+        expect(spec).not.toMatch(/tabB = await tabA\.context\(\)\.newPage\(\)/);
+    });
+
     it('nothing is intercepted: the scenarios are the person\'s own actions', () => {
         expect(spec).not.toMatch(/\.route\(|route\.abort|route\.fulfill|setOffline/);
         expect(spec).toContain("await page.close({ runBeforeUnload: true });");

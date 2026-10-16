@@ -246,6 +246,11 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
     signupMs: number;
     /** Sign out through the product's own control, then sign back in through the real sign-in form. */
     signOutAndSignIn: () => Promise<{ signinMs: number }>;
+    /**
+     * #1258 R2 (PM 6207105255): sign THIS account in on another page (an isolated browser context: another device) through
+     * the real sign-in form. The password never leaves this closure.
+     */
+    signInOn: (other: Page) => Promise<void>;
 }> {
     const password = `Rwt-${randomBytes(18).toString('base64url')}-9a!`;
     const startedAt = Date.now();
@@ -272,7 +277,18 @@ export async function signUpDisposableAccount(page: Page, email: string): Promis
         await expect.poll(readUid, { timeout: 60_000, message: 'sign-in must produce a session' }).toBe(uid);
         return { signinMs: Date.now() - signinStarted };
     };
-    return { uid, signupMs, signOutAndSignIn };
+    const signInOn = async (other: Page) => {
+        const otherUid = async () => extractUidFromAuthStorage(await other.evaluate(
+            () => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })),
+        ));
+        await other.goto('/auth/signin');
+        await expect(other.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
+        await other.getByTestId('email-input').fill(email);
+        await other.getByTestId('password-input').fill(password);
+        await other.getByTestId('sign-in-submit').click();
+        await expect.poll(otherUid, { timeout: 60_000, message: 'the other device must sign in to the same account' }).toBe(uid);
+    };
+    return { uid, signupMs, signOutAndSignIn, signInOn };
 }
 
 /**

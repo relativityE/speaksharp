@@ -509,7 +509,8 @@ const ABANDON_PRODUCT_ROWS = Object.freeze([
     'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
 ]);
 const TWO_TAB_PRODUCT_ROWS = Object.freeze([
-    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'second tab is refused truthfully', 'take-over moves the one engine',
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'same-browser tab is refused', 'another device is refused by the account lease',
+    'take-over moves the one engine',
     'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
 ]);
 /**

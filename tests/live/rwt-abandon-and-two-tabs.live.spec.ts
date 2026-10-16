@@ -11,9 +11,11 @@
  * content-free. Preparation only: execution requires a fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import type { Page, TestInfo } from '@playwright/test';
+import type { BrowserContext, Page, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { routeVercelBypass } from './helpers/deployedLiveTest';
+import { applyRwtIdentity, rwtIdentityFor } from './helpers/rwtBrowserIdentity';
 import {
     AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, rwtLaunchArgs,
     suppressPageSnapshot, telemetryClassRows,
@@ -209,7 +211,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         await abandonAndReturn(page, testInfo, 'close-tab');
     });
 
-    test('two tabs: the second is refused, an explicit take-over moves the one engine, nothing goes to Cloud', async ({ page: tabA }, testInfo) => {
+    test('one account, two places: a same-browser tab is refused locally; another device is refused by the lease and takes over the one engine', async ({ page: tabA, browser, baseURL }, testInfo) => {
         test.setTimeout(1_800_000);
         const receipt = new RwtReceipt(TWO_TAB_SUITE);
         const tap = new AnalyticsTap();
@@ -219,7 +221,8 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         const owner: RunOwner = { email: '', uid: '' };
         const takes: string[] = [];
         let claimed = false;
-        let tabB: Page | null = null;
+        let sameBrowserTab: Page | null = null;
+        let otherDevice: BrowserContext | null = null;
         try {
             await suppressPageSnapshot(testInfo);
             claimed = await prepareRunOwnedAccount(tabA, receipt, owner, 'two-tab', admin, SERVICE_ROLE);
@@ -228,34 +231,62 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             await startFirstPrivateTake(tabA, 'two-tab-a');
             await tabA.waitForTimeout(3_000);
 
-            tabB = await tabA.context().newPage();
-            observe(tabB, tap, generations, cloud);
-            await installMicAcquisitionCounter(tabB);
-            await openOpenMic(tabB);
-            await waitForPrivateEngineReady(tabB, 600_000);
-            await tabB.getByTestId('mic-start').click();
-            const refusalCopyShown = await refusalShown(tabB);
-            await tabB.waitForTimeout(2_000);
-            const [refusedB, stillA] = [await tabState(tabB), await tabState(tabA)];
-            const blocked = secondTabBlockedVerdict({ refusalCopyShown, tabB: refusedB, tabA: stillA });
-            receipt.row('second tab is refused truthfully', blocked.status, blocked.detail,
-                { refusalCopyShown, ...flatTabState('tabB', refusedB), ...flatTabState('tabA', stillA) });
+            // (1) SAME BROWSER (PM 6207105255): a second tab of this context meets this browser's own tab lock before any
+            // server lease is involved. It must be refused truthfully and start no engine; A keeps recording.
+            sameBrowserTab = await tabA.context().newPage();
+            observe(sameBrowserTab, tap, generations, cloud);
+            await installMicAcquisitionCounter(sameBrowserTab);
+            await openOpenMic(sameBrowserTab);
+            await waitForPrivateEngineReady(sameBrowserTab, 600_000);
+            await sameBrowserTab.getByTestId('mic-start').click();
+            const localRefusal = await refusalShown(sameBrowserTab);
+            await sameBrowserTab.waitForTimeout(2_000);
+            const [refusedLocal, stillA] = [await tabState(sameBrowserTab), await tabState(tabA)];
+            const local = secondTabBlockedVerdict({ refusalCopyShown: localRefusal, tabB: refusedLocal, tabA: stillA });
+            receipt.row('same-browser tab is refused', local.status, local.detail,
+                { refusalCopyShown: localRefusal, ...flatTabState('tabB', refusedLocal), ...flatTabState('tabA', stillA) });
+            await sameBrowserTab.close();
+            sameBrowserTab = null;
+
+            // (2) ANOTHER DEVICE: an isolated context, signed in normally to the SAME run-owned account. Only here does the
+            // server's account lease decide: refused first, then the person's explicit second press takes over.
+            otherDevice = await browser.newContext({ baseURL, permissions: ['microphone'] });
+            await routeVercelBypass(otherDevice, baseURL);
+            const deviceB = await otherDevice.newPage();
+            await applyRwtIdentity(otherDevice, deviceB, await rwtIdentityFor(browser));
+            observe(deviceB, tap, generations, cloud);
+            await installMicAcquisitionCounter(deviceB);
+            if (!owner.signInOn) throw new Error('the run-owned account cannot sign in on another device');
+            await owner.signInOn(deviceB);
+            await openOpenMic(deviceB);
+            await selectBenchmarkMode(deviceB, 'private');
+            const setupB = await preparePrivateModelIfPrompted(deviceB, 900_000);
+            if (!setupB.recordingAlreadyStarted) {
+                await waitForPrivateEngineReady(deviceB, 600_000);
+                await deviceB.getByTestId('mic-start').click();
+            }
+            const leaseRefusal = await deviceB.getByText(BLOCKED_COPY).first().waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
+            await deviceB.waitForTimeout(2_000);
+            const [refusedB, stillA2] = [await tabState(deviceB), await tabState(tabA)];
+            const lease = secondTabBlockedVerdict({ refusalCopyShown: leaseRefusal, tabB: refusedB, tabA: stillA2 });
+            receipt.row('another device is refused by the account lease', lease.status, lease.detail,
+                { refusalCopyShown: leaseRefusal, ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
 
             // The person's explicit second press is the take-over.
-            await tabB.getByTestId('mic-start').click();
-            await isRecording(tabB, 60_000);
+            await deviceB.getByTestId('mic-start').click();
+            await isRecording(deviceB, 60_000);
             const displacedCopyShown = await tabA.getByText(DISPLACED_COPY).waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
             await expect.poll(async () => (await tabState(tabA)).liveTracks, { timeout: 20_000 }).toBe(0).catch(() => undefined);
-            const [displacedA, takingB] = [await tabState(tabA), await tabState(tabB)];
+            const [displacedA, takingB] = [await tabState(tabA), await tabState(deviceB)];
             const moved = takeOverVerdict({ tabA: displacedA, tabB: takingB, displacedCopyShown });
             receipt.row('take-over moves the one engine', moved.status, moved.detail,
-                { displacedCopyShown, ...flatTabState('tabA', displacedA), ...flatTabState('tabB', takingB) });
+                { displacedCopyShown, ...flatTabState('tabA', displacedA), ...flatTabState('deviceB', takingB) });
 
-            await tabB.waitForTimeout(6_000);
-            await stopBenchmarkRecording(tabB, 'two-tab-b', 180_000);
-            await expect(tabB.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 180_000 }).catch(() => undefined);
+            await deviceB.waitForTimeout(6_000);
+            await stopBenchmarkRecording(deviceB, 'two-tab-b', 180_000);
+            await expect(deviceB.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 180_000 }).catch(() => undefined);
             await expect(tabA.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 180_000 }).catch(() => undefined);
-            const takeOverId = await persistedId(tabB);
+            const takeOverId = await persistedId(deviceB);
             const displacedId = await persistedId(tabA);
             for (const id of [displacedId, takeOverId]) if (id) takes.push(id);
             const rows = await readRows(owner.uid);
@@ -267,7 +298,8 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             throw error;
         } finally {
             await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes);
-            await tabB?.close().catch(() => undefined);
+            await sameBrowserTab?.close().catch(() => undefined);
+            await otherDevice?.close().catch(() => undefined);
         }
     });
 });

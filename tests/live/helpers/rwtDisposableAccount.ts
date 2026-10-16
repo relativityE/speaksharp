@@ -11,7 +11,11 @@ import {
     signUpDisposableAccount,
 } from './rwtJourney';
 
-export type RunOwner = { email: string; uid: string };
+export type RunOwner = {
+    email: string; uid: string;
+    /** Sign this run-owned account in on another device's page (an isolated context); the password stays private. */
+    signInOn?: (other: Page) => Promise<void>;
+};
 
 export async function prepareRunOwnedAccount(
     page: Page, receipt: RwtReceipt, owner: RunOwner, label: string, admin: unknown, serviceRole: string,
@@ -31,6 +35,7 @@ export async function prepareRunOwnedAccount(
     receipt.forbid(owner.email, serviceRole);
     const account = await signUpDisposableAccount(page, owner.email);
     owner.uid = account.uid;
+    owner.signInOn = account.signInOn;
     const identity = await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);
     if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
     receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');
