@@ -111,6 +111,27 @@ describe('#1421 P1 `3984043479` — the After stages require a successful review
         expect(evaluateQualificationStage(OPEN_MIC, rows).join(' | ')).toMatch(/no save outcome for its own take/);
     });
 
+    it('CASUALTY (PM 6205858358 P1): an UNKNOWN save outcome is unverified, never an unsaved exemption', () => {
+        // One good saved review, beside a finalize-only take whose outcome is null, missing or unreadable, reviewed blank.
+        for (const persisted of [null, undefined, '', 'yes', 0]) {
+            const unknown = [
+                row('transcript_authority', { stage: 'finalize', attempt_id: 'attempt-2', ...(persisted === undefined ? {} : { persisted }) }),
+                reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false }),
+            ];
+            const rows = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), ...unknown]);
+            expect({ persisted, held: evaluateQualificationStage(OPEN_MIC, rows).join(' | ') })
+                .toEqual({ persisted, held: expect.stringMatching(/no readable save outcome/) });
+        }
+    });
+
+    it('CONTROL (retry): a failed save then a successful Retry Save is a SAVED take — its blank review HOLDs, its good one qualifies', () => {
+        const retried = [saveReceipt('attempt-2', false), saveReceipt('attempt-2', true)];
+        const blank = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), ...retried, reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, blank).join(' | ')).toMatch(/did not show the saved transcript/);
+        const good = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(), ...retried, reviewReceipt({ attempt_id: 'attempt-2' })]);
+        expect(evaluateQualificationStage(OPEN_MIC, good).join(' | ')).not.toMatch(/review_rendered|saved transcript|save outcome/);
+    });
+
     it('CASUALTY (wrong take): another take\'s saved flag cannot excuse this take; a receipt with no take identity HOLDs', () => {
         const wrong = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [saveReceipt('attempt-2', false), reviewReceipt({ attempt_id: 'attempt-2' }), reviewReceipt({ transcript_visibly_present: false })]);
         expect(evaluateQualificationStage(OPEN_MIC, wrong).join(' | ')).toMatch(/did not show the saved transcript/);
@@ -279,6 +300,40 @@ describe('#1258 — a Focus Points review must include its AI coaching (runbook 
         const sent = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', COACHING_RENDERED)]);
         expect(evaluateQualificationStage(FOCUS_POINTS, sent), 'control: the sent journey qualifies').toEqual([]);
         expect(evaluateQualificationStage(FOCUS_POINTS, sent.map((r) => decode(toCells(r)))), 'the received journey qualifies').toEqual([]);
+    });
+
+    it('CASUALTY (PM 6205858358 P1): the per-take save outcome survives the trusted readback round trip — explicit false exempts, unknown HOLDs', () => {
+        const query = buildReadbackQuery({
+            windowHours: 24, releaseSha: 'sha', trafficType: 'internal_test', qualifyingIdentity: 'id',
+            governedEvents: ['transcript_authority'], quote: (v: string) => `'${v}'`,
+        } as never);
+        const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
+        const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
+        expect(columns, 'the readback selects the save outcome').toContain('persisted');
+        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
+        const decoderCells = [...script.matchAll(/(\w+): \(?cells\[(\d+)\]/g)].map((m) => [m[1], Number(m[2])] as const);
+        expect(decoderCells.find(([n]) => n === 'persisted')?.[1], 'the decoder reads it from its own column').toBe(columns.indexOf('persisted'));
+        const TOP_LEVEL: Record<string, keyof DecodedTelemetryRow> = { event: 'event', timestamp: 'timestamp', journey_id: 'journeyId', boot_id: 'bootId' };
+        const toCells = (r: DecodedTelemetryRow) => columns.map((c) => (c in TOP_LEVEL
+            ? (r as unknown as Record<string, unknown>)[TOP_LEVEL[c]] ?? null
+            : (r.properties as Record<string, unknown> | undefined)?.[c] ?? null));
+        const decode = (cells: unknown[]): DecodedTelemetryRow => {
+            const decoded: Record<string, unknown> = { properties: {} };
+            for (const [name, index] of decoderCells) {
+                if (['event', 'timestamp', 'journeyId', 'bootId'].includes(name)) decoded[name] = cells[index] ?? null;
+                else (decoded.properties as Record<string, unknown>)[name] = cells[index] ?? null;
+            }
+            return decoded as unknown as DecodedTelemetryRow;
+        };
+        const received = (rows: DecodedTelemetryRow[]) => rows.map((r) => decode(toCells(r)));
+
+        const unsaved = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN,
+            [reviewReceipt(), saveReceipt('attempt-2', false), reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, received(unsaved)).join(' | '), 'explicit false survives the trip').not.toMatch(/review_rendered|save outcome/);
+        const unknown = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN, [reviewReceipt(),
+            row('transcript_authority', { stage: 'finalize', attempt_id: 'attempt-2' }),
+            reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })]);
+        expect(evaluateQualificationStage(OPEN_MIC, received(unknown)).join(' | '), 'a missing outcome arrives as null and HOLDs').toMatch(/no readable save outcome/);
     });
 
     it('the readback selects the three coaching-receipt fields, appended after every existing column, and never the whole property bag', () => {

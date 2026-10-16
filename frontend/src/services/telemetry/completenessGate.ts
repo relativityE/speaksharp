@@ -390,6 +390,8 @@ const ATTRIBUTION_BINDING = {
 
 /** The readback may return a boolean property as the string `'true'`; nothing else is true. */
 const isTrue = (v: unknown): boolean => v === true || v === 'true';
+/** Only a readable, explicit `false` — never null, missing or garbled — says a take was NOT saved. */
+const isExplicitFalse = (v: unknown): boolean => v === false || v === 'false';
 
 /**
  * #1421 P1 `3984043479` — THE REVIEW THE USER SAW MUST HAVE SHOWN THE SAVED TRANSCRIPT.
@@ -409,6 +411,8 @@ export const reviewTranscriptReceiptSucceeded = (rows: readonly DecodedTelemetry
     // #1258 (run 38790238983, PM 6200367845) — judged PER TAKE. Only a SAVED take has a transcript the review must show; a
     // take below the save minimum is truthfully empty. "Saved" is that take's OWN finalize/save receipt (`persisted`),
     // never another take's: a review with no take identity, or whose take has no save outcome, is unverified.
+    // PM 6205858358 P1: only an EXPLICIT `persisted: false` exempts a take as unsaved. A null, missing or unreadable
+    // outcome is unknown, not unsaved, so it HOLDs; one `true` (a successful retry included) makes the take saved.
     let savedTakeReviewed = false;
     for (const r of review) {
         const attempt = attemptOf(r);
@@ -418,7 +422,10 @@ export const reviewTranscriptReceiptSucceeded = (rows: readonly DecodedTelemetry
         if (outcomes.length === 0) {
             return 'a review_rendered transcript receipt has no save outcome for its own take, so whether it had a transcript to show is unverified';
         }
-        if (!outcomes.some((x) => isTrue(x?.properties?.persisted))) continue; // an unsaved take: nothing to show
+        if (!outcomes.some((x) => isTrue(x?.properties?.persisted))) {
+            if (outcomes.some((x) => isExplicitFalse(x?.properties?.persisted))) continue; // explicitly unsaved: nothing to show
+            return 'a review_rendered transcript receipt\'s take has no readable save outcome, so whether it had a transcript to show is unverified';
+        }
         savedTakeReviewed = true;
         if (!(isTrue(r?.properties?.transcript_visibly_present) && isTrue(r?.properties?.digests_match))) {
             return 'a review_rendered transcript receipt did not show the saved transcript (not visibly present, or not matching)';
