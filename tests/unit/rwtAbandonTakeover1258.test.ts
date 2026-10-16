@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, STOP_FAILED_ALERT_COPY, type TabState,
-    TWO_TAB_SUITE, answerLeaveDialog, leavePromptVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
+    TWO_TAB_SUITE, RECOVERY_NOTICE_COPY, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
     secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from '../live/helpers/rwtAbandonTakeover';
 import {
@@ -114,6 +114,21 @@ describe('recoveryNoticeVerdict — the notice tells the truth about the left ta
     it('an unknown state → FAIL', () => {
         expect(recoveryNoticeVerdict({ ...notice, state: 'interrupted' }).status).toBe('FAIL');
     });
+    it('CLASSIFIER: every actual recovery wording is an unsaved claim, and none is a saved claim', () => {
+        for (const [state, text] of Object.entries(RECOVERY_NOTICE_COPY)) {
+            expect({ state, claim: classifyRecoveryClaim(text) }).toEqual({ state, claim: { claimsSavedTranscript: false, claimsUnsavedTranscript: true } });
+        }
+        expect(classifyRecoveryClaim('Your transcript was saved.')).toEqual({ claimsSavedTranscript: true, claimsUnsavedTranscript: false });
+        expect(classifyRecoveryClaim('')).toEqual({ claimsSavedTranscript: false, claimsUnsavedTranscript: false });
+    });
+    it('WIRED (Sam 6219021013): the actual finalized_pending_save notice with a SAVED prior take → FAIL; with an unsaved one → PASS', () => {
+        const pending = { shown: true, state: 'finalized_pending_save', ...classifyRecoveryClaim(RECOVERY_NOTICE_COPY.finalized_pending_save) };
+        expect(recoveryNoticeVerdict({ ...pending, priorTakeSaved: true }).status, 'false-unsaved').toBe('FAIL');
+        expect(recoveryNoticeVerdict({ ...pending, priorTakeSaved: false }).status, 'truthful-unsaved').toBe('PASS');
+        const interrupted = { shown: true, state: 'active_interrupted', ...classifyRecoveryClaim(RECOVERY_NOTICE_COPY.interrupted) };
+        expect(recoveryNoticeVerdict({ ...interrupted, priorTakeSaved: true }).status).toBe('FAIL');
+        expect(recoveryNoticeVerdict({ ...interrupted, priorTakeSaved: false }).status).toBe('PASS');
+    });
     it('priorTakeSaved reads the SERVER: only a new completed row counts; a pre-existing or still-active row does not', () => {
         const baseline = [{ id: 'old', status: 'completed' }];
         expect(priorTakeSaved(baseline, [...baseline, { id: 'left', status: 'completed' }])).toBe(true);
@@ -182,7 +197,11 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(policy).toContain('Stop it there, or press Start again to take over here');
         expect(src('frontend/src/App.tsx'), 'the leave prompt is the product\'s own').toContain(`'${LEAVE_PROMPT_COPY}'`);
         expect(src('frontend/src/App.tsx'), 'the stop-failure alert is the product\'s own').toContain(`'${STOP_FAILED_ALERT_COPY}'`);
-        expect(src('frontend/src/pages/SessionPage.tsx'), 'the unsaved-claim marker is the product\'s own').toContain('No transcript was saved');
+        const page = src('frontend/src/pages/SessionPage.tsx');
+        for (const text of Object.values(RECOVERY_NOTICE_COPY)) expect(page, 'each recovery wording is the product\'s own').toContain(`'${text}'`);
+        const notice = page.slice(page.indexOf('data-testid="session-recovery-message"'), page.indexOf('</span>', page.indexOf('data-testid="session-recovery-message"')));
+        // Every user-facing sentence in the notice (the state token it branches on is not copy).
+        expect((notice.match(/'Your [^']+'/g) ?? []).length, 'the notice has exactly these wordings').toBe(Object.keys(RECOVERY_NOTICE_COPY).length);
         expect(BLOCKED_COPY.test('A recording is active on another device. Stop it there, or press Start again to take over here')).toBe(true);
         for (const f of ['frontend/src/hooks/useSessionLifecycle.ts', 'frontend/src/services/SpeechRuntimeController.ts']) {
             const line = /'⛔ (Active session in another tab\.[^']*)'/.exec(src(f))?.[1] ?? '';
@@ -226,6 +245,7 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(nav, 'the listener is removed in finally').toContain("} finally { page.off('dialog', answerLeave); }");
         expect(nav, 'a failed verdict stops the branch even if the page arrived').toContain("if (asked.status !== 'PASS') return;");
         expect(nav, 'no blanket accept').not.toMatch(/d\.type\(\) === 'confirm'\)[^\n]*accept/);
+        expect(spec, 'the notice claim is classified, not matched ad hoc').toContain('...classifyRecoveryClaim(noticeText),');
         expect(spec, 'persistence is read from the server against the pre-take baseline')
             .toContain("priorTakeSaved: variant === 'navigate-away' ? leftTakeSaved : false,");
     });

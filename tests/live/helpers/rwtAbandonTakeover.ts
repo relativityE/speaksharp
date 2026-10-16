@@ -83,6 +83,23 @@ export function returnStartVerdict(o: {
 }
 
 /**
+ * #1258 (Sam 6218709582 / 6219021013) — the recovery notice's own wordings (SessionPage `session-recovery-message`). Every
+ * one of them says the take was NOT saved, in two different phrasings, so the unsaved claim is read from all of them.
+ */
+export const RECOVERY_NOTICE_COPY = Object.freeze({
+    finalized_pending_save: 'Your last session finished but was not saved. Its measurements were kept on this device; no transcript was stored.',
+    interrupted_partial: 'Your last session was interrupted before it was saved. No transcript was saved, and only partial measurements were captured.',
+    interrupted: 'Your last session was interrupted before it was saved. No transcript was saved.',
+});
+const UNSAVED_MARKERS = ['No transcript was saved', 'was not saved', 'no transcript was stored'] as const;
+
+/** What a recovery notice CLAIMS about the left take's transcript, from its text (classified, never stored). */
+export function classifyRecoveryClaim(text: string): { claimsSavedTranscript: boolean; claimsUnsavedTranscript: boolean } {
+    const claimsUnsavedTranscript = UNSAVED_MARKERS.some((m) => text.includes(m));
+    return { claimsSavedTranscript: !claimsUnsavedTranscript && /transcript was saved/i.test(text), claimsUnsavedTranscript };
+}
+
+/**
  * Whether the take the person left was saved, as the SERVER holds it: a completed row that was not there before the
  * first Start. Observed, never inferred from arrival or the absence of an alert.
  */

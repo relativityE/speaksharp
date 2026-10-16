@@ -31,7 +31,7 @@ import {
 } from './helpers/benchmark-utils';
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, answerLeaveDialog, leavePromptVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
     returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
@@ -179,8 +179,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         const recovery = recoveryNoticeVerdict({
             shown,
             state: shown ? await notice.getAttribute('data-recovery-state') : null,
-            claimsSavedTranscript: noticeText.includes('transcript was saved') && !noticeText.includes('No transcript was saved'),
-            claimsUnsavedTranscript: noticeText.includes('No transcript was saved'),
+            ...classifyRecoveryClaim(noticeText),
             priorTakeSaved: variant === 'navigate-away' ? leftTakeSaved : false,
         });
         receipt.row('recovery notice is truthful', recovery.status, recovery.detail,
