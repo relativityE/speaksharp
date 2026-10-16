@@ -68,7 +68,11 @@ export function createAccountClosureAttestationService(ports = {}) {
     async function readCurrent() {
         if (typeof getCurrentContext !== 'function' || typeof rpc !== 'function') stop('PORT_UNAVAILABLE');
         let snapshot;
-        try { snapshot = structuredClone(await getCurrentContext()); } catch { stop('CONTEXT_UNAVAILABLE'); }
+        try { snapshot = structuredClone(await getCurrentContext()); }
+        catch (error) {
+            if (error?.code === 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE') stop(error.code);
+            stop('CONTEXT_UNAVAILABLE');
+        }
         return currentFacts(snapshot);
     }
     async function recheck(first, expected) {
