@@ -975,11 +975,22 @@ export class SpeechRuntimeController {
             }
             pushNativeRuntimeTrace('controller_start_create_service');
             this.service = getTranscriptionService(this.callbacksForNewService(this.subscriberCallbacks), this.lock);
+            // #1258 RWT round 2 finding A — this warm-up is the controller's, not the user's: it must not reach the page
+            // (it disabled Start as "Downloading…" for a cached model). The Start that claims the service publishes it.
+            this.service.setBackgroundPreparation?.(true);
             await this.warmUp(mode);
             pushNativeRuntimeTrace('controller_next_take_prepare_done', { mode });
         };
         this.nextTakePreparation = run().finally(() => { this.nextTakePreparation = null; });
         return this.nextTakePreparation;
+    }
+
+    /** #1258 RWT round 2 finding A — end a background next-take preparation: the service publishes from now on. */
+    private claimPreparedService(): void {
+        if (this.service?.isBackgroundPreparation?.()) {
+            pushNativeRuntimeTrace('controller_next_take_prepared_service_claimed');
+            this.service.setBackgroundPreparation(false);
+        }
     }
 
     /** #1258 — a previous take's service would not terminate: refuse rather than run this take on it. */
@@ -2086,6 +2097,7 @@ export class SpeechRuntimeController {
         if (!this.service) {
             await this.ensureReady({ skipIfDownloadPending: false });
         }
+        this.claimPreparedService(); // #1258 A — an explicit download is the user's: it is published
         // Setup telemetry is emitted from handleStatusChange (path-agnostic: covers warmUp /
         // auto-init / explicit download alike), not here — initiateModelDownload is only ONE of
         // the model-load entry points and is skipped when the model auto-loads on mode select.
@@ -4182,6 +4194,9 @@ export class SpeechRuntimeController {
                 this.releaseRefusedStartLock();
                 return;
             }
+            // #1258 A — the Start claims a background-prepared service: from here it publishes, starting with its truthful
+            // current state (ready, or a genuine preparation failure).
+            this.claimPreparedService();
             if (this.currentRecordingId !== recordingId) {
                 pushNativeRuntimeTrace('controller_start_skip_superseded_recording', {
                     recordingId,

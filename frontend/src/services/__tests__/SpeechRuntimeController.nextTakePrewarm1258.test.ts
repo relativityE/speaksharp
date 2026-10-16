@@ -110,6 +110,10 @@ const recordingService = (name: string) => {
     // What the REAL controller warm-up touches: the policy update and the queued subscription sync.
     updatePolicy: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn(() => () => undefined),
+    // #1258 finding A — the real service's background-preparation switch (publishes nothing while on).
+    background: false,
+    setBackgroundPreparation: vi.fn((on: boolean) => { svc.background = on; }),
+    isBackgroundPreparation: vi.fn(() => svc.background),
     };
     return svc;
 };
@@ -175,6 +179,33 @@ describe('#1258 PR A — next-take preparation', () => {
         expect(c.acceptedAttempt?.service, 'the next take runs on the prepared service').toBe(serviceB);
         expect(serviceC.updateCallbacks, 'no second service was built for the Start').not.toHaveBeenCalled();
         expect(serviceA.startTranscription).toHaveBeenCalledTimes(1);
+    });
+
+    it('#1258 finding A: the prepared service warms in the BACKGROUND (unpublished); the Start that uses it claims it', async () => {
+        const { c, serviceB } = await afterNormalTake();
+        vi.spyOn(c, 'confirmEngineShutdown').mockResolvedValue('terminal');
+        let backgroundDuringWarm: boolean | null = null;
+        vi.spyOn(c, 'warmUp').mockImplementation(async () => { backgroundDuringWarm = serviceB.background; });
+
+        await c.prepareNextTake('private');
+        expect(backgroundDuringWarm, 'its warm-up is not published to the page').toBe(true);
+        expect(serviceB.background, 'still unclaimed while the review is on screen').toBe(true);
+
+        await c.startRecording(POLICY, []);
+        expect(c.acceptedAttempt?.service).toBe(serviceB);
+        expect(serviceB.setBackgroundPreparation).toHaveBeenLastCalledWith(false);
+        expect(serviceB.background, 'the Start claimed it: it publishes from here').toBe(false);
+    });
+
+    it('#1258 finding A: an explicit model download claims a background-prepared service (the user\'s download is shown)', async () => {
+        const { c, serviceB } = await afterNormalTake();
+        vi.spyOn(c, 'confirmEngineShutdown').mockResolvedValue('terminal');
+        vi.spyOn(c, 'warmUp').mockResolvedValue(undefined);
+        await c.prepareNextTake('private');
+        expect(serviceB.background).toBe(true);
+        (serviceB as unknown as { initiateDownload: (m: string) => Promise<void> }).initiateDownload = vi.fn().mockResolvedValue(undefined);
+        await (c as unknown as { initiateModelDownload: (m: string) => Promise<void> }).initiateModelDownload('private');
+        expect(serviceB.background).toBe(false);
     });
 
     it('a Start pressed during preparation JOINS it — one engine, not two', async () => {

@@ -253,11 +253,34 @@ export default class TranscriptionService {
   private activeSubscriberId: string | null = null;
   private isTerminated: boolean = false;
   private isDestroyed: boolean = false;
+  /**
+   * #1258 RWT round 2 finding A (run 38876581848) — a NEXT-TAKE preparation (`SpeechRuntimeController.prepareNextTake`)
+   * builds and warms this service while the saved review is on screen. Its warm-up is not the user's: published, it
+   * turned the cached model into `data-model-status=loading`, which disabled Start and read "Downloading private
+   * transcription…". While this is set the service still runs its whole lifecycle, but publishes nothing to the page
+   * (model/runtime status, stt status, load progress). The Start (or explicit download) that claims it clears the flag,
+   * and the service then publishes its CURRENT state once — `ready`, or a genuine failure, truthfully.
+   */
+  private backgroundPreparation: boolean = false;
   private currentTranscript: string = '';
   private partialTranscript: string = '';
 
   public getFailureManager(): FailureManager {
     return this.failureManager;
+  }
+
+  public setBackgroundPreparation(on: boolean): void {
+    if (this.backgroundPreparation === on) return;
+    this.backgroundPreparation = on;
+    if (on || this.isDestroyed) return;
+    const state = this.fsm.getState();
+    if (this.mode !== null) syncForensicAnchors(mapToRuntimeState(state), this.mode);
+    else syncForensicAnchors(mapToRuntimeState(state));
+    this.handleStateChange(state);
+  }
+
+  public isBackgroundPreparation(): boolean {
+    return this.backgroundPreparation;
   }
 
   private setEngineReady(ready: boolean): void {
@@ -401,6 +424,7 @@ export default class TranscriptionService {
     // 🛡️ Forensic Bridge (v0.7.0): Synchronous DOM signaling
     // Fired in the same tick as every FSM transition.
     this.fsm.subscribe((state: TranscriptionState) => {
+      if (this.backgroundPreparation) return; // #1258 A — published once, on the claim
       const runtimeState = mapToRuntimeState(state);
       if (this.mode !== null) {
         syncForensicAnchors(runtimeState, this.mode);
@@ -471,7 +495,7 @@ export default class TranscriptionService {
         }
       },
       onModelLoadProgress: (p) => {
-        if (this.isTerminated) return;
+        if (this.isTerminated || this.backgroundPreparation) return;
         this.processModelLoadProgress(p);
       },
       onReady: () => {
@@ -482,7 +506,7 @@ export default class TranscriptionService {
         this.options.onReady?.();
       },
       onStatusChange: (status) => {
-        if (this.isTerminated) return;
+        if (this.isTerminated || this.backgroundPreparation) return;
         if (typeof status.progress === 'number') {
           this.processModelLoadProgress(status.progress);
         }
@@ -615,7 +639,7 @@ export default class TranscriptionService {
     // 🏁 3. Persist Identity: Secure identity BEFORE engine creation (Logic Tier Fix)
     this.idempotencyKey = this.idempotencyKey || Math.random().toString(STT_CONFIG.ALPHANUMERIC_RADIX).substring(7);
     this.mode = mode;
-    syncForensicAnchors(mapToRuntimeState(this.fsm.getState()), this.mode);
+    if (!this.backgroundPreparation) syncForensicAnchors(mapToRuntimeState(this.fsm.getState()), this.mode);
 
     // 🏗️ 4. Strategy Lifecycle: Instantiate or Preserve
     if (!this.strategy) {
@@ -1921,6 +1945,7 @@ export default class TranscriptionService {
 
   private handleStateChange(state: TranscriptionState): void {
     logger.debug(`[TRACE] STATE_TRANSITION ${state}`);
+    if (this.backgroundPreparation) return; // #1258 A — a background preparation publishes nothing until claimed
     if (typeof document !== 'undefined') {
       const modelStatus: Record<TranscriptionState, string> = {
         IDLE: 'idle',
