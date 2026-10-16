@@ -173,6 +173,14 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        version: '20261013180000',
+        // Disabled deletion schema only. Apply needs its exact PO phrase and
+        // mandatory schema postflight; allowlisting never authorizes activation.
+        file: '20261013180000_account_closure_tokens.sql',
+        sha256: '8647483f6ed72d99246c84cb2d07571c34c7a5393268f8acd505edf267b03688',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -602,6 +610,7 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261013120000', targetFile: '20261013120000_retention_expiry_without_superuser_1258' }),
     // #1258 P0 follow-up: typed expiry identity + unchanged trigger/ACLs/grants table, read-only.
     Object.freeze({ id: 'postflight_20261013140000', targetFile: '20261013140000_retention_expiry_typed_empty_array_1258' }),
+    Object.freeze({ id: 'postflight_20261013180000', targetFile: '20261013180000_account_closure_tokens' }),
 ]);
 
 /**

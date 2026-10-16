@@ -1,0 +1,71 @@
+name: Account closure full Supabase chain (disposable)
+
+on:
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/**'
+      - 'tests/db/account-closure-full-chain*'
+      - 'tests/db/account-closure-concurrency-realpg.mjs'
+      - 'tests/db/account-closure-tokens.integration.test.ts'
+      - '.github/workflows/account-closure-full-chain-proof.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: account-closure-full-chain-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      SUPABASE_ACCESS_TOKEN: ''
+      SUPABASE_DB_PASSWORD: ''
+      PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+      - name: Install native PostgreSQL 17 host binaries (bounded)
+        run: |
+          set -euo pipefail
+          timeout 180 sudo apt-get update -qq
+          timeout 180 sudo apt-get install -y -qq postgresql-common
+          timeout 240 sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          timeout 300 sudo apt-get install -y -qq postgresql-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/initdb --version
+          /usr/lib/postgresql/17/bin/pg_ctl --version
+          /usr/lib/postgresql/17/bin/psql --version
+      - name: Prove native closure concurrency on the exact requested head
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          [ "$actual_head" = "$PROOF_HEAD_SHA" ] || { echo '::error::native proof source differs from requested head'; exit 1; }
+          echo "Native concurrency tested head: $actual_head"
+          node tests/db/account-closure-concurrency-realpg.mjs
+      - name: Replay actual baseline and closure migration; prove invariants
+        run: node tests/db/account-closure-full-chain.mjs
+      - name: Recover owned disposable resources after interruption
+        if: always()
+        run: node tests/db/account-closure-full-chain.mjs --cleanup
+      - name: Retain bounded proof manifest
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: account-closure-full-chain-${{ github.event.pull_request.head.sha }}
+          path: artifacts/account-closure-full-chain/*.json
+          if-no-files-found: error
+          retention-days: 1
