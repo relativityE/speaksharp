@@ -12,7 +12,7 @@
 
 # SpeakSharp Roadmap
 
-> **Baseline `5db63c9e44b27694f231749f931e4252e6f42bf3`** (`main`, 2026-10-16, after #1619). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer. The two values currently agree because Production was read at 2026-10-12T12:20:27Z after the latest deploy propagated — agreement is the observed result of that read, not a conclusion drawn from the merge. They diverge again the moment `main` advances, until a new read is taken.
+> **Baseline `5db63c9e44b27694f231749f931e4252e6f42bf3`** (`main`, 2026-10-16, after #1619). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer. The two values currently agree because Production was read at 2026-10-16T19:34:50Z (read-only HTTP GET of the served page) after the #1619 deploy propagated — agreement is the observed result of that read, not a conclusion drawn from the merge. They diverge again the moment `main` advances, until a new read is taken.
 
 This file is the live backlog authority. The former `BACKLOG.md` is archived and must not be restored as a fifteenth canonical document. Completion belongs in issue/PR/git history; current deployment facts belong in `RELEASE_STATUS.md`.
 
