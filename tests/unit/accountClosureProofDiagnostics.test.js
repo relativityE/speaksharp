@@ -3,9 +3,47 @@ import { describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
-import { captureOwnedDatabaseDiagnostics, proofSubprocessFailure, redactProofText } from '../db/account-closure-full-chain-diagnostics.mjs';
+import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresVersion, proofSubprocessFailure, redactProofText } from '../db/account-closure-full-chain-diagnostics.mjs';
 
 const owned = 'supabase_db_closure-proof-0123456789abcdef';
+describe('explicit original/provider-fixed disposable image comparison', () => {
+  const id = `sha256:${'a'.repeat(64)}`;
+  const digest = `ghcr.io/supabase/postgres@sha256:${'b'.repeat(64)}`;
+  const image = { Id: id, Architecture: 'amd64', Os: 'linux', RepoDigests: [digest] };
+  it('keeps the original image by default and refuses arbitrary version input', () => {
+    expect(proofPostgresVersion()).toBe('17.6.1.106');
+    expect(proofPostgresVersion('17.6.1.155')).toBe('17.6.1.155');
+    expect(() => proofPostgresVersion('latest')).toThrow('unreviewed');
+  });
+  it('binds actual running image, immutable digest and original architecture without claiming production proof', () => {
+    const evidence = proofImageEvidence('17.6.1.155', { Config: { Image: 'ghcr.io/supabase/postgres:17.6.1.155' }, Image: id }, image);
+    expect(evidence).toMatchObject({ repositoryDigest: digest, imageId: id, architecture: 'amd64',
+      comparisonOnly: true, productionRepresentativenessVerified: false });
+  });
+  it.each([
+    ['wrong image', { Config: { Image: 'ghcr.io/supabase/postgres:17.6.1.106' }, Image: id }, image],
+    ['wrong inspected image', { Config: { Image: 'ghcr.io/supabase/postgres:17.6.1.155' }, Image: 'sha256:other' }, image],
+    ['wrong architecture', { Config: { Image: 'ghcr.io/supabase/postgres:17.6.1.155' }, Image: id }, { ...image, Architecture: 'arm64' }],
+    ['missing digest', { Config: { Image: 'ghcr.io/supabase/postgres:17.6.1.155' }, Image: id }, { ...image, RepoDigests: [] }],
+  ])('fails closed on %s', (_name, container, metadata) => {
+    expect(() => proofImageEvidence('17.6.1.155', container, metadata)).toThrow();
+  });
+  it('runs both environments independently and never converts original failure to success', () => {
+    const workflow = readFileSync('.github/workflows/account-closure-full-chain-proof.yml', 'utf8');
+    expect(workflow).toContain("postgres_version: ['17.6.1.106', '17.6.1.155']");
+    expect(workflow).toContain('fail-fast: false');
+    expect(workflow).not.toContain('continue-on-error');
+    expect(workflow).toContain('account-closure-full-chain-${{ matrix.postgres_version }}-');
+    const driver = readFileSync('tests/db/account-closure-full-chain.mjs', 'utf8');
+    expect(driver).toContain("join(directory, '.temp', 'postgres-version'), postgresVersion");
+    expect(driver.indexOf("readFileSync('tests/db/account-closure-denial-control.sql'")).toBeLessThan(driver.indexOf("cpSync(join(root, candidate)"));
+    const sql = readFileSync('tests/db/account-closure-denial-control.sql', 'utf8');
+    expect(sql).toContain('SET LOCAL ROLE service_role;');
+    expect(sql).toContain('EXCEPTION WHEN insufficient_privilege THEN NULL;');
+    expect(sql).toContain('SET LOCAL ROLE anon;');
+    expect(sql).toContain('ROLLBACK;');
+  });
+});
 describe('disposable proof diagnostics retain crash evidence before cleanup', () => {
   it('retains actual partial stdout/stderr, status and stage when a subprocess fails', () => {
     const result = spawnSync(process.execPath, ['-e', "process.stdout.write('CLOSURE_STAGE claim:start\\n'); process.stderr.write('lost connection\\n'); process.exit(7)"], { encoding: 'utf8' });

@@ -8,6 +8,7 @@ on:
       - 'tests/db/account-closure-concurrency-realpg.mjs'
       - 'tests/db/account-closure-tokens.integration.test.ts'
       - 'tests/db/account-closure-enforcement-full-chain.sql'
+      - 'tests/db/account-closure-denial-control.sql'
       - 'scripts/lib/accountClosure*'
       - 'scripts/account-closure-*-gate.mjs'
       - '.github/workflows/account-closure-full-chain-proof.yml'
@@ -21,13 +22,19 @@ concurrency:
 
 jobs:
   proof:
+    name: Supabase ${{ matrix.postgres_version }} explicit comparison
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres_version: ['17.6.1.106', '17.6.1.155']
     env:
       DOCKER_HOST: unix:///var/run/docker.sock
       SUPABASE_ACCESS_TOKEN: ''
       SUPABASE_DB_PASSWORD: ''
       PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PROOF_POSTGRES_VERSION: ${{ matrix.postgres_version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -42,6 +49,7 @@ jobs:
         with:
           version: 2.101.0
       - name: Install native PostgreSQL 17 host binaries (bounded)
+        if: matrix.postgres_version == '17.6.1.155'
         run: |
           set -euo pipefail
           timeout 180 sudo apt-get update -qq
@@ -53,6 +61,7 @@ jobs:
           /usr/lib/postgresql/17/bin/pg_ctl --version
           /usr/lib/postgresql/17/bin/psql --version
       - name: Prove native closure concurrency on the exact requested head
+        if: matrix.postgres_version == '17.6.1.155'
         run: |
           set -euo pipefail
           actual_head="$(git rev-parse HEAD)"
@@ -68,7 +77,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: account-closure-full-chain-${{ github.event.pull_request.head.sha }}
+          name: account-closure-full-chain-${{ matrix.postgres_version }}-${{ github.event.pull_request.head.sha }}
           path: artifacts/account-closure-full-chain/*.json
           if-no-files-found: error
           retention-days: 1

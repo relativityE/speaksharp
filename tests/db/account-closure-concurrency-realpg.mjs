@@ -536,6 +536,9 @@ try {
     enforcementGateCases++;
   }
   enforcementGate('before', true);
+  const denialControl = sql(readFileSync('tests/db/account-closure-denial-control.sql', 'utf8'));
+  assert.ok(denialControl.includes('ACCOUNT CLOSURE DISPOSABLE DENIAL CONTROL PASSED'));
+  console.log('NATIVE DISPOSABLE DENIAL CONTROL PASSED (NOT SUPABASE HOOK PROOF)');
   sql(`SET ROLE closure_owner; ${migration('20261016180000_account_closure_drain_enforcement.sql')} RESET ROLE;`);
   enforcementGate('after', true);
   sql('ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb; ALTER TABLE auth.users ADD COLUMN raw_user_meta_data jsonb');

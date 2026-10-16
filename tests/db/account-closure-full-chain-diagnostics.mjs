@@ -1,4 +1,24 @@
 import { spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+
+// Explicit diagnostic comparison, not an implicit replacement of the original
+// qualification environment. Both versions retain their own verdict/artifact.
+export function proofPostgresVersion(value = '17.6.1.106') {
+  assert.ok(['17.6.1.106', '17.6.1.155'].includes(value), 'unreviewed disposable PostgreSQL version');
+  return value;
+}
+export function proofImageEvidence(version, container, image) {
+  const expected = `ghcr.io/supabase/postgres:${proofPostgresVersion(version)}`;
+  assert.equal(container.Config.Image, expected, 'disposable PostgreSQL image differs from selected comparison');
+  assert.equal(image.Id, container.Image, 'inspected image differs from running container');
+  assert.equal(image.Architecture, 'amd64', 'comparison requires the original x86_64 architecture');
+  assert.equal(image.Os, 'linux', 'comparison requires Linux');
+  const digest = image.RepoDigests?.find((value) => /^ghcr\.io\/supabase\/postgres@sha256:[a-f0-9]{64}$/.test(value));
+  assert.ok(digest, 'immutable image repository digest unavailable');
+  return { selectedVersion: version, image: expected, imageId: image.Id, repositoryDigest: digest,
+    architecture: image.Architecture, os: image.Os, comparisonOnly: true,
+    productionRepresentativenessVerified: false };
+}
 
 // Disposable diagnostic metadata only. Never retain inspect.Config.Env, SQL
 // statements, raw database rows or CLI startup credentials in the artifact.
