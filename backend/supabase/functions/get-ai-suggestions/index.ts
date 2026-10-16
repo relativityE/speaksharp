@@ -226,7 +226,9 @@ export type CoachingFailureReason =
   | 'over_character_ceiling'
   | 'missing_model_version'
   /** #1258 option A: the caller went away during an attempt or a wait. No further attempt, nothing persisted. */
-  | 'request_cancelled';
+  | 'request_cancelled'
+  /** #1258 (PM 6203482045): an answer ARRIVED (its status is recorded) but its body could not be parsed. Retryable. */
+  | 'provider_malformed_response';
 
 const DIAGNOSTIC_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_MODEL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -238,7 +240,7 @@ const DIAGNOSTIC_REASONS = new Set([
   'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded', 'provider_http_4xx',
   'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text', 'invalid_shape',
   'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed', 'internal_error',
-  'request_cancelled',
+  'request_cancelled', 'provider_malformed_response',
 ]);
 
 type DiagnosticSource = 'fresh' | 'cache' | 'unknown';
@@ -854,18 +856,28 @@ export async function handler(
           providerFailureIsRetryable = isRetryableProviderStatus(geminiResponse.status);
           failureReason = geminiResponse.status >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
         } else {
-          const responseData = await geminiResponse.json();
-          providerAnswerCodes = decodeProviderAnswer(responseData);
-          const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
-          observedProviderModel = typeof responseData?.modelVersion === 'string'
-            && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
-            ? responseData.modelVersion
-            : null;
-          // The model's FRESH answer — the one place the budget is enforced.
-          const classified = classifyGeneratedSuggestions(rawText);
-          if ('suggestions' in classified) suggestions = classified.suggestions;
-          else failureReason = classified.reason;
-          if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
+          // #1258 (PM 6203482045): a received answer whose body is malformed or truncated is NOT a transport failure — its
+          // status already arrived. Named for what it is; still retryable (a truncated body is typically transient).
+          let responseData: Awaited<ReturnType<Response['json']>> | null = null;
+          try {
+            responseData = await geminiResponse.json();
+          } catch {
+            providerFailureIsRetryable = true;
+            failureReason = 'provider_malformed_response';
+          }
+          if (responseData !== null) {
+            providerAnswerCodes = decodeProviderAnswer(responseData);
+            const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+            observedProviderModel = typeof responseData?.modelVersion === 'string'
+              && /^[A-Za-z0-9._:-]{1,128}$/.test(responseData.modelVersion)
+              ? responseData.modelVersion
+              : null;
+            // The model's FRESH answer — the one place the budget is enforced.
+            const classified = classifyGeneratedSuggestions(rawText);
+            if ('suggestions' in classified) suggestions = classified.suggestions;
+            else failureReason = classified.reason;
+            if (suggestions && !observedProviderModel) failureReason = 'missing_model_version';
+          }
         }
       } catch (error) {
         // #1258: the error NAME only. A fetch error's message can carry the request URL, and this URL carries the API key.

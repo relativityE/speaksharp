@@ -19,7 +19,7 @@ export const PROVIDER_BLOCK_REASONS = [
 /** One provider attempt's outcome: the server's closed failure reason, or `none` for an attempt that answered. */
 export const PROVIDER_ATTEMPT_REASONS = [
     'none', 'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
-    'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'request_cancelled',
+    'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'request_cancelled', 'provider_malformed_response',
 ] as const;
 /** #1258 option A: the retry wait ceiling the Edge budget allows, and the clamp the Edge applies to `retry_after_s`. */
 export const PROVIDER_WAIT_MS_MAX = 600_000;

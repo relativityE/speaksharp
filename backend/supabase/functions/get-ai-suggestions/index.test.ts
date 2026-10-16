@@ -1139,6 +1139,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       const text = await response.text();
       const diagnostics = JSON.parse(text).diagnostics;
       assertEquals(diagnostics.attempt_1_status, 200, 'the answer was received, so its status is known');
+      // #1258 (PM 6203482045): named for what it is — an answer that arrived malformed, not a transport failure.
+      assertEquals(diagnostics.attempt_1_reason, 'provider_malformed_response');
       assertEquals(diagnostics.attempt_2_status, 200);
       assertEquals(diagnostics.provider_status, 200);
       // Retryable like any transient provider failure, up to option A's bounded ceiling — never beyond it.

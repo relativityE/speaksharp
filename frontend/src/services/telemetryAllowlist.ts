@@ -671,7 +671,7 @@ export const EVENT_SCHEMAS = Object.freeze({
             'service_configuration', 'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded',
             'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
             'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed',
-            'internal_error', 'network', 'invalid_response', 'unavailable',
+            'internal_error', 'network', 'invalid_response', 'unavailable', 'provider_malformed_response',
         ]),
         status: { kind: 'int', min: 0, max: 599 } as FieldRule,
         provider_status: { kind: 'int', min: 100, max: 599 } as FieldRule,
