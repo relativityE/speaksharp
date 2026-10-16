@@ -19,6 +19,7 @@ const env = (key: string) => {
     PAYMENTS_ENABLED: "true",
     SUPABASE_URL: "https://example.supabase.co",
     SUPABASE_ANON_KEY: "anon-key",
+    SUPABASE_SERVICE_ROLE_KEY: "service-key",
     STRIPE_SECRET_KEY: "sk_live_testsecret",
     STRIPE_PRO_PRICE_ID: "price_1TbnH175Lp2WYe28RTatJout",
     SITE_URL: "https://speaksharp-public.vercel.app",
@@ -81,11 +82,95 @@ const createSupabase = (stripeCustomerId: string | null = null, profileError: un
     }),
   }) as any;
 
+const createAdmin = () => ({ rpc: async (name: string) => ({ data: name === 'inspect_account_checkout' ? [] : name === "begin_account_checkout" ? "operation" : null, error: null }) }) as unknown as import("npm:@supabase/supabase-js@2").SupabaseClient;
+
 Deno.test("stripe-checkout edge function", async (t) => {
+  await t.step('cancel-return retries reuse the verified open checkout without another purchase',async()=>{
+    const calls:string[]=[];
+    const admin=()=>({rpc:async(name:string)=>{calls.push(name);return {
+      data:name==='inspect_account_checkout'?[{operation_id:'operation',session_id:'cs_open',phase:'open'}]:name==='confirm_account_checkout_reuse'?true:null,
+      error:name==='begin_account_checkout'?{message:'existing checkout'}:null,
+    };}}) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+    let created=0;
+    const client={...stripeWith({sessions:{create:async()=>{created++;return {id:'new',url:'https://checkout.stripe.com/new'};}}}),
+      checkout:{sessions:{create:async()=>{created++;return {id:'new',url:'https://checkout.stripe.com/new'};},
+        retrieve:async()=>({id:'cs_open',status:'open',url:'https://checkout.stripe.com/old',client_reference_id:'user-123',metadata:{userId:'user-123'}})}}};
+    const res=await handler(request('pro'),{getEnv:env,createSupabase:createSupabase(),createAdmin:admin,stripeClient:client});
+    assertEquals(res.status,200); assertEquals((await res.json()).checkoutUrl,'https://checkout.stripe.com/old');
+    assertEquals(created,0); assertEquals(calls,['inspect_account_checkout','confirm_account_checkout_reuse']);
+  });
+  await t.step('provider-confirmed expiry is reconciled before a fresh checkout reservation',async()=>{
+    const order:string[]=[];
+    const admin=()=>({rpc:async(name:string)=>{order.push(name);return {
+      data:name==='inspect_account_checkout'?[{operation_id:'old',session_id:'cs_old',phase:'open'}]
+        :name==='begin_account_checkout'?'new':null,error:null,
+    };}}) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+    const client={...stripeWith({sessions:{create:async()=>({id:'cs_new',url:'https://checkout.stripe.com/new'})}}),
+      checkout:{sessions:{retrieve:async()=>({id:'cs_old',status:'expired',url:null,client_reference_id:'user-123',metadata:{userId:'user-123'}}),
+        create:async()=>{order.push('stripe');return {id:'cs_new',url:'https://checkout.stripe.com/new'};}}}};
+    const res=await handler(request('pro'),{getEnv:env,createSupabase:createSupabase(),createAdmin:admin,stripeClient:client});
+    assertEquals(res.status,200);
+    assertEquals(order,['inspect_account_checkout','reconcile_account_checkout_expiry','begin_account_checkout','stripe','record_account_checkout']);
+  });
+  for (const phase of ['issuing','unknown']) {
+    await t.step(`${phase} checkout remains held on purchase retry`,async()=>{
+      let contacted=false;
+      const admin=()=>({rpc:async()=>({data:[{operation_id:'old',session_id:null,phase}],error:null})}) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+      const client={...stripeWith({sessions:{create:async()=>({id:'unexpected',url:'x'})}}),checkout:{sessions:{
+        retrieve:async()=>{contacted=true;throw new Error('must not guess');},
+        create:async()=>{contacted=true;return {id:'unexpected',url:'x'};},
+      }}};
+      const res=await handler(request('pro'),{getEnv:env,createSupabase:createSupabase(),createAdmin:admin,stripeClient:client});
+      assertEquals(res.status,502); assertEquals(contacted,false);
+    });
+  }
+  for (const mode of ['wrong_owner','unusable_url','closure_won','lost_readback']) {
+    await t.step(`open checkout retry ${mode} fails closed without another purchase`,async()=>{
+      let created=false; const names:string[]=[];
+      const admin=()=>({rpc:async(name:string)=>{names.push(name);return {
+        data:name==='inspect_account_checkout'?[{operation_id:'old',session_id:'cs_old',phase:'open'}]:mode!=='closure_won',error:null,
+      };}}) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+      const client={...stripeWith({sessions:{create:async()=>({id:'unexpected',url:'x'})}}),checkout:{sessions:{
+        retrieve:async()=>{if(mode==='lost_readback') throw new Error('timeout'); return {
+          id:'cs_old',status:'open',url:mode==='unusable_url'?null:'https://checkout.stripe.com/old',
+          client_reference_id:mode==='wrong_owner'?'other':'user-123',metadata:{userId:'user-123'},
+        };},create:async()=>{created=true;return {id:'unexpected',url:'x'};},
+      }}};
+      const res=await handler(request('pro'),{getEnv:env,createSupabase:createSupabase(),createAdmin:admin,stripeClient:client});
+      assertEquals(res.status,502); assertEquals(created,false);
+      assertEquals(names.includes('begin_account_checkout'),false);
+    });
+  }
+  await t.step('closed billing fence refuses checkout before Stripe; no fallback creation',async()=>{
+    const stripe=neverCallStripe();
+    const admin=()=>({rpc:async()=>({data:null,error:{message:'closure pending'}})}) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+    const res=await handler(request('pro'),{getEnv:env,createSupabase:createSupabase(),createAdmin:admin,stripeClient:stripe.client});
+    assertEquals(res.status,502); assertEquals(stripe.called(),false);
+  });
+  await t.step('checkout is reserved before Stripe and recorded before URL delivery',async()=>{
+    const order:string[]=[];
+    const admin=()=>({rpc:async(name:string)=>{order.push(name);return {data:name==='inspect_account_checkout'?[]:name==='begin_account_checkout'?'operation':null,error:null};}}) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+    const client=stripeWith({sessions:{create:async(params)=>{order.push('stripe');
+      assertEquals((params.metadata as {billingOperationId:string}).billingOperationId,'operation');
+      return {id:'cs',url:'https://checkout.stripe.com/cs'};}}});
+    const res=await handler(request('pro'),{getEnv:env,createSupabase:createSupabase(),createAdmin:admin,stripeClient:client});
+    assertEquals(res.status,200);
+    assertEquals(order,['inspect_account_checkout','begin_account_checkout','stripe','record_account_checkout']);
+  });
+  await t.step('lost Stripe creation response leaves issuance held; no release or URL claimed',async()=>{
+    const calls:string[]=[];
+    const admin=()=>({rpc:async(name:string)=>{calls.push(name);return {data:name==='inspect_account_checkout'?[]:'operation',error:null};}}) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+    const client=stripeWith({sessions:{create:async()=>{throw new Error('lost response');}}});
+    const res=await handler(request('pro'),{getEnv:env,createSupabase:createSupabase(),createAdmin:admin,stripeClient:client});
+    assertEquals(res.status,502);
+    assertEquals(calls,['inspect_account_checkout','begin_account_checkout']);
+    assertEquals((await res.json()).checkoutUrl,undefined);
+  });
   await t.step("rejects every non-product checkout plan", async () => {
     let stripeCalled = false;
     const res = await handler(request("basic"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith({
         sessions: {
@@ -110,6 +195,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let receivedClientReferenceId: unknown;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith({
         sessions: {
@@ -137,6 +223,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let receivedCustomerEmail: unknown;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase("cus_existing"),
       stripeClient: stripeWith({
         sessions: {
@@ -160,6 +247,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: (key) => key === "STRIPE_PRO_PRICE_ID" ? undefined : env(key),
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith({
         sessions: {
@@ -185,6 +273,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
@@ -204,6 +293,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
@@ -223,6 +313,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
@@ -242,6 +333,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
@@ -259,6 +351,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
@@ -276,6 +369,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
@@ -293,6 +387,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: {
         checkout: { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
@@ -309,6 +404,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
+      createAdmin,
       createSupabase: createSupabase(null, { message: "profile unavailable" }),
       stripeClient: stripeWith({
         sessions: {
@@ -330,6 +426,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const stripe = neverCallStripe();
     const res = await handler(request("pro"), {
       getEnv: envWith({ PAYMENTS_ENABLED: undefined }),
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripe.client,
     });
@@ -344,6 +441,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const stripe = neverCallStripe();
     const res = await handler(request("pro"), {
       getEnv: envWith({ STRIPE_SECRET_KEY: "sk_test_notlive" }),
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripe.client,
     });
@@ -357,6 +455,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const stripe = neverCallStripe();
     const res = await handler(request("pro"), {
       getEnv: envWith({ STRIPE_SECRET_KEY: undefined }),
+      createAdmin,
       createSupabase: createSupabase(),
       stripeClient: stripe.client,
     });

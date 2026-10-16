@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { CheckCircle, ShieldCheck, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -177,6 +177,9 @@ const BillingManagementPanel: React.FC<{ paymentsEnabled: boolean }> = ({ paymen
           <p className="text-xs leading-5 text-muted-foreground md:text-right">
             No payment is made if Checkout is cancelled. Pro unlocks only after Stripe confirmation reaches your account.
           </p>
+          {profile?.id && <Link to="/account/delete" className="text-sm underline underline-offset-4">
+            Delete account
+          </Link>}
         </div>
       </div>
     </section>
