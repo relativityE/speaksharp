@@ -6458,6 +6458,11 @@ export class SpeechRuntimeController {
                     useSessionStore.getState().setObjectiveCoverageResult(
                         objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
                     );
+                    // #1258 item 5 (PM 6216341052) — `evaluation_complete` is produced HERE: the take's successful, settled
+                    // Focus evaluation, still owned by this take (`canPublishShared`). Stop awaits this before it resolves,
+                    // and the hook marks `session_saved` only after Stop resolves, so the chain order holds without
+                    // waiting on React or backdating. A failed, unknown or stale finalization never marks it (HOLD).
+                    markCompletionStage('evaluation_complete');
                 } else {
                     pushNativeRuntimeTrace('controller_stop_publication_refused', { label: 'objective_coverage' });
                 }

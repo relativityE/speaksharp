@@ -117,3 +117,61 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         expect(useSessionStore.getState().objectiveCoverageResult).toEqual([{ id: 'p1', label: 'pricing', status: 'covered' }]);
     });
 });
+
+/**
+ * #1258 item 5 (PM 6216341052) — `evaluation_complete` is produced at the take's successful, settled, OWNED Focus
+ * evaluation (this seam), never by a render. Stop awaits this seam before it resolves and the hook marks `session_saved`
+ * after Stop resolves, so the strict same-attempt chain order holds. Failed, unknown or stale finalizations never mark it.
+ */
+describe('#1258 item 5 — the evaluation_complete producer is the owned, successful Focus finalization', () => {
+    let gate: Gate;
+    let runProgressEval: ReturnType<typeof vi.fn>;
+    let stages: typeof import('@/services/telemetry/completionStages');
+
+    beforeEach(async () => {
+        finalizeObjectiveSessionOnSave.mockReset();
+        runProgressEval = vi.fn();
+        useSessionStore.getState().setObjectiveCoverageResult(null);
+        stages = await import('@/services/telemetry/completionStages');
+        stages.__resetCompletionStagesForTests();
+        const controller = SpeechRuntimeController.getInstance();
+        gate = (controller as unknown as { finalizeObjectiveAndGateProgress: Gate })
+            .finalizeObjectiveAndGateProgress.bind(controller);
+    });
+
+    const success = { ok: true, objectiveSessionId: 'obj', evidenceCount: 1, registered: true,
+        coverage: [{ briefPointId: 'p1', point: 'Point one', status: 'covered' }] };
+
+    it('a successful finalization still owned by this take marks evaluation_complete — before the hook\'s later session_saved', async () => {
+        finalizeObjectiveSessionOnSave.mockResolvedValue(success);
+        await gate(BRIEF, 'sess-ok', [], 60, runProgressEval, () => true);
+        expect(stages.reachedStages()).toContain('evaluation_complete');
+        stages.markCompletionStage('session_saved'); // what the hook does once Stop has resolved
+        const reached = stages.reachedStages();
+        expect(reached.indexOf('evaluation_complete')).toBeLessThan(reached.indexOf('session_saved'));
+    });
+
+    it('a STALE take (no longer owns shared state) never marks it — a later take\'s chain is not this one\'s', async () => {
+        finalizeObjectiveSessionOnSave.mockResolvedValue(success);
+        await gate(BRIEF, 'sess-stale', [], 60, runProgressEval, () => false);
+        expect(stages.reachedStages()).not.toContain('evaluation_complete');
+    });
+
+    it.each([
+        ['a refused registration', { ok: false, stage: 'register', reason: 'ineligible', registered: false }],
+        ['a later-stage failure (registered, no coverage verdict)', { ok: false, stage: 'finalize', reason: 'error', registered: true }],
+        ['a success envelope with no coverage', { ...success, coverage: undefined }],
+    ])('%s never marks it — the chain HOLDs rather than claiming an evaluation that did not succeed', async (_label, result) => {
+        finalizeObjectiveSessionOnSave.mockResolvedValue(result);
+        await gate(BRIEF, 'sess-fail', [], 60, runProgressEval, () => true);
+        expect(stages.reachedStages()).not.toContain('evaluation_complete');
+    });
+
+    it('an ambiguous throw (unknown outcome) never marks it', async () => {
+        finalizeObjectiveSessionOnSave.mockRejectedValue(new Error('network'));
+        await gate(BRIEF, 'sess-throw', [], 60, runProgressEval, () => true);
+        expect(stages.reachedStages()).not.toContain('evaluation_complete');
+    });
+    // Once-per-take marking (a Retry Save re-entering this seam) is markCompletionStage's own rule, proven in
+    // completionStages.test.ts; it is not re-proven here.
+});
