@@ -13,6 +13,11 @@ export const BLOCKED_COPY = /A recording is active on .+\. Stop it there, or pre
 /** Both wordings the product shows: the hook's longer line, and the controller's own status line. */
 export const SAME_BROWSER_TAB_COPY = /Active session in another tab\./;
 export const DISPLACED_COPY = 'This recording stopped because another device took over. What was recorded here is being saved.';
+/**
+ * #1258 (round 2, run 38876623812) — the product's in-app leave guard (App.tsx): while a take records on /session, a
+ * same-origin link off /session is held and the person is asked this. OK stops and saves the take, then goes; Cancel stays.
+ */
+export const LEAVE_PROMPT_COPY = 'A recording is still active. Stop and save this session before leaving?';
 /** The browser-side Cloud STT surfaces: its token function and its provider. Private must never reach either. */
 export const CLOUD_STT_REQUEST = /assemblyai/i;
 
@@ -27,6 +32,20 @@ export function releasedVerdict(t: TabState, where: string): Verdict {
     if (t.liveTracks > 0) return { status: 'FAIL', detail: `${where}: a microphone track is still live` };
     if (t.recorderVisible || t.runtimeState === 'RECORDING') return { status: 'FAIL', detail: `${where}: the page still shows or holds a recording` };
     return { status: 'PASS', detail: `${where}: nothing records and every microphone track has ended` };
+}
+
+/**
+ * Navigate away: the product asks once before leaving a live recording, in its own words; the person answers Leave; the
+ * guard stops and saves the take (no "could not stop" alert) and the page reaches where they chose. An unanswered prompt
+ * is the person choosing Cancel, which keeps them on the recording, so the journey must answer it.
+ */
+export function leavePromptVerdict(o: { prompts: number; copyMatches: boolean; stopFailedAlerts: number; arrived: boolean }): Verdict {
+    if (o.prompts === 0) return { status: 'FAIL', detail: 'the product did not ask before leaving a live recording' };
+    if (o.prompts > 1) return { status: 'FAIL', detail: 'the leave prompt was shown more than once for one press' };
+    if (!o.copyMatches) return { status: 'FAIL', detail: 'the leave prompt is not the product\'s stop-and-save question' };
+    if (o.stopFailedAlerts > 0) return { status: 'FAIL', detail: 'answering Leave could not stop and save the recording' };
+    if (!o.arrived) return { status: 'FAIL', detail: 'answering Leave did not reach the chosen page' };
+    return { status: 'PASS', detail: 'the product asked before leaving the live recording; Leave stopped it and reached the chosen page' };
 }
 
 /**

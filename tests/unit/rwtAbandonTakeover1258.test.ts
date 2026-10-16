@@ -8,8 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, SAME_BROWSER_TAB_COPY, type TabState, TWO_TAB_SUITE,
-    nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
+    BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, type TabState, TWO_TAB_SUITE,
+    leavePromptVerdict, nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
     secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from '../live/helpers/rwtAbandonTakeover';
 import {
@@ -27,6 +27,20 @@ describe('releasedVerdict — leaving ends the recording and the microphone', ()
         expect(releasedVerdict({ ...idle, liveTracks: 1 }, 'x').detail).toMatch(/microphone track is still live/);
         expect(releasedVerdict({ ...idle, recorderVisible: true }, 'x').status).toBe('FAIL');
         expect(releasedVerdict({ ...idle, runtimeState: 'RECORDING' }, 'x').status).toBe('FAIL');
+    });
+});
+
+describe('leavePromptVerdict — navigate away answers the product\'s own leave prompt (#1258 run 38876623812)', () => {
+    const asked = { prompts: 1, copyMatches: true, stopFailedAlerts: 0, arrived: true };
+    it('asked once in the product\'s words, Leave stopped the take and reached the page → PASS', () => {
+        expect(leavePromptVerdict(asked).status).toBe('PASS');
+    });
+    it('no prompt, a repeated prompt, other copy, a stop failure, or no arrival → FAIL', () => {
+        expect(leavePromptVerdict({ ...asked, prompts: 0 }).detail).toMatch(/did not ask/);
+        expect(leavePromptVerdict({ ...asked, prompts: 2 }).detail).toMatch(/more than once/);
+        expect(leavePromptVerdict({ ...asked, copyMatches: false }).detail).toMatch(/not the product's/);
+        expect(leavePromptVerdict({ ...asked, stopFailedAlerts: 1 }).detail).toMatch(/could not stop/);
+        expect(leavePromptVerdict({ ...asked, arrived: false }).detail).toMatch(/did not reach/);
     });
 });
 
@@ -110,6 +124,7 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         const policy = src('frontend/src/services/recordingLeasePolicy.ts');
         expect(policy).toContain(DISPLACED_COPY);
         expect(policy).toContain('Stop it there, or press Start again to take over here');
+        expect(src('frontend/src/App.tsx'), 'the leave prompt is the product\'s own').toContain(`'${LEAVE_PROMPT_COPY}'`);
         expect(BLOCKED_COPY.test('A recording is active on another device. Stop it there, or press Start again to take over here')).toBe(true);
         for (const f of ['frontend/src/hooks/useSessionLifecycle.ts', 'frontend/src/services/SpeechRuntimeController.ts']) {
             const line = /'⛔ (Active session in another tab\.[^']*)'/.exec(src(f))?.[1] ?? '';
@@ -143,5 +158,11 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(spec).not.toMatch(/\.route\(|route\.abort|route\.fulfill|setOffline/);
         expect(spec).toContain("await page.close({ runBeforeUnload: true });");
         expect(spec).toContain("if (d.type() === 'beforeunload') { leavePrompt = true; void d.accept(); }");
+        // #1258 run 38876623812: navigate away ANSWERS the in-app leave prompt before pressing Products (an unanswered
+        // confirm is dismissed, which keeps the person on the recording and timed the journey out).
+        const navStart = spec.indexOf("if (variant === 'navigate-away')");
+        const nav = spec.slice(navStart, spec.indexOf("await openProductsItem(page, 'open-mic')", navStart));
+        expect(nav.indexOf("page.on('dialog', answerLeave)"), 'the prompt is answered').toBeGreaterThan(-1);
+        expect(nav.indexOf("page.on('dialog', answerLeave)"), 'before the Products press').toBeLessThan(nav.indexOf("openProductsItem(page, 'focus-points')"));
     });
 });

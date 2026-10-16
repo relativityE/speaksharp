@@ -508,6 +508,8 @@ const ABANDON_PRODUCT_ROWS = Object.freeze([
     'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
     'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
 ]);
+/** Navigate away also answers the product's in-app leave prompt (#1258 run 38876623812); closing the tab has none. */
+const ABANDON_NAVIGATE_PRODUCT_ROWS = Object.freeze([...ABANDON_PRODUCT_ROWS, 'leave prompt answered Leave']);
 const TWO_TAB_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'same-browser tab is refused', 'another device is refused by the account lease',
     'take-over moves the one engine',
@@ -556,6 +558,8 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case ABANDON_NAVIGATE_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_NAVIGATE_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case ABANDON_CLOSE_TAB_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };

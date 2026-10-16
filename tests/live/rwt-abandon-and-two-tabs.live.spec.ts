@@ -11,7 +11,7 @@
  * content-free. Preparation only: execution requires a fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import type { BrowserContext, Page, TestInfo } from '@playwright/test';
+import type { BrowserContext, Dialog, Page, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { routeVercelBypass } from './helpers/deployedLiveTest';
@@ -30,8 +30,8 @@ import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
-    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, LEAVE_PROMPT_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
+    TWO_TAB_SUITE, leavePromptVerdict, nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
     returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
@@ -122,8 +122,26 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
 
         let returned = page;
         if (variant === 'navigate-away') {
+            // #1258 run 38876623812: the product asks before leaving a live recording. Unanswered, Playwright dismisses it
+            // (the person's Cancel) and the page rightly stays; a person leaving answers Leave. Counts only, no copy stored.
+            const leave = { prompts: 0, copyMatches: true, stopFailedAlerts: 0 };
+            const answerLeave = (d: Dialog) => {
+                if (d.type() === 'confirm') {
+                    leave.prompts += 1;
+                    leave.copyMatches = leave.copyMatches && d.message() === LEAVE_PROMPT_COPY;
+                    void d.accept();
+                    return;
+                }
+                if (d.type() === 'alert') leave.stopFailedAlerts += 1;
+                void d.dismiss();
+            };
+            page.on('dialog', answerLeave);
             await openProductsItem(page, 'focus-points');
-            await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 });
+            const arrived = await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 }).then(() => true, () => false);
+            page.off('dialog', answerLeave);
+            const asked = leavePromptVerdict({ ...leave, arrived });
+            receipt.row('leave prompt answered Leave', asked.status, asked.detail, { ...leave, arrived });
+            if (!arrived) return;
             await page.waitForTimeout(3_000);
             const afterLeaving = await tabState(page);
             const left = releasedVerdict(afterLeaving, 'after leaving');
