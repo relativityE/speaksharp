@@ -126,6 +126,10 @@ BEGIN
       drain_binding_digest=p_binding_digest,drain_context=p_context
       WHERE a.user_id=p_user_id AND a.request_id=proof.request_id AND a.phase='processing';
     IF NOT FOUND THEN RAISE EXCEPTION 'closure claim binding missing'; END IF;
+    -- The legacy fence/journal UPSERTs may have waited after the prechecks.
+    -- Refuse in this transaction so neither the claim nor its binding escapes.
+    PERFORM public.require_account_closure_drain(p_attestation_id,p_generation,p_binding_digest,p_context);
+    IF proof.expires_at<=clock_timestamp() THEN RAISE EXCEPTION 'closure token expired'; END IF;
     RETURN QUERY SELECT proof.user_id,proof.email,proof.customer_id,proof.request_id,proof.expires_at;
   END LOOP;
 END;
@@ -173,6 +177,9 @@ BEGIN
   -- Existing authoritative transitions independently enforce Auth absence,
   -- owned-fence cleanup, complete residue and exact phase compare-and-set.
   PERFORM public.record_account_closure_auth_state(p_user_id,p_request_id,p_state);
+  -- Auth-absent cleanup can block on a downstream fence/checkout row. Recheck
+  -- the actual clock after it, rolling back phase and cleanup together on expiry.
+  PERFORM public.require_account_closure_drain(p_attestation_id,p_generation,p_binding_digest,p_context);
 END;
 $$;
 
@@ -186,6 +193,9 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'billing identity mismatch'; END IF;
   PERFORM public.require_account_closure_request_authority(p_user_id,p_request_id,p_attestation_id,p_generation,p_binding_digest,p_context);
   PERFORM public.settle_account_closure_billing(p_user_id,p_request_id,p_customer_id,p_subscriptions);
+  -- The delegated token/fence locks and tombstone uniqueness waits are later
+  -- consuming boundaries than the request precheck; rollback on expired drain.
+  PERFORM public.require_account_closure_drain(p_attestation_id,p_generation,p_binding_digest,p_context);
 END;
 $$;
 
