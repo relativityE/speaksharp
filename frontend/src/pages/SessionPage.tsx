@@ -3,6 +3,7 @@ import React, { useRef, useEffect } from 'react';
 import { useClarityMove } from '@/hooks/useClarityMove';
 import { ENGINE_RETIRE_UNCONFIRMED_MESSAGE, useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { cancelStartupAndRetry } from '@/services/startupRetry';
+import { currentStartAttempt } from '@/services/startAttemptRegistry';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Button } from '@/components/ui/button';
@@ -60,6 +61,9 @@ export const SessionPage: React.FC = () => {
     // C10 Try again re-reads the CURRENT owner at its destructive boundary, not the one captured when it rendered.
     const authUserIdRef = useRef(authUserId);
     useEffect(() => { authUserIdRef.current = authUserId; }, [authUserId]);
+    // ...and whether this page is still the one on screen (a left page never restarts a take).
+    const mountedRef = useRef(true);
+    useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
     // #1415 — the SAME gate reason the desktop mic card renders, derived from the same authority.
     // Mobile previously had no access to it at all, so a blocked cold press on a phone was a dead
     // control with no explanation available even in principle.
@@ -696,31 +700,40 @@ export const SessionPage: React.FC = () => {
                         startupRetry={startupWaiting && startupSlow ? {
                             pending: startupRetryPending,
                             onRetry: () => {
-                                if (startupRetryPending || startupWaitStartedAt === null) return;
+                                // Bound to the ONE accepted start attempt pressed for (PM 6207105255), not to the UI wait.
+                                const attempt = currentStartAttempt();
+                                if (startupRetryPending || !attempt || attempt.isSettled()) return;
                                 setStartupRetryPending(true);
-                                // C10 Try again (PM 6205858358 item 3): for THIS pending attempt only, re-read at the
-                                // destructive boundary; confirmed release, then exactly one new start (startupRetry.ts).
-                                const attemptStartedAt = startupWaitStartedAt;
                                 const ownerAtRender = authUserId;
                                 void import('@/services/SpeechRuntimeController').then(async ({ speechRuntimeController }) => {
                                     const store = useSessionStore.getState;
                                     await cancelStartupAndRetry({
-                                        attemptStartedAt,
+                                        attemptId: attempt.id,
                                         ownerAtRender,
-                                        read: () => ({
-                                            startupWaitStartedAt: store().startupWaitStartedAt,
-                                            captureLive: store().captureLive,
-                                            runtimeState: store().runtimeState,
-                                            owner: authUserIdRef.current,
-                                        }),
+                                        read: () => {
+                                            const latest = currentStartAttempt();
+                                            return {
+                                                attemptId: latest?.id ?? null,
+                                                attemptSettled: latest?.id === attempt.id ? attempt.isSettled() : true,
+                                                captureLive: store().captureLive,
+                                                runtimeState: store().runtimeState,
+                                                owner: authUserIdRef.current,
+                                                mounted: mountedRef.current,
+                                                cancellingFor: store().startupRetryCancelling,
+                                            };
+                                        },
+                                        waitForSettled: (ms) => Promise.race([
+                                            attempt.settled.then(() => true),
+                                            new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
+                                        ]),
                                         controller: speechRuntimeController,
-                                        setCancelling: (v) => store().setStartupRetryCancelling(v),
+                                        setCancelling: (id) => store().setStartupRetryCancelling(id),
                                         clearWait: () => store().setStartupWaitStartedAt(null),
                                         reportFailure: (message) => store().setSTTStatus({ type: 'error', message: `⚠️ ${message}` }),
                                         unconfirmedMessage: ENGINE_RETIRE_UNCONFIRMED_MESSAGE,
-                                        restart: handleStartStop,
+                                        restartStartOnly: () => handleStartStop({ startOnly: true }),
                                         settleMs: STARTUP_RETRY_SETTLE_MS,
-                                    }).catch(() => undefined).finally(() => setStartupRetryPending(false));
+                                    }).catch(() => undefined).finally(() => { if (mountedRef.current) setStartupRetryPending(false); });
                                 });
                             },
                         } : undefined}

@@ -6,7 +6,7 @@ const initialState: SessionState = {
     isListening: false,
     startupWaitStartedAt: null,
     captureLive: false,
-    startupRetryCancelling: false,
+    startupRetryCancelling: null,
     isReady: false,
     transcript: {
         transcript: '',
