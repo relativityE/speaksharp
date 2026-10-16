@@ -41,6 +41,29 @@ const lookup = (exchanges: CoachingExchange[], telemetryReceived = true, r = rep
 });
 const expectation = (exchanges: CoachingExchange[]) => currentTakeExpectation({ reportId: 'rep-1', currentSessionId: SES, exchanges, configuredModel: MODEL })!;
 
+/**
+ * Codex r4290615981 (PM 6207410484) — a BODY timeout keeps the received 2xx (the Edge function records the status when the
+ * headers arrive). End to end: the exchange, the adapter's derived classes, and the contract all agree; a timeout before
+ * any headers keeps provider none; a malformed body stays invalid_response.
+ */
+describe('timeout shapes, end to end through the adapter and the contract', () => {
+    const failed = (diag: Record<string, unknown>) => [exchange({ status: 502, diag: { outcome: 'failure', status: 502, observed_model: null, ...diag } })];
+    it('a body timeout (received 200, then stalled) is a timeout with provider 2xx — PASS', () => {
+        const ex = failed({ reason: 'provider_timeout', provider_status: 200, provider_attempts: 3, retry_count: 2 });
+        expect(toAiRequestDiagnostic(ex[0], 'timeout')).toMatchObject({ outcome: 'timeout', providerStatusClass: '2xx' });
+        expect(validateFeedbackDiagnostics(lookup(ex), expectation(ex))).toEqual({ verdict: 'PASS', reasons: [] });
+    });
+    it('a timeout before any headers keeps provider none — PASS', () => {
+        const ex = failed({ reason: 'provider_timeout', provider_status: null, provider_duration_ms: null });
+        expect(toAiRequestDiagnostic(ex[0], 'timeout')).toMatchObject({ outcome: 'timeout', providerStatusClass: 'none' });
+        expect(validateFeedbackDiagnostics(lookup(ex), expectation(ex)).verdict).toBe('PASS');
+    });
+    it('a malformed 200 body stays invalid_response (not a timeout)', () => {
+        const ex = failed({ reason: 'provider_malformed_response', provider_status: 200 });
+        expect(contractOutcome(ex[0])).toBe('invalid_response');
+    });
+});
+
 describe('#1258 coaching → feedback adapter', () => {
     it('a fresh success about the current take resolves to a complete PASS chain', () => {
         const ex = [exchange()];
