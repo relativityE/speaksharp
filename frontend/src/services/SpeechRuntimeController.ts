@@ -975,11 +975,28 @@ export class SpeechRuntimeController {
             }
             pushNativeRuntimeTrace('controller_start_create_service');
             this.service = getTranscriptionService(this.callbacksForNewService(this.subscriberCallbacks), this.lock);
+            // #1258 RWT round 2 finding A — this warm-up is the controller's, not the user's: it must not reach the page
+            // (it disabled Start as "Downloading…" for a cached model). The Start that claims the service publishes it.
+            this.service.setBackgroundPreparation?.(true);
             await this.warmUp(mode);
             pushNativeRuntimeTrace('controller_next_take_prepare_done', { mode });
         };
         this.nextTakePreparation = run().finally(() => { this.nextTakePreparation = null; });
         return this.nextTakePreparation;
+    }
+
+    /**
+     * #1258 RWT round 2 finding A — end a background next-take preparation: the service publishes from now on, starting
+     * with its genuine current state. Returns true when that state is a FAILED preparation (PM 6216298226), so the claiming
+     * Start can answer with it instead of recording on a service its own failure is about to tear down.
+     */
+    private claimPreparedService(): boolean {
+        const service = this.service;
+        if (!service?.isBackgroundPreparation?.()) return false;
+        pushNativeRuntimeTrace('controller_next_take_prepared_service_claimed');
+        service.setBackgroundPreparation(false);
+        const state = service.getState?.();
+        return state === 'FAILED' || state === 'INIT_FAILED';
     }
 
     /** #1258 — a previous take's service would not terminate: refuse rather than run this take on it. */
@@ -2086,6 +2103,7 @@ export class SpeechRuntimeController {
         if (!this.service) {
             await this.ensureReady({ skipIfDownloadPending: false });
         }
+        this.claimPreparedService(); // #1258 A — an explicit download is the user's: it is published
         // Setup telemetry is emitted from handleStatusChange (path-agnostic: covers warmUp /
         // auto-init / explicit download alike), not here — initiateModelDownload is only ONE of
         // the model-load entry points and is skipped when the model auto-loads on mode select.
@@ -4179,6 +4197,30 @@ export class SpeechRuntimeController {
                 || this.currentRecordingId !== recordingId || !isCurrentIntent(intent.token))) {
                 pushNativeRuntimeTrace('controller_start_superseded_while_joining');
                 retireRecordingIntent('superseded', intent.token);
+                this.releaseRefusedStartLock();
+                return;
+            }
+            // #1258 A — the Start claims a background-prepared service: from here it publishes, starting with its truthful
+            // current state (ready, or a genuine preparation failure).
+            if (this.claimPreparedService()) {
+                // PM 6216298226 — the preparation FAILED. That failure is now this Start's answer: it ends here, rejected with
+                // the genuine cause, and nothing records on the failed service (a recording begun here would be overridden by
+                // the failure the claim just delivered). The failed service is retired so the person's next Start builds a
+                // fresh engine.
+                pushNativeRuntimeTrace('controller_start_prepared_service_failed');
+                const failed = this.service;
+                if (failed) {
+                    // Sam 6216630105 — until it is TERMINATED the service factory still hands this instance back, so an
+                    // immediate retry could reattach the discarded, still-terminating service. Marking it spent puts it under
+                    // the existing guard: the next Start awaits its retirement and then asks for a fresh service.
+                    this.servicesThatRecorded.add(failed);
+                    this.detachService(failed);
+                    // A discarded service no longer owns the page: its teardown must not overwrite the genuine failure the
+                    // claim just published (reset()'s UI sync would write idle "Ready" over it).
+                    failed.setBackgroundPreparation(true);
+                    void failed.destroy().catch(() => undefined);
+                }
+                retireRecordingIntent('acquisition_failed', intent.token, new Error('PREPARED_SERVICE_FAILED'));
                 this.releaseRefusedStartLock();
                 return;
             }

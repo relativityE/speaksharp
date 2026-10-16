@@ -35,6 +35,8 @@ const EXACT: ReadonlyArray<readonly [string, RecordingFailureCode]> = [
     ['SERVICE_MISSING', 'service_missing'],
     ['STT_STRATEGY_MISSING_AFTER_ENSURE_READY', 'strategy_missing'],
     ['PREVIOUS_TAKE_SERVICE_NOT_RETIRED', 'previous_service_not_retired'],
+    // #1258 A — a Start that claimed a failed background preparation is a rejected Start (existing closed code).
+    ['PREPARED_SERVICE_FAILED', 'start_failed'],
 ];
 /** Authored messages that carry a variable suffix: matched on their fixed opening only. */
 const PREFIX: ReadonlyArray<readonly [string, RecordingFailureCode]> = [

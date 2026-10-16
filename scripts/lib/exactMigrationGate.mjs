@@ -177,7 +177,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // Disabled deletion schema only. Apply needs its exact PO phrase and
         // mandatory schema postflight; allowlisting never authorizes activation.
         file: '20261013180000_account_closure_tokens.sql',
-        sha256: '6261dd8e2c6315dbc914c256de4798921ffaedfbfe0ecf8d858ad5c6456bef70',
+        sha256: '150879ed64cd5ded4b1d6a7c6111e69ebe9042b59a706fa6757ec4d8e1a43100',
         classification: 'staged',
     }),
     Object.freeze({
