@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 import { accountClosureRolloutQuery, assertAccountClosureRollout } from '../../scripts/lib/accountClosureRolloutGate.mjs';
 import { resolveExactMigrationConfig, assertTerminalOutcome, verifyMigrationSourceIdentity } from '../../scripts/lib/exactMigrationGate.mjs';
+import { closureRolloutDependencyMutations as dependencyMutations } from './accountClosureRolloutMutations.mjs';
 
 const baseline = readFileSync('backend/supabase/migrations/20260812041600_trial_commercial_grant_on_conflict_1294.sql', 'utf8');
 const source = readFileSync('backend/supabase/migrations/20261013180000_account_closure_tokens.sql', 'utf8');
@@ -12,13 +13,63 @@ const fixture = readFileSync('tests/db/account-closure-tokens.integration.test.t
 const target = '20261013180000_account_closure_tokens.sql';
 const workflow = parse(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml', 'utf8'));
 let db: PGlite;
-beforeEach(async () => { db = new PGlite(); await db.exec(fixture); await db.exec(`SET ROLE closure_owner; ${baseline} RESET ROLE;`); });
+beforeEach(async () => { db = new PGlite(); await db.exec(fixture); await db.exec(`SET ROLE closure_owner; ${baseline}
+    CREATE TRIGGER on_auth_user_created_trial_profile AFTER INSERT ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION public.ensure_trial_profile_for_new_user(); RESET ROLE;`); });
 afterEach(async () => { await db.close(); });
 async function check(mode: string) {
     const result = await db.query<{ json_build_object: string }>(accountClosureRolloutQuery(mode, baseline));
     return assertAccountClosureRollout(result.rows[0].json_build_object, mode);
 }
 describe('account closure rollout schema — no application/activation', () => {
+    it.each(['before', 'after'])('rejects dependency drift throughout the %s catalog matrix', async (mode) => {
+        if (mode === 'after') await db.exec(`SET ROLE closure_owner; ${source} RESET ROLE;`);
+        await check(mode);
+        await db.exec('BEGIN');
+        try {
+            for (const mutation of dependencyMutations) {
+                await db.exec('SAVEPOINT dependency_case');
+                await db.exec(mutation);
+                await expect(check(mode)).rejects.toThrow('rollout schema check failed');
+                await db.exec('ROLLBACK TO SAVEPOINT dependency_case; RELEASE SAVEPOINT dependency_case');
+                await check(mode);
+            }
+        } finally { await db.exec('ROLLBACK'); }
+    });
+    it.each(['before', 'after'])('uses catalog attribute identities and usable included-column email indexes in %s', async (mode) => {
+        if (mode === 'after') await db.exec(`SET ROLE closure_owner; ${source} RESET ROLE;`);
+        await db.exec(`DROP TABLE trial_entitlements;
+          CREATE TABLE trial_entitlements(user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+            trial_expires_at timestamptz NOT NULL DEFAULT now(), email text NOT NULL,
+            updated_at timestamptz DEFAULT now(),trial_started_at timestamptz NOT NULL DEFAULT now());
+          CREATE UNIQUE INDEX differently_named_email ON trial_entitlements(email) INCLUDE(trial_started_at)`);
+        await expect(check(mode)).resolves.toMatchObject({ passed: true });
+    });
+    it.each(['before', 'after'])('requires every exact output check name in %s', async (mode) => {
+        if (mode === 'after') await db.exec(`SET ROLE closure_owner; ${source} RESET ROLE;`);
+        const result = await check(mode);
+        for (const name of Object.keys(result.checks)) {
+            const broken = structuredClone(result); delete broken.checks[name];
+            expect(() => assertAccountClosureRollout(broken, mode)).toThrow();
+        }
+        expect(() => assertAccountClosureRollout({ ...result, checks: { ...result.checks, unexpected: true } }, mode)).toThrow();
+    });
+    it.each(['before', 'after'])('rejects missing signup trigger in %s rollout', async (mode) => {
+        if (mode === 'after') await db.exec(`SET ROLE closure_owner; ${source} RESET ROLE;`);
+        await check(mode);
+        await db.exec('DROP TRIGGER on_auth_user_created_trial_profile ON auth.users');
+        await expect(check(mode)).rejects.toThrow('rollout schema check failed');
+    });
+    it.each(['before', 'after'])('rejects missing email arbiter and wrong owner FK in %s rollout', async (mode) => {
+        if (mode === 'after') await db.exec(`SET ROLE closure_owner; ${source} RESET ROLE;`);
+        await check(mode);
+        await db.exec('ALTER TABLE trial_entitlements DROP CONSTRAINT trial_entitlements_pkey');
+        await expect(check(mode)).rejects.toThrow('rollout schema check failed');
+        await db.exec(`ALTER TABLE trial_entitlements ADD PRIMARY KEY(email);
+          ALTER TABLE trial_entitlements DROP CONSTRAINT trial_entitlements_user_id_fkey;
+          ALTER TABLE trial_entitlements ADD FOREIGN KEY(user_id) REFERENCES auth.users(id) ON DELETE CASCADE`);
+        await expect(check(mode)).rejects.toThrow('rollout schema check failed');
+    });
     it('accepts only the reviewed baseline before, and the exact logical tables after', async () => {
         await check('before'); await expect(check('after')).rejects.toThrow();
         await db.exec(`SET ROLE closure_owner; ${source} RESET ROLE;`);
