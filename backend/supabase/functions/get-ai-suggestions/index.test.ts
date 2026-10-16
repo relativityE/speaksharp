@@ -125,7 +125,10 @@ let providerRetryAfter: string | null = null;
 /** Abort the caller's request while the provider call is in flight / while the handler is waiting between attempts. */
 let abortDuringFetch: AbortController | null = null;
 let abortDuringSleep: AbortController | null = null;
+/** Each attempt's own timeout, as a controllable signal (no real timers): the latest one can be fired by a test. */
+let lastAttemptTimeout: AbortController | null = null;
 providerRetryHooks.runtime = {
+  timeout: () => { lastAttemptTimeout = new AbortController(); return lastAttemptTimeout.signal; },
   now: () => retryClock.mono,
   wallNow: () => retryClock.wall,
   random: () => retryClock.random,
@@ -341,6 +344,7 @@ function resetProvider() {
   providerRetryAfter = null;
   abortDuringFetch = null;
   abortDuringSleep = null;
+  lastAttemptTimeout = null;
   Deno.env.set('GEMINI_API_KEY', 'test-key');
 }
 
@@ -1005,6 +1009,34 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     });
   }
 
+  await t.step('Codex P2 r4290479629: headers then a STALLED body past the attempt timeout is provider_timeout, not malformed', async () => {
+    resetProvider();
+    const original = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin !== APPROVED_GEMINI_ORIGIN) return original(url, init);
+      fetchCount++;
+      attempts += 1;
+      if (attempts > 1) return original(url, init); // the retry is answered normally
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          lastAttemptTimeout?.abort(new DOMException('Signal timed out.', 'TimeoutError'));
+          controller.error(new DOMException('Signal timed out.', 'TimeoutError'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    try {
+      const { response, body } = await coach();
+      assertEquals(body.diagnostics.attempt_1_reason, 'provider_timeout', 'a stalled body is a timeout, not a malformed answer');
+      assertEquals(body.diagnostics.attempt_1_status, 200, 'the received status is kept');
+      assertEquals(attempts, 2, 'retryable: the next attempt is made');
+      assertEquals(response.status, 200);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   /**
    * PM 6206983551 item 2 — RE-ADMISSION AFTER THE WAIT. The wait was admitted against the budget before sleeping, but a
    * timer can wake late. Immediately before the next attempt the fresh remaining time is checked again: under the
@@ -1023,6 +1055,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       assertEquals(body.reason, 'provider_http_5xx', 'the prior failure stands');
       assertEquals(body.diagnostics.stopped_over_budget, true);
       assertEquals(mock.state.authorityRpcCount, 0);
+      // Codex P2 r4290479635: the wait reported is the wait actually spent, the late wake included.
+      assertEquals(body.diagnostics.provider_wait_ms_total, sleeps[0] + overshootMs);
     });
   }
 

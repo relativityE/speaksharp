@@ -820,6 +820,8 @@ export async function handler(
       // Only a failure in the retry set earns another attempt (`providerRetry.ts`). Set where the failure is known.
       let providerFailureIsRetryable = false;
       let retryAfter: RetryAfter = { kind: 'absent' };
+      // This attempt's own timeout, kept so its abort can be told apart from the caller's and from a malformed body.
+      const attemptTimeout = retryRuntime.timeout(attemptTimeoutMs(retryRuntime.now() - budgetStartedAt));
       // Each attempt states its own outcome; the reason reported is the last attempt's.
       suggestions = null;
       failureReason = null;
@@ -832,7 +834,7 @@ export async function handler(
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           // The caller's own abort and this attempt's timeout, composed — and told apart below by which one fired.
-          signal: AbortSignal.any([callerSignal, AbortSignal.timeout(attemptTimeoutMs(retryRuntime.now() - budgetStartedAt))]),
+          signal: AbortSignal.any([callerSignal, attemptTimeout]),
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: GEMINI_GENERATION_CONFIG,
@@ -867,6 +869,11 @@ export async function handler(
               // retryable malformed answer. The received status stays in the attempt evidence.
               callerAborted = true;
               failureReason = 'request_cancelled';
+            } else if (attemptTimeout.aborted) {
+              // Codex P2 r4290479629: headers arrived, then the BODY stalled past this attempt's timeout — a provider
+              // timeout, not a malformed answer. Retryable; the received status stays in the attempt evidence.
+              providerFailureIsRetryable = true;
+              failureReason = 'provider_timeout';
             } else {
               providerFailureIsRetryable = true;
               failureReason = 'provider_malformed_response';
@@ -930,13 +937,15 @@ export async function handler(
         break;
       }
       if (step.ms > 0) {
+        // Codex P2 r4290479635: the wait actually spent (a late wake included), not the wait requested.
+        const sleepStartedAt = retryRuntime.now();
         const slept = await retryRuntime.sleep(step.ms, callerSignal);
+        providerWaitMs += Math.max(0, retryRuntime.now() - sleepStartedAt);
         if (!slept) {
           callerAborted = true;
           failureReason = 'request_cancelled';
           break;
         }
-        providerWaitMs += step.ms;
       }
       // PM 6206983551: re-admit with the FRESH remaining time — a late wake can leave less than an attempt needs, or none.
       // Stop without fetching, keeping the prior failure. A caller who left during the wait is checked here too.

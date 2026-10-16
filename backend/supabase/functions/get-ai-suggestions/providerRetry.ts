@@ -32,6 +32,8 @@ export interface ProviderRetryRuntime {
   random(): number;
   /** Resolves `true` after `ms`, or `false` as soon as `signal` aborts. Never rejects. */
   sleep(ms: number, signal: AbortSignal): Promise<boolean>;
+  /** One attempt's own timeout signal (kept so a body-read abort can be told apart from a malformed answer). */
+  timeout(ms: number): AbortSignal;
 }
 
 export const realProviderRetryRuntime: ProviderRetryRuntime = {
@@ -44,6 +46,7 @@ export const realProviderRetryRuntime: ProviderRetryRuntime = {
     const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(true); }, ms);
     signal.addEventListener('abort', onAbort, { once: true });
   }),
+  timeout: (ms) => AbortSignal.timeout(ms),
 };
 
 export function isRetryableProviderStatus(status: number): boolean {
