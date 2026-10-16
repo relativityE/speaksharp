@@ -110,7 +110,7 @@ describe('exact-apply workflow composition', () => {
     it('binds the reviewed closure checksum and leaves commercial activation held', () => {
         const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: '20261013180000' });
         expect(config.targetFile).toBe(target);
-        expect(config.targetSha256).toBe('150879ed64cd5ded4b1d6a7c6111e69ebe9042b59a706fa6757ec4d8e1a43100');
+        expect(config.targetSha256).toBe('8647483f6ed72d99246c84cb2d07571c34c7a5393268f8acd505edf267b03688');
         expect(config.requiredAppliedVersions).toContain('20260812041600');
         expect(config.requiredAppliedVersions).not.toContain('20260812042000');
         expect(config.excludedMigrations.map((item: { version: string }) => item.version)).toContain('20260812042000');
