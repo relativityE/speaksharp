@@ -178,4 +178,28 @@ describe('#1258 C10 — captureLive latch', () => {
         b.live.onStatusChange?.({ type: 'recording', message: 'Speak now' } as never);
         expect(live(), 'POSITIVE CONTROL: the current engine can').toBe(true);
     });
+
+    it('PM 6205858358: a non-Private engine at RECORDING is NOT live, even when it reports a recording status', async () => {
+        const c = newController();
+        c.state = 'READY';
+        const a = recordingService('A');
+        a.getMode.mockReturnValue('native');
+        factory.queue.push(a);
+        await c.startRecording(POLICY, []);
+        expect(c.state).toBe('RECORDING');
+        expect(live(), 'no non-Private FSM shortcut').toBe(false);
+        a.live.onStatusChange?.({ type: 'recording', message: 'Recording active' } as never);
+        expect(live(), 'only the Private readiness signal counts').toBe(false);
+    });
+
+    it('PM 6205858358: an unknown mode is NOT live at RECORDING', async () => {
+        const c = newController();
+        c.state = 'READY';
+        const a = recordingService('A');
+        a.getMode.mockReturnValue(undefined);
+        factory.queue.push(a);
+        await c.startRecording(POLICY, []);
+        expect(c.state).toBe('RECORDING');
+        expect(live()).toBe(false);
+    });
 });

@@ -36,7 +36,7 @@ async function completeOneTake(page: Page) {
 }
 
 test.describe('#1258 C10 — Honest Start (mock browser, engine setup delayed)', () => {
-    test('Practice again?: Starting… at once, Getting your mic ready…, no stale copy or live indicator, then Recording active', async ({ page }) => {
+    test('Practice again?: Starting… at once, Getting your mic ready…, no stale copy or live indicator, then Speak now', async ({ page }) => {
         test.setTimeout(90_000);
         await page.setViewportSize({ width: 1280, height: 800 });
         await programmaticLoginWithRoutes(page, { userType: 'pro' });
@@ -64,8 +64,9 @@ test.describe('#1258 C10 — Honest Start (mock browser, engine setup delayed)',
 
         // Recording begins: the live state, with its own status — never the previous take's.
         await expect(page.getByTestId('recorder-bar')).toBeVisible({ timeout: 15_000 });
-        await expect.poll(() => bodyText(page), { timeout: 5_000 }).toContain('Recording active');
+        await expect.poll(() => bodyText(page), { timeout: 5_000 }).toContain('Speak now');
         text = await bodyText(page);
+        expect(text, 'Speak now takes the live slot; the generic copy is gone').not.toContain('Recording active');
         expect(text).not.toContain('Finalizing your transcript');
         expect(text).not.toContain(GETTING_READY);
     });
@@ -105,6 +106,7 @@ test.describe('#1258 C10 — Honest Start (mock browser, engine setup delayed)',
         await page.waitForTimeout(1_000);
         await expect(page.getByTestId('recorder-bar'), 'no recording bar / timer / waveform before real frames').toHaveCount(0);
         expect(await bodyText(page)).toContain(GETTING_READY);
+        expect(await bodyText(page), 'Speak now waits for real frames').not.toContain('Speak now');
         await expect(start).toContainText('Starting…');
 
         // Deliver the engine's own readiness (what the real gate fires) — the one live moment.
@@ -113,8 +115,9 @@ test.describe('#1258 C10 — Honest Start (mock browser, engine setup delayed)',
             w.__PrivateWhisper_INT_TEST__?.onStatusChange?.({ type: 'recording', message: 'Speak now' });
         });
         await expect(page.getByTestId('recorder-bar')).toBeVisible({ timeout: 5_000 });
-        await expect.poll(() => bodyText(page), { timeout: 5_000 }).toContain('Recording active');
+        await expect.poll(() => bodyText(page), { timeout: 5_000 }).toContain('Speak now');
         expect(await bodyText(page)).not.toContain(GETTING_READY);
+        expect(await bodyText(page), 'no Speak now before real frames, and no generic copy after').not.toContain('Recording active');
     });
 
     test('10 s from the press: the notice and Try again; Try again cancels with confirmed release and starts exactly one engine', async ({ page }) => {

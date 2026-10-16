@@ -38,6 +38,9 @@ const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const STARTUP_SLOW_NOTICE_MS = 10_000;
 /** How long Try again waits for the cancelled attempt to unwind before giving up (it then starts nothing). */
 const STARTUP_RETRY_SETTLE_MS = 5_000;
+/** #1258 C10: the live slot's copy at the real-frame boundary, replacing the controller's generic RECORDING message. */
+const SPEAK_NOW_MESSAGE = 'Speak now';
+const RECORDING_ACTIVE_MESSAGE = 'Recording active';
 
 /**
  * ARCHITECTURE:
@@ -586,11 +589,13 @@ export const SessionPage: React.FC = () => {
                 ...(startupSlow ? { detail: 'This is taking longer than usual.' } : {}),
             } as SttStatus;
         }
-        // Live capture of a NEW take: its own status, never the previous take's post-save copy (C10 row 4).
+        // Live capture of a NEW take: its own status, never the previous take's post-save copy (C10 row 4). PM 6205858358:
+        // `Speak now` takes the live slot at the one real-frame boundary, in place of the generic `Recording active`.
         if (captureLive && runtimeState === 'RECORDING') {
-            return (sttStatus as SttStatus).type === 'recording'
-                ? sttStatus as SttStatus
-                : { type: 'recording', message: 'Recording active' } as SttStatus;
+            const live = sttStatus as SttStatus;
+            return live.type === 'recording' && live.message && live.message !== RECORDING_ACTIVE_MESSAGE
+                ? live
+                : { type: 'recording', message: SPEAK_NOW_MESSAGE } as SttStatus;
         }
 
         // 2b. Post-save (TERMINAL success only): the mode-aware reconciliation copy is the authoritative

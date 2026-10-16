@@ -2894,10 +2894,10 @@ export class SpeechRuntimeController {
 
         if (newState === 'RECORDING') {
             store.setSTTStatus({ type: 'recording', message: 'Recording active' });
-            // #1258 C10 — non-Private engines capture from the RECORDING transition itself. Private does NOT: its capture is
-            // live only once the engine has reported real frames, which can arrive before this transition (remembered in
-            // `engineReportedRealFrames`) or after it (`handleStatusChange`).
-            store.setCaptureLive(this.service?.getMode() !== 'private' || this.engineReportedRealFrames);
+            // #1258 C10 (PM 6205858358) — capture is live only on the CURRENT Private engine's own real-frame readiness, which
+            // can arrive before this transition (remembered in `engineReportedRealFrames`) or after it (`handleStatusChange`).
+            // An FSM state is not proof of capture: a missing, unknown or non-Private service stays NOT live.
+            store.setCaptureLive(this.service?.getMode() === 'private' && this.engineReportedRealFrames);
         } else {
             // Leaving RECORDING (or entering any start/stop phase) ends live capture for this take.
             store.setCaptureLive(false);
@@ -3398,7 +3398,7 @@ export class SpeechRuntimeController {
             this.engineReportedRealFrames = false;
             useSessionStore.getState().setCaptureLive(false);
         }
-        if (status.type === 'recording') {
+        if (status.type === 'recording' && this.service?.getMode() === 'private') {
             this.engineReportedRealFrames = true;
             if (this.state === 'RECORDING') useSessionStore.getState().setCaptureLive(true);
         }
