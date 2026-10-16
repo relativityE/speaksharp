@@ -15,6 +15,10 @@ const TARGET_DIRECTION_LABELS: Record<StructuredTarget['direction'], string> = {
     decrease: 'decrease toward', increase: 'increase toward', maintain: 'maintain at',
 };
 
+// Match the existing clarity display; keep the persisted target untouched for comparisons.
+const formatTargetValue = (target: StructuredTarget) => target.metric === 'clear_delivery'
+    ? Math.round(target.targetValue) : target.targetValue;
+
 const REASON_LABELS: Record<ExclusionReason, string> = {
     not_completed: 'This session was not completed, so it cannot be compared.',
     too_short: 'This session was too short for a reliable comparison.',
@@ -126,7 +130,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'>; nex
         {view.latestAttempt && <div className="space-y-1">
             <p data-testid="progress-attempt-target" className="text-sm text-foreground/80">
                 Measured repeat target: {TARGET_METRIC_LABELS[view.takeaways.target.metric]};{' '}
-                {TARGET_DIRECTION_LABELS[view.takeaways.target.direction]} {view.takeaways.target.targetValue} {view.takeaways.target.units}.
+                {TARGET_DIRECTION_LABELS[view.takeaways.target.direction]} {formatTargetValue(view.takeaways.target)} {view.takeaways.target.units}.
             </p>
             <p data-testid="progress-attempt-outcome" className="text-sm text-foreground/80">{
             view.latestAttempt.lifecycle === 'pending' ? 'Your linked repeat is pending.'

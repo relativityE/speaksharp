@@ -60,6 +60,9 @@ describe('#1047 U2 ProgressPanel', () => {
         ['filler_rate', 'decrease', 7, 'percent of words', 'Filler rate; decrease toward 7 percent of words.'],
         ['pace', 'increase', 130, 'words per minute', 'Pace; increase toward 130 words per minute.'],
         ['clear_delivery', 'maintain', 94, 'clear-delivery points', 'Clear delivery; maintain at 94 clear-delivery points.'],
+        ['clear_delivery', 'maintain', 98.78048780487805, 'points', 'Clear delivery; maintain at 99 points.'],
+        ['clear_delivery', 'maintain', 98.78048780487805, 'clear-delivery points', 'Clear delivery; maintain at 99 clear-delivery points.'],
+        ['filler_rate', 'decrease', 2.75, 'percent of words', 'Filler rate; decrease toward 2.75 percent of words.'],
     ] as const)('identifies the persisted %s target beside its outcome when the saved review owns the action', async (metric, direction, targetValue, units, expected) => {
         loadSessionProgress.mockResolvedValue({
             ...VIEW,
@@ -72,6 +75,19 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(screen.getByTestId('progress-attempt-outcome').parentElement).toContainElement(target);
         expect(screen.queryByTestId('progress-practice-next')).not.toBeInTheDocument();
         expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('rounds only the clarity label while retaining the raw target and stored comparison outcome', async () => {
+        const target = Object.freeze({ metric: 'clear_delivery', direction: 'maintain', targetValue: 98.78048780487805, units: 'points' });
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            takeaways: { ...VIEW.takeaways, target },
+            latestAttempt: { id: 'att-fractional', lifecycle: 'completed', outcome: 'did_not_move' },
+        });
+        renderPanel(true);
+        expect(await screen.findByTestId('progress-attempt-target')).toHaveTextContent('Clear delivery; maintain at 99 points.');
+        expect(screen.getByTestId('progress-attempt-outcome')).toHaveTextContent('The stored repeat did not show movement in the practiced direction.');
+        expect(target.targetValue).toBe(98.78048780487805);
     });
 
     it('renders loading without coaching or success navigation', () => {
