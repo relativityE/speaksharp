@@ -1,22 +1,34 @@
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 
-// Explicit diagnostic comparison, not an implicit replacement of the original
-// qualification environment. Both versions retain their own verdict/artifact.
-export function proofPostgresVersion(value = '17.6.1.106') {
+// Original crash reproduction and provider-fixed qualification are explicit,
+// immutable targets. Values come from independently retained comparison artifacts.
+const imagePins = {
+  '17.6.1.106': { digest: '21ab971149317ea9cd12a8126fe4ebb34def08c8972956b0958cba0924409dab',
+    imageId: '9ff6402f578a9b0d4f2aa31f660bd398b8e378761d61d31efda6ff9ad92408e5' },
+  '17.6.1.155': { digest: '3866d94d8426927e8db3f1c5d790752292bfbe27b5f1f46e199ae1b7d3c1710b',
+    imageId: '56da3fb43b03aca9b8fa264c156177dd204f722e9500e8d80008f5c9f7b82985' },
+};
+export function proofPostgresVersion(value = '17.6.1.155') {
   assert.ok(['17.6.1.106', '17.6.1.155'].includes(value), 'unreviewed disposable PostgreSQL version');
   return value;
 }
+export function proofPostgresImage(version) {
+  const selected = proofPostgresVersion(version);
+  return { version: selected, tag: `ghcr.io/supabase/postgres:${selected}`,
+    repositoryDigest: `ghcr.io/supabase/postgres@sha256:${imagePins[selected].digest}`,
+    imageId: `sha256:${imagePins[selected].imageId}` };
+}
 export function proofImageEvidence(version, container, image) {
-  const expected = `ghcr.io/supabase/postgres:${proofPostgresVersion(version)}`;
-  assert.equal(container.Config.Image, expected, 'disposable PostgreSQL image differs from selected comparison');
+  const pin = proofPostgresImage(version);
+  assert.equal(container.Config.Image, pin.tag, 'disposable PostgreSQL image differs from selected pin');
   assert.equal(image.Id, container.Image, 'inspected image differs from running container');
+  assert.equal(image.Id, pin.imageId, 'running image configuration differs from immutable pin');
   assert.equal(image.Architecture, 'amd64', 'comparison requires the original x86_64 architecture');
   assert.equal(image.Os, 'linux', 'comparison requires Linux');
-  const digest = image.RepoDigests?.find((value) => /^ghcr\.io\/supabase\/postgres@sha256:[a-f0-9]{64}$/.test(value));
-  assert.ok(digest, 'immutable image repository digest unavailable');
-  return { selectedVersion: version, image: expected, imageId: image.Id, repositoryDigest: digest,
-    architecture: image.Architecture, os: image.Os, comparisonOnly: true,
+  assert.ok(image.RepoDigests?.includes(pin.repositoryDigest), 'running repository digest differs from immutable pin');
+  return { selectedVersion: version, image: pin.tag, imageId: image.Id, repositoryDigest: pin.repositoryDigest,
+    architecture: image.Architecture, os: image.Os, comparisonOnly: version === '17.6.1.106',
     productionRepresentativenessVerified: false };
 }
 

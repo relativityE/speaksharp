@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 import console from 'node:console';
 import { accountClosureEnforcementStages } from '../../scripts/lib/accountClosureEnforcementGate.mjs';
-import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresVersion, proofSubprocessFailure } from './account-closure-full-chain-diagnostics.mjs';
+import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage, proofPostgresVersion, proofSubprocessFailure } from './account-closure-full-chain-diagnostics.mjs';
 
 const root = resolve('backend/supabase/migrations');
 const candidate = '20261016180000_account_closure_drain_enforcement.sql';
@@ -128,6 +128,11 @@ try {
   writeFileSync(resourcesFile, JSON.stringify({ id, stage, networkName, subnet }));
   run('sudo', ['iptables', '-w', '-I', ...firewallArgs(id, subnet)]);
   run('sudo', ['iptables', '-w', '-C', ...firewallArgs(id, subnet)]);
+  // Pull the approved immutable content, then provide the tag expected by the
+  // supported CLI selector. Post-start verification refuses retag/substitution.
+  const imagePin = proofPostgresImage(postgresVersion);
+  run('docker', ['pull', '--platform', 'linux/amd64', imagePin.repositoryDigest]);
+  run('docker', ['tag', imagePin.repositoryDigest, imagePin.tag]);
   cli(['start', '--network-id', network.Id, '--exclude', 'studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor']);
   const container = JSON.parse(run('docker', ['inspect', containerName]))[0];
   assert.deepEqual(Object.keys(container.NetworkSettings.Networks), [networkName], 'database escaped the owned internal network');
@@ -189,7 +194,7 @@ try {
     candidate: migrations.at(-1), migrations: migrations.length, realSupabaseSchema,
     testedCommit: run('git', ['rev-parse', 'HEAD']), requestedHead: process.env.PROOF_HEAD_SHA,
     providerProof: false, cleanupVerified: !cleanupError,
-    selectedPostgresVersion: postgresVersion, imageComparisonOnly: true, productionRepresentativenessVerified: false,
+    selectedPostgresVersion: postgresVersion, imageComparisonOnly: postgresVersion === '17.6.1.106', productionRepresentativenessVerified: false,
     error: primaryError?.message, cleanupError: cleanupError?.message,
   }, null, 2));
 }
