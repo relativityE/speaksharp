@@ -8,6 +8,7 @@
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
+import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -350,6 +351,8 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         case FEEDBACK_OLDER_TAKE_SUITE:
         case FEEDBACK_NO_SESSION_SUITE:
         case PENDING_START_SUITE:
+        case SAVE_RETRY_REQUEST_LOST_SUITE:
+        case SAVE_RETRY_RESPONSE_LOST_SUITE:
             return [];
         default:
             return null; // not an RWT suite this finalizer knows
@@ -469,6 +472,17 @@ const PENDING_START_PRODUCT_ROWS = Object.freeze([
     'return to Open Mic exposes truthful Start state', 'return does not resume abandoned recording', 'coaching request budget',
 ]);
 const NO_COACHING_RESULT_ROWS = Object.freeze(['feedback diagnostic chain', 'coaching prompt binding']);
+/**
+ * #1258 R1 (row 15) — `rwt-save-retry-recovery`, one receipt per variant. Like pending Start it qualifies no journey
+ * readback (its fault is injected on the page's own request), so it carries no journey readback rows; its own cleanup
+ * row is required. Fully automated: no human check.
+ */
+export const SAVE_RETRY_REQUEST_LOST_SUITE = `${SAVE_RETRY_SUITE}-request-lost`;
+export const SAVE_RETRY_RESPONSE_LOST_SUITE = `${SAVE_RETRY_SUITE}-response-lost`;
+const SAVE_RETRY_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'completion request altered once', 'recovery banner is truthful', 'no Discard after the save resolves',
+    'Retry Save leaves one saved session', 'next take saves only itself', 'coaching request budget',
+]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
@@ -491,6 +505,10 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_NO_SESSION_PRODUCT_ROWS, absent: NO_COACHING_RESULT_ROWS };
         case PENDING_START_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: PENDING_START_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case SAVE_RETRY_REQUEST_LOST_SUITE:
+        case SAVE_RETRY_RESPONSE_LOST_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         default:
             return null;
