@@ -73,6 +73,7 @@ describe('#1258 coaching → feedback adapter', () => {
     it.each([
         ['provider_http_5xx', 'provider_error'], ['provider_http_4xx', 'provider_error'], ['provider_timeout', 'timeout'],
         ['provider_transport', 'transport_error'], ['missing_text', 'invalid_response'], ['over_character_ceiling', 'invalid_response'],
+        ['provider_malformed_response', 'invalid_response'],
         ['quota_exceeded', 'rate_limited'], ['auth_failed', 'server_error'], ['persist_failed', 'server_error'],
     ])('failure reason %s maps to contract outcome %s', (reason, outcome) => {
         expect(contractOutcome(exchange({ status: 502, diag: { outcome: 'failure', reason, status: 502 } }))).toBe(outcome);
