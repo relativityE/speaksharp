@@ -31,7 +31,7 @@ import {
 } from './helpers/benchmark-utils';
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
     returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
@@ -173,14 +173,20 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         const notice = returned.getByTestId('session-recovery-actions');
         const shown = await notice.count() > 0;
         const noticeText = shown ? await returned.getByTestId('session-recovery-message').innerText().catch(() => '') : '';
-        // The left take's persistence as the server holds it (Sam 6218709582): Leave stops and saves; closing the tab keeps
-        // the interrupted/unsaved expectation. Read before the notice is dismissed; the next-take baseline is unchanged.
+        // The left take's persistence as the server holds it, against the pre-first-Start baseline, read before the notice is
+        // dismissed and before the next take; the next-take baseline is unchanged. Server truth judges the notice for BOTH
+        // variants (Codex P1 r4296551963, Sam 6219377681 option a).
         const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, await readRows(owner.uid));
+        if (variant === 'navigate-away') {
+            // Codex P1 r4296551953: Leave is "Stop and save", so navigate away requires the left take's saved row.
+            const kept = leftTakeSavedVerdict(leftTakeSaved);
+            receipt.row('leaving saved the left take', kept.status, kept.detail, { leftTakeSaved });
+        }
         const recovery = recoveryNoticeVerdict({
             shown,
             state: shown ? await notice.getAttribute('data-recovery-state') : null,
             ...classifyRecoveryClaim(noticeText),
-            priorTakeSaved: variant === 'navigate-away' ? leftTakeSaved : false,
+            priorTakeSaved: leftTakeSaved,
         });
         receipt.row('recovery notice is truthful', recovery.status, recovery.detail,
             { shown, leftTakeSaved, unresolvedBanner: await returned.getByTestId('session-unresolved-recovery').count() > 0 });

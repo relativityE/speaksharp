@@ -508,8 +508,11 @@ const ABANDON_PRODUCT_ROWS = Object.freeze([
     'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
     'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
 ]);
-/** Navigate away also answers the product's in-app leave prompt (#1258 run 38876623812); closing the tab has none. */
-const ABANDON_NAVIGATE_PRODUCT_ROWS = Object.freeze([...ABANDON_PRODUCT_ROWS, 'leave prompt answered Leave']);
+/**
+ * Navigate away also answers the product's in-app leave prompt (#1258 run 38876623812) and, because Leave is "Stop and
+ * save", requires the left take's saved row (Codex P1 r4296551953). Closing the tab has neither.
+ */
+const ABANDON_NAVIGATE_PRODUCT_ROWS = Object.freeze([...ABANDON_PRODUCT_ROWS, 'leave prompt answered Leave', 'leaving saved the left take']);
 const TWO_TAB_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'same-browser tab is refused', 'another device is refused by the account lease',
     'take-over moves the one engine',

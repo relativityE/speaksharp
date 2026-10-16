@@ -109,10 +109,21 @@ export function priorTakeSaved(baseline: readonly RowFacts[], atReturn: readonly
 }
 
 /**
+ * #1258 Codex P1 r4296551953 (Sam 6219377681) — navigate away's Leave is "Stop and save": the take the person left must
+ * hold a completed row on the server, judged against the pre-first-Start baseline. Arrival, the absence of an alert and
+ * the absence of a notice prove nothing about persistence, so this row FAILs on its own whenever the row is absent.
+ */
+export function leftTakeSavedVerdict(saved: boolean): Verdict {
+    return saved
+        ? { status: 'PASS', detail: 'the take the person left holds a completed row on the server' }
+        : { status: 'FAIL', detail: 'Leave was answered, but the take the person left holds no completed row on the server' };
+}
+
+/**
  * A recovery notice, when shown, must name a known state and tell the truth about the left take (#1258 Sam 6218709582):
- * it may say a transcript was saved only when one was, and may say none was only when none was. Navigate away's Leave
- * stops and saves, so the spec passes the OBSERVED persistence there; closing the tab keeps the interrupted/unsaved
- * expectation (`priorTakeSaved: false`).
+ * it may say a transcript was saved only when one was, and may say none was only when none was. Both variants pass the
+ * OBSERVED persistence (Codex P1 r4296551963, Sam 6219377681 option a): server truth is authoritative, and a close-tab
+ * take that did persist is not itself a defect.
  */
 export function recoveryNoticeVerdict(o: {
     shown: boolean; state: string | null; claimsSavedTranscript: boolean; claimsUnsavedTranscript: boolean; priorTakeSaved: boolean;

@@ -9,11 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, STOP_FAILED_ALERT_COPY, type TabState,
-    TWO_TAB_SUITE, RECOVERY_NOTICE_COPY, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
+    TWO_TAB_SUITE, RECOVERY_NOTICE_COPY, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
     secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from '../live/helpers/rwtAbandonTakeover';
 import {
-    ABANDON_CLOSE_TAB_SUITE, ABANDON_NAVIGATE_SUITE, requiredAutomatedRows, requiredHumanObservations,
+    ABANDON_CLOSE_TAB_SUITE, ABANDON_NAVIGATE_SUITE, finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance,
+    requiredAutomatedRows, requiredHumanObservations, type ReceiptRow,
 } from '../live/helpers/rwtAcceptance';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -76,6 +77,64 @@ describe('leavePromptVerdict — navigate away answers the product\'s own leave 
         }
         expect(leavePromptVerdict({ ...asked, prompts: 0 }).detail).toMatch(/did not ask/);
         expect(leavePromptVerdict({ ...asked, arrived: false }).detail).toMatch(/did not reach/);
+    });
+});
+
+describe('leftTakeSavedVerdict — navigate away\'s Leave must leave a saved row (Codex P1 r4296551953, Sam 6219377681)', () => {
+    const baseline = [{ id: 'old', status: 'completed' }];
+    const saved = (rows: { id: string; status: string | null }[]) => leftTakeSavedVerdict(priorTakeSaved(baseline, rows));
+    it('the left take holds a new completed row → PASS', () => {
+        expect(saved([...baseline, { id: 'left', status: 'completed' }]).status).toBe('PASS');
+    });
+    it.each([
+        ['absent', [...baseline]],
+        ['still active', [...baseline, { id: 'left', status: 'active' }]],
+        ['failed', [...baseline, { id: 'left', status: 'failed' }]],
+    ])('a prior row that is %s → FAIL', (_label, rows) => {
+        expect(saved(rows).status).toBe('FAIL');
+    });
+    it('arrived + no notice + no saved row still FAILs: arrival and silence are not persistence', () => {
+        const leave = leavePromptVerdict({ prompts: 1, unexpectedDialogs: 0, stopFailedAlerts: 0, arrived: true });
+        const noNotice = recoveryNoticeVerdict({ shown: false, state: null, claimsSavedTranscript: false, claimsUnsavedTranscript: false, priorTakeSaved: false });
+        const kept = saved(baseline);
+        expect([leave.status, noNotice.status, kept.status]).toEqual(['PASS', 'PASS', 'FAIL']);
+        const rows: ReceiptRow[] = [
+            { step: 'leave prompt answered Leave', verdict: leave.status, detail: leave.detail },
+            { step: 'recovery notice is truthful', verdict: noNotice.status, detail: noNotice.detail },
+            { step: 'leaving saved the left take', verdict: kept.status, detail: kept.detail },
+        ];
+        expect(receiptAcceptance(rows).acceptance).toBe('FAIL');
+    });
+});
+
+describe('acceptance map — the saved-row requirement is navigate-away only', () => {
+    const SHA = 'c'.repeat(40);
+    const canonical = (suite: string, drop?: string, fail?: string) => {
+        const inv = requiredAutomatedRows(suite)!;
+        const rows: ReceiptRow[] = [...inv.required, ...inv.product]
+            .filter((step) => step !== drop)
+            .map((step): ReceiptRow => (step === 'signup-stage telemetry received' || step === 'journey telemetry received'
+                ? { step, verdict: 'HOLD', detail: 'pending' }
+                : { step, verdict: step === fail ? 'FAIL' : 'PASS', detail: 'ok' }));
+        // No journey readback is qualified for these suites (like pending Start): the receipt carries an empty one.
+        return { suite, release: SHA, meta: { fixtureKind: 'synthetic' }, rows, readback: { journeys: [], reportedJourneyIds: [], missingBindings: [] } };
+    };
+    const finalize = (r: ReturnType<typeof canonical>) =>
+        finalizeReceipt(r, parseHumanWorksheet(humanWorksheet(r.suite, SHA, [], r.rows)), undefined);
+
+    it('navigate away requires it; close-tab does not', () => {
+        expect(requiredAutomatedRows(ABANDON_NAVIGATE_SUITE)!.product).toContain('leaving saved the left take');
+        expect(requiredAutomatedRows(ABANDON_CLOSE_TAB_SUITE)!.product).not.toContain('leaving saved the left take');
+        expect(requiredAutomatedRows(ABANDON_CLOSE_TAB_SUITE)!.product).not.toContain('leave prompt answered Leave');
+    });
+    it('complete receipts finalize PASS for both variants', () => {
+        expect(finalize(canonical(ABANDON_NAVIGATE_SUITE))).toMatchObject({ status: 'final', finalAcceptance: 'PASS' });
+        expect(finalize(canonical(ABANDON_CLOSE_TAB_SUITE))).toMatchObject({ status: 'final', finalAcceptance: 'PASS' });
+    });
+    it('navigate away: a MISSING saved-row row never passes; a FAILING one fails the run', () => {
+        const missing = finalize(canonical(ABANDON_NAVIGATE_SUITE, 'leaving saved the left take'));
+        expect({ status: missing.status, pass: missing.finalAcceptance === 'PASS' }).toEqual({ status: 'binding_error', pass: false });
+        expect(finalize(canonical(ABANDON_NAVIGATE_SUITE, undefined, 'leaving saved the left take')).finalAcceptance).toBe('FAIL');
     });
 });
 
@@ -246,7 +305,15 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(nav, 'a failed verdict stops the branch even if the page arrived').toContain("if (asked.status !== 'PASS') return;");
         expect(nav, 'no blanket accept').not.toMatch(/d\.type\(\) === 'confirm'\)[^\n]*accept/);
         expect(spec, 'the notice claim is classified, not matched ad hoc').toContain('...classifyRecoveryClaim(noticeText),');
+        // Codex P1 r4296551963 (Sam 6219377681 option a): the OBSERVED persistence judges the notice for both variants.
         expect(spec, 'persistence is read from the server against the pre-take baseline')
-            .toContain("priorTakeSaved: variant === 'navigate-away' ? leftTakeSaved : false,");
+            .toContain('const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, await readRows(owner.uid));');
+        expect(spec, 'the notice is judged against observed persistence').toContain('            priorTakeSaved: leftTakeSaved,');
+        expect(spec, 'no forced close-tab value').not.toMatch(/priorTakeSaved: variant/);
+        // Codex P1 r4296551953: the saved-row row is navigate-away only, from the same observation, before the next take.
+        const saveRow = spec.indexOf("receipt.row('leaving saved the left take'");
+        expect(saveRow).toBeGreaterThan(spec.indexOf('const leftTakeSaved = priorTakeSaved('));
+        expect(saveRow).toBeLessThan(spec.indexOf('const rowsBeforeNext = await readRows(owner.uid);'));
+        expect(spec.slice(spec.indexOf('const leftTakeSaved = priorTakeSaved('), saveRow)).toContain("if (variant === 'navigate-away') {");
     });
 });
