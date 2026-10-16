@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const ACCOUNT_CLOSURE_SHA256 = 'a8b9e399c25e378c71eed9c3a3ef99dbaf589454be8be0b09e6192162df4e0d4';
+export const ACCOUNT_CLOSURE_SHA256 = '3a4c36bc4f285e5cfe020c6f1e9a21a3c1ad3124bb546d262b24e226c13e3281';
 const tables = ['account_closure_tokens', 'account_closure_attempts', 'account_billing_fences',
     'account_checkout_operations', 'account_billing_coordination', 'account_closure_billing_permits'];
 const literal = (value) => `'${value.replaceAll("'", "''")}'`;

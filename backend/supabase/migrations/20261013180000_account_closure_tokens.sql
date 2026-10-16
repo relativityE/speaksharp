@@ -58,11 +58,16 @@ REVOKE ALL ON public.account_billing_fences,public.account_checkout_operations,
 
 CREATE FUNCTION public.begin_account_checkout(p_user_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE v_operation uuid;
+DECLARE v_operation uuid; v_subscription text;
 BEGIN
+  -- Match the canonical webhook and closure claim: profile row, then advisory
+  -- lock. A reservation must observe any subscription attached by that writer.
+  SELECT p.stripe_subscription_id INTO v_subscription
+    FROM public.user_profiles p WHERE p.id=p_user_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'account profile unavailable'; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('account-billing:'||p_user_id::text,0));
   IF NOT EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id) THEN RAISE EXCEPTION 'account unavailable'; END IF;
-  IF EXISTS(SELECT 1 FROM public.user_profiles WHERE id=p_user_id AND stripe_subscription_id IS NOT NULL)
+  IF v_subscription IS NOT NULL
     THEN RAISE EXCEPTION 'existing subscription requires billing management'; END IF;
   INSERT INTO public.account_billing_fences(user_id) VALUES(p_user_id) ON CONFLICT DO NOTHING;
   IF EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND phase='closing')

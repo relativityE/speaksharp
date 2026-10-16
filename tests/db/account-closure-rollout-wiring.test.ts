@@ -54,10 +54,10 @@ describe('account closure rollout schema — no application/activation', () => {
     });
 });
 describe('exact-apply workflow composition', () => {
-    it('binds the unchanged closure checksum and leaves commercial activation held', () => {
+    it('binds the reviewed closure checksum and leaves commercial activation held', () => {
         const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: '20261013180000' });
         expect(config.targetFile).toBe(target);
-        expect(config.targetSha256).toBe('a8b9e399c25e378c71eed9c3a3ef99dbaf589454be8be0b09e6192162df4e0d4');
+        expect(config.targetSha256).toBe('3a4c36bc4f285e5cfe020c6f1e9a21a3c1ad3124bb546d262b24e226c13e3281');
         expect(config.requiredAppliedVersions).toContain('20260812041600');
         expect(config.requiredAppliedVersions).not.toContain('20260812042000');
         expect(config.excludedMigrations.map((item: { version: string }) => item.version)).toContain('20260812042000');
