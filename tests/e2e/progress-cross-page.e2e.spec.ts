@@ -118,6 +118,43 @@ async function screenshotMatrix(page: Page, surface: string): Promise<void> {
 
 
 test.describe('#1047 U3 canonical cross-page truth', () => {
+  for (const target of [
+    { metric: 'filler_rate', direction: 'decrease', value: 7, units: 'percent of words', label: 'Filler rate; decrease toward 7 percent of words.' },
+    { metric: 'clear_delivery', direction: 'maintain', value: 98.78048780487805, units: 'points', label: 'Clear delivery; maintain at 99 points.' },
+  ] as const) {
+  test(`stored repeat identifies its measured ${target.metric} target separately from saved AI advice after reopening`, async ({ page }) => {
+    const progress = eligibleProgressTruth(SESSION_ID, REFERENCE_ID);
+    progress.recommendations[0] = {
+      ...progress.recommendations[0], target_metric: target.metric, target_direction: target.direction,
+      target_value: target.value, target_units: target.units, shown_text: 'Practise the persisted target',
+    };
+    progress.attempts = [{
+      id: 'attempt-measured-repeat', recommendation_id: 'recommendation-u3',
+      lifecycle: 'completed', outcome: 'moved', accepted_at: '2025-01-17T14:01:00.000Z',
+    }];
+    await programmaticLoginWithRoutes(page, {
+      userType: 'free', progressFixtures: progress,
+      sessions: [{
+        id: SESSION_ID, user_id: 'test-user-123', created_at: '2025-01-17T14:00:00.000Z',
+        duration: 420, total_words: 245, engine: 'private', clarity_score: 88, wpm: 142,
+        status: 'completed', product: 'open_mic', transcript_state: 'available',
+        transcript: 'The price includes onboarding and support.', filler_counts: { um: 4 },
+        ai_suggestions: { version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.' },
+      }],
+    });
+    await navigateToRoute(page, `/analytics/${SESSION_ID}`);
+    for (const reopening of [false, true]) {
+      if (reopening) await page.reload();
+      await expect(page.getByTestId('saved-review')).toContainText('Name the price first.');
+      await expect(page.getByTestId('progress-attempt-target')).toHaveText(`Measured repeat target: ${target.label}`);
+      await expect(page.getByTestId('progress-attempt-outcome')).toHaveText('The stored repeat shows movement in the practiced direction.');
+      await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
+      await expect(page.getByTestId('progress-accept')).toHaveCount(0);
+      await expect(page.getByTestId('progress-practice-next')).toHaveCount(0);
+    }
+  });
+  }
+
   test('Marketing is testimonial-free, accessible, and has no viewport overflow', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await setupE2EMocks(page, { userType: 'free' });
