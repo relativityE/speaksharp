@@ -8,8 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, type TabState, TWO_TAB_SUITE,
-    leavePromptVerdict, nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
+    BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, STOP_FAILED_ALERT_COPY, type TabState,
+    TWO_TAB_SUITE, answerLeaveDialog, leavePromptVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
     secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from '../live/helpers/rwtAbandonTakeover';
 import {
@@ -30,16 +30,51 @@ describe('releasedVerdict — leaving ends the recording and the microphone', ()
     });
 });
 
+describe('answerLeaveDialog — only the first exact leave confirm is ever accepted (Sam 6218709582)', () => {
+    it('the first confirm with the product\'s exact copy → accept, counted once', () => {
+        const seen = newLeaveDialogs();
+        expect(answerLeaveDialog(seen, { type: 'confirm', message: LEAVE_PROMPT_COPY })).toBe('accept');
+        expect(seen).toEqual({ prompts: 1, unexpectedDialogs: 0, stopFailedAlerts: 0 });
+    });
+    it.each([
+        ['a confirm with other copy', { type: 'confirm', message: 'Discard this recording?' }],
+        ['a prompt', { type: 'prompt', message: LEAVE_PROMPT_COPY }],
+        ['a beforeunload', { type: 'beforeunload', message: '' }],
+        ['an unrelated alert', { type: 'alert', message: 'Something else' }],
+    ])('%s → dismissed, never accepted, and the verdict FAILs', (_label, d) => {
+        const seen = newLeaveDialogs();
+        expect(answerLeaveDialog(seen, d)).toBe('dismiss');
+        expect(seen.unexpectedDialogs).toBe(1);
+        expect(leavePromptVerdict({ ...seen, arrived: true }).status).toBe('FAIL');
+    });
+    it('a REPEATED exact confirm → dismissed and counted unexpected; the verdict FAILs even though the page arrived', () => {
+        const seen = newLeaveDialogs();
+        answerLeaveDialog(seen, { type: 'confirm', message: LEAVE_PROMPT_COPY });
+        expect(answerLeaveDialog(seen, { type: 'confirm', message: LEAVE_PROMPT_COPY })).toBe('dismiss');
+        expect(seen).toEqual({ prompts: 1, unexpectedDialogs: 1, stopFailedAlerts: 0 });
+        expect(leavePromptVerdict({ ...seen, arrived: true }).status).toBe('FAIL');
+    });
+    it('the guard\'s stop-failure alert → dismissed and counted as a stop failure; the verdict FAILs', () => {
+        const seen = newLeaveDialogs();
+        answerLeaveDialog(seen, { type: 'confirm', message: LEAVE_PROMPT_COPY });
+        expect(answerLeaveDialog(seen, { type: 'alert', message: STOP_FAILED_ALERT_COPY })).toBe('dismiss');
+        expect(seen.stopFailedAlerts).toBe(1);
+        const v = leavePromptVerdict({ ...seen, arrived: true });
+        expect(v.status).toBe('FAIL');
+        expect(v.detail).toMatch(/could not stop/);
+    });
+});
+
 describe('leavePromptVerdict — navigate away answers the product\'s own leave prompt (#1258 run 38876623812)', () => {
-    const asked = { prompts: 1, copyMatches: true, stopFailedAlerts: 0, arrived: true };
-    it('asked once in the product\'s words, Leave stopped the take and reached the page → PASS', () => {
+    const asked = { prompts: 1, unexpectedDialogs: 0, stopFailedAlerts: 0, arrived: true };
+    it('asked once in the product\'s words, nothing else, and the page arrived → PASS', () => {
         expect(leavePromptVerdict(asked).status).toBe('PASS');
     });
-    it('no prompt, a repeated prompt, other copy, a stop failure, or no arrival → FAIL', () => {
+    it('no prompt, an unexpected dialog, a stop failure, or no arrival → FAIL status', () => {
+        for (const o of [{ ...asked, prompts: 0 }, { ...asked, unexpectedDialogs: 1 }, { ...asked, stopFailedAlerts: 1 }, { ...asked, arrived: false }]) {
+            expect({ o, status: leavePromptVerdict(o).status }).toEqual({ o, status: 'FAIL' });
+        }
         expect(leavePromptVerdict({ ...asked, prompts: 0 }).detail).toMatch(/did not ask/);
-        expect(leavePromptVerdict({ ...asked, prompts: 2 }).detail).toMatch(/more than once/);
-        expect(leavePromptVerdict({ ...asked, copyMatches: false }).detail).toMatch(/not the product's/);
-        expect(leavePromptVerdict({ ...asked, stopFailedAlerts: 1 }).detail).toMatch(/could not stop/);
         expect(leavePromptVerdict({ ...asked, arrived: false }).detail).toMatch(/did not reach/);
     });
 });
@@ -55,15 +90,36 @@ describe('returnStartVerdict — Start on return records, or says why and record
     });
 });
 
-describe('recoveryNoticeVerdict — the notice tells the truth about the abandoned take', () => {
-    it('no notice, or a notice for a known state that claims no transcript → PASS', () => {
-        expect(recoveryNoticeVerdict({ shown: false, state: null, claimsSavedTranscript: false }).status).toBe('PASS');
-        expect(recoveryNoticeVerdict({ shown: true, state: 'active_interrupted', claimsSavedTranscript: false }).status).toBe('PASS');
-        expect(recoveryNoticeVerdict({ shown: true, state: 'finalized_pending_save', claimsSavedTranscript: false }).status).toBe('PASS');
+describe('recoveryNoticeVerdict — the notice tells the truth about the left take, as the server holds it (Sam 6218709582)', () => {
+    const notice = { shown: true, state: 'active_interrupted', claimsSavedTranscript: false, claimsUnsavedTranscript: false, priorTakeSaved: false };
+    it('no notice, or a known state that claims nothing → PASS', () => {
+        expect(recoveryNoticeVerdict({ ...notice, shown: false, state: null }).status).toBe('PASS');
+        expect(recoveryNoticeVerdict(notice).status).toBe('PASS');
+        expect(recoveryNoticeVerdict({ ...notice, state: 'finalized_pending_save' }).status).toBe('PASS');
     });
-    it('an unknown state, or a claim that a transcript was saved → FAIL', () => {
-        expect(recoveryNoticeVerdict({ shown: true, state: 'interrupted', claimsSavedTranscript: false }).status).toBe('FAIL');
-        expect(recoveryNoticeVerdict({ shown: true, state: 'active_interrupted', claimsSavedTranscript: true }).status).toBe('FAIL');
+    it('TRUTHFUL: saved and says saved → PASS; unsaved and says unsaved → PASS', () => {
+        expect(recoveryNoticeVerdict({ ...notice, claimsSavedTranscript: true, priorTakeSaved: true }).status).toBe('PASS');
+        expect(recoveryNoticeVerdict({ ...notice, claimsUnsavedTranscript: true, priorTakeSaved: false }).status).toBe('PASS');
+    });
+    it('FALSELY SAVED: says saved, but the left take was not → FAIL', () => {
+        const v = recoveryNoticeVerdict({ ...notice, claimsSavedTranscript: true, priorTakeSaved: false });
+        expect(v.status).toBe('FAIL');
+        expect(v.detail).toMatch(/claims a transcript was saved/);
+    });
+    it('FALSELY UNSAVED: says none was saved, but the left take was → FAIL', () => {
+        const v = recoveryNoticeVerdict({ ...notice, claimsUnsavedTranscript: true, priorTakeSaved: true });
+        expect(v.status).toBe('FAIL');
+        expect(v.detail).toMatch(/says no transcript was saved/);
+    });
+    it('an unknown state → FAIL', () => {
+        expect(recoveryNoticeVerdict({ ...notice, state: 'interrupted' }).status).toBe('FAIL');
+    });
+    it('priorTakeSaved reads the SERVER: only a new completed row counts; a pre-existing or still-active row does not', () => {
+        const baseline = [{ id: 'old', status: 'completed' }];
+        expect(priorTakeSaved(baseline, [...baseline, { id: 'left', status: 'completed' }])).toBe(true);
+        expect(priorTakeSaved(baseline, baseline), 'only the pre-existing row').toBe(false);
+        expect(priorTakeSaved(baseline, [...baseline, { id: 'left', status: 'active' }]), 'left take still active').toBe(false);
+        expect(priorTakeSaved([], [])).toBe(false);
     });
     it('the states it accepts are the recovery draft\'s own', () => {
         const draft = src('frontend/src/services/sessionRecoveryDraft.ts');
@@ -125,6 +181,8 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(policy).toContain(DISPLACED_COPY);
         expect(policy).toContain('Stop it there, or press Start again to take over here');
         expect(src('frontend/src/App.tsx'), 'the leave prompt is the product\'s own').toContain(`'${LEAVE_PROMPT_COPY}'`);
+        expect(src('frontend/src/App.tsx'), 'the stop-failure alert is the product\'s own').toContain(`'${STOP_FAILED_ALERT_COPY}'`);
+        expect(src('frontend/src/pages/SessionPage.tsx'), 'the unsaved-claim marker is the product\'s own').toContain('No transcript was saved');
         expect(BLOCKED_COPY.test('A recording is active on another device. Stop it there, or press Start again to take over here')).toBe(true);
         for (const f of ['frontend/src/hooks/useSessionLifecycle.ts', 'frontend/src/services/SpeechRuntimeController.ts']) {
             const line = /'⛔ (Active session in another tab\.[^']*)'/.exec(src(f))?.[1] ?? '';
@@ -164,5 +222,11 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         const nav = spec.slice(navStart, spec.indexOf("await openProductsItem(page, 'open-mic')", navStart));
         expect(nav.indexOf("page.on('dialog', answerLeave)"), 'the prompt is answered').toBeGreaterThan(-1);
         expect(nav.indexOf("page.on('dialog', answerLeave)"), 'before the Products press').toBeLessThan(nav.indexOf("openProductsItem(page, 'focus-points')"));
+        expect(nav, 'only the narrow handler decides').toContain('answerLeaveDialog(dialogs, { type: d.type(), message: d.message() })');
+        expect(nav, 'the listener is removed in finally').toContain("} finally { page.off('dialog', answerLeave); }");
+        expect(nav, 'a failed verdict stops the branch even if the page arrived').toContain("if (asked.status !== 'PASS') return;");
+        expect(nav, 'no blanket accept').not.toMatch(/d\.type\(\) === 'confirm'\)[^\n]*accept/);
+        expect(spec, 'persistence is read from the server against the pre-take baseline')
+            .toContain("priorTakeSaved: variant === 'navigate-away' ? leftTakeSaved : false,");
     });
 });

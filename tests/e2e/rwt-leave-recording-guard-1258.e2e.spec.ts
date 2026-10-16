@@ -11,8 +11,7 @@ import type { Dialog, Page } from '@playwright/test';
 import { test, expect } from './fixtures';
 import { mockLiveTranscript, navigateToRoute, startRecording } from './helpers';
 import { openProductsItem } from '../live/helpers/productsMenu';
-
-const LEAVE_PROMPT = 'A recording is still active. Stop and save this session before leaving?';
+import { LEAVE_PROMPT_COPY as LEAVE_PROMPT, answerLeaveDialog, leavePromptVerdict, newLeaveDialogs } from '../live/helpers/rwtAbandonTakeover';
 
 async function recordingOnSession(page: Page): Promise<void> {
     await navigateToRoute(page, '/session');
@@ -45,12 +44,19 @@ test.describe('#1258 RWT — Products → Focus Points while recording meets the
 
     test('accepting the leave prompt stops the take, then lands on Focus Points setup', async ({ proPage: page }) => {
         await recordingOnSession(page);
-        const prompts: string[] = [];
-        page.on('dialog', (d: Dialog) => { prompts.push(d.message()); void d.accept(); });
-
-        await openProductsItem(page, 'focus-points');
-        await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 30_000 });
-        expect(prompts, 'exactly one leave prompt, answered Leave').toEqual([LEAVE_PROMPT]);
+        // The live spec's own narrow handler: only the first exact leave confirm is accepted (Sam 6218709582).
+        const dialogs = newLeaveDialogs();
+        const answerLeave = (d: Dialog) => {
+            void (answerLeaveDialog(dialogs, { type: d.type(), message: d.message() }) === 'accept' ? d.accept() : d.dismiss());
+        };
+        page.on('dialog', answerLeave);
+        let arrived = false;
+        try {
+            await openProductsItem(page, 'focus-points');
+            arrived = await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 30_000 }).then(() => true, () => false);
+        } finally { page.off('dialog', answerLeave); }
+        expect(dialogs, 'exactly one leave prompt, answered Leave; nothing else').toEqual({ prompts: 1, unexpectedDialogs: 0, stopFailedAlerts: 0 });
+        expect(leavePromptVerdict({ ...dialogs, arrived }).status).toBe('PASS');
         await expect(page.locator('html'), 'the hard navigation left no live take').not.toHaveAttribute('data-runtime-state', 'RECORDING');
     });
 });

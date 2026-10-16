@@ -30,8 +30,8 @@ import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
-    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, LEAVE_PROMPT_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, leavePromptVerdict, nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
+    TWO_TAB_SUITE, answerLeaveDialog, leavePromptVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
     returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
@@ -111,6 +111,8 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `abandon-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await openOpenMic(page);
+        // The account's rows before the first take: the baseline the left take's persistence is read against.
+        const rowsBeforeFirst = await readRows(owner.uid);
         await startFirstPrivateTake(page, `abandon-${variant}-1`);
         await page.waitForTimeout(MID_TAKE_MS);
         const during = await tabState(page);
@@ -123,25 +125,21 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         let returned = page;
         if (variant === 'navigate-away') {
             // #1258 run 38876623812: the product asks before leaving a live recording. Unanswered, Playwright dismisses it
-            // (the person's Cancel) and the page rightly stays; a person leaving answers Leave. Counts only, no copy stored.
-            const leave = { prompts: 0, copyMatches: true, stopFailedAlerts: 0 };
+            // (the person's Cancel) and the page rightly stays; a person leaving answers Leave. Only the first exact leave
+            // confirm is accepted; every other dialog is dismissed and counted (Sam 6218709582). Counts only, no text stored.
+            const dialogs = newLeaveDialogs();
             const answerLeave = (d: Dialog) => {
-                if (d.type() === 'confirm') {
-                    leave.prompts += 1;
-                    leave.copyMatches = leave.copyMatches && d.message() === LEAVE_PROMPT_COPY;
-                    void d.accept();
-                    return;
-                }
-                if (d.type() === 'alert') leave.stopFailedAlerts += 1;
-                void d.dismiss();
+                void (answerLeaveDialog(dialogs, { type: d.type(), message: d.message() }) === 'accept' ? d.accept() : d.dismiss());
             };
             page.on('dialog', answerLeave);
-            await openProductsItem(page, 'focus-points');
-            const arrived = await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 }).then(() => true, () => false);
-            page.off('dialog', answerLeave);
-            const asked = leavePromptVerdict({ ...leave, arrived });
-            receipt.row('leave prompt answered Leave', asked.status, asked.detail, { ...leave, arrived });
-            if (!arrived) return;
+            let arrived = false;
+            try {
+                await openProductsItem(page, 'focus-points');
+                arrived = await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 }).then(() => true, () => false);
+            } finally { page.off('dialog', answerLeave); }
+            const asked = leavePromptVerdict({ ...dialogs, arrived });
+            receipt.row('leave prompt answered Leave', asked.status, asked.detail, { ...dialogs, arrived });
+            if (asked.status !== 'PASS') return;
             await page.waitForTimeout(3_000);
             const afterLeaving = await tabState(page);
             const left = releasedVerdict(afterLeaving, 'after leaving');
@@ -175,13 +173,18 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         const notice = returned.getByTestId('session-recovery-actions');
         const shown = await notice.count() > 0;
         const noticeText = shown ? await returned.getByTestId('session-recovery-message').innerText().catch(() => '') : '';
+        // The left take's persistence as the server holds it (Sam 6218709582): Leave stops and saves; closing the tab keeps
+        // the interrupted/unsaved expectation. Read before the notice is dismissed; the next-take baseline is unchanged.
+        const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, await readRows(owner.uid));
         const recovery = recoveryNoticeVerdict({
             shown,
             state: shown ? await notice.getAttribute('data-recovery-state') : null,
             claimsSavedTranscript: noticeText.includes('transcript was saved') && !noticeText.includes('No transcript was saved'),
+            claimsUnsavedTranscript: noticeText.includes('No transcript was saved'),
+            priorTakeSaved: variant === 'navigate-away' ? leftTakeSaved : false,
         });
         receipt.row('recovery notice is truthful', recovery.status, recovery.detail,
-            { shown, unresolvedBanner: await returned.getByTestId('session-unresolved-recovery').count() > 0 });
+            { shown, leftTakeSaved, unresolvedBanner: await returned.getByTestId('session-unresolved-recovery').count() > 0 });
         if (shown) await returned.getByTestId('session-recovery-dismiss').click();
 
         // The next take: the person presses Start, and presses again only if the product says why it refused.
