@@ -11,7 +11,7 @@
  * fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import type { Page, Route, TestInfo } from '@playwright/test';
+import type { Page, Request, Route, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
@@ -27,9 +27,8 @@ import {
     stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
-    type CompletionOutcome, SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition,
-    completionOutcomesEvidence, nextTakeRetentionVerdict, recoveryBannerVerdict, sanitizedCompletionOutcome,
-    savedTakeReadbackVerdict,
+    CompletionObserver, SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition,
+    nextTakeRetentionVerdict, recoveryBannerVerdict, savedTakeReadbackVerdict,
 } from './helpers/rwtSaveRetry';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -83,7 +82,13 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     let claimed = false;
     let accountDeleted = false;
     // The ONE altered request. Every other completion request, including Retry Save's replay, reaches the server untouched.
-    const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false, outcomes: [] as CompletionOutcome[] };
+    const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false };
+    // #1258 C — every non-dropped completion call's answer, read from the browser's own events by request identity.
+    const completions = new CompletionObserver<Request>();
+    page.on('response', (response) => {
+        if (completions.isObserved(response.request())) completions.onResponse(response.request(), response.status(), response.text().catch(() => null));
+    });
+    page.on('requestfailed', (request) => completions.onFailed(request, request.failure()?.errorText));
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
@@ -95,14 +100,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         await page.route(COMPLETION_RPC, async (route: Route) => {
             if (route.request().method() !== 'POST') return route.fallback();
             drop.completionPosts += 1;
-            if (drop.dropped) {
-                // #1258 C — still untouched: the identical server response is handed to the page. Only its content-free
-                // outcome (status + allowlisted error code) is kept, so a non-completing call says WHY.
-                const response = await route.fetch();
-                drop.outcomes.push(sanitizedCompletionOutcome(response.status(), await response.text().catch(() => '')));
-                return route.fulfill({ response });
-            }
+            completions.track(route.request(), drop.completionPosts);
+            if (drop.dropped) return route.fallback();
             drop.dropped = true;
+            completions.markDropped(route.request());
             if (variant === 'request-lost') return route.abort('failed');
             // Response lost: the request reaches the real server and commits; the page never sees the answer.
             const response = await route.fetch();
@@ -132,7 +133,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         receipt.row('completion request altered once', dropDisposition.status, dropDisposition.detail,
             { completionPosts: drop.completionPosts, droppedStatus: drop.droppedStatus, rowsBeforeRetry: rowsBeforeRetry.length,
                 completedBeforeRetry: rowsBeforeRetry.filter((r) => r.status === 'completed').length,
-                completionOutcomes: completionOutcomesEvidence(drop.outcomes) });
+                completionOutcomes: await completions.evidence() });
         const bannerVerdict = recoveryBannerVerdict({ bannerShown, resolution, message, retryOffered, wordsOnPage });
         receipt.row('recovery banner is truthful', bannerVerdict.status, bannerVerdict.detail,
             { bannerShown, resolution, retryOffered, wordsOnPageLength: wordsOnPage, discardOfferedBeforeRetry,
@@ -154,7 +155,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         const saved = savedTakeReadbackVerdict(rowsAfterRetry, savedId);
         receipt.row('Retry Save leaves one saved session', saved.status, saved.detail,
             { rows: rowsAfterRetry.length, completed: rowsAfterRetry.filter((r) => r.status === 'completed').length,
-                persistedIdBound: savedId !== null, completionPosts: drop.completionPosts, completionOutcomes: completionOutcomesEvidence(drop.outcomes) });
+                persistedIdBound: savedId !== null, completionPosts: drop.completionPosts, completionOutcomes: await completions.evidence() });
 
         // The next Start, from the completed review's own repeat action, saves only itself.
         const again = page.getByTestId('verdict-practice-again');

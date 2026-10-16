@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     RECOVERY_COPY, SAVE_RETRY_SUITE, type SessionRowFacts, completionDropDisposition, nextTakeRetentionVerdict,
-    completionOutcomesEvidence, recoveryBannerVerdict, sanitizedCompletionOutcome, savedTakeReadbackVerdict,
+    CompletionObserver, classifyTransportFailure, recoveryBannerVerdict, sanitizedCompletionOutcome, savedTakeReadbackVerdict,
 } from '../live/helpers/rwtSaveRetry';
 import {
     SAVE_RETRY_REQUEST_LOST_SUITE, SAVE_RETRY_RESPONSE_LOST_SUITE, requiredAutomatedRows, requiredHumanObservations,
@@ -116,9 +116,10 @@ describe('guards — the spec, the acceptance map and the banner stay in step', 
 
     it('only the first completion request is altered; Retry Save\'s replay reaches the server untouched', () => {
         expect(spec).toContain("const COMPLETION_RPC = '**/rest/v1/rpc/complete_session_v2';");
-        // #1258 C: after the one drop, every completion call is passed through UNALTERED — fetched once from the real server
-        // and fulfilled with that exact response — so its content-free outcome can be recorded. No abort, no edit.
-        expect(spec).toMatch(/if \(drop\.dropped\) \{[\s\S]*?const response = await route\.fetch\(\);[\s\S]*?return route\.fulfill\(\{ response \}\);\s*\}/);
+        // #1258 C (Sam 6216511222): after the one drop the harness stays OUT of the request path — plain fallback, never
+        // route.fetch/fulfill — and learns each answer from the browser's own events instead.
+        expect(spec).toContain('if (drop.dropped) return route.fallback();');
+        expect(spec).not.toContain('route.fulfill(');
         expect(spec).toContain("if (variant === 'request-lost') return route.abort('failed');");
         expect(spec).toMatch(/const response = await route\.fetch\(\);\s+drop\.droppedStatus = response\.status\(\);\s+return route\.abort\('failed'\);/);
     });
@@ -151,15 +152,46 @@ describe('#1258 RWT round 2 C — a completion call\'s server answer is recorded
         expect(sanitizedCompletionOutcome(500, JSON.stringify({ message: 'boom' }))).toEqual({ status: 500, code: 'absent' });
         expect(sanitizedCompletionOutcome(500, 'null')).toEqual({ status: 500, code: 'absent' });
     });
-    it('source guard: the live spec records every non-dropped completion call\'s outcome and still passes the identical response through', () => {
-        const spec = src('tests/live/rwt-save-retry-recovery.live.spec.ts');
-        expect(spec).toContain('drop.outcomes.push(sanitizedCompletionOutcome(response.status()');
-        expect(spec).toContain('return route.fulfill({ response });');
-        expect(spec.match(/completionOutcomes: completionOutcomesEvidence\(drop\.outcomes\)/g)?.length).toBe(2);
+    it('an unreadable response body is named, not guessed', () => {
+        expect(sanitizedCompletionOutcome(500, null)).toEqual({ status: 500, code: 'unreadable' });
     });
-    it('the receipt evidence is one flat, content-free string in call order', () => {
-        expect(completionOutcomesEvidence([{ status: 403, code: '42501' }, { status: 200, code: null }, { status: 502, code: 'unparseable' }]))
-            .toBe('403:42501,200:ok,502:unparseable');
-        expect(completionOutcomesEvidence([])).toBe('');
+    it('a no-response failure maps to a fixed class, never the browser error text', () => {
+        expect(classifyTransportFailure('net::ERR_ABORTED')).toBe('aborted');
+        expect(classifyTransportFailure('net::ERR_TIMED_OUT')).toBe('timed_out');
+        expect(classifyTransportFailure('net::ERR_CONNECTION_RESET')).toBe('connection');
+        expect(classifyTransportFailure('net::ERR_NAME_NOT_RESOLVED')).toBe('connection');
+        expect(classifyTransportFailure('something with the transcript in it')).toBe('other');
+        expect(classifyTransportFailure(undefined)).toBe('other');
+    });
+    it('observer: answers are correlated by REQUEST IDENTITY and reported in CALL order, whatever order they complete in', async () => {
+        const o = new CompletionObserver<{ id: string }>();
+        const r1 = { id: 'dropped' }; const r2 = { id: 'a' }; const r3 = { id: 'b' }; const r4 = { id: 'c' };
+        o.track(r1, 1); o.markDropped(r1);
+        o.track(r2, 2); o.track(r3, 3); o.track(r4, 4);
+        let releaseBody: (b: string) => void = () => undefined;
+        o.onResponse(r2, 403, new Promise<string | null>((res) => { releaseBody = res; })); // slow body: completes LAST
+        o.onFailed(r3, 'net::ERR_CONNECTION_RESET'); // no response at all
+        o.onResponse(r4, 200, '{"final_status":"completed","transcript":"secret words"}');
+        o.onFailed(r1, 'net::ERR_FAILED'); // the deliberate drop: excluded
+        o.onResponse({ id: 'unrelated' }, 500, '{}'); // never tracked: ignored
+        releaseBody(JSON.stringify({ code: '42501', message: 'the transcript text' }));
+        const ev = await o.evidence();
+        expect(ev).toBe('2=403:42501,3=no_response:connection,4=200:ok');
+        expect(ev).not.toMatch(/secret|transcript|RESET/);
+    });
+    it('observer: a body read that REJECTS still records the status (unreadable), and evidence() never throws', async () => {
+        const o = new CompletionObserver<object>();
+        const r = {};
+        o.track(r, 2);
+        o.onResponse(r, 502, Promise.reject(new Error('body stream failed')));
+        await expect(o.evidence()).resolves.toBe('2=502:unreadable');
+    });
+    it('source guard: the spec numbers each call at routing time, excludes the drop, and feeds both browser events to the observer', () => {
+        const spec = src('tests/live/rwt-save-retry-recovery.live.spec.ts');
+        expect(spec).toContain('completions.track(route.request(), drop.completionPosts);');
+        expect(spec).toContain('completions.markDropped(route.request());');
+        expect(spec).toContain("page.on('response'");
+        expect(spec).toContain("page.on('requestfailed', (request) => completions.onFailed(request, request.failure()?.errorText));");
+        expect(spec.match(/completionOutcomes: await completions\.evidence\(\)/g)?.length).toBe(2);
     });
 });

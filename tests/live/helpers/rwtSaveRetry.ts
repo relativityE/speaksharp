@@ -27,8 +27,9 @@ export type CompletionDrop = { completionPosts: number; droppedStatus: number | 
  */
 export type CompletionOutcome = { status: number; code: string | null };
 const ALLOWED_ERROR_CODE = /^(?:[0-9A-Z]{5}|PGRST\d{3})$/;
-export function sanitizedCompletionOutcome(status: number, body: string): CompletionOutcome {
+export function sanitizedCompletionOutcome(status: number, body: string | null): CompletionOutcome {
     if (status >= 200 && status < 300) return { status, code: null };
+    if (body === null) return { status, code: 'unreadable' };
     let parsed: unknown;
     try {
         parsed = JSON.parse(body);
@@ -40,9 +41,54 @@ export function sanitizedCompletionOutcome(status: number, body: string): Comple
     return { status, code: ALLOWED_ERROR_CODE.test(code) ? code : 'unrecognized' };
 }
 
-/** Receipt evidence is flat scalars: the outcomes in call order as `status:code` (`ok` for success), e.g. `403:42501,200:ok`. */
-export function completionOutcomesEvidence(outcomes: readonly CompletionOutcome[]): string {
-    return outcomes.map((o) => `${o.status}:${o.code ?? 'ok'}`).join(',');
+/** A completion call that got no HTTP response, by a fixed content-free class (never the browser's error text). */
+export type TransportFailure = 'aborted' | 'timed_out' | 'connection' | 'other';
+export function classifyTransportFailure(errorText: string | null | undefined): TransportFailure {
+    const t = (errorText ?? '').toUpperCase();
+    if (t.includes('ABORT')) return 'aborted';
+    if (t.includes('TIMED_OUT') || t.includes('TIMEOUT')) return 'timed_out';
+    if (/CONNECTION|NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|NETWORK_CHANGED|ADDRESS_UNREACHABLE|REFUSED|RESET/.test(t)) return 'connection';
+    return 'other';
+}
+
+/**
+ * Sam 6216511222 — the harness must not stand in the request path to learn the answer: non-dropped calls keep
+ * `route.fallback()`, and this observer reads the browser's own `response` / `requestfailed` events, correlated to each
+ * call by REQUEST IDENTITY (the object Playwright passes to the route and to both events) and numbered in CALL order at
+ * routing time — so completion order can never be mistaken for call order. The one deliberately dropped request is
+ * excluded; requests it never tracked are ignored.
+ */
+export class CompletionObserver<R extends object> {
+    private readonly ordinals = new WeakMap<R, number>();
+    private readonly dropped = new WeakSet<R>();
+    private readonly results: { ordinal: number; text: string }[] = [];
+    private readonly pending: Promise<void>[] = [];
+
+    track(request: R, ordinal: number): void { this.ordinals.set(request, ordinal); }
+    markDropped(request: R): void { this.dropped.add(request); }
+    isObserved(request: R): boolean { return this.ordinals.has(request) && !this.dropped.has(request); }
+
+    /** The HTTP answer: status + allowlisted code. `body` may still be loading; `null` means it could not be read. */
+    onResponse(request: R, status: number, body: Promise<string | null> | string | null): void {
+        if (!this.isObserved(request)) return;
+        const ordinal = this.ordinals.get(request)!;
+        this.pending.push(Promise.resolve(body).catch(() => null).then((text) => {
+            const o = sanitizedCompletionOutcome(status, text);
+            this.results.push({ ordinal, text: `${o.status}:${o.code ?? 'ok'}` });
+        }));
+    }
+
+    /** No HTTP answer at all (reset, timeout, offline): a fixed class, never the browser's error text. */
+    onFailed(request: R, errorText: string | null | undefined): void {
+        if (!this.isObserved(request)) return;
+        this.results.push({ ordinal: this.ordinals.get(request)!, text: `no_response:${classifyTransportFailure(errorText)}` });
+    }
+
+    /** Flat receipt evidence in CALL order, e.g. `2=403:42501,3=no_response:connection`. */
+    async evidence(): Promise<string> {
+        await Promise.all(this.pending);
+        return [...this.results].sort((a, b) => a.ordinal - b.ordinal).map((r) => `${r.ordinal}=${r.text}`).join(',');
+    }
 }
 
 /**
