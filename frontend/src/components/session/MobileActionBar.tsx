@@ -5,6 +5,11 @@ import { TEST_IDS } from '@/constants/testIds';
 
 interface MobileActionBarProps {
     isListening: boolean;
+    /**
+     * #1258 C10 (Codex r4290831295) — a Start is in progress (accepted press → capture live on real frames). The sticky
+     * control reads `Starting…` and is disabled, exactly like the desktop control; it never claims recording before then.
+     */
+    starting?: boolean;
     isButtonDisabled: boolean;
     modelLoadingProgress: number | null;
     onStartStop: () => void;
@@ -28,6 +33,7 @@ interface MobileActionBarProps {
  */
 export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     isListening,
+    starting = false,
     isButtonDisabled,
     modelLoadingProgress,
     onStartStop,
@@ -70,13 +76,19 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
             <Button
                 onClick={() => { if (isPrivateRetry) { onDownloadModel?.(); } else { onStartStop(); } }}
                 size="lg"
-                variant={isListening ? 'destructive' : 'default'}
+                variant={isListening && !starting ? 'destructive' : 'default'}
                 className="h-12 w-full max-w-sm text-base font-semibold shadow-sm"
-                disabled={isPrivateRetry ? false : (isButtonDisabled || (modelLoadingProgress !== null && modelLoadingProgress < 100))}
+                disabled={starting || (isPrivateRetry ? false : (isButtonDisabled || (modelLoadingProgress !== null && modelLoadingProgress < 100)))}
+                aria-disabled={starting || undefined}
                 data-testid={`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`}
                 aria-describedby={isBlockedFromStart ? 'mobile-start-blocked-reason' : undefined}
             >
-                {isPrivateRetry ? (
+                {starting ? (
+                    <>
+                        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" aria-hidden="true" />
+                        Starting…
+                    </>
+                ) : isPrivateRetry ? (
                     <>
                         <Download className="w-5 h-5 mr-2" /> Retry Private setup
                     </>

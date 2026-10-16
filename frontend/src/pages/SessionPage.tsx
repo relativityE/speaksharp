@@ -988,6 +988,7 @@ export const SessionPage: React.FC = () => {
             {/* Mobile Sticky Action Bar — not on the restored read-only session (#1258 PR 4): it has no Start. */}
             {!restoreId && <MobileActionBar
                 isListening={isListening}
+                starting={startupWaiting}
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={visibleModelLoadingProgress}
                 onStartStop={() => { void handleStartStop(); }}

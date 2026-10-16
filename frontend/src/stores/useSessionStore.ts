@@ -378,7 +378,12 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         ));
     },
     setStartupWaitStartedAt: (startupWaitStartedAt) => set({ startupWaitStartedAt }),
-    setCaptureLive: (captureLive) => set({ captureLive }),
+    // #1258 C10 (Codex r4290831299): the session clock starts at the ONE live moment, not at FSM RECORDING. When a listening
+    // take's capture goes live (false → true), the clock is re-based, so the timer, pace and the ten-minute cap never
+    // include the time the page said recording had not begun. `isListening` (Stop, persistence, ownership) is untouched.
+    setCaptureLive: (captureLive) => set((state) => (captureLive && !state.captureLive && state.isListening
+        ? { captureLive, startTime: Date.now(), elapsedTime: 0 }
+        : { captureLive })),
     setStartupRetryCancelling: (startupRetryCancelling) => set({ startupRetryCancelling }),
     setRuntimeState: (runtimeState) => {
         logger.debug({ runtimeState }, '[useSessionStore] setRuntimeState');

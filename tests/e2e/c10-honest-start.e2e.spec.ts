@@ -120,6 +120,32 @@ test.describe('#1258 C10 — Honest Start (mock browser, engine setup delayed)',
         expect(await bodyText(page), 'no Speak now before real frames, and no generic copy after').not.toContain('Recording active');
     });
 
+    test('Codex r4290831295/r4290831299: on MOBILE the sticky control reads Starting… until real frames, and the clock starts at the live moment', async ({ page }) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        await navigateToRoute(page, '/session');
+        const mobile = page.getByTestId(/session-start-stop-button-mobile$/).first();
+        await expect(mobile).toBeEnabled({ timeout: 30_000 });
+        await page.evaluate(() => { (window as unknown as { __SS_E2E_HOLD_CAPTURE_READY__?: boolean }).__SS_E2E_HOLD_CAPTURE_READY__ = true; });
+        await mobile.click();
+        await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
+        await page.waitForTimeout(4_000); // FSM RECORDING, still no real frames
+        await expect(mobile, 'never claims recording before capture is live').toHaveText(/Starting…/);
+        await expect(mobile).toBeDisabled();
+        await page.evaluate(() => {
+            const w = window as unknown as { __PrivateWhisper_INT_TEST__?: { onStatusChange?: (s: { type: string; message: string }) => void } };
+            w.__PrivateWhisper_INT_TEST__?.onStatusChange?.({ type: 'recording', message: 'Speak now' });
+        });
+        await expect(mobile).toHaveText(/Stop Recording/, { timeout: 5_000 });
+        // The clock was re-based at the live moment: it does not include the ≥ 4 s pre-frame wait.
+        const timer = page.getByTestId('recorder-timer').first();
+        await expect(timer).toBeVisible({ timeout: 5_000 });
+        const shown = (await timer.innerText()).trim();
+        const seconds = (shown.match(/(\d+):(\d+)/) ?? []).slice(1).map(Number);
+        expect({ shown, under3s: seconds.length === 2 && seconds[0] * 60 + seconds[1] < 3 }).toEqual({ shown, under3s: true });
+    });
+
     test('PM 6207494433: Start settled at RECORDING with NO real frames → 10 s notice → Try again retires it and starts exactly one replacement', async ({ page }) => {
         test.setTimeout(90_000);
         await page.setViewportSize({ width: 1280, height: 800 });
