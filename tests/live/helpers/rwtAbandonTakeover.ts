@@ -13,6 +13,13 @@ export const BLOCKED_COPY = /A recording is active on .+\. Stop it there, or pre
 /** Both wordings the product shows: the hook's longer line, and the controller's own status line. */
 export const SAME_BROWSER_TAB_COPY = /Active session in another tab\./;
 export const DISPLACED_COPY = 'This recording stopped because another device took over. What was recorded here is being saved.';
+/**
+ * #1258 (round 2, run 38876623812) — the product's in-app leave guard (App.tsx): while a take records on /session, a
+ * same-origin link off /session is held and the person is asked this. OK stops and saves the take, then goes; Cancel stays.
+ */
+export const LEAVE_PROMPT_COPY = 'A recording is still active. Stop and save this session before leaving?';
+/** The guard's own alert when Leave could not stop and save the take (App.tsx). */
+export const STOP_FAILED_ALERT_COPY = 'We could not stop and save the recording yet. Please stop the session before leaving.';
 /** The browser-side Cloud STT surfaces: its token function and its provider. Private must never reach either. */
 export const CLOUD_STT_REQUEST = /assemblyai/i;
 
@@ -29,6 +36,39 @@ export function releasedVerdict(t: TabState, where: string): Verdict {
     return { status: 'PASS', detail: `${where}: nothing records and every microphone track has ended` };
 }
 
+/** The dialogs one navigate-away press met, counted (never their text). */
+export type LeaveDialogs = { prompts: number; unexpectedDialogs: number; stopFailedAlerts: number };
+export const newLeaveDialogs = (): LeaveDialogs => ({ prompts: 0, unexpectedDialogs: 0, stopFailedAlerts: 0 });
+
+/**
+ * #1258 (Sam 6218709582) — the ONE dialog the journey may accept: the first `confirm` carrying the product's exact leave
+ * copy. Every other dialog — another copy, a repeat, a `prompt`, a `beforeunload`, any alert — is dismissed and counted,
+ * so a wrong dialog can never be answered Leave. The guard's stop-failure alert is counted on its own.
+ */
+export function answerLeaveDialog(seen: LeaveDialogs, d: { type: string; message: string }): 'accept' | 'dismiss' {
+    if (d.type === 'confirm' && d.message === LEAVE_PROMPT_COPY && seen.prompts === 0) {
+        seen.prompts += 1;
+        return 'accept';
+    }
+    if (d.type === 'alert' && d.message === STOP_FAILED_ALERT_COPY) seen.stopFailedAlerts += 1;
+    else seen.unexpectedDialogs += 1;
+    return 'dismiss';
+}
+
+/**
+ * Navigate away: the product asks once before leaving a live recording, in its own words; the person answers Leave; no
+ * other dialog appears; the guard reports no stop failure; and the page reaches where they chose. An unanswered prompt
+ * is the person choosing Cancel, which keeps them on the recording, so the journey must answer it. Arrival is NOT
+ * persistence evidence: whether the left take saved is read from the server (`priorTakeSaved`).
+ */
+export function leavePromptVerdict(o: LeaveDialogs & { arrived: boolean }): Verdict {
+    if (o.unexpectedDialogs > 0) return { status: 'FAIL', detail: 'an unexpected dialog appeared (other copy, a repeat, or another kind); it was dismissed, never accepted' };
+    if (o.prompts === 0) return { status: 'FAIL', detail: 'the product did not ask before leaving a live recording' };
+    if (o.stopFailedAlerts > 0) return { status: 'FAIL', detail: 'answering Leave could not stop and save the recording' };
+    if (!o.arrived) return { status: 'FAIL', detail: 'answering Leave did not reach the chosen page' };
+    return { status: 'PASS', detail: 'the product asked once before leaving the live recording; Leave reached the chosen page' };
+}
+
 /**
  * Returning: the first Start either records, or refuses with the product's truthful copy and records on the person's
  * explicit second press. A refusal without that copy, or a take-over that never records, is a FAIL.
@@ -42,14 +82,59 @@ export function returnStartVerdict(o: {
     return { status: 'PASS', detail: 'Start was refused with the truthful reason, and the explicit second press recorded' };
 }
 
-/** A recovery notice, when shown, must match its state; an interrupted take never claims a saved transcript. */
-export function recoveryNoticeVerdict(o: { shown: boolean; state: string | null; claimsSavedTranscript: boolean }): Verdict {
-    if (!o.shown) return { status: 'PASS', detail: 'no recovery notice was shown, so nothing is claimed about the abandoned take' };
+/**
+ * #1258 (Sam 6218709582 / 6219021013) — the recovery notice's own wordings (SessionPage `session-recovery-message`). Every
+ * one of them says the take was NOT saved, in two different phrasings, so the unsaved claim is read from all of them.
+ */
+export const RECOVERY_NOTICE_COPY = Object.freeze({
+    finalized_pending_save: 'Your last session finished but was not saved. Its measurements were kept on this device; no transcript was stored.',
+    interrupted_partial: 'Your last session was interrupted before it was saved. No transcript was saved, and only partial measurements were captured.',
+    interrupted: 'Your last session was interrupted before it was saved. No transcript was saved.',
+});
+const UNSAVED_MARKERS = ['No transcript was saved', 'was not saved', 'no transcript was stored'] as const;
+
+/** What a recovery notice CLAIMS about the left take's transcript, from its text (classified, never stored). */
+export function classifyRecoveryClaim(text: string): { claimsSavedTranscript: boolean; claimsUnsavedTranscript: boolean } {
+    const claimsUnsavedTranscript = UNSAVED_MARKERS.some((m) => text.includes(m));
+    return { claimsSavedTranscript: !claimsUnsavedTranscript && /transcript was saved/i.test(text), claimsUnsavedTranscript };
+}
+
+/**
+ * Whether the take the person left was saved, as the SERVER holds it: a completed row that was not there before the
+ * first Start. Observed, never inferred from arrival or the absence of an alert.
+ */
+export function priorTakeSaved(baseline: readonly RowFacts[], atReturn: readonly RowFacts[]): boolean {
+    const before = new Set(baseline.map((r) => r.id));
+    return atReturn.some((r) => !before.has(r.id) && r.status === 'completed');
+}
+
+/**
+ * #1258 Codex P1 r4296551953 (Sam 6219377681) — navigate away's Leave is "Stop and save": the take the person left must
+ * hold a completed row on the server, judged against the pre-first-Start baseline. Arrival, the absence of an alert and
+ * the absence of a notice prove nothing about persistence, so this row FAILs on its own whenever the row is absent.
+ */
+export function leftTakeSavedVerdict(saved: boolean): Verdict {
+    return saved
+        ? { status: 'PASS', detail: 'the take the person left holds a completed row on the server' }
+        : { status: 'FAIL', detail: 'Leave was answered, but the take the person left holds no completed row on the server' };
+}
+
+/**
+ * A recovery notice, when shown, must name a known state and tell the truth about the left take (#1258 Sam 6218709582):
+ * it may say a transcript was saved only when one was, and may say none was only when none was. Both variants pass the
+ * OBSERVED persistence (Codex P1 r4296551963, Sam 6219377681 option a): server truth is authoritative, and a close-tab
+ * take that did persist is not itself a defect.
+ */
+export function recoveryNoticeVerdict(o: {
+    shown: boolean; state: string | null; claimsSavedTranscript: boolean; claimsUnsavedTranscript: boolean; priorTakeSaved: boolean;
+}): Verdict {
+    if (!o.shown) return { status: 'PASS', detail: 'no recovery notice was shown, so nothing is claimed about the left take' };
     if (o.state !== 'active_interrupted' && o.state !== 'finalized_pending_save') {
         return { status: 'FAIL', detail: `the recovery notice names an unknown state (${o.state ?? 'none'})` };
     }
-    if (o.claimsSavedTranscript) return { status: 'FAIL', detail: 'the recovery notice claims a transcript was saved' };
-    return { status: 'PASS', detail: 'the recovery notice matches the abandoned take and claims no saved transcript' };
+    if (o.claimsSavedTranscript && !o.priorTakeSaved) return { status: 'FAIL', detail: 'the recovery notice claims a transcript was saved, but the left take was not' };
+    if (o.claimsUnsavedTranscript && o.priorTakeSaved) return { status: 'FAIL', detail: 'the recovery notice says no transcript was saved, but the left take was saved' };
+    return { status: 'PASS', detail: 'the recovery notice matches what the server holds for the left take' };
 }
 
 /**

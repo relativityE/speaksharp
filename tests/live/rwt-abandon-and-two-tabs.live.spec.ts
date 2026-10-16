@@ -11,7 +11,7 @@
  * content-free. Preparation only: execution requires a fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import type { BrowserContext, Page, TestInfo } from '@playwright/test';
+import type { BrowserContext, Dialog, Page, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { routeVercelBypass } from './helpers/deployedLiveTest';
@@ -31,7 +31,7 @@ import {
 } from './helpers/benchmark-utils';
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, nextTakeOnlyItselfVerdict, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
     returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
@@ -111,6 +111,8 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `abandon-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await openOpenMic(page);
+        // The account's rows before the first take: the baseline the left take's persistence is read against.
+        const rowsBeforeFirst = await readRows(owner.uid);
         await startFirstPrivateTake(page, `abandon-${variant}-1`);
         await page.waitForTimeout(MID_TAKE_MS);
         const during = await tabState(page);
@@ -122,8 +124,22 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
 
         let returned = page;
         if (variant === 'navigate-away') {
-            await openProductsItem(page, 'focus-points');
-            await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 });
+            // #1258 run 38876623812: the product asks before leaving a live recording. Unanswered, Playwright dismisses it
+            // (the person's Cancel) and the page rightly stays; a person leaving answers Leave. Only the first exact leave
+            // confirm is accepted; every other dialog is dismissed and counted (Sam 6218709582). Counts only, no text stored.
+            const dialogs = newLeaveDialogs();
+            const answerLeave = (d: Dialog) => {
+                void (answerLeaveDialog(dialogs, { type: d.type(), message: d.message() }) === 'accept' ? d.accept() : d.dismiss());
+            };
+            page.on('dialog', answerLeave);
+            let arrived = false;
+            try {
+                await openProductsItem(page, 'focus-points');
+                arrived = await page.waitForURL(/\/practice\?product=focus-points/, { timeout: 45_000 }).then(() => true, () => false);
+            } finally { page.off('dialog', answerLeave); }
+            const asked = leavePromptVerdict({ ...dialogs, arrived });
+            receipt.row('leave prompt answered Leave', asked.status, asked.detail, { ...dialogs, arrived });
+            if (asked.status !== 'PASS') return;
             await page.waitForTimeout(3_000);
             const afterLeaving = await tabState(page);
             const left = releasedVerdict(afterLeaving, 'after leaving');
@@ -157,13 +173,23 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         const notice = returned.getByTestId('session-recovery-actions');
         const shown = await notice.count() > 0;
         const noticeText = shown ? await returned.getByTestId('session-recovery-message').innerText().catch(() => '') : '';
+        // The left take's persistence as the server holds it, against the pre-first-Start baseline, read before the notice is
+        // dismissed and before the next take; the next-take baseline is unchanged. Server truth judges the notice for BOTH
+        // variants (Codex P1 r4296551963, Sam 6219377681 option a).
+        const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, await readRows(owner.uid));
+        if (variant === 'navigate-away') {
+            // Codex P1 r4296551953: Leave is "Stop and save", so navigate away requires the left take's saved row.
+            const kept = leftTakeSavedVerdict(leftTakeSaved);
+            receipt.row('leaving saved the left take', kept.status, kept.detail, { leftTakeSaved });
+        }
         const recovery = recoveryNoticeVerdict({
             shown,
             state: shown ? await notice.getAttribute('data-recovery-state') : null,
-            claimsSavedTranscript: noticeText.includes('transcript was saved') && !noticeText.includes('No transcript was saved'),
+            ...classifyRecoveryClaim(noticeText),
+            priorTakeSaved: leftTakeSaved,
         });
         receipt.row('recovery notice is truthful', recovery.status, recovery.detail,
-            { shown, unresolvedBanner: await returned.getByTestId('session-unresolved-recovery').count() > 0 });
+            { shown, leftTakeSaved, unresolvedBanner: await returned.getByTestId('session-unresolved-recovery').count() > 0 });
         if (shown) await returned.getByTestId('session-recovery-dismiss').click();
 
         // The next take: the person presses Start, and presses again only if the product says why it refused.
