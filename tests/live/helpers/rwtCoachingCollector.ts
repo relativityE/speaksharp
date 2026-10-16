@@ -17,7 +17,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, type Page } from '@playwright/test';
 import type { CoachingExchange, CoachingSuggestionPair } from './coachingGenerationTap';
-import { coachingContract, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from './rwtCoachingEvidence';
+import { EDGE_MAX_PROVIDER_ATTEMPTS, coachingContract, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from './rwtCoachingEvidence';
 
 type Verdict = 'PASS' | 'FAIL' | 'HOLD';
 type Product = 'open_mic' | 'focus_points';
@@ -366,6 +366,13 @@ export async function coachingPromptBindingRow(input: {
  * exceeds `maximum` or any listed take received more than one request; HOLD when a sent request has no readable Edge
  * diagnostics (provider invocations unprovable). PASS only when every sent request was answered with readable
  * diagnostics within budget. No retry is executed or hidden here; a retry the page made is simply counted.
+ *
+ * #1258 RWT round 2 (run 38876644751, PM 6216341052) — ONE REQUEST MAY COST UP TO `EDGE_MAX_PROVIDER_ATTEMPTS` PROVIDER
+ * ATTEMPTS. Merge 2's shipped Edge retry (#1624) spends up to that many attempts inside one request's 45 s budget, so the
+ * old rule — provider attempts bounded by the same `maximum` as browser requests — refused the shipped contract (2
+ * requests that each retried read as a breach). The browser-request cap and one-request-per-take are unchanged. Provider
+ * attempts are now bounded TWICE: in aggregate by `maximum × EDGE_MAX_PROVIDER_ATTEMPTS`, AND per request by
+ * `EDGE_MAX_PROVIDER_ATTEMPTS`, so a request over the server cap can never hide behind another request's underspend.
  */
 export function coachingRequestBudgetRow(
     receipt: ReceiptLike,
@@ -381,16 +388,20 @@ export function coachingRequestBudgetRow(
     const malformed = answered.length - readable.length;
     const providerAttemptsReported = readable.reduce((sum, e) => sum + Number(e.diagnostics!.provider_attempts), 0);
     const perSession = (budget.oneRequestPerSession ?? []).map((id) => tap.exchanges.filter((e) => e.sent.sessionId === id).length);
-    const exceeded = tap.sentCount > budget.maximum || providerAttemptsReported > budget.maximum || perSession.some((n) => n > 1);
+    const providerAttemptAllowance = budget.maximum * EDGE_MAX_PROVIDER_ATTEMPTS;
+    const maxProviderAttemptsForOneRequest = readable.reduce((m, e) => Math.max(m, Number(e.diagnostics!.provider_attempts)), 0);
+    const exceeded = tap.sentCount > budget.maximum || providerAttemptsReported > providerAttemptAllowance
+        || maxProviderAttemptsForOneRequest > EDGE_MAX_PROVIDER_ATTEMPTS || perSession.some((n) => n > 1);
     const unprovable = !exceeded && (malformed > 0 || readable.length !== tap.sentCount || answered.length !== tap.sentCount);
     const verdict: Verdict = exceeded ? 'FAIL' : unprovable ? 'HOLD' : 'PASS';
     receipt.row('coaching request budget', verdict,
-        verdict === 'PASS' ? `the whole scenario sent at most ${budget.maximum} coaching request(s) and the Edge reported at most ${budget.maximum} provider attempt(s)`
-            : verdict === 'FAIL' ? 'the scenario exceeded its coaching request or Edge-reported provider-attempt budget, or a take was requested twice'
+        verdict === 'PASS' ? `the whole scenario sent at most ${budget.maximum} coaching request(s); the Edge reported at most ${providerAttemptAllowance} provider attempt(s) in all and at most ${EDGE_MAX_PROVIDER_ATTEMPTS} for any one request`
+            : verdict === 'FAIL' ? 'the scenario exceeded its coaching request budget, its provider-attempt allowance or the per-request provider-attempt cap, or a take was requested twice'
                 : 'a sent coaching request has no readable Edge diagnostics, so provider invocations are unproven',
         {
             maximum: budget.maximum, browserRequests: tap.sentCount, answered: answered.length,
             withDiagnostics: readable.length, malformedProviderAttempts: malformed, providerAttemptsReported,
+            providerAttemptAllowance, perRequestProviderAttemptCap: EDGE_MAX_PROVIDER_ATTEMPTS, maxProviderAttemptsForOneRequest,
             maxRequestsForOneTake: perSession.length > 0 ? Math.max(...perSession) : 0,
         });
 }

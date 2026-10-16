@@ -16,6 +16,7 @@ import {
 import { buildFeedbackLookup, feedbackDiagnosticChainRow, takeExpectation } from '../live/helpers/coachingFeedbackAdapter';
 import type { CoachingExchange } from '../live/helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from '../live/helpers/rwtCoachingCollector';
+import { EDGE_MAX_PROVIDER_ATTEMPTS } from '../live/helpers/rwtCoachingEvidence';
 import { validateFeedbackDiagnostics } from '../live/helpers/feedbackDiagnosticContract';
 
 const SHA = 'b'.repeat(40);
@@ -209,7 +210,8 @@ describe('#1594 older-take expectation and request budget', () => {
     it.each([
         ['more browser requests than the budget', { sentCount: 3, exchanges }, { maximum: 2 }],
         ['a take requested twice (a client retry)', { sentCount: 2, exchanges: [ex(OLD, OLD_REQ, OLD_ATT), ex(OLD, OLD_REQ, NEW_ATT)] }, { maximum: 2, oneRequestPerSession: [OLD] }],
-        ['Edge-reported provider attempts above the budget', { sentCount: 1, exchanges: [ex(OLD, OLD_REQ, OLD_ATT, { diagnostics: { ...ex(OLD, OLD_REQ, OLD_ATT).diagnostics, provider_attempts: 2 } })] }, { maximum: 1 }],
+        // #1258: one request may cost up to EDGE_MAX_PROVIDER_ATTEMPTS; above that single-request server cap is a breach.
+        ['an Edge-reported provider-attempt count above the per-request server cap', { sentCount: 1, exchanges: [ex(OLD, OLD_REQ, OLD_ATT, { diagnostics: { ...ex(OLD, OLD_REQ, OLD_ATT).diagnostics, provider_attempts: EDGE_MAX_PROVIDER_ATTEMPTS + 1 } })] }, { maximum: 1 }],
         ['any request where none is allowed', { sentCount: 1, exchanges: [ex(OLD, OLD_REQ, OLD_ATT)] }, { maximum: 0 }],
     ])('budget FAIL: %s', (_l, tap, budget) => {
         coachingRequestBudgetRow(receipt, tap, budget);
@@ -227,10 +229,38 @@ describe('#1594 older-take expectation and request budget', () => {
     const withAttempts = (sessionId: string, requestId: string, attemptId: string, attempts: unknown) =>
         ex(sessionId, requestId, attemptId, { diagnostics: { ...ex(sessionId, requestId, attemptId).diagnostics, provider_attempts: attempts } });
 
-    it('CASUALTY [3, -1] under maximum 2: the negative count cannot mask the valid 3 → FAIL (was PASS)', () => {
-        coachingRequestBudgetRow(receipt, { sentCount: 2, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, 3), withAttempts(NEW, NEW_REQ, NEW_ATT, -1)] },
+    it('CASUALTY [over-cap, -1] under maximum 2: the negative count cannot mask a valid over-cap count → FAIL (was PASS)', () => {
+        const overCap = EDGE_MAX_PROVIDER_ATTEMPTS + 1;
+        coachingRequestBudgetRow(receipt, { sentCount: 2, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, overCap), withAttempts(NEW, NEW_REQ, NEW_ATT, -1)] },
             { maximum: 2, oneRequestPerSession: [OLD, NEW] });
-        expect(last()).toMatchObject({ verdict: 'FAIL', evidence: { providerAttemptsReported: 3, malformedProviderAttempts: 1 } });
+        expect(last()).toMatchObject({ verdict: 'FAIL', evidence: { providerAttemptsReported: overCap, malformedProviderAttempts: 1 } });
+    });
+
+    // #1258 RWT round 2 (run 38876644751, PM 6216341052): the shipped Edge retry spends up to EDGE_MAX_PROVIDER_ATTEMPTS per
+    // request. Aggregate allowance = maximum × that cap, AND every single request <= that cap.
+    it('the shipped retry contract: 2 requests × the full per-request cap of attempts PASS (run 38876644751 read this as a breach)', () => {
+        coachingRequestBudgetRow(receipt, { sentCount: 2, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, EDGE_MAX_PROVIDER_ATTEMPTS), withAttempts(NEW, NEW_REQ, NEW_ATT, EDGE_MAX_PROVIDER_ATTEMPTS)] },
+            { maximum: 2, oneRequestPerSession: [OLD, NEW] });
+        expect(last()).toMatchObject({ verdict: 'PASS', evidence: { providerAttemptsReported: 2 * EDGE_MAX_PROVIDER_ATTEMPTS, providerAttemptAllowance: 2 * EDGE_MAX_PROVIDER_ATTEMPTS, maxProviderAttemptsForOneRequest: EDGE_MAX_PROVIDER_ATTEMPTS } });
+    });
+    it.each([
+        ['2 requests × (cap + 1) attempts', [EDGE_MAX_PROVIDER_ATTEMPTS + 1, EDGE_MAX_PROVIDER_ATTEMPTS + 1], 2],
+        ['(cap + 1) + (cap − 1): the aggregate fits the allowance, but one request exceeds the server cap', [EDGE_MAX_PROVIDER_ATTEMPTS + 1, EDGE_MAX_PROVIDER_ATTEMPTS - 1], 2],
+    ] as const)('per-request cap FAIL: %s', (_l, [a, b], maximum) => {
+        coachingRequestBudgetRow(receipt, { sentCount: 2, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, a), withAttempts(NEW, NEW_REQ, NEW_ATT, b)] },
+            { maximum, oneRequestPerSession: [OLD, NEW] });
+        expect(last().verdict).toBe('FAIL');
+    });
+    it('3 browser requests against a 2-request budget FAIL even when every request is within the per-request cap', () => {
+        const third = '77777777-7777-4777-8777-777777777777';
+        coachingRequestBudgetRow(receipt, { sentCount: 3, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, 1), withAttempts(NEW, NEW_REQ, NEW_ATT, 1), withAttempts(third, third, third, 1)] },
+            { maximum: 2 });
+        expect(last().verdict).toBe('FAIL');
+    });
+    it('missing per-request evidence stays HOLD, never a PASS inferred from aggregate arithmetic', () => {
+        coachingRequestBudgetRow(receipt, { sentCount: 2, exchanges: [withAttempts(OLD, OLD_REQ, OLD_ATT, 2), ex(NEW, NEW_REQ, NEW_ATT, { diagnostics: null })] },
+            { maximum: 2, oneRequestPerSession: [OLD, NEW] });
+        expect(last().verdict).toBe('HOLD');
     });
 
     it.each([
