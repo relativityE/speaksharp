@@ -4210,6 +4210,10 @@ export class SpeechRuntimeController {
                 pushNativeRuntimeTrace('controller_start_prepared_service_failed');
                 const failed = this.service;
                 if (failed) {
+                    // Sam 6216630105 — until it is TERMINATED the service factory still hands this instance back, so an
+                    // immediate retry could reattach the discarded, still-terminating service. Marking it spent puts it under
+                    // the existing guard: the next Start awaits its retirement and then asks for a fresh service.
+                    this.servicesThatRecorded.add(failed);
                     this.detachService(failed);
                     // A discarded service no longer owns the page: its teardown must not overwrite the genuine failure the
                     // claim just published (reset()'s UI sync would write idle "Ready" over it).

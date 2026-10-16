@@ -51,6 +51,7 @@ class ControlledEngine {
     public startCalls = 0;
     public initGate: Promise<void> | null = null;
     public initFails: Error | null = null;
+    public terminateGate: Promise<void> | null = null;
     updateOptions() { /* no-op */ }
     async checkAvailability() { return { isAvailable: true }; }
     async init(): Promise<Result<void, Error>> {
@@ -63,7 +64,7 @@ class ControlledEngine {
     async stop() { /* no-op */ }
     async resume() { /* no-op */ }
     async pause() { /* no-op */ }
-    async terminate() { /* no-op */ }
+    async terminate() { if (this.terminateGate) await this.terminateGate; }
     async getTranscript() { return ''; }
     getLastHeartbeatTimestamp() { return Date.now(); }
     getEngineType() { return 'transformers-js'; }
@@ -121,7 +122,15 @@ describe('#1258 A — background preparation claim boundary, real controller + r
         useSessionStore.getState().setRuntimeState('READY');
         vi.spyOn(priv, 'confirmEngineShutdown').mockResolvedValue('terminal');
     });
-    afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); });
+    afterEach(async () => {
+        // A test can end with a live recording (control 1's retry). Release it — and its tab lock — so the next test's
+        // fresh controller is not refused by this one's leftovers.
+        controller.fullReset();
+        await settle();
+        // clearAllMocks, NOT restoreAllMocks: restoring would strip the module mocks' implementations (saveSession,
+        // heartbeatSession) for every later test. Each test's own spy sits on a fresh controller instance.
+        vi.clearAllMocks();
+    });
 
     /** Prepare the next take in the background and return the prepared (still unclaimed) service. */
     const prepared = async (): Promise<ServiceInternals> => {
@@ -137,7 +146,8 @@ describe('#1258 A — background preparation claim boundary, real controller + r
     it('1. a background strategy failure is claimed by the queued Start: one truthful settlement, no stale FAILED over a recording; an explicit retry records', async () => {
         const svc = await prepared();
         const failure = new Error('worker crashed during warm-up');
-        svc.strategyCallbacks.onError(failure); // the strategy fails while still in the background
+        svc.strategyCallbacks.onReady(); // the warm-up reported ready ...
+        svc.strategyCallbacks.onError(failure); // ... and then the strategy failed, all while still in the background
         await settle();
         expect(useSessionStore.getState().sttStatus, 'not published while the review is on screen').toEqual(REVIEW);
 
@@ -148,7 +158,7 @@ describe('#1258 A — background preparation claim boundary, real controller + r
         expect(settlements, 'the claiming Start settles exactly once, rejected with the genuine preparation failure').toEqual(['rejected:PREPARED_SERVICE_FAILED']);
         expect(engine.startCalls, 'nothing records on the failed prepared service').toBe(0);
         expect(controller.getState(), 'the controller is not recording').not.toBe('RECORDING');
-        expect(useSessionStore.getState().sttStatus.type, 'the genuine failure reached the page').toBe('error');
+        expect(useSessionStore.getState().sttStatus.type, 'the LATER failure, not the earlier ready, is what the claim delivered').toBe('error');
         expect(priv.service, 'the failed prepared service was retired').toBeNull();
 
         // The person's explicit retry builds a fresh engine and records; the earlier deferred failure never lands on it.
@@ -161,13 +171,44 @@ describe('#1258 A — background preparation claim boundary, real controller + r
         expect(controller.getState(), 'and no stale FAILED overrides that accepted recording').toBe('RECORDING');
     });
 
+    it('1b. an INIT_FAILED preparation is claimed, then retried at once while it is still terminating: the retry waits for its retirement and records on a FRESH service', async () => {
+        engine.initFails = new Error('model load failed');
+        const svc = await prepared();
+        expect(svc.getState(), 'precondition: the preparation failed').toBe('INIT_FAILED');
+        let finishTermination: () => void = () => undefined;
+        engine.terminateGate = new Promise<void>((r) => { finishTermination = r; });
+
+        const first = controller.startRecording(POLICY as never, []);
+        const firstOutcome: string[] = [];
+        first.then(() => firstOutcome.push('resolved'), (e: Error) => firstOutcome.push(`rejected:${e.message}`));
+        await settle(20);
+        expect(firstOutcome).toEqual(['rejected:PREPARED_SERVICE_FAILED']);
+
+        engine.initFails = null; // the person's retry should now succeed — but only on a fresh engine
+        const retry = controller.startRecording(POLICY as never, []);
+        await settle(30);
+        expect(engine.startCalls, 'the retry did not record on the discarded, still-terminating service').toBe(0);
+        expect(priv.service, 'the discarded service was not reattached').not.toBe(svc);
+
+        finishTermination();
+        await settle(60);
+        await retry;
+        expect(svc.isServiceDestroyed(), 'the discarded service was retired').toBe(true);
+        expect(priv.service, 'the retry runs on a fresh service').not.toBe(svc);
+        expect(controller.getState(), 'and it records').toBe('RECORDING');
+        expect(engine.startCalls).toBe(1);
+    });
+
     it.each([
-        ['resolves', false],
-        ['rejects', true],
-    ])('2. destroy while strategy.init is pending, then the held init %s: nothing published, no resurrection', async (_label, rejects) => {
+        ['resolves', 'resolve'],
+        ['returns Result.err', 'result-error'],
+        ['REJECTS its Promise', 'reject'],
+    ] as const)('2. destroy while strategy.init is pending, then the held init %s: nothing published, no resurrection', async (_label, how) => {
         let release: () => void = () => undefined;
-        engine.initGate = new Promise<void>((r) => { release = r; });
-        if (rejects) engine.initFails = new Error('model load failed');
+        engine.initGate = new Promise<void>((resolve, reject) => {
+            release = how === 'reject' ? () => reject(new Error('worker crashed while loading')) : resolve;
+        });
+        if (how === 'result-error') engine.initFails = new Error('model load failed');
         const preparing = priv.prepareNextTake('private');
         await vi.waitFor(() => expect(engine.initCalls, 'precondition: init is in flight').toBe(1));
         const svc = priv.service!;
