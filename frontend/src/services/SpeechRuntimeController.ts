@@ -941,7 +941,8 @@ export class SpeechRuntimeController {
         // The normal stop terminal has usually detached and destroyed the take's service already (`this.service` null);
         // a failed-save path can leave a SPENT one attached. Anything else — an unused, already-fresh service — is ready.
         const spent = this.service && this.servicesThatRecorded.has(this.service) ? this.service : null;
-        if (this.state !== 'READY' || (this.service && !spent)) return Promise.resolve();
+        // A pending Start owns the next engine: no preparation begins beside it (the Start joins one already running).
+        if (this.state !== 'READY' || (this.service && !spent) || pendingRecordingIntent()) return Promise.resolve();
         const lifecycleAtStart = this.lifecycleVersion;
         const ownerAtStart = this.capturedUserId ?? null;
         const stillCurrent = () => this.lifecycleVersion === lifecycleAtStart && this.state === 'READY'
@@ -4153,7 +4154,20 @@ export class SpeechRuntimeController {
             lifecycleVersion: this.lifecycleVersion,
         });
 
-        void this.enqueue(async (_token) => {
+        // #1258 PR A (PM 6205858358 P1) — JOIN THE NEXT-TAKE PREPARATION OUTSIDE THE COMMAND QUEUE. The preparation's
+        // warm-up ends by queueing its subscription sync; a Start that waited for it INSIDE its own queue slot held that
+        // sync behind itself, and neither could finish. The Start now takes its slot only once the preparation settled,
+        // and re-checks, first thing in the slot, that the lifecycle, the owner and its own intent are unchanged. With no
+        // preparation in flight it is enqueued exactly as before.
+        const joinedPreparation = this.nextTakePreparation;
+        const lifecycleAtIntent = this.lifecycleVersion;
+        const ownerAtIntent = this.capturedUserId ?? null;
+        const enqueueStart = (task: (token: LifecycleToken) => Promise<void>): Promise<void> => {
+            if (!joinedPreparation) return this.enqueue(task);
+            pushNativeRuntimeTrace('controller_start_join_next_take_preparation');
+            return joinedPreparation.catch(() => undefined).then(() => this.enqueue(task));
+        };
+        void enqueueStart(async (_token) => {
             pushNativeRuntimeTrace('controller_start_queue_enter', {
                 recordingId,
                 state: this.state,
@@ -4161,6 +4175,13 @@ export class SpeechRuntimeController {
                 lifecycleVersion: this.lifecycleVersion,
                 currentRecordingId: this.currentRecordingId,
             });
+            if (joinedPreparation && (this.lifecycleVersion !== lifecycleAtIntent || (this.capturedUserId ?? null) !== ownerAtIntent
+                || this.currentRecordingId !== recordingId || !isCurrentIntent(intent.token))) {
+                pushNativeRuntimeTrace('controller_start_superseded_while_joining');
+                retireRecordingIntent('superseded', intent.token);
+                this.releaseRefusedStartLock();
+                return;
+            }
             if (this.currentRecordingId !== recordingId) {
                 pushNativeRuntimeTrace('controller_start_skip_superseded_recording', {
                     recordingId,
@@ -4212,20 +4233,6 @@ export class SpeechRuntimeController {
                 this.engineSelectionIntentLocked = false;
                 this.publishLockState();
                 return;
-            }
-
-            // #1258 PR A — a Start pressed while the next take is being prepared JOINS that preparation (one engine,
-            // never two). If the lifecycle moved meanwhile, this Start stands down exactly like a superseded retire.
-            if (this.nextTakePreparation) {
-                pushNativeRuntimeTrace('controller_start_join_next_take_preparation');
-                await this.nextTakePreparation.catch(() => undefined);
-                if (_token.cancelled || _token.version !== this.lifecycleVersion
-                    || this.currentRecordingId !== recordingId || !isCurrentIntent(intent.token)) {
-                    pushNativeRuntimeTrace('controller_start_superseded_while_joining');
-                    retireRecordingIntent('superseded', intent.token);
-                    this.releaseRefusedStartLock();
-                    return;
-                }
             }
 
             if (this.service?.isServiceDestroyed()) {

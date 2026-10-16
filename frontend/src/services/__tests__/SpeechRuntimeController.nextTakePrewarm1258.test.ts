@@ -107,6 +107,9 @@ const recordingService = (name: string) => {
     setSessionId: vi.fn(),
     updateCallbacks: vi.fn((callbacks: Partial<TranscriptionServiceOptions>) => { svc.live = callbacks; }),
     fsm: { is: vi.fn((state: string) => state === 'RECORDING') },
+    // What the REAL controller warm-up touches: the policy update and the queued subscription sync.
+    updatePolicy: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn(() => () => undefined),
     };
     return svc;
 };
@@ -232,5 +235,84 @@ describe('#1258 PR A — next-take preparation', () => {
         await c.prepareNextTake('private');
         expect(fresh.updateCallbacks, 'no replacement was built over an undestroyed spent service').not.toHaveBeenCalled();
         expect(warm).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * PM 6205858358 P1 — THE PRE-WARM / START QUEUE CYCLE, on the REAL controller warm-up. `warmUp` ends by queueing its
+ * subscription sync on the command queue; a Start that waited for the preparation INSIDE its own queue slot would hold
+ * that sync behind itself, and neither could finish. Nothing here mocks `controller.warmUp`: only the service's own
+ * warm-up is deferred, so the controller's queued work is exercised as shipped.
+ */
+describe('#1258 PR A — a Start during the real warm-up joins outside the queue', () => {
+    beforeEach(() => {
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        factory.queue.length = 0;
+        factory.active = null;
+        vi.mocked(saveSession).mockReset().mockResolvedValue({ status: 'saved', session: { id: 'session-x' } } as never);
+        vi.mocked(completeSession).mockReset().mockResolvedValue({ success: true } as never);
+    });
+
+    const within = <T,>(p: Promise<T>, ms: number) => Promise.race([
+        p.then(() => 'settled' as const), new Promise<'stuck'>((r) => setTimeout(() => r('stuck'), ms)),
+    ]);
+    /** Preparation suspended inside the fresh service's own warm-up, with the controller's real queue live. */
+    const suspendedInWarmUp = async () => {
+        const ctx = await afterNormalTake();
+        vi.spyOn(ctx.c, 'confirmEngineShutdown').mockResolvedValue('terminal');
+        useSessionStore.getState().setIsBooting(false); // booting skips the sync and would hide the cycle
+        // Only the PREPARATION's warm-up is held; the Start's own later warm-up of the same service resolves at once.
+        let releaseWarm: () => void = () => undefined;
+        const held = new Promise<void>((r) => { releaseWarm = r; });
+        ctx.serviceB.warmUp = vi.fn().mockReturnValueOnce(held).mockResolvedValue(undefined);
+        const preparing = ctx.c.prepareNextTake('private');
+        await settle();
+        expect(ctx.serviceB.warmUp, 'preparation is suspended inside the fresh service\'s warm-up').toHaveBeenCalledTimes(1);
+        return { ...ctx, preparing, release: () => releaseWarm() };
+    };
+
+    it('Start pressed during the deferred warm-up: both settle, exactly one fresh service, one accepted take', async () => {
+        const { c, serviceB, serviceC, preparing, release } = await suspendedInWarmUp();
+        const starting = c.startRecording(POLICY, []);
+        await settle();
+        release();
+        expect(await within(Promise.all([preparing, starting]), 2_000), 'no queue cycle: preparation and Start both finish').toBe('settled');
+        expect(serviceB.subscribe, 'the preparation\'s queued subscription ran').toHaveBeenCalled();
+        expect(c.acceptedAttempt?.service, 'the take runs on the one prepared service').toBe(serviceB);
+        expect(serviceB.startTranscription).toHaveBeenCalledTimes(1);
+        expect(serviceC.updateCallbacks, 'no second service').not.toHaveBeenCalled();
+    });
+
+    it('a reset at that suspension: the joined Start stands down — no take, no second service', async () => {
+        const { c, serviceB, serviceC, preparing, release } = await suspendedInWarmUp();
+        const starting = c.startRecording(POLICY, []);
+        await settle();
+        c.reset('manual');
+        release();
+        expect(await within(Promise.all([preparing.catch(() => undefined), starting.catch(() => undefined)]), 2_000)).toBe('settled');
+        expect(serviceB.startTranscription, 'the superseded Start never recorded').not.toHaveBeenCalled();
+        expect(c.acceptedAttempt).toBeNull();
+        expect(serviceC.updateCallbacks).not.toHaveBeenCalled();
+    });
+
+    it('an owner change at that suspension: the joined Start stands down', async () => {
+        const { c, serviceB, preparing, release } = await suspendedInWarmUp();
+        const starting = c.startRecording(POLICY, []);
+        await settle();
+        (c as unknown as { capturedUserId: string | null }).capturedUserId = 'someone-else';
+        release();
+        expect(await within(Promise.all([preparing.catch(() => undefined), starting.catch(() => undefined)]), 2_000)).toBe('settled');
+        expect(serviceB.startTranscription, 'a Start that belonged to the previous owner never recorded').not.toHaveBeenCalled();
+    });
+
+    it('no new preparation begins once a Start intent exists', async () => {
+        const { c } = await afterNormalTake();
+        const confirm = vi.spyOn(c, 'confirmEngineShutdown').mockResolvedValue('terminal');
+        const starting = c.startRecording(POLICY, []);
+        await c.prepareNextTake('private');
+        expect(confirm, 'preparation did not start alongside the pending Start').not.toHaveBeenCalled();
+        await starting;
     });
 });
