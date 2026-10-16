@@ -9,6 +9,7 @@
  */
 import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
 import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
+import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -353,6 +354,9 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         case PENDING_START_SUITE:
         case SAVE_RETRY_REQUEST_LOST_SUITE:
         case SAVE_RETRY_RESPONSE_LOST_SUITE:
+        case ABANDON_NAVIGATE_SUITE:
+        case ABANDON_CLOSE_TAB_SUITE:
+        case TWO_TAB_SUITE:
             return [];
         default:
             return null; // not an RWT suite this finalizer knows
@@ -483,6 +487,22 @@ const SAVE_RETRY_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'completion request altered once', 'recovery banner is truthful', 'no Discard after the save resolves',
     'Retry Save leaves one saved session', 'next take saves only itself', 'coaching request budget',
 ]);
+/**
+ * #1258 R2 (row 16) — `rwt-abandon-and-two-tabs`: leaving mid-recording (navigate away; close the tab) and the same
+ * account's two-tab take-over. No journey readback is qualified (like pending Start); each carries its own cleanup row.
+ */
+export const ABANDON_NAVIGATE_SUITE = `${ABANDON_SUITE}-navigate-away`;
+export const ABANDON_CLOSE_TAB_SUITE = `${ABANDON_SUITE}-close-tab`;
+export { TWO_TAB_SUITE };
+const ABANDON_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'take is recording before leaving', 'leaving mid-recording releases the microphone',
+    'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
+    'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
+]);
+const TWO_TAB_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'second tab is refused truthfully', 'take-over moves the one engine',
+    'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
+]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
@@ -509,6 +529,13 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
         case SAVE_RETRY_REQUEST_LOST_SUITE:
         case SAVE_RETRY_RESPONSE_LOST_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ABANDON_NAVIGATE_SUITE:
+        case ABANDON_CLOSE_TAB_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case TWO_TAB_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: TWO_TAB_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         default:
             return null;

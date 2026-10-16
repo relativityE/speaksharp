@@ -87,6 +87,8 @@ describe('nextTakeRetentionVerdict — the next take saves only itself', () => {
 
 describe('guards — the spec, the acceptance map and the banner stay in step', () => {
     const spec = src('tests/live/rwt-save-retry-recovery.live.spec.ts');
+    // The account rows are written by the shared run-owned account helper the spec calls.
+    const written = `${spec}\n${src('tests/live/helpers/rwtDisposableAccount.ts')}`;
     const banner = src('frontend/src/components/session/UnresolvedRecoveryBanner.tsx');
 
     it('the banner copy the verdict checks is the component\'s own copy and test ids', () => {
@@ -102,12 +104,13 @@ describe('guards — the spec, the acceptance map and the banner stay in step', 
         expect(SAVE_RETRY_REQUEST_LOST_SUITE).toBe(`${SAVE_RETRY_SUITE}-request-lost`);
         expect(SAVE_RETRY_RESPONSE_LOST_SUITE).toBe(`${SAVE_RETRY_SUITE}-response-lost`);
         expect(spec).toContain('`${SAVE_RETRY_SUITE}-${variant}`');
+        expect(spec).toContain('prepareRunOwnedAccount(page, receipt, owner,');
         for (const suite of [SAVE_RETRY_REQUEST_LOST_SUITE, SAVE_RETRY_RESPONSE_LOST_SUITE]) {
             expect(requiredHumanObservations({ suite } as never)).toEqual([]);
             const inv = requiredAutomatedRows(suite)!;
             expect(inv.required).toContain('run-owned cleanup');
             expect(inv.absent).toContain('journey telemetry received');
-            for (const step of inv.product) expect({ step, written: spec.includes(`'${step}'`) || step === 'coaching request budget' }).toEqual({ step, written: true });
+            for (const step of inv.product) expect({ step, written: written.includes(`'${step}'`) || step === 'coaching request budget' }).toEqual({ step, written: true });
         }
     });
 

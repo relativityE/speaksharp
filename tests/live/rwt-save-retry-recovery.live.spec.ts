@@ -15,11 +15,9 @@ import type { Page, Route, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
-    AnalyticsTap, RWT_ACCOUNT_PREFIX, RWT_CANARY_CLAIM_ACK_VALUE, RwtReceipt, canaryClaimAuthorized,
-    installMicAcquisitionCounter, loadRwtFixture, markRunOwnedAccountCanary, newDisposableEmail,
-    requireApprovedSurface, rwtLaunchArgs, rwtPreconditionFailures, runOwnedIdentityFailures, suppressPageSnapshot,
-    signUpDisposableAccount, telemetryClassRows,
+    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, loadRwtFixture, rwtLaunchArgs, suppressPageSnapshot, telemetryClassRows,
 } from './helpers/rwtJourney';
+import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAccount';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
@@ -46,47 +44,6 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }) },
 });
 test.describe.configure({ mode: 'serial' });
-
-type Owner = { email: string; uid: string };
-
-async function prepareDisposable(page: Page, receipt: RwtReceipt, owner: Owner, label: string): Promise<boolean> {
-    const missing = rwtPreconditionFailures();
-    if (!canaryClaimAuthorized() || process.env.RWT_CANARY_CLAIM_ACK !== RWT_CANARY_CLAIM_ACK_VALUE) {
-        missing.push('AUTHORIZATION GATE: the separate run-owned canary-claim acknowledgement is absent');
-    }
-    if (missing.length > 0) {
-        receipt.halt('preflight', `HOLD before Production writes: ${missing.join('; ')}`);
-        return false;
-    }
-    await installMicAcquisitionCounter(page);
-    await page.goto('/auth/signup');
-    await requireApprovedSurface(page, receipt);
-    owner.email = newDisposableEmail(label);
-    receipt.forbid(owner.email, SERVICE_ROLE);
-    const account = await signUpDisposableAccount(page, owner.email);
-    owner.uid = account.uid;
-    const identity = await runOwnedIdentityFailures(admin as never, owner.uid, owner.email);
-    if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
-    receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');
-    const claimed = await markRunOwnedAccountCanary(admin as never, owner.uid, owner.email);
-    if (!claimed) {
-        receipt.halt('canary claim', 'HOLD before qualifying traffic: the run-owned canary claim was not applied');
-        return false;
-    }
-    await account.signOutAndSignIn();
-    const hasClaim = await page.evaluate(() => Object.keys(localStorage).some((key) => {
-        if (!/^sb-.*-auth-token$/.test(key)) return false;
-        try { return JSON.parse(localStorage.getItem(key) ?? '{}').user?.app_metadata?.canary === true; }
-        catch { return false; }
-    }));
-    receipt.row('canary claim in fresh login', hasClaim ? 'PASS' : 'FAIL', hasClaim
-        ? 'fresh sign-in carries the run-owned server-issued canary claim' : 'fresh sign-in lacks the run-owned canary claim');
-    if (!hasClaim) {
-        receipt.halt('canary claim', 'HOLD before scenario traffic: the fresh-login canary claim was absent');
-        return false;
-    }
-    return true;
-}
 
 /** Content-free facts for every session row of the run-owned account (lengths and states, never text). */
 async function readSessionRows(uid: string): Promise<SessionRowFacts[]> {
@@ -120,7 +77,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     tap.attach(page); generations.attach(page);
-    const owner: Owner = { email: '', uid: '' };
+    const owner: RunOwner = { email: '', uid: '' };
     const takes: string[] = [];
     let claimed = false;
     let accountDeleted = false;
@@ -128,7 +85,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     const drop = { completionPosts: 0, droppedStatus: null as number | null, dropped: false };
     try {
         await suppressPageSnapshot(testInfo);
-        claimed = await prepareDisposable(page, receipt, owner, `save-retry-${variant}`);
+        claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await page.goto('/practice');
         await openProductsItem(page, 'open-mic');
