@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { parse } from 'yaml';
@@ -58,14 +59,42 @@ describe('deployment invalidates deletion authority before any worker change', (
         const { run } = fixture(['x'.repeat(257)]);
         expect(await run()).toMatchObject({ status: 'HOLD', mutationOutcome: 'not_attempted' });
     });
-    it('workflow orders invalidation before deploy and stops on its failure', () => {
+    it('one invalidation precedes every backend mutation job and both jobs require its success', () => {
         const workflow = parse(readFileSync('.github/workflows/deploy-supabase-migrations.yml', 'utf8'));
-        const steps = workflow.jobs['deploy-edge-functions'].steps;
-        const guard = steps.findIndex((step) => step.run === 'node scripts/account-closure-invalidate.mjs');
-        const deploy = steps.findIndex((step) => step.run?.includes('supabase functions deploy '));
-        expect(guard).toBeGreaterThan(-1); expect(guard).toBeLessThan(deploy);
-        expect(steps[guard]['continue-on-error']).toBeUndefined(); expect(steps[deploy].if).toBeUndefined();
-        expect(steps[guard].env).toMatchObject({ SUPABASE_URL: '${{ vars.SUPABASE_URL }}', SUPABASE_SERVICE_ROLE_KEY: '${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}' });
+        const guardName = 'invalidate-account-closure-authority';
+        const guard = workflow.jobs[guardName];
+        expect(guard, 'guard must run before schema/secrets as well as functions').toBeDefined();
+        expect(guard.needs).toBe('validate-edge-configuration');
+        expect(guard.environment).toBe('production-db');
+        const invalidations = Object.values(workflow.jobs).flatMap((job) => job.steps ?? [])
+            .filter((step) => step.run === 'node scripts/account-closure-invalidate.mjs');
+        expect(invalidations).toHaveLength(1);
+        expect(invalidations[0]['continue-on-error']).toBeUndefined();
+        expect(invalidations[0].env).toMatchObject({ SUPABASE_URL: '${{ vars.SUPABASE_URL }}',
+            SUPABASE_PROJECT_ID: '${{ vars.SUPABASE_PROJECT_ID }}', SUPABASE_SERVICE_ROLE_KEY: '${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}' });
+        for (const name of ['deploy-production-db', 'deploy-edge-functions']) {
+            expect(workflow.jobs[name].needs).toContain(guardName);
+            expect(workflow.jobs[name].if).toContain(`needs.${guardName}.result == 'success'`);
+            expect(workflow.jobs[name]['continue-on-error']).toBeUndefined();
+        }
+        expect(guard.steps.some((step) => step.run === 'node scripts/account-closure-invalidate.mjs')).toBe(true);
+    });
+    it.each(['edge-functions', 'migrations', 'migrations-and-edge-functions', 'secrets', 'all'])('validates %s and its authority BEFORE the mutation guard', (operation) => {
+        const workflow = parse(readFileSync('.github/workflows/deploy-supabase-migrations.yml', 'utf8'));
+        const resolve = workflow.jobs['validate-edge-configuration'].steps.find((step) => step.id === 'resolve');
+        expect(resolve.env.CONFIRM_INPUT).toBe('${{ inputs.confirm }}');
+        const directory = mkdtempSync('/private/tmp/closure-deploy-contract-');
+        function run(confirm) {
+            return spawnSync('bash', ['-c', resolve.run], { env: { PATH: '/usr/bin:/bin',
+                EVENT_NAME: 'workflow_dispatch', OPERATION: operation, CONFIRM_INPUT: confirm,
+                CALLED_DEPLOY_EDGE: 'false', GITHUB_OUTPUT: join(directory, 'output') }, encoding: 'utf8', timeout: 3000 });
+        }
+        try {
+            expect(run('DEPLOY').status).toBe(0);
+            const edge = ['edge-functions', 'migrations-and-edge-functions', 'all'].includes(operation);
+            expect(readFileSync(join(directory, 'output'), 'utf8')).toContain(`deploy_edge_functions=${edge}`);
+            expect(run('').status).toBe(operation === 'edge-functions' ? 0 : 1);
+        } finally { rmSync(directory, { recursive: true, force: true }); }
     });
     it('unconfigured actual command exits nonzero with bounded HOLD and no network', () => {
         const result = spawnSync(process.execPath, ['scripts/account-closure-invalidate.mjs'], { env: {}, encoding: 'utf8', timeout: 5000 });
