@@ -48,10 +48,12 @@ describe('recoveryBannerVerdict — every claim is true of the page', () => {
         expect(recoveryBannerVerdict({ ...ok, resolution: 'attribution' }).detail).toMatch(/wrong unresolved state/);
         expect(recoveryBannerVerdict({ ...ok, retryOffered: false }).status).toBe('FAIL');
     });
-    it('copy for the other state, no words claim, or a words claim with no words on the page → FAIL', () => {
+    it('copy for the other state, or a words claim that disagrees with the page (either way) → FAIL', () => {
         expect(recoveryBannerVerdict({ ...ok, resolution: 'initial_save' }).detail).toMatch(/does not match/);
-        expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save }).detail).toMatch(/words are still here/);
-        expect(recoveryBannerVerdict({ ...ok, wordsOnPage: 0 }).detail).toMatch(/none are on the page/);
+        // #1258 C: the words claim is CONDITIONAL — required with words on the page, forbidden without.
+        expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save }).detail, 'words on the page but no claim').toMatch(/does not say they are still here/);
+        expect(recoveryBannerVerdict({ ...ok, wordsOnPage: 0 }).detail, 'a words claim with none on the page').toMatch(/none are on the page/);
+        expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save, wordsOnPage: 0 }).status, 'no words, no claim: truthful').toBe('PASS');
     });
 });
 
