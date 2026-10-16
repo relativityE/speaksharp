@@ -32,6 +32,7 @@ const EXPIRY_FIX = '20261013120000';
 /** #1258 P0 typed-expiry follow-up, allowlisted after the retention-expiry fix: one more later, pending entry here. */
 const TYPED_FIX = '20261013140000';
 const CLOSURE = '20261013180000'; // later disabled deletion schema; never apply it with this target
+const DRAIN = '20261016090000'; // later drain prerequisite; excluded from this target
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
 const WORKFLOW = readFileSync(resolve(ROOT, '.github/workflows/apply-exact-allowlisted-migration.yml'), 'utf8');
@@ -57,7 +58,7 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'b'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -80,6 +81,7 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
         ` ${EXPIRY_FIX} |                | x`,
         ` ${TYPED_FIX} |                | x`,
         ` ${CLOSURE} |                | x`,
+        ` ${DRAIN} |                | x`,
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while #1471 is still pending — named, not hidden', () => {
@@ -88,7 +90,7 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
 
     it('EXECUTABLE once #1471 is applied: target-only; applied activation stays and all later targets remain pending', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE], excludedVersions: [TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN], excludedVersions: [TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN] });
         const root = mkdtempSync(join(tmpdir(), 'exact-1258-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -96,11 +98,12 @@ describe('#1258 product-marker migration is wired into the exact allowlisted app
             expect(isolated).toContain(FILE);
             expect(isolated).toContain(ACTIVATION.file);
             expect(isolated.some((f) => f.startsWith(CLOSURE)), 'the later disabled deletion schema is excluded').toBe(false);
+            expect(isolated.some((f) => f.startsWith(DRAIN)), 'the later drain prerequisite is excluded').toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN]);
     });
 });
 
