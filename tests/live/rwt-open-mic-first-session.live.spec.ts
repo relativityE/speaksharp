@@ -736,7 +736,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 generationsForTake = tap.sent('practice_loop_review_requested').length;
                 generationsAt = Date.now();
                 if (!persistedId) {
-                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null, saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null });
+                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null, saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null, enabledWhileHolding: null, stopToSaveMs: null, saveToGateClearMs: null, pressToWarmupDoneMs: null, pressToRecordingMs: null });
                     await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', []);
                     return;
                 }

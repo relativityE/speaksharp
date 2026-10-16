@@ -1357,6 +1357,13 @@ export interface PracticeAgainEvidence {
     actionBefore: PracticeActionState | null; actionAfter: PracticeActionState | null;
     /** #1258 run 38298685079: did the short (save) take persist as a NEW session, read from the page's own attributes. */
     saveTakePersisted: boolean | null; saveTakeNewSession: boolean | null;
+    /**
+     * #1258 (PM 6200778538) — the gate assertions that replace "no Finishing up copy at all": was the repeat action ever
+     * ENABLED while the honest "Finishing up" wait was still shown (a fence violation), and the four separately recorded
+     * timings. Null where not observed; `pressToWarmupDoneMs` is null when the product's native trace is unavailable.
+     */
+    enabledWhileHolding: boolean | null;
+    stopToSaveMs: number | null; saveToGateClearMs: number | null; pressToWarmupDoneMs: number | null; pressToRecordingMs: number | null;
     /** Content-free page state when the review's repeat Start did not begin recording; null when it began or was not tried. */
     startFailure: StartFailureState | null;
     /**
@@ -1380,7 +1387,7 @@ export async function practiceAgainEvidence(
     const ev: PracticeAgainEvidence = {
         analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null,
         holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: null, savedSessionId: null,
-        actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null,
+        actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, enabledWhileHolding: null, stopToSaveMs: null, saveToGateClearMs: null, pressToWarmupDoneMs: null, pressToRecordingMs: null, startFailure: null,
         saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null,
     };
     await page.goto(`/analytics/${sessionId}`);
@@ -1414,6 +1421,7 @@ export async function practiceAgainEvidence(
     // PM 6181247850: one catch used to cover the whole save take and lose which boundary failed. Each sub-step is now
     // named before it is attempted, and the presses that actually completed are recorded.
     let step: PracticeSaveTakeStep = 'mic_ready';
+    let savedAtForGate: number | null = null;
     try {
         await expect(page.getByTestId('mic-status')).toContainText('Mic ready on this device', { timeout: 60_000 });
         step = 'start';
@@ -1425,7 +1433,8 @@ export async function practiceAgainEvidence(
         step = 'stop';
         // Codex P2 r4278702635: the flag is set when the CLICK resolves, inside the helper — so `stop` with the flag true
         // means the click happened and the post-Stop settle failed; false means the click itself failed.
-        await stopBenchmarkRecording(page, `${label}-save`, undefined, () => { ev.saveTakeStopPressed = true; });
+        let stopClickedAt: number | null = null;
+        await stopBenchmarkRecording(page, `${label}-save`, undefined, () => { ev.saveTakeStopPressed = true; stopClickedAt = Date.now(); });
         onSaveTakeStopped?.();
         step = 'review';
         await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 60_000 });
@@ -1433,6 +1442,14 @@ export async function practiceAgainEvidence(
         ev.savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
         ev.saveTakePersisted = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted') === 'true');
         ev.saveTakeNewSession = ev.savedSessionId !== null ? ev.savedSessionId !== sessionId : null;
+        // Stop → save: when the take is actually persisted (bounded; null when it never was within the wait).
+        // A timing is evidence only: its read can never change the step's outcome.
+        const savedAt = await Promise.resolve()
+            .then(() => page.waitForFunction(() => document.documentElement.getAttribute('data-session-persisted') === 'true',
+                null, { timeout: 60_000 }))
+            .then(() => Date.now()).catch(() => null);
+        ev.stopToSaveMs = stopClickedAt !== null && savedAt !== null ? savedAt - stopClickedAt : null;
+        savedAtForGate = savedAt;
     } catch {
         ev.reviewReached = false;
         ev.saveTakeFailedStep = step;
@@ -1445,17 +1462,35 @@ export async function practiceAgainEvidence(
     // The completed review's own repeat action, pressed as soon as it is offered.
     const again = page.getByTestId(product === 'focus_points' ? 'focus-points-retry' : 'verdict-practice-again');
     ev.holdSeen = (await page.getByText(FINISHING_UP).count()) > 0;
+    ev.enabledWhileHolding = false;
+    // The FENCE, observed: the action must never be enabled while the honest "Finishing up" wait is still shown.
     const watch = setInterval(() => {
-        void page.getByText(FINISHING_UP).count().then((n) => { if (n > 0) ev.holdSeen = true; }).catch(() => undefined);
+        void Promise.all([page.getByText(FINISHING_UP).count(), again.isEnabled().catch(() => false)]).then(([n, enabled]) => {
+            if (n > 0) ev.holdSeen = true;
+            if (n > 0 && enabled) ev.enabledWhileHolding = true;
+        }).catch(() => undefined);
     }, 250);
     const offeredAt = Date.now();
     try {
         await expect(again).toBeEnabled({ timeout: 15_000 });
         ev.afterActionEnabledMs = Date.now() - offeredAt;
+        ev.saveToGateClearMs = savedAtForGate !== null ? Math.max(0, Date.now() - savedAtForGate) : null;
+        // The product's own controller trace, armed just before the press, times press → warm-up done.
+        const pressPerf = await Promise.resolve().then(() => page.evaluate(() => {
+            const w = window as unknown as { __NATIVE_BROWSER_TRACE__?: unknown[] };
+            w.__NATIVE_BROWSER_TRACE__ = w.__NATIVE_BROWSER_TRACE__ ?? [];
+            return performance.now();
+        })).catch(() => null);
         const pressedAt = Date.now();
         await again.click();
         await expectBenchmarkRecordingStarted(page, `${label}-again`);
         ev.afterStartMs = Date.now() - pressedAt;
+        ev.pressToRecordingMs = ev.afterStartMs;
+        ev.pressToWarmupDoneMs = pressPerf === null ? null : await Promise.resolve().then(() => page.evaluate((from) => {
+            const trace = (window as unknown as { __NATIVE_BROWSER_TRACE__?: Array<{ t: number; event: string }> }).__NATIVE_BROWSER_TRACE__ ?? [];
+            const done = trace.find((e) => e.event === 'controller_warmup_done' && e.t >= from);
+            return done ? Math.round(done.t - from) : null;
+        }, pressPerf)).catch(() => null);
     } catch {
         clearInterval(watch);
         // Read WHY before teardown navigates away (#1258 run 38298685079: the reason was swallowed here).
@@ -1519,6 +1554,33 @@ export function practiceActionEvidence(ev: Pick<PracticeAgainEvidence, 'actionBe
 }
 
 /** Rows from one Practice-again pass: the Analytics action, the review's repeat action, and the microphone off. */
+export const REPEAT_START_ROW = 'review Practice again starts after the gate clears';
+/** Ceiling for the gate to clear after the take saved, and for recording to begin after the press. */
+export const REPEAT_START_CEILING_MS = 15_000;
+
+/**
+ * #1258 (PM ruling): an honest "Finishing up your last session" wait is allowed. The repeat action must stay fenced while
+ * it shows, the gate must clear, and recording must begin after the press. FAIL when the action was enabled while the wait
+ * showed, when the gate never cleared within the ceiling, or when recording did not begin within the ceiling.
+ */
+export function repeatStartVerdict(ev: Pick<PracticeAgainEvidence,
+    'afterActionEnabledMs' | 'afterStartMs' | 'holdSeen' | 'enabledWhileHolding' | 'reason'>): { status: 'PASS' | 'FAIL'; detail: string } {
+    if (ev.enabledWhileHolding === true) {
+        return { status: 'FAIL', detail: 'the repeat action was enabled while "Finishing up your last session" was still shown' };
+    }
+    if (ev.afterActionEnabledMs === null || ev.afterActionEnabledMs >= REPEAT_START_CEILING_MS) {
+        return { status: 'FAIL', detail: 'the start gate did not clear: the repeat action was not enabled within 15 s of the review' };
+    }
+    if (ev.afterStartMs === null) return { status: 'FAIL', detail: ev.reason ?? 'recording did not begin' };
+    if (ev.afterStartMs >= REPEAT_START_CEILING_MS) return { status: 'FAIL', detail: 'recording did not begin within 15 s of the press' };
+    return {
+        status: 'PASS',
+        detail: ev.holdSeen
+            ? 'the honest "Finishing up" wait kept the action fenced, the gate cleared, and recording began'
+            : 'the repeat action was offered at once and recording began',
+    };
+}
+
 export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'focus_points', ev: PracticeAgainEvidence): void {
     if (ev.analyticsActionOpened === null) {
         receipt.row('Analytics Practice again opens the product', 'HOLD', ev.reason ?? 'not reached');
@@ -1536,18 +1598,16 @@ export function practiceAgainRows(receipt: RwtReceipt, product: 'open_mic' | 'fo
             saveTakeFailedStep: ev.saveTakeFailedStep, saveTakeStartPressed: ev.saveTakeStartPressed, saveTakeStopPressed: ev.saveTakeStopPressed,
             ...startFailureEvidence(ev.saveTakeFailure),
         };
-        receipt.row('review Practice again starts, no hold', 'HOLD', ev.reason ?? 'the completed-session review was not reached', saveTake);
+        receipt.row(REPEAT_START_ROW, 'HOLD', ev.reason ?? 'the completed-session review was not reached', saveTake);
         receipt.row('repeated take stopped, microphone off', 'HOLD', ev.reason ?? 'not reached', { liveTracksAfterStop: ev.liveTracksAfterStop, ...saveTake });
         return;
     }
-    const startOk = ev.afterStartMs !== null && !ev.holdSeen && (ev.afterActionEnabledMs ?? Infinity) < 5_000 && ev.afterStartMs < 15_000;
-    receipt.row('review Practice again starts, no hold', startOk ? 'PASS' : 'FAIL',
-        startOk ? 'the completed review\'s repeat action was offered at once and recording began, with no "Finishing up"'
-            : ev.holdSeen ? '"Finishing up" was shown after the take saved'
-                : ev.afterStartMs === null ? (ev.reason ?? 'recording did not begin')
-                    : (ev.afterActionEnabledMs ?? Infinity) >= 5_000 ? 'the repeat action stayed disabled after the take saved' : 'recording exceeded the 15 s ceiling',
+    const verdict = repeatStartVerdict(ev);
+    receipt.row(REPEAT_START_ROW, verdict.status, verdict.detail,
         {
             afterActionEnabledMs: ev.afterActionEnabledMs, afterStartMs: ev.afterStartMs, holdSeen: ev.holdSeen,
+            enabledWhileHolding: ev.enabledWhileHolding, stopToSaveMs: ev.stopToSaveMs, saveToGateClearMs: ev.saveToGateClearMs,
+            pressToWarmupDoneMs: ev.pressToWarmupDoneMs, pressToRecordingMs: ev.pressToRecordingMs,
             saveTakePersisted: ev.saveTakePersisted, saveTakeNewSession: ev.saveTakeNewSession, ...startFailureEvidence(ev.startFailure),
         });
     const offOk = ev.stopped && ev.liveTracksAfterStop === 0;
