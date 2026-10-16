@@ -7,10 +7,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STARTUP_RETRY_UNWIND_FAILED_MESSAGE, cancelStartupAndRetry, type StartupRetryDeps } from '../startupRetry';
-import { __resetStartAttemptsForTests, beginStartAttempt, currentStartAttempt } from '../startAttemptRegistry';
+import { __resetStartAttemptsForTests, beginStartAttempt, clearRetryCancelled, currentStartAttempt, isRetryCancelled, markRetryCancelled } from '../startAttemptRegistry';
 
 type World = {
-    waitPending: boolean; captureLive: boolean; runtimeState: string; owner: string | null; mounted: boolean; cancellingFor: string | null;
+    waitPending: boolean; captureLive: boolean; runtimeState: string; owner: string | null; mounted: boolean;
     waitCleared: number; pending: string | null;
 };
 
@@ -22,7 +22,7 @@ const harness = (opts: { duringReset?: (w: World, settleA: () => void) => void; 
     settles?: boolean; world?: Partial<World> } = {}) => {
     __resetStartAttemptsForTests();
     const { attempt: a, settle: settleA } = beginStartAttempt();
-    const w: World = { waitPending: true, captureLive: false, runtimeState: 'ENGINE_INITIALIZING', owner: 'user-1', mounted: true, cancellingFor: null,
+    const w: World = { waitPending: true, captureLive: false, runtimeState: 'ENGINE_INITIALIZING', owner: 'user-1', mounted: true,
         waitCleared: 0, pending: null, ...opts.world };
     const calls: string[] = [];
     const deps: StartupRetryDeps = {
@@ -32,7 +32,7 @@ const harness = (opts: { duringReset?: (w: World, settleA: () => void) => void; 
             const latest = currentStartAttempt();
             return {
                 attemptId: latest?.id ?? null, attemptSettled: latest?.id === a.id ? a.isSettled() : true,
-                waitPending: w.waitPending, captureLive: w.captureLive, runtimeState: w.runtimeState, owner: w.owner, mounted: w.mounted, cancellingFor: w.cancellingFor,
+                waitPending: w.waitPending, captureLive: w.captureLive, runtimeState: w.runtimeState, owner: w.owner, mounted: w.mounted,
             };
         },
         waitForSettled: (ms) => Promise.race([a.settled.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]),
@@ -47,11 +47,13 @@ const harness = (opts: { duringReset?: (w: World, settleA: () => void) => void; 
             }),
             isEngineTerminal: () => opts.terminal ?? true,
         },
-        setCancelling: (id) => { w.cancellingFor = id; calls.push(`cancelling:${id === null ? 'none' : id === a.id ? 'A' : 'other'}`); },
+        // The REAL attempt-scoped registry (PM 6209560600): the helper can only mark / unmark the attempt it was pressed for.
+        markCancelled: () => { markRetryCancelled(a.id); calls.push('cancelling:A'); },
+        clearCancelled: () => { clearRetryCancelled(a.id); calls.push('cancelling:none'); },
         clearWait: () => { w.waitCleared += 1; calls.push('clearWait'); },
         reportFailure: vi.fn((m: string) => { calls.push(`failure:${m}`); }),
         unconfirmedMessage: 'UNCONFIRMED',
-        restartStartOnly: vi.fn(async () => { calls.push(`restartStartOnly(cancelling=${w.cancellingFor === null ? 'none' : 'set'})`); }),
+        restartStartOnly: vi.fn(async () => { calls.push(`restartStartOnly(cancelling=${isRetryCancelled(a.id) ? 'set' : 'none'})`); }),
         settleMs: 60,
     };
     return { deps, calls, w, a, settleA };
@@ -72,6 +74,39 @@ describe('C10 Try again — bound to the attempt it was pressed for', () => {
         expect(await cancelStartupAndRetry(deps)).toBe('unwind_timeout');
         expect(deps.restartStartOnly).not.toHaveBeenCalled();
         expect(calls).toContain(`failure:${STARTUP_RETRY_UNWIND_FAILED_MESSAGE}`);
+        // Codex r4291244682: the old Start is still running, so it keeps its cancel marker. Its late
+        // RECORDING_INTENT_RETIRED must still read as this deliberate cancel, not a start failure + reset.
+        expect(calls).not.toContain('cancelling:none');
+    });
+
+    it('PM 6209560600: an OLDER still-pending cancellation keeps its identity through a newer attempt\'s retry; only its own settlement clears it', async () => {
+        const { deps, a, settleA } = harness({ settles: false });
+        expect(await cancelStartupAndRetry(deps)).toBe('unwind_timeout');
+        expect(isRetryCancelled(a.id), 'the timed-out attempt is still marked').toBe(true);
+        // A newer attempt (e.g. a remounted /session over the singleton controller) is retried and fully clears ITS mark.
+        const b = beginStartAttempt();
+        markRetryCancelled(b.attempt.id);
+        clearRetryCancelled(b.attempt.id);
+        b.settle();
+        expect(isRetryCancelled(b.attempt.id)).toBe(false);
+        expect(isRetryCancelled(a.id), 'the newer retry did not erase the older pending cancellation').toBe(true);
+        settleA(); // the old Start finally returns (its late RECORDING_INTENT_RETIRED was the deliberate cancel)
+        expect(isRetryCancelled(a.id), 'its own settlement ends it').toBe(false);
+    });
+
+    it.each([
+        ['the release is unconfirmed (destroy rejected)', { rejectReset: true, settles: false }],
+        ['the engine is not terminal', { terminal: false, settles: false }],
+    ])('%s while the old Start is still running: the marker stays on that attempt', async (_l, opts) => {
+        const { deps, calls } = harness(opts);
+        expect(await cancelStartupAndRetry(deps)).toBe('release_unconfirmed');
+        expect(calls).not.toContain('cancelling:none');
+    });
+
+    it('an ALREADY-settled attempt (Start resolved at RECORDING, no frames) whose release is unconfirmed: the marker is cleared', async () => {
+        const { deps, calls, settleA } = harness({ rejectReset: true, settles: false });
+        settleA();
+        expect(await cancelStartupAndRetry(deps)).toBe('release_unconfirmed');
         expect(calls[calls.length - 1]).toBe('cancelling:none');
     });
 
@@ -90,15 +125,15 @@ describe('C10 Try again — bound to the attempt it was pressed for', () => {
 
     it('a SUCCESSOR attempt begins during the teardown → superseded; its wait and marker are untouched, no restart claimed', async () => {
         let successor = '';
-        const { deps, calls, w } = harness({ duringReset: (world, settleA) => {
+        const { deps, calls } = harness({ duringReset: (_world, settleA) => {
             settleA();
             successor = beginStartAttempt().attempt.id;
-            world.cancellingFor = successor; // the successor's own state, which must survive
+            markRetryCancelled(successor); // the successor's own cancellation, which must survive
         } });
         expect(await cancelStartupAndRetry(deps)).toBe('superseded');
         expect(deps.restartStartOnly).not.toHaveBeenCalled();
         expect(calls).not.toContain('clearWait');
-        expect(w.cancellingFor, 'the successor\'s marker is not cleared by the retired attempt').toBe(successor);
+        expect(isRetryCancelled(successor), 'the successor\'s cancellation is not cleared by the retired attempt').toBe(true);
     });
 
     it('a failed teardown while a successor owns the page → superseded: the failure is NOT reported into the successor', async () => {

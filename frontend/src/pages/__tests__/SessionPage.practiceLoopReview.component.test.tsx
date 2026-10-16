@@ -1,5 +1,5 @@
 /** F-07 casualty: the real completed-session parent must expose the saved-session 1+1 review. */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, act } from '../../../tests/support/test-utils';
@@ -818,5 +818,69 @@ describe('F-07 completed-session Practice Loop review', () => {
         invoke.mockResolvedValue(PAIR);
         render(<SessionPage />);
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
+    });
+});
+
+describe('#1258 PR A — next-take prewarm and page visibility (Codex r4291244687)', () => {
+    const setVisibility = (state: 'visible' | 'hidden') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    };
+    // Only THIS block's own spies are restored — a global restore would also undo the setup's observer mocks.
+    const spies: Array<{ mockRestore: () => void }> = [];
+    const spy = <T extends { mockRestore: () => void }>(s: T): T => { spies.push(s); return s; };
+    afterEach(() => { setVisibility('visible'); spies.splice(0).forEach((s) => s.mockRestore()); });
+
+    it('a review that became eligible while HIDDEN prewarms when the tab becomes visible again', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        render(<SessionPage />);
+        await settleMicrotasks();
+        expect(prepare, 'nothing is prepared while the page is hidden').not.toHaveBeenCalled();
+
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await waitFor(() => expect(prepare).toHaveBeenCalledWith('private'));
+    });
+
+    it('a review that is NO LONGER eligible when the tab returns (an unresolved save appeared) is not prepared — visibility is not permission', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        render(<SessionPage />);
+        await settleMicrotasks();
+        act(() => { useSessionStore.getState().setEngineSelectionLock(true, 'full_save'); });
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await settleMicrotasks();
+        expect(prepare).not.toHaveBeenCalled();
+    });
+
+    it('the visibility listener is removed on unmount: a later tab return prepares nothing', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        const added = spy(vi.spyOn(document, 'addEventListener'));
+        const removed = spy(vi.spyOn(document, 'removeEventListener'));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        const { unmount } = render(<SessionPage />);
+        await settleMicrotasks();
+        const handlers = added.mock.calls.filter(([type]) => type === 'visibilitychange').map(([, h]) => h);
+        expect(handlers.length, 'the page listens for tab return').toBeGreaterThan(0);
+        unmount();
+        const removedHandlers = removed.mock.calls.filter(([type]) => type === 'visibilitychange').map(([, h]) => h);
+        expect(handlers.every((h) => removedHandlers.includes(h)), 'every visibility listener the page added is removed').toBe(true);
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await settleMicrotasks();
+        expect(prepare).not.toHaveBeenCalled();
     });
 });

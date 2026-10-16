@@ -6,7 +6,6 @@ const initialState: SessionState = {
     isListening: false,
     startupWaitStartedAt: null,
     captureLive: false,
-    startupRetryCancelling: null,
     isReady: false,
     transcript: {
         transcript: '',
@@ -151,7 +150,6 @@ export function createTestSessionStore(
         setEngineSelectionLock: vi.fn(),
         setStartupWaitStartedAt: vi.fn((startupWaitStartedAt) => set({ startupWaitStartedAt })),
         setCaptureLive: vi.fn((captureLive) => set({ captureLive })),
-        setStartupRetryCancelling: vi.fn((startupRetryCancelling) => set({ startupRetryCancelling })),
         setRuntimeState: vi.fn((state) =>
             set({
                 runtimeState: state,

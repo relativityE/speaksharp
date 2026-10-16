@@ -85,7 +85,7 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
-import { __resetStartAttemptsForTests, beginStartAttempt, currentStartAttempt } from '@/services/startAttemptRegistry';
+import { __resetStartAttemptsForTests, beginStartAttempt, currentStartAttempt, isRetryCancelled, markRetryCancelled } from '@/services/startAttemptRegistry';
 
 vi.mock('@/stores/useSessionStore', () => ({
     useSessionStore: vi.fn(),
@@ -541,9 +541,58 @@ describe('#1258 C10 — start-attempt identity through the real hook', () => {
         const retired = new Error('RECORDING_INTENT_RETIRED:superseded');
         vi.mocked(speechRuntimeController.startRecording).mockRejectedValue(retired as never);
         const { result, store } = mountWith({ runtimeState: 'READY' });
-        act(() => { store.getState().setStartupRetryCancelling('start-attempt-some-other'); });
+        act(() => { markRetryCancelled('start-attempt-some-other'); });
         await act(async () => { await result.current.handleStartStop(); });
         expect(store.getState().sttStatus.type, 'a marker for another attempt does not quiet this one').toBe('error');
+    });
+
+    it('Codex r4291244682: a Try-again cancel that timed out — the late RECORDING_INTENT_RETIRED stays quiet (no failure, no reset) and clears its own marker', async () => {
+        let reject: ((e: Error) => void) | undefined;
+        vi.mocked(speechRuntimeController.startRecording).mockImplementation(() => new Promise<void>((_r, j) => { reject = j; }) as never);
+        const { result, store } = mountWith({ runtimeState: 'READY' });
+        let call: Promise<void> | undefined;
+        await act(async () => { call = result.current.handleStartStop(); await flush(); });
+        const attempt = currentStartAttempt()!;
+        // Try again cancelled this attempt; its unwind timed out, so the marker is retained (startupRetry) and the
+        // unwind-failed message is on screen.
+        act(() => {
+            markRetryCancelled(attempt.id);
+            store.getState().setSTTStatus({ type: 'error', message: 'unwind-failed' });
+        });
+        vi.mocked(speechRuntimeController.reset).mockClear();
+        await act(async () => { reject?.(new Error('RECORDING_INTENT_RETIRED:superseded')); await call; });
+        expect(speechRuntimeController.reset, 'no start_failed reset can reach the controller').not.toHaveBeenCalled();
+        expect(store.getState().sttStatus.message, 'the unwind message is not replaced by a start failure').toBe('unwind-failed');
+        expect(isRetryCancelled(attempt.id), 'the attempt\'s own settlement clears its mark').toBe(false);
+        expect(attempt.isSettled()).toBe(true);
+    });
+
+    it('PM 6209560600 remount isolation: an old mount\'s timed-out cancelled Start rejecting late never resets or reports into the NEW mount\'s Start', async () => {
+        let rejectA: ((e: Error) => void) | undefined;
+        vi.mocked(speechRuntimeController.startRecording)
+            .mockImplementationOnce(() => new Promise<void>((_r, j) => { rejectA = j; }) as never)
+            .mockImplementationOnce(async () => { useSessionStore.getState().setRuntimeState('RECORDING'); });
+        const first = mountWith({ runtimeState: 'READY' });
+        let callA: Promise<void> | undefined;
+        await act(async () => { callA = first.result.current.handleStartStop(); await flush(); });
+        const a = currentStartAttempt()!;
+        act(() => { markRetryCancelled(a.id); }); // Try again cancelled A; its unwind timed out, so A keeps its mark
+        first.unmount(); // the user leaves and returns to /session: a NEW mount over the singleton controller
+        const second = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        await act(async () => { await second.result.current.handleStartStop(); });
+        const b = currentStartAttempt()!;
+        expect(b.id).not.toBe(a.id);
+        const waitB = first.store.getState().startupWaitStartedAt;
+        expect(waitB, 'B is waiting for real frames').not.toBeNull();
+        vi.mocked(speechRuntimeController.reset).mockClear();
+        await act(async () => { rejectA?.(new Error('RECORDING_INTENT_RETIRED:superseded')); await callA; });
+        expect(speechRuntimeController.reset, 'A\'s late rejection cannot reset B').not.toHaveBeenCalled();
+        expect(first.store.getState().sttStatus.type, 'no start failure is reported into B').not.toBe('error');
+        expect(first.store.getState().startupWaitStartedAt, 'B\'s wait survives').toBe(waitB);
+        expect(currentStartAttempt()?.id).toBe(b.id);
+        expect(isRetryCancelled(a.id), 'A\'s own settlement ended its mark').toBe(false);
     });
 
     it('PM 6207494433: Start resolves at RECORDING without real frames — the hook SETTLES while the capture wait stays on', async () => {

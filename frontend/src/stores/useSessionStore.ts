@@ -81,11 +81,6 @@ export interface SessionState {
      * indicator (`Speak now`, the timer, `● RECORDING`, the waveform, `Recording active`) reads this.
      */
     captureLive: boolean;
-    /**
-     * #1258 C10 (PM 6207105255) — the id of the ONE start attempt the long-wait `Try again` is deliberately cancelling
-     * (`startAttemptRegistry`), or null. Scoped so only that attempt's own retired intent reads as the cancel.
-     */
-    startupRetryCancelling: string | null;
     isInitiating: boolean;
     isReady: boolean;
     transcript: TranscriptState;
@@ -211,7 +206,6 @@ interface SessionActions {
     setRuntimeState: (state: RuntimeState) => void;
     setStartupWaitStartedAt: (startedAt: number | null) => void;
     setCaptureLive: (captureLive: boolean) => void;
-    setStartupRetryCancelling: (attemptId: string | null) => void;
     setEngineSelectionLock: (locked: boolean, pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null) => void;
     startSession: () => void;
     stopSession: () => void;
@@ -294,7 +288,6 @@ const initialState: SessionState = {
     isListening: false,
     startupWaitStartedAt: null,
     captureLive: false,
-    startupRetryCancelling: null,
     isInitiating: false,
     isReady: false,
     transcript: {
@@ -384,7 +377,6 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     setCaptureLive: (captureLive) => set((state) => (captureLive && !state.captureLive && state.isListening
         ? { captureLive, startTime: Date.now(), elapsedTime: 0 }
         : { captureLive })),
-    setStartupRetryCancelling: (startupRetryCancelling) => set({ startupRetryCancelling }),
     setRuntimeState: (runtimeState) => {
         logger.debug({ runtimeState }, '[useSessionStore] setRuntimeState');
         set((state) => {

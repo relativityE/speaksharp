@@ -3,7 +3,7 @@ import React, { useRef, useEffect } from 'react';
 import { useClarityMove } from '@/hooks/useClarityMove';
 import { ENGINE_RETIRE_UNCONFIRMED_MESSAGE, useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { cancelStartupAndRetry } from '@/services/startupRetry';
-import { currentStartAttempt } from '@/services/startAttemptRegistry';
+import { clearRetryCancelled, currentStartAttempt, markRetryCancelled } from '@/services/startAttemptRegistry';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Button } from '@/components/ui/button';
@@ -483,13 +483,21 @@ export const SessionPage: React.FC = () => {
     // destroy-before-create and stands down on any change; a Start joins it.
     const progressGateClear = progressGate === null;
     const nextTakeEligible = showAnalyticsPrompt && !!finalizedAnalysis; // == postSaveReady, computed before the early return
+    // Codex r4291244687: visibility is STATE, so a review that became eligible while the tab was hidden prewarms on return.
+    const [pageVisible, setPageVisible] = React.useState(() => typeof document === 'undefined' || document.visibilityState === 'visible');
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        const onVisibility = () => setPageVisible(document.visibilityState === 'visible');
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => document.removeEventListener('visibilitychange', onVisibility);
+    }, []);
     useEffect(() => {
         if (!nextTakeEligible || !progressGateClear || pendingResolutionKind !== null || runtimeState !== 'READY') return;
-        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+        if (!pageVisible) return;
         if (mode !== 'private') return;
         void import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) =>
             speechRuntimeController.prepareNextTake(mode)).catch(() => undefined);
-    }, [nextTakeEligible, progressGateClear, pendingResolutionKind, runtimeState, mode]);
+    }, [nextTakeEligible, progressGateClear, pendingResolutionKind, runtimeState, mode, pageVisible]);
 
     if (!metrics) return <SessionPageSkeleton />;
 
@@ -721,7 +729,6 @@ export const SessionPage: React.FC = () => {
                                                 runtimeState: store().runtimeState,
                                                 owner: authUserIdRef.current,
                                                 mounted: mountedRef.current,
-                                                cancellingFor: store().startupRetryCancelling,
                                             };
                                         },
                                         waitForSettled: (ms) => Promise.race([
@@ -729,7 +736,8 @@ export const SessionPage: React.FC = () => {
                                             new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
                                         ]),
                                         controller: speechRuntimeController,
-                                        setCancelling: (id) => store().setStartupRetryCancelling(id),
+                                        markCancelled: () => markRetryCancelled(attempt.id),
+                                        clearCancelled: () => clearRetryCancelled(attempt.id),
                                         clearWait: () => store().setStartupWaitStartedAt(null),
                                         reportFailure: (message) => store().setSTTStatus({ type: 'error', message: `⚠️ ${message}` }),
                                         unconfirmedMessage: ENGINE_RETIRE_UNCONFIRMED_MESSAGE,

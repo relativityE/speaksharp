@@ -28,7 +28,6 @@ export interface StartupRetryFacts {
     runtimeState: string | null;
     owner: string | null;
     mounted: boolean;
-    cancellingFor: string | null;
 }
 
 export interface StartupRetryDeps {
@@ -43,7 +42,9 @@ export interface StartupRetryDeps {
         hardResetAwaited: (reason: string) => Promise<void>;
         isEngineTerminal: () => boolean;
     };
-    setCancelling: (attemptId: string | null) => void;
+    /** Mark / unmark the pressed attempt (and ONLY it) as deliberately cancelled — attempt-scoped, never a shared slot. */
+    markCancelled: () => void;
+    clearCancelled: () => void;
     clearWait: () => void;
     reportFailure: (message: string) => void;
     unconfirmedMessage: string;
@@ -72,7 +73,8 @@ export async function cancelStartupAndRetry(d: StartupRetryDeps): Promise<Startu
         d.reportFailure(message);
         return outcome;
     };
-    d.setCancelling(d.attemptId);
+    d.markCancelled();
+    let oldSettled = false;
     try {
         try {
             await d.controller.hardResetAwaited('startup_retry');
@@ -81,10 +83,13 @@ export async function cancelStartupAndRetry(d: StartupRetryDeps): Promise<Startu
         }
         if (!d.controller.isEngineTerminal()) return failFor(d.unconfirmedMessage, 'release_unconfirmed');
         // The cancelled attempt's OWN settlement — not the presentation wait — before anything new can start.
-        if (!(await d.waitForSettled(d.settleMs))) return failFor(STARTUP_RETRY_UNWIND_FAILED_MESSAGE, 'unwind_timeout');
+        oldSettled = await d.waitForSettled(d.settleMs);
+        if (!oldSettled) return failFor(STARTUP_RETRY_UNWIND_FAILED_MESSAGE, 'unwind_timeout');
     } finally {
-        // Cleared BEFORE the replacement, and only if it still names this attempt.
-        if (d.read().cancellingFor === d.attemptId) d.setCancelling(null);
+        // Cleared BEFORE the replacement, and only once THIS attempt has settled. Codex r4291244682 / PM 6209560600: an
+        // unsettled attempt keeps its own mark (its settlement clears it), so its late RECORDING_INTENT_RETIRED still reads
+        // as this deliberate cancel — no failure status, telemetry or reset. Another attempt's mark is never touched.
+        if (oldSettled || await d.waitForSettled(0)) d.clearCancelled();
     }
     // Revalidate at the replacement boundary: anything that moved during the awaits means stand down, untouched.
     const now = d.read();

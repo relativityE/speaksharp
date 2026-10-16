@@ -1,4 +1,4 @@
-import { beginStartAttempt, currentStartAttempt } from '@/services/startAttemptRegistry';
+import { beginStartAttempt, currentStartAttempt, isRetryCancelled } from '@/services/startAttemptRegistry';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as Sentry from '@sentry/react';
 import logger from '../lib/logger';
@@ -928,7 +928,7 @@ export const useSessionLifecycle = () => {
                 // #1258 C10 — the user chose `Try again`, which cancels this start with a confirmed release before ONE
                 // new start. Its retired intent is that deliberate cancel, not an engine failure: no failure telemetry,
                 // no error status, no reset (the cancel already tore the engine down and proved it off).
-                if (useSessionStore.getState().startupRetryCancelling === startAttempt.id
+                if (isRetryCancelled(startAttempt.id)
                     && typeof err?.message === 'string' && err.message.startsWith('RECORDING_INTENT_RETIRED:')) {
                     isProcessingRef.current = false;
                     return;
@@ -1000,7 +1000,7 @@ export const useSessionLifecycle = () => {
                 if (currentStartAttempt()?.id === startAttempt.id && useSessionStore.getState().runtimeState !== 'RECORDING') {
                     useSessionStore.getState().setStartupWaitStartedAt(null);
                 }
-                settleStartAttempt();
+                settleStartAttempt(); // also ends THIS attempt's own `Try again` cancellation mark, if any
             }
         }
     }, [
