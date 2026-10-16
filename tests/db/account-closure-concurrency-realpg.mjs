@@ -1,7 +1,7 @@
 // Isolated PostgreSQL regression, not a Production or provider probe.
 // Reuses the scoped SQL fixture and actual migration/RPC source. No full-chain claim.
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -513,6 +513,217 @@ try {
     }
   }
   console.log(JSON.stringify({ replayInvariantCases, result: 'PASS' }));
+  // Forward drain consumption, using the same isolated real server and actual
+  // RPC bodies. Registration is synthetic evidence, not a platform-drain proof.
+  const redUser = 'd0000000-0000-4000-8000-000000000000';
+  const oldBooleanClaim = sql(`BEGIN; INSERT INTO auth.users VALUES('${redUser}','boolean-red@example.test',now());
+    UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='unverified-sticky-boolean';
+    SET LOCAL ROLE service_role; SELECT issue_account_closure_token('${redUser}','${'0'.repeat(64)}');
+    SELECT count(*) FROM claim_account_closure_token('${redUser}','${'0'.repeat(64)}'); ROLLBACK;`).split('\n').at(-1);
+  assert.equal(oldBooleanClaim, '1', 'old source no longer demonstrates boolean-only authority');
+  console.log(JSON.stringify({ drainRed: { booleanOnlyClaimAccepted: true, attestationRequired: false } }));
+  sql(`UPDATE account_billing_coordination SET checkout_workers_drained=false,evidence_reference=NULL;
+    SET ROLE closure_owner; ${migration('20261016090000_account_closure_drain_persistence.sql')} RESET ROLE;`);
+  let enforcementGateCases = 0;
+  function enforcementGate(mode, success) {
+    const result = spawnSync(process.execPath, [resolve('scripts/account-closure-enforcement-gate.mjs'), mode],
+      { env, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(result.status, success ? 0 : 1, `${mode}: ${result.stdout} ${result.stderr}`);
+    if (success) {
+      const output = JSON.parse(result.stdout.trim());
+      assert.equal(output.passed, true); assert.equal(output.stages.length, mode === 'after' ? 6 : 5);
+    } else assert.equal(result.stdout.trim(), '', 'failed enforcement verification emitted success');
+    enforcementGateCases++;
+  }
+  enforcementGate('before', true);
+  sql(`SET ROLE closure_owner; ${migration('20261016180000_account_closure_drain_enforcement.sql')} RESET ROLE;`);
+  enforcementGate('after', true);
+  sql('ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb; ALTER TABLE auth.users ADD COLUMN raw_user_meta_data jsonb');
+  const enforcedProof = sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql', 'utf8'));
+  assert.ok(enforcedProof.includes('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED'));
+  assert.equal(sql("SELECT count(*) FROM auth.users WHERE id='c1111111-1111-4111-8111-111111111111'"), '0');
+  assert.equal(sql("SELECT count(*) FROM account_closure_attempts WHERE user_id='c1111111-1111-4111-8111-111111111111'"), '0');
+  enforcementGate('after', true);
+  for (const signature of ['issue_account_closure_token(uuid,text)', 'reconcile_expired_account_checkout(uuid,text,uuid,text)']) {
+    sql(`GRANT EXECUTE ON FUNCTION ${signature} TO service_role`); enforcementGate('after', false);
+    sql(`REVOKE EXECUTE ON FUNCTION ${signature} FROM service_role`); enforcementGate('after', true);
+  }
+  console.log(JSON.stringify({ enforcementGateCases, result: 'PASS' }));
+  const drainContext = { candidateSha: 'a'.repeat(40), configDigest: 'b'.repeat(64), migrationDigest: 'c'.repeat(64),
+    projectId: 'native-disposable', environment: 'disposable' };
+  const drainBinding = 'd'.repeat(64);
+  const quote = (value) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
+  let drainCases = 0;
+  function drainFixture(lifetimeSeconds = 600) {
+    const n = String(++drainCases).padStart(12, '0');
+    const user = `d0000000-0000-4000-8000-${n}`; const attestation = `e0000000-0000-4000-8000-${n}`;
+    const token = 'd'.repeat(32) + drainCases.toString(16).padStart(32, '0');
+    const generation = sql('SELECT generation FROM account_closure_attestation_state');
+    const record = { version: 1, candidateSha: drainContext.candidateSha, mainSha: 'f'.repeat(40),
+      migrationDigest: drainContext.migrationDigest, target: { projectId: drainContext.projectId, environment: drainContext.environment },
+      deployments: [], configDigest: drainContext.configDigest, payments: { frontendEnabled: false, backendEnabled: false },
+      operatorId: 'native-fixture', createdAt: new Date(Date.now() - 1_000).toISOString(),
+      expiresAt: new Date(Date.now() + lifetimeSeconds * 1_000).toISOString(),
+      evidenceDigest: 'e'.repeat(64), bindingDigest: drainBinding, legacyWriters: [], inventory: {} };
+    const validation = { version: 1, validation: 'OFFLINE_VALID', activationAuthorized: false,
+      bindingDigest: drainBinding, evidenceDigest: record.evidenceDigest, quarantined: [] };
+    const authority = `'${attestation}',${generation},'${drainBinding}',${quote(drainContext)}`;
+    sql(`UPDATE account_billing_coordination SET checkout_workers_drained=false,evidence_reference=NULL;
+      INSERT INTO auth.users VALUES('${user}','drain-${n}@example.test',now()); SET ROLE service_role;
+      SELECT record_account_closure_drain_attestation('${attestation}',${generation},${quote(record)},${quote(validation)});
+      RESET ROLE; UPDATE account_billing_coordination SET checkout_workers_drained=true,evidence_reference='${attestation}';
+      SET ROLE service_role; SELECT issue_account_closure_token_with_drain('${user}','${token}',${authority}); RESET ROLE;`);
+    const claim = `SET ROLE service_role; SELECT row_to_json(t) FROM claim_account_closure_token_with_drain('${user}','${token}',${authority}) t`;
+    const request = () => JSON.parse(sql(claim)).request_id;
+    const transition = (id, phase) => `SET ROLE service_role; SELECT record_account_closure_auth_state_with_drain('${user}','${id}','${phase}',${authority})`;
+    return { user, attestation, generation, record, authority, claim, request, transition };
+  }
+  const waitExpired = (r) => waitFor(`SELECT clock_timestamp()>'${r.record.expiresAt}'::timestamptz`);
+  const expiredClaim = drainFixture(2);
+  const claimBarrier = client('drain_claim_profile_barrier', `BEGIN; SELECT 1 FROM user_profiles WHERE id='${expiredClaim.user}' FOR UPDATE; SELECT pg_sleep(20); COMMIT;`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='drain_claim_profile_barrier' AND wait_event='PgSleep')");
+  const expiredClaimWaiter = client('drain_claim_expiry_waiter', expiredClaim.claim);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='drain_claim_expiry_waiter' AND wait_event_type='Lock')");
+  assert.equal(sql(`SELECT query_start<'${expiredClaim.record.expiresAt}'::timestamptz FROM pg_stat_activity WHERE application_name='drain_claim_expiry_waiter'`), 't');
+  await waitExpired(expiredClaim);
+  sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='drain_claim_profile_barrier'");
+  await claimBarrier;
+  const expiredClaimResult = await expiredClaimWaiter;
+  assert.notEqual(expiredClaimResult.code, 0); assert.match(expiredClaimResult.stderr, /stale drain authority/);
+  assert.equal(sql(`SELECT phase FROM account_closure_tokens WHERE user_id='${expiredClaim.user}'`), 'issued');
+  assert.equal(sql(`SELECT count(*) FROM account_closure_attempts WHERE user_id='${expiredClaim.user}'`), '0');
+
+  const expiredRecovery = drainFixture(2); const recoveryRequest = expiredRecovery.request();
+  sql(`SET ROLE service_role; SELECT preserve_account_trial_email('${expiredRecovery.user}'); RESET ROLE;
+    ${expiredRecovery.transition(recoveryRequest, 'auth_unknown')}; RESET ROLE;
+    DELETE FROM auth.users WHERE id='${expiredRecovery.user}';`);
+  const journalBarrier = client('drain_recovery_journal_barrier', `BEGIN; SELECT 1 FROM account_closure_attempts WHERE user_id='${expiredRecovery.user}' FOR UPDATE; SELECT pg_sleep(20); COMMIT;`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='drain_recovery_journal_barrier' AND wait_event='PgSleep')");
+  const recoveryWaiter = client('drain_recovery_expiry_waiter', expiredRecovery.transition(recoveryRequest, 'auth_deleted'));
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='drain_recovery_expiry_waiter' AND wait_event_type='Lock')");
+  assert.equal(sql(`SELECT query_start<'${expiredRecovery.record.expiresAt}'::timestamptz FROM pg_stat_activity WHERE application_name='drain_recovery_expiry_waiter'`), 't');
+  await waitExpired(expiredRecovery);
+  sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='drain_recovery_journal_barrier'");
+  await journalBarrier;
+  const expiredRecoveryResult = await recoveryWaiter;
+  assert.notEqual(expiredRecoveryResult.code, 0); assert.match(expiredRecoveryResult.stderr, /stale drain authority/);
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${expiredRecovery.user}'`), 'auth_unknown');
+  assert.equal(sql(`SELECT phase FROM account_billing_fences WHERE user_id='${expiredRecovery.user}'`), 'closing');
+
+  // These barriers are AFTER the wrapper's last precheck, inside the actual
+  // delegated mutation. Generation locks cannot stop wall-clock expiry.
+  const downstreamResults = [];
+  for (const boundary of ['claim-fence', 'claim-journal', 'claim-token', 'auth-fence', 'settlement-tombstone']) {
+    const r = drainFixture(boundary === 'claim-token' ? 600 : 3);
+    const holderName = `downstream_holder_${boundary}`;
+    const waiterName = `downstream_waiter_${boundary}`;
+    const customer = `cus_downstream_${drainCases}`;
+    const subscription = `sub_downstream_${drainCases}`;
+    let statement; let heldStatement;
+    if (boundary.startsWith('claim-')) {
+      const request = sql(`SELECT request_id FROM account_closure_tokens WHERE user_id='${r.user}'`);
+      if (boundary === 'claim-journal') {
+        sql(`INSERT INTO account_closure_attempts(user_id,request_id,claimed_email,phase)
+          VALUES('${r.user}','${request}','drain-${String(drainCases).padStart(12, '0')}@example.test','failed')`);
+        heldStatement = `SELECT 1 FROM account_closure_attempts WHERE user_id='${r.user}' FOR UPDATE`;
+      } else {
+        sql(`INSERT INTO account_billing_fences(user_id,phase) VALUES('${r.user}','open')`);
+        heldStatement = `SELECT 1 FROM account_billing_fences WHERE user_id='${r.user}' FOR UPDATE`;
+      }
+      statement = r.claim;
+    } else if (boundary === 'auth-fence') {
+      const request = r.request();
+      sql(`SET ROLE service_role; SELECT preserve_account_trial_email('${r.user}'); RESET ROLE;
+        ${r.transition(request, 'auth_unknown')}; RESET ROLE; DELETE FROM auth.users WHERE id='${r.user}'`);
+      heldStatement = `SELECT 1 FROM account_billing_fences WHERE user_id='${r.user}' FOR UPDATE`;
+      statement = r.transition(request, 'auth_deleted');
+    } else {
+      sql(`UPDATE user_profiles SET stripe_customer_id='${customer}',stripe_subscription_id='${subscription}',
+        subscription_id='${subscription}',subscription_status='pro' WHERE id='${r.user}'`);
+      const request = r.request();
+      heldStatement = `INSERT INTO stripe_subscription_tombstones(subscription_id,customer_id,terminal_status,event_id)
+        VALUES('${subscription}','${customer}','canceled','isolated-downstream-holder')`;
+      statement = `SET ROLE service_role; SELECT settle_account_closure_billing_with_drain('${r.user}','${request}',
+        '${customer}','[{"id":"${subscription}","status":"canceled"}]',${r.authority})`;
+    }
+    if (boundary === 'claim-token') sql(`UPDATE account_closure_tokens
+      SET expires_at=clock_timestamp()+interval '3 seconds' WHERE user_id='${r.user}'`);
+    const deadline = boundary === 'claim-token'
+      ? sql(`SELECT expires_at FROM account_closure_tokens WHERE user_id='${r.user}'`) : r.record.expiresAt;
+    const snapshot = () => sql(`SELECT json_build_object(
+      'profile',(SELECT row_to_json(p) FROM user_profiles p WHERE id='${r.user}'),
+      'attempt',(SELECT row_to_json(a) FROM account_closure_attempts a WHERE user_id='${r.user}'),
+      'token',(SELECT row_to_json(t) FROM account_closure_tokens t WHERE user_id='${r.user}'),
+      'fence',(SELECT row_to_json(f) FROM account_billing_fences f WHERE user_id='${r.user}'),
+      'permits',(SELECT json_agg(p) FROM account_closure_billing_permits p WHERE user_id='${r.user}'),
+      'tombstones',(SELECT json_agg(t) FROM stripe_subscription_tombstones t WHERE customer_id='${customer}'))`);
+    const before = snapshot();
+    const holder = client(holderName, `BEGIN; ${heldStatement}; SELECT pg_sleep(20); COMMIT;`);
+    await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='${holderName}' AND wait_event='PgSleep')`);
+    const waiter = client(waiterName, statement);
+    await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity w WHERE w.application_name='${waiterName}'
+      AND (SELECT pid FROM pg_stat_activity WHERE application_name='${holderName}')=ANY(pg_blocking_pids(w.pid)))`);
+    assert.equal(sql(`SELECT query_start<'${deadline}'::timestamptz FROM pg_stat_activity WHERE application_name='${waiterName}'`), 't');
+    await waitFor(`SELECT clock_timestamp()>'${deadline}'::timestamptz`);
+    // Roll back only this owned fixture blocker; the real waiter resumes and
+    // must refuse, rolling back ALL its delegated mutations as one transaction.
+    sql(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='${holderName}'`);
+    await holder;
+    const result = await waiter;
+    downstreamResults.push({ boundary, code: result.code, error: result.stderr,
+      statePreserved: snapshot() === before });
+  }
+  console.log(JSON.stringify({ downstreamExpiry: downstreamResults }));
+  for (const result of downstreamResults) {
+    assert.notEqual(result.code, 0, `${result.boundary}: expired authority committed downstream mutation`);
+    assert.match(result.error, result.boundary === 'claim-token' ? /closure token expired/ : /stale drain authority/);
+    assert.equal(result.statePreserved, true, `${result.boundary}: refusal leaked a delegated mutation`);
+  }
+
+  const invalidated = drainFixture(); const invalidatedRequest = invalidated.request();
+  const generationBarrier = client('drain_invalidation_barrier', 'BEGIN; SELECT 1 FROM account_billing_coordination FOR UPDATE; SELECT pg_sleep(20); COMMIT;');
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='drain_invalidation_barrier' AND wait_event='PgSleep')");
+  const invalidate = client('drain_invalidator_first', `SET ROLE service_role; SELECT invalidate_account_closure_drain_attestations(${invalidated.generation},'rollback','${'e'.repeat(64)}')`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='drain_invalidator_first' AND wait_event_type='Lock')");
+  const invalidatedWaiter = client('drain_invalidated_transition', invalidated.transition(invalidatedRequest, 'auth_unknown'));
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='drain_invalidated_transition' AND wait_event_type='Lock')");
+  sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='drain_invalidation_barrier'");
+  await generationBarrier;
+  const [invalidatedResult, heldTransition] = await Promise.all([invalidate, invalidatedWaiter]);
+  assert.equal(invalidatedResult.code, 0, invalidatedResult.stderr);
+  assert.notEqual(heldTransition.code, 0); assert.match(heldTransition.stderr, /stale drain authority/);
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${invalidated.user}'`), 'processing');
+
+  const recovered = drainFixture(); const recoveredRequest = recovered.request();
+  sql(`SET ROLE service_role; SELECT preserve_account_trial_email('${recovered.user}'); RESET ROLE;
+    ${recovered.transition(recoveredRequest, 'auth_unknown')}; RESET ROLE;
+    DELETE FROM auth.users WHERE id='${recovered.user}';`);
+  const recoveries = await Promise.all([client('drain_recovery_a', recovered.transition(recoveredRequest, 'auth_deleted')),
+    client('drain_recovery_b', recovered.transition(recoveredRequest, 'auth_deleted'))]);
+  assert.deepEqual(recoveries.map((r) => r.code), [0, 0]);
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${recovered.user}'`), 'auth_deleted');
+  sql(`INSERT INTO storage.objects VALUES('native','recovery-residue','${recovered.user}')`);
+  const residueRefusal = await client('drain_completion_residue', recovered.transition(recoveredRequest, 'completed'));
+  assert.notEqual(residueRefusal.code, 0); assert.match(residueRefusal.stderr, /account residue remains/);
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${recovered.user}'`), 'auth_deleted');
+  sql(`DELETE FROM storage.objects WHERE owner_id='${recovered.user}'`);
+  const completions = await Promise.all([client('drain_completion_a', recovered.transition(recoveredRequest, 'completed')),
+    client('drain_completion_b', recovered.transition(recoveredRequest, 'completed'))]);
+  assert.deepEqual(completions.map((r) => r.code), [0, 0]);
+  assert.equal(sql(`SELECT phase FROM account_closure_attempts WHERE user_id='${recovered.user}'`), 'completed');
+  assert.equal(sql(`SELECT count(*) FROM account_closure_billing_permits WHERE user_id='${recovered.user}'`), '0');
+  assert.equal(sql(`SELECT count(*) FROM account_billing_fences WHERE user_id='${recovered.user}'`), '0');
+  const legacyBypass = await client('drain_legacy_bypass', `SET ROLE service_role; SELECT record_account_closure_auth_state('${recovered.user}','${recoveredRequest}','completed')`);
+  assert.notEqual(legacyBypass.code, 0); assert.match(legacyBypass.stderr, /permission denied/);
+  console.log(JSON.stringify({ drainEnforcement: 'PASS', fixtures: drainCases,
+    cases: ['old-boolean-RED', 'claim-expired-during-profile-wait', 'recovery-expired-during-journal-wait',
+      'invalidation-first', 'concurrent-auth-reconciliation-idempotent-ACK', 'completion-residue-rollback',
+      'concurrent-completion-idempotent-ACK', 'legacy-service-bypass-refused', 'valid-terminal-cleanup'],
+    providerCalls: 0, externalDrainFacts: 'UNVERIFIED' }));
+  const lastGeneration = sql('SET ROLE service_role; SELECT inspect_account_closure_drain_generation()');
+  sql(`SET ROLE service_role; SELECT invalidate_account_closure_drain_attestations(${lastGeneration},'expired','${'f'.repeat(64)}')`);
+  enforcementGate('verify', true); // bound historical requests are not fresh-apply defaults
+  enforcementGate('after', false);
   console.log(JSON.stringify({ postgres: sql('SHOW server_version'),
     result: 'PASS', boundary: 'canonical webhook row-lock → checkout refusal and closure claim',
     checkoutCases: ['webhook-before-checkout', 'eligible-once', 'issuing', 'open', 'unknown',

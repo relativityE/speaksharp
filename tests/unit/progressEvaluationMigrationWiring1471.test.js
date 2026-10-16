@@ -32,6 +32,8 @@ const EXPIRY_FIX = '20261013120000';
 /** #1258 P0 typed-expiry follow-up, allowlisted after the retention-expiry fix: one more later, pending entry here. */
 const TYPED_FIX = '20261013140000';
 const CLOSURE = '20261013180000'; // later disabled deletion schema; never apply it with this target
+const DRAIN = '20261016090000'; // later drain prerequisite; excluded from this target
+const ENFORCEMENT = '20261016180000'; // later guarded-runtime prerequisite; also excluded
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
 const WORKFLOW = readFileSync(resolve(ROOT, '.github/workflows/apply-exact-allowlisted-migration.yml'), 'utf8');
@@ -57,7 +59,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'b'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version), 'static: later targets include disabled deletion before held activation').toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version), 'static: later targets include disabled deletion before held activation').toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -80,6 +82,8 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
         ` ${EXPIRY_FIX} |                | x`,
         ` ${TYPED_FIX} |                | x`,
         ` ${CLOSURE} |                | x`,
+        ` ${DRAIN} |                | x`,
+        ` ${ENFORCEMENT} |                | x`,
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while #1476 is still pending — named, not hidden', () => {
@@ -88,7 +92,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
 
     it('EXECUTABLE once #1476 is applied: target-only; applied activation stays and all later targets remain pending', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE], excludedVersions: [MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT], excludedVersions: [MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT] });
         const root = mkdtempSync(join(tmpdir(), 'exact-1471-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -100,10 +104,12 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
             expect(isolated.some((f) => f.startsWith(EXPIRY_FIX)), 'nor the later retention-expiry fix').toBe(false);
             expect(isolated.some((f) => f.startsWith(TYPED_FIX)), 'nor the later typed-expiry follow-up').toBe(false);
             expect(isolated.some((f) => f.startsWith(CLOSURE)), 'nor the later disabled deletion schema').toBe(false);
+            expect(isolated.some((f) => f.startsWith(DRAIN)), 'nor the later drain prerequisite').toBe(false);
+            expect(isolated.some((f) => f.startsWith(ENFORCEMENT)), 'the later enforcement prerequisite is excluded').toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT]);
     });
 });
