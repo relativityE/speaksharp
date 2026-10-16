@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, STOP_FAILED_ALERT_COPY, type TabState,
-    TWO_TAB_SUITE, RECOVERY_NOTICE_COPY, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
+    TWO_TAB_SUITE, RECOVERY_NOTICE_COPY, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
     secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from '../live/helpers/rwtAbandonTakeover';
 import {
@@ -82,7 +82,7 @@ describe('leavePromptVerdict — navigate away answers the product\'s own leave 
 
 describe('leftTakeSavedVerdict — navigate away\'s Leave must leave a saved row (Codex P1 r4296551953, Sam 6219377681)', () => {
     const baseline = [{ id: 'old', status: 'completed' }];
-    const saved = (rows: { id: string; status: string | null }[]) => leftTakeSavedVerdict(priorTakeSaved(baseline, rows));
+    const saved = (rows: { id: string; status: string | null }[]) => leftTakeSavedVerdict(leftTakeSavedOnce(baseline, rows));
     it('the left take holds a new completed row → PASS', () => {
         expect(saved([...baseline, { id: 'left', status: 'completed' }]).status).toBe('PASS');
     });
@@ -90,6 +90,11 @@ describe('leftTakeSavedVerdict — navigate away\'s Leave must leave a saved row
         ['absent', [...baseline]],
         ['still active', [...baseline, { id: 'left', status: 'active' }]],
         ['failed', [...baseline, { id: 'left', status: 'failed' }]],
+        // Codex P1 r4297070691: a duplicate save is not "saved once", and neither is a second new row in any state.
+        ['DUPLICATED (two completed)', [...baseline, { id: 'left', status: 'completed' }, { id: 'dup', status: 'completed' }]],
+        ['completed plus a stray active', [...baseline, { id: 'left', status: 'completed' }, { id: 'stray', status: 'active' }]],
+        ['completed plus a failed', [...baseline, { id: 'left', status: 'completed' }, { id: 'stray', status: 'failed' }]],
+        ['only active and failed', [...baseline, { id: 'a', status: 'active' }, { id: 'f', status: 'failed' }]],
     ])('a prior row that is %s → FAIL', (_label, rows) => {
         expect(saved(rows).status).toBe('FAIL');
     });
@@ -104,6 +109,42 @@ describe('leftTakeSavedVerdict — navigate away\'s Leave must leave a saved row
             { step: 'leaving saved the left take', verdict: kept.status, detail: kept.detail },
         ];
         expect(receiptAcceptance(rows).acceptance).toBe('FAIL');
+    });
+});
+
+describe('persistence vs idempotency — grouped controls (Codex P1 r4297070691, Sam 6220514829)', () => {
+    const baseline = [{ id: 'old', status: 'completed' }];
+    const cases = {
+        'one completed': { rows: [{ id: 'l', status: 'completed' }], anySaved: true, once: true },
+        'two completed': { rows: [{ id: 'l', status: 'completed' }, { id: 'd', status: 'completed' }], anySaved: true, once: false },
+        'mixed completed + active': { rows: [{ id: 'l', status: 'completed' }, { id: 'a', status: 'active' }], anySaved: true, once: false },
+        'zero': { rows: [], anySaved: false, once: false },
+        'only failed': { rows: [{ id: 'f', status: 'failed' }], anySaved: false, once: false },
+    } as const;
+    it.each(Object.entries(cases))('%s → persistence and the saved-once gate as expected', (_label, c) => {
+        const atReturn = [...baseline, ...c.rows];
+        expect(priorTakeSaved(baseline, atReturn)).toBe(c.anySaved);
+        expect(leftTakeSavedVerdict(leftTakeSavedOnce(baseline, atReturn)).status).toBe(c.once ? 'PASS' : 'FAIL');
+    });
+    it('notice truth follows persistence, not idempotency: a truthful "saved" notice PASSes with two completed rows; a false one FAILs', () => {
+        const two = [...baseline, ...cases['two completed'].rows];
+        const saved = { shown: true, state: 'finalized_pending_save', claimsSavedTranscript: true, claimsUnsavedTranscript: false };
+        expect(recoveryNoticeVerdict({ ...saved, priorTakeSaved: priorTakeSaved(baseline, two) }).status, 'truthful saved').toBe('PASS');
+        const unsaved = { shown: true, state: 'finalized_pending_save', ...classifyRecoveryClaim(RECOVERY_NOTICE_COPY.finalized_pending_save) };
+        expect(recoveryNoticeVerdict({ ...unsaved, priorTakeSaved: priorTakeSaved(baseline, two) }).status, 'false unsaved').toBe('FAIL');
+        expect(recoveryNoticeVerdict({ ...saved, priorTakeSaved: priorTakeSaved(baseline, baseline) }).status, 'false saved').toBe('FAIL');
+    });
+    it('the SCENARIO fails on a duplicate even after a successful arrival and no recovery notice', () => {
+        const two = [...baseline, ...cases['two completed'].rows];
+        const leave = leavePromptVerdict({ prompts: 1, unexpectedDialogs: 0, stopFailedAlerts: 0, arrived: true });
+        const noNotice = recoveryNoticeVerdict({ shown: false, state: null, claimsSavedTranscript: false, claimsUnsavedTranscript: false, priorTakeSaved: priorTakeSaved(baseline, two) });
+        const kept = leftTakeSavedVerdict(leftTakeSavedOnce(baseline, two));
+        expect([leave.status, noNotice.status, kept.status]).toEqual(['PASS', 'PASS', 'FAIL']);
+        expect(receiptAcceptance([
+            { step: 'leave prompt answered Leave', verdict: leave.status, detail: leave.detail },
+            { step: 'recovery notice is truthful', verdict: noNotice.status, detail: noNotice.detail },
+            { step: 'leaving saved the left take', verdict: kept.status, detail: kept.detail },
+        ]).acceptance).toBe('FAIL');
     });
 });
 
@@ -194,6 +235,11 @@ describe('recoveryNoticeVerdict — the notice tells the truth about the left ta
         expect(priorTakeSaved(baseline, baseline), 'only the pre-existing row').toBe(false);
         expect(priorTakeSaved(baseline, [...baseline, { id: 'left', status: 'active' }]), 'left take still active').toBe(false);
         expect(priorTakeSaved([], [])).toBe(false);
+        // Persistence (notice truth) is "any completed"; idempotency is "exactly one" — kept distinct (Sam 6220514829).
+        const two = [...baseline, { id: 'a', status: 'completed' }, { id: 'b', status: 'completed' }];
+        expect(priorTakeSaved(baseline, two), 'a transcript WAS persisted').toBe(true);
+        expect(leftTakeSavedOnce(baseline, two), 'but not exactly once').toBe(false);
+        expect(newRowsSince(baseline, [...baseline, { id: 'a', status: 'completed' }, { id: 'b', status: 'active' }]).map((r) => r.id)).toEqual(['a', 'b']);
     });
     it('the states it accepts are the recovery draft\'s own', () => {
         const draft = src('frontend/src/services/sessionRecoveryDraft.ts');
@@ -307,7 +353,11 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(spec, 'the notice claim is classified, not matched ad hoc').toContain('...classifyRecoveryClaim(noticeText),');
         // Codex P1 r4296551963 (Sam 6219377681 option a): the OBSERVED persistence judges the notice for both variants.
         expect(spec, 'persistence is read from the server against the pre-take baseline')
-            .toContain('const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, await readRows(owner.uid));');
+            .toContain('const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, rowsAtReturn);');
+        expect(spec, 'the gate is the saved-ONCE observation').toContain('const kept = leftTakeSavedVerdict(leftTakeOnce);');
+        expect(spec, 'idempotency is read from the same complete new-row set').toContain('const leftTakeOnce = leftTakeSavedOnce(rowsBeforeFirst, rowsAtReturn);');
+        expect(spec, 'the row counts are recorded as evidence').toContain('receipt.row(\'leaving saved the left take\', kept.status, kept.detail, { leftTakeOnce, leftTakeSaved, ...leftTakeRowCounts });');
+        expect(spec.indexOf('const rowsAtReturn = await readRows(owner.uid);'), 'observed before the next-take baseline').toBeLessThan(spec.indexOf('const rowsBeforeNext = await readRows(owner.uid);'));
         expect(spec, 'the notice is judged against observed persistence').toContain('            priorTakeSaved: leftTakeSaved,');
         expect(spec, 'no forced close-tab value').not.toMatch(/priorTakeSaved: variant/);
         // Codex P1 r4296551953: the saved-row row is navigate-away only, from the same observation, before the next take.

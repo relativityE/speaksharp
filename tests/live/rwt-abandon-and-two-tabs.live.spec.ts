@@ -31,7 +31,7 @@ import {
 } from './helpers/benchmark-utils';
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedVerdict, newLeaveDialogs, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
     returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
@@ -176,11 +176,17 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         // The left take's persistence as the server holds it, against the pre-first-Start baseline, read before the notice is
         // dismissed and before the next take; the next-take baseline is unchanged. Server truth judges the notice for BOTH
         // variants (Codex P1 r4296551963, Sam 6219377681 option a).
-        const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, await readRows(owner.uid));
+        const rowsAtReturn = await readRows(owner.uid);
+        // Two distinct observations (Sam 6220514829): whether any transcript persisted (judges the notice), and whether the
+        // left take was saved exactly once (the navigate-away idempotency gate). Both from the complete new-row set.
+        const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, rowsAtReturn);
+        const leftTakeOnce = leftTakeSavedOnce(rowsBeforeFirst, rowsAtReturn);
+        const leftTakeRows = newRowsSince(rowsBeforeFirst, rowsAtReturn);
+        const leftTakeRowCounts = { newRows: leftTakeRows.length, newCompleted: leftTakeRows.filter((r) => r.status === 'completed').length };
         if (variant === 'navigate-away') {
-            // Codex P1 r4296551953: Leave is "Stop and save", so navigate away requires the left take's saved row.
-            const kept = leftTakeSavedVerdict(leftTakeSaved);
-            receipt.row('leaving saved the left take', kept.status, kept.detail, { leftTakeSaved });
+            // Codex P1 r4296551953 / r4297070691: Leave is "Stop and save" — exactly one completed row for the left take.
+            const kept = leftTakeSavedVerdict(leftTakeOnce);
+            receipt.row('leaving saved the left take', kept.status, kept.detail, { leftTakeOnce, leftTakeSaved, ...leftTakeRowCounts });
         }
         const recovery = recoveryNoticeVerdict({
             shown,

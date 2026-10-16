@@ -99,13 +99,30 @@ export function classifyRecoveryClaim(text: string): { claimsSavedTranscript: bo
     return { claimsSavedTranscript: !claimsUnsavedTranscript && /transcript was saved/i.test(text), claimsUnsavedTranscript };
 }
 
+/** The rows the left take created: every row absent from the pre-first-Start baseline, as the SERVER holds it. */
+export function newRowsSince(baseline: readonly RowFacts[], atReturn: readonly RowFacts[]): RowFacts[] {
+    const before = new Set(baseline.map((r) => r.id));
+    return atReturn.filter((r) => !before.has(r.id));
+}
+
 /**
- * Whether the take the person left was saved, as the SERVER holds it: a completed row that was not there before the
- * first Start. Observed, never inferred from arrival or the absence of an alert.
+ * Whether ANY transcript of the take the person left was persisted, as the SERVER holds it: at least one completed row
+ * that was not there before the first Start. This is what the recovery notice must tell the truth about (Sam 6220514829):
+ * a "saved" notice is truthful even if a duplicate also exists — the duplicate fails the idempotency gate on its own.
+ * Observed, never inferred from arrival or the absence of an alert.
  */
 export function priorTakeSaved(baseline: readonly RowFacts[], atReturn: readonly RowFacts[]): boolean {
-    const before = new Set(baseline.map((r) => r.id));
-    return atReturn.some((r) => !before.has(r.id) && r.status === 'completed');
+    return newRowsSince(baseline, atReturn).some((r) => r.status === 'completed');
+}
+
+/**
+ * Idempotency (Codex P1 r4297070691, Sam 6220514829): the left take was saved EXACTLY ONCE — one new row since the
+ * pre-first-Start baseline, and it is completed. Zero rows, a duplicate completed row, completed plus an active/failed
+ * row, or only active/failed rows are not "saved once"; observed before the next-take baseline absorbs them.
+ */
+export function leftTakeSavedOnce(baseline: readonly RowFacts[], atReturn: readonly RowFacts[]): boolean {
+    const created = newRowsSince(baseline, atReturn);
+    return created.length === 1 && created[0].status === 'completed';
 }
 
 /**
@@ -113,10 +130,10 @@ export function priorTakeSaved(baseline: readonly RowFacts[], atReturn: readonly
  * hold a completed row on the server, judged against the pre-first-Start baseline. Arrival, the absence of an alert and
  * the absence of a notice prove nothing about persistence, so this row FAILs on its own whenever the row is absent.
  */
-export function leftTakeSavedVerdict(saved: boolean): Verdict {
-    return saved
+export function leftTakeSavedVerdict(savedOnce: boolean): Verdict {
+    return savedOnce
         ? { status: 'PASS', detail: 'the take the person left holds a completed row on the server' }
-        : { status: 'FAIL', detail: 'Leave was answered, but the take the person left holds no completed row on the server' };
+        : { status: 'FAIL', detail: 'Leave was answered, but the take the person left does not hold exactly one completed row on the server' };
 }
 
 /**
