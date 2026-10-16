@@ -10,7 +10,7 @@ import { STARTUP_RETRY_UNWIND_FAILED_MESSAGE, cancelStartupAndRetry, type Startu
 import { __resetStartAttemptsForTests, beginStartAttempt, currentStartAttempt } from '../startAttemptRegistry';
 
 type World = {
-    captureLive: boolean; runtimeState: string; owner: string | null; mounted: boolean; cancellingFor: string | null;
+    waitPending: boolean; captureLive: boolean; runtimeState: string; owner: string | null; mounted: boolean; cancellingFor: string | null;
     waitCleared: number; pending: string | null;
 };
 
@@ -22,7 +22,7 @@ const harness = (opts: { duringReset?: (w: World, settleA: () => void) => void; 
     settles?: boolean; world?: Partial<World> } = {}) => {
     __resetStartAttemptsForTests();
     const { attempt: a, settle: settleA } = beginStartAttempt();
-    const w: World = { captureLive: false, runtimeState: 'ENGINE_INITIALIZING', owner: 'user-1', mounted: true, cancellingFor: null,
+    const w: World = { waitPending: true, captureLive: false, runtimeState: 'ENGINE_INITIALIZING', owner: 'user-1', mounted: true, cancellingFor: null,
         waitCleared: 0, pending: null, ...opts.world };
     const calls: string[] = [];
     const deps: StartupRetryDeps = {
@@ -32,7 +32,7 @@ const harness = (opts: { duringReset?: (w: World, settleA: () => void) => void; 
             const latest = currentStartAttempt();
             return {
                 attemptId: latest?.id ?? null, attemptSettled: latest?.id === a.id ? a.isSettled() : true,
-                captureLive: w.captureLive, runtimeState: w.runtimeState, owner: w.owner, mounted: w.mounted, cancellingFor: w.cancellingFor,
+                waitPending: w.waitPending, captureLive: w.captureLive, runtimeState: w.runtimeState, owner: w.owner, mounted: w.mounted, cancellingFor: w.cancellingFor,
             };
         },
         waitForSettled: (ms) => Promise.race([a.settled.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]),
@@ -130,13 +130,30 @@ describe('C10 Try again — bound to the attempt it was pressed for', () => {
         expect(calls).toEqual([]);
     });
 
-    it('pressed for an attempt that a successor has replaced, or that already settled → not applicable', async () => {
+    it('pressed for an attempt that a successor has replaced, or whose wait has ENDED → not applicable', async () => {
         const replaced = harness();
         beginStartAttempt();
         expect(await cancelStartupAndRetry(replaced.deps)).toBe('not_applicable');
-        const settled = harness();
-        settled.settleA();
-        expect(await cancelStartupAndRetry(settled.deps)).toBe('not_applicable');
+        const ended = harness({ world: { waitPending: false } });
+        ended.settleA();
+        expect(await cancelStartupAndRetry(ended.deps)).toBe('not_applicable');
+        expect(ended.deps.controller.hardResetAwaited).not.toHaveBeenCalled();
+    });
+
+    it('PM 6207494433: Start settled at RECORDING without real frames (wait still on, not live) → admitted: one retirement, one Start-only replacement', async () => {
+        const { deps, calls, settleA } = harness({ world: { runtimeState: 'RECORDING', waitPending: true, captureLive: false } });
+        settleA(); // the controller's Start resolved at FSM RECORDING; the hook's finally ran
+        expect(await cancelStartupAndRetry(deps)).toBe('restarted');
+        expect(deps.controller.hardResetAwaited).toHaveBeenCalledTimes(1);
+        expect(deps.restartStartOnly).toHaveBeenCalledTimes(1);
+        expect(calls).toEqual(['cancelling:A', 'reset', 'cancelling:none', 'restartStartOnly(cancelling=none)']);
+    });
+
+    it('settled and LIVE (real frames arrived) → not applicable: a recording is never cancelled by Try again', async () => {
+        const { deps, settleA } = harness({ world: { runtimeState: 'RECORDING', waitPending: false, captureLive: true } });
+        settleA();
+        expect(await cancelStartupAndRetry(deps)).toBe('not_applicable');
+        expect(deps.controller.hardResetAwaited).not.toHaveBeenCalled();
     });
 
     it('the replacement\'s own failure propagates (never swallowed as the cancel)', async () => {

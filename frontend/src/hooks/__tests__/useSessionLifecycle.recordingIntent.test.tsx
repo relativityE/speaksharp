@@ -546,6 +546,20 @@ describe('#1258 C10 — start-attempt identity through the real hook', () => {
         expect(store.getState().sttStatus.type, 'a marker for another attempt does not quiet this one').toBe('error');
     });
 
+    it('PM 6207494433: Start resolves at RECORDING without real frames — the hook SETTLES while the capture wait stays on', async () => {
+        // The controller's Start resolves when the FSM reaches RECORDING; real frames have not arrived (captureLive false).
+        vi.mocked(speechRuntimeController.startRecording).mockImplementation(async () => {
+            useSessionStore.getState().setRuntimeState('RECORDING');
+        });
+        vi.mocked(speechRuntimeController.getState).mockReturnValue('RECORDING' as never);
+        const { result, store } = mountWith({ runtimeState: 'READY', captureLive: false });
+        await act(async () => { await result.current.handleStartStop(); });
+        const attempt = currentStartAttempt();
+        expect(attempt?.isSettled(), 'the hook call returned').toBe(true);
+        expect(store.getState().startupWaitStartedAt, 'the capture wait is still on — Try again must stay usable').not.toBeNull();
+        expect(store.getState().captureLive).toBe(false);
+    });
+
     it('a Start-only call never stops a recording', async () => {
         const { result } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 30 });
         await act(async () => { await result.current.handleStartStop({ startOnly: true }); });

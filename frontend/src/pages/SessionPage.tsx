@@ -701,8 +701,9 @@ export const SessionPage: React.FC = () => {
                             pending: startupRetryPending,
                             onRetry: () => {
                                 // Bound to the ONE accepted start attempt pressed for (PM 6207105255), not to the UI wait.
+                                // A settled hook call can still be waiting for real frames (PM 6207494433): the wait decides.
                                 const attempt = currentStartAttempt();
-                                if (startupRetryPending || !attempt || attempt.isSettled()) return;
+                                if (startupRetryPending || !attempt || useSessionStore.getState().startupWaitStartedAt === null) return;
                                 setStartupRetryPending(true);
                                 const ownerAtRender = authUserId;
                                 void import('@/services/SpeechRuntimeController').then(async ({ speechRuntimeController }) => {
@@ -715,6 +716,7 @@ export const SessionPage: React.FC = () => {
                                             return {
                                                 attemptId: latest?.id ?? null,
                                                 attemptSettled: latest?.id === attempt.id ? attempt.isSettled() : true,
+                                                waitPending: store().startupWaitStartedAt !== null,
                                                 captureLive: store().captureLive,
                                                 runtimeState: store().runtimeState,
                                                 owner: authUserIdRef.current,

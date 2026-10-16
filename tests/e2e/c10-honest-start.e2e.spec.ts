@@ -120,6 +120,33 @@ test.describe('#1258 C10 — Honest Start (mock browser, engine setup delayed)',
         expect(await bodyText(page), 'no Speak now before real frames, and no generic copy after').not.toContain('Recording active');
     });
 
+    test('PM 6207494433: Start settled at RECORDING with NO real frames → 10 s notice → Try again retires it and starts exactly one replacement', async ({ page }) => {
+        test.setTimeout(90_000);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        await navigateToRoute(page, '/session');
+        const start = page.getByTestId('mic-start');
+        await expect(start).toBeEnabled({ timeout: 30_000 });
+        await armTrace(page);
+        // Hold the labelled mock readiness so the Start resolves at RECORDING while no real frame ever arrives.
+        await page.evaluate(() => { (window as unknown as { __SS_E2E_HOLD_CAPTURE_READY__?: boolean }).__SS_E2E_HOLD_CAPTURE_READY__ = true; });
+        await start.click();
+        await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
+        await expect(page.getByTestId('recorder-bar'), 'not live without real frames').toHaveCount(0);
+        await expect.poll(() => bodyText(page), { timeout: 15_000 }).toContain(TAKING_LONGER);
+        const retry = page.getByTestId('startup-try-again');
+        await expect(retry).toBeVisible();
+        const before = await serviceCreations(page);
+
+        // The replacement start receives readiness normally.
+        await page.evaluate(() => { (window as unknown as { __SS_E2E_HOLD_CAPTURE_READY__?: boolean }).__SS_E2E_HOLD_CAPTURE_READY__ = false; });
+        await retry.click();
+        await expect(page.getByTestId('recorder-bar'), 'the replacement goes live').toBeVisible({ timeout: 20_000 });
+        expect(await serviceCreations(page) - before, 'Try again was not a no-op: exactly one replacement engine').toBe(1);
+        await expect.poll(() => bodyText(page), { timeout: 5_000 }).toContain('Speak now');
+        expect(await bodyText(page)).not.toContain(TAKING_LONGER);
+    });
+
     test('10 s from the press: the notice and Try again; Try again cancels with confirmed release and starts exactly one engine', async ({ page }) => {
         test.setTimeout(90_000);
         await page.setViewportSize({ width: 1280, height: 800 });

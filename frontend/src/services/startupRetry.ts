@@ -22,6 +22,8 @@ export interface StartupRetryFacts {
     /** The current attempt's id in the registry (a newer press replaces it). */
     attemptId: string | null;
     attemptSettled: boolean;
+    /** The page's own capture wait for the current take is still on (cleared when capture goes live, or the start ends). */
+    waitPending: boolean;
     captureLive: boolean;
     runtimeState: string | null;
     owner: string | null;
@@ -53,8 +55,11 @@ export interface StartupRetryDeps {
 export async function cancelStartupAndRetry(d: StartupRetryDeps): Promise<StartupRetryOutcome> {
     const own = (f: StartupRetryFacts) => f.attemptId === d.attemptId && f.owner === d.ownerAtRender && f.mounted;
     const before = d.read();
+    // PM 6207494433: a SETTLED hook call is not live capture. The controller's Start resolves at FSM RECORDING, before
+    // real frames necessarily arrive, so the current attempt stays retryable while its own capture wait is still on and
+    // capture is not live. An attempt whose wait has ENDED is never retried.
     if (!own(before)
-        || before.attemptSettled // the start already finished one way or another
+        || !before.waitPending // the wait ended: the take went live, or the start ended one way or another
         || before.captureLive // the take went live meanwhile: it is a recording now, not a slow start
         || !STARTUP_STATES.has(before.runtimeState ?? '')
         || d.controller.pendingResolutionKind() !== null) { // never discard an unresolved save
