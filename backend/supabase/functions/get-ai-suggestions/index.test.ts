@@ -119,7 +119,7 @@ const outboundRequests: string[] = [];
  * #1258 option A — the retry policy runs on an injected clock, random source and sleep, so no test spends real time.
  * `providerCallMs` is how long each provider call "takes" on that clock; `sleeps` records every wait the handler asked for.
  */
-const retryClock = { mono: 0, wall: Date.parse('2026-10-13T12:00:00Z'), random: 0.5, providerCallMs: 0 };
+const retryClock = { mono: 0, wall: Date.parse('2026-10-13T12:00:00Z'), random: 0.5, providerCallMs: 0, sleepOvershootMs: 0 };
 let sleeps: number[] = [];
 let providerRetryAfter: string | null = null;
 /** Abort the caller's request while the provider call is in flight / while the handler is waiting between attempts. */
@@ -133,7 +133,8 @@ providerRetryHooks.runtime = {
     sleeps.push(ms);
     if (abortDuringSleep) { abortDuringSleep.abort(); abortDuringSleep = null; }
     if (signal.aborted) return Promise.resolve(false);
-    retryClock.mono += ms;
+    // PM 6205858358-style late wake: a timer can fire later than asked; `sleepOvershootMs` models that.
+    retryClock.mono += ms + retryClock.sleepOvershootMs;
     return Promise.resolve(true);
   },
 };
@@ -333,6 +334,7 @@ function resetProvider() {
   lastRequestUrl = '';
   outboundRequests.length = 0;
   retryClock.mono = 0;
+  retryClock.sleepOvershootMs = 0;
   retryClock.random = 0.5;
   retryClock.providerCallMs = 0;
   sleeps = [];
@@ -961,6 +963,68 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.authorityRpcCount, 0, 'no coaching pair is persisted');
     assertEquals(mock.state.quotaCount, 1);
   });
+
+  /**
+   * PM 6206983551 item 1 — a caller abort while the RECEIVED answer's body is being read is the caller leaving, not a
+   * malformed provider answer: no further attempt, nothing persisted, and the received 200 kept in the attempt evidence.
+   */
+  const bodyAbortingFetch = (caller: AbortController, onAttempt: number) => {
+    const original = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin !== APPROVED_GEMINI_ORIGIN) return original(url, init);
+      fetchCount++;
+      attempts += 1;
+      if (attempts < onAttempt) return new Response('upstream unavailable', { status: 503 });
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          caller.abort();
+          controller.error(new DOMException('The signal has been aborted', 'AbortError'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    return () => { globalThis.fetch = original; };
+  };
+  for (const onAttempt of [1, 3]) {
+    await t.step(`option A: a caller abort while reading attempt ${onAttempt}'s RECEIVED body is a cancellation, never a retry`, async () => {
+      resetProvider();
+      const caller = new AbortController();
+      const restore = bodyAbortingFetch(caller, onAttempt);
+      try {
+        const { response, mock, body } = await coach(caller.signal);
+        assertEquals(response.status, 499);
+        assertEquals(body.reason, 'request_cancelled', 'not provider_malformed_response');
+        assertEquals(fetchCount, onAttempt, 'no attempt after the caller left');
+        assertEquals(mock.state.authorityRpcCount, 0, 'zero persistence');
+        assertEquals(body.diagnostics[`attempt_${onAttempt}_status`], 200, 'the received 200 is kept in the attempt evidence');
+        assertEquals(body.diagnostics[`attempt_${onAttempt}_reason`], 'request_cancelled');
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  /**
+   * PM 6206983551 item 2 — RE-ADMISSION AFTER THE WAIT. The wait was admitted against the budget before sleeping, but a
+   * timer can wake late. Immediately before the next attempt the fresh remaining time is checked again: under the
+   * minimum attempt window (or past the 45 s ceiling) nothing is fetched, the prior failure stands, and the stop is
+   * recorded as over budget.
+   */
+  for (const [label, overshootMs] of [['with under 10 s left', 20_000], ['past the 45 s ceiling', 30_000]] as const) {
+    await t.step(`option A: a wait that wakes late ${label} starts no further attempt`, async () => {
+      resetProvider();
+      fetchStatusQueue = [503, 200];
+      retryClock.providerCallMs = 20_000;
+      retryClock.sleepOvershootMs = overshootMs;
+      const { response, mock, body } = await coach();
+      assertEquals(fetchCount, 1, 'no fetch after a late wake that left no room for an attempt');
+      assertEquals(response.status, 502);
+      assertEquals(body.reason, 'provider_http_5xx', 'the prior failure stands');
+      assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(mock.state.authorityRpcCount, 0);
+    });
+  }
 
   await t.step('option A: a caller abort DURING the wait stops before the next attempt', async () => {
     resetProvider();

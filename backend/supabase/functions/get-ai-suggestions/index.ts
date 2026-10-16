@@ -6,7 +6,7 @@ import {
   decodeProviderAnswer, decodeProviderError, readBoundedBody, type ProviderAnswerCodes, type ProviderErrorCodes,
 } from './providerDecode.ts';
 import {
-  attemptTimeoutMs, isRetryableProviderStatus, MAX_PROVIDER_ATTEMPTS, parseRetryAfter, planNextAttempt,
+  attemptTimeoutMs, canAdmitAttempt, isRetryableProviderStatus, MAX_PROVIDER_ATTEMPTS, parseRetryAfter, planNextAttempt,
   realProviderRetryRuntime, type ProviderRetryRuntime, type RetryAfter,
 } from './providerRetry.ts';
 
@@ -862,8 +862,15 @@ export async function handler(
           try {
             responseData = await geminiResponse.json();
           } catch {
-            providerFailureIsRetryable = true;
-            failureReason = 'provider_malformed_response';
+            if (callerSignal.aborted) {
+              // PM 6206983551: the CALLER left while the received answer was being read — a cancellation, never a
+              // retryable malformed answer. The received status stays in the attempt evidence.
+              callerAborted = true;
+              failureReason = 'request_cancelled';
+            } else {
+              providerFailureIsRetryable = true;
+              failureReason = 'provider_malformed_response';
+            }
           }
           if (responseData !== null) {
             providerAnswerCodes = decodeProviderAnswer(responseData);
@@ -931,10 +938,21 @@ export async function handler(
         }
         providerWaitMs += step.ms;
       }
+      // PM 6206983551: re-admit with the FRESH remaining time — a late wake can leave less than an attempt needs, or none.
+      // Stop without fetching, keeping the prior failure. A caller who left during the wait is checked here too.
+      if (callerSignal.aborted) {
+        callerAborted = true;
+        failureReason = 'request_cancelled';
+        break;
+      }
+      if (!canAdmitAttempt(retryRuntime.now() - budgetStartedAt)) {
+        stoppedOverBudget = true;
+        break;
+      }
     }
 
     // The caller is gone: nothing more is attempted, and no coaching pair is persisted for a request no one awaits.
-    if (callerAborted) {
+    if (callerAborted || callerSignal.aborted) {
       return finish({ error: 'AI coaching request was cancelled.', reason: 'request_cancelled' }, 499);
     }
 

@@ -679,7 +679,8 @@ export const EVENT_SCHEMAS = Object.freeze({
         configured_model: slug(128),
         observed_model: slug(128),
         source: enumOf(['fresh', 'cache', 'unknown']),
-        provider_attempts: { kind: 'int', min: 0, max: 2 } as FieldRule,
+        // #1258 option A: up to three provider attempts inside the one quota charge (MAX_REPORTED_PROVIDER_ATTEMPTS).
+        provider_attempts: { kind: 'int', min: 0, max: 3 } as FieldRule,
         retry_count: { kind: 'int', min: 0, max: 4 } as FieldRule,
         provider_duration_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
         total_duration_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,

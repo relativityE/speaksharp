@@ -95,6 +95,14 @@ export function planNextAttempt(args: {
   return ms + MIN_ATTEMPT_MS <= remaining ? { kind: 'wait', ms, source: 'jitter' } : { kind: 'stop', why: 'budget' };
 }
 
+/**
+ * PM 6206983551 — RE-ADMISSION. A wait is admitted against the budget before sleeping, but a timer can wake late. The
+ * next attempt starts only if, FRESHLY measured, at least `MIN_ATTEMPT_MS` of the budget remains.
+ */
+export function canAdmitAttempt(elapsedMs: number): boolean {
+  return PROVIDER_BUDGET_MS - elapsedMs >= MIN_ATTEMPT_MS;
+}
+
 /** The timeout for the next attempt: the cap, or what remains of the budget if less. */
 export function attemptTimeoutMs(elapsedMs: number): number {
   return Math.max(0, Math.min(PROVIDER_ATTEMPT_CAP_MS, PROVIDER_BUDGET_MS - elapsedMs));

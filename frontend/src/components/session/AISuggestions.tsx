@@ -17,7 +17,7 @@ import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
 import { FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
 import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
-import { trackAiCoachingDiagnostic, type AiCoachingDiagnosticTelemetry } from '@/services/practiceLoopTelemetry';
+import { reportedProviderAttempts, trackAiCoachingDiagnostic, type AiCoachingDiagnosticTelemetry } from '@/services/practiceLoopTelemetry';
 import { providerCodeFields } from '@/services/telemetry/providerCodes';
 
 /**
@@ -165,7 +165,7 @@ const diagnosticEvent = (
     configured_model: typeof server?.configured_model === 'string' ? server.configured_model : null,
     observed_model: typeof server?.observed_model === 'string' ? server.observed_model : null,
     source: server?.source === 'fresh' || server?.source === 'cache' ? server.source : 'unknown',
-    provider_attempts: boundedInt(server?.provider_attempts, 2) ?? 0,
+    provider_attempts: reportedProviderAttempts(server?.provider_attempts),
     retry_count: boundedInt(server?.retry_count, 4) ?? 0,
     provider_duration_ms: boundedInt(server?.provider_duration_ms, 600_000),
     total_duration_ms: boundedInt(server?.total_duration_ms, 600_000) ?? Math.min(600_000, Math.max(0, Math.round(input.totalMs))),
