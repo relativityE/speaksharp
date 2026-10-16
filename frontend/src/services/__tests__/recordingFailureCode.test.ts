@@ -24,6 +24,10 @@ describe('recordingFailureCode — authored failures map to closed codes', () =>
         expect(recordingFailureCode(new Error('attestation failed (transient — retryable)'))).toBe('attestation_failed');
     });
 
+    it('#1258 A: a Start that claimed a failed background preparation is `start_failed`', () => {
+        expect(recordingFailureCode(new Error('PREPARED_SERVICE_FAILED'))).toBe('start_failed');
+    });
+
     it('classes and browser names map by name; a finalize timeout is its own code', () => {
         const timeout = Object.assign(new Error('Finalization exceeded 30000ms'), { name: 'FinalizationTimeoutError' });
         expect(recordingFailureCode(timeout)).toBe('finalize_timeout');
