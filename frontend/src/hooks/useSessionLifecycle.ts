@@ -1,3 +1,4 @@
+import { beginStartAttempt, currentStartAttempt, isRetryCancelled } from '@/services/startAttemptRegistry';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as Sentry from '@sentry/react';
 import logger from '../lib/logger';
@@ -223,7 +224,7 @@ export const useSessionLifecycle = () => {
     const isRecordingIntent = ['RECORDING', 'STOPPING'].includes(runtimeState);
 
     // Stable ref for handleStartStop to prevent dependency loops
-    const handleStartStopRef = useRef<((options?: { skipRedirect?: boolean; stopReason?: string }) => Promise<void>) | null>(null);
+    const handleStartStopRef = useRef<((options?: { skipRedirect?: boolean; stopReason?: string; startOnly?: boolean }) => Promise<void>) | null>(null);
 
     // Guards to prevent double stops in the same session
     const hasAutoStoppedRef = useRef(false);
@@ -239,6 +240,8 @@ export const useSessionLifecycle = () => {
     }), [userFillerWords, session, profile]);
 
     const isListening = useSessionStore(state => state.isListening);
+    // #1258 C10: the session clock's start (re-based at the live moment); the 1 Hz heartbeat restarts when it moves.
+    const sessionStartTime = useSessionStore(state => state.startTime);
     // #1089: post-Stop finalization is authoritative and OUTLIVES runtimeState leaving STOPPING.
     // The record control must stay non-interactive for its whole duration (see isButtonDisabled).
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
@@ -289,7 +292,7 @@ export const useSessionLifecycle = () => {
         userWords: userFillerWords, // accepted for compat; live filler count is canonical (no recount source-routing)
     });
 
-    const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
+    const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string; startOnly?: boolean }) => {
         const startGeneration = startGenerationRef.current;
         // The person LEFT when the URL is no longer the page the Start was pressed on — checked directly, because the leaving
         // page stays mounted through its exit transition, and a late server answer in that window must not start the mic.
@@ -299,6 +302,8 @@ export const useSessionLifecycle = () => {
         const latestSessionState = useSessionStore.getState();
         const latestRuntimeState = latestSessionState.runtimeState;
         const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
+        // #1258 C10 (PM 6207105255): a Start-only caller (`Try again`'s replacement) never toggles a recording off.
+        if (options?.startOnly && shouldStop) return;
 
         // #1259 F01 — the intent is the fact. Every path below returns before recording begins, and
         // until now every one of them was silent to analytics: a refused click and a click never made
@@ -358,7 +363,11 @@ export const useSessionLifecycle = () => {
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
             // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
-            if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
+            // #1258 C10: measured NOW from the live clock (startTime), not from the last 1 Hz tick or a render-time value,
+            // which can trail the re-based clock by up to a second and refuse a take that did reach the minimum.
+            const liveStart = useSessionStore.getState().startTime;
+            const elapsedAtStop = liveStart ? Math.floor((Date.now() - liveStart) / 1000) : elapsedTime;
+            if (elapsedAtStop < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 try {
                     await speechRuntimeController.stopRecording();
                     saveLatency.settle('discarded');
@@ -373,7 +382,7 @@ export const useSessionLifecycle = () => {
                 setShowAnalyticsPrompt(false);
                 setSTTStatus({
                     type: 'info',
-                    message: `⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
+                    message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
                 });
                 isProcessingRef.current = false;
                 return;
@@ -613,6 +622,12 @@ export const useSessionLifecycle = () => {
                 return;
             }
 
+            // #1258 C10 — the honest wait begins at the accepted press, before any lease check or engine work, so the
+            // `Starting…` label and the 10 s notice count from the press itself. Cleared below on any refusal/failure;
+            // once the take is RECORDING it stays until capture is live on real frames (SessionPage clears it then).
+            // #1258 C10 (PM 6207105255): this press's own identity; settled only when THIS invocation returns (finally).
+            const { attempt: startAttempt, settle: settleStartAttempt } = beginStartAttempt();
+            useSessionStore.getState().setStartupWaitStartedAt(Date.now());
             try {
                 setSTTStatus({ type: 'idle', message: 'Ready to record' });
 
@@ -910,6 +925,14 @@ export const useSessionLifecycle = () => {
                     isProcessingRef.current = false;
                     return;
                 }
+                // #1258 C10 — the user chose `Try again`, which cancels this start with a confirmed release before ONE
+                // new start. Its retired intent is that deliberate cancel, not an engine failure: no failure telemetry,
+                // no error status, no reset (the cancel already tore the engine down and proved it off).
+                if (isRetryCancelled(startAttempt.id)
+                    && typeof err?.message === 'string' && err.message.startsWith('RECORDING_INTENT_RETIRED:')) {
+                    isProcessingRef.current = false;
+                    return;
+                }
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode;
                 const message = getStartFailureMessage(err, latestMode);
@@ -972,6 +995,12 @@ export const useSessionLifecycle = () => {
                 setSTTStatus({ type: 'error', message: `⚠️ ${message}` });
             } finally {
                 isProcessingRef.current = false;
+                // #1258 C10 — a start that did not reach RECORDING (refused, failed, cancelled) is no longer waiting. Only
+                // while it is still the CURRENT attempt: an older invocation never clears a successor's wait.
+                if (currentStartAttempt()?.id === startAttempt.id && useSessionStore.getState().runtimeState !== 'RECORDING') {
+                    useSessionStore.getState().setStartupWaitStartedAt(null);
+                }
+                settleStartAttempt(); // also ends THIS attempt's own `Try again` cancellation mark, if any
             }
         }
     }, [
@@ -1036,7 +1065,9 @@ export const useSessionLifecycle = () => {
             }, 1000);
             return () => clearInterval(interval);
         }
-    }, [isListening, tick]);
+        // #1258 C10: the clock is re-based at the live moment (setCaptureLive), so the heartbeat restarts with it — its
+        // ticks stay aligned to whole seconds of LIVE capture instead of lagging one second behind for the whole take.
+    }, [isListening, tick, sessionStartTime]);
 
     useEffect(() => {
         if (typeof document === 'undefined') return;

@@ -64,8 +64,12 @@ const completeRows = (stage: QualificationStage, model: string = MODELS[0]): Dec
         }), journeyId: 'journey-1', bootId: 'boot-1' };
     }
     // #1421 P1 `3984043479`: the review the user saw, showing the saved transcript and matching it.
+    // #1258: judged per take — the review names its take, whose own save outcome says it was persisted.
     if (family === 'transcript_authority') {
-        return row(family, { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true });
+        return [
+            row(family, { stage: 'save', persisted: true, attempt_id: 'attempt-1' }),
+            row(family, { stage: 'review_rendered', transcript_visibly_present: true, digests_match: true, attempt_id: 'attempt-1' }),
+        ];
     }
     // #1421 P1 `3984043486`: the post-Stop chain that applies to this product, in order.
     if (family === 'stage_latency') {

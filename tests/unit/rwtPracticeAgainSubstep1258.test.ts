@@ -110,7 +110,7 @@ describe('practiceAgainRows — an incomplete save take stays HOLD and carries i
         const ev = await practiceAgainEvidence(fakePage(), 'pa', 'take-1', 'open_mic');
         const receipt = new RwtReceipt('open-mic-first-session');
         practiceAgainRows(receipt, 'open_mic', ev);
-        const start = receipt.rows.find((r) => r.step === 'review Practice again starts, no hold')!;
+        const start = receipt.rows.find((r) => r.step === 'review Practice again starts after the gate clears')!;
         const off = receipt.rows.find((r) => r.step === 'repeated take stopped, microphone off')!;
         expect([start.verdict, off.verdict]).toEqual(['HOLD', 'HOLD']);
         for (const row of [start, off]) {

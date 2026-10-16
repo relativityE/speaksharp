@@ -717,6 +717,10 @@ export class SpeechRuntimeController {
      * kept alive by being remembered.
      */
     private readonly servicesThatRecorded = new WeakSet<TranscriptionService>();
+    /** #1258 PR A — the in-flight preparation of the next take's fresh service; a Start joins it, never races it. */
+    private nextTakePreparation: Promise<void> | null = null;
+    /** #1258 C10 — the engine reported real microphone frames for the current start (reset at INITIATING). */
+    private engineReportedRealFrames = false;
     private policy: TranscriptionPolicy | null = null;
     private userWords: string[] = [];
 
@@ -870,6 +874,8 @@ export class SpeechRuntimeController {
         if (expected && current !== expected) return null;
         this.service = null;
         this.serviceGeneration += 1;
+        // #1258 C10 — a detached service's readiness can never vouch for its successor (ownership loss / replacement).
+        this.engineReportedRealFrames = false;
         // The accepted attempt named this service. With it detached the tuple can no longer be
         // satisfied, and leaving it in place would keep a dead attempt nominally able to publish.
         if (this.acceptedAttempt && (!expected || this.acceptedAttempt.service === expected)) {
@@ -914,6 +920,66 @@ export class SpeechRuntimeController {
             return false;
         }
         return true;
+    }
+
+    /**
+     * #1258 PR A — PREPARE THE NEXT TAKE WHILE THE REVIEW IS ON SCREEN.
+     *
+     * Every take after the first runs on a FRESH service (the cross-take contamination guard), and that service was only
+     * built inside the next Start — about 5.8 s of the user's wait in Production (run 38790238983). Once the take has
+     * reached its normal stop terminal, its save is confirmed and the Progress gate is clear, this retires the spent
+     * service and warms exactly one fresh service, so a later Start finds it ready.
+     *
+     * Invariants (PM 6201047197): destroy-before-create — the spent service is detached and its destruction AWAITED,
+     * and a service that is not proven destroyed stops here (nothing is created; the next Start's own guard refuses it).
+     * Never reuses the spent service, never opens the microphone or starts a recording, takes no lease, changes no model
+     * or mode. A Start, reset, owner or mode change during either await makes this stand down without publishing; a
+     * Start JOINS this promise instead of racing it. No Start intent or recording id is fabricated.
+     */
+    public prepareNextTake(mode: TranscriptionMode): Promise<void> {
+        if (this.nextTakePreparation) return this.nextTakePreparation;
+        // The normal stop terminal has usually detached and destroyed the take's service already (`this.service` null);
+        // a failed-save path can leave a SPENT one attached. Anything else — an unused, already-fresh service — is ready.
+        const spent = this.service && this.servicesThatRecorded.has(this.service) ? this.service : null;
+        // A pending Start owns the next engine: no preparation begins beside it (the Start joins one already running).
+        if (this.state !== 'READY' || (this.service && !spent) || pendingRecordingIntent()) return Promise.resolve();
+        const lifecycleAtStart = this.lifecycleVersion;
+        const ownerAtStart = this.capturedUserId ?? null;
+        const stillCurrent = () => this.lifecycleVersion === lifecycleAtStart && this.state === 'READY'
+            && (this.capturedUserId ?? null) === ownerAtStart && !pendingRecordingIntent();
+        const run = async () => {
+            pushNativeRuntimeTrace('controller_next_take_prepare_start', { mode });
+            if (spent) {
+                const detached = this.detachService(spent);
+                if (!detached) return; // a newer owner already replaced it
+                try {
+                    await detached.destroy();
+                } catch (destroyError: unknown) {
+                    logger.warn({ code: destroyError instanceof Error ? destroyError.name : 'unknown' },
+                        '[controller] next-take preparation: destroying the spent service failed');
+                }
+                if (!detached.isServiceDestroyed()) {
+                    pushNativeRuntimeTrace('controller_next_take_prepare_spent_not_destroyed');
+                    return; // fail closed: no replacement over a possibly-live engine
+                }
+            }
+            // Destroy-before-create also covers the normal path: the previous take's engine must be PROVEN off (not merely
+            // detached) before a fresh one is built. Unconfirmed → build nothing; the next Start keeps today's behaviour.
+            if (await this.confirmEngineShutdown(10_000) !== 'terminal') {
+                pushNativeRuntimeTrace('controller_next_take_prepare_engine_unconfirmed');
+                return;
+            }
+            if (!stillCurrent() || this.service) {
+                pushNativeRuntimeTrace('controller_next_take_prepare_superseded');
+                return;
+            }
+            pushNativeRuntimeTrace('controller_start_create_service');
+            this.service = getTranscriptionService(this.callbacksForNewService(this.subscriberCallbacks), this.lock);
+            await this.warmUp(mode);
+            pushNativeRuntimeTrace('controller_next_take_prepare_done', { mode });
+        };
+        this.nextTakePreparation = run().finally(() => { this.nextTakePreparation = null; });
+        return this.nextTakePreparation;
     }
 
     /** #1258 — a previous take's service would not terminate: refuse rather than run this take on it. */
@@ -2828,6 +2894,20 @@ export class SpeechRuntimeController {
 
         if (newState === 'RECORDING') {
             store.setSTTStatus({ type: 'recording', message: 'Recording active' });
+            // #1258 C10 (PM 6205858358) — capture is live only on the CURRENT Private engine's own real-frame readiness, which
+            // can arrive before this transition (remembered in `engineReportedRealFrames`) or after it (`handleStatusChange`).
+            // An FSM state is not proof of capture: a missing, unknown or non-Private service stays NOT live.
+            store.setCaptureLive(this.service?.getMode() === 'private' && this.engineReportedRealFrames);
+        } else {
+            // Leaving RECORDING (or entering any start/stop phase) ends live capture for this take.
+            store.setCaptureLive(false);
+            // The latch survives ONLY across ENGINE_INITIALIZING, where a same-attempt real-frame signal may legitimately
+            // arrive before RECORDING. Every other state — a new Start (INITIATING), Stop, failure, reset, idle — clears it.
+            if (newState !== 'ENGINE_INITIALIZING') this.engineReportedRealFrames = false;
+            // A take that has stopped, failed or been torn down is no longer starting: the honest wait never outlives it.
+            if (newState === 'STOPPING' || newState === 'FAILED' || newState === 'FAILED_VISIBLE' || newState === 'TERMINATED') {
+                store.setStartupWaitStartedAt(null);
+            }
         }
 
         if (newState === 'RECORDING' || newState === 'ENGINE_INITIALIZING' || newState === 'INITIATING') {
@@ -3312,6 +3392,16 @@ export class SpeechRuntimeController {
     }
 
     private handleStatusChange(status: SttStatus) {
+        // #1258 C10 — the Private engine's real-frame readiness, per #891: `warming` until stable microphone frames arrive,
+        // then `recording`. Published so every live indicator waits for real capture, not for the FSM state.
+        if (status.type === 'warming') {
+            this.engineReportedRealFrames = false;
+            useSessionStore.getState().setCaptureLive(false);
+        }
+        if (status.type === 'recording' && this.service?.getMode() === 'private') {
+            this.engineReportedRealFrames = true;
+            if (this.state === 'RECORDING') useSessionStore.getState().setCaptureLive(true);
+        }
         if (status.type === 'initializing') {
             this.setEngineReady(false);
         }
@@ -4064,7 +4154,20 @@ export class SpeechRuntimeController {
             lifecycleVersion: this.lifecycleVersion,
         });
 
-        void this.enqueue(async (_token) => {
+        // #1258 PR A (PM 6205858358 P1) — JOIN THE NEXT-TAKE PREPARATION OUTSIDE THE COMMAND QUEUE. The preparation's
+        // warm-up ends by queueing its subscription sync; a Start that waited for it INSIDE its own queue slot held that
+        // sync behind itself, and neither could finish. The Start now takes its slot only once the preparation settled,
+        // and re-checks, first thing in the slot, that the lifecycle, the owner and its own intent are unchanged. With no
+        // preparation in flight it is enqueued exactly as before.
+        const joinedPreparation = this.nextTakePreparation;
+        const lifecycleAtIntent = this.lifecycleVersion;
+        const ownerAtIntent = this.capturedUserId ?? null;
+        const enqueueStart = (task: (token: LifecycleToken) => Promise<void>): Promise<void> => {
+            if (!joinedPreparation) return this.enqueue(task);
+            pushNativeRuntimeTrace('controller_start_join_next_take_preparation');
+            return joinedPreparation.catch(() => undefined).then(() => this.enqueue(task));
+        };
+        void enqueueStart(async (_token) => {
             pushNativeRuntimeTrace('controller_start_queue_enter', {
                 recordingId,
                 state: this.state,
@@ -4072,6 +4175,13 @@ export class SpeechRuntimeController {
                 lifecycleVersion: this.lifecycleVersion,
                 currentRecordingId: this.currentRecordingId,
             });
+            if (joinedPreparation && (this.lifecycleVersion !== lifecycleAtIntent || (this.capturedUserId ?? null) !== ownerAtIntent
+                || this.currentRecordingId !== recordingId || !isCurrentIntent(intent.token))) {
+                pushNativeRuntimeTrace('controller_start_superseded_while_joining');
+                retireRecordingIntent('superseded', intent.token);
+                this.releaseRefusedStartLock();
+                return;
+            }
             if (this.currentRecordingId !== recordingId) {
                 pushNativeRuntimeTrace('controller_start_skip_superseded_recording', {
                     recordingId,
@@ -4219,6 +4329,15 @@ export class SpeechRuntimeController {
             const mode = this.policy?.preferredMode || 'private';
             if (this.service) {
                 pushNativeRuntimeTrace('controller_warmup_start', { mode });
+                // #1258 C10 — TEST-ONLY engine-setup delay, so the honest-wait UI can be exercised without a real engine.
+                // `import.meta.env.MODE !== 'production'` folds to false in the production build, removing this block; it
+                // also requires an active E2E harness. It only delays: it never fakes real-frame readiness or capture.
+                if (import.meta.env.MODE !== 'production' && ENV.isE2E) {
+                    const delayMs = (window as unknown as { __SS_E2E_ENGINE_SETUP_DELAY_MS__?: unknown }).__SS_E2E_ENGINE_SETUP_DELAY_MS__;
+                    if (typeof delayMs === 'number' && delayMs > 0 && delayMs <= 60_000) {
+                        await new Promise((resolve) => setTimeout(resolve, delayMs));
+                    }
+                }
                 await this.service.warmUp(mode);
                 pushNativeRuntimeTrace('controller_warmup_done', { mode });
                 pushE2EEvent('SR_AFTER_WARMUP');
