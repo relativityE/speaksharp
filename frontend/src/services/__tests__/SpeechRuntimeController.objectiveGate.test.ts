@@ -142,14 +142,9 @@ describe('#1258 item 5 — the evaluation_complete producer is the owned, succes
     const success = { ok: true, objectiveSessionId: 'obj', evidenceCount: 1, registered: true,
         coverage: [{ briefPointId: 'p1', point: 'Point one', status: 'covered' }] };
 
-    it('a successful finalization still owned by this take marks evaluation_complete — before the hook\'s later session_saved', async () => {
-        finalizeObjectiveSessionOnSave.mockResolvedValue(success);
-        await gate(BRIEF, 'sess-ok', [], 60, runProgressEval, () => true);
-        expect(stages.reachedStages()).toContain('evaluation_complete');
-        stages.markCompletionStage('session_saved'); // what the hook does once Stop has resolved
-        const reached = stages.reachedStages();
-        expect(reached.indexOf('evaluation_complete')).toBeLessThan(reached.indexOf('session_saved'));
-    });
+    // The POSITIVE emission proof — actual captured stage_latency rows, their emission order against session_saved, and
+    // the shared attempt identity — lives in SpeechRuntimeController.evaluationCompleteEmission1258.test.ts (Sam
+    // 6217644163): `reachedStages()` sorts by the constant chain, so it can only prove ABSENCE, which the cases below do.
 
     it('a STALE take (no longer owns shared state) never marks it — a later take\'s chain is not this one\'s', async () => {
         finalizeObjectiveSessionOnSave.mockResolvedValue(success);
