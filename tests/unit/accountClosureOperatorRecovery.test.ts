@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { recoverAccountClosureAsOperator } from '../../backend/supabase/functions/_shared/accountClosureOperatorRecovery';
+import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 } from '../../backend/supabase/functions/_shared/accountClosureRuntimeBinding';
 
 const userId = '10000000-0000-4000-8000-000000000001';
 const requestId = '20000000-0000-4000-8000-000000000002';
 const functionId = '30000000-0000-4000-8000-000000000003';
 function fixture() {
   const scope = { attestationId: functionId, generation: '0', bindingDigest: 'a'.repeat(64),
-    context: { candidateSha: 'b'.repeat(40), configDigest: 'c'.repeat(64), migrationDigest: 'd'.repeat(64),
+    context: { candidateSha: 'b'.repeat(40), configDigest: 'c'.repeat(64), migrationDigest: ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256,
       projectId: 'fixture-project', environment: 'production' } };
   const env: Record<string, string> = { SUPABASE_URL: 'https://fixture-project.supabase.co', SUPABASE_ACCESS_TOKEN: 'synthetic-private-token',
     ACCOUNT_CLOSURE_RUNTIME_BINDING: JSON.stringify({ version: 1, deploymentId: `fixture-project_${functionId}_1`, scope }) };

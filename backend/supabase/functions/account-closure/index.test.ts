@@ -3,6 +3,7 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type Stripe from 'npm:stripe@16';
 import { buildDependencies, handler } from './index.ts';
 import { handleClosureRequest } from '../_shared/accountClosureRequest.ts';
+import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 } from '../_shared/accountClosureRuntimeBinding.ts';
 
 const OWNER = '10000000-0000-4000-8000-000000000001';
 const REQUEST = '20000000-0000-4000-8000-000000000002';
@@ -19,7 +20,7 @@ function fixture() {
   let removed = false; let deleteSent = false;
   const validFrom = Date.now() - 1000; const expiresAt = validFrom + 600_000;
   const scope = { attestationId: ATTESTATION, generation: '0', bindingDigest: 'a'.repeat(64),
-    context: { candidateSha: 'b'.repeat(40), configDigest: 'c'.repeat(64), migrationDigest: 'd'.repeat(64),
+    context: { candidateSha: 'b'.repeat(40), configDigest: 'c'.repeat(64), migrationDigest: ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256,
       projectId: 'fixture-project', environment: 'production' } };
   const environment: Record<string, string> = { SITE_URL: 'https://example.test', SUPABASE_URL: 'https://fixture-project.supabase.co',
     DENO_DEPLOYMENT_ID: 'fixture-project_function_1',
@@ -118,6 +119,13 @@ Deno.test('an already dispatched uncertain DELETE is never retried within the in
   assertEquals(await adapters.deleteAuthUser(OWNER), { deleted: null });
   assertEquals(calls.filter((c) => c.name === 'deleteUser').length, 1);
   assertEquals(settings.authorityPhase, 'auth_unknown');
+});
+Deno.test('concurrent adapter entries cannot dispatch two Auth DELETEs', async () => {
+  const { adapters, calls } = fixture(); await adapters.consumeProof(OWNER, 'a'.repeat(64));
+  const results = await Promise.all([adapters.deleteAuthUser(OWNER), adapters.deleteAuthUser(OWNER)]);
+  assertEquals(calls.filter((c) => c.name === 'deleteUser').length, 1);
+  assertEquals(results.some((result) => result.deleted === true), true);
+  assertEquals(results.some((result) => result.deleted === null), true);
 });
 Deno.test('production token claim sends only SHA-256, and uses the authoritative proof for billing settlement', async () => {
   const { calls, adapters, scope } = fixture();

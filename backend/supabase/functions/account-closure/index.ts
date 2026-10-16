@@ -25,7 +25,7 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
   const binding = initialBinding;
   let activeProof: ClosureProof | null = null;
   let irreversibleAttempted = false;
-  let authDeleteAttempted = false;
+  let authActionEntered = false;
   const currentBinding = () => {
     const next = readAccountClosureRuntimeBinding(env);
     if (binding && JSON.stringify(next) !== JSON.stringify(binding)) throw new Error('closure_runtime_context_changed');
@@ -237,7 +237,8 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
           if (!proof || proof.userId !== userId) throw new Error('closure_proof_missing');
           // This invocation may resume a lost JOURNAL acknowledgment while it
           // still knows no DELETE was sent. It never replays an issued DELETE.
-          if (authDeleteAttempted) return { deleted: null };
+          if (authActionEntered) return { deleted: null };
+          authActionEntered = true;
           // Commit the reconciliation hold before the destructive request. This record has
           // no auth FK and survives deletion, process death and lost HTTP responses.
           await assertAuthority();
@@ -261,7 +262,6 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
           try {
             await assertAuthority(['auth_unknown']);
             irreversibleAttempted = true;
-            authDeleteAttempted = true;
             const { error } = await admin.auth.admin.deleteUser(userId, false);
             if (error) return { deleted: null };
             const result = await recovery();

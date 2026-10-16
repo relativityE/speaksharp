@@ -3,6 +3,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { accountClosureEnforcementStages, accountClosureEnforcementQuery, assertAccountClosureEnforcement } from '../../scripts/lib/accountClosureEnforcementGate.mjs';
+import { accountClosureSchemaQuery, assertAccountClosureSchema } from '../../scripts/lib/accountClosureSchemaGate.mjs';
+import { accountClosureRolloutQuery, assertAccountClosureRollout } from '../../scripts/lib/accountClosureRolloutGate.mjs';
 import { recoverAccountClosure } from '../../backend/supabase/functions/_shared/accountClosureRecovery';
 import { createAccountClosureRecoveryAdapter } from '../../backend/supabase/functions/_shared/accountClosureRecoveryAdapter';
 
@@ -78,6 +81,47 @@ async function deletedFixture() {
 }
 
 describe('current drain authority — actual SQL boundaries', () => {
+  it('private controller reads only canonical generation without broad table access', async () => {
+    expect((await service('SELECT inspect_account_closure_drain_generation() AS generation')).rows).toEqual([{ generation: '0' }]);
+    expect((await db.query(`SELECT has_function_privilege('anon','inspect_account_closure_drain_generation()','EXECUTE') AS anon,
+      has_function_privilege('authenticated','inspect_account_closure_drain_generation()','EXECUTE') AS authenticated`)).rows)
+      .toEqual([{ anon: false, authenticated: false }]);
+  });
+  it('verifies the exact enforced catalog without weakening original schema/rollout modes', async () => {
+    const inputs = { closure: source('20261013180000_account_closure_tokens.sql'),
+      baseline: source('20260812041600_trial_commercial_grant_on_conflict_1294.sql'),
+      drain: source('20261016090000_account_closure_drain_persistence.sql'),
+      enforcement: source('20261016180000_account_closure_drain_enforcement.sql') };
+    for (const [query, verify] of accountClosureEnforcementStages('after', inputs)) {
+      const result = await db.query<{ json_build_object: string }>(query);
+      expect(verify(result.rows[0].json_build_object)).toMatchObject({ passed: true });
+    }
+    const core = await db.query<{ json_build_object: string }>(accountClosureSchemaQuery('after', inputs.closure));
+    expect(() => assertAccountClosureSchema(core.rows[0].json_build_object, 'after')).toThrow();
+    const rollout = await db.query<{ json_build_object: string }>(accountClosureRolloutQuery('after', inputs.baseline));
+    expect(() => assertAccountClosureRollout(rollout.rows[0].json_build_object, 'after')).toThrow();
+    expect(() => accountClosureSchemaQuery('enforced', inputs.closure)).toThrow();
+    expect(() => accountClosureRolloutQuery('enforced', inputs.baseline, `${inputs.enforcement}\n`)).toThrow();
+  });
+
+  it.each([
+    'GRANT EXECUTE ON FUNCTION issue_account_closure_token(uuid,text) TO service_role',
+    'GRANT EXECUTE ON FUNCTION reconcile_expired_account_checkout(uuid,text,uuid,text) TO service_role',
+    'GRANT EXECUTE ON FUNCTION require_account_closure_drain(uuid,bigint,text,jsonb) TO service_role',
+    'GRANT EXECUTE ON FUNCTION inspect_account_closure_authority(uuid,uuid,uuid,bigint,text,jsonb) TO PUBLIC',
+    'REVOKE EXECUTE ON FUNCTION issue_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb) FROM service_role',
+    'ALTER FUNCTION require_account_closure_drain(uuid,bigint,text,jsonb) SECURITY INVOKER',
+    'ALTER FUNCTION require_account_closure_drain(uuid,bigint,text,jsonb) SET search_path=public',
+    'GRANT SELECT(drain_context) ON account_closure_attempts TO authenticated',
+    'CREATE FUNCTION require_account_closure_drain(integer) RETURNS integer LANGUAGE sql AS $$SELECT 1$$',
+  ])('exact enforcement gate rejects catalog drift: %s', async (mutation) => {
+    const query = accountClosureEnforcementQuery('after', source('20261016180000_account_closure_drain_enforcement.sql'));
+    const healthy = await db.query<{ json_build_object: string }>(query);
+    expect(assertAccountClosureEnforcement(healthy.rows[0].json_build_object, 'after')).toMatchObject({ passed: true });
+    await db.exec(mutation);
+    const changed = await db.query<{ json_build_object: string }>(query);
+    expect(() => assertAccountClosureEnforcement(changed.rows[0].json_build_object, 'after')).toThrow();
+  });
   it('guarded email issuance requires enabled exact current authority', async () => {
     await expect(service(`SELECT * FROM issue_account_closure_token_with_drain('${U}','${'f'.repeat(64)}',${grant()})`))
       .rejects.toThrow('deletion not enabled');

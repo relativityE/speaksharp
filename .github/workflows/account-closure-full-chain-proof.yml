@@ -7,6 +7,9 @@ on:
       - 'tests/db/account-closure-full-chain*'
       - 'tests/db/account-closure-concurrency-realpg.mjs'
       - 'tests/db/account-closure-tokens.integration.test.ts'
+      - 'tests/db/account-closure-enforcement-full-chain.sql'
+      - 'scripts/lib/accountClosure*'
+      - 'scripts/account-closure-*-gate.mjs'
       - '.github/workflows/account-closure-full-chain-proof.yml'
 
 permissions:

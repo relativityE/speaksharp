@@ -7,12 +7,10 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import console from 'node:console';
-import { accountClosureSchemaQuery, accountClosureDisabledQuery, assertAccountClosureSchema } from '../../scripts/lib/accountClosureSchemaGate.mjs';
-import { accountClosureRolloutQuery, assertAccountClosureRollout } from '../../scripts/lib/accountClosureRolloutGate.mjs';
-import { accountClosureDrainQuery, accountClosureDrainInitialQuery, assertAccountClosureDrain } from '../../scripts/lib/accountClosureDrainGate.mjs';
+import { accountClosureEnforcementStages } from '../../scripts/lib/accountClosureEnforcementGate.mjs';
 
 const root = resolve('backend/supabase/migrations');
-const candidate = '20261016090000_account_closure_drain_persistence.sql';
+const candidate = '20261016180000_account_closure_drain_enforcement.sql';
 const files = readdirSync(root).filter((file) => file.endsWith('.sql')).sort();
 assert.ok(files.includes(candidate), 'closure candidate missing');
 const manifest = files.map((name) => {
@@ -99,17 +97,13 @@ const sql = (text) => run('docker', ['exec', '-i', containerName, 'psql', '-X', 
   input: `SET statement_timeout='30s'; SET lock_timeout='5s';\n${text}`,
 });
 const history = () => sql('SELECT version FROM supabase_migrations.schema_migrations ORDER BY version;').split('\n');
-function verifyDrain(mode) {
+function verifyEnforcement(mode) {
   const source = (name) => readFileSync(join(root, name), 'utf8');
-  const stages = [
-    [accountClosureSchemaQuery('after', source('20261013180000_account_closure_tokens.sql')), (r) => assertAccountClosureSchema(r, 'after')],
-    [accountClosureRolloutQuery('after', source('20260812041600_trial_commercial_grant_on_conflict_1294.sql')), (r) => assertAccountClosureRollout(r, 'after')],
-    [accountClosureDisabledQuery, (r) => assertAccountClosureSchema(r, 'disabled')],
-    [accountClosureDrainQuery(mode, source(candidate)), (r) => assertAccountClosureDrain(r, mode)],
-  ];
-  if (mode === 'after') stages.push([accountClosureDrainInitialQuery, (r) => assertAccountClosureDrain(r, 'initial')]);
+  const stages = accountClosureEnforcementStages(mode, { closure: source('20261013180000_account_closure_tokens.sql'),
+    baseline: source('20260812041600_trial_commercial_grant_on_conflict_1294.sql'),
+    drain: source('20261016090000_account_closure_drain_persistence.sql'), enforcement: source(candidate) });
   const output = sql(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n${stages.map(([query]) => query).join('\n')}\nCOMMIT;`).split('\n');
-  assert.equal(output.length, stages.length, 'incomplete drain postflight');
+  assert.equal(output.length, stages.length, 'incomplete enforcement postflight');
   for (const [index, [, verify]] of stages.entries()) verify(output[index]);
 }
 try {
@@ -137,18 +131,24 @@ try {
   assert.deepEqual(Object.keys(container.NetworkSettings.Networks), [networkName], 'database escaped the owned internal network');
   assert.equal(Math.floor(Number(sql("SELECT current_setting('server_version_num');")) / 10000), 17);
   assert.deepEqual(history(), migrations.filter((row) => row.name !== candidate).map((row) => row.version), 'baseline replay is incomplete');
-  verifyDrain('before');
+  verifyEnforcement('before');
+  // Legacy schema invariants belong to the actual118 baseline, before119
+  // deliberately revokes its service-role mutation bypasses.
+  const baselineProof = sql(readFileSync('tests/db/account-closure-full-chain.sql', 'utf8'));
+  assert.ok(baselineProof.includes('ACCOUNT CLOSURE FULL-CHAIN INVARIANTS PASSED'), 'baseline proof marker absent');
   console.log('ACTUAL SUPABASE BASELINE REPLAY PASSED');
   cpSync(join(root, candidate), join(directory, 'migrations', candidate));
   cli(['migration', 'up', '--local']);
   assert.deepEqual(history(), migrations.map((row) => row.version), 'candidate history is incomplete');
   realSupabaseSchema = true;
-  verifyDrain('after');
-  const proof = sql(readFileSync('tests/db/account-closure-full-chain.sql', 'utf8'));
-  assert.ok(proof.includes('ACCOUNT CLOSURE FULL-CHAIN INVARIANTS PASSED'), 'proof marker absent');
+  verifyEnforcement('after');
+  const proof = sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql', 'utf8'));
+  assert.ok(proof.includes('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED'), 'enforcement proof marker absent');
+  assert.equal(sql("SELECT count(*) FROM auth.users WHERE id='c1111111-1111-4111-8111-111111111111'"), '0', 'owned fixture Auth residue');
+  assert.equal(sql("SELECT count(*) FROM public.account_closure_attempts WHERE user_id='c1111111-1111-4111-8111-111111111111'"), '0', 'owned fixture journal residue');
   assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'), 'f', 'proof must restore disabled rollout gate');
-  verifyDrain('after');
-  console.log('ACCOUNT CLOSURE FULL-CHAIN INVARIANTS PASSED');
+  verifyEnforcement('after');
+  console.log('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED');
 } catch (error) {
   primaryError = error;
 } finally {

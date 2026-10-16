@@ -99,6 +99,12 @@ jobs:
         with:
           version: 2.101.0
 
+      - name: Invalidate deletion drain authority before changing Edge workers
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/account-closure-invalidate.mjs
+
       - name: Deploy Edge Functions
         working-directory: backend/supabase
         run: |

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { readAccountClosureRuntimeBinding } from '../../backend/supabase/functions/_shared/accountClosureRuntimeBinding';
+import { readAccountClosureRuntimeBinding, ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 } from '../../backend/supabase/functions/_shared/accountClosureRuntimeBinding';
+import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 as expectedDigest } from '../../scripts/lib/accountClosureEnforcementIdentity.mjs';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 function fixture() {
   const manifest = { version: 1, deploymentId: 'fixture-project_function_1', scope: {
     attestationId: '10000000-0000-4000-8000-000000000001', generation: '9007199254740993', bindingDigest: 'a'.repeat(64),
-    context: { candidateSha: 'b'.repeat(40), configDigest: 'c'.repeat(64), migrationDigest: 'd'.repeat(64),
+    context: { candidateSha: 'b'.repeat(40), configDigest: 'c'.repeat(64), migrationDigest: ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256,
       projectId: 'fixture-project', environment: 'production' },
   } };
   const values: Record<string, string> = { SUPABASE_URL: 'https://fixture-project.supabase.co',
@@ -13,6 +16,13 @@ function fixture() {
   return { manifest, values, env };
 }
 describe('backend current facts → executing worker binding', () => {
+  it('binds runtime and operator evidence to the actual three reviewed migration sources', () => {
+    const hashes = ['20261013180000_account_closure_tokens.sql', '20261016090000_account_closure_drain_persistence.sql',
+      '20261016180000_account_closure_drain_enforcement.sql'].map((name) =>
+      createHash('sha256').update(readFileSync(`backend/supabase/migrations/${name}`)).digest('hex'));
+    expect(ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256).toBe(expectedDigest);
+    expect(expectedDigest).toBe(createHash('sha256').update(JSON.stringify(hashes)).digest('hex'));
+  });
   it('binds one actual worker and exact target without losing bigint generation precision', () => {
     const { manifest, env } = fixture();
     expect(readAccountClosureRuntimeBinding(env)).toEqual({

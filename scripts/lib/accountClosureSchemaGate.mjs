@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ACCOUNT_CLOSURE_ENFORCEMENT_SHA256, CLOSURE_OWNER_ONLY_ROUTINES } from './accountClosureEnforcementIdentity.mjs';
 
 export const ACCOUNT_CLOSURE_SHA256 = '8647483f6ed72d99246c84cb2d07571c34c7a5393268f8acd505edf267b03688';
 const tables = ['account_closure_tokens', 'account_closure_attempts', 'account_billing_fences',
@@ -7,8 +8,12 @@ const literal = (value) => `'${value.replaceAll("'", "''")}'`;
 
 // Generate SELECT-only catalog checks from immutable reviewed migration bytes.
 // This verifies schema deployment, never legacy-worker drain or rollout permission.
-export function accountClosureSchemaQuery(mode, source) {
-    if (!['before', 'after'].includes(mode)) throw new Error('expected before or after');
+export function accountClosureSchemaQuery(mode, source, enforcementSource) {
+    if (!['before', 'after', 'enforced'].includes(mode)) throw new Error('expected before, after or enforced');
+    if (mode === 'enforced' && (typeof enforcementSource !== 'string'
+        || createHash('sha256').update(enforcementSource).digest('hex') !== ACCOUNT_CLOSURE_ENFORCEMENT_SHA256)) {
+        throw new Error('enforced schema requires pinned enforcement source');
+    }
     if (createHash('sha256').update(source).digest('hex') !== ACCOUNT_CLOSURE_SHA256) {
         throw new Error('account closure migration source checksum mismatch');
     }
@@ -22,7 +27,9 @@ export function accountClosureSchemaQuery(mode, source) {
         const signature = signatures.get(name);
         if (!signature) throw new Error(`routine signature missing: ${name}`);
         const resultType = returns.toLowerCase().replaceAll(/\s/g, '').replaceAll('timestamptz', 'timestampwithtimezone');
-        return `(${literal(name)}, ${literal(`public.${signature}`)}, ${literal(createHash('md5').update(body).digest('hex'))}, ${literal(resultType)}, ${literal(language)}, ${!['guard_account_closure_billing', 'ensure_trial_profile_for_new_user'].includes(name)})`;
+        const serviceExec = !['guard_account_closure_billing', 'ensure_trial_profile_for_new_user'].includes(name)
+            && !(mode === 'enforced' && CLOSURE_OWNER_ONLY_ROUTINES.includes(name));
+        return `(${literal(name)}, ${literal(`public.${signature}`)}, ${literal(createHash('md5').update(body).digest('hex'))}, ${literal(resultType)}, ${literal(language)}, ${serviceExec})`;
     }).join(',\n');
     const tableNames = tables.map(literal).join(',');
     const checks = mode === 'before' ? `
@@ -75,6 +82,7 @@ export function assertAccountClosureSchema(result, expectedMode) {
     const parsed = typeof result === 'string' ? JSON.parse(result) : result;
     const names = { before: ['tables_absent', 'routines_absent', 'billing_guard_absent'],
         after: ['exact_routine_inventory', 'routine_identity_and_acl', 'tables_closed_and_rls', 'billing_guard_enabled'],
+        enforced: ['exact_routine_inventory', 'routine_identity_and_acl', 'tables_closed_and_rls', 'billing_guard_enabled'],
         disabled: ['rollout_disabled'] }[expectedMode];
     if (!names || parsed?.mode !== expectedMode || parsed?.passed !== true || !parsed.checks
         || Object.keys(parsed.checks).length !== names.length || names.some((name) => parsed.checks[name] !== true)) {

@@ -257,6 +257,17 @@ BEGIN
 END;
 $$;
 
+-- Read-only opaque generation for the private deployment controller. No raw
+-- attestation, user journal or broad table grant is exposed.
+CREATE FUNCTION public.inspect_account_closure_drain_generation()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+DECLARE current_generation bigint;
+BEGIN
+  SELECT generation INTO STRICT current_generation FROM public.account_closure_attestation_state WHERE singleton;
+  RETURN current_generation::text;
+END;
+$$;
+
 -- Legacy bodies remain internal building blocks, not service-role bypasses.
 REVOKE ALL ON FUNCTION public.claim_account_closure_token(uuid,text),
   public.issue_account_closure_token(uuid,text),
@@ -268,6 +279,7 @@ REVOKE ALL ON FUNCTION public.require_account_closure_drain(uuid,bigint,text,jso
   public.require_account_closure_request_authority(uuid,uuid,uuid,bigint,text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.claim_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb),
+  public.inspect_account_closure_drain_generation(),
   public.issue_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb),
   public.reconcile_account_closure_checkout_with_drain(uuid,text,uuid,text,text,text,uuid,bigint,text,jsonb),
   public.inspect_account_closure_authority(uuid,uuid,uuid,bigint,text,jsonb),
@@ -277,6 +289,7 @@ REVOKE ALL ON FUNCTION public.claim_account_closure_token_with_drain(uuid,text,u
   public.verify_account_closure_residue_with_drain(uuid,uuid,uuid,bigint,text,jsonb)
   FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb),
+  public.inspect_account_closure_drain_generation(),
   public.issue_account_closure_token_with_drain(uuid,text,uuid,bigint,text,jsonb),
   public.reconcile_account_closure_checkout_with_drain(uuid,text,uuid,text,text,text,uuid,bigint,text,jsonb),
   public.inspect_account_closure_authority(uuid,uuid,uuid,bigint,text,jsonb),

@@ -1,7 +1,7 @@
 // Isolated PostgreSQL regression, not a Production or provider probe.
 // Reuses the scoped SQL fixture and actual migration/RPC source. No full-chain claim.
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -523,8 +523,32 @@ try {
   assert.equal(oldBooleanClaim, '1', 'old source no longer demonstrates boolean-only authority');
   console.log(JSON.stringify({ drainRed: { booleanOnlyClaimAccepted: true, attestationRequired: false } }));
   sql(`UPDATE account_billing_coordination SET checkout_workers_drained=false,evidence_reference=NULL;
-    SET ROLE closure_owner; ${migration('20261016090000_account_closure_drain_persistence.sql')}
-    ${migration('20261016180000_account_closure_drain_enforcement.sql')} RESET ROLE;`);
+    SET ROLE closure_owner; ${migration('20261016090000_account_closure_drain_persistence.sql')} RESET ROLE;`);
+  let enforcementGateCases = 0;
+  function enforcementGate(mode, success) {
+    const result = spawnSync(process.execPath, [resolve('scripts/account-closure-enforcement-gate.mjs'), mode],
+      { env, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(result.status, success ? 0 : 1, `${mode}: ${result.stdout} ${result.stderr}`);
+    if (success) {
+      const output = JSON.parse(result.stdout.trim());
+      assert.equal(output.passed, true); assert.equal(output.stages.length, mode === 'after' ? 6 : 5);
+    } else assert.equal(result.stdout.trim(), '', 'failed enforcement verification emitted success');
+    enforcementGateCases++;
+  }
+  enforcementGate('before', true);
+  sql(`SET ROLE closure_owner; ${migration('20261016180000_account_closure_drain_enforcement.sql')} RESET ROLE;`);
+  enforcementGate('after', true);
+  sql('ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb; ALTER TABLE auth.users ADD COLUMN raw_user_meta_data jsonb');
+  const enforcedProof = sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql', 'utf8'));
+  assert.ok(enforcedProof.includes('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED'));
+  assert.equal(sql("SELECT count(*) FROM auth.users WHERE id='c1111111-1111-4111-8111-111111111111'"), '0');
+  assert.equal(sql("SELECT count(*) FROM account_closure_attempts WHERE user_id='c1111111-1111-4111-8111-111111111111'"), '0');
+  enforcementGate('after', true);
+  for (const signature of ['issue_account_closure_token(uuid,text)', 'reconcile_expired_account_checkout(uuid,text,uuid,text)']) {
+    sql(`GRANT EXECUTE ON FUNCTION ${signature} TO service_role`); enforcementGate('after', false);
+    sql(`REVOKE EXECUTE ON FUNCTION ${signature} FROM service_role`); enforcementGate('after', true);
+  }
+  console.log(JSON.stringify({ enforcementGateCases, result: 'PASS' }));
   const drainContext = { candidateSha: 'a'.repeat(40), configDigest: 'b'.repeat(64), migrationDigest: 'c'.repeat(64),
     projectId: 'native-disposable', environment: 'disposable' };
   const drainBinding = 'd'.repeat(64);
@@ -696,6 +720,10 @@ try {
       'invalidation-first', 'concurrent-auth-reconciliation-idempotent-ACK', 'completion-residue-rollback',
       'concurrent-completion-idempotent-ACK', 'legacy-service-bypass-refused', 'valid-terminal-cleanup'],
     providerCalls: 0, externalDrainFacts: 'UNVERIFIED' }));
+  const lastGeneration = sql('SET ROLE service_role; SELECT inspect_account_closure_drain_generation()');
+  sql(`SET ROLE service_role; SELECT invalidate_account_closure_drain_attestations(${lastGeneration},'expired','${'f'.repeat(64)}')`);
+  enforcementGate('verify', true); // bound historical requests are not fresh-apply defaults
+  enforcementGate('after', false);
   console.log(JSON.stringify({ postgres: sql('SHOW server_version'),
     result: 'PASS', boundary: 'canonical webhook row-lock → checkout refusal and closure claim',
     checkoutCases: ['webhook-before-checkout', 'eligible-once', 'issuing', 'open', 'unknown',

@@ -1,6 +1,8 @@
 import type { ClosureRecoveryScope, ClosureRecoveryTarget } from './accountClosureRecoveryAdapter.ts';
 
 type Env = (key: string) => string | undefined;
+// Contract test binds this runtime literal to the ordered117/118/119 source hashes.
+export const ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 = '9683155d96d6e38269a63767470715ac92105d5ec15f0d7aeb0bc5908dd30fba';
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const closed = (v: unknown, keys: string[]): v is Record<string, unknown> => object(v)
   && Object.keys(v).length === keys.length && keys.every((key) => Object.hasOwn(v, key));
@@ -42,7 +44,8 @@ export function verifyAccountClosureRuntimeBinding(raw: string | undefined, targ
     || !uuid(s.attestationId) || typeof s.generation !== 'string'
     || !/^(0|[1-9][0-9]{0,18})$/.test(s.generation) || BigInt(s.generation) > 9223372036854775807n
     || !sha(s.bindingDigest) || !closed(s.context, ['candidateSha', 'configDigest', 'migrationDigest', 'projectId', 'environment'])
-    || !sha(s.context.candidateSha, 40) || !sha(s.context.configDigest) || !sha(s.context.migrationDigest)
+    || !sha(s.context.candidateSha, 40) || !sha(s.context.configDigest)
+    || s.context.migrationDigest !== ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256
     || s.context.projectId !== match[1] || !['production', 'disposable'].includes(String(s.context.environment))) stop();
   return { target: { projectId: match[1], environment: s.context.environment as 'production' | 'disposable', url: url.origin },
     scope: structuredClone(s) as unknown as ClosureRecoveryScope };
