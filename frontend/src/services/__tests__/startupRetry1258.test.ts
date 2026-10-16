@@ -9,8 +9,8 @@ import { STARTUP_RETRY_UNWIND_FAILED_MESSAGE, cancelStartupAndRetry, type Startu
 const T0 = 1_000;
 const harness = (over: Partial<{ startupWaitStartedAt: number | null; captureLive: boolean; runtimeState: string; owner: string | null;
     pending: string | null; reset: () => Promise<void>; terminal: boolean; unwinds: boolean }> = {}) => {
-    const state = {
-        startupWaitStartedAt: 'startupWaitStartedAt' in over ? over.startupWaitStartedAt! : T0,
+    const state: { startupWaitStartedAt: number | null; captureLive: boolean; runtimeState: string; owner: string | null; cancelling: boolean } = {
+        startupWaitStartedAt: 'startupWaitStartedAt' in over ? over.startupWaitStartedAt ?? null : T0,
         captureLive: over.captureLive ?? false,
         runtimeState: over.runtimeState ?? 'ENGINE_INITIALIZING',
         owner: 'owner' in over ? over.owner! : 'user-1',
