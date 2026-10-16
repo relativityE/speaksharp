@@ -985,12 +985,18 @@ export class SpeechRuntimeController {
         return this.nextTakePreparation;
     }
 
-    /** #1258 RWT round 2 finding A — end a background next-take preparation: the service publishes from now on. */
-    private claimPreparedService(): void {
-        if (this.service?.isBackgroundPreparation?.()) {
-            pushNativeRuntimeTrace('controller_next_take_prepared_service_claimed');
-            this.service.setBackgroundPreparation(false);
-        }
+    /**
+     * #1258 RWT round 2 finding A — end a background next-take preparation: the service publishes from now on, starting
+     * with its genuine current state. Returns true when that state is a FAILED preparation (PM 6216298226), so the claiming
+     * Start can answer with it instead of recording on a service its own failure is about to tear down.
+     */
+    private claimPreparedService(): boolean {
+        const service = this.service;
+        if (!service?.isBackgroundPreparation?.()) return false;
+        pushNativeRuntimeTrace('controller_next_take_prepared_service_claimed');
+        service.setBackgroundPreparation(false);
+        const state = service.getState?.();
+        return state === 'FAILED' || state === 'INIT_FAILED';
     }
 
     /** #1258 — a previous take's service would not terminate: refuse rather than run this take on it. */
@@ -4196,7 +4202,24 @@ export class SpeechRuntimeController {
             }
             // #1258 A — the Start claims a background-prepared service: from here it publishes, starting with its truthful
             // current state (ready, or a genuine preparation failure).
-            this.claimPreparedService();
+            if (this.claimPreparedService()) {
+                // PM 6216298226 — the preparation FAILED. That failure is now this Start's answer: it ends here, rejected with
+                // the genuine cause, and nothing records on the failed service (a recording begun here would be overridden by
+                // the failure the claim just delivered). The failed service is retired so the person's next Start builds a
+                // fresh engine.
+                pushNativeRuntimeTrace('controller_start_prepared_service_failed');
+                const failed = this.service;
+                if (failed) {
+                    this.detachService(failed);
+                    // A discarded service no longer owns the page: its teardown must not overwrite the genuine failure the
+                    // claim just published (reset()'s UI sync would write idle "Ready" over it).
+                    failed.setBackgroundPreparation(true);
+                    void failed.destroy().catch(() => undefined);
+                }
+                retireRecordingIntent('acquisition_failed', intent.token, new Error('PREPARED_SERVICE_FAILED'));
+                this.releaseRefusedStartLock();
+                return;
+            }
             if (this.currentRecordingId !== recordingId) {
                 pushNativeRuntimeTrace('controller_start_skip_superseded_recording', {
                     recordingId,
