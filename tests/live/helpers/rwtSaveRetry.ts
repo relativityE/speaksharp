@@ -52,42 +52,63 @@ export function classifyTransportFailure(errorText: string | null | undefined): 
 }
 
 /**
- * Sam 6216511222 — the harness must not stand in the request path to learn the answer: non-dropped calls keep
+ * Sam 6216511222 / 6217065780 — the harness must not stand in the request path to learn the answer: non-dropped calls keep
  * `route.fallback()`, and this observer reads the browser's own `response` / `requestfailed` events, correlated to each
  * call by REQUEST IDENTITY (the object Playwright passes to the route and to both events) and numbered in CALL order at
  * routing time — so completion order can never be mistaken for call order. The one deliberately dropped request is
  * excluded; requests it never tracked are ignored.
+ *
+ * ONE RECORD PER REQUEST. Playwright can emit `response` (headers) and then `requestfailed` (the body transfer died), so
+ * a received status is kept and the failure becomes `transfer_failed` — never a contradictory second "no response" entry.
+ * The evidence is a SNAPSHOT of every tracked call: one still waiting for headers reads `pending`, one whose body is
+ * still loading reads `<status>:body_pending`. Nothing tracked is silently omitted, and no wait is unbounded: only body
+ * reads already registered are awaited.
  */
+type CompletionRecord = {
+    ordinal: number; status: number | null; code: string | null;
+    failure: TransportFailure | 'transfer_failed' | null; bodyPending: boolean;
+};
 export class CompletionObserver<R extends object> {
-    private readonly ordinals = new WeakMap<R, number>();
+    private readonly records = new Map<R, CompletionRecord>();
     private readonly dropped = new WeakSet<R>();
-    private readonly results: { ordinal: number; text: string }[] = [];
     private readonly pending: Promise<void>[] = [];
 
-    track(request: R, ordinal: number): void { this.ordinals.set(request, ordinal); }
+    track(request: R, ordinal: number): void {
+        this.records.set(request, { ordinal, status: null, code: null, failure: null, bodyPending: false });
+    }
     markDropped(request: R): void { this.dropped.add(request); }
-    isObserved(request: R): boolean { return this.ordinals.has(request) && !this.dropped.has(request); }
+    isObserved(request: R): boolean { return this.records.has(request) && !this.dropped.has(request); }
 
-    /** The HTTP answer: status + allowlisted code. `body` may still be loading; `null` means it could not be read. */
+    /** Headers arrived: keep the status; the allowlisted code follows from the body (`null` / a rejected read → unreadable). */
     onResponse(request: R, status: number, body: Promise<string | null> | string | null): void {
         if (!this.isObserved(request)) return;
-        const ordinal = this.ordinals.get(request)!;
+        const rec = this.records.get(request)!;
+        rec.status = status;
+        rec.bodyPending = true;
         this.pending.push(Promise.resolve(body).catch(() => null).then((text) => {
-            const o = sanitizedCompletionOutcome(status, text);
-            this.results.push({ ordinal, text: `${o.status}:${o.code ?? 'ok'}` });
+            rec.bodyPending = false;
+            if (rec.failure === null) rec.code = sanitizedCompletionOutcome(status, text).code;
         }));
     }
 
-    /** No HTTP answer at all (reset, timeout, offline): a fixed class, never the browser's error text. */
+    /** No HTTP answer (a fixed class, never the browser's error text) — or, after headers, a failed body transfer. */
     onFailed(request: R, errorText: string | null | undefined): void {
         if (!this.isObserved(request)) return;
-        this.results.push({ ordinal: this.ordinals.get(request)!, text: `no_response:${classifyTransportFailure(errorText)}` });
+        const rec = this.records.get(request)!;
+        rec.failure = rec.status !== null ? 'transfer_failed' : classifyTransportFailure(errorText);
+        rec.bodyPending = false;
     }
 
-    /** Flat receipt evidence in CALL order, e.g. `2=403:42501,3=no_response:connection`. */
+    /** Flat receipt evidence, one entry per tracked call in CALL order, e.g. `2=403:42501,3=no_response:connection,4=pending`. */
     async evidence(): Promise<string> {
-        await Promise.all(this.pending);
-        return [...this.results].sort((a, b) => a.ordinal - b.ordinal).map((r) => `${r.ordinal}=${r.text}`).join(',');
+        await Promise.all([...this.pending]);
+        const entries = [...this.records.entries()].filter(([request]) => !this.dropped.has(request)).map(([, rec]) => rec);
+        return entries.sort((a, b) => a.ordinal - b.ordinal).map((rec) => {
+            if (rec.status === null) return `${rec.ordinal}=${rec.failure ? `no_response:${rec.failure}` : 'pending'}`;
+            if (rec.failure === 'transfer_failed') return `${rec.ordinal}=${rec.status}:transfer_failed`;
+            if (rec.bodyPending) return `${rec.ordinal}=${rec.status}:body_pending`;
+            return `${rec.ordinal}=${rec.status}:${rec.code ?? 'ok'}`;
+        }).join(',');
     }
 }
 

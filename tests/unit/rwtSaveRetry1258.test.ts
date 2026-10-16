@@ -186,6 +186,21 @@ describe('#1258 RWT round 2 C — a completion call\'s server answer is recorded
         o.onResponse(r, 502, Promise.reject(new Error('body stream failed')));
         await expect(o.evidence()).resolves.toBe('2=502:unreadable');
     });
+    it('observer: ONE record per request — headers then a failed body transfer is `<status>:transfer_failed`, not two contradictory entries', async () => {
+        const o = new CompletionObserver<object>();
+        const r = {};
+        o.track(r, 2);
+        o.onResponse(r, 200, Promise.reject(new Error('stream reset mid-body')));
+        o.onFailed(r, 'net::ERR_CONNECTION_RESET');
+        await expect(o.evidence()).resolves.toBe('2=200:transfer_failed');
+    });
+    it('observer: evidence is a truthful SNAPSHOT — a tracked call still waiting for headers reads `pending`, never disappears', async () => {
+        const o = new CompletionObserver<object>();
+        const done = {}; const waiting = {};
+        o.track(done, 2); o.track(waiting, 3);
+        o.onResponse(done, 200, '{}');
+        await expect(o.evidence()).resolves.toBe('2=200:ok,3=pending');
+    });
     it('source guard: the spec numbers each call at routing time, excludes the drop, and feeds both browser events to the observer', () => {
         const spec = src('tests/live/rwt-save-retry-recovery.live.spec.ts');
         expect(spec).toContain('completions.track(route.request(), drop.completionPosts);');
