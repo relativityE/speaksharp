@@ -33,13 +33,20 @@ describe('firstTakeSavedExactlyOnceVerdict', () => {
 
 describe('wiring — the accepted receipt carries the row, not only an unused helper', () => {
     const journey = readFileSync(path.join(here, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
-    it('the shared Focus journey writes "saved exactly once" from the verdict at the first take\'s save', () => {
+    it('the shared Focus journey writes "saved exactly once" from the verdict AFTER the first save settles, BEFORE the next take', () => {
         expect(journey).toContain("receipt.row('saved exactly once', once.verdict, once.detail");
         expect(journey).toContain('firstTakeSavedExactlyOnceVerdict({');
         const saved = journey.indexOf("receipt.row('session saved'");
         const once = journey.indexOf("receipt.row('saved exactly once'");
+        const analytics = journey.indexOf("test.step('row 12 — the saved session in Analytics'");
+        const practiceAgain = journey.indexOf("test.step('Practice again — Analytics action");
+        const nextTake = journey.indexOf('practiceAgainEvidence(page');
         expect(saved).toBeGreaterThan(-1);
-        expect(once, 'recorded right after the first take saves').toBeGreaterThan(saved);
+        // Codex P1 r4302807716: not at the first save (a late duplicate would be missed) — after the take settles...
+        expect(once, 'after the settled Analytics visit').toBeGreaterThan(analytics);
+        // ...and before the first later legitimate take begins.
+        expect(once, 'before Practice again').toBeLessThan(practiceAgain);
+        expect(once, 'before the next take is recorded').toBeLessThan(nextTake);
     });
     it('both Focus suites (full and partial) REQUIRE the row for acceptance', () => {
         for (const suite of ['focus-points-session', 'focus-points-partial'] as const) {
