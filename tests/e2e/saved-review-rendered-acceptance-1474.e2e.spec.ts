@@ -398,12 +398,14 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
 //
 // Natural growth is accepted: section identity and order are stable, and the C/D row may move with the review's height.
 // What replaces the strict all-four-tops oracle (which stays above as `test.fail` until this is reviewed):
-//   1. USEFUL COACHING AT EYE LEVEL — in the initial review view (the page scrolls to the top when the review settles),
-//      the actual prescription ("Try this next run") is fully visible above any fixed bar; in pending and terminal states
-//      the truthful headline is. A card header sliver does not count.
-//   2. THE REPEAT/RETRY ACTION — Open Mic "Practice again", Focus "Retry this set" — is reachable and FULLY unobscured once
-//      brought into view, by keyboard focus and by scrolling, clear of the fixed bottom bar. Whether it is visible in the
-//      initial view is recorded separately (discoverability is distinct evidence from clearance).
+//   1. USEFUL COACHING AT EYE LEVEL — at the TOP OF THE PAGE (the spec scrolls there; that observation is not proof of the
+//      page's own automatic placement), the actual prescription ("Try this next run") is fully visible above any fixed
+//      bar; in pending and terminal states the truthful headline is. A card header sliver does not count. The exact
+//      maximum coaching text, message and saved evidence are asserted to have rendered BEFORE anything is measured.
+//   2. THE REPEAT/RETRY ACTION — Open Mic "Practice again", Focus "Retry this set" — is FULLY unobscured once brought into
+//      view: after PROGRAMMATIC FOCUS (the browser's focus-scroll — not sequential Tab navigation) and after being scrolled
+//      to the middle of the screen, clear of the fixed bottom bar. Whether it is visible at the top of the page is
+//      recorded separately (discoverability is distinct evidence from clearance).
 //   3. SECONDARY COUNTS — intact, readable and scroll-reachable; above or below the fold is REPORTED, never asserted visible.
 // Every state is measured at each supported viewport with the server's maximum coaching length and real saved evidence.
 
@@ -423,10 +425,10 @@ type Viewport = (typeof DESKTOP_VIEWPORTS)[number] | (typeof MOBILE_VIEWPORTS)[n
  * Measured mobile gaps (OPEN, Sam 6240521998): each keeps its strict assertions in a test marked as an expected failure only
  * after the take saved and was measured, annotated `unmet-requirement`, and flips red the moment the product meets it.
  */
-const MOBILE_UNMET: Partial<Record<string, string>> = {
-    'open_mic · full': 'the full "Try this next run" box ends under the fixed bottom bar in the initial review view',
-    'open_mic · partial': 'keyboard focus leaves Practice again partly under the fixed bottom bar (the browser treats it as already in view)',
-    'focus_points · full': 'the full "Try this next run" box ends under the fixed bottom bar in the initial review view',
+const MOBILE_UNMET: Partial<Record<string, { gap: Gap; text: string }>> = {
+    'open_mic · full': { gap: 'coaching-visible', text: 'the full "Try this next run" box ends under the fixed bottom bar at the top of the page' },
+    'open_mic · partial': { gap: 'action-focus-clear', text: 'programmatic focus leaves Practice again partly under the fixed bottom bar (the browser treats it as already in view)' },
+    'focus_points · full': { gap: 'coaching-visible', text: 'the full "Try this next run" box ends under the fixed bottom bar at the top of the page' },
 };
 type Product = 'open_mic' | 'focus_points';
 type GammaState = 'full' | 'partial' | 'pending' | 'terminal';
@@ -558,7 +560,20 @@ async function gammaCase(page: Page, product: Product, state: GammaState, viewpo
     else await focusSavedTake(page, answers, pair);
     const lifecycle = state === 'terminal' ? 'terminal' : state === 'pending' ? 'pending' : 'complete';
     await expect(page.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', lifecycle, { timeout: 30_000 });
-    if (lifecycle === 'complete') await expect(page.getByTestId('review-try-next')).toBeVisible({ timeout: 10_000 });
+    // Sam 6240941568: what is measured must be the INTENDED content — the exact coaching (maximum length for `full`), the
+    // truthful message, and the saved fixture evidence — or a shortened or wrong paragraph could flatter the layout.
+    if (lifecycle === 'complete') {
+        await expect(page.getByTestId('review-what-went-well'), 'the exact saved "What went well" rendered').toHaveText(pair.what_worked, { timeout: 10_000 });
+        await expect(page.getByTestId('review-try-next'), 'the exact saved prescription rendered').toHaveText(pair.what_to_try_next);
+        const evidence = page.getByTestId('review-evidence');
+        await expect(evidence, 'the saved "From this session" evidence rendered').toBeVisible({ timeout: 15_000 });
+        await expect(evidence, 'the evidence is this product\'s real saved evidence').toContainText(
+            product === 'open_mic' ? /(filler words|words) a minute/ : /Detected: point 1 at \d+:\d{2}, point 2 at[\s\S]*Not detected: point 6, point 7\.[\s\S]*Recorded for \d+:\d{2}\./);
+    } else if (lifecycle === 'pending') {
+        await expect(page.getByTestId('ai-suggestions-headline'), 'the truthful pending message').toHaveText('Your review is on its way.');
+    } else {
+        await expect(page.getByTestId('ai-suggestions-headline'), 'the truthful terminal message').toHaveText(/Review requests are temporarily limited\. Your session is saved; please try again later\./);
+    }
 
     const results: ViewportResult[] = [];
     for (const vp of viewports) results.push(await measureViewport(page, product, state, vp));
@@ -569,14 +584,21 @@ async function gammaCase(page: Page, product: Product, state: GammaState, viewpo
     return results;
 }
 
-function expectGamma(results: ViewportResult[]) {
+/** The one measured gap a mobile tracker isolates; every OTHER criterion keeps failing normally on regression. */
+type Gap = 'coaching-visible' | 'action-focus-clear';
+
+function expectGamma(results: ViewportResult[], excluded: Gap | null = null) {
     for (const r of results) {
         expect.soft(r.coaching, `${r.viewport}: the coaching element rendered`).not.toBeNull();
-        expect.soft(r.coaching?.fullyVisible, `${r.viewport}: ${r.coaching?.which} is fully readable in the initial review view`).toBe(true);
+        if (excluded !== 'coaching-visible') {
+            expect.soft(r.coaching?.fullyVisible, `${r.viewport}: ${r.coaching?.which} is fully readable at the top of the page`).toBe(true);
+        }
         expect.soft(r.action, `${r.viewport}: the repeat/retry action rendered`).not.toBeNull();
         expect.soft(r.action?.enabled, `${r.viewport}: the action is enabled`).toBe(true);
-        expect.soft(r.action?.afterFocus.focused && r.action?.afterFocus.fullyUnobscured && r.action?.afterFocus.hitsItself,
-            `${r.viewport}: keyboard focus leaves the action fully clear of any fixed bar`).toBe(true);
+        if (excluded !== 'action-focus-clear') {
+            expect.soft(r.action?.afterFocus.focused && r.action?.afterFocus.fullyUnobscured && r.action?.afterFocus.hitsItself,
+                `${r.viewport}: programmatic focus (focus-scroll) leaves the action fully clear of any fixed bar`).toBe(true);
+        }
         expect.soft(r.action?.afterScroll.fullyUnobscured && r.action?.afterScroll.hitsItself,
             `${r.viewport}: scrolled into view, the action is fully clear of any fixed bar`).toBe(true);
         expect.soft(r.counts.length, `${r.viewport}: all three count rows render`).toBe(3);
@@ -593,20 +615,39 @@ test.describe('#1474 γ desktop — natural growth: useful coaching at eye level
     }
 });
 
-test.describe('#1474 γ mobile 375×812 — the same criteria; measured gaps stay OPEN as unmet requirements', () => {
+test.describe('#1474 γ mobile 375×812 — the same criteria; every non-gap criterion must pass', () => {
     for (const { product, state } of GAMMA_CASES) {
         const key = `${product} · ${state}`;
         const unmet = MOBILE_UNMET[key];
-        test(`${key} at 375×812${unmet ? ` (UNMET: ${unmet})` : ''}`, async ({ page }) => {
+        test(`${key} at 375×812${unmet ? ` (all criteria except the isolated gap: ${unmet.gap})` : ''}`, async ({ page }) => {
             test.setTimeout(200_000);
-            const results = await gammaCase(page, product, state, MOBILE_VIEWPORTS, 'mobile');
-            if (unmet) {
-                // Marked only now, after the take saved and was measured, so a setup failure cannot pass as this gap.
-                // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
-                test.info().annotations.push({ type: 'unmet-requirement', description: `#1474 mobile 375×812 ${key}: ${unmet}` });
-                test.fail(true, `UNMET on main: ${unmet}`);
+            expectGamma(await gammaCase(page, product, state, MOBILE_VIEWPORTS, 'mobile'), unmet?.gap ?? null);
+        });
+    }
+});
+
+/*
+ * Sam 6240939196 — each measured mobile gap is its OWN narrow tracker: it asserts ONLY the documented gap, marked as an
+ * expected failure only after the take saved, rendered its intended content and was measured. Every other criterion for
+ * the same case is asserted in the ordinary test above, so an unrelated regression fails normally instead of hiding here.
+ */
+test.describe('#1474 γ mobile 375×812 — measured gaps (OPEN, unmet requirements)', () => {
+    for (const [key, unmet] of Object.entries(MOBILE_UNMET)) {
+        if (!unmet) continue;
+        const [product, state] = key.split(' · ') as [Product, GammaState];
+        test(`UNMET ${key} at 375×812: ${unmet.text}`, async ({ page }) => {
+            test.setTimeout(200_000);
+            const [r] = await gammaCase(page, product, state, MOBILE_VIEWPORTS, 'mobile-gap');
+            // Marked only now, after setup succeeded, so a setup failure cannot pass as this gap.
+            // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
+            test.info().annotations.push({ type: 'unmet-requirement', description: `#1474 mobile 375×812 ${key}: ${unmet.text}` });
+            test.fail(true, `UNMET on main: ${unmet.text}`);
+            if (unmet.gap === 'coaching-visible') {
+                expect(r.coaching?.fullyVisible, `${r.viewport}: ${r.coaching?.which} is fully readable at the top of the page`).toBe(true);
+            } else {
+                expect(r.action?.afterFocus.focused && r.action?.afterFocus.fullyUnobscured && r.action?.afterFocus.hitsItself,
+                    `${r.viewport}: programmatic focus (focus-scroll) leaves the action fully clear of any fixed bar`).toBe(true);
             }
-            expectGamma(results);
         });
     }
 });
