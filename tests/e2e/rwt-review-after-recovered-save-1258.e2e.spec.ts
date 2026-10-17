@@ -44,8 +44,8 @@ async function loseCompletions(page: Page, lose: number): Promise<{ posts: () =>
 
 /**
  * The shared fixture treats every unlisted console error as fatal, and this journey's failed Stop logs its authored
- * `SESSION_COMPLETION_FAILED` on purpose. This spec swaps in the same guard with exactly that error (and the injected
- * dropped-request text) allowed; any OTHER console error still fails the test at the end.
+ * `SESSION_COMPLETION_FAILED` on purpose. This spec swaps in the same guard with exactly the injected failure's own
+ * authored reports allowed; any OTHER console error still fails the test at the end.
  */
 function guardConsole(page: Page): () => string[] {
     page.removeAllListeners('console');
@@ -53,7 +53,9 @@ function guardConsole(page: Page): () => string[] {
     page.on('console', (msg) => {
         if (msg.type() !== 'error') return;
         const text = msg.text();
-        if (/SESSION_COMPLETION_FAILED|Failed to fetch/i.test(text)) return;
+        // The injected stimulus reports itself three ways, all authored: the storage boundary's content-free completion
+        // failure log, the Stop's SESSION_COMPLETION_FAILED, and the dropped-request text. Nothing else is allowed.
+        if (/SESSION_COMPLETION_FAILED|Failed to fetch|\[Supabase DB\] 🏁 Session completion RPC failed/i.test(text)) return;
         unexpected.push(text.slice(0, 200));
     });
     return () => unexpected;
