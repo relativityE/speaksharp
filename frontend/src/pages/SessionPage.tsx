@@ -831,7 +831,7 @@ export const SessionPage: React.FC = () => {
                     access modals, mobile action bar — wraps it. This is the only session page. */}
                 {restoreId ? (
                     restoredSession
-                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/analytics')} />
+                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/analytics')} ownerId={authUserId} />
                         : <div className="h-40 animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" data-testid="saved-session-return-loading" />
                 ) : (
                 <SessionOverhaulView

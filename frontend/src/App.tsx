@@ -8,6 +8,7 @@ import { PostAuthContinue } from './components/practice/practiceRouting';
 import { AuthIndexRedirect } from './components/AuthIndexRedirect';
 import { AuthAwareRoot } from './components/AuthAwareRoot';
 import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
+import { FeedbackOpenerProvider } from './contexts/FeedbackOpenerContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { JourneyRouteTelemetry } from '@/components/JourneyRouteTelemetry';
@@ -361,6 +362,8 @@ const App: React.FC = () => {
        {/* Provider spans BOTH Navigation (Report Issue button) and the routed page, so the global dialog
            can read the active /practice surface the page sets. */}
        <PracticeSurfaceProvider>
+       {/* #1474: page content ("Count look wrong?") opens Navigation's Share Feedback dialog through this one typed path. */}
+       <FeedbackOpenerProvider>
         <RouteReadinessManager />
         <ProgressReconciler />
         <Navigation />
@@ -461,6 +464,7 @@ const App: React.FC = () => {
             </Suspense>
           </ErrorBoundary>
         </main>
+       </FeedbackOpenerProvider>
        </PracticeSurfaceProvider>
       </ProfileGuard>
     </div>

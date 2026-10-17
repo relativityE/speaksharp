@@ -1,6 +1,6 @@
 **Status:** Authoritative for the bounded current work routing below; wider canonical reconciliation remains open under #1318.
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-18 (last recorded human review; this revision awaits Sam's review).
+**Last Reviewed:** 2026-10-17 — Sam source-accepted the bounded corrections; successor review qualification remains separate.
 **Last Verified:** 2026-10-17 — linked current assignments and source checkpoints; operational state is recorded in `RELEASE_STATUS.md`.
 **Applies To:** RWT/Alpha, MVP/Beta sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
@@ -11,11 +11,11 @@
 
 # SpeakSharp Roadmap
 
-The currency snapshot is baseline `9316cbf174f65870b2af6b15a3669bc4fdadc0be`. Its observation times, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production.
+The currency snapshot is baseline `bc1ea8eaec3d410865b832319a0e855b299693e3`. Its observation times, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production.
 
 <!-- CURRENCY-BLOCK
-baseline: 9316cbf174f65870b2af6b15a3669bc4fdadc0be
-deployed-release: cc2dc6a2c6268b29aada26900f76c1abdc78244f
+baseline: bc1ea8eaec3d410865b832319a0e855b299693e3
+deployed-release: bc1ea8eaec3d410865b832319a0e855b299693e3
 verified-on: 2026-10-17
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
@@ -54,10 +54,10 @@ Keep App Dev on RWT/Alpha and CLI Dev on MVP/Beta. Sam owns central routing, rev
 | Outcome / owning issue | Existing owner | Next bounded outcome / completion boundary |
 |---|---|---|
 | Full useful two-product RWT — #1258 / coordination #1593 | App Dev executes; Sam reviews; PO/named humans accept | Follow the existing nine-spec matrix and retain each case's PASS/FAIL/HOLD/not-run. Rebind the save/retry request-lost then response-lost packet to the actual served release with specific authority, receipt/cleanup review and stop conditions. Complete remaining received/human/device acceptance. Source merges do not close this outcome. |
-| Backend-only staging — #1611 | CLI Dev source; App Dev selected apply/landing executor; Sam dispositions | The reconciled candidate remains unmerged and requires the bounded checkout-fence source repair and fresh qualification in Sam's RETURN. Applied 118→119/postflight is a completed prerequisite, not source acceptance or coupled Edge deployment authority. Exact heads, runs and application observations live in `RELEASE_STATUS.md`. |
+| Backend-only staging — #1611 | CLI Dev source; App Dev selected apply/landing executor; Sam dispositions | [The bounded checkout recovery repair is source-accepted](https://github.com/relativityE/speaksharp/pull/1611#issuecomment-6241637169), still unmerged. CLI Dev prepares the migration-only 120 prerequisite, then current-main reconciliation and fresh qualification; verified application of 120 must precede the corrected coupled Edge release. Applied 118→119/postflight alone does not satisfy that new prerequisite or authorize deployment. Exact heads, runs and application observations live in `RELEASE_STATUS.md`. |
 | Complete customer exit — #1643, with #1495 provider/fixture prerequisites | CLI Dev implementation/evidence; Sam scope/review; App Dev only assigned operations | Retain all nine existing acceptance items: cancellation versus deletion, account-bound email/UI, authoritative global legacy drain/settlement, registration/runtime binding, billing ownership/recovery, cleanup and terminal sign-in refusal, telemetry and controlled live proof. The authoritative registration/current-facts producer is SOURCE INCOMPLETE, separate from the missing operational drain/settlement evidence. Consolidate accepted preserved-source increments, integrate against current main and qualify before eligible controlled activation. Backend staging alone cannot close it. |
-| G10 requirement/design and missing correction opener — #1474 | Browser PM interpretation/opener disposition; App Dev implementation after disposition; Sam routing | [Browser PM's packet](https://github.com/relativityE/speaksharp/issues/1474#issuecomment-6239720648) recommends natural growth for explicit Sam/PO ruling and one existing Share Feedback opener path. Sam dispositions the strict slot/count-visibility interpretation and selects the implementation slot. Keep held reservation experiments and unmet tests as evidence; wiring, mobile/device acceptance and useful coaching remain open. No clipping, hidden rows or weakened maximum-content oracle is approved by this roadmap. |
-| Truthful download progress — #1491 / #1647 | App Dev | The bounded percentage-display fix is source-integrated. Verify its actual served identity separately; cold-download proof and mobile stale-label behavior retain their own evidence boundaries. |
+| G10 presentation and acceptance — #1474 | App Dev remaining mobile product repair; Browser PM evidence review; Sam routing | [Sam's natural-growth ruling](https://github.com/relativityE/speaksharp/issues/1474#issuecomment-6240521998) supersedes the earlier pending recommendation. The existing Share Feedback opener is merged in #1649 and included in the served receipt in `RELEASE_STATUS.md`; do not reimplement it. Remaining work is readable coaching, unobscured repeat/retry controls, replacement rendered evidence and mobile/device acceptance. Keep rejected reservations/unmet evidence; no clipping, hidden rows or weakened maximum-content oracle is approved here. |
+| Truthful download progress — #1491 / #1647 | App Dev | The bounded percentage-display fix is source-integrated and included in the later #1649 served-release receipt recorded in `RELEASE_STATUS.md`. Cold-download proof and mobile stale-label behavior retain their own evidence boundaries; do not repeat the old served-identity task. |
 | Canonical documentation — #1318 | Browser PM; Sam reviews | Publish this first bounded current-state docs diff with receipt-linked HOLD labels. Then continue the remaining canonical/current-document inventory and consolidated intake; do not recreate the accepted readiness packet or wait idle for release completion. This increment does not close the full inventory. |
 | Existing telemetry and test-identity requirements — #1259 / #1495 / owning journey issues | App/CLI implementation by existing assignment; Sam dispositions | Keep received versus sent evidence, AUTH/FULL_PRODUCT/PAID/expired/conversion fixtures and cleanup boundaries distinct. Do not turn the broader five-role redesign into a new core-RWT entry gate. |
 | Remaining product usefulness — #1548 | Existing product/engineering owners; Sam/PO adjudicate | Preserve the broader truthful/actionable coaching outcome. The narrow stored-target display integration is delivered source, not full product-effectiveness acceptance. |
