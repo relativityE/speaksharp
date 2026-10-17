@@ -2,7 +2,7 @@ import type { ClosureRecoveryScope, ClosureRecoveryTarget } from './accountClosu
 
 type Env = (key: string) => string | undefined;
 // Contract test binds this runtime literal to the ordered117/118/119 source hashes.
-export const ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 = '9683155d96d6e38269a63767470715ac92105d5ec15f0d7aeb0bc5908dd30fba';
+export const ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 = 'af9b30892558978c4adab16d5867ff0a5dd9afa4a377c66eb12f6ca25c88eeff';
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const closed = (v: unknown, keys: string[]): v is Record<string, unknown> => object(v)
   && Object.keys(v).length === keys.length && keys.every((key) => Object.hasOwn(v, key));
