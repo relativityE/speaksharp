@@ -69,9 +69,12 @@ function guardConsole(page: Page): { counts: () => DiagnosticCounts; unexpected:
         const text = msg.text();
         const kind = (Object.keys(EXPECTED_DIAGNOSTICS) as Array<keyof typeof EXPECTED_DIAGNOSTICS>)
             .find((k) => EXPECTED_DIAGNOSTICS[k].test(text));
-        if (kind) counts[kind] += 1;
-        if (kind === 'completionRpcFailed') rpcFailedSessions.push(EXPECTED_DIAGNOSTICS.completionRpcFailed.exec(text)?.[1] ?? '');
-        else unexpected.push(text.slice(0, 200));
+        if (kind) {
+            counts[kind] += 1;
+            if (kind === 'completionRpcFailed') rpcFailedSessions.push(EXPECTED_DIAGNOSTICS.completionRpcFailed.exec(text)?.[1] ?? '');
+        } else {
+            unexpected.push(text.slice(0, 200));
+        }
     });
     return { counts: () => ({ ...counts }), unexpected: () => [...unexpected], rpcFailedSessions: () => [...rpcFailedSessions] };
 }
