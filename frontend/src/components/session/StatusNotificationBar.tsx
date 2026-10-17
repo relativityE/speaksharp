@@ -247,15 +247,17 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const emoji = status.message?.match(/^(?:⛔|⚠️|🚫)/u)?.[0];
     // #1474: the post-save bar's only action is the short Progress link, so on mobile it sits on the message's row
     // instead of a second row (~34px). That height is what kept the full "Try this next run" prescription under
-    // the fixed mobile bar at 375px. Detail text or the startup retry keep the stacked layout.
-    const inlinePostSave = Boolean(analyticsAction) && !startupRetry && !displayDetail;
+    // the fixed mobile bar at 375px. Detail text, the startup retry or the full-width model progress keep the stacked layout.
+    const inlinePostSave = Boolean(analyticsAction) && !startupRetry && !displayDetail && !hasSecondary;
 
     return (
         <div
             // Spacing is the CALLER's business: `className` is concatenated, not twMerge'd, so a margin
             // baked in here could not be overridden and silently inserted 26px before whatever the page
             // renders next (the unresolved-recovery banner, in SessionPage's case).
-            className={`flex ${inlinePostSave ? 'flex-row items-center' : 'flex-col'} gap-3 sm:flex-row sm:items-center sm:gap-4 w-full border transition-all duration-300 ${
+            // #1474: colours only — the bar's padding and the caller's margin are breakpoint-dependent, and animating
+            // them for 300ms on a resize moved everything below the bar mid-measurement (layout must change at once).
+            className={`flex ${inlinePostSave ? 'flex-row items-center' : 'flex-col'} gap-3 sm:flex-row sm:items-center sm:gap-4 w-full border transition-colors duration-300 ${
                 isQuiet
                     ? 'rounded-[10px] px-[18px] py-[12px] bg-state-success-ground border-state-success-border'
                     : `rounded-xl px-4 ${isProminent ? 'py-4' : inlinePostSave ? 'py-2 sm:py-3' : 'py-3'} ${config.bgClass}`

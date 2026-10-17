@@ -190,11 +190,19 @@ describe('StatusNotificationBar', () => {
             const bar = screen.getByTestId('live-session-header');
             expect(bar.className).toMatch(/(^|\s)flex-row(\s|$)/);
             expect(bar.className).not.toMatch(/(^|\s)flex-col(\s|$)/);
+            // Its responsive padding/margin must switch at once on a resize, never animate the page below it.
+            expect(bar.className).not.toMatch(/(^|\s)transition-all(\s|$)/);
             // The tap target is unchanged by the compact row.
             expect(screen.getByTestId('post-save-review-session-link').className).toMatch(/(^|\s)min-h-9(\s|$)/);
             unmount();
 
             renderRouted(<StatusNotificationBar status={{ type: 'ready', message: '✓ Session saved.', detail: 'Finalizing your transcript.' }} analyticsAction={{}} />);
+            expect(screen.getByTestId('live-session-header').className).toMatch(/(^|\s)flex-col(\s|$)/);
+            cleanup();
+
+            // The full-width Private model progress is a second block: the bar stays stacked rather than squeeze three into a row.
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: '✓ Session saved.', progress: 100 }} analyticsAction={{}} />);
+            expect(screen.getByTestId('background-task-indicator')).toBeInTheDocument();
             expect(screen.getByTestId('live-session-header').className).toMatch(/(^|\s)flex-col(\s|$)/);
         });
 

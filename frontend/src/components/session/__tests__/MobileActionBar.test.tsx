@@ -50,3 +50,32 @@ describe('MobileActionBar (#1258 retry)', () => {
         expect(onDownloadModel).not.toHaveBeenCalled();
     });
 });
+
+describe('MobileActionBar (#1474 focus clearance)', () => {
+    it('publishes its RENDERED height for the root scroll-padding, follows resizes, and clears it on unmount', () => {
+        let resized: (() => void) | null = null;
+        vi.stubGlobal('ResizeObserver', class {
+            constructor(cb: () => void) { resized = cb; }
+            observe() {}
+            disconnect() {}
+        });
+        let height = 75;
+        const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({ height } as DOMRect));
+        try {
+            const { unmount } = render(
+                <MobileActionBar isListening={false} isButtonDisabled modelLoadingProgress={null} onStartStop={vi.fn()} blockedReason="Checking your last session…" />,
+            );
+            const root = document.documentElement;
+            expect(root.style.getPropertyValue('--mobile-action-bar-height')).toBe('75px');
+            // A blocked-start reason (or its wrapping) makes the fixed bar taller; the reserved space must follow.
+            height = 118.4;
+            resized?.();
+            expect(root.style.getPropertyValue('--mobile-action-bar-height')).toBe('119px');
+            unmount();
+            expect(root.style.getPropertyValue('--mobile-action-bar-height')).toBe('');
+        } finally {
+            rect.mockRestore();
+            vi.unstubAllGlobals();
+        }
+    });
+});

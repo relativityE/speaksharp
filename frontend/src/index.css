@@ -460,10 +460,11 @@ All colors MUST be HSL.
      * #1474: the fixed mobile session bar (MobileActionBar, md:hidden) covers the bottom of the viewport, so a
      * keyboard- or script-focused control that the browser treated as "already in view" could sit under it.
      * Reserving the bar's height in the root scroll snapport makes focus/scrollIntoView stop above the bar.
-     * Bar height = pt-3 + h-12 button + pb-3.5 + border + safe area; 0.5rem of breathing room on top.
+     * The bar publishes its RENDERED height (it grows with a blocked-start reason) as --mobile-action-bar-height;
+     * the fallback is the button-only bar (pt-3 + h-12 + pb-3.5 + border + safe area). 0.5rem breathing room on top.
      */
     html:has([data-fixed-mobile-action-bar]) {
-      scroll-padding-bottom: calc(5.25rem + env(safe-area-inset-bottom));
+      scroll-padding-bottom: calc(var(--mobile-action-bar-height, calc(4.75rem + env(safe-area-inset-bottom))) + 0.5rem);
     }
   }
 }
