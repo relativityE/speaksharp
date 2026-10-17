@@ -54,8 +54,8 @@ Keep App Dev on RWT/Alpha and CLI Dev on MVP/Beta. Sam owns central routing, rev
 | Outcome / owning issue | Existing owner | Next bounded outcome / completion boundary |
 |---|---|---|
 | Full useful two-product RWT — #1258 / coordination #1593 | App Dev executes; Sam reviews; PO/named humans accept | Follow the existing nine-spec matrix and retain each case's PASS/FAIL/HOLD/not-run. Rebind the save/retry request-lost then response-lost packet to the actual served release with specific authority, receipt/cleanup review and stop conditions. Complete remaining received/human/device acceptance. Source merges do not close this outcome. |
-| Backend-only staging — #1611 | CLI Dev source; App Dev selected apply/landing executor; Sam dispositions | Reconcile the frozen accepted source to current main after the landing queue, then obtain fresh qualification and use the existing conditional operational disposition. Ordered 118→119 apply/postflight and actual host controls remain separate prerequisites. Exact heads, runs and application observations live in `RELEASE_STATUS.md`. |
-| Complete customer exit — #1643, with #1495 provider/fixture prerequisites | CLI Dev implementation/evidence; Sam scope/review; App Dev only assigned operations | Retain all nine existing acceptance items: cancellation versus deletion, account-bound email/UI, authoritative global legacy drain/settlement, registration/runtime binding, billing ownership/recovery, cleanup and terminal sign-in refusal, telemetry and controlled live proof. Consolidate accepted preserved-source increments, integrate against current main and qualify before eligible controlled activation. Backend staging alone cannot close it. |
+| Backend-only staging — #1611 | CLI Dev source; App Dev selected apply/landing executor; Sam dispositions | The reconciled candidate remains unmerged and requires the bounded checkout-fence source repair and fresh qualification in Sam's RETURN. Applied 118→119/postflight is a completed prerequisite, not source acceptance or coupled Edge deployment authority. Exact heads, runs and application observations live in `RELEASE_STATUS.md`. |
+| Complete customer exit — #1643, with #1495 provider/fixture prerequisites | CLI Dev implementation/evidence; Sam scope/review; App Dev only assigned operations | Retain all nine existing acceptance items: cancellation versus deletion, account-bound email/UI, authoritative global legacy drain/settlement, registration/runtime binding, billing ownership/recovery, cleanup and terminal sign-in refusal, telemetry and controlled live proof. The authoritative registration/current-facts producer is SOURCE INCOMPLETE, separate from the missing operational drain/settlement evidence. Consolidate accepted preserved-source increments, integrate against current main and qualify before eligible controlled activation. Backend staging alone cannot close it. |
 | G10 requirement/design and missing correction opener — #1474 | Browser PM interpretation/opener disposition; App Dev implementation after disposition; Sam routing | [Browser PM's packet](https://github.com/relativityE/speaksharp/issues/1474#issuecomment-6239720648) recommends natural growth for explicit Sam/PO ruling and one existing Share Feedback opener path. Sam dispositions the strict slot/count-visibility interpretation and selects the implementation slot. Keep held reservation experiments and unmet tests as evidence; wiring, mobile/device acceptance and useful coaching remain open. No clipping, hidden rows or weakened maximum-content oracle is approved by this roadmap. |
 | Truthful download progress — #1491 / #1647 | App Dev | The bounded percentage-display fix is source-integrated. Verify its actual served identity separately; cold-download proof and mobile stale-label behavior retain their own evidence boundaries. |
 | Canonical documentation — #1318 | Browser PM; Sam reviews | Publish this first bounded current-state docs diff with receipt-linked HOLD labels. Then continue the remaining canonical/current-document inventory and consolidated intake; do not recreate the accepted readiness packet or wait idle for release completion. This increment does not close the full inventory. |
@@ -64,7 +64,20 @@ Keep App Dev on RWT/Alpha and CLI Dev on MVP/Beta. Sam owns central routing, rev
 
 ### Preserved sequencing and deferred intake
 
-- Existing closure owners #1254, #1261, #1313/#1315/#1385, #1360, #1382/#1383/#1384, #1407, #1452, #1471/#1472/#1473/#1476 and #1475 are retained for item-level reconciliation in #1318. Removing September's stale status register does not close, reject or reassign their remaining requirements; consult each live disposition before selecting work.
+- Open owners #1254, #1261, #1315, #1259, #1383, #1407, #1472 and #1475 retain their live dispositions. Closed records below are **historical provenance**, not resurrected assignments:
+
+| Closed record | Current owner / disposition |
+|---|---|
+| [#1313](https://github.com/relativityE/speaksharp/issues/1313) | Consolidated into [#1312](https://github.com/relativityE/speaksharp/issues/1312), post-MVP CI reliability. |
+| [#1385](https://github.com/relativityE/speaksharp/issues/1385) | Remaining causal-truth residuals belong to [#1315](https://github.com/relativityE/speaksharp/issues/1315), not a replay of merged implementation. |
+| [#1382](https://github.com/relativityE/speaksharp/issues/1382) / [#1384](https://github.com/relativityE/speaksharp/issues/1384) | Consolidated into [#1259](https://github.com/relativityE/speaksharp/issues/1259); later internal SLO work remains [#1383](https://github.com/relativityE/speaksharp/issues/1383). |
+| [#1360](https://github.com/relativityE/speaksharp/issues/1360) / [#1473](https://github.com/relativityE/speaksharp/issues/1473) | Retained abandonment and useful coaching journey evidence belongs to [#1258](https://github.com/relativityE/speaksharp/issues/1258) / [#1593](https://github.com/relativityE/speaksharp/issues/1593). Historical mock/source proof does not close deployed acceptance. |
+| [#1471](https://github.com/relativityE/speaksharp/issues/1471) | Its specific NULL-evidence casualty is closed; separate Start residuals are [#1491](https://github.com/relativityE/speaksharp/issues/1491), completeness [#1472](https://github.com/relativityE/speaksharp/issues/1472), and deployed journey [#1258](https://github.com/relativityE/speaksharp/issues/1258). |
+| [#1476](https://github.com/relativityE/speaksharp/issues/1476) | Implementation closed after #1525; separate deployed acceptance transferred to [#1258](https://github.com/relativityE/speaksharp/issues/1258) / [#1593](https://github.com/relativityE/speaksharp/issues/1593). |
+| [#1452](https://github.com/relativityE/speaksharp/issues/1452) | [Closed superseded/OBE for CR-091](https://github.com/relativityE/speaksharp/issues/1452#issuecomment-5782362326). Not an active retention assignment or a claim that every retention journey passed. Any fresh supported failure uses existing [#1491](https://github.com/relativityE/speaksharp/issues/1491) triage and [#1258](https://github.com/relativityE/speaksharp/issues/1258) acceptance, without reopening the old casualty by implication. |
+
+### Existing sequence and consolidated intake
+
 - #1606 → #1607 → option A retains its existing sequence where the live owner disposition still applies; old hashes are never new assignments.
 - #1619/#1637 schema-source integration, #1611 backend staging, migration application, runtime deployment and deletion activation are separate checkpoints.
 - [Sam's consolidated #1318 intake](https://github.com/relativityE/speaksharp/issues/1318#issuecomment-6234021735) retains signed-versus-owner-dispatched wording, six refutations/identifier aliases, retrospective evidence, old-bundle skew and release-tag decisions for the existing final batch. No separate documentation PR per row is required.
@@ -76,9 +89,11 @@ Accepted work, deferred. Nothing in this section is declined, and nothing is dro
 
 ### Retained engineering debt
 
+**Current post-MVP model lane:** [#1304](https://github.com/relativityE/speaksharp/issues/1304) / [#1565](https://github.com/relativityE/speaksharp/issues/1565), reusing prepared evaluator [#1567](https://github.com/relativityE/speaksharp/pull/1567) and primary/fallback policy [#1568](https://github.com/relativityE/speaksharp/pull/1568). CLI Dev owns both implementations; Browser PM owns plan/evidence review, and PO owns model promotion/activation. [Completed plan6233865706](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6233865706) is [accepted6234300811](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6234300811): reuse it, do not commission another plan. **v2 may complete current MVP**; no model evaluation, download or activation is commissioned by this roadmap.
+
 | Issues | Reason |
 |---|---|
-| #1275, #1312, #1322, #1340, #1398, #1462 | Dependency/runtime runway, CI optimization, retired remnants, generated-type maintenance, proof-selector hardening, and future v4 research are retained debt, not current RWT blockers unless they reproduce a user-facing P0/P1. |
+| #1275, #1312, #1322, #1340, #1398 | Dependency/runtime runway, CI optimization, retired remnants, generated-type maintenance and proof-selector hardening are retained debt, not current RWT blockers unless they reproduce a user-facing P0/P1. Closed #1462 is historical v4 provenance; the current model lane and owners are named above. |
 
 ### Accepted product and business workstreams
 
@@ -130,7 +145,7 @@ duplicate — for the parked enterprise/team and demand-validation workstreams, 
 - Moonshine is **deferred until after RWT or MVP** by Product Owner decision and is not part of current RWT qualification. The raw long-form failure evidence stands and is preserved; deferring the candidate does not retract the observation.
 - No output deduplication/sanitization may hide a repetition loop.
 - Exactly one **What went well** and one **What to improve** suggestion per eligible saved session.
-- Newest-one transcript retention remains the approved target; application/activation observations and any outstanding #1452 disposition belong in `RELEASE_STATUS.md`. This roadmap grants no retention mutation authority.
+- Newest-one transcript retention remains the approved target; application/activation observations belong in `RELEASE_STATUS.md`. #1452's specific casualty is closed superseded/OBE, not a standing blocker. This roadmap grants no retention mutation authority.
 - No Production migration, configuration, credential, account, payment, deployment, RWT, or merge without exact-action authority.
 
 ## Stop conditions
