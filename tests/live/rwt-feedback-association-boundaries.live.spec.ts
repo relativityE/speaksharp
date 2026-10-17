@@ -20,6 +20,9 @@ import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
+import {
+    readStoredDiagnosticRef, writeNoSessionReportRows, writeOlderTakeBindingRow, writeOlderTakeReportRows, type StoredDiagnosticRef,
+} from './helpers/feedbackDiagnosticRef';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 import {
@@ -127,7 +130,7 @@ async function submitFeedback(
     association: 'selected_older_session' | 'no_session',
     sessionId: string | null,
     newerSessionId?: string,
-): Promise<{ id: string | null; sessionId: string | null; diagnosticRef: string | null; storedRows: number; acknowledged: boolean }> {
+): Promise<{ id: string | null; sessionId: string | null; diagnosticRef: StoredDiagnosticRef; storedRows: number; acknowledged: boolean }> {
     await page.goto('/analytics');
     await expect(page.getByTestId('nav-report-issue-button').first()).toBeVisible({ timeout: 45_000 });
     await page.getByTestId('nav-report-issue-button').first().click();
@@ -170,7 +173,8 @@ async function submitFeedback(
     const row = rows.length === 1 ? rows[0] : null;
     const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata as Record<string, unknown> : {};
     const storedSession = typeof row?.session_id === 'string' ? row.session_id : null;
-    const diagnosticRef = typeof metadata.coaching_diagnostic_ref === 'string' ? metadata.coaching_diagnostic_ref : null;
+    // #1539 / #1491 6123627243: absent, valid and MALFORMED are distinct — a malformed stored link is never "no link".
+    const diagnosticRef = readStoredDiagnosticRef(metadata);
     return { id: row ? String(row.id) : null, sessionId: storedSession, diagnosticRef, storedRows: rows.length, acknowledged };
 }
 
@@ -220,13 +224,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             receipt.row('older take coaching request observed', olderRequests.length > 0 ? 'PASS' : 'HOLD',
                 olderRequests.length > 0 ? 'the browser sent a coaching request bound to the older saved take' : 'no older-take coaching request was captured');
             const stored = await submitFeedback(page, tap, owner.uid, 'selected_older_session', olderId, newerId);
+            // Captured FIRST: whatever the stored reference holds, cleanup and retention bookkeeping keep this report id.
             reportId = stored.id;
-            receipt.row('older-take report stored once', stored.storedRows === 1 && stored.id ? 'PASS' : 'FAIL',
-                stored.storedRows === 1 && stored.id ? 'one feedback report was acknowledged and read back' : 'feedback was not stored exactly once',
-                { storedRows: stored.storedRows });
-            const correctSession = stored.sessionId === olderId;
-            receipt.row('older-take association', correctSession ? 'PASS' : 'FAIL',
-                correctSession ? 'the persisted report references the selected older take' : 'the persisted report does not reference the selected older take');
+            writeOlderTakeReportRows(receipt, stored, olderId);
             // #1594 (PM 6120326867): the #1590 contract on the SELECTED OLDER take — its own sent request, never the newer
             // take's (named as current so the contract refuses a borrowed link). Settled only by the received readback.
             await generations.settle();
@@ -235,18 +235,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 acknowledgementVisible: stored.acknowledged,
                 exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'open_mic',
             });
-            const exactOlderRequest = Boolean(stored.diagnosticRef && olderRequests.includes(stored.diagnosticRef));
-            const excludesCurrent = stored.diagnosticRef === null || !newerRequests.includes(stored.diagnosticRef);
-            // Codex P1 r4247450898: "not the newer take" is proven only against an OBSERVED newer-take request; with none, HOLD.
-            const bindingVerdict = olderRequests.length === 0 || newerRequests.length === 0 || stored.diagnosticRef === null ? 'HOLD'
-                : exactOlderRequest && excludesCurrent ? 'PASS' : 'FAIL';
-            receipt.row('older-take diagnostic binding', bindingVerdict,
-                bindingVerdict === 'PASS' ? 'the report references a request sent for the older take and not the newer take'
-                    : bindingVerdict === 'HOLD' ? (newerRequests.length === 0 && olderRequests.length > 0 && stored.diagnosticRef !== null
-                        ? 'the newer take sent no observed coaching request, so excluding it is unproven'
-                        : 'the older take has no captured request link, so binding is unproven')
-                        : 'the report references an unrelated or newer-take diagnostic request',
-                { olderRequests: olderRequests.length, newerRequests: newerRequests.length });
+            writeOlderTakeBindingRow(receipt, stored, olderRequests, newerRequests);
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
@@ -289,14 +278,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             claimed = ready;
             if (!ready) return;
             const stored = await submitFeedback(page, tap, owner.uid, 'no_session', null);
+            // Captured FIRST: whatever the stored reference holds, cleanup and retention bookkeeping keep this report id.
             reportId = stored.id;
-            receipt.row('no-session report stored once', stored.storedRows === 1 && stored.id ? 'PASS' : 'FAIL',
-                stored.storedRows === 1 && stored.id ? 'one no-session feedback report was acknowledged and read back' : 'feedback was not stored exactly once',
-                { storedRows: stored.storedRows });
-            receipt.row('no-session association', stored.sessionId === null ? 'PASS' : 'FAIL',
-                stored.sessionId === null ? 'the report has no session association' : 'the report was linked to a session despite No session being selected');
-            receipt.row('no-session diagnostic binding', stored.diagnosticRef === null ? 'PASS' : 'FAIL',
-                stored.diagnosticRef === null ? 'the report has no coaching diagnostic reference' : 'the report borrowed a coaching diagnostic reference');
+            writeNoSessionReportRows(receipt, stored);
         } catch (error) {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
