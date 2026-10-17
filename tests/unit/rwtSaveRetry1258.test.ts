@@ -39,7 +39,7 @@ describe('completionDropDisposition — the fault was actually exercised', () =>
 
 describe('recoveryBannerVerdict — every claim is true of the page', () => {
     const ok = {
-        bannerShown: true, resolution: 'full_save', retryOffered: true, wordsOnPage: 80,
+        bannerShown: true, resolution: 'full_save', retryOffered: true, wordsOnPage: 80, completedBeforeRetry: 0,
         message: `${RECOVERY_COPY.full_save} ${RECOVERY_COPY.words}`,
     };
     it('the truthful banner → PASS', () => { expect(recoveryBannerVerdict(ok).status).toBe('PASS'); });
@@ -54,6 +54,22 @@ describe('recoveryBannerVerdict — every claim is true of the page', () => {
         expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save }).detail, 'words on the page but no claim').toMatch(/does not say they are still here/);
         expect(recoveryBannerVerdict({ ...ok, wordsOnPage: 0 }).detail, 'a words claim with none on the page').toMatch(/none are on the page/);
         expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save, wordsOnPage: 0 }).status, 'no words, no claim: truthful').toBe('PASS');
+    });
+    // #1474 (Sam 6242612760): request-lost (server saved nothing) and response-lost (server committed, answer lost) look the
+    // same to the page, so the copy may only claim what the page knows. Equality with the component's copy is not truth.
+    it('the unconfirmed-save copy is truthful in BOTH variants: request-lost (0 completed) and response-lost (1 completed)', () => {
+        expect(RECOVERY_COPY.full_save).toMatch(/couldn’t confirm/);
+        expect(recoveryBannerVerdict({ ...ok, completedBeforeRetry: 0 }).status, 'request-lost').toBe('PASS');
+        expect(recoveryBannerVerdict({ ...ok, completedBeforeRetry: 1 }).status, 'response-lost').toBe('PASS');
+    });
+    it('a DEFINITE "not saved" claim after the server already committed → FAIL, even when it equals the shipped copy', () => {
+        for (const claim of ['Your last recording was not fully saved.', 'Your last recording was not saved.', 'This take isn’t saved.']) {
+            const verdict = recoveryBannerVerdict({ ...ok, completedBeforeRetry: 1, message: `${claim} ${RECOVERY_COPY.words}` });
+            expect(verdict.status, claim).toBe('FAIL');
+            expect(verdict.detail, claim).toMatch(/server had already saved it/);
+        }
+        // The same definite wording with nothing committed is not a FALSE claim; it fails only as the wrong copy.
+        expect(recoveryBannerVerdict({ ...ok, message: `Your last recording was not fully saved. ${RECOVERY_COPY.words}` }).detail).toMatch(/does not match/);
     });
 });
 
