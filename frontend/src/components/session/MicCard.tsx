@@ -35,7 +35,10 @@ export interface MicCardProps {
      * can transcribe, so a first-time user must be able to trigger + watch that here.
      */
     privateModelStatus?: string;
-    /** 0..1 download/init progress while the model is loading. */
+    /**
+     * Download/init progress while the model is loading, as the session store publishes it: an integer PERCENT,
+     * 0–100 (`useSessionStore.normalizeModelLoadingProgress`), or null when there is none to show.
+     */
     modelLoadingProgress?: number | null;
     /** Begin the one-time model download (when download-required). */
     onDownloadModel?: () => void;
@@ -76,7 +79,10 @@ export const MicCard: React.FC<MicCardProps> = ({
     const downloadRequired = privateModelStatus === 'download-required';
     const loading = privateModelStatus === 'loading';
     const modelError = privateModelStatus === 'init-failed' || privateModelStatus === 'error';
-    const pct = typeof modelLoadingProgress === 'number' ? Math.round(Math.max(0, Math.min(1, modelLoadingProgress)) * 100) : null;
+    // #1491 6238566653 — the prop is already a PERCENT. Reading it as a 0..1 fraction made every value from 1 upwards
+    // render as 100%, so a cold Private download claimed to be complete from its first percent.
+    const pct = typeof modelLoadingProgress === 'number' && Number.isFinite(modelLoadingProgress)
+        ? Math.round(Math.max(0, Math.min(100, modelLoadingProgress))) : null;
 
     // Status line (top-left): ready / needs one-time download / DOWNLOADING (with %) / problem. While the
     // model downloads, this is the user's progress cue (it replaces the removed status-notification bar).
