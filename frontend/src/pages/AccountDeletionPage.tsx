@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { getSupabaseClient } from '@/lib/supabaseClient';
@@ -33,9 +33,15 @@ export default function AccountDeletionPage() {
   const [completed, setCompleted] = useState(false);
   const [reconciliationPending, setReconciliationPending] = useState(false);
   const inFlight = useRef(false);
+  const activeAccount = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    activeAccount.current = user?.id ?? null;
+    return () => { activeAccount.current = null; };
+  }, [user?.id]);
 
   const submit = async (action: 'request' | 'confirm') => {
     if (inFlight.current || !user || (action === 'confirm' && (!token || !confirmed))) return;
+    const submittingAccount = user.id;
     inFlight.current = true;
     setBusy(true);
     setMessage(null);
@@ -56,6 +62,7 @@ export default function AccountDeletionPage() {
         return;
       }
       // Confirmation is never automatically replayed, including an uncertain network result.
+      if (activeAccount.current !== submittingAccount) throw new Error('Confirmation account is no longer active');
       clearAccountDeletionToken();
       setToken(null);
       setConfirmed(false);
