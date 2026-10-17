@@ -11,11 +11,13 @@
  * containment), fillers/pace/words in THIS RUN only (PM 6045315752 removed counts from every review-band state),
  * Practice again enabled, the microphone, and no playback transport.
  *
- * TWO UNMET REQUIREMENTS on main, each kept as a strict oracle in a `test.fail` (tracking, never acceptance) that flips
- * red the moment the product meets it:
- *   - ALL FOUR SLOT TOPS identical across saved, pending and terminal states (Sam RETURN 6235391344). Slots A and B hold,
- *     but slot B's height follows the review, so the transcript/THIS RUN row (C/D) moves vertically between states.
- *   - "Count look wrong?", the spec's correction path: no caller gives `ThisRunCard` an opener, so it never renders.
+ * ONE UNMET REQUIREMENT on main, kept as a strict oracle in a `test.fail` (tracking, never acceptance) that flips red the
+ * moment the product meets it: ALL FOUR SLOT TOPS identical across saved, pending and terminal states (Sam RETURN
+ * 6235391344). Slots A and B hold, but slot B's height follows the review, so the transcript/THIS RUN row (C/D) moves
+ * vertically between states.
+ *
+ * "Count look wrong?", the spec's correction path, is now a passing check (#1474 opener, PR #1649): it renders in THIS
+ * RUN and opens the existing Share Feedback dialog, with focus returning to it on close and nothing sent.
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures';
@@ -353,19 +355,26 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
         }
     });
 
-    test('"Count look wrong?" — the correction path in THIS RUN (UNMET: no caller wires ThisRunCard.onCountLookWrong)', async ({ page }) => {
+    test('"Count look wrong?" — the correction path in THIS RUN opens Share Feedback; focus returns; nothing is sent', async ({ page }) => {
         test.setTimeout(120_000);
         const consoleGuard = guardConsole(page);
         const isolation = isolateFromExternalNetwork(page);
         await recordSavedTake(page, ['pair']);
         await expect(page.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
-        await expect(page.getByTestId('this-run-card'), 'setup: THIS RUN rendered').toBeVisible();
-        expect(consoleGuard.unexpected(), 'setup: no unexpected console error').toEqual([]);
+        const link = page.getByTestId('this-run-card').getByRole('button', { name: 'Count look wrong?' });
+        await expect(link, 'the correction path renders in THIS RUN').toBeVisible({ timeout: 5_000 });
+        // Keyboard: the link opens exactly one Share Feedback dialog — the Navigation-owned one, not a second form.
+        await link.focus();
+        await page.keyboard.press('Enter');
+        await expect(page.getByRole('heading', { name: 'Share feedback' })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByRole('dialog')).toHaveCount(1);
+        await expect(page.getByTestId('issue-report-submit'), 'opening sends nothing on its own').toBeVisible();
+        // Escape closes it without sending; focus returns to the link that asked.
+        await page.keyboard.press('Escape');
+        await expect(page.getByRole('heading', { name: 'Share feedback' })).toHaveCount(0);
+        await expect(link).toBeFocused();
+        await expect(page.getByText('Thanks — we’ve got it.'), 'no report was sent').toHaveCount(0);
+        expect(consoleGuard.unexpected(), 'no unexpected console error').toEqual([]);
         await expectIsolated(isolation);
-        // Marked only now, after the saved review rendered, so a setup failure can never pass as this known failure.
-        // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
-        test.info().annotations.push({ type: 'unmet-requirement', description: '#1474 G10 "Count look wrong?" — not rendered on main' });
-        test.fail(true, 'UNMET on main: "Count look wrong?" is never rendered');
-        await expect(page.getByTestId('this-run-card').getByRole('button', { name: 'Count look wrong?' })).toBeVisible({ timeout: 5_000 });
     });
 });
