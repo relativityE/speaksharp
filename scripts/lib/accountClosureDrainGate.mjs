@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const ACCOUNT_CLOSURE_DRAIN_SHA256 = '7e1f1b9aa6f0daae31329f1ffe4e7eca205d19b8e9b0f2100c6f540ef0986e9e';
+export const ACCOUNT_CLOSURE_DRAIN_SHA256 = 'd8a5b1d153890167869b2e7d366fb1ae3dd1272a67cd26f3980e6d2cd5233145';
 // Logical pg_catalog identities derived from the pinned SQL; no environment OIDs.
 const tables = {
     account_closure_attestation_state: '97ae92721a822b2a3c5ef5b896cffb26',

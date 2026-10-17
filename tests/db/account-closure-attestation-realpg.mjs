@@ -1,4 +1,4 @@
-// Real-PG check of the proposed persistence ACL/atomic invalidation boundary.
+// Real-PG check of the versioned persistence ACL/atomic invalidation boundary.
 // Synthetic evidence only; no platform/provider observations or activation.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
@@ -51,7 +51,7 @@ try {
         .match(/await db\.exec\(`\n([\s\S]*?)`\);/); assert.ok(fixture);
     sql(fixture[1]);
     sql(`SET ROLE closure_owner; ${readFileSync('backend/supabase/migrations/20261013180000_account_closure_tokens.sql', 'utf8')}
-      ${readFileSync('scripts/rollout/account-closure-attestation-proposal.sql', 'utf8')} RESET ROLE;`);
+      ${readFileSync('backend/supabase/migrations/20261016090000_account_closure_drain_persistence.sql', 'utf8')} RESET ROLE;`);
     const record = { version: 1, candidateSha: 'a'.repeat(40), mainSha: 'b'.repeat(40), migrationDigest: 'c'.repeat(64), target: {},
         deployments: [], configDigest: 'd'.repeat(64), payments: { frontendEnabled: false, backendEnabled: false }, operatorId: 'fixture',
         createdAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 600000).toISOString(),

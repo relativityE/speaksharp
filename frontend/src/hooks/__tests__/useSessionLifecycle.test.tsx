@@ -390,6 +390,36 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
      * that it did not: a regression removing the check here would have left it green while take C was
      * admitted. This drives the real hook and asserts what the user's click actually does.
      */
+    /**
+     * #1258 RWT round 2 C — a recovered save enters the same review as a successful Stop. The Stop handler is the only
+     * writer of the after-state flag and a failed Stop ends in its catch, so the controller's owner-fenced
+     * `recoveredSaveSessionId` is what licenses the review. CONTROL: never over a take that is recording.
+     */
+    it('#1258 C: a recovered save (recoveredSaveSessionId) enters the review', async () => {
+        const mockStore = createTestSessionStore({ sttMode: 'private', isListening: false, runtimeState: 'FAILED' });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        expect(result.current.showAnalyticsPrompt, 'precondition: a failed Stop left no review').toBe(false);
+        await act(async () => { mockStore.setState({ recoveredSaveSessionId: 'session-A' }); });
+        await waitFor(() => expect(result.current.showAnalyticsPrompt, 'the recovered take is reviewed').toBe(true));
+    });
+
+    it('#1258 C CONTROL: a recovery signal never opens the review over a take that is recording', async () => {
+        const mockStore = createTestSessionStore({ sttMode: 'private', isListening: true, runtimeState: 'RECORDING' });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        await act(async () => { mockStore.setState({ recoveredSaveSessionId: 'session-A' }); });
+        expect(result.current.showAnalyticsPrompt).toBe(false);
+    });
+
     it('#1431: a start is REFUSED while a previous take is still finalizing', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',

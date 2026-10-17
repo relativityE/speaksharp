@@ -185,7 +185,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // neither registration nor this exact apply authorizes activation.
         version: '20261016090000',
         file: '20261016090000_account_closure_drain_persistence.sql',
-        sha256: '7e1f1b9aa6f0daae31329f1ffe4e7eca205d19b8e9b0f2100c6f540ef0986e9e',
+        sha256: 'd8a5b1d153890167869b2e7d366fb1ae3dd1272a67cd26f3980e6d2cd5233145',
         classification: 'staged',
     }),
     Object.freeze({

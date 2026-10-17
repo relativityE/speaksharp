@@ -8,9 +8,11 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 import console from 'node:console';
 import { accountClosureEnforcementStages } from '../../scripts/lib/accountClosureEnforcementGate.mjs';
+import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage, proofPostgresVersion, proofSubprocessFailure } from './account-closure-full-chain-diagnostics.mjs';
 
 const root = resolve('backend/supabase/migrations');
 const candidate = '20261016180000_account_closure_drain_enforcement.sql';
+const postgresVersion = proofPostgresVersion(process.env.PROOF_POSTGRES_VERSION);
 const files = readdirSync(root).filter((file) => file.endsWith('.sql')).sort();
 assert.ok(files.includes(candidate), 'closure candidate missing');
 const manifest = files.map((name) => {
@@ -41,14 +43,11 @@ const resourcesFile = join(evidence, 'resources.json');
 const run = (bin, args, options = {}) => {
   const result = spawnSync(bin, args, { env, encoding: 'utf8', timeout: 12 * 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
   if (result.error || result.status !== 0) {
-    const stderr = result.stderr ?? '';
-    const lines = stderr.split('\n');
-    const failure = lines.findIndex((line) => /\b(?:ERROR:|FATAL:|SQLSTATE|Error response from daemon)/.test(line));
-    const context = failure < 0 ? stderr.slice(0, 4000)
-      : lines.slice(Math.max(0, failure - 4), failure + 8).join('\n').slice(0, 4000);
-    const diagnostic = stderr.length > 8000
-      ? `${context}\n[bounded diagnostic: middle omitted]\n${stderr.slice(-4000)}` : stderr;
-    throw new Error(`${bin} ${args[0]} failed: ${result.error?.message ?? diagnostic}`);
+    const diagnostic = proofSubprocessFailure(bin, args, result);
+    const error = new Error(`${diagnostic.command} failed (status=${diagnostic.status}, signal=${diagnostic.signal}):\n`
+      + `stdout:\n${diagnostic.stdout}\nstderr:\n${diagnostic.stderr}`);
+    error.subprocess = diagnostic;
+    throw error;
   }
   return result.stdout.trim();
 };
@@ -112,6 +111,9 @@ try {
   // Fresh, unlinked configuration: never copy project-ref, seed, functions or
   // operator credentials from the application or an installed local stack.
   writeFileSync(join(directory, 'config.toml'), `project_id = "${id}"\n[db]\nmajor_version = 17\n[db.seed]\nenabled = false\n`);
+  // Supported CLI selector; fresh staging only, never an installed/project DB.
+  mkdirSync(join(directory, '.temp'), { recursive: true });
+  writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
   for (const file of files.filter((name) => name !== candidate)) cpSync(join(root, file), join(directory, 'migrations', file));
   // Internal-only bridges do not publish the localhost DB port used by the
   // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
@@ -126,9 +128,25 @@ try {
   writeFileSync(resourcesFile, JSON.stringify({ id, stage, networkName, subnet }));
   run('sudo', ['iptables', '-w', '-I', ...firewallArgs(id, subnet)]);
   run('sudo', ['iptables', '-w', '-C', ...firewallArgs(id, subnet)]);
+  // Pull the approved immutable content, then provide the tag expected by the
+  // supported CLI selector. Post-start verification refuses retag/substitution.
+  const imagePin = proofPostgresImage(postgresVersion);
+  run('docker', ['pull', '--platform', 'linux/amd64', imagePin.repositoryDigest]);
+  run('docker', ['tag', imagePin.repositoryDigest, imagePin.tag]);
   cli(['start', '--network-id', network.Id, '--exclude', 'studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor']);
   const container = JSON.parse(run('docker', ['inspect', containerName]))[0];
   assert.deepEqual(Object.keys(container.NetworkSettings.Networks), [networkName], 'database escaped the owned internal network');
+  const image = JSON.parse(run('docker', ['image', 'inspect', container.Image]))[0];
+  writeFileSync(join(evidence, 'database-image.json'), JSON.stringify(proofImageEvidence(postgresVersion, container, image), null, 2));
+  const databaseVersion = JSON.parse(sql(`SELECT json_build_object('version',version(),
+    'serverVersionNum',current_setting('server_version_num'),
+    'sharedPreloadLibraries',current_setting('shared_preload_libraries',true),
+    'sessionPreloadLibraries',current_setting('session_preload_libraries',true),
+    'supautilsHintRoles',current_setting('supautils.hint_roles',true),
+    'supautilsReservedRoles',current_setting('supautils.reserved_roles',true),
+    'supautilsVersionSetting',current_setting('supautils.version',true),
+    'extensions',(SELECT json_agg(json_build_object('name',extname,'version',extversion) ORDER BY extname) FROM pg_extension))::text;`));
+  writeFileSync(join(evidence, 'database-version.json'), JSON.stringify(databaseVersion, null, 2));
   assert.equal(Math.floor(Number(sql("SELECT current_setting('server_version_num');")) / 10000), 17);
   assert.deepEqual(history(), migrations.filter((row) => row.name !== candidate).map((row) => row.version), 'baseline replay is incomplete');
   verifyEnforcement('before');
@@ -137,6 +155,12 @@ try {
   const baselineProof = sql(readFileSync('tests/db/account-closure-full-chain.sql', 'utf8'));
   assert.ok(baselineProof.includes('ACCOUNT CLOSURE FULL-CHAIN INVARIANTS PASSED'), 'baseline proof marker absent');
   console.log('ACTUAL SUPABASE BASELINE REPLAY PASSED');
+  // Diagnose the provider's general ACL-error hook before119 changes grants.
+  // Failure is real and remains FAIL; it never bypasses the full proof.
+  const denialControl = sql(readFileSync('tests/db/account-closure-denial-control.sql', 'utf8'));
+  assert.ok(denialControl.includes('ACCOUNT CLOSURE DISPOSABLE DENIAL CONTROL PASSED'), 'disposable denial control absent');
+  writeFileSync(join(evidence, 'denial-control.json'), JSON.stringify({ baselineMigrations: migrations.length - 1,
+    selectedPostgresVersion: postgresVersion, status: 'PASS', productionProof: false }));
   cpSync(join(root, candidate), join(directory, 'migrations', candidate));
   cli(['migration', 'up', '--local']);
   assert.deepEqual(history(), migrations.map((row) => row.version), 'candidate history is incomplete');
@@ -152,6 +176,16 @@ try {
 } catch (error) {
   primaryError = error;
 } finally {
+  // Must precede supabase stop/removal: otherwise the crashing backend's state,
+  // OOM indicator, server signal and stage output are permanently lost.
+  try {
+    writeFileSync(join(evidence, 'database-diagnostics.json'), JSON.stringify(captureOwnedDatabaseDiagnostics(containerName, env), null, 2));
+    if (primaryError?.subprocess) writeFileSync(join(evidence, 'subprocess-failure.json'), JSON.stringify(primaryError.subprocess, null, 2));
+  } catch (error) {
+    try {
+      writeFileSync(join(evidence, 'diagnostic-capture-failure.json'), JSON.stringify({ message: 'owned database diagnostics unavailable', code: error?.code ?? null }));
+    } catch { /* Artifact storage failure must not prevent owned resource cleanup. */ }
+  }
   try {
     cleanupOwned({ id, stage, networkName, subnet });
   } catch (error) { cleanupError = error; }
@@ -160,6 +194,7 @@ try {
     candidate: migrations.at(-1), migrations: migrations.length, realSupabaseSchema,
     testedCommit: run('git', ['rev-parse', 'HEAD']), requestedHead: process.env.PROOF_HEAD_SHA,
     providerProof: false, cleanupVerified: !cleanupError,
+    selectedPostgresVersion: postgresVersion, imageComparisonOnly: postgresVersion === '17.6.1.106', productionRepresentativenessVerified: false,
     error: primaryError?.message, cleanupError: cleanupError?.message,
   }, null, 2));
 }

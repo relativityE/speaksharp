@@ -89,17 +89,20 @@ $$;
 CREATE FUNCTION public.invalidate_account_closure_drain_attestations(
   p_expected_generation bigint, p_reason text, p_evidence_digest text)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE state public.account_closure_attestation_state;
+DECLARE state public.account_closure_attestation_state; invalidation_at timestamptz;
 BEGIN
   PERFORM 1 FROM public.account_billing_coordination WHERE singleton FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'coordination state missing'; END IF;
   SELECT * INTO STRICT state FROM public.account_closure_attestation_state WHERE singleton FOR UPDATE;
+  -- A waiting invalidation may start before registration records its timestamp.
+  -- Sample once after BOTH locks so all revoked records retain causal ordering.
+  invalidation_at:=clock_timestamp();
   IF p_expected_generation IS DISTINCT FROM state.generation THEN RAISE EXCEPTION 'stale invalidation generation'; END IF;
   IF p_reason IS NULL OR p_reason NOT IN ('rollback','deployment_changed','config_changed','uncertain_writer','expired')
     OR p_evidence_digest IS NULL OR p_evidence_digest !~ '^[a-f0-9]{64}$'
     THEN RAISE EXCEPTION 'invalidation evidence required'; END IF;
   UPDATE public.account_billing_coordination SET checkout_workers_drained=false,evidence_reference=NULL WHERE singleton;
-  UPDATE public.account_closure_drain_attestations SET invalidated_at=statement_timestamp(),
+  UPDATE public.account_closure_drain_attestations SET invalidated_at=invalidation_at,
     invalidation_reason=p_reason,invalidation_evidence_digest=p_evidence_digest WHERE invalidated_at IS NULL;
   UPDATE public.account_closure_attestation_state SET generation=generation+1,binding_digest=NULL WHERE singleton;
   RETURN state.generation+1;

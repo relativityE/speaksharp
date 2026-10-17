@@ -8,6 +8,7 @@ on:
       - 'tests/db/account-closure-concurrency-realpg.mjs'
       - 'tests/db/account-closure-tokens.integration.test.ts'
       - 'tests/db/account-closure-enforcement-full-chain.sql'
+      - 'tests/db/account-closure-denial-control.sql'
       - 'scripts/lib/accountClosure*'
       - 'scripts/account-closure-*-gate.mjs'
       - '.github/workflows/account-closure-full-chain-proof.yml'
@@ -21,6 +22,7 @@ concurrency:
 
 jobs:
   proof:
+    name: Supabase 17.6.1.155 immutable full-chain proof
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -28,6 +30,9 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ''
       SUPABASE_DB_PASSWORD: ''
       PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # Original106 FAIL and fixed155 PASS retained in run38972853890.
+      # Driver pins/verifies immutable image content, not merely this tag.
+      PROOF_POSTGRES_VERSION: '17.6.1.155'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -68,7 +73,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: account-closure-full-chain-${{ github.event.pull_request.head.sha }}
+          name: account-closure-full-chain-17.6.1.155-${{ github.event.pull_request.head.sha }}
           path: artifacts/account-closure-full-chain/*.json
           if-no-files-found: error
           retention-days: 1
