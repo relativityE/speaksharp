@@ -21,7 +21,7 @@
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { mockLiveTranscript, navigateToRoute, programmaticLoginWithRoutes, startRecording, stopRecording } from './helpers';
+import { mockLiveTranscript, navigateToRoute, programmaticLoginWithRoutes, simulateTranscription, startRecording, stopRecording } from './helpers';
 import { TEST_IDS } from '../constants';
 
 test.use({ viewport: { width: 1280, height: 800 } });
@@ -31,21 +31,31 @@ const FOLD = 800;
 const SPEECH = ['So um I think we should start with the main point.', 'Uh and then we close on the next step, um, today.'];
 /** Pace is stated only from 15 s of speech (MIN_LIVE_PACE_SECONDS), so each take runs past it. */
 const TAKE_MS = 16_500;
-const PAIR = {
+type Pair = { version: string; what_worked: string; what_to_try_next: string };
+const PAIR: Pair = {
     version: 'gemini_coaching_v1',
     what_worked: 'You opened with the point.',
     what_to_try_next: 'Pause before the takeaway.',
 };
+/** The tallest Open Mic pair the server serves: both fields at `COACHING_CHARACTER_CEILING` (240). */
+const MAX_PAIR: Pair = {
+    version: 'gemini_coaching_v1',
+    what_worked: 'You opened with the point and kept it clear. '.repeat(6).slice(0, 240),
+    what_to_try_next: 'Pause before the takeaway so it lands with weight. '.repeat(6).slice(0, 240),
+};
 
-/** One scripted answer per review request: the persisted pair, an HTTP status, or a request that never arrived. */
-type Answer = 'pair' | 'network' | { status: number };
+/**
+ * One scripted answer per review request: the persisted pair, an HTTP status, a request that never arrived, or the pair
+ * HELD in flight until the spec releases it (`__releaseReview1474__`).
+ */
+type Answer = 'pair' | 'held-pair' | 'network' | { status: number };
 
 /**
  * Wraps the e2e double's `functions.invoke` for `get-ai-suggestions` only. Each request takes the next scripted answer
  * (the last one repeats); a status rejects the way supabase-js does, a `FunctionsHttpError` with the `Response` on
  * `context`, and `network` the way a dropped request does, a `FunctionsFetchError` with no status. Requests are counted.
  */
-async function scriptReview(page: Page, answers: Answer[]): Promise<() => Promise<number>> {
+async function scriptReview(page: Page, answers: Answer[], pairToServe: Pair = PAIR): Promise<() => Promise<number>> {
     await page.waitForFunction(() => Boolean((window as unknown as { supabase?: unknown }).supabase));
     await page.evaluate(({ script, pair }) => {
         type Invoke = (name: string, options?: unknown) => Promise<unknown>;
@@ -57,13 +67,18 @@ async function scriptReview(page: Page, answers: Answer[]): Promise<() => Promis
             const answer = script[Math.min(w.__reviewRequests1474__, script.length - 1)];
             w.__reviewRequests1474__ += 1;
             if (answer === 'pair') return Promise.resolve({ data: { suggestions: pair }, error: null });
+            if (answer === 'held-pair') {
+                return new Promise((resolve) => {
+                    (window as unknown as { __releaseReview1474__?: () => void }).__releaseReview1474__ = () => resolve({ data: { suggestions: pair }, error: null });
+                });
+            }
             if (answer === 'network') {
                 return Promise.resolve({ data: null, error: { name: 'FunctionsFetchError', message: 'Failed to send a request to the Edge Function' } });
             }
             const context = new Response(JSON.stringify({ error: 'scripted' }), { status: answer.status, headers: { 'Content-Type': 'application/json' } });
             return Promise.resolve({ data: null, error: { name: 'FunctionsHttpError', message: 'Edge Function returned a non-2xx status code', context } });
         };
-    }, { script: answers, pair: PAIR });
+    }, { script: answers, pair: pairToServe });
     return () => page.evaluate(() => (window as unknown as { __reviewRequests1474__: number }).__reviewRequests1474__);
 }
 
@@ -149,10 +164,10 @@ async function expectIsolated(isolation: Isolation) {
     expect(isolation.reached(), 'no response came from a server off localhost').toEqual([]);
 }
 
-async function recordSavedTake(page: Page, answers: Answer[]): Promise<() => Promise<number>> {
+async function recordSavedTake(page: Page, answers: Answer[], pair: Pair = PAIR): Promise<() => Promise<number>> {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    const requests = await scriptReview(page, answers);
+    const requests = await scriptReview(page, answers, pair);
     await startRecording(page);
     await mockLiveTranscript(page, SPEECH);
     await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15_000 });
@@ -377,4 +392,221 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
         expect(consoleGuard.unexpected(), 'no unexpected console error').toEqual([]);
         await expectIsolated(isolation);
     });
+});
+
+// ── #1474 γ — natural growth, useful feedback at eye level (Sam 6240521998) ─────────────────────────────────────────────
+//
+// Natural growth is accepted: section identity and order are stable, and the C/D row may move with the review's height.
+// What replaces the strict all-four-tops oracle (which stays above as `test.fail` until this is reviewed):
+//   1. USEFUL COACHING AT EYE LEVEL — in the initial review view (the page scrolls to the top when the review settles),
+//      the actual prescription ("Try this next run") is fully visible above any fixed bar; in pending and terminal states
+//      the truthful headline is. A card header sliver does not count.
+//   2. THE REPEAT/RETRY ACTION — Open Mic "Practice again", Focus "Retry this set" — is reachable and FULLY unobscured once
+//      brought into view, by keyboard focus and by scrolling, clear of the fixed bottom bar. Whether it is visible in the
+//      initial view is recorded separately (discoverability is distinct evidence from clearance).
+//   3. SECONDARY COUNTS — intact, readable and scroll-reachable; above or below the fold is REPORTED, never asserted visible.
+// Every state is measured at each supported viewport with the server's maximum coaching length and real saved evidence.
+
+const MAX_FOCUS_PAIR: Pair = { ...MAX_PAIR, version: 'gemini_coaching_focus_v1' };
+const FOCUS_POINTS = ['Name the price', 'State the guarantee', 'Explain the timeline', 'Mention the warranty', 'Offer the discount',
+    'Compare the competitors', 'Invite questions'] as const;
+const FOCUS_SPEECH = 'First I will name the price clearly. Then I state the guarantee we offer. Next I explain the timeline for delivery. '
+    + 'I also mention the warranty on every unit. Finally I offer the discount for early orders.';
+const DESKTOP_VIEWPORTS = [
+    { name: 'desktop 1280×800', width: 1280, height: 800 },
+    { name: 'desktop 1024×800', width: 1024, height: 800 },
+    { name: 'tablet 768×800', width: 768, height: 800 },
+] as const;
+const MOBILE_VIEWPORTS = [{ name: 'mobile 375×812', width: 375, height: 812 }] as const;
+type Viewport = (typeof DESKTOP_VIEWPORTS)[number] | (typeof MOBILE_VIEWPORTS)[number];
+/**
+ * Measured mobile gaps (OPEN, Sam 6240521998): each keeps its strict assertions in a test marked as an expected failure only
+ * after the take saved and was measured, annotated `unmet-requirement`, and flips red the moment the product meets it.
+ */
+const MOBILE_UNMET: Partial<Record<string, string>> = {
+    'open_mic · full': 'the full "Try this next run" box ends under the fixed bottom bar in the initial review view',
+    'open_mic · partial': 'keyboard focus leaves Practice again partly under the fixed bottom bar (the browser treats it as already in view)',
+    'focus_points · full': 'the full "Try this next run" box ends under the fixed bottom bar in the initial review view',
+};
+type Product = 'open_mic' | 'focus_points';
+type GammaState = 'full' | 'partial' | 'pending' | 'terminal';
+
+/** A saved Focus Points take on a full (7-point) brief whose speech covers five points, so the saved evidence is real. */
+async function focusSavedTake(page: Page, answers: Answer[], pair: Pair): Promise<void> {
+    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await navigateToRoute(page, '/practice');
+    await page.getByTestId('practice-card-objective').click();
+    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
+    await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
+    for (let i = 3; i < FOCUS_POINTS.length; i++) await page.getByTestId('objective-add-point').click();
+    for (let i = 0; i < FOCUS_POINTS.length; i++) await page.getByTestId(`objective-point-label-${i}`).fill(FOCUS_POINTS[i]);
+    await page.getByTestId('objective-setup-submit').click();
+    await page.waitForURL('**/session');
+    await scriptReview(page, answers, pair);
+    await startRecording(page);
+    await simulateTranscription(page, FOCUS_SPEECH, true);
+    await page.waitForTimeout(TAKE_MS);
+    await stopRecording(page);
+    await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
+}
+
+type ViewportResult = {
+    viewport: string;
+    coaching: { which: string; top: number; bottom: number; usableBottom: number; fullyVisible: boolean } | null;
+    action: { label: string; initiallyFullyVisible: boolean; afterFocus: Clearance; afterScroll: Clearance; enabled: boolean } | null;
+    counts: Array<{ row: string; bottom: number; aboveFold: boolean; reachable: boolean }>;
+};
+type Clearance = { top: number; bottom: number; usableBottom: number; fullyUnobscured: boolean; hitsItself: boolean; focused?: boolean };
+
+/**
+ * Where the element sits now, and whether it is FULLY unobscured: entirely inside the usable viewport — the window, or
+ * down to the top of a visible fixed bottom bar — with its centre hit-testing to itself (nothing drawn over it).
+ */
+async function clearance(locator: Locator): Promise<Clearance> {
+    return locator.evaluate((el) => {
+        const bar = document.querySelector('[data-testid="session-start-stop-button-mobile"]')?.closest('.fixed');
+        const barRect = bar && getComputedStyle(bar).display !== 'none' ? bar.getBoundingClientRect() : null;
+        const usableBottom = barRect && barRect.height > 0 && barRect.top < window.innerHeight
+            ? Math.min(window.innerHeight, barRect.top) : window.innerHeight;
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return {
+            top: Math.round(r.top), bottom: Math.round(r.bottom), usableBottom: Math.round(usableBottom),
+            fullyUnobscured: r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= usableBottom,
+            hitsItself: Boolean(hit && (el === hit || el.contains(hit))),
+            focused: document.activeElement === el,
+        };
+    });
+}
+
+/** Waits until the page stops scrolling (smooth scrolling animates), so a measurement is never taken mid-scroll. */
+async function settleScroll(page: Page): Promise<void> {
+    await page.waitForFunction(() => new Promise<boolean>((resolve) => {
+        const y = window.scrollY;
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(window.scrollY === y)));
+    }), undefined, { timeout: 3_000, polling: 50 });
+}
+
+async function measureViewport(page: Page, product: Product, state: GammaState, vp: Viewport): Promise<ViewportResult> {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(250);
+    await settleScroll(page);
+    const prescription = page.getByTestId('review-try-next');
+    const headline = page.getByTestId('ai-suggestions-headline');
+    const coachingLocator = state === 'full' || state === 'partial' ? prescription : headline;
+    let coaching: ViewportResult['coaching'] = null;
+    if (await coachingLocator.count()) {
+        const c = await clearance(coachingLocator.first());
+        coaching = { which: state === 'full' || state === 'partial' ? 'Try this next run' : 'review headline', top: c.top, bottom: c.bottom,
+            usableBottom: c.usableBottom, fullyVisible: c.fullyUnobscured };
+    }
+    const action = product === 'open_mic' ? page.getByTestId('verdict-practice-again') : page.getByRole('button', { name: /Retry this set/ });
+    let actionResult: ViewportResult['action'] = null;
+    if (await action.count()) {
+        const el = action.first();
+        const initial = await clearance(el);
+        // Keyboard: focus moves the page to the control (the browser's own focus scroll), then it must be clear of the bar.
+        // Blur first: focusing an element that is ALREADY focused (from the previous viewport) does not scroll at all.
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await settleScroll(page);
+        await el.focus();
+        await settleScroll(page);
+        const afterFocus = await clearance(el);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await settleScroll(page);
+        // A person scrolls the control into view; Playwright's scrollIntoViewIfNeeded leaves a PARTLY visible element where
+        // it is, so the page is scrolled the way a person would bring it to the middle of the screen.
+        await el.evaluate((node) => node.scrollIntoView({ block: 'center' }));
+        await settleScroll(page);
+        const afterScroll = await clearance(el);
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+        actionResult = { label: product === 'open_mic' ? 'Practice again' : 'Retry this set', initiallyFullyVisible: initial.fullyUnobscured,
+            afterFocus, afterScroll, enabled: await el.isEnabled() };
+    }
+    const rowIds = product === 'open_mic'
+        ? ['this-run-card-fillers', 'this-run-card-pace', 'this-run-card-words']
+        : ['coverage-pace-count', 'coverage-pace-bar', 'coverage-pace-projection'];
+    const counts: ViewportResult['counts'] = [];
+    for (const id of rowIds) {
+        const row = page.getByTestId(id);
+        if (!(await row.count())) continue;
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await settleScroll(page);
+        const atTop = await clearance(row.first());
+        await row.first().evaluate((node) => node.scrollIntoView({ block: 'center' }));
+        await settleScroll(page);
+        const reached = await clearance(row.first());
+        counts.push({ row: id, bottom: atTop.bottom, aboveFold: atTop.fullyUnobscured, reachable: reached.fullyUnobscured && reached.hitsItself });
+    }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    return { viewport: vp.name, coaching, action: actionResult, counts };
+}
+
+const GAMMA_CASES: Array<{ product: Product; state: GammaState }> = (['open_mic', 'focus_points'] as const)
+    .flatMap((product) => (['full', 'partial', 'pending', 'terminal'] as const).map((state) => ({ product, state })));
+
+/** One saved take in the given review state, measured at each viewport, with every γ criterion asserted. */
+async function gammaCase(page: Page, product: Product, state: GammaState, viewports: readonly Viewport[], label: string) {
+    const consoleGuard = guardConsole(page);
+    const isolation = isolateFromExternalNetwork(page);
+    const answers: Answer[] = state === 'terminal' ? [{ status: 429 }] : state === 'pending' ? ['held-pair'] : ['pair'];
+    const pair = product === 'open_mic' ? (state === 'partial' ? PAIR : MAX_PAIR) : (state === 'partial' ? { ...PAIR, version: 'gemini_coaching_focus_v1' } : MAX_FOCUS_PAIR);
+    if (product === 'open_mic') await recordSavedTake(page, answers, pair);
+    else await focusSavedTake(page, answers, pair);
+    const lifecycle = state === 'terminal' ? 'terminal' : state === 'pending' ? 'pending' : 'complete';
+    await expect(page.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', lifecycle, { timeout: 30_000 });
+    if (lifecycle === 'complete') await expect(page.getByTestId('review-try-next')).toBeVisible({ timeout: 10_000 });
+
+    const results: ViewportResult[] = [];
+    for (const vp of viewports) results.push(await measureViewport(page, product, state, vp));
+    await test.info().attach(`gamma-${label}-${product}-${state}.json`, { body: JSON.stringify(results, null, 2), contentType: 'application/json' });
+    if (state === 'pending') await page.evaluate(() => (window as unknown as { __releaseReview1474__?: () => void }).__releaseReview1474__?.());
+    expect(consoleGuard.unexpected(), 'no unexpected console error').toEqual([]);
+    await expectIsolated(isolation);
+    return results;
+}
+
+function expectGamma(results: ViewportResult[]) {
+    for (const r of results) {
+        expect.soft(r.coaching, `${r.viewport}: the coaching element rendered`).not.toBeNull();
+        expect.soft(r.coaching?.fullyVisible, `${r.viewport}: ${r.coaching?.which} is fully readable in the initial review view`).toBe(true);
+        expect.soft(r.action, `${r.viewport}: the repeat/retry action rendered`).not.toBeNull();
+        expect.soft(r.action?.enabled, `${r.viewport}: the action is enabled`).toBe(true);
+        expect.soft(r.action?.afterFocus.focused && r.action?.afterFocus.fullyUnobscured && r.action?.afterFocus.hitsItself,
+            `${r.viewport}: keyboard focus leaves the action fully clear of any fixed bar`).toBe(true);
+        expect.soft(r.action?.afterScroll.fullyUnobscured && r.action?.afterScroll.hitsItself,
+            `${r.viewport}: scrolled into view, the action is fully clear of any fixed bar`).toBe(true);
+        expect.soft(r.counts.length, `${r.viewport}: all three count rows render`).toBe(3);
+        for (const c of r.counts) expect.soft(c.reachable, `${r.viewport}: ${c.row} is scroll-reachable and unobscured`).toBe(true);
+    }
+}
+
+test.describe('#1474 γ desktop — natural growth: useful coaching at eye level, an unobscured repeat action, reachable counts', () => {
+    for (const { product, state } of GAMMA_CASES) {
+        test(`${product} · ${state} at 1280×800, 1024×800 and 768×800`, async ({ page }) => {
+            test.setTimeout(200_000);
+            expectGamma(await gammaCase(page, product, state, DESKTOP_VIEWPORTS, 'desktop'));
+        });
+    }
+});
+
+test.describe('#1474 γ mobile 375×812 — the same criteria; measured gaps stay OPEN as unmet requirements', () => {
+    for (const { product, state } of GAMMA_CASES) {
+        const key = `${product} · ${state}`;
+        const unmet = MOBILE_UNMET[key];
+        test(`${key} at 375×812${unmet ? ` (UNMET: ${unmet})` : ''}`, async ({ page }) => {
+            test.setTimeout(200_000);
+            const results = await gammaCase(page, product, state, MOBILE_VIEWPORTS, 'mobile');
+            if (unmet) {
+                // Marked only now, after the take saved and was measured, so a setup failure cannot pass as this gap.
+                // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
+                test.info().annotations.push({ type: 'unmet-requirement', description: `#1474 mobile 375×812 ${key}: ${unmet}` });
+                test.fail(true, `UNMET on main: ${unmet}`);
+            }
+            expectGamma(results);
+        });
+    }
 });
