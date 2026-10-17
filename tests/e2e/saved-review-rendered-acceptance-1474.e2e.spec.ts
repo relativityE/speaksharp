@@ -7,13 +7,15 @@
  *   TERMINAL FAILURE: 429 — the lifecycle has ended, so nothing may promise an incoming review and no futile Try again;
  *   SCHEDULED RETRY → TERMINAL: a lost request schedules the ONE automatic retry ("Trying again…", disabled), and a
  *   second loss ends the lifecycle with a real Try again.
- * Every state must keep: the review card's top above the fold, the four slots where the saved review puts them,
- * fillers/pace/words in THIS RUN only (PM 6045315752 removed counts from every review-band state), Practice again
- * enabled, the microphone, and no playback transport.
+ * Every state must keep: the review card's TOP EDGE above the fold (that narrow criterion only — not whole-card or CTA
+ * containment), fillers/pace/words in THIS RUN only (PM 6045315752 removed counts from every review-band state),
+ * Practice again enabled, the microphone, and no playback transport.
  *
- * "Count look wrong?" is the spec's correction path. On main no caller gives `ThisRunCard` an opener, so it never
- * renders. It is an UNMET requirement: the check is `test.fail` (tracking, never acceptance) until a product slice wires
- * it, and flips red the moment it ships.
+ * TWO UNMET REQUIREMENTS on main, each kept as a strict oracle in a `test.fail` (tracking, never acceptance) that flips
+ * red the moment the product meets it:
+ *   - ALL FOUR SLOT TOPS identical across saved, pending and terminal states (Sam RETURN 6235391344). Slots A and B hold,
+ *     but slot B's height follows the review, so the transcript/THIS RUN row (C/D) moves vertically between states.
+ *   - "Count look wrong?", the spec's correction path: no caller gives `ThisRunCard` an opener, so it never renders.
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures';
@@ -81,8 +83,52 @@ function guardConsole(page: Page): { reviewFailures: () => number; unexpected: (
     return { reviewFailures: () => reviewFailures, unexpected: () => [...unexpected] };
 }
 
-async function recordSavedTake(page: Page, answers: Answer[]): Promise<() => Promise<number>> {
+const isLocal = (url: string): boolean => {
+    try {
+        const u = new URL(url);
+        return u.protocol === 'data:' || u.protocol === 'blob:' || ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+    } catch { return false; }
+};
+const originOf = (url: string): string => { try { return new URL(url).origin; } catch { return 'unparseable'; } };
+
+/**
+ * Strict localhost isolation (Sam 6235397901). The shared mocks end in a catch-all that lets every non-Supabase request
+ * through to the network, and Playwright checks the LAST-registered route first — so a guard registered before login
+ * would never be reached. Two layers instead:
+ *   DETECT from the first moment: a response with a server address came from the network (a mock fulfilment has none),
+ *   so any such response from a non-local origin is recorded;
+ *   REJECT once login has registered its routes and before the journey navigates (`arm`): this guard, registered last, is
+ *   checked first and aborts every non-local request, recording only its origin.
+ * Both lists must be empty: the page never reached, nor even tried to reach, anything off localhost.
+ */
+type Isolation = { arm: () => Promise<void>; reached: () => string[]; rejected: () => string[] };
+function isolateFromExternalNetwork(page: Page): Isolation {
+    const reached: string[] = [];
+    const rejected: string[] = [];
+    page.on('response', (response) => {
+        if (isLocal(response.url())) return;
+        void response.serverAddr().then((addr) => { if (addr) reached.push(originOf(response.url())); }, () => {});
+    });
+    return {
+        arm: () => page.route('**/*', async (route) => {
+            const url = route.request().url();
+            if (isLocal(url)) { await route.fallback(); return; }
+            rejected.push(originOf(url));
+            await route.abort('blockedbyclient');
+        }),
+        reached: () => [...reached],
+        rejected: () => [...rejected],
+    };
+}
+
+async function expectIsolated(isolation: Isolation) {
+    expect(isolation.reached(), 'no response came from a server off localhost').toEqual([]);
+    expect(isolation.rejected(), 'the page never tried to reach anything off localhost').toEqual([]);
+}
+
+async function recordSavedTake(page: Page, answers: Answer[], isolation: Isolation): Promise<() => Promise<number>> {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await isolation.arm();
     await navigateToRoute(page, '/session');
     const requests = await scriptReview(page, answers);
     await startRecording(page);
@@ -123,7 +169,8 @@ async function assertReviewStateInvariants(page: Page, state: string): Promise<L
     const card: Locator = page.getByTestId('ai-suggestions-card');
     await expect(card, `${state}: the review card renders`).toBeVisible();
     const shape = await layout(page);
-    expect(shape.cardTop, `${state}: the review card's top is above the fold at 1280×800`).toBeLessThan(FOLD);
+    // The narrow top-position criterion only; whole-card and CTA viewport containment are not claimed here.
+    expect(shape.cardTop, `${state}: the review card's top edge is above the fold at 1280×800`).toBeLessThan(FOLD);
 
     // THIS RUN carries the counts — in slot D, as bare numbers.
     const thisRun = page.getByTestId('session-slot-d').getByTestId('this-run-card');
@@ -137,7 +184,9 @@ async function assertReviewStateInvariants(page: Page, state: string): Promise<L
     // review is pending or has failed, the band also states no measurement at all; a COMPLETED pair may quote one saved
     // measurement inside its coaching sentence as "From this session" evidence (#1258 G20), which is allowed.
     if (!(await card.getAttribute('data-lifecycle') === 'complete')) {
-        await expect(card, `${state}: no filler/pace/word count in the review band`).not.toContainText(/\d+\s*(fillers?|wpm|words?)\b/i);
+        // Either order: "3 fillers" / "120 wpm" and "Fillers: 3" / "Pace (wpm) 120" / "Words 24" (Codex P2 r4303136275).
+        await expect(card, `${state}: no filler/pace/word count in the review band`)
+            .not.toContainText(/\d[\d.,]*\s*(fillers?|filler words?|wpm|words?)\b|\b(fillers?|pace|wpm|words?)\b(\s*\(wpm\))?\s*[:=]?\s*\d/i);
     }
 
     const again = page.getByTestId('verdict-practice-again');
@@ -155,86 +204,121 @@ async function assertReviewStateInvariants(page: Page, state: string): Promise<L
 }
 
 /**
- * The saved review's slot map is the reference. Slot B is full width and its height follows the review, so the C/D row
- * below it moves down with it; what may never move is where A and B start, which column C and D occupy, and that they
- * remain one row under B.
+ * What main meets against the saved review's slot map: slots A and B in place, and C and D in the same columns. This is
+ * NOT the slot-stability criterion — that compares all four TOPS, and is the strict oracle of the unmet-requirement test.
  */
-function expectSameSlots(actual: Layout, reference: Layout, state: string) {
-    const fixed = (l: Layout) => ({ A: l.A, B: l.B, C: { x: l.C.x, width: l.C.width }, D: { x: l.D.x, width: l.D.width } });
-    expect(fixed(actual), `${state}: slots stay where the saved review puts them`).toEqual(fixed(reference));
-    expect(actual.D.top, `${state}: THIS RUN stays level with the transcript`).toBe(actual.C.top);
-    expect(actual.C.top, `${state}: the C/D row stays under the review`).toBeGreaterThan(actual.B.top);
+function expectSameColumns(actual: Layout, reference: Layout, state: string) {
+    const columns = (l: Layout) => ({ A: l.A, B: l.B, C: { x: l.C.x, width: l.C.width }, D: { x: l.D.x, width: l.D.width } });
+    expect(columns(actual), `${state}: A and B in place, C and D in their columns`).toEqual(columns(reference));
+}
+
+type ReviewState = 'saved review' | 'terminal failure' | 'scheduled retry' | 'terminal after retry';
+
+/**
+ * The three review answers, one take each, asserting every state's invariants. Returns each state's layout. The
+ * acceptance test and the slot-top tracking test both run it, so the tracking test's ONLY extra claim is the tops.
+ */
+async function reviewJourney(page: Page): Promise<Record<ReviewState, Layout>> {
+    const consoleGuard = guardConsole(page);
+    const isolation = isolateFromExternalNetwork(page);
+
+    // ── SAVED REVIEW ──
+    const savedRequests = await recordSavedTake(page, ['pair'], isolation);
+    const card = page.getByTestId('ai-suggestions-card');
+    await expect(card).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
+    await expect(page.getByTestId('ai-suggestions-pair'), 'saved review: the pair renders').toBeVisible();
+    await expect(page.getByTestId('ai-suggestions-disclosure')).toBeVisible();
+    const reference = await assertReviewStateInvariants(page, 'saved review');
+    const layouts = { 'saved review': reference } as Record<ReviewState, Layout>;
+    expect(await savedRequests(), 'saved review: one request').toBe(1);
+
+    // ── TERMINAL FAILURE: 429 ends the lifecycle ──
+    await page.getByTestId('verdict-practice-again').click();
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
+    const terminalRequests = await scriptReview(page, [{ status: 429 }]);
+    await mockLiveTranscript(page, SPEECH);
+    await page.waitForTimeout(TAKE_MS);
+    await stopRecording(page);
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 20_000 });
+    await expect(card).toHaveAttribute('data-lifecycle', 'terminal', { timeout: 20_000 });
+    await expect(card, 'terminal: no retry is scheduled').toHaveAttribute('data-retry-scheduled', 'false');
+    await expect(page.getByTestId('ai-suggestions-retrying'), 'terminal: no RETRYING chip').toHaveCount(0);
+    await expect(page.getByTestId('ai-suggestions-headline'), 'terminal: the reason, in product language').toHaveText(/temporarily limited/);
+    await expect(card, 'terminal: nothing promises an incoming review').not.toContainText(/on its way|still coming|Trying again/i);
+    await expect(page.getByTestId('ai-suggestions-retry'), 'terminal 429: no futile Try again').toHaveCount(0);
+    await expect(page.getByTestId('ai-suggestions-pair')).toHaveCount(0);
+    await expect(page.getByTestId('ai-suggestions-disclosure'), 'terminal: the disclosure stays').toBeVisible();
+    layouts['terminal failure'] = await assertReviewStateInvariants(page, 'terminal failure');
+    expectSameColumns(layouts['terminal failure'], reference, 'terminal failure');
+    expect(await terminalRequests(), 'terminal: no automatic retry of a 429').toBe(1);
+
+    // ── SCHEDULED RETRY, then TERMINAL: two lost requests ──
+    await page.getByTestId('verdict-practice-again').click();
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
+    const retryRequests = await scriptReview(page, ['network', 'network']);
+    await mockLiveTranscript(page, SPEECH);
+    await page.waitForTimeout(TAKE_MS);
+    await stopRecording(page);
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 20_000 });
+    // The backoff window: the one automatic retry is scheduled and says so, without a usable button.
+    await expect(card, 'scheduled: the automatic retry is scheduled').toHaveAttribute('data-retry-scheduled', 'true', { timeout: 20_000 });
+    await expect(card).toHaveAttribute('data-lifecycle', 'pending');
+    await expect(page.getByTestId('ai-suggestions-retrying'), 'scheduled: the RETRYING chip').toBeVisible();
+    await expect(page.getByTestId('ai-suggestions-retry'), 'scheduled: "Trying again…" is not pressable').toBeDisabled();
+    layouts['scheduled retry'] = await assertReviewStateInvariants(page, 'scheduled retry');
+    expectSameColumns(layouts['scheduled retry'], reference, 'scheduled retry');
+    // The second loss ends the lifecycle: no promise, a real Try again.
+    await expect(card).toHaveAttribute('data-lifecycle', 'terminal', { timeout: 20_000 });
+    await expect(card).toHaveAttribute('data-retry-scheduled', 'false');
+    await expect(page.getByTestId('ai-suggestions-retrying')).toHaveCount(0);
+    await expect(card, 'terminal after retry: nothing promises an incoming review').not.toContainText(/on its way|still coming|Trying again/i);
+    const tryAgain = page.getByTestId('ai-suggestions-retry');
+    await expect(tryAgain, 'terminal network: a real Try again').toHaveText('Try again');
+    await expect(tryAgain).toBeEnabled();
+    layouts['terminal after retry'] = await assertReviewStateInvariants(page, 'terminal after retry');
+    expectSameColumns(layouts['terminal after retry'], reference, 'terminal after retry');
+    expect(await retryRequests(), 'exactly one automatic retry').toBe(2);
+
+    expect(consoleGuard.unexpected(), 'no console error other than the review failures\' own diagnostic').toEqual([]);
+    expect(consoleGuard.reviewFailures(), 'one diagnostic per failed attempt: 429, then two lost requests').toBe(3);
+    await expectIsolated(isolation);
+    return layouts;
 }
 
 test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
-    test('saved review vs terminal failure vs scheduled retry: same slots, counts only in THIS RUN, a next action in every state', async ({ page }) => {
+    test('saved review vs terminal failure vs scheduled retry: counts only in THIS RUN, a next action in every state', async ({ page }) => {
         test.setTimeout(240_000);
-        const consoleGuard = guardConsole(page);
-
-        // ── SAVED REVIEW ──
-        const savedRequests = await recordSavedTake(page, ['pair']);
-        const card = page.getByTestId('ai-suggestions-card');
-        await expect(card).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
-        await expect(page.getByTestId('ai-suggestions-pair'), 'saved review: the pair renders').toBeVisible();
-        await expect(page.getByTestId('ai-suggestions-disclosure')).toBeVisible();
-        const reference = await assertReviewStateInvariants(page, 'saved review');
-        expect(await savedRequests(), 'saved review: one request').toBe(1);
-
-        // ── TERMINAL FAILURE: 429 ends the lifecycle ──
-        await page.getByTestId('verdict-practice-again').click();
-        await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
-        const terminalRequests = await scriptReview(page, [{ status: 429 }]);
-        await mockLiveTranscript(page, SPEECH);
-        await page.waitForTimeout(TAKE_MS);
-        await stopRecording(page);
-        await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 20_000 });
-        await expect(card).toHaveAttribute('data-lifecycle', 'terminal', { timeout: 20_000 });
-        await expect(card, 'terminal: no retry is scheduled').toHaveAttribute('data-retry-scheduled', 'false');
-        await expect(page.getByTestId('ai-suggestions-retrying'), 'terminal: no RETRYING chip').toHaveCount(0);
-        await expect(page.getByTestId('ai-suggestions-headline'), 'terminal: the reason, in product language').toHaveText(/temporarily limited/);
-        await expect(card, 'terminal: nothing promises an incoming review').not.toContainText(/on its way|still coming|Trying again/i);
-        await expect(page.getByTestId('ai-suggestions-retry'), 'terminal 429: no futile Try again').toHaveCount(0);
-        await expect(page.getByTestId('ai-suggestions-pair')).toHaveCount(0);
-        await expect(page.getByTestId('ai-suggestions-disclosure'), 'terminal: the disclosure stays').toBeVisible();
-        expectSameSlots(await assertReviewStateInvariants(page, 'terminal failure'), reference, 'terminal failure');
-        expect(await terminalRequests(), 'terminal: no automatic retry of a 429').toBe(1);
-
-        // ── SCHEDULED RETRY, then TERMINAL: two lost requests ──
-        await page.getByTestId('verdict-practice-again').click();
-        await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
-        const retryRequests = await scriptReview(page, ['network', 'network']);
-        await mockLiveTranscript(page, SPEECH);
-        await page.waitForTimeout(TAKE_MS);
-        await stopRecording(page);
-        await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 20_000 });
-        // The backoff window: the one automatic retry is scheduled and says so, without a usable button.
-        await expect(card, 'scheduled: the automatic retry is scheduled').toHaveAttribute('data-retry-scheduled', 'true', { timeout: 20_000 });
-        await expect(card).toHaveAttribute('data-lifecycle', 'pending');
-        await expect(page.getByTestId('ai-suggestions-retrying'), 'scheduled: the RETRYING chip').toBeVisible();
-        await expect(page.getByTestId('ai-suggestions-retry'), 'scheduled: "Trying again…" is not pressable').toBeDisabled();
-        expectSameSlots(await assertReviewStateInvariants(page, 'scheduled retry'), reference, 'scheduled retry');
-        // The second loss ends the lifecycle: no promise, a real Try again.
-        await expect(card).toHaveAttribute('data-lifecycle', 'terminal', { timeout: 20_000 });
-        await expect(card).toHaveAttribute('data-retry-scheduled', 'false');
-        await expect(page.getByTestId('ai-suggestions-retrying')).toHaveCount(0);
-        await expect(card, 'terminal after retry: nothing promises an incoming review').not.toContainText(/on its way|still coming|Trying again/i);
-        const tryAgain = page.getByTestId('ai-suggestions-retry');
-        await expect(tryAgain, 'terminal network: a real Try again').toHaveText('Try again');
-        await expect(tryAgain).toBeEnabled();
-        expectSameSlots(await assertReviewStateInvariants(page, 'terminal after retry'), reference, 'terminal after retry');
-        expect(await retryRequests(), 'exactly one automatic retry').toBe(2);
-
-        expect(consoleGuard.unexpected(), 'no console error other than the review failures\' own diagnostic').toEqual([]);
-        expect(consoleGuard.reviewFailures(), 'one diagnostic per failed attempt: 429, then two lost requests').toBe(3);
+        const layouts = await reviewJourney(page);
+        await test.info().attach('slot-layouts-1280x800.json', { body: JSON.stringify(layouts, null, 2), contentType: 'application/json' });
     });
 
-    test.fail('"Count look wrong?" — the correction path in THIS RUN (KNOWN GAP: no caller wires ThisRunCard.onCountLookWrong)', async ({ page }) => {
+    test('ALL FOUR slot tops identical across saved, pending and terminal states (UNMET: slot C/D tops move with slot B)', async ({ page }) => {
+        test.setTimeout(240_000);
+        const layouts = await reviewJourney(page);
+        // Marked only now, after the whole journey succeeded, so a setup failure can never pass as this known failure.
+        // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
+        test.info().annotations.push({ type: 'unmet-requirement', description: '#1474 G10 slot stability — C/D tops differ between review states on main' });
+        test.fail(true, 'UNMET on main: slot C/D tops move with slot B between review states');
+        const tops = (l: Layout) => ({ A: l.A.top, B: l.B.top, C: l.C.top, D: l.D.top });
+        await test.info().attach('slot-tops-1280x800.json', { body: JSON.stringify(Object.fromEntries(Object.entries(layouts).map(([k, l]) => [k, tops(l)])), null, 2), contentType: 'application/json' });
+        for (const state of ['terminal failure', 'scheduled retry', 'terminal after retry'] as const) {
+            expect.soft(tops(layouts[state]), `${state}: every slot top matches the saved review`).toEqual(tops(layouts['saved review']));
+        }
+    });
+
+    test('"Count look wrong?" — the correction path in THIS RUN (UNMET: no caller wires ThisRunCard.onCountLookWrong)', async ({ page }) => {
         test.setTimeout(120_000);
-        // Tracking, not acceptance: this expected failure keeps an UNMET requirement visible and never counts as its PASS.
-        test.info().annotations.push({ type: 'unmet-requirement', description: '#1474 G10 "Count look wrong?" — not rendered on main' });
-        guardConsole(page);
-        await recordSavedTake(page, ['pair']);
+        const consoleGuard = guardConsole(page);
+        const isolation = isolateFromExternalNetwork(page);
+        await recordSavedTake(page, ['pair'], isolation);
         await expect(page.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
+        await expect(page.getByTestId('this-run-card'), 'setup: THIS RUN rendered').toBeVisible();
+        expect(consoleGuard.unexpected(), 'setup: no unexpected console error').toEqual([]);
+        await expectIsolated(isolation);
+        // Marked only now, after the saved review rendered, so a setup failure can never pass as this known failure.
+        // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
+        test.info().annotations.push({ type: 'unmet-requirement', description: '#1474 G10 "Count look wrong?" — not rendered on main' });
+        test.fail(true, 'UNMET on main: "Count look wrong?" is never rendered');
         await expect(page.getByTestId('this-run-card').getByRole('button', { name: 'Count look wrong?' })).toBeVisible({ timeout: 5_000 });
     });
 });
