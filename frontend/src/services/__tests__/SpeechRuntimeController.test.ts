@@ -1445,7 +1445,14 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { resetTranscriptLifecycle: () => void }).resetTranscriptLifecycle();
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
         await doTransition('FAILED'); // heartbeat/engine failure lands here
+        // #1258 C: the retry armed by this very transition must not be closed by the transition's own `failed`
+        // marker — the server never revives a failed leased take (#1476), so the marker would void Retry Save.
+        expect(vi.mocked(storage.completeSession).mock.calls
+            .filter(([id, args]) => id === 'sess-hb' && (args as { status?: string } | undefined)?.status === 'failed'),
+        'the armed recovery is not closed by its own failure').toHaveLength(0);
         const pending = (controller as unknown as { pendingFullSaveRetry: { sessionId: string; completeArgs: { status: string; duration: number; metrics?: { totalWords?: number } }; attributionEvidence: unknown } | null }).pendingFullSaveRetry;
         expect(pending).toMatchObject({ sessionId: 'sess-hb' });
         // #1306: recovery is CONTENT-FREE — the retry replays the finalized draft's metrics, never a transcript.

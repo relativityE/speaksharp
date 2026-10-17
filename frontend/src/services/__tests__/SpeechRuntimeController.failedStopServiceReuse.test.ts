@@ -446,4 +446,33 @@ describe('#1258 C — a real failed Stop keeps the take\'s words for Retry Save 
         expect(replay?.[0], 'the same session').toBe(failed?.[0]);
         expect((replay?.[1] as Args | undefined)?.finalTranscript, 'the identical words are replayed').toBe(original);
     });
+
+    /**
+     * #1258 RWT round 2 C root cause — A PENDING RETRY MUST NOT BE CLOSED BY ITS OWN FAILURE.
+     *
+     * The server closes a leased take for good once it is `failed` (#1476: "and then never revived"). The failed
+     * Stop wrote that `failed` marker onto the very session it had just armed Retry Save for — once from the stop
+     * catch and again from the FAILED transition — so every Retry Save was refused (`lease_revoked`). Only a
+     * confirmed Discard may close a take whose save is still recoverable. POSITIVE CONTROL: Discard still does.
+     */
+    it('a failed save never marks its own session failed; only Discard does', async () => {
+        const c = newController();
+        c.state = 'READY';
+        const serviceA = recordingService('A');
+        factory.queue.push(serviceA);
+        enterProduct('open_mic', BRIEF_A);
+        await c.startRecording(POLICY, []);
+
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(c.stopRecording()).rejects.toThrow('SESSION_COMPLETION_FAILED');
+        await settle();
+        expect(useSessionStore.getState().pendingResolutionKind, 'a full-save recovery is pending').toBe('full_save');
+        type Args = { status?: string };
+        const failedMarkers = () => vi.mocked(completeSession).mock.calls
+            .filter((call) => call[0] === 'session-A' && (call[1] as Args | undefined)?.status === 'failed');
+        expect(failedMarkers(), 'the recoverable take was not closed by its own save failure').toHaveLength(0);
+
+        await expect(c.discardUnresolvedRecording()).resolves.toMatchObject({ outcome: 'discarded', sessionId: 'session-A' });
+        expect(failedMarkers(), 'a confirmed Discard is what closes it').toHaveLength(1);
+    });
 });

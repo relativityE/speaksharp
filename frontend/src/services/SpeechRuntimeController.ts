@@ -1610,6 +1610,18 @@ export class SpeechRuntimeController {
         };
     }
 
+    /**
+     * #1258 RWT round 2 C — A RECOVERABLE SAVE IS NOT A FAILED TAKE.
+     *
+     * The server closes a leased take for good once it is `failed` (#1476: a failed take "cannot be revived"),
+     * so a `failed` marker written onto a session whose full save is still pending turns its Retry Save into a
+     * request the server will always refuse. Only a confirmed Discard closes such a take. Every automatic
+     * `failed` marker asks this first.
+     */
+    private holdsRecoverableSave(sessionId: string | null | undefined): boolean {
+        return !!sessionId && this.pendingFullSaveRetry?.sessionId === sessionId;
+    }
+
     private markRecordingResolved(): void {
         this.recordingStartedUnresolved = false;
         this.recordingEngineMode = null;
@@ -2977,7 +2989,8 @@ export class SpeechRuntimeController {
                     : rawMessage;
                 store.setSTTStatus({ type: 'error', message: displayMessage });
             }
-            if (this.sessionId) {
+            // #1258: never close a take whose full save is still recoverable (see holdsRecoverableSave).
+            if (this.sessionId && !this.holdsRecoverableSave(this.sessionId)) {
                 // Ensure this is properly tracked or caught
                 completeSession(this.sessionId, {
                     status: 'failed',
@@ -6194,7 +6207,7 @@ export class SpeechRuntimeController {
                         liveGeneration: this.serviceGeneration,
                         tokenCancelled: token.cancelled,
                     });
-                    if (stopAuthority.sessionId) {
+                    if (stopAuthority.sessionId && !this.holdsRecoverableSave(stopAuthority.sessionId)) {
                         completeSession(stopAuthority.sessionId, {
                             status: 'failed',
                             reason: `Stop recording failed: ${(err as Error).message}`,
@@ -6208,7 +6221,8 @@ export class SpeechRuntimeController {
                 }
 
                 const hasRecoveryDraftSignal = this.getStoreTranscriptLength() > 0;
-                if (this.sessionId) {
+                // #1258: a failed SAVE armed Retry Save for this session; marking it `failed` would close it for good.
+                if (this.sessionId && !this.holdsRecoverableSave(this.sessionId)) {
                     completeSession(this.sessionId, {
                         status: 'failed',
                         reason: `Stop recording failed: ${(err as Error).message}`
@@ -6788,7 +6802,7 @@ export class SpeechRuntimeController {
         void this.enqueue(async (token) => {
             this.stopWatchdog();
             this.stopHeartbeat();
-            if (this.sessionId) {
+            if (this.sessionId && !this.holdsRecoverableSave(this.sessionId)) {
                 completeSession(this.sessionId, { status: 'failed', reason: error.message }).catch((completeError) => {
                     logger.warn({
                         completeError,
