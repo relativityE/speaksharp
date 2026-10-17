@@ -18,13 +18,15 @@ Source acceptance, local tests, CI qualification, merge, deployment identity, mi
 
 | Identity | Recorded value | Evidence boundary |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `bc1ea8eaec3d410865b832319a0e855b299693e3`, read 17 October 2026 at 21:54 UTC | After [#1649](https://github.com/relativityE/speaksharp/pull/1649#issuecomment-6240433326); re-read before any current-head decision. The branch's original source snapshot is preserved separately below. |
+| **Repository `main` integration / qualification baseline (fixed)** | `5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf`, the reviewed integration base after #1650 | [Sam's bounded identity-label disposition](https://github.com/relativityE/speaksharp/pull/1648#issuecomment-6242262333). This records the base integrated into #1648, not an evergreen branch-pointer or deployed-release claim; re-read moving identities before operational decisions. |
 | **Deployed product release (last owner-reported READ)** | `__APP_RELEASE__ = bc1ea8eaec3d410865b832319a0e855b299693e3`, App Dev's 20:24:30 UTC observation | [Served-release receipt](https://github.com/relativityE/speaksharp/pull/1649#issuecomment-6240476368). Browser PM read back the receipt, not Production. Equality with the recorded baseline establishes no full RWT or human acceptance. |
 | **Canary** | [39066400126](https://github.com/relativityE/speaksharp/actions/runs/39066400126), SUCCESS; active-trial product lane passed | [Post-merge receipt](https://github.com/relativityE/speaksharp/pull/1649#issuecomment-6240476368) confirms runtime migration readiness and product execution after 118/119. This replaces the earlier migration HOLD, not the full two-product RWT requirement. |
 | **Release line** | `v0.9.0-rc`; package version remains `0.9.0-rc0` | This is not a selected new tag or permission to tag. Any release-tag choice remains a separate disposition. |
 | **Documentation scope** | First bounded #1318 current-state correction: this file and `ROADMAP.md` | [Sam's assignment](https://github.com/relativityE/speaksharp/issues/1318#issuecomment-6234300137). This is not final reconciliation of all 14 canonical documents or closure of #1318. |
 
 ### Historical snapshot and subsequent receipts — 17 October 2026
+
+The dated 21:54 UTC repository-main observation was `bc1ea8eaec3d410865b832319a0e855b299693e3`, after [#1649](https://github.com/relativityE/speaksharp/pull/1649#issuecomment-6240433326). That observation and the last-observed served receipt above remain historical evidence; the fixed integration / qualification baseline and machine baseline fields now record #1650's `5f5f465a` base. This bounded label correction performs no new deployment read or canary run.
 
 The earlier observations remain history: repository main was `9316cbf174f65870b2af6b15a3669bc4fdadc0be` at 19:38 UTC; [App Dev reported served `cc2dc6a2c6268b29aada26900f76c1abdc78244f` at 19:16 UTC](https://github.com/relativityE/speaksharp/pull/1646#issuecomment-6239375719); [canary39061658233 was HELD](https://github.com/relativityE/speaksharp/pull/1646#issuecomment-6239366116) before 118/119 application. These are not the current identity rows or currency-block values. The following subsequent receipts supersede their unresolved-state interpretation; they are owner-reported evidence, not new Production queries by Browser PM:
 
@@ -33,7 +35,7 @@ The earlier observations remain history: repository main was `9316cbf174f65870b2
 - **Later served/canary receipt:** [#1649](https://github.com/relativityE/speaksharp/pull/1649#issuecomment-6240476368) reports `bc1ea8eaec3d410865b832319a0e855b299693e3` served at 20:24:30 UTC and product canary [39066400126](https://github.com/relativityE/speaksharp/actions/runs/39066400126) PASS, no longer held on 118/119. Its opener source is integrated; the earlier unwired finding below is history. The [rebound save/retry packet](https://github.com/relativityE/speaksharp/issues/1593#issuecomment-6240521807) still requires specific authorization naming that release; a canary is not full useful RWT or human/device acceptance.
 
 <!-- CURRENCY-BLOCK
-baseline: bc1ea8eaec3d410865b832319a0e855b299693e3
+baseline: 5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf
 deployed-release: bc1ea8eaec3d410865b832319a0e855b299693e3
 verified-on: 2026-10-17
 release-blocker: production-journey-recovery

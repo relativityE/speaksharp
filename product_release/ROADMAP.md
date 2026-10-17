@@ -11,10 +11,10 @@
 
 # SpeakSharp Roadmap
 
-The currency snapshot is baseline `bc1ea8eaec3d410865b832319a0e855b299693e3`. Its observation times, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production.
+The fixed integration / qualification baseline is `5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf`, the reviewed #1650 mainline base integrated into #1648. The dated `bc1ea8ea` observation, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production or claim an evergreen current-main pointer.
 
 <!-- CURRENCY-BLOCK
-baseline: bc1ea8eaec3d410865b832319a0e855b299693e3
+baseline: 5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf
 deployed-release: bc1ea8eaec3d410865b832319a0e855b299693e3
 verified-on: 2026-10-17
 release-blocker: production-journey-recovery
