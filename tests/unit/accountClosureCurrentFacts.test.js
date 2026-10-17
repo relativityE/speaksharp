@@ -19,7 +19,7 @@ const target = { url: 'https://project-test.supabase.co', projectId: 'project-te
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status });
 function setup(mutate = () => {}) {
   const config = configuration();
-  const state = { generation: '7', generations: [], metadata: [{ name: 'PAYMENTS_ENABLED', value: 'private-value' }],
+  const state = { generation: '7', generations: [],
     dbPages: [[{ operation_id: operation, user_id: user, session_id: 'cs_fixture', phase: 'unknown' }]],
     providerPages: [{ data: [{ id: 'cs_fixture', status: 'complete', client_reference_id: user, metadata: { userId: user } }], has_more: false }],
     schema: enforcedClosureReceipt(), artifactMismatch: false, denied: false };
@@ -42,7 +42,6 @@ function setup(mutate = () => {}) {
       const pin = config.artifacts.find((p) => url.endsWith(`/${p.function}`));
       return json({ slug: pin.function, id: pin.id, status: 'ACTIVE', version: state.artifactMismatch ? 3 : pin.version, ezbr_sha256: pin.bundleDigest });
     }
-    if (url.endsWith('/secrets')) return json(state.metadata);
     if (url.endsWith('/database/query')) {
       const body = JSON.parse(options.body);
       if (body.query.includes('operation_id::text')) {
@@ -84,6 +83,17 @@ describe('available live-fact acquisition — mocked providers, missing global d
     expect(s.fetcher.mock.calls.filter(([url]) => url.includes('/inspect_account_closure_drain_generation'))).toHaveLength(2);
     expect(result.facts.effectiveRuntimeObservations).toHaveLength(4);
     expect(result.facts.respondingInstanceConfigVerified).toBe(true);
+  });
+  it('acquires allowed facts even when secret-store access is forbidden, without attempting that endpoint', async () => {
+    const s = setup();
+    const fetcher = vi.fn(async (url, options) => url.endsWith('/secrets')
+      ? new Response('forbidden private metadata', { status: 403 }) : s.fetcher(url, options));
+    const result = await createAccountClosureCurrentFacts(s.config, fetcher).readAvailableFacts();
+    expect(result).toMatchObject({ status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE', activationAuthorized: false,
+      facts: { respondingInstanceConfigVerified: true, secretStoreMetadataRead: false, configurationCoverage: 'RESPONDING_INSTANCES_ONLY' } });
+    expect(fetcher.mock.calls.some(([url]) => url.endsWith('/secrets'))).toBe(false);
+    expect(result.facts).not.toHaveProperty('configMetadataDigest');
+    expect(JSON.stringify(result)).not.toContain('private metadata');
   });
   it.each(['nonce', 'deploymentId', 'projectId', 'observedAt', 'configuration'])('rejects stale/replayed/mismatched probe %s', async (field) => {
     const s = setup((state) => { state.probeMutation = (value) => {

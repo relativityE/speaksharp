@@ -29,8 +29,11 @@ async function bodyJson(response, signal) {
  * deployment, config change or provider mutation. Management database/query is
  * invoked ONLY with fixed SELECT/catalog queries and read_only:true:
  * https://supabase.com/docs/reference/api/v1-run-a-query
- * Metadata: /v1-get-a-function and /v1-list-all-secrets. Config metadata hashes
- * do NOT prove effective runtime values. Function metadata does NOT enumerate
+ * Metadata: /v1-get-a-function only. No secret-store listing, values or hashes
+ * are acquired. Allowed config facts come from separately authenticated runtime
+ * probes; they cannot detect every out-of-band secret change or establish key
+ * identity from its mode. Supported context changes must invalidate generation
+ * BEFORE mutation. Function metadata does NOT enumerate
  * regional workers or prove termination. This implementation deliberately cannot
  * produce a complete drain grant until those external capabilities are supplied
  * through a separately reviewed provenance-verification implementation.
@@ -95,7 +98,7 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
       return { function: pin.function, deploymentId, configuration: c };
     }
     async function snapshot() {
-      const [generation, functions, secrets] = await Promise.all([
+      const [generation, functions] = await Promise.all([
         request(`${target.url}/rest/v1/rpc/inspect_account_closure_drain_generation`, serviceKey, 'POST', {}),
         Promise.all(pinned.map(async (pin) => {
           const value = await request(`${management}/functions/${pin.function}`, managementToken);
@@ -104,17 +107,12 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
           return { function: pin.function, id: value.id, version: value.version,
             deploymentId: `${projectId}_${value.id}_${value.version}`, bundleDigest: value.ezbr_sha256, candidateSha };
         })),
-        request(`${management}/secrets`, managementToken),
       ]);
       if (typeof generation !== 'string' || !/^(0|[1-9][0-9]{0,18})$/.test(generation) || BigInt(generation) > 9223372036854775807n) stop('INVALID_GENERATION');
-      if (!Array.isArray(secrets) || secrets.length > 1000 || secrets.some((s) => typeof s.name !== 'string'
-        || typeof s.value !== 'string') || new Set(secrets.map((s) => s.name)).size !== secrets.length) stop('CONFIG_METADATA_UNREADABLE');
-      // Raw values (which may be hashes or secrets) never leave this scope.
-      const configMetadataDigest = digest(secrets.map((s) => [s.name, digest(s.value)]).sort(([a], [b]) => a.localeCompare(b)));
       const configs = await Promise.all(pinned.map(effectiveConfig));
       // Nonces/timestamps/isolate IDs are retained as observations, not hashed
       // into the stable configuration binding. The later grant is excluded.
-      return { generation, functions, configMetadataDigest, configDigest: digest(configs) };
+      return { generation, functions, configDigest: digest(configs) };
     }
     async function databaseInventory() {
       const operations = []; const pages = []; const seen = new Set(); let cursor = null;
@@ -202,6 +200,7 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
         providerInventory: { accountId: provider.accountId, pages: provider.pages, sessionCount: provider.sessions.length,
           sessions: providerObservations, observedPaginationExhausted: provider.observedPaginationExhausted },
         effectiveRuntimeObservations: probeObservations, respondingInstanceConfigVerified: true,
+        secretStoreMetadataRead: false, configurationCoverage: 'RESPONDING_INSTANCES_ONLY',
         regionalWorkerCoverage: 'UNVERIFIED', effectiveRuntimeValuesVerified: false } };
   }
   async function readAvailableFacts(requestTarget = target, externalSignal) {
