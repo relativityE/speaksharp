@@ -581,6 +581,45 @@ try {
     const transition = (id, phase) => `SET ROLE service_role; SELECT record_account_closure_auth_state_with_drain('${user}','${id}','${phase}',${authority})`;
     return { user, attestation, generation, record, authority, claim, request, transition };
   }
+  // Registration holds coordination while waiting for generation. Invalidation
+  // starts during that wait, before registration can capture recorded_at.
+  const chronology = drainFixture();
+  sql('UPDATE account_billing_coordination SET checkout_workers_drained=false,evidence_reference=NULL');
+  const chronologyBarrier = client('chronology_generation_holder', `BEGIN;
+    SELECT 1 FROM account_closure_attestation_state FOR UPDATE; SELECT pg_sleep(20); COMMIT;`);
+  await waitFor("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name='chronology_generation_holder' AND wait_event='PgSleep')");
+  const chronologyId = 'e9999999-9999-4999-8999-999999999999';
+  const chronologyValidation = { version: 1, validation: 'OFFLINE_VALID', activationAuthorized: false,
+    bindingDigest: drainBinding, evidenceDigest: chronology.record.evidenceDigest, quarantined: [] };
+  const chronologyRegistration = client('chronology_registration', `SET ROLE service_role;
+    SELECT record_account_closure_drain_attestation('${chronologyId}',${chronology.generation},
+      ${quote(chronology.record)},${quote(chronologyValidation)})`);
+  await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity r WHERE r.application_name='chronology_registration'
+    AND (SELECT pid FROM pg_stat_activity WHERE application_name='chronology_generation_holder')=ANY(pg_blocking_pids(r.pid)))`);
+  const chronologyInvalidation = client('chronology_invalidation', `SET ROLE service_role;
+    SELECT invalidate_account_closure_drain_attestations(${chronology.generation},'rollback','${'e'.repeat(64)}')`);
+  await waitFor(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity i WHERE i.application_name='chronology_invalidation'
+    AND (SELECT pid FROM pg_stat_activity WHERE application_name='chronology_registration')=ANY(pg_blocking_pids(i.pid)))`);
+  const invalidationStartedAt = sql("SELECT query_start FROM pg_stat_activity WHERE application_name='chronology_invalidation'");
+  sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name='chronology_generation_holder'");
+  await chronologyBarrier;
+  const [registered, revoked] = await Promise.all([chronologyRegistration, chronologyInvalidation]);
+  assert.equal(registered.code, 0, registered.stderr); assert.equal(revoked.code, 0, revoked.stderr);
+  const chronologyResult = JSON.parse(sql(`SELECT json_build_object(
+    'statementPredatesRegistration', '${invalidationStartedAt}'::timestamptz<recorded_at,
+    'invalidationAfterRegistration', invalidated_at>=recorded_at,
+    'sameInvalidationInstant', (SELECT count(DISTINCT invalidated_at)=1 FROM account_closure_drain_attestations WHERE generation=${chronology.generation}),
+    'generationRevoked', (SELECT generation=${chronology.generation}+1 AND binding_digest IS NULL FROM account_closure_attestation_state),
+    'deletionDisabled', (SELECT NOT checkout_workers_drained AND evidence_reference IS NULL FROM account_billing_coordination))
+    FROM account_closure_drain_attestations WHERE attestation_id='${chronologyId}'`));
+  const chronologyClaim = await client('chronology_revoked_token', chronology.claim);
+  assert.notEqual(chronologyClaim.code, 0); assert.match(chronologyClaim.stderr, /stale drain authority/);
+  assert.equal(sql(`SELECT phase FROM account_closure_tokens WHERE user_id='${chronology.user}'`), 'issued');
+  assert.equal(sql(`SELECT count(*) FROM account_closure_attempts WHERE user_id='${chronology.user}'`), '0');
+  console.log(JSON.stringify({ invalidationChronology: chronologyResult, tokenRevoked: true }));
+  assert.deepEqual(chronologyResult, { statementPredatesRegistration: true, invalidationAfterRegistration: true,
+    sameInvalidationInstant: true, generationRevoked: true, deletionDisabled: true });
+
   const waitExpired = (r) => waitFor(`SELECT clock_timestamp()>'${r.record.expiresAt}'::timestamptz`);
   const expiredClaim = drainFixture(2);
   const claimBarrier = client('drain_claim_profile_barrier', `BEGIN; SELECT 1 FROM user_profiles WHERE id='${expiredClaim.user}' FOR UPDATE; SELECT pg_sleep(20); COMMIT;`);

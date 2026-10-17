@@ -12,7 +12,7 @@ describe('drain persistence exact apply — no activation', () => {
     it('pins source, requires closure schema, and excludes commercial activation', () => {
         const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: version });
         expect(config.targetFile).toBe(target);
-        expect(config.targetSha256).toBe('7e1f1b9aa6f0daae31329f1ffe4e7eca205d19b8e9b0f2100c6f540ef0986e9e');
+        expect(config.targetSha256).toBe('d8a5b1d153890167869b2e7d366fb1ae3dd1272a67cd26f3980e6d2cd5233145');
         expect(config.requiredAppliedVersions).toContain('20261013180000');
         expect(config.requiredAppliedVersions).not.toContain('20260812042000');
         expect(config.excludedMigrations.map((item: { version: string }) => item.version)).toContain('20260812042000');
