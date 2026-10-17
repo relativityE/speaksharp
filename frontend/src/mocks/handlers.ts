@@ -372,15 +372,6 @@ export const handlers: RequestHandler[] = [
   // accepted v1 would let a fallback regression pass silently. `complete_session_v2` is matched first
   // below because MSW resolves handlers in order and '*/rpc/complete_session' would also match it.
   http.post('*/rpc/complete_session_v2', async ({ request }) => {
-    // #1258 RWT round 2 C — E2E FAULT SWITCH (test build only, like `__E2E_EMPTY_SESSIONS__`). The completion is answered
-    // in the browser by this worker, so Playwright's network routes never see it; a spec that must lose a take's
-    // completion sets `__E2E_LOSE_COMPLETIONS__` to the number to lose. Every completion request is counted.
-    const faults = window as unknown as { __E2E_LOSE_COMPLETIONS__?: number; __E2E_COMPLETION_POSTS__?: number };
-    faults.__E2E_COMPLETION_POSTS__ = (faults.__E2E_COMPLETION_POSTS__ ?? 0) + 1;
-    if ((faults.__E2E_LOSE_COMPLETIONS__ ?? 0) > 0) {
-      faults.__E2E_LOSE_COMPLETIONS__ = (faults.__E2E_LOSE_COMPLETIONS__ ?? 0) - 1;
-      return HttpResponse.error();
-    }
     const body = await request.json() as Record<string, unknown>;
     // Model the REAL envelope, not a bare success. A mock that returns `{ success: true }` accepts a
     // client which never reads transcript_outcome — i.e. it tests an easier contract than production.

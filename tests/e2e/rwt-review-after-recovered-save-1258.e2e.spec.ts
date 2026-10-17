@@ -15,18 +15,30 @@ import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
 /**
- * Loses the first `lose` completion requests. The e2e build answers Supabase in the browser through its MSW worker, so
- * Playwright's network routes never see a completion (an earlier `page.route` here intercepted nothing and every save
- * succeeded); the worker's own fault switch `__E2E_LOSE_COMPLETIONS__` loses them instead, and counts every request.
+ * Loses the first `lose` take completions. The e2e build talks to the test-injected Supabase client on `window.supabase`
+ * (`getSupabaseClient()` prefers it), not the network, so Playwright's routes never saw a completion and every save
+ * succeeded. This wraps that client's `rpc` for `complete_session_v2` only: a lost completion returns the error a dropped
+ * request produces, every later one reaches the mock unchanged, and every attempt is counted.
  */
 async function loseCompletions(page: Page, lose: number): Promise<{ posts: () => Promise<number> }> {
+    await page.waitForFunction(() => Boolean((window as unknown as { supabase?: unknown }).supabase));
     await page.evaluate((n) => {
-        const w = window as unknown as { __E2E_LOSE_COMPLETIONS__?: number; __E2E_COMPLETION_POSTS__?: number };
-        w.__E2E_LOSE_COMPLETIONS__ = n;
-        w.__E2E_COMPLETION_POSTS__ = 0;
+        type Rpc = (fn: string, params?: unknown) => Promise<unknown>;
+        const w = window as unknown as { supabase: { rpc: Rpc }; __lostCompletions__: { lose: number; posts: number } };
+        w.__lostCompletions__ = { lose: n, posts: 0 };
+        const original: Rpc = w.supabase.rpc.bind(w.supabase);
+        w.supabase.rpc = (fn, params) => {
+            if (fn !== 'complete_session_v2') return original(fn, params);
+            w.__lostCompletions__.posts += 1;
+            if (w.__lostCompletions__.lose > 0) {
+                w.__lostCompletions__.lose -= 1;
+                return Promise.resolve({ data: null, error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' } });
+            }
+            return original(fn, params);
+        };
     }, lose);
     return {
-        posts: () => page.evaluate(() => (window as unknown as { __E2E_COMPLETION_POSTS__?: number }).__E2E_COMPLETION_POSTS__ ?? 0),
+        posts: () => page.evaluate(() => (window as unknown as { __lostCompletions__: { posts: number } }).__lostCompletions__.posts),
     };
 }
 
