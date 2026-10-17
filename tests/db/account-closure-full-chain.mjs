@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 import console from 'node:console';
 import { accountClosureEnforcementStages } from '../../scripts/lib/accountClosureEnforcementGate.mjs';
+import { checkoutRejectionQuery, assertCheckoutRejection } from '../../scripts/lib/checkoutRejectionGate.mjs';
 import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage, proofPostgresVersion, proofSubprocessFailure } from './account-closure-full-chain-diagnostics.mjs';
 
 const root = resolve('backend/supabase/migrations');
@@ -174,9 +175,11 @@ try {
   assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'), 'f', 'proof must restore disabled rollout gate');
   verifyEnforcement('after');
   console.log('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED');
+  assertCheckoutRejection(sql(checkoutRejectionQuery('before', readFileSync(join(root, recovery), 'utf8'))), 'before');
   cpSync(join(root, recovery), join(directory, 'migrations', recovery));
   cli(['migration', 'up', '--local']);
   assert.deepEqual(history(), migrations.map((row) => row.version), 'recovery history is incomplete');
+  assertCheckoutRejection(sql(checkoutRejectionQuery('after', readFileSync(join(root, recovery), 'utf8'))), 'after');
   const recoveryProof = sql(readFileSync('tests/db/checkout-rejection-recovery.sql', 'utf8'));
   assert.ok(recoveryProof.includes('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED'), 'recovery proof marker absent');
   assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('c3333333-3333-4333-8333-333333333333','c4444444-4444-4444-8444-444444444444')"), '0', 'rejection fixture residue');

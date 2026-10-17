@@ -34,6 +34,7 @@ const TYPED_FIX = '20261013140000';
 const CLOSURE = '20261013180000'; // later disabled deletion schema; never apply it with this target
 const DRAIN = '20261016090000'; // later drain prerequisite; excluded from this target
 const ENFORCEMENT = '20261016180000'; // later guarded-runtime prerequisite; also excluded
+const REJECTION_RECOVERY = '20261017200000'; // later checkout-rejection recovery; excluded from this target
 const GATE = `postflight_${VERSION}`;
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
@@ -67,7 +68,7 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'd'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -92,6 +93,7 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
         ` ${CLOSURE} |                | x`,
         ` ${DRAIN} |                | x`,
         ` ${ENFORCEMENT} |                | x`,
+        ` ${REJECTION_RECOVERY} |                | x`,
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while the trial capability is still pending — named, not hidden', () => {
@@ -100,7 +102,7 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
 
     it('EXECUTABLE once the trial capability is applied: target-only; applied activation stays and later targets remain pending', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT], excludedVersions: [TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY], excludedVersions: [TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY] });
         const root = mkdtempSync(join(tmpdir(), 'exact-retention-expiry-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -110,11 +112,12 @@ describe('#1258 P0 retention-expiry migration is wired into the exact allowliste
             expect(isolated.some((f) => f.startsWith(CLOSURE)), 'the later disabled deletion schema is excluded').toBe(false);
             expect(isolated.some((f) => f.startsWith(DRAIN)), 'the later drain prerequisite is excluded').toBe(false);
             expect(isolated.some((f) => f.startsWith(ENFORCEMENT)), 'the later enforcement prerequisite is excluded').toBe(false);
+            expect(isolated.some((f) => f.startsWith(REJECTION_RECOVERY)), 'the later checkout-rejection recovery is excluded').toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY]);
     });
 });
 

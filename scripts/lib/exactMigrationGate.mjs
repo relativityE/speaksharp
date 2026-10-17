@@ -195,6 +195,14 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // Checkout rejection recovery prerequisite; separately authorized exact
+        // apply/postflight BEFORE the corrected checkout Edge release.
+        version: '20261017200000',
+        file: '20261017200000_checkout_rejection_recovery.sql',
+        sha256: '3f53ad3408a35af5cea6baac456e3b34ba433c7bd37d2c238e345df53fc05f6c',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -627,6 +635,7 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261013180000', targetFile: '20261013180000_account_closure_tokens' }),
     Object.freeze({ id: 'postflight_20261016090000', targetFile: '20261016090000_account_closure_drain_persistence' }),
     Object.freeze({ id: 'postflight_20261016180000', targetFile: '20261016180000_account_closure_drain_enforcement' }),
+    Object.freeze({ id: 'postflight_20261017200000', targetFile: '20261017200000_checkout_rejection_recovery' }),
 ]);
 
 /**

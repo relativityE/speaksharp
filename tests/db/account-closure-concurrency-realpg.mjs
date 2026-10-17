@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import process from 'node:process';
 import console from 'node:console';
 import { setTimeout } from 'node:timers';
+import { checkoutRejectionQuery } from '../../scripts/lib/checkoutRejectionGate.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'closure-c-'));
 const data = join(root, 'data');
@@ -766,10 +767,32 @@ try {
   sql(`SET ROLE service_role; SELECT invalidate_account_closure_drain_attestations(${lastGeneration},'expired','${'f'.repeat(64)}')`);
   enforcementGate('verify', true); // bound historical requests are not fresh-apply defaults
   enforcementGate('after', false);
+  let recoveryGateCases = 0;
+  function recoveryGate(mode, success) {
+    const result = spawnSync(process.execPath, [resolve('scripts/checkout-rejection-gate.mjs'), mode], { env, encoding: 'utf8', timeout: 30_000 });
+    if (result.status !== (success ? 0 : 1)) console.error(sql(checkoutRejectionQuery(mode, migration('20261017200000_checkout_rejection_recovery.sql'))));
+    assert.equal(result.status, success ? 0 : 1, `${mode}: ${result.stdout} ${result.stderr}`);
+    if (success) { const output = JSON.parse(result.stdout.trim()); assert.equal(output.passed, true); assert.equal(output.stages.length, 6); }
+    else assert.equal(result.stdout.trim(), '', 'failed recovery verifier emitted success');
+    recoveryGateCases++;
+  }
+  recoveryGate('before', true);
   sql(`SET ROLE closure_owner; ${migration('20261017200000_checkout_rejection_recovery.sql')} RESET ROLE;`);
+  recoveryGate('before', false); recoveryGate('after', true);
   const rejectionProof = sql(readFileSync('tests/db/checkout-rejection-recovery.sql', 'utf8'));
   assert.ok(rejectionProof.includes('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED'));
   enforcementGate('verify', true);
+  sql('ALTER TABLE account_checkout_rejections ADD COLUMN unreviewed text'); recoveryGate('verify', false);
+  sql('ALTER TABLE account_checkout_rejections DROP COLUMN unreviewed'); recoveryGate('verify', true);
+  sql('GRANT EXECUTE ON FUNCTION inspect_rejected_account_checkout(uuid,uuid) TO anon'); recoveryGate('verify', false);
+  sql('REVOKE EXECUTE ON FUNCTION inspect_rejected_account_checkout(uuid,uuid) FROM anon'); recoveryGate('verify', true);
+  const retainedUser = 'e9050000-0000-4000-8000-000000000001';
+  sql(`INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('${retainedUser}','recovery-retained@example.test',now());`);
+  const retainedOperation = sql(`SET ROLE service_role; SELECT begin_account_checkout('${retainedUser}')`);
+  assert.equal(sql(`SET ROLE service_role; SELECT reconcile_rejected_account_checkout('${retainedUser}','${retainedOperation}',
+    'req_nativeretained','parameter_missing','line_items')`), 't');
+  recoveryGate('after', false); recoveryGate('verify', true);
+  console.log(JSON.stringify({ recoveryGateCases, result: 'PASS' }));
   // Real lock-barrier regressions: the recovery must reread a winner's committed
   // state after waiting for its profile lock. These are controlled DB state
   // writers, not claims of a complete provider/webhook/closure journey.
