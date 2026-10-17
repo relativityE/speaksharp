@@ -476,3 +476,91 @@ describe('#1258 C — a real failed Stop keeps the take\'s words for Retry Save 
         expect(failedMarkers(), 'a confirmed Discard is what closes it').toHaveLength(1);
     });
 });
+
+/**
+ * #1258 RWT round 2 C (live 38991376690 / 38991893303) — A RECOVERED SAVE LICENSES THE REVIEW, AND NOTHING ELSE DOES.
+ *
+ * Only a successful Stop entered the saved-take review, so after a failed Stop and a successful Retry Save the page
+ * never showed `Practice this again`. The controller now publishes `recoveredSaveSessionId` from its owner-fenced
+ * full-save settlement, and settles the failed Stop's own status by identity. Controls: a failed, no-op or superseded
+ * retry publishes nothing, and a status written after the failure (a microphone error) is never cleared.
+ */
+describe('#1258 C — a recovered save enters the review; nothing else does', () => {
+    type Retrying = PrivateController & { retryRecordingSave: () => Promise<boolean>; lifecycleVersion: number };
+
+    beforeEach(() => {
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        factory.queue.length = 0;
+        factory.active = null;
+        vi.mocked(saveSession).mockReset().mockResolvedValueOnce({ status: 'saved', session: { id: 'session-A' } } as never);
+        vi.mocked(completeSession).mockReset().mockResolvedValue({ success: true } as never);
+    });
+
+    const failedStop = async (): Promise<Retrying> => {
+        const c = newController() as Retrying;
+        c.state = 'READY';
+        factory.queue.push(recordingService('A'));
+        enterProduct('open_mic', BRIEF_A);
+        await c.startRecording(POLICY, []);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(c.stopRecording()).rejects.toThrow('SESSION_COMPLETION_FAILED');
+        await settle();
+        expect(useSessionStore.getState().pendingResolutionKind, 'precondition: Retry Save is armed').toBe('full_save');
+        expect(useSessionStore.getState().recoveredSaveSessionId, 'precondition: no review licence yet').toBeNull();
+        return c;
+    };
+
+    it('a successful Retry Save publishes the recovered session and settles the failed Stop\'s own status', async () => {
+        const c = await failedStop();
+        const failedStatus = useSessionStore.getState().sttStatus;
+        expect(['error', 'warning'], 'precondition: the failed save left a failure status').toContain(failedStatus.type);
+
+        await expect(c.retryRecordingSave()).resolves.toBe(true);
+        await settle();
+        const st = useSessionStore.getState();
+        expect(st.recoveredSaveSessionId, 'the page is licensed to review the recovered take').toBe('session-A');
+        expect(st.completedSessionId).toBe('session-A');
+        expect(st.sttStatus.type, 'the failed save no longer masks the review').toBe('info');
+        expect(st.pendingResolutionKind).toBeNull();
+    });
+
+    it('CONTROL: a status written after the failure (a microphone error) is never cleared by the recovery', async () => {
+        const c = await failedStop();
+        const micError = { type: 'error' as const, message: 'Microphone access is denied. Please grant permission in your browser settings.' };
+        useSessionStore.getState().setSTTStatus(micError);
+
+        await expect(c.retryRecordingSave()).resolves.toBe(true);
+        await settle();
+        expect(useSessionStore.getState().sttStatus, 'the genuine error stays').toBe(micError);
+        expect(useSessionStore.getState().recoveredSaveSessionId).toBe('session-A');
+    });
+
+    it('CONTROL: a Retry Save that fails again publishes nothing and keeps the recovery and lock', async () => {
+        const c = await failedStop();
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(c.retryRecordingSave()).resolves.toBe(false);
+        await settle();
+        expect(useSessionStore.getState().recoveredSaveSessionId).toBeNull();
+        expect(useSessionStore.getState().pendingResolutionKind, 'still recoverable').toBe('full_save');
+    });
+
+    it('CONTROL: a no-op Retry Save (nothing pending) returns true and publishes nothing', async () => {
+        const c = newController() as Retrying;
+        c.state = 'READY';
+        await expect(c.retryRecordingSave()).resolves.toBe(true);
+        expect(useSessionStore.getState().recoveredSaveSessionId, 'a true return alone is no licence').toBeNull();
+    });
+
+    it('CONTROL: a retry overtaken by a newer take mid-flight publishes no review for it', async () => {
+        const c = await failedStop();
+        vi.mocked(completeSession).mockImplementationOnce(async () => {
+            c.lifecycleVersion += 1; // a successor take owns the lifecycle while A's completion is in flight
+            return { success: true } as never;
+        });
+        await c.retryRecordingSave();
+        await settle();
+        expect(useSessionStore.getState().recoveredSaveSessionId, 'A\'s settlement cannot open a review over B').toBeNull();
+    });
+});

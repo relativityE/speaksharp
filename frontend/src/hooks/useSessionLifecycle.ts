@@ -281,6 +281,19 @@ export const useSessionLifecycle = () => {
         isListeningRef.current = isListening;
     }, [isListening]);
 
+    /**
+     * #1258 RWT round 2 C — A RECOVERED SAVE ENTERS THE SAME REVIEW AS A SUCCESSFUL STOP.
+     *
+     * The Stop handler is the only writer of the after-state flag, and a Stop whose save failed ends in its catch, so a
+     * later successful Retry Save left the page outside its review: no saved-take review and no `Practice this again`.
+     * The controller publishes `recoveredSaveSessionId` only from its owner-fenced full-save settlement — never for a
+     * no-op, failed or superseded retry — and retires it when the next take begins, so it licenses exactly this.
+     */
+    const recoveredSaveSessionId = useSessionStore(state => state.recoveredSaveSessionId);
+    useEffect(() => {
+        if (recoveredSaveSessionId && !isListeningRef.current) setShowAnalyticsPrompt(true);
+    }, [recoveredSaveSessionId]);
+
     const metrics = useSessionMetrics({
         transcript: transcript.transcript,
         chunks: chunks as unknown as Array<{ transcript: string; timestamp: number }>, // Cast to structural match to avoid strict Chunk mismatch
