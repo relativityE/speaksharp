@@ -1139,6 +1139,12 @@ export class SpeechRuntimeController {
         /** #1421 Option A: the take this verdict belongs to, never the attempt current when it settles. */
         subject?: RecordingSubject | null;
     } | null = null;
+    /**
+     * #1258 RWT round 2 C — the EXACT status object a failed Stop left on screen for the session whose full save
+     * it armed for Retry Save. A recovered save settles that status and nothing else: identity, not wording, so a
+     * later status (a microphone error, a new take's copy) is never cleared by an old recovery.
+     */
+    private recoverableSaveFailureStatus: { sessionId: string; status: SttStatus } | null = null;
 
     /** #1265: immutable practice-mode snapshot captured when this recording enters RECORDING. Retry paths
      *  must never infer mode from a later live store or default missing context to Open Mic. */
@@ -1472,6 +1478,20 @@ export class SpeechRuntimeController {
                         // publications are fenced, so a superseded retry still finishes its own work.
                         this.pendingFullSaveRetry = null;
                         if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
+                        // #1258 RWT round 2 C — the take is saved, so its finalized recovery draft is spent, exactly as a
+                        // first-pass save clears it. Left behind, it told the person "Your last session finished but was
+                        // not saved" over the very review of the take that had just been saved. Scoped to THIS session's
+                        // own draft — bookkeeping, like the slots above, so it is not behind the shared-publication fence.
+                        // BEST-EFFORT (Codex P2 r4301349174, Sam 6229616411): the save has already succeeded and the slot is
+                        // cleared, so storage that cannot be read (disabled by browser policy) must not turn this into a
+                        // reported failure with no review and no retry. Unreadable → nothing is deleted (the exact-session
+                        // comparison inside is kept; there is no unconditional fallback) and settlement continues.
+                        try {
+                            clearSessionRecoveryDraft(targetSessionId);
+                        } catch (cleanupError) {
+                            logger.warn({ sessionId: targetSessionId, errorName: (cleanupError as Error)?.name ?? 'unknown' },
+                                '[controller] recovered save: recovery draft could not be read for cleanup — kept, settlement continues (#1258)');
+                        }
                         this.publishIfStopOwner(retryAuthority, retryToken, 'retry_full_save_settlement', () => {
                         this.markRecordingResolved();
                         // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
@@ -1494,6 +1514,21 @@ export class SpeechRuntimeController {
                          * is stale and must not overwrite that newer take's.
                          */
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
+                        /**
+                         * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
+                         * saved-take review, so a recovered save left the page on its failed Stop: no review, no
+                         * `Practice this again`. This owner-fenced publication is the page's licence to enter it; a
+                         * no-op, failed or superseded retry never reaches here. The failed Stop's own status is
+                         * settled — by identity, so any status written since (a microphone error) is left alone.
+                         */
+                        const failedStatus = this.recoverableSaveFailureStatus;
+                        if (failedStatus?.sessionId === targetSessionId) {
+                            this.recoverableSaveFailureStatus = null;
+                            if (useSessionStore.getState().sttStatus === failedStatus.status) {
+                                useSessionStore.getState().setSTTStatus({ type: 'info', message: '✓ Session saved.' });
+                            }
+                        }
+                        useSessionStore.getState().setRecoveredSaveSessionId(targetSessionId);
                         });
                     }
                 }
@@ -4035,6 +4070,16 @@ export class SpeechRuntimeController {
             throw refusal;
         }
 
+        /**
+         * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — A NEWER START OUTRANKS A RECOVERED REVIEW.
+         *
+         * `recoveredSaveSessionId` lets the page keep a recovered take's review over a later, unrelated error. That licence
+         * belongs to the recovered take only until the person asks for another one: from this admitted Start on, a failure
+         * (a denied microphone before any audio) is the new take's, and must show its own failed start, not A's review.
+         * Retired here, after the entry fence above (a refused Start leaves no trace) and before any start step can fail.
+         */
+        useSessionStore.getState().setRecoveredSaveSessionId(null);
+
         // #1426 — THE SWITCH'S SUCCESS IS NOT THE TAKE'S AUTHORITY.
         //
         // A scored model-comparison take is admitted only after recomputing requested === observed ===
@@ -4634,6 +4679,8 @@ export class SpeechRuntimeController {
                     && acceptedHere.serviceGeneration === this.serviceGeneration) {
                     const store = useSessionStore.getState();
                     store.setCompletedSessionId(null);
+                    store.setRecoveredSaveSessionId(null);
+                    this.recoverableSaveFailureStatus = null;
                     store.setFinalizedAnalysis(null);
                     store.setObjectiveCoverageResult(null);
                 } else {
@@ -6265,6 +6312,10 @@ export class SpeechRuntimeController {
                 // (the content-free recovery draft, if any, was already written by persistActiveRecoveryDraft and
                 // the recovery-signal length was captured above). Purge the ephemeral transcript so no spoken
                 // text survives a failed finalization either.
+                // #1258 C: remember the exact status this failed save left, so its recovery settles only that.
+                if (this.sessionId && this.holdsRecoverableSave(this.sessionId)) {
+                    this.recoverableSaveFailureStatus = { sessionId: this.sessionId, status: useSessionStore.getState().sttStatus };
+                }
                 this.purgeTranscriptWorkingMemory();
                 throw err;
             }
