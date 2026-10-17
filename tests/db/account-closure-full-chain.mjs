@@ -8,10 +8,12 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 import console from 'node:console';
 import { accountClosureEnforcementStages } from '../../scripts/lib/accountClosureEnforcementGate.mjs';
+import { checkoutRejectionQuery, assertCheckoutRejection } from '../../scripts/lib/checkoutRejectionGate.mjs';
 import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage, proofPostgresVersion, proofSubprocessFailure } from './account-closure-full-chain-diagnostics.mjs';
 
 const root = resolve('backend/supabase/migrations');
 const candidate = '20261016180000_account_closure_drain_enforcement.sql';
+const recovery = '20261017200000_checkout_rejection_recovery.sql';
 const postgresVersion = proofPostgresVersion(process.env.PROOF_POSTGRES_VERSION);
 const files = readdirSync(root).filter((file) => file.endsWith('.sql')).sort();
 assert.ok(files.includes(candidate), 'closure candidate missing');
@@ -24,7 +26,7 @@ const manifest = files.map((name) => {
 });
 const migrations = manifest.filter((row) => row.version !== null);
 assert.equal(new Set(migrations.map((row) => row.version)).size, migrations.length, 'duplicate migration versions');
-assert.equal(migrations.at(-1).name, candidate, 'newer migration requires an explicit updated baseline');
+assert.equal(migrations.at(-1).name, recovery, 'newer migration requires an explicit updated baseline');
 if (process.argv.includes('--plan')) {
   console.log(JSON.stringify({ mode: 'PLAN_ONLY', migrations: migrations.length, candidate: migrations.at(-1), unversioned: manifest.filter((row) => row.version === null), executed: false }));
   process.exit(0);
@@ -114,7 +116,7 @@ try {
   // Supported CLI selector; fresh staging only, never an installed/project DB.
   mkdirSync(join(directory, '.temp'), { recursive: true });
   writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-  for (const file of files.filter((name) => name !== candidate)) cpSync(join(root, file), join(directory, 'migrations', file));
+  for (const file of files.filter((name) => name !== candidate && name !== recovery)) cpSync(join(root, file), join(directory, 'migrations', file));
   // Internal-only bridges do not publish the localhost DB port used by the
   // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
   // established before starting any database/service container instead.
@@ -148,7 +150,7 @@ try {
     'extensions',(SELECT json_agg(json_build_object('name',extname,'version',extversion) ORDER BY extname) FROM pg_extension))::text;`));
   writeFileSync(join(evidence, 'database-version.json'), JSON.stringify(databaseVersion, null, 2));
   assert.equal(Math.floor(Number(sql("SELECT current_setting('server_version_num');")) / 10000), 17);
-  assert.deepEqual(history(), migrations.filter((row) => row.name !== candidate).map((row) => row.version), 'baseline replay is incomplete');
+  assert.deepEqual(history(), migrations.filter((row) => row.name !== candidate && row.name !== recovery).map((row) => row.version), 'baseline replay is incomplete');
   verifyEnforcement('before');
   // Legacy schema invariants belong to the actual118 baseline, before119
   // deliberately revokes its service-role mutation bypasses.
@@ -159,11 +161,11 @@ try {
   // Failure is real and remains FAIL; it never bypasses the full proof.
   const denialControl = sql(readFileSync('tests/db/account-closure-denial-control.sql', 'utf8'));
   assert.ok(denialControl.includes('ACCOUNT CLOSURE DISPOSABLE DENIAL CONTROL PASSED'), 'disposable denial control absent');
-  writeFileSync(join(evidence, 'denial-control.json'), JSON.stringify({ baselineMigrations: migrations.length - 1,
+  writeFileSync(join(evidence, 'denial-control.json'), JSON.stringify({ baselineMigrations: migrations.length - 2,
     selectedPostgresVersion: postgresVersion, status: 'PASS', productionProof: false }));
   cpSync(join(root, candidate), join(directory, 'migrations', candidate));
   cli(['migration', 'up', '--local']);
-  assert.deepEqual(history(), migrations.map((row) => row.version), 'candidate history is incomplete');
+  assert.deepEqual(history(), migrations.filter((row) => row.name !== recovery).map((row) => row.version), 'enforcement history is incomplete');
   realSupabaseSchema = true;
   verifyEnforcement('after');
   const proof = sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql', 'utf8'));
@@ -173,6 +175,16 @@ try {
   assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'), 'f', 'proof must restore disabled rollout gate');
   verifyEnforcement('after');
   console.log('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED');
+  assertCheckoutRejection(sql(checkoutRejectionQuery('before', readFileSync(join(root, recovery), 'utf8'))), 'before');
+  cpSync(join(root, recovery), join(directory, 'migrations', recovery));
+  cli(['migration', 'up', '--local']);
+  assert.deepEqual(history(), migrations.map((row) => row.version), 'recovery history is incomplete');
+  assertCheckoutRejection(sql(checkoutRejectionQuery('after', readFileSync(join(root, recovery), 'utf8'))), 'after');
+  const recoveryProof = sql(readFileSync('tests/db/checkout-rejection-recovery.sql', 'utf8'));
+  assert.ok(recoveryProof.includes('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED'), 'recovery proof marker absent');
+  assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('c3333333-3333-4333-8333-333333333333','c4444444-4444-4444-8444-444444444444')"), '0', 'rejection fixture residue');
+  verifyEnforcement('after');
+  console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED');
 } catch (error) {
   primaryError = error;
 } finally {
