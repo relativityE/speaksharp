@@ -227,7 +227,16 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onNewSet,
     history,
 }) => {
-    const permissionError = sttStatus.type === 'error';
+    /*
+     * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — an `error` is a failed START only when it can belong to
+     * one. While the page reviews a RECOVERED save, an error written afterwards (a queued engine-policy rejection applied when
+     * the recovery unlocked) belongs to no start and must not drop the saved take's review back to `before`; the error stays
+     * on screen in the status bar. The licence retires at the next admitted Start, so a newer failed start (a denied
+     * microphone) keeps its priority. Nothing else changes in `resolveSessionState`.
+     */
+    const recoveredSaveSessionId = useSessionStore((st) => st.recoveredSaveSessionId);
+    const reviewingRecoveredSave = showAnalyticsPrompt && recoveredSaveSessionId !== null;
+    const permissionError = sttStatus.type === 'error' && !reviewingRecoveredSave;
     const captureLiveForState = useSessionStore((st) => st.captureLive);
     const sessionState = resolveSessionState({
         // #1258 C10 — ONE definition of "recording begins": the take is live only when capture is live on real microphone

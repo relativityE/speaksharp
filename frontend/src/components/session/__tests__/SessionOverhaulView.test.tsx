@@ -129,6 +129,31 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         expect(screen.queryByTestId('prompt-offer')).toBeNull();
     });
 
+    /*
+     * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — a recovered save keeps its review over an error that
+     * belongs to no start (a queued engine-policy rejection applied when the recovery unlocked). CONTROL: once a newer
+     * Start retires the licence, that start's denied microphone shows the truthful failed start.
+     */
+    it('#1258 C: a recovered save keeps its review and Practice again over a later non-start error', () => {
+        useSessionStore.setState({ recoveredSaveSessionId: 'session-A' });
+        try {
+            render(<SessionOverhaulView {...base} showAnalyticsPrompt
+                sttStatus={{ type: 'error', message: 'Could not update your transcription settings.' } as SttStatus} />);
+            expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+            expect(screen.getByTestId('verdict-practice-again')).toBeInTheDocument();
+        } finally {
+            useSessionStore.setState({ recoveredSaveSessionId: null });
+        }
+    });
+
+    it('#1258 C CONTROL: after a newer Start retired the licence, its denied microphone shows the failed start, not the old review', () => {
+        useSessionStore.setState({ recoveredSaveSessionId: null }); // retired by B's admitted Start
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt sttStatus={{ type: 'error', message: 'Mic blocked' } as SttStatus} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.getByTestId('mic-error')).toHaveTextContent('Mic blocked');
+        expect(screen.queryByTestId('verdict-practice-again')).toBeNull();
+    });
+
     it('a mic-permission error keeps the before state and surfaces the error in the mic card', () => {
         render(<SessionOverhaulView {...base} sttStatus={{ type: 'error', message: 'Mic blocked' } as SttStatus} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');

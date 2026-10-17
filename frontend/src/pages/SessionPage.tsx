@@ -92,6 +92,8 @@ export const SessionPage: React.FC = () => {
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
     const completedSessionId = useSessionStore(state => state.completedSessionId);
+    // #1258 RWT round 2 C — the recovered take's review licence (see useSessionLifecycle / SessionOverhaulView).
+    const recoveredSaveSessionId = useSessionStore(state => state.recoveredSaveSessionId);
     // #1306 Option A: the terminal review's word count + filler breakdown come from the FINAL snapshot (captured
     // before the transcript/chunks were purged), never from the now-empty live transcript or the live fillerData
     // (which the useFillerWords sync zeroes once the chunks are purged).
@@ -600,6 +602,19 @@ export const SessionPage: React.FC = () => {
                 message: 'Getting your mic ready…',
                 ...(startupSlow ? { detail: 'This is taking longer than usual.' } : {}),
             } as SttStatus;
+        }
+
+        // 2a-bis. #1258 RWT round 2 C (Codex P1 r4300891532, Sam RETURN 6228898440) — while a RECOVERED save is under review,
+        // an error that belongs to no start (a queued engine-policy rejection applied when the recovery unlocked) stays in
+        // this bar. The review keeps the take's own surface (SessionOverhaulView no longer reads it as a failed start), so the
+        // bar is the error's one visible home, and it must not depend on the failure hold (FAILED) above, which expires on its
+        // own. A newer Start retires the licence, and a start in progress (2a) still owns the bar first. Without an error the
+        // bar says the take is saved: a recovered save never publishes `finalizedAnalysis`, so the pre-terminal branch (2d)
+        // would otherwise claim "Finalizing your transcript…" over a saved take for as long as the review stays open.
+        if (showAnalyticsPrompt && recoveredSaveSessionId !== null) {
+            return (sttStatus as SttStatus).type === 'error'
+                ? sttStatus as SttStatus
+                : { type: 'info', message: '✓ Session saved.' } as SttStatus;
         }
         // Live capture of a NEW take: its own status, never the previous take's post-save copy (C10 row 4). PM 6205858358:
         // `Speak now` takes the live slot at the one real-frame boundary, in place of the generic `Recording active`.
