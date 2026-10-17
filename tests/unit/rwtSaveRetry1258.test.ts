@@ -62,13 +62,13 @@ describe('recoveryBannerVerdict — every claim is true of the page', () => {
         expect(recoveryBannerVerdict({ ...ok, completedBeforeRetry: 0 }).status, 'request-lost').toBe('PASS');
         expect(recoveryBannerVerdict({ ...ok, completedBeforeRetry: 1 }).status, 'response-lost').toBe('PASS');
     });
-    it('a DEFINITE "not saved" claim after the server already committed → FAIL, even when it equals the shipped copy', () => {
-        for (const claim of ['Your last recording was not fully saved.', 'Your last recording was not saved.', 'This take isn’t saved.']) {
+    it.each(['Your last recording was not fully saved.', 'Your last recording was not saved.', 'This take isn’t saved.'])(
+        'a DEFINITE "not saved" claim after the server already committed → FAIL, even when it equals the shipped copy: %s', (claim) => {
             const verdict = recoveryBannerVerdict({ ...ok, completedBeforeRetry: 1, message: `${claim} ${RECOVERY_COPY.words}` });
-            expect(verdict.status, claim).toBe('FAIL');
-            expect(verdict.detail, claim).toMatch(/server had already saved it/);
-        }
-        // The same definite wording with nothing committed is not a FALSE claim; it fails only as the wrong copy.
+            expect(verdict.status).toBe('FAIL');
+            expect(verdict.detail).toMatch(/server had already saved it/);
+        });
+    it('the same definite wording with nothing committed is not a FALSE claim; it fails only as the wrong copy', () => {
         expect(recoveryBannerVerdict({ ...ok, message: `Your last recording was not fully saved. ${RECOVERY_COPY.words}` }).detail).toMatch(/does not match/);
     });
 });
