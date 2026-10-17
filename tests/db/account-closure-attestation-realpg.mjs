@@ -4,11 +4,12 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import process from 'node:process';
 import console from 'node:console';
 import { setTimeout } from 'node:timers/promises';
 
-const root = mkdtempSync('/private/tmp/closure-attestation-proof-');
+const root = mkdtempSync(join(tmpdir(), 'closure-a-'));
 const data = join(root, 'data'); const socket = join(root, 'socket'); mkdirSync(socket);
 const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     !key.startsWith('PG') && !key.startsWith('SUPABASE') && key !== 'DB_URL')),

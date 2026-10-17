@@ -6,6 +6,7 @@ on:
       - 'backend/supabase/migrations/**'
       - 'tests/db/account-closure-full-chain*'
       - 'tests/db/account-closure-concurrency-realpg.mjs'
+      - 'tests/db/account-closure-attestation-realpg.mjs'
       - 'tests/db/account-closure-tokens.integration.test.ts'
       - 'tests/db/account-closure-enforcement-full-chain.sql'
       - 'tests/db/account-closure-denial-control.sql'
@@ -64,6 +65,7 @@ jobs:
           [ "$actual_head" = "$PROOF_HEAD_SHA" ] || { echo '::error::native proof source differs from requested head'; exit 1; }
           echo "Native concurrency tested head: $actual_head"
           node tests/db/account-closure-concurrency-realpg.mjs
+          node tests/db/account-closure-attestation-realpg.mjs
       - name: Replay actual baseline and closure migration; prove invariants
         run: node tests/db/account-closure-full-chain.mjs
       - name: Recover owned disposable resources after interruption
