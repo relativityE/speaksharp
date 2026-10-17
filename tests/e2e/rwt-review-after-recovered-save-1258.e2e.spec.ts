@@ -8,30 +8,29 @@
  * server. The person must then see the same review a successful Stop shows, with `Practice this again` usable.
  * CONTROL: a Retry Save that fails again keeps the recovery and enters no review.
  */
-import type { Page, Route } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
 import { mockLiveTranscript, navigateToRoute, programmaticLoginWithRoutes, startRecording, stopRecording } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
-const COMPLETION_RPC = /\/rest\/v1\/rpc\/complete_session_v2(\?.*)?$/;
-
 /**
- * Loses the first `lose` completion requests in the browser; every later one reaches the mock server. Registered AFTER
- * the login installs the mock routes: Playwright gives the most recently registered route priority, and a mock route
- * registered later would answer the completion before this one ever saw it.
+ * Loses the first `lose` completion requests. The e2e build answers Supabase in the browser through its MSW worker, so
+ * Playwright's network routes never see a completion (an earlier `page.route` here intercepted nothing and every save
+ * succeeded); the worker's own fault switch `__E2E_LOSE_COMPLETIONS__` loses them instead, and counts every request.
  */
-async function loseCompletions(page: Page, lose: number): Promise<{ posts: () => number }> {
-    let posts = 0;
-    await page.route(COMPLETION_RPC, async (route: Route) => {
-        if (route.request().method() !== 'POST') return route.fallback();
-        posts += 1;
-        return posts <= lose ? route.abort('failed') : route.fallback();
-    });
-    return { posts: () => posts };
+async function loseCompletions(page: Page, lose: number): Promise<{ posts: () => Promise<number> }> {
+    await page.evaluate((n) => {
+        const w = window as unknown as { __E2E_LOSE_COMPLETIONS__?: number; __E2E_COMPLETION_POSTS__?: number };
+        w.__E2E_LOSE_COMPLETIONS__ = n;
+        w.__E2E_COMPLETION_POSTS__ = 0;
+    }, lose);
+    return {
+        posts: () => page.evaluate(() => (window as unknown as { __E2E_COMPLETION_POSTS__?: number }).__E2E_COMPLETION_POSTS__ ?? 0),
+    };
 }
 
-async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () => number }> {
+async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () => Promise<number> }> {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     const lost = await loseCompletions(page, lose);
@@ -43,7 +42,7 @@ async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () 
     await expect(page.getByTestId('session-unresolved-recovery'), 'the failed save offers recovery').toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('session-retry-save')).toBeVisible();
     await expect(page.getByTestId('verdict-practice-again'), 'precondition: a failed save shows no review').toHaveCount(0);
-    expect(lost.posts(), 'precondition: the take\'s completion was the request that was lost').toBe(1);
+    expect(await lost.posts(), 'precondition: the take\'s completion was the request that was lost').toBe(1);
     return lost;
 }
 
@@ -59,7 +58,7 @@ test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () 
         const again = page.getByTestId('verdict-practice-again');
         await expect(again, 'the recovered take offers Practice this again').toBeVisible({ timeout: 15_000 });
         await expect(again).toBeEnabled({ timeout: 15_000 });
-        expect(lost.posts(), 'one lost completion and one recovered one').toBe(2);
+        expect(await lost.posts(), 'one lost completion and one recovered one').toBe(2);
         // The status bar visibly settles the failed save — never a stale failure or an endless "Finalizing…".
         const status = page.getByRole('main').getByRole('status').first();
         await expect(status, 'the status says the take is saved').toContainText('Session saved', { timeout: 15_000 });
