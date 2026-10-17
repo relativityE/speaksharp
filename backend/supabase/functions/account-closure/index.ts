@@ -7,6 +7,7 @@ import type { ClosureDependencies, ClosureProof } from '../_shared/accountClosur
 import { readAccountClosureRuntimeBinding } from '../_shared/accountClosureRuntimeBinding.ts';
 import { createAccountClosureRecoveryAdapter } from '../_shared/accountClosureRecoveryAdapter.ts';
 import { recoverAccountClosure } from '../_shared/accountClosureRecovery.ts';
+import { accountClosureConfigProbe, readAccountClosureEffectiveConfig, stripeKeyMode } from '../_shared/accountClosureConfigProbe.ts';
 
 type Env = (key: string) => string | undefined;
 
@@ -282,6 +283,12 @@ export async function handler(req: Request, env: Env = (key) => Deno.env.get(key
   const rejected = corsGuard(req);
   if (rejected) return rejected;
   const headers = corsHeaders(req);
+  const probe = await accountClosureConfigProbe(req, env, 'account-closure', () =>
+    readAccountClosureEffectiveConfig(env, stripeKeyMode(env('STRIPE_SECRET_KEY'))));
+  if (probe) {
+    for (const [key, value] of Object.entries(headers)) probe.headers.set(key, value);
+    return probe;
+  }
   const url = env('SUPABASE_URL');
   const anon = env('SUPABASE_ANON_KEY');
   const secret = env('SUPABASE_SERVICE_ROLE_KEY');

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { accountClosureEnforcementStages } from './accountClosureEnforcementGate.mjs';
 import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 } from './accountClosureEnforcementIdentity.mjs';
@@ -72,6 +72,28 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
       return bodyJson(response, signal);
     }
     const sql = (query, parameters = []) => request(`${management}/database/query`, managementToken, 'POST', { query, parameters, read_only: true });
+    const probeObservations = [];
+    async function effectiveConfig(pin) {
+      const nonce = randomBytes(32).toString('hex'); const startedAt = Date.now();
+      const deploymentId = `${projectId}_${pin.id}_${pin.version}`;
+      const value = await request(`${target.url}/functions/v1/${pin.function}?__operator_config=1`, serviceKey, 'POST',
+        { nonce, expectedDeploymentId: deploymentId });
+      const keys = ['version', 'function', 'nonce', 'projectId', 'deploymentId', 'region', 'executionId', 'observedAt', 'configuration'];
+      const configKeys = ['paymentsEnabled', 'configuredStripeMode', 'capturedStripeMode', 'stripeModeMatches', 'siteOrigin', 'proPriceId', 'anonConfigured'];
+      const c = value?.configuration;
+      if (!value || Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key))
+        || value.version !== 1 || value.function !== pin.function || value.projectId !== projectId
+        || value.deploymentId !== deploymentId || value.nonce !== nonce || !uuid(value.executionId)
+        || typeof value.region !== 'string' || !/^[a-z0-9-]{1,40}$/.test(value.region)
+        || !Number.isFinite(value.observedAt) || value.observedAt < startedAt - 5000 || value.observedAt > Date.now() + 5000
+        || !c || Object.keys(c).length !== configKeys.length || configKeys.some((key) => !Object.hasOwn(c, key))
+        || typeof c.paymentsEnabled !== 'boolean' || typeof c.anonConfigured !== 'boolean' || c.stripeModeMatches !== true
+        || !['live', 'test', 'missing'].includes(c.capturedStripeMode) || c.capturedStripeMode !== c.configuredStripeMode
+        || (c.proPriceId !== null && (typeof c.proPriceId !== 'string' || !/^price_[a-zA-Z0-9]+$/.test(c.proPriceId)))
+        || (c.siteOrigin !== null && (typeof c.siteOrigin !== 'string' || !/^https:\/\/[a-zA-Z0-9.-]+(?::[0-9]+)?$/.test(c.siteOrigin)))) stop('EFFECTIVE_CONFIG_UNVERIFIED');
+      probeObservations.push(value);
+      return { function: pin.function, deploymentId, configuration: c };
+    }
     async function snapshot() {
       const [generation, functions, secrets] = await Promise.all([
         request(`${target.url}/rest/v1/rpc/inspect_account_closure_drain_generation`, serviceKey, 'POST', {}),
@@ -89,7 +111,10 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
         || typeof s.value !== 'string') || new Set(secrets.map((s) => s.name)).size !== secrets.length) stop('CONFIG_METADATA_UNREADABLE');
       // Raw values (which may be hashes or secrets) never leave this scope.
       const configMetadataDigest = digest(secrets.map((s) => [s.name, digest(s.value)]).sort(([a], [b]) => a.localeCompare(b)));
-      return { generation, functions, configMetadataDigest };
+      const configs = await Promise.all(pinned.map(effectiveConfig));
+      // Nonces/timestamps/isolate IDs are retained as observations, not hashed
+      // into the stable configuration binding. The later grant is excluded.
+      return { generation, functions, configMetadataDigest, configDigest: digest(configs) };
     }
     async function databaseInventory() {
       const operations = []; const pages = []; const seen = new Set(); let cursor = null;
@@ -176,6 +201,7 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
         ...after, schemaReceipt: { mode: 'verify', passed: true, stages: schema }, databaseInventory: { ...database, operations: observations },
         providerInventory: { accountId: provider.accountId, pages: provider.pages, sessionCount: provider.sessions.length,
           sessions: providerObservations, observedPaginationExhausted: provider.observedPaginationExhausted },
+        effectiveRuntimeObservations: probeObservations, respondingInstanceConfigVerified: true,
         regionalWorkerCoverage: 'UNVERIFIED', effectiveRuntimeValuesVerified: false } };
   }
   async function readAvailableFacts(requestTarget = target, externalSignal) {

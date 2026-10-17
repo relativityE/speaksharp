@@ -60,6 +60,30 @@ const neverCallStripe = () => {
   };
 };
 
+Deno.test('operator checkout probe reads captured mode before the disabled payment gate without creating a client or session', async () => {
+  const stripe = neverCallStripe(); let clients = 0;
+  const deploymentId = 'example_33333333-3333-4333-8333-333333333333_2';
+  const getEnv = envWith({ PAYMENTS_ENABLED: 'false', STRIPE_SECRET_KEY: 'sk_test_synthetic',
+    DENO_DEPLOYMENT_ID: deploymentId, SB_REGION: 'us-east-1', SB_EXECUTION_ID: '44444444-4444-4444-8444-444444444444' });
+  const dependencies = { getEnv, stripeClient: stripe.client, stripeClientMode: 'test' as const,
+    createSupabase: () => { clients++; throw new Error('unexpected auth client'); } };
+  const response = await handler(new Request('https://example.supabase.co/functions/v1/stripe-checkout?__operator_config=1', {
+    method: 'POST', headers: { Authorization: 'Bearer service-key' },
+    body: JSON.stringify({ nonce: 'a'.repeat(64), expectedDeploymentId: deploymentId }),
+  }), dependencies);
+  assertEquals(response.status, 200);
+  const value = await response.json(); assertEquals(value.configuration.paymentsEnabled, false);
+  assertEquals(value.configuration.capturedStripeMode, 'test');
+  assertEquals((await handler(request('pro'), dependencies)).status, 403);
+  assertEquals(clients, 0); assertEquals(stripe.called(), false);
+});
+Deno.test('real checkout refuses a captured test client under a newly live environment', async () => {
+  const stripe = neverCallStripe(); let clients = 0;
+  const response = await handler(request('pro'), { getEnv: env, stripeClient: stripe.client, stripeClientMode: 'test',
+    createSupabase: () => { clients++; throw new Error('unexpected auth client'); } });
+  assertEquals(response.status, 403); assertEquals(clients, 0); assertEquals(stripe.called(), false);
+});
+
 const createSupabase = (stripeCustomerId: string | null = null, profileError: unknown = null) => () =>
   ({
     auth: {

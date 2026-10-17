@@ -23,6 +23,16 @@ function setup(mutate = () => {}) {
   const fetcher = vi.fn(async (url, options) => {
     if (state.denied) return new Response('secret provider error private-service', { status: 403 });
     if (url.endsWith('/inspect_account_closure_drain_generation')) return json(state.generations[generationRead++] ?? state.generation);
+    if (url.includes('/functions/v1/')) {
+      const pin = config.artifacts.find((p) => url.includes(`/${p.function}?`));
+      const body = JSON.parse(options.body);
+      const value = { version: 1, function: pin.function, nonce: body.nonce, projectId: target.projectId,
+        deploymentId: body.expectedDeploymentId, region: 'us-east-1', executionId: '44444444-4444-4444-8444-444444444444',
+        observedAt: Date.now(), configuration: { paymentsEnabled: false, configuredStripeMode: 'test', capturedStripeMode: 'test',
+          stripeModeMatches: true, siteOrigin: 'https://example.test', proPriceId: null, anonConfigured: true } };
+      state.probeMutation?.(value);
+      return json(value);
+    }
     if (url.includes('/functions/')) {
       const pin = config.artifacts.find((p) => url.endsWith(`/${p.function}`));
       return json({ slug: pin.function, id: pin.id, status: 'ACTIVE', version: state.artifactMismatch ? 3 : pin.version, ezbr_sha256: pin.bundleDigest });
@@ -59,7 +69,7 @@ describe('available live-fact acquisition — mocked providers, missing global d
     expect(JSON.stringify(result)).not.toMatch(/private-management|private-service|private-value|sk_test_fixture/);
     for (const [url, options] of s.fetcher.mock.calls) {
       expect(options.redirect).toBe('error'); expect(options.signal).toBeInstanceOf(AbortSignal);
-      const post = url.endsWith('/database/query') || url.endsWith('/inspect_account_closure_drain_generation');
+      const post = url.endsWith('/database/query') || url.endsWith('/inspect_account_closure_drain_generation') || url.includes('/functions/v1/');
       expect(options.method).toBe(post ? 'POST' : 'GET');
       const credential = url.startsWith('https://api.stripe.com/') ? 'sk_test_fixture'
         : url.startsWith(target.url) ? 'private-service' : 'private-management';
@@ -67,6 +77,23 @@ describe('available live-fact acquisition — mocked providers, missing global d
     }
     expect(s.fetcher.mock.calls.filter(([url]) => url.endsWith('/database/query')).every(([, options]) => JSON.parse(options.body).read_only === true)).toBe(true);
     expect(s.fetcher.mock.calls.filter(([url]) => url.includes('/inspect_account_closure_drain_generation'))).toHaveLength(2);
+    expect(result.facts.effectiveRuntimeObservations).toHaveLength(4);
+    expect(result.facts.respondingInstanceConfigVerified).toBe(true);
+  });
+  it.each(['nonce', 'deploymentId', 'projectId', 'observedAt', 'configuration'])('rejects stale/replayed/mismatched probe %s', async (field) => {
+    const s = setup((state) => { state.probeMutation = (value) => {
+      if (field === 'observedAt') value.observedAt = Date.now() - 60000;
+      else if (field === 'configuration') value.configuration.secret = 'must-not-leak';
+      else value[field] = 'mismatch';
+    }; });
+    const result = await s.collector.readAvailableFacts();
+    expect(result).toMatchObject({ status: 'HOLD', reason: 'EFFECTIVE_CONFIG_UNVERIFIED', activationAuthorized: false });
+    expect(JSON.stringify(result)).not.toContain('must-not-leak');
+  });
+  it('rejects responding configuration drift across the two snapshots', async () => {
+    let calls = 0;
+    const s = setup((state) => { state.probeMutation = (value) => { value.configuration.paymentsEnabled = ++calls > 2; }; });
+    expect(await s.collector.readAvailableFacts()).toMatchObject({ reason: 'CONTEXT_DRIFT' });
   });
   it.each(['deploymentSuccess', 'elapsed400Seconds', 'zeroLogs', 'terminationVerified'])('never accepts %s as authoritative termination evidence', async (hint) => {
     const s = setup((_state, config) => { config[hint] = true; });

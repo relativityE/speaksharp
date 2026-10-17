@@ -3,12 +3,14 @@ import Stripe from "npm:stripe@16"
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 import { corsGuard, corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
+import { accountClosureConfigProbe, readAccountClosureEffectiveConfig, stripeKeyMode, type StripeMode } from '../_shared/accountClosureConfigProbe.ts';
 
 // Port configuration for local development fallback (inlined to avoid bundler issues)
 const DEV_PORT = 5174;
 
 // Defensive Stripe initialization - validate env before crash
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+const STRIPE_CAPTURED_MODE = stripeKeyMode(STRIPE_SECRET_KEY);
 if (!STRIPE_SECRET_KEY && import.meta.main) {
   console.error("FATAL: STRIPE_SECRET_KEY environment variable is not set.");
 }
@@ -51,6 +53,7 @@ type HandlerDeps = {
   getEnv?: EnvGetter;
   createSupabase?: SupabaseFactory;
   stripeClient?: StripeLike | null;
+  stripeClientMode?: StripeMode;
   createAdmin?: () => SupabaseClient;
 };
 
@@ -97,6 +100,13 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
   const responseHeaders = buildCorsHeaders(req);
   const getEnv: EnvGetter = deps.getEnv ?? ((key) => Deno.env.get(key) ?? undefined);
   const stripeClient = deps.stripeClient ?? stripe;
+  const capturedMode = deps.stripeClient === undefined ? STRIPE_CAPTURED_MODE : deps.stripeClientMode ?? 'unknown';
+  const effective = () => readAccountClosureEffectiveConfig(getEnv, capturedMode);
+  const probe = await accountClosureConfigProbe(req, getEnv, 'stripe-checkout', effective);
+  if (probe) {
+    for (const [key, value] of Object.entries(responseHeaders)) probe.headers.set(key, value);
+    return probe;
+  }
   const createSupabaseClient: SupabaseFactory = deps.createSupabase ?? ((authHeader) =>
     createClient(
       getEnv("SUPABASE_URL")!,
@@ -112,10 +122,11 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
   // configured. Defaults to closed, so a stray live publishable key alone can never open checkout.
   // This does NOT touch existing entitlements: it only refuses to CREATE new checkout sessions.
   {
-    const paymentsExplicitlyEnabled = getEnv("PAYMENTS_ENABLED") === "true";
+    const normalized = effective();
+    const paymentsExplicitlyEnabled = normalized.paymentsEnabled;
     const secretKey = getEnv("STRIPE_SECRET_KEY");
     const hasLiveSecret = typeof secretKey === "string" && secretKey.startsWith("sk_live_");
-    if (!paymentsExplicitlyEnabled || !hasLiveSecret) {
+    if (!paymentsExplicitlyEnabled || !hasLiveSecret || (capturedMode !== 'unknown' && !normalized.stripeModeMatches)) {
       console.warn("[Stripe Checkout] ⛔ payments disabled — refusing checkout (fail-closed beta)");
       return createErrorResponse(
         ErrorCodes.PAYMENTS_DISABLED,

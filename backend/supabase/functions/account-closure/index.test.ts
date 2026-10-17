@@ -260,6 +260,29 @@ Deno.test('handler rejects missing, malformed and mismatched backend bindings be
     } finally { globalThis.fetch = original; }
   }
 });
+Deno.test('pre-grant operator config is readable while ordinary closure remains disabled, with no outbound work', async () => {
+  const { environment } = fixture();
+  delete environment.ACCOUNT_CLOSURE_RUNTIME_BINDING;
+  Object.assign(environment, { SUPABASE_ANON_KEY: 'synthetic-anon', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-service',
+    STRIPE_SECRET_KEY: 'sk_test_synthetic', PAYMENTS_ENABLED: 'false', SB_REGION: 'us-east-1',
+    SB_EXECUTION_ID: '44444444-4444-4444-8444-444444444444',
+    DENO_DEPLOYMENT_ID: 'fixture-project_33333333-3333-4333-8333-333333333333_2' });
+  const original = globalThis.fetch; let outbound = 0;
+  globalThis.fetch = () => { outbound++; throw new Error('unexpected outbound'); };
+  const env = (key: string) => environment[key];
+  try {
+    for (const [authorization, status] of [['Bearer synthetic-user', 403], ['Bearer synthetic-service', 200]] as const) {
+      const response = await handler(new Request('https://fixture-project.supabase.co/functions/v1/account-closure?__operator_config=1', {
+        method: 'POST', headers: { Authorization: authorization },
+        body: JSON.stringify({ nonce: 'a'.repeat(64), expectedDeploymentId: environment.DENO_DEPLOYMENT_ID }),
+      }), env);
+      assertEquals(response.status, status);
+    }
+    const ordinary = await handler(new Request('https://example.test', { method: 'POST',
+      headers: { Authorization: 'Bearer synthetic-user' }, body: JSON.stringify({ action: 'request' }) }), env);
+    assertEquals(ordinary.status, 503); assertEquals(outbound, 0);
+  } finally { globalThis.fetch = original; }
+});
 Deno.test('expired current drain blocks every subsequent irreversible provider/storage boundary', async () => {
   for (const boundary of ['cancel', 'customer', 'storage', 'auth']) {
     const { adapters, calls, settings } = fixture();
