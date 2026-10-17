@@ -43,22 +43,33 @@ async function loseCompletions(page: Page, lose: number): Promise<{ posts: () =>
 }
 
 /**
- * The shared fixture treats every unlisted console error as fatal, and this journey's failed Stop logs its authored
- * `SESSION_COMPLETION_FAILED` on purpose. This spec swaps in the same guard with exactly the injected failure's own
- * authored reports allowed; any OTHER console error still fails the test at the end.
+ * The shared fixture treats every unlisted console error as fatal, and this journey's injected completion fault is
+ * reported by three AUTHORED, content-free diagnostics. This spec swaps in the same guard for these two tests only: each
+ * expected diagnostic is matched by its exact shape and COUNTED (the test asserts the counts), and every other console
+ * error is collected and must be empty. `pageerror` is untouched.
  */
-function guardConsole(page: Page): () => string[] {
+const EXPECTED_DIAGNOSTICS = {
+    // The storage boundary's sanitized log for each lost completion (no message, no transcript).
+    completionRpcFailed: /^\{sessionId: session-[^,}]+, rpcErrorCode: unspecified\} \[Supabase DB\] 🏁 Session completion RPC failed$/,
+    // The failed Stop, once per failed Stop: the controller's catch and the page's stop handler.
+    stopErrorCaught: /^\{err: Error: SESSION_COMPLETION_FAILED[\s\S]*\} \[DEBUG-STOP\] ERROR caught$/,
+    lifecycleStopError: /^\{err: Error: SESSION_COMPLETION_FAILED[\s\S]*\} \[useSessionLifecycle\] Error stopping recording$/,
+} as const;
+type DiagnosticCounts = Record<keyof typeof EXPECTED_DIAGNOSTICS, number>;
+
+function guardConsole(page: Page): { counts: () => DiagnosticCounts; unexpected: () => string[] } {
     page.removeAllListeners('console');
+    const counts: DiagnosticCounts = { completionRpcFailed: 0, stopErrorCaught: 0, lifecycleStopError: 0 };
     const unexpected: string[] = [];
     page.on('console', (msg) => {
         if (msg.type() !== 'error') return;
         const text = msg.text();
-        // The injected stimulus reports itself three ways, all authored: the storage boundary's content-free completion
-        // failure log, the Stop's SESSION_COMPLETION_FAILED, and the dropped-request text. Nothing else is allowed.
-        if (/SESSION_COMPLETION_FAILED|Failed to fetch|\[Supabase DB\] 🏁 Session completion RPC failed/i.test(text)) return;
-        unexpected.push(text.slice(0, 200));
+        const kind = (Object.keys(EXPECTED_DIAGNOSTICS) as Array<keyof typeof EXPECTED_DIAGNOSTICS>)
+            .find((k) => EXPECTED_DIAGNOSTICS[k].test(text));
+        if (kind) counts[kind] += 1;
+        else unexpected.push(text.slice(0, 200));
     });
-    return () => unexpected;
+    return { counts: () => ({ ...counts }), unexpected: () => [...unexpected] };
 }
 
 async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () => Promise<number> }> {
@@ -80,7 +91,7 @@ async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () 
 test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () => {
     test('failed Stop → successful Retry Save → the review with Practice this again', async ({ page }) => {
         test.setTimeout(120_000);
-        const unexpectedConsoleErrors = guardConsole(page);
+        const consoleGuard = guardConsole(page);
         const lost = await recordAndFailStop(page, 1);
 
         await page.getByTestId('session-retry-save').click();
@@ -100,12 +111,13 @@ test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () 
         // The repeat action really starts the next take.
         await again.click();
         await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
-        expect(unexpectedConsoleErrors(), 'no console error other than the injected save failure').toEqual([]);
+        expect(consoleGuard.unexpected(), 'no console error other than the injected fault\'s own diagnostics').toEqual([]);
+        expect(consoleGuard.counts(), 'one lost completion, one failed Stop').toEqual({ completionRpcFailed: 1, stopErrorCaught: 1, lifecycleStopError: 1 });
     });
 
     test('CONTROL: a Retry Save that fails again keeps the recovery and enters no review', async ({ page }) => {
         test.setTimeout(120_000);
-        const unexpectedConsoleErrors = guardConsole(page);
+        const consoleGuard = guardConsole(page);
         await recordAndFailStop(page, 2);
 
         await page.getByTestId('session-retry-save').click();
@@ -113,6 +125,7 @@ test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () 
         await expect(page.getByTestId('session-unresolved-recovery'), 'the take is still recoverable').toBeVisible();
         await expect(page.getByTestId('session-retry-save')).toBeVisible();
         await expect(page.getByTestId('verdict-practice-again'), 'no review for an unsaved take').toHaveCount(0);
-        expect(unexpectedConsoleErrors(), 'no console error other than the injected save failures').toEqual([]);
+        expect(consoleGuard.unexpected(), 'no console error other than the injected fault\'s own diagnostics').toEqual([]);
+        expect(consoleGuard.counts(), 'two lost completions, one failed Stop').toEqual({ completionRpcFailed: 2, stopErrorCaught: 1, lifecycleStopError: 1 });
     });
 });
