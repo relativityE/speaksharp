@@ -100,7 +100,7 @@ function rejectedBeforeExecution(error: unknown): RejectedCreate | null {
   if (!(error instanceof Stripe.errors.StripeInvalidRequestError)
     || error.statusCode !== 400 || error.rawType !== 'invalid_request_error'
     || !['parameter_missing', 'parameter_unknown'].includes(error.code ?? '')
-    || typeof error.param !== 'string' || !/^[A-Za-z][A-Za-z0-9_\[\]]{0,199}$/.test(error.param)
+    || typeof error.param !== 'string' || !/^[A-Za-z][A-Za-z0-9_[\]]{0,199}$/.test(error.param)
     || typeof error.requestId !== 'string' || !/^req_[A-Za-z0-9]{1,200}$/.test(error.requestId)
     || error.headers?.['request-id'] !== error.requestId
     || error.headers?.['stripe-should-retry'] === 'true') return null;
