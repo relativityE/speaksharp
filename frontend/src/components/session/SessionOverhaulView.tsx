@@ -40,6 +40,7 @@ import { emitMicObservability } from '@/services/telemetry/micObservation';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import type { TranscriptView } from '@/lib/storage';
 import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
+import { useOpenShareFeedback } from '@/contexts/feedbackOpener';
 
 /** #1258 — how long a settled review may wait for its saved transcript before reporting it as not shown. */
 const REVIEW_RECEIPT_UNBOUND_SETTLE_MS = 2_000;
@@ -227,6 +228,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onNewSet,
     history,
 }) => {
+    // #1474 — the owner-scoped opener for the Navigation-owned Share Feedback dialog ("Count look wrong?" in THIS RUN).
+    const openShareFeedback = useOpenShareFeedback(authUserId);
     /*
      * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — an `error` is a failed START only when it can belong to
      * one. While the page reviews a RECOVERED save, an error written afterwards (a queued engine-policy rejection applied when
@@ -1030,6 +1033,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <>{objectiveAfterSlotC}{objectiveAfterSlotD}</>
         : (
             <ThisRunCard
+                // #1474 — "Count look wrong?" opens the existing Share Feedback dialog for this signed-in user.
+                onCountLookWrong={openShareFeedback ?? undefined}
                 fillers={reviewFillerCount}
                 fillersPerMinute={reviewFillerCount !== null && effElapsed > 0
                     ? (reviewFillerCount / effElapsed) * 60
