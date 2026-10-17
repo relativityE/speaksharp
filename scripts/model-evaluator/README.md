@@ -1,0 +1,27 @@
+# Model evaluator (#1565)
+
+`pnpm model:evaluate` runs a **model-only corpus lane**. It does not change the product selector, activate a model, or prove an Open Mic/Focus journey. The old `benchmark-v4.live.spec.ts` remains disabled because its retired selector and fake microphone timing cannot qualify a candidate. Today the checked-in product default is v2; v4 is optional, with a roadmap toward v4 primary and v2 backup. The evaluator does not encode that roadmap as an activation decision.
+
+The command accepts versioned baseline, candidate, corpus, and device manifests. A model-specific adapter implements `initialize`, `decode`, `finalize`, and `dispose` in `adapter.ts`. The runner reads each WAV once, verifies WAV and Float32 PCM SHA256, gives the same PCM samples and boundaries to each arm, and alternates AB/BA order across trials. It writes one JSON report with manifest hashes and refuses to overwrite an existing path. Missing policy yields HOLD. A candidate's observed model/runtime/assets/backend must match its manifest; a silent v4→v2 fallback fails.
+
+For a local execution smoke using the current v2 browser worker, first start the mock test server with disposable mock config, then run:
+
+```sh
+VITE_SUPABASE_URL=https://localhost.invalid VITE_SUPABASE_ANON_KEY=mock_eval VITE_AUTH_MODE=mock pnpm dev:test
+node scripts/host-interlock.mjs hold local -- pnpm model:evaluate \
+  --baseline tests/evidence/fixtures/model-evaluator/baseline-v2-smoke.json \
+  --candidate tests/evidence/fixtures/model-evaluator/candidate-v2-smoke.json \
+  --corpus tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json \
+  --device tests/evidence/fixtures/model-evaluator/device-local-wasm.json \
+  --out /private/tmp/model-evaluator-smoke.json
+```
+
+The two v2 manifests intentionally name the **same model**. This proves adapter execution and baseline-vs-baseline mechanics, not candidate non-inferiority. The three synthetic WAVs are one speaker cluster, lack required noisy/accented/long-take/Focus slices, and have no approved numeric policy; a successful smoke therefore returns HOLD (exit code 2). FAIL exits 1. This first increment never emits an overall PASS: even if its model-only comparison passes, missing product-path and required metrics hold acceptance. A report's transcript content is from public synthetic fixtures only; do not publish private recordings or user transcripts.
+
+Candidate manifests also cover Transformers.js v4 `base:q4` and `distil:q4` on WASM, `distil:q4` on real WebGPU, and the selected Moonshine `streaming-medium` WASM build. The primary v2 comparison uses WASM in both arms; WebGPU is a separate performance/device run. A mixed-backend device manifest names each arm's backend and requires a headed browser plus a checked GPU vendor for WebGPU. Their local browser adapter uses `model-evaluator.local.html`, a dev-server-only page excluded from Vite's production build input; it requires `VITE_INTERNAL_BUILD=true`. The v4 manifests require `@huggingface/transformers@4.3.0`, so the current branch's installed 4.2.0 cannot be presented as a 4.3.0 evaluation. The adapter recomputes v4's committed pin-set digest but does not yet verify each downloaded response body, so that proof remains outstanding. V4 activation and the runtime upgrade have separate release authority. Moonshine's runtime does not introspect model ID or revision: those fields come from checked-in pins, while init/decode/backend are observed. Its pinned asset loader hashes downloaded files before giving them to the runtime.
+
+Current scope: pooled and per-slice WER, paired cluster-bootstrap upper bounds, model/input identity, finalized decode latency, audio duration and real-time factor. Each completed transcript records the shipping coachable-filler regex count, the same count on its human reference, and detected keys. This is **final-transcript detection**, not a human-annotated contextual filler score or the product's interim/final counting path.
+
+The browser adapters disable the page's HTTP cache and record model-asset response bytes and the request window visible to Playwright. Dedicated-worker cache state is unproven, and a v4 worker can fetch assets absent from that browser-level counter. For v4, use the separate `workerAcquisition` receipt for model fetch time and coverage; its `completeness`, `reasonCode`, and `unobservableReason` must accompany any reported number. Cross-origin responses without Timing-Allow-Origin can hide byte sizes, so null bytes are not zero. Neither request window isolates network transfer from gaps between requests. Total adapter initialization includes browser launch and asset verification, including elapsed time on failed attempts; it is **not** pure model-load time.
+
+The runner marks first useful partial, isolated cold model load, persistent cache size, browser/worker memory, and product start-stop-next-take as unavailable. Focus keyword coverage, a complete multi-speaker/slice corpus, and separate Open Mic/Focus browser proof remain required before accepting a model. A corpus assembled only from the smoke fixtures cannot produce PASS. Policy margins require Product Owner acceptance before a real candidate run; do not tune them from observed results.

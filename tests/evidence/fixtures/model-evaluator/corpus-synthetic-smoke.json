@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "note": "Synthetic macOS Samantha fixtures; one speaker cluster, deliberately insufficient for model acceptance.",
+  "clips": [
+    {
+      "id": "fixture-001",
+      "clusterId": "samantha-synthetic",
+      "path": "../corpus/fixture-001.wav",
+      "wavSha256": "500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247",
+      "sha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+      "reference": "the quick brown fox jumps over the lazy dog while a calm river flows past the old stone bridge",
+      "slices": ["clear"]
+    },
+    {
+      "id": "fixture-002",
+      "clusterId": "samantha-synthetic",
+      "path": "../corpus/fixture-002.wav",
+      "wavSha256": "1441f3e970c91fdd4602c4419f1210e398ac46e09d7f553c9aea71e9b8eeb2ce",
+      "sha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+      "reference": "The meeting starts at nine. Please arrive early. Thank you very much.",
+      "slices": ["clear"]
+    },
+    {
+      "id": "fixture-003",
+      "clusterId": "samantha-synthetic",
+      "path": "../corpus/fixture-003.wav",
+      "wavSha256": "095b7fe19672a33b90fa7e696f37b96c0acfa0a2e9862758b851e24662d10150",
+      "sha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+      "reference": "So um I think uh we should um review the plan today",
+      "slices": ["filler"]
+    }
+  ]
+}
