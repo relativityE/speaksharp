@@ -4056,6 +4056,16 @@ export class SpeechRuntimeController {
             throw refusal;
         }
 
+        /**
+         * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — A NEWER START OUTRANKS A RECOVERED REVIEW.
+         *
+         * `recoveredSaveSessionId` lets the page keep a recovered take's review over a later, unrelated error. That licence
+         * belongs to the recovered take only until the person asks for another one: from this admitted Start on, a failure
+         * (a denied microphone before any audio) is the new take's, and must show its own failed start, not A's review.
+         * Retired here, after the entry fence above (a refused Start leaves no trace) and before any start step can fail.
+         */
+        useSessionStore.getState().setRecoveredSaveSessionId(null);
+
         // #1426 — THE SWITCH'S SUCCESS IS NOT THE TAKE'S AUTHORITY.
         //
         // A scored model-comparison take is admitted only after recomputing requested === observed ===

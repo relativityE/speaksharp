@@ -564,3 +564,46 @@ describe('#1258 C — a recovered save enters the review; nothing else does', ()
         expect(useSessionStore.getState().recoveredSaveSessionId, 'A\'s settlement cannot open a review over B').toBeNull();
     });
 });
+
+/**
+ * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — the recovered-review licence belongs to the recovered take
+ * only until a newer Start is admitted: a newer take that is denied before any audio must show its own failed start.
+ */
+describe('#1258 C — a newer admitted Start retires the recovered-review licence', () => {
+    beforeEach(() => {
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        factory.queue.length = 0;
+        factory.active = null;
+        vi.mocked(saveSession).mockReset()
+            .mockResolvedValueOnce({ status: 'saved', session: { id: 'session-A' } } as never)
+            .mockResolvedValueOnce({ status: 'saved', session: { id: 'session-B' } } as never);
+        vi.mocked(completeSession).mockReset().mockResolvedValue({ success: true } as never);
+    });
+
+    it('recovered A → Start B denied before audio: the licence is gone, A stays saved', async () => {
+        const c = newController() as PrivateController & { retryRecordingSave: () => Promise<boolean> };
+        c.state = 'READY';
+        const serviceB = recordingService('B');
+        serviceB.startTranscription.mockRejectedValue(Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' }));
+        factory.queue.push(recordingService('A'), serviceB);
+        enterProduct('open_mic', BRIEF_A);
+        await c.startRecording(POLICY, []);
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(c.stopRecording()).rejects.toThrow('SESSION_COMPLETION_FAILED');
+        await settle();
+        await expect(c.retryRecordingSave()).resolves.toBe(true);
+        await settle();
+        expect(useSessionStore.getState().recoveredSaveSessionId, 'precondition: A is under review').toBe('session-A');
+        const aCompleted = vi.mocked(completeSession).mock.calls.filter(([id, a]) => id === 'session-A' && (a as { status?: string })?.status === 'completed').length;
+
+        await c.startRecording(POLICY, []).catch(() => { /* B's denied microphone is the subject */ });
+        await settle();
+        expect(useSessionStore.getState().recoveredSaveSessionId, 'B\'s Start retired A\'s review licence').toBeNull();
+        const failedA = vi.mocked(completeSession).mock.calls.filter(([id, a]) => id === 'session-A' && (a as { status?: string })?.status === 'failed');
+        expect(failedA, 'A stays saved: nothing closes it').toHaveLength(0);
+        expect(vi.mocked(completeSession).mock.calls.filter(([id, a]) => id === 'session-A' && (a as { status?: string })?.status === 'completed'))
+            .toHaveLength(aCompleted);
+    });
+});
