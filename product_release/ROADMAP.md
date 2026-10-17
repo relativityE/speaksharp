@@ -1,25 +1,22 @@
-**Status:** ⚠️ STALE — UNDER REVISION (SSOT for unfinished and deferred product/release work; narrative not reconciled since `main@6bb7a543`)
+**Status:** Authoritative for the bounded current work routing below; wider canonical reconciliation remains open under #1318.
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-18
-**Last Verified:** 2026-09-19 — reconciled to `main@6bb7a543`, which is `main` after PR #1511 (#1501 piece 1: `merge_group` CI support), PR #1512 (duplicate filler-word list removed), PR #1509 (G17 landing terms), PR #1510 (#1500: checked-in test credential removed; test-only), PR #1506 (Session `before`, G16), PR #1507 (FAQ first-session quote), PR #1508 (Sign Out lands on the anonymous landing), PR #1504 (FAQ currentization), PR #1503 (Focus Points set-up retheme, G7) and PR #1505 (#1498 P2 follow-ups), on top of PR #1502 (Share feedback retheme, G8), PR #1494 (Home, Design Correction Brief H-1…H-5) and PR #1498 (Session, S-8…S-14), on top of PR #1490 (#1259 received-receipt gaps), PR #1467 (Focus Points detection limit), PR #1486 (#1473 automatic Practice Loop suggestions), PR #1493 (Design Correction Brief shared slot map, S-1–S-7 / F-1–F-6), PR #1487 (#1475 G12 signed-out homepage) and PR #1492 (#1294 checkout email sourcing) merged; the open PRs, the open issues, the Production migration ledger and incomplete RWT evidence were re-read at the same time.
-**Baseline currentized:** 2026-10-16 — **baseline and deployed-release read only**, to `main@5db63c9e` (after #1619). ⚠️ **The narrative below is STALE:** it was last reconciled at `main@6bb7a543` (2026-09-19) and was not re-reconciled. Do not rely on it for open PRs, blockers or workflow state; read GitHub for those.
-**Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
+**Last Reviewed:** 2026-09-18 (last recorded human review; this revision awaits Sam's review).
+**Last Verified:** 2026-10-17 — linked current assignments and source checkpoints; operational state is recorded in `RELEASE_STATUS.md`.
+**Applies To:** RWT/Alpha, MVP/Beta sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
 **Not Authoritative For:** deployed posture and GO/HOLD (→ `RELEASE_STATUS.md`); product guarantees (→ `PRODUCT_REQUIREMENTS.md`); technical contracts (→ owning canonical document); dated evidence (→ `EVIDENCE_INDEX.md`).
-**Supersedes:** `ACTIVE_COORDINATION.md`, the archived `BACKLOG.md`, and `ROADMAP.operational.md`.
-**Evidence Sources:** GitHub issue/PR state; `RELEASE_STATUS.md`; current code and tests; dated audits indexed by `EVIDENCE_INDEX.md`.
+**Supersedes:** the stale September active-queue narrative here; archived `BACKLOG.md` and `ROADMAP.operational.md` remain provenance.
+**Evidence Sources:** current linked owning issues, `RELEASE_STATUS.md`, and [Sam's #1318 assignment](https://github.com/relativityE/speaksharp/issues/1318#issuecomment-6234300137).
 
 # SpeakSharp Roadmap
 
-> **Baseline `5db63c9e44b27694f231749f931e4252e6f42bf3`** (`main`, 2026-10-16, after #1619). The deployed release is recorded separately in `RELEASE_STATUS.md` and is a **read** of Production, never inferred from this pointer. The two values currently agree because Production was read at 2026-10-16T19:34:50Z (read-only HTTP GET of the served page) after the #1619 deploy propagated — agreement is the observed result of that read, not a conclusion drawn from the merge. They diverge again the moment `main` advances, until a new read is taken.
-
-This file is the live backlog authority. The former `BACKLOG.md` is archived and must not be restored as a fifteenth canonical document. Completion belongs in issue/PR/git history; current deployment facts belong in `RELEASE_STATUS.md`.
+The currency snapshot is baseline `9316cbf174f65870b2af6b15a3669bc4fdadc0be`. Its observation times, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production.
 
 <!-- CURRENCY-BLOCK
-baseline: 5db63c9e44b27694f231749f931e4252e6f42bf3
-deployed-release: 5db63c9e44b27694f231749f931e4252e6f42bf3
-verified-on: 2026-09-20
+baseline: 9316cbf174f65870b2af6b15a3669bc4fdadc0be
+deployed-release: cc2dc6a2c6268b29aada26900f76c1abdc78244f
+verified-on: 2026-10-17
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
@@ -37,7 +34,7 @@ lane-1258-journey: returned
 lane-1469: merged
 lane-1483: merged
 lane-1481: merged
-lane-1474: merged
+lane-1474: open
 lane-1475: merged
 lane-1467: merged
 lane-1493: merged
@@ -48,45 +45,30 @@ lane-practice-loop: merged
 lane-moonshine: returned
 -->
 
-The currency guard checks internal consistency and recent ancestry; it cannot read a moving GitHub branch or Production deployment.
+Legacy `task-1304-*` fields record merged source checkpoints, not model promotion or completion of the parent comparison program. The historical `onnxruntime-web` QDQ failures #28306/#28326 remain runtime observations, not model rejection: the 459-word preflight and 600-utterance selection are distinct evidence sets. Model evaluation and promotion retain their separate dispositions; no new model gate is created by this current-state correction.
 
-## Now — closure-first path back to RWT
+## Now — existing owner assignments
 
-Keep **one merge token** and, as the standing rule, **one active implementation lane**. Review or CI waiting does not halt unrelated executable work; only the merge token is serialized.
+Keep App Dev on RWT/Alpha and CLI Dev on MVP/Beta. Sam owns central routing, review, qualification and operational decisions; CLI PM supports monitoring/delivery. Production Dev reviews and GitHub work take precedence over Orch support. Preserve one writer per owned branch and serial guarded landings; independent source work does not wait for unrelated operational permission.
 
-**The temporary two-lane exception for the RWT closure queue has run its course.** Its Dev lane (#1477 → #1486 → #1467) and PM's #1490 merged; PM's #1488 is still open under the same rule. When #1488 closes, the exception expires and the default of one active implementation lane resumes. Design Correction Brief lanes (PR #1498 Session, PR #1494 Home) are each one PR and merge serially on the one token.
-
-| Order | Outcome | Owner | Smallest closure evidence |
-|---|---|---|---|
-| 1 | Close Focus Points attribution authority — **merged**; Production migration `20260914214307` still pending | PR #1469 | Production migration application remains separate and needs exact PO authorization. |
-| 2 | Close Focus verdict palette/explanation — **merged** 2026-09-17 | PR #1467 | Done; verify in the final exact-release journey. |
-| 3 | Make progress saves truthful and cross-tab safe | #1471 → #1476 | Empty `{}` never means verified zero; two-tab queue casualties prove no loss, overwrite, duplication, or indefinite Start hold. |
-| 4 | Restore the automatic Practice Loop review — **PR #1486 merged** | #1473 | One automatic request, one valid 1+1 review or cause-matched terminal, truthful retry, received telemetry; the issue closes on a verified Production journey. |
-| 5 | Stop false filler/clarity claims | #1472 | Persisted `complete | unobservable | no_speech` state shared by Session, Analytics, PDF, Progress, recovery, and telemetry. |
-| 6 | Make Moonshine RWT-ready — **deferred until after RWT or MVP** | #1263 | Not a current RWT prerequisite. Keep the acquisition/switch fixes; when it is picked up, investigate and eliminate the real long-form loop at the model-driving boundary without output sanitization, and prove tail and live-stability contracts. |
-| 7 | Produce comparable rows that validate the standing choice | #1304 + #1390 | Same corpus, identity, word-count, filler completeness, WER, latency, stability, and **v2/v4** journey evidence. It confirms the standing choice of v4 as the approved primary and v2 as the fallback — a target, not a deployed state — and supplies the pre-promotion evidence #1263 needs; it is not a three-model down-selection, and Moonshine rows are not required. |
-| 8 | Complete the approved core UI | #1474 → Design Correction Brief | G10 hierarchy merged (#1489); the brief continued it: PR #1493 (slot map), PR #1494 (Home H-1…H-5) and PR #1498 (Session S-8…S-14) are merged and deployed. G8 Share feedback retheme merged (#1502); G7 set-up retheme (#1503), the #1498 P2 follow-up (#1505), FAQ (#1504/#1507), Sign Out (#1508) and Session `before` (G16, #1506) merged; G17 landing terms merged (#1509). Open: the G16 numeric body (points, per the Designer's rewritten §6.1 — pending PM's confirmation of the points switch across the Progress panel, PDF and FAQ), S-12 (verdict + evidence contract), S-15/S-16, the "Count look wrong?" opener, and the shared dialog surface. |
-| 9 | Complete the approved landing page — **PR #1487 merged** | #1475 | G12 layout/theme and the full 30-day/$10 offer shipped; the issue closes on PO verification. |
-| 10 | Close observability and final journey gates | #1259 + #1382/#1383/#1384 → #1258 | Received events, clean baseline, SLO/alert/cleanup proof, Dev runs both products, then PO repeats on the exact deployed release. |
-
-The `onnxruntime-web` int8/q8 failure was the upstream QDQ regression #28306/#28326, not a model verdict. The 459-word preflight exposed corpus/runtime defects before the 600-utterance selection run. Those lessons remain binding, but historical rows do not qualify the current **v2/v4** comparison.
-
-## Active MVP and pre-GO issue register
-
-All 23 current MVP/pre-GO issues and the one roadmap-owned gap (account deletion) have an owner and closure boundary:
-
-| Area | Issues | Disposition |
+| Outcome / owning issue | Existing owner | Next bounded outcome / completion boundary |
 |---|---|---|
-| Final product/copy/journey | #1254, #1258, #1360, #1407 | Active; close owning fixes before the final exact-release journey and copy scan. |
-| Observability/operations | #1259, #1382, #1383, #1384 | Active; received evidence and cleanup are required, not producer calls. |
-| Security/CI truth | #1261, #1313, #1315, #1385 | Active pre-GO controls; keep separate from product-feature PRs. |
-| STT comparison | #1304, #1390 | Active; validates **v4 (approved primary, not yet live) against v2 (pre-Start fallback, and today's only customer default)**. #1263 Moonshine is deferred until after RWT or MVP and is not required here. |
-| Documentation/review gate | #1318 | PR #1477 merged 2026-09-16; the 2026-10-16 baseline-only currentization restores the baseline to `main@5db63c9e` (previously 2026-10-12, `main@7d8f8dfe`). Archives and dated evidence remain immutable. |
-| Retention safety | #1452 | The newest-one migration was applied on 2026-09-12 and installs the policy **inert**; current activation is unverified (no read-only DB secret), and installation stopped the prior newest-two expiry. #1452 stays open with its must-fix-before-activation priority, re-classified P1/RWT blocker if activation is observed. PR #1497 was closed unmerged as superseded. See `RELEASE_STATUS.md`, *Database migration state*. |
-| Account deletion | Roadmap-owned pre-GO gap | Product Owner owns disposition; Dev may author a bounded corrective issue/PR. Choose one deletion authority, make account erasure unblockable, cover unfinished `session_delivery_measurements` rows and the non-cascading `user_id` dependency, define cleanup/SLA ownership, and prove the real migrations in tests. Production migration remains separately authorized. |
-| Progress/review/filler | #1471, #1472, #1473, #1476 | Active release blockers with separate owners. |
-| Approved UI | #1474, #1475 | Design Correction Brief work (Home, Session, Share feedback, G7, G16 `before`, G17 landing terms merged); the G16 numeric body is next; no scope leakage into unrelated PRs. |
-| Test identities | #1495 | Separate auth, full-product, paid and trial identity roles; consumer inventory first, and no identity or credential change without exact PO authorization. |
+| Full useful two-product RWT — #1258 / coordination #1593 | App Dev executes; Sam reviews; PO/named humans accept | Follow the existing nine-spec matrix and retain each case's PASS/FAIL/HOLD/not-run. Rebind the save/retry request-lost then response-lost packet to the actual served release with specific authority, receipt/cleanup review and stop conditions. Complete remaining received/human/device acceptance. Source merges do not close this outcome. |
+| Backend-only staging — #1611 | CLI Dev source; App Dev selected apply/landing executor; Sam dispositions | Reconcile the frozen accepted source to current main after the landing queue, then obtain fresh qualification and use the existing conditional operational disposition. Ordered 118→119 apply/postflight and actual host controls remain separate prerequisites. Exact heads, runs and application observations live in `RELEASE_STATUS.md`. |
+| Complete customer exit — #1643, with #1495 provider/fixture prerequisites | CLI Dev implementation/evidence; Sam scope/review; App Dev only assigned operations | Retain all nine existing acceptance items: cancellation versus deletion, account-bound email/UI, authoritative global legacy drain/settlement, registration/runtime binding, billing ownership/recovery, cleanup and terminal sign-in refusal, telemetry and controlled live proof. Consolidate accepted preserved-source increments, integrate against current main and qualify before eligible controlled activation. Backend staging alone cannot close it. |
+| G10 requirement/design and missing correction opener — #1474 | Browser PM interpretation/opener disposition; App Dev implementation after disposition; Sam routing | [Browser PM's packet](https://github.com/relativityE/speaksharp/issues/1474#issuecomment-6239720648) recommends natural growth for explicit Sam/PO ruling and one existing Share Feedback opener path. Sam dispositions the strict slot/count-visibility interpretation and selects the implementation slot. Keep held reservation experiments and unmet tests as evidence; wiring, mobile/device acceptance and useful coaching remain open. No clipping, hidden rows or weakened maximum-content oracle is approved by this roadmap. |
+| Truthful download progress — #1491 / #1647 | App Dev | The bounded percentage-display fix is source-integrated. Verify its actual served identity separately; cold-download proof and mobile stale-label behavior retain their own evidence boundaries. |
+| Canonical documentation — #1318 | Browser PM; Sam reviews | Publish this first bounded current-state docs diff with receipt-linked HOLD labels. Then continue the remaining canonical/current-document inventory and consolidated intake; do not recreate the accepted readiness packet or wait idle for release completion. This increment does not close the full inventory. |
+| Existing telemetry and test-identity requirements — #1259 / #1495 / owning journey issues | App/CLI implementation by existing assignment; Sam dispositions | Keep received versus sent evidence, AUTH/FULL_PRODUCT/PAID/expired/conversion fixtures and cleanup boundaries distinct. Do not turn the broader five-role redesign into a new core-RWT entry gate. |
+| Remaining product usefulness — #1548 | Existing product/engineering owners; Sam/PO adjudicate | Preserve the broader truthful/actionable coaching outcome. The narrow stored-target display integration is delivered source, not full product-effectiveness acceptance. |
+
+### Preserved sequencing and deferred intake
+
+- Existing closure owners #1254, #1261, #1313/#1315/#1385, #1360, #1382/#1383/#1384, #1407, #1452, #1471/#1472/#1473/#1476 and #1475 are retained for item-level reconciliation in #1318. Removing September's stale status register does not close, reject or reassign their remaining requirements; consult each live disposition before selecting work.
+- #1606 → #1607 → option A retains its existing sequence where the live owner disposition still applies; old hashes are never new assignments.
+- #1619/#1637 schema-source integration, #1611 backend staging, migration application, runtime deployment and deletion activation are separate checkpoints.
+- [Sam's consolidated #1318 intake](https://github.com/relativityE/speaksharp/issues/1318#issuecomment-6234021735) retains signed-versus-owner-dispatched wording, six refutations/identifier aliases, retrospective evidence, old-bundle skew and release-tag decisions for the existing final batch. No separate documentation PR per row is required.
+- The remaining 14-document verification and non-archive terminal-disposition inventory stay open under #1318. This two-file increment does not certify untouched documents, delete retained evidence or alter `archive/**`.
 
 ## Later — explicitly post-MVP
 
@@ -148,7 +130,7 @@ duplicate — for the parked enterprise/team and demand-validation workstreams, 
 - Moonshine is **deferred until after RWT or MVP** by Product Owner decision and is not part of current RWT qualification. The raw long-form failure evidence stands and is preserved; deferring the candidate does not retract the observation.
 - No output deduplication/sanitization may hide a repetition loop.
 - Exactly one **What went well** and one **What to improve** suggestion per eligible saved session.
-- Newest-one transcript retention is the approved target. Its migration is installed inert in Production (ledger read 2026-09-18); activation still requires #1452 and exact PO authorization, and retention mutation is paused.
+- Newest-one transcript retention remains the approved target; application/activation observations and any outstanding #1452 disposition belong in `RELEASE_STATUS.md`. This roadmap grants no retention mutation authority.
 - No Production migration, configuration, credential, account, payment, deployment, RWT, or merge without exact-action authority.
 
 ## Stop conditions
