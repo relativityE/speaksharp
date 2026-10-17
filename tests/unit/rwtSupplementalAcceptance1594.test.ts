@@ -135,15 +135,18 @@ describe('#1594 supplemental suites in acceptance and finalization', () => {
         expect(pending).toContain("status !== null && status !== 'loading'");
         // Codex P1 r4247280690: the older-take chain receives THIS submission's observed acknowledgement explicitly.
         expect(feedback).toContain('acknowledgementVisible: stored.acknowledged,');
-        // Codex P1 r4247450898: the spec's own binding row HOLDs without an observed newer-take request.
-        expect(feedback).toContain('olderRequests.length === 0 || newerRequests.length === 0 || stored.diagnosticRef === null');
+        // Codex P1 r4247450898: the spec's own binding row HOLDs without an observed newer-take request. Since #1539 the
+        // verdict lives in the shared helper the spec calls (a malformed stored reference FAILS before this HOLD).
+        expect(feedback).toContain('writeOlderTakeBindingRow(receipt, stored, olderRequests, newerRequests);');
+        expect(src('live/helpers/feedbackDiagnosticRef.ts')).toContain("olderRequests.length === 0 || newerRequests.length === 0 || stored.kind === 'absent'");
     });
 
     it('drift guard: suite ids and every required product row name are written by the specs or their helpers', () => {
         const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
         const feedback = src('live/rwt-feedback-association-boundaries.live.spec.ts');
         const pending = src('live/rwt-pending-start-navigation.live.spec.ts');
-        const helpers = ['live/helpers/rwtJourney.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts'].map(src).join('\n');
+        const helpers = ['live/helpers/rwtJourney.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts',
+            'live/helpers/feedbackDiagnosticRef.ts'].map(src).join('\n');
         expect(feedback).toContain("const SUITE = 'feedback-association-boundaries';");
         expect(feedback).toContain('`${SUITE}-older-take`');
         expect(feedback).toContain('`${SUITE}-no-session`');
