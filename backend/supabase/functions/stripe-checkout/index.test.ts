@@ -1,5 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handler } from "./index.ts";
+import Stripe from "npm:stripe@16";
 
 function request(plan?: string) {
   return new Request("http://localhost/stripe-checkout", {
@@ -43,7 +44,7 @@ type MockPrice = {
 };
 const validProPrice: MockPrice = { active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "month", interval_count: 1 } };
 
-type CheckoutMock = { sessions: { create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }> } };
+type CheckoutMock = { sessions: { create: (params: Record<string, unknown>, options?: { idempotencyKey: string; maxNetworkRetries: number }) => Promise<{ id: string; url: string | null }> } };
 /** Compose a StripeLike mock: real checkout behavior + a prices.retrieve returning the given price. */
 const stripeWith = (checkout: CheckoutMock, price: MockPrice = validProPrice) => ({
   checkout,
@@ -107,6 +108,103 @@ const createSupabase = (stripeCustomerId: string | null = null, profileError: un
   }) as any;
 
 const createAdmin = () => ({ rpc: async (name: string) => ({ data: name === 'inspect_account_checkout' ? [] : name === "begin_account_checkout" ? "operation" : null, error: null }) }) as unknown as import("npm:@supabase/supabase-js@2").SupabaseClient;
+
+function parameterRejection(code = 'parameter_missing') {
+  return new Stripe.errors.StripeInvalidRequestError({ type: 'invalid_request_error', code, param: 'line_items',
+    message: 'Synthetic parameter validation rejection', statusCode: 400, requestId: 'req_synthetic',
+    headers: { 'request-id': 'req_synthetic' } });
+}
+
+for (const code of ['parameter_missing', 'parameter_unknown']) {
+Deno.test(`definitive ${code} rejection releases only its verified reservation before a later checkout`, async () => {
+  let pending = false; let created = 0; let reconciled = false;
+  const calls: string[] = [];
+  const admin = () => ({ rpc: async (name: string, args: Record<string, unknown>) => {
+    calls.push(name);
+    if (name === 'inspect_account_checkout') return { data: pending ? [{ operation_id: 'operation', session_id: null, phase: 'issuing' }] : [], error: null };
+    if (name === 'begin_account_checkout') { pending = true; return { data: 'operation', error: null }; }
+    if (name === 'reconcile_rejected_account_checkout') {
+      assertEquals(args, { p_user_id: 'user-123', p_operation_id: 'operation', p_request_id: 'req_synthetic', p_code: code, p_param: 'line_items' });
+      reconciled = true; pending = false; return { data: true, error: null };
+    }
+    if (name === 'inspect_rejected_account_checkout') return { data: [{ user_id: 'user-123', operation_id: 'operation', session_id: null,
+      phase: 'settled', rejection_evidence: { request_id: 'req_synthetic', code, param: 'line_items' } }], error: null };
+    return { data: null, error: null };
+  } }) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+  // Exercise the installed SDK's real HTTP-error decoding, without network or
+  // a provider: request-id/status/raw-type must reach the production classifier.
+  const sdk = new Stripe('sk_live_synthetic', { telemetry: false,
+    httpClient: Stripe.createFetchHttpClient(async (input: string | URL | Request, init?: RequestInit) => {
+      if (new URL(String(input)).pathname.startsWith('/v1/prices/')) return Response.json(validProPrice);
+      assertEquals(new Headers(init?.headers).get('idempotency-key'), 'operation');
+      created++;
+      if (created === 1) return Response.json({ error: { type: 'invalid_request_error', code, param: 'line_items', message: 'Synthetic invalid parameter' } },
+        { status: 400, headers: { 'request-id': 'req_synthetic' } });
+      return Response.json({ id: 'cs_next', url: 'https://checkout.stripe.com/next' });
+    }) });
+  const dependencies = { getEnv: env, createSupabase: createSupabase(), createAdmin: admin, stripeClient: sdk };
+  assertEquals((await handler(request(), dependencies)).status, 502);
+  assertEquals(reconciled, true);
+  assertEquals(calls.slice(-2), ['reconcile_rejected_account_checkout', 'inspect_rejected_account_checkout']);
+  assertEquals((await handler(request(), dependencies)).status, 200);
+  assertEquals(created, 2);
+});
+}
+
+Deno.test('ambiguous and malformed create errors never release a reservation', async () => {
+  const errors: unknown[] = [new Error('response lost'), { type: 'StripeInvalidRequestError', statusCode: 400, code: 'parameter_missing' },
+    parameterRejection('resource_missing'), parameterRejection('idempotency_key_in_use'),
+    new Stripe.errors.StripeAPIError({ type: 'api_error', statusCode: 500 }),
+    new Stripe.errors.StripeInvalidRequestError({ type: 'invalid_request_error', code: 'parameter_missing', param: 'line_items', statusCode: 400 }),
+    Object.assign(parameterRejection(), { statusCode: 500 }),
+    Object.assign(parameterRejection(), { headers: { 'request-id': 'req_other' } }),
+    Object.assign(parameterRejection(), { headers: { 'request-id': 'req_synthetic', 'stripe-should-retry': 'true' } }), null];
+  for (const error of errors) {
+    const calls: string[] = [];
+    const admin = () => ({ rpc: async (name: string) => { calls.push(name); return { data: name === 'inspect_account_checkout' ? [] : 'operation', error: null }; } }) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+    const response = await handler(request(), { getEnv: env, createSupabase: createSupabase(), createAdmin: admin,
+      stripeClient: stripeWith({ sessions: { create: async () => { throw error; } } }) });
+    assertEquals(response.status, 502);
+    assertEquals(calls, ['inspect_account_checkout', 'begin_account_checkout']);
+  }
+});
+
+Deno.test('created-session recording failure never enters create-rejection recovery', async () => {
+  const calls: string[] = [];
+  const admin = () => ({ rpc: async (name: string) => {
+    calls.push(name); if (name === 'record_account_checkout') throw parameterRejection();
+    return { data: name === 'inspect_account_checkout' ? [] : 'operation', error: null };
+  } }) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+  const response = await handler(request(), { getEnv: env, createSupabase: createSupabase(), createAdmin: admin,
+    stripeClient: stripeWith({ sessions: { create: async () => ({ id: 'cs_created', url: 'https://checkout.stripe.com/created' }) } }) });
+  assertEquals(response.status, 502);
+  assertEquals(calls, ['inspect_account_checkout', 'begin_account_checkout', 'record_account_checkout']);
+});
+
+Deno.test('rejection recovery requires exact ACK/readback and never retries uncertain SQL delivery', async () => {
+  for (const failure of ['write-error', 'write-false', 'write-lost', 'read-error', 'read-empty', 'read-owner', 'read-operation', 'read-session', 'read-phase', 'read-proof']) {
+    const calls: string[] = []; let creates = 0;
+    const admin = () => ({ rpc: async (name: string) => {
+      calls.push(name);
+      if (name === 'inspect_account_checkout') return { data: [], error: null };
+      if (name === 'begin_account_checkout') return { data: 'operation', error: null };
+      if (name === 'reconcile_rejected_account_checkout') {
+        if (failure === 'write-lost') throw new Error('SQL response lost');
+        return { data: failure !== 'write-false', error: failure === 'write-error' ? { message: 'uncertain' } : null };
+      }
+      const row = { user_id: failure === 'read-owner' ? 'other' : 'user-123', operation_id: failure === 'read-operation' ? 'other' : 'operation',
+        session_id: failure === 'read-session' ? 'cs_other' : null, phase: failure === 'read-phase' ? 'issuing' : 'settled',
+        rejection_evidence: { request_id: failure === 'read-proof' ? 'req_other' : 'req_synthetic', code: 'parameter_unknown', param: 'line_items' } };
+      return { data: failure === 'read-empty' ? [] : [row], error: failure === 'read-error' ? { message: 'unavailable' } : null };
+    } }) as unknown as import('npm:@supabase/supabase-js@2').SupabaseClient;
+    const response = await handler(request(), { getEnv: env, createSupabase: createSupabase(), createAdmin: admin,
+      stripeClient: stripeWith({ sessions: { create: async () => { creates++; throw parameterRejection('parameter_unknown'); } } }) });
+    assertEquals(response.status, 502); assertEquals((await response.json()).checkoutUrl, undefined);
+    assertEquals(creates, 1);
+    assertEquals(calls.filter((name) => name === 'reconcile_rejected_account_checkout').length, 1);
+    assertEquals(calls.filter((name) => name === 'inspect_rejected_account_checkout').length, failure.startsWith('write-') ? 0 : 1);
+  }
+});
 
 Deno.test('operator evidence preserves the exact trimmed price consumed by real checkout', async () => {
   for (const priceId of ['price_First', 'price_Second']) {

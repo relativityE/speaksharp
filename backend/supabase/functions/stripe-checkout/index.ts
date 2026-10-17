@@ -31,7 +31,7 @@ type StripePrice = {
 type StripeLike = {
   checkout: {
     sessions: {
-      create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }>;
+      create: (params: Record<string, unknown>, options?: { idempotencyKey: string; maxNetworkRetries: number }) => Promise<{ id: string; url: string | null }>;
       retrieve?: (id: string) => Promise<{
         id: string; status?: string | null; url: string | null;
         client_reference_id?: string | null; metadata?: Record<string,string> | null;
@@ -90,6 +90,38 @@ const fetchExistingStripeCustomerId = async (
     : "";
   return customerId || null;
 };
+
+type RejectedCreate = { request_id: string; code: string; param: string };
+function rejectedBeforeExecution(error: unknown): RejectedCreate | null {
+  // Stripe documents invalid-parameter errors as preceding API execution:
+  // https://docs.stripe.com/error-low-level#content-errors
+  // Do not generalize this to all 4xx / InvalidRequest errors. Conflicts, a
+  // cached execution failure, network loss and 5xx do not prove non-creation.
+  if (!(error instanceof Stripe.errors.StripeInvalidRequestError)
+    || error.statusCode !== 400 || error.rawType !== 'invalid_request_error'
+    || !['parameter_missing', 'parameter_unknown'].includes(error.code ?? '')
+    || typeof error.param !== 'string' || !/^[A-Za-z][A-Za-z0-9_\[\]]{0,199}$/.test(error.param)
+    || typeof error.requestId !== 'string' || !/^req_[A-Za-z0-9]{1,200}$/.test(error.requestId)
+    || error.headers?.['request-id'] !== error.requestId
+    || error.headers?.['stripe-should-retry'] === 'true') return null;
+  return { request_id: error.requestId, code: error.code!, param: error.param };
+}
+
+async function reconcileRejectedCreate(admin: SupabaseClient, userId: string, operationId: string, proof: RejectedCreate) {
+  // Exactly one transition call. A failed/unknown acknowledgement is held;
+  // never replay it or issue another provider create from this request.
+  const ack = await admin.rpc('reconcile_rejected_account_checkout', { p_user_id: userId, p_operation_id: operationId,
+    p_request_id: proof.request_id, p_code: proof.code, p_param: proof.param });
+  if (ack.error || ack.data !== true) throw new Error('checkout rejection reconciliation unverified');
+  const readback = await admin.rpc('inspect_rejected_account_checkout', { p_user_id: userId, p_operation_id: operationId });
+  const row = Array.isArray(readback.data) && readback.data.length === 1 ? readback.data[0] : null;
+  const evidence = row?.rejection_evidence;
+  if (readback.error || !row || row.user_id !== userId || row.operation_id !== operationId
+    || row.session_id !== null || row.phase !== 'settled' || !evidence || Object.keys(evidence).length !== 3
+    || evidence.request_id !== proof.request_id || evidence.code !== proof.code || evidence.param !== proof.param) {
+    throw new Error('checkout rejection readback unverified');
+  }
+}
 
 export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
   // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
@@ -364,7 +396,9 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       const reserved = await admin.rpc('begin_account_checkout',{p_user_id:user.id});
       if (reserved.error || typeof reserved.data!=='string' || !reserved.data) throw new Error('billing operation pending');
       const operationId = reserved.data;
-      const session = await stripeClient.checkout.sessions.create({
+      let session: { id: string; url: string | null };
+      try {
+        session = await stripeClient.checkout.sessions.create({
         ...customerParams,
         payment_method_types: ["card"],
         client_reference_id: user.id,
@@ -396,7 +430,12 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
             utmCampaign,
           },
         },
-      })
+        }, { idempotencyKey: operationId, maxNetworkRetries: 0 });
+      } catch (createError) {
+        const proof = rejectedBeforeExecution(createError);
+        if (proof) await reconcileRejectedCreate(admin, user.id, operationId, proof);
+        throw createError;
+      }
       const recorded = await admin.rpc('record_account_checkout',{
         p_user_id:user.id,p_operation_id:operationId,p_session_id:session.id,
       });
@@ -406,7 +445,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createSuccessResponse({ checkoutUrl: session.url }, responseHeaders);
     } catch (stripeError) {
       console.error('[Stripe Checkout] ❌ Stripe API Error:', stripeError);
-      const err = stripeError as { type?: string; code?: string; param?: string; message?: string };
+      const err = (stripeError && typeof stripeError === 'object' ? stripeError : {}) as { type?: string; code?: string; param?: string; message?: string };
       if (err.type) console.error('Error Type:', err.type);
       if (err.code) console.error('Error Code:', err.code);
       if (err.param) console.error('Error Param:', err.param);
