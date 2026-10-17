@@ -42,6 +42,23 @@ async function loseCompletions(page: Page, lose: number): Promise<{ posts: () =>
     };
 }
 
+/**
+ * The shared fixture treats every unlisted console error as fatal, and this journey's failed Stop logs its authored
+ * `SESSION_COMPLETION_FAILED` on purpose. This spec swaps in the same guard with exactly that error (and the injected
+ * dropped-request text) allowed; any OTHER console error still fails the test at the end.
+ */
+function guardConsole(page: Page): () => string[] {
+    page.removeAllListeners('console');
+    const unexpected: string[] = [];
+    page.on('console', (msg) => {
+        if (msg.type() !== 'error') return;
+        const text = msg.text();
+        if (/SESSION_COMPLETION_FAILED|Failed to fetch/i.test(text)) return;
+        unexpected.push(text.slice(0, 200));
+    });
+    return () => unexpected;
+}
+
 async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () => Promise<number> }> {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
@@ -61,6 +78,7 @@ async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () 
 test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () => {
     test('failed Stop → successful Retry Save → the review with Practice this again', async ({ page }) => {
         test.setTimeout(120_000);
+        const unexpectedConsoleErrors = guardConsole(page);
         const lost = await recordAndFailStop(page, 1);
 
         await page.getByTestId('session-retry-save').click();
@@ -72,17 +90,20 @@ test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () 
         await expect(again).toBeEnabled({ timeout: 15_000 });
         expect(await lost.posts(), 'one lost completion and one recovered one').toBe(2);
         // The status bar visibly settles the failed save — never a stale failure or an endless "Finalizing…".
-        const status = page.getByRole('main').getByRole('status').first();
-        await expect(status, 'the status says the take is saved').toContainText('Session saved', { timeout: 15_000 });
-        await expect(status).not.toContainText('Finalizing');
+        const main = page.getByRole('main');
+        await expect(main.getByText('Session saved', { exact: false }).first(), 'the status says the take is saved').toBeVisible({ timeout: 15_000 });
+        await expect(main.getByText(/not saved/i), 'no stale "not saved" copy over the saved take').toHaveCount(0);
+        await expect(main.getByText(/Finalizing/)).toHaveCount(0);
 
         // The repeat action really starts the next take.
         await again.click();
         await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
+        expect(unexpectedConsoleErrors(), 'no console error other than the injected save failure').toEqual([]);
     });
 
     test('CONTROL: a Retry Save that fails again keeps the recovery and enters no review', async ({ page }) => {
         test.setTimeout(120_000);
+        const unexpectedConsoleErrors = guardConsole(page);
         await recordAndFailStop(page, 2);
 
         await page.getByTestId('session-retry-save').click();
@@ -90,5 +111,6 @@ test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () 
         await expect(page.getByTestId('session-unresolved-recovery'), 'the take is still recoverable').toBeVisible();
         await expect(page.getByTestId('session-retry-save')).toBeVisible();
         await expect(page.getByTestId('verdict-practice-again'), 'no review for an unsaved take').toHaveCount(0);
+        expect(unexpectedConsoleErrors(), 'no console error other than the injected save failures').toEqual([]);
     });
 });
