@@ -40,6 +40,7 @@ const TYPED_FIX = '20261013140000';
 const CLOSURE = '20261013180000'; // later disabled deletion schema; never apply it with this target
 const DRAIN = '20261016090000'; // later drain prerequisite; excluded from this target
 const ENFORCEMENT = '20261016180000'; // later guarded-runtime prerequisite; also excluded
+const REJECTION_RECOVERY = '20261017200000'; // later checkout-rejection recovery; excluded from this target
 
 describe('#1476 migration is wired into the exact allowlisted apply path', () => {
     const entry = EXACT_MIGRATION_ALLOWLIST.find((item) => item.version === VERSION);
@@ -61,7 +62,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'a'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version), 'static: later allowlist entries; the real ledger decides which stay excluded').toEqual([NEXT, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version), 'static: later allowlist entries; the real ledger decides which stay excluded').toEqual([NEXT, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -88,6 +89,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
         ` ${CLOSURE} |                | x`,
         ` ${DRAIN} |                | x`,
         ` ${ENFORCEMENT} |                | x`,
+        ` ${REJECTION_RECOVERY} |                | x`,
     ].join('\n');
 
     it('the fixture is the real ledger shape: two unrelated pending migrations, and the activation entry recorded APPLIED', () => {
@@ -102,7 +104,7 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
 
     it('EXECUTABLE once #1432 and #1469 are applied: target-only; applied activation stays and all later targets remain pending', () => {
         const before = afterMerge(['20260910193000', '20260914214307']);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, NEXT, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT], excludedVersions: [NEXT, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, NEXT, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY], excludedVersions: [NEXT, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY] });
         const root = mkdtempSync(join(tmpdir(), 'exact-1476-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -117,10 +119,11 @@ describe('#1476 migration is wired into the exact allowlisted apply path', () =>
             expect(isolated.some((f) => f.startsWith(CLOSURE)), 'nor the later disabled deletion schema').toBe(false);
             expect(isolated.some((f) => f.startsWith(DRAIN)), 'nor the later drain prerequisite').toBe(false);
             expect(isolated.some((f) => f.startsWith(ENFORCEMENT)), 'the later enforcement prerequisite is excluded').toBe(false);
+            expect(isolated.some((f) => f.startsWith(REJECTION_RECOVERY)), 'the later checkout-rejection recovery is excluded').toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([NEXT, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([NEXT, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY]);
     });
 });
