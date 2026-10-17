@@ -1,5 +1,10 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { runAccountClosureCurrentFactsCommand } from '../../scripts/account-closure-current-facts.mjs';
 import { createAccountClosureCurrentFacts } from '../../scripts/lib/accountClosureCurrentFacts.mjs';
 import { createAccountClosureAttestationTransport } from '../../scripts/lib/accountClosureAttestationTransport.mjs';
 import { enforcedClosureReceipt } from '../helpers/accountClosureEnforcementReceipt.mjs';
@@ -206,5 +211,94 @@ describe('available live-fact acquisition — mocked providers, missing global d
     expect(await transport.invalidate({ expectedGeneration: '7', reason: 'deployment_changed', evidenceDigest: 'f'.repeat(64) }))
       .toEqual({ status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE', mutationOutcome: 'not_attempted', activationAuthorized: false });
     expect(s.fetcher.mock.calls.some(([url]) => /\/rpc\/(record_|invalidate_)/.test(url))).toBe(false);
+  });
+});
+
+const ownedDirectories = [];
+afterEach(() => { for (const path of ownedDirectories.splice(0)) rmSync(path, { recursive: true, force: true }); });
+function commandFixture() {
+  const s = setup(); const directory = mkdtempSync(join(tmpdir(), 'closure-facts-')); ownedDirectories.push(directory);
+  const manifest = join(directory, 'target.json'); const output = join(directory, 'receipt.json');
+  const { managementToken, serviceKey, stripeKey, ...pins } = s.config;
+  writeFileSync(manifest, JSON.stringify(pins));
+  const environment = { SUPABASE_ACCESS_TOKEN: managementToken, SUPABASE_SERVICE_ROLE_KEY: serviceKey, STRIPE_SECRET_KEY: stripeKey };
+  let stdout = ''; let stderr = '';
+  const run = (args = ['--manifest', manifest, '--output', output]) => runAccountClosureCurrentFactsCommand(args, {
+    environment, fetcher: s.fetcher, stdout: (text) => { stdout += text; }, stderr: (text) => { stderr += text; },
+  });
+  return { ...s, directory, manifest, output, pins, environment, run, stdout: () => stdout, stderr: () => stderr };
+}
+
+describe('read-only operator acquisition command — real collector and private filesystem boundary', () => {
+  it('preserves acquired facts privately, emits only a sanitized HOLD summary, and never mutates registration', async () => {
+    const s = commandFixture(); const before = readFileSync(s.manifest, 'utf8'); const started = Date.now();
+    expect(await s.run()).toBe(3);
+    const receipt = JSON.parse(readFileSync(s.output, 'utf8'));
+    expect(statSync(s.output).mode & 0o777).toBe(0o600);
+    expect(receipt).toMatchObject({ version: 1, status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE',
+      activationAuthorized: false, facts: { respondingInstanceConfigVerified: true, regionalWorkerCoverage: 'UNVERIFIED' } });
+    expect(receipt.facts.databaseInventory.operations[0].userId).toBe(user);
+    expect(Date.parse(receipt.checkedAt)).toBeGreaterThanOrEqual(started);
+    expect(JSON.parse(s.stdout())).toEqual({ status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE',
+      activationAuthorized: false, factsCaptured: true, checkedAt: receipt.checkedAt });
+    expect(s.stdout()).not.toMatch(/private-|sk_test_|cs_fixture|11111111|22222222/);
+    expect(JSON.stringify(receipt)).not.toMatch(/private-management|private-service|private-value|sk_test_fixture/);
+    expect(s.stderr()).toBe(''); expect(readFileSync(s.manifest, 'utf8')).toBe(before);
+    expect(s.fetcher.mock.calls.some(([url]) => /\/rpc\/(record_|invalidate_)/.test(url))).toBe(false);
+  });
+  it('preserves a sanitized acquisition refusal without exposing provider error text', async () => {
+    const s = commandFixture(); s.state.denied = true;
+    expect(await s.run()).toBe(3);
+    expect(JSON.parse(s.stdout())).toMatchObject({ status: 'HOLD', reason: 'READ_REFUSED', factsCaptured: false });
+    expect(JSON.parse(readFileSync(s.output, 'utf8'))).toMatchObject({ status: 'HOLD', reason: 'READ_REFUSED' });
+    expect(s.stdout() + s.stderr() + readFileSync(s.output, 'utf8')).not.toContain('secret provider error');
+  });
+  it.each(['SUPABASE_ACCESS_TOKEN', 'SUPABASE_SERVICE_ROLE_KEY', 'STRIPE_SECRET_KEY'])('rejects missing %s before any network/output', async (key) => {
+    const s = commandFixture(); delete s.environment[key];
+    expect(await s.run()).toBe(2); expect(s.stderr()).toContain('INVALID_CONFIGURATION');
+    expect(s.fetcher).not.toHaveBeenCalled(); expect(readdirSync(s.directory)).toEqual(['target.json']);
+  });
+  it('refuses a production key against disposable target before any request', async () => {
+    const s = commandFixture(); s.environment.STRIPE_SECRET_KEY = 'sk_live_must_not_echo';
+    expect(await s.run()).toBe(2); expect(s.fetcher).not.toHaveBeenCalled();
+    expect(s.stdout() + s.stderr()).not.toContain('must_not_echo');
+  });
+  it.each(['url', 'environment', 'candidateSha', 'artifacts', 'stripeAccountId', 'secret', 'now'])('refuses invalid or caller-added manifest %s', async (field) => {
+    const s = commandFixture(); const pins = structuredClone(s.pins); pins[field] = 'DO_NOT_ECHO_PRIVATE_INPUT';
+    writeFileSync(s.manifest, JSON.stringify(pins));
+    expect(await s.run()).toBe(2); expect(s.fetcher).not.toHaveBeenCalled();
+    expect(s.stdout() + s.stderr()).not.toContain('DO_NOT_ECHO');
+    expect(readdirSync(s.directory)).toEqual(['target.json']);
+  });
+  it.each(['malformed', 'oversized', 'symlink', 'directory'])('refuses %s manifest without requests', async (mode) => {
+    const s = commandFixture(); let input = s.manifest;
+    if (mode === 'malformed') writeFileSync(input, 'DO_NOT_ECHO');
+    else if (mode === 'oversized') writeFileSync(input, 'x'.repeat(65537));
+    else if (mode === 'symlink') { input = join(s.directory, 'link.json'); symlinkSync(s.manifest, input); }
+    else input = s.directory;
+    expect(await s.run(['--manifest', input, '--output', s.output])).toBe(2);
+    expect(s.fetcher).not.toHaveBeenCalled(); expect(s.stderr()).toContain('INVALID_MANIFEST');
+  });
+  it.each(['existing', 'symlink', 'missing-parent', 'same-as-manifest'])('refuses %s output before requests and preserves existing files', async (mode) => {
+    const s = commandFixture(); let output = s.output; const before = readFileSync(s.manifest, 'utf8');
+    if (mode === 'existing') writeFileSync(output, 'owned-existing-receipt');
+    else if (mode === 'symlink') symlinkSync(s.manifest, output);
+    else if (mode === 'missing-parent') output = join(s.directory, 'absent', 'receipt.json');
+    else output = s.manifest;
+    const witness = mode === 'existing' ? output : s.manifest; const prior = readFileSync(witness, 'utf8');
+    expect(await s.run(['--manifest', s.manifest, '--output', output])).toBe(2);
+    expect(s.fetcher).not.toHaveBeenCalled(); expect(s.stderr()).toContain('OUTPUT_UNAVAILABLE');
+    expect(readFileSync(s.manifest, 'utf8')).toBe(before);
+    expect(readFileSync(witness, 'utf8')).toBe(prior);
+  });
+  it.each([[], ['--register', 'yes'], ['--manifest', 'x', '--activate', 'yes'],
+    ['--manifest', 'x', '--manifest', 'y'], ['--manifest', '--output', '--output', 'x']])('rejects unsupported or ambiguous arguments %j', async (...args) => {
+    const s = commandFixture(); expect(await s.run(args)).toBe(2);
+    expect(s.fetcher).not.toHaveBeenCalled(); expect(s.stderr()).toContain('INVALID_ARGUMENTS');
+  });
+  it('actual process help explains private output and HOLD exit semantics without credentials', () => {
+    const result = spawnSync(process.execPath, [resolve('scripts/account-closure-current-facts.mjs'), '--help'], { encoding: 'utf8', timeout: 5000 });
+    expect(result.status).toBe(0); expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('NEW_PRIVATE_FILE'); expect(result.stdout).toContain('Exit 3 = HOLD');
   });
 });
