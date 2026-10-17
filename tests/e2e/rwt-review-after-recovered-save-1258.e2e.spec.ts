@@ -20,18 +20,19 @@ import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
  * succeeded. This wraps that client's `rpc` for `complete_session_v2` only: a lost completion returns the error a dropped
  * request produces, every later one reaches the mock unchanged, and every attempt is counted.
  */
-async function loseCompletions(page: Page, lose: number): Promise<{ posts: () => Promise<number> }> {
+async function loseCompletions(page: Page, lose: number): Promise<{ posts: () => Promise<number>; lostSessions: () => Promise<string[]> }> {
     await page.waitForFunction(() => Boolean((window as unknown as { supabase?: unknown }).supabase));
     await page.evaluate((n) => {
         type Rpc = (fn: string, params?: unknown) => Promise<unknown>;
-        const w = window as unknown as { supabase: { rpc: Rpc }; __lostCompletions__: { lose: number; posts: number } };
-        w.__lostCompletions__ = { lose: n, posts: 0 };
+        const w = window as unknown as { supabase: { rpc: Rpc }; __lostCompletions__: { lose: number; posts: number; lostSessions: string[] } };
+        w.__lostCompletions__ = { lose: n, posts: 0, lostSessions: [] };
         const original: Rpc = w.supabase.rpc.bind(w.supabase);
         w.supabase.rpc = (fn, params) => {
             if (fn !== 'complete_session_v2') return original(fn, params);
             w.__lostCompletions__.posts += 1;
             if (w.__lostCompletions__.lose > 0) {
                 w.__lostCompletions__.lose -= 1;
+                w.__lostCompletions__.lostSessions.push(String((params as { p_session_id?: unknown } | undefined)?.p_session_id));
                 return Promise.resolve({ data: null, error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' } });
             }
             return original(fn, params);
@@ -39,6 +40,7 @@ async function loseCompletions(page: Page, lose: number): Promise<{ posts: () =>
     }, lose);
     return {
         posts: () => page.evaluate(() => (window as unknown as { __lostCompletions__: { posts: number } }).__lostCompletions__.posts),
+        lostSessions: () => page.evaluate(() => [...(window as unknown as { __lostCompletions__: { lostSessions: string[] } }).__lostCompletions__.lostSessions]),
     };
 }
 
@@ -50,29 +52,31 @@ async function loseCompletions(page: Page, lose: number): Promise<{ posts: () =>
  */
 const EXPECTED_DIAGNOSTICS = {
     // The storage boundary's sanitized log for each lost completion (no message, no transcript).
-    completionRpcFailed: /^\{sessionId: session-[^,}]+, rpcErrorCode: unspecified\} \[Supabase DB\] 🏁 Session completion RPC failed$/,
+    completionRpcFailed: /^\{sessionId: (session-[^,}]+), rpcErrorCode: unspecified\} \[Supabase DB\] 🏁 Session completion RPC failed$/,
     // The failed Stop, once per failed Stop: the controller's catch and the page's stop handler.
     stopErrorCaught: /^\{err: Error: SESSION_COMPLETION_FAILED[\s\S]*\} \[DEBUG-STOP\] ERROR caught$/,
     lifecycleStopError: /^\{err: Error: SESSION_COMPLETION_FAILED[\s\S]*\} \[useSessionLifecycle\] Error stopping recording$/,
 } as const;
 type DiagnosticCounts = Record<keyof typeof EXPECTED_DIAGNOSTICS, number>;
 
-function guardConsole(page: Page): { counts: () => DiagnosticCounts; unexpected: () => string[] } {
+function guardConsole(page: Page): { counts: () => DiagnosticCounts; unexpected: () => string[]; rpcFailedSessions: () => string[] } {
     page.removeAllListeners('console');
     const counts: DiagnosticCounts = { completionRpcFailed: 0, stopErrorCaught: 0, lifecycleStopError: 0 };
     const unexpected: string[] = [];
+    const rpcFailedSessions: string[] = [];
     page.on('console', (msg) => {
         if (msg.type() !== 'error') return;
         const text = msg.text();
         const kind = (Object.keys(EXPECTED_DIAGNOSTICS) as Array<keyof typeof EXPECTED_DIAGNOSTICS>)
             .find((k) => EXPECTED_DIAGNOSTICS[k].test(text));
         if (kind) counts[kind] += 1;
+        if (kind === 'completionRpcFailed') rpcFailedSessions.push(EXPECTED_DIAGNOSTICS.completionRpcFailed.exec(text)?.[1] ?? '');
         else unexpected.push(text.slice(0, 200));
     });
-    return { counts: () => ({ ...counts }), unexpected: () => [...unexpected] };
+    return { counts: () => ({ ...counts }), unexpected: () => [...unexpected], rpcFailedSessions: () => [...rpcFailedSessions] };
 }
 
-async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () => Promise<number> }> {
+async function recordAndFailStop(page: Page, lose: number): Promise<{ posts: () => Promise<number>; lostSessions: () => Promise<string[]> }> {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     const lost = await loseCompletions(page, lose);
@@ -113,12 +117,13 @@ test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () 
         await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
         expect(consoleGuard.unexpected(), 'no console error other than the injected fault\'s own diagnostics').toEqual([]);
         expect(consoleGuard.counts(), 'one lost completion, one failed Stop').toEqual({ completionRpcFailed: 1, stopErrorCaught: 1, lifecycleStopError: 1 });
+        expect(consoleGuard.rpcFailedSessions(), 'the failure log names exactly the injected session').toEqual(await lost.lostSessions());
     });
 
     test('CONTROL: a Retry Save that fails again keeps the recovery and enters no review', async ({ page }) => {
         test.setTimeout(120_000);
         const consoleGuard = guardConsole(page);
-        await recordAndFailStop(page, 2);
+        const lost = await recordAndFailStop(page, 2);
 
         await page.getByTestId('session-retry-save').click();
         await page.waitForTimeout(3_000);
@@ -127,5 +132,6 @@ test.describe('#1258 RWT — a recovered save is reviewed like a saved one', () 
         await expect(page.getByTestId('verdict-practice-again'), 'no review for an unsaved take').toHaveCount(0);
         expect(consoleGuard.unexpected(), 'no console error other than the injected fault\'s own diagnostics').toEqual([]);
         expect(consoleGuard.counts(), 'two lost completions, one failed Stop').toEqual({ completionRpcFailed: 2, stopErrorCaught: 1, lifecycleStopError: 1 });
+        expect(consoleGuard.rpcFailedSessions(), 'each failure log names its injected session').toEqual(await lost.lostSessions());
     });
 });
