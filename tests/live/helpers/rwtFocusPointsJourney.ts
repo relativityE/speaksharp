@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
@@ -357,6 +357,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
             persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
             receipt.row('session saved', persistedId ? 'PASS' : 'FAIL', persistedId ? 'the take saved' : 'no persisted session id');
+            // #1407 / #1491 6180077610: saved EXACTLY ONCE, and the one completed row is the take the page bound — read at the
+            // first take's own save, so later legitimate takes are never counted against it.
+            {
+                const { data: completed, error: completedErr } = await admin!.from('sessions').select('id')
+                    .eq('user_id', owner.uid).eq('status', 'completed');
+                const once = firstTakeSavedExactlyOnceVerdict({
+                    persistedId,
+                    completedIds: completedErr ? null : (completed ?? []).map((r: { id: string }) => r.id),
+                });
+                receipt.row('saved exactly once', once.verdict, once.detail,
+                    { completedSessions: completedErr ? null : (completed ?? []).length, queryError: completedErr?.code ?? null });
+            }
 
             // The rail's after-state settles once coverage is no longer pending.
             await expect.poll(async () => (await readRail(page, points.length)).statuses.every((s) => s !== 'pending'), { timeout: 60_000 })

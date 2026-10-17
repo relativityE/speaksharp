@@ -600,3 +600,26 @@ export function focusIdentityObservation(input: {
 export function isNewPersistedSession(state: { persisted: string | null; id: string | null }, previous: string | null): boolean {
     return state.persisted === 'true' && typeof state.id === 'string' && state.id !== '' && state.id !== previous;
 }
+
+/**
+ * #1407 / #1491 6180077610 — the Focus FIRST take is saved EXACTLY ONCE, and the one completed save IS the take the page bound.
+ *
+ * Measured at the first take's own save, before any later legitimate take (Practice again, product switch), so a whole-run
+ * count is never used. `session saved` proves only that a save exists; a duplicate completed row under a different primary
+ * key would pass it. Fail closed: a query error or a missing page identity never passes.
+ */
+export interface FirstTakeSaveObservation {
+    /** The id the page bound (`data-session-persisted-id`), or null when none. */
+    persistedId: string | null;
+    /** Every completed session id for this run-owned account at the first take's save; null when the query failed. */
+    completedIds: readonly string[] | null;
+}
+
+export function firstTakeSavedExactlyOnceVerdict(o: FirstTakeSaveObservation): { verdict: 'PASS' | 'FAIL'; detail: string } {
+    if (o.completedIds === null) return { verdict: 'FAIL', detail: 'the completed-session read failed (fail closed)' };
+    if (!o.persistedId) return { verdict: 'FAIL', detail: 'the page bound no saved session for the first take' };
+    if (o.completedIds.length === 0) return { verdict: 'FAIL', detail: 'no completed session exists for the first take' };
+    if (o.completedIds.length > 1) return { verdict: 'FAIL', detail: `${o.completedIds.length} completed sessions exist after one take (a duplicate save)` };
+    if (o.completedIds[0] !== o.persistedId) return { verdict: 'FAIL', detail: 'the one completed session is not the take the page bound' };
+    return { verdict: 'PASS', detail: 'exactly one completed session, and it is the take the page bound' };
+}
