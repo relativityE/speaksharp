@@ -535,6 +535,35 @@ describe('#1258 C — a recovered save enters the review; nothing else does', ()
         expect(drafts.getSessionRecoveryDraft(), 'no stale "not saved" draft survives the recovered save').toBeNull();
     });
 
+    it('Codex P2 r4301349174: unreadable storage during draft cleanup cannot turn a saved retry into a failure', async () => {
+        const c = await failedStop();
+        const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('denied', 'SecurityError'); });
+        try {
+            await expect(c.retryRecordingSave(), 'the server saved the take: the retry succeeds').resolves.toBe(true);
+            await settle();
+        } finally {
+            getItem.mockRestore();
+        }
+        const st = useSessionStore.getState();
+        expect(st.pendingResolutionKind, 'the recovery is resolved and unlocked').toBeNull();
+        expect(st.completedSessionId).toBe('session-A');
+        expect(st.recoveredSaveSessionId, 'the review is still licensed').toBe('session-A');
+        expect(document.documentElement.getAttribute('data-session-persisted')).toBe('true');
+        expect(vi.mocked(completeSession).mock.calls.filter(([id, a]) => id === 'session-A' && (a as { status?: string })?.status === 'failed'),
+            'no failed marker').toHaveLength(0);
+    });
+
+    it('CONTROL: a recovered save never deletes ANOTHER session\'s recovery draft', async () => {
+        const drafts = await import('../sessionRecoveryDraft');
+        const c = await failedStop();
+        const own = drafts.getSessionRecoveryDraft();
+        expect(own?.sessionId).toBe('session-A');
+        drafts.saveSessionRecoveryDraft({ ...own!, sessionId: 'session-OTHER' });
+        await expect(c.retryRecordingSave()).resolves.toBe(true);
+        await settle();
+        expect(drafts.getSessionRecoveryDraft()?.sessionId, 'the unrelated draft is kept').toBe('session-OTHER');
+    });
+
     it('CONTROL: a status written after the failure (a microphone error) is never cleared by the recovery', async () => {
         const c = await failedStop();
         const micError = { type: 'error' as const, message: 'Microphone access is denied. Please grant permission in your browser settings.' };

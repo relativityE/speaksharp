@@ -1482,7 +1482,16 @@ export class SpeechRuntimeController {
                         // first-pass save clears it. Left behind, it told the person "Your last session finished but was
                         // not saved" over the very review of the take that had just been saved. Scoped to THIS session's
                         // own draft — bookkeeping, like the slots above, so it is not behind the shared-publication fence.
-                        clearSessionRecoveryDraft(targetSessionId);
+                        // BEST-EFFORT (Codex P2 r4301349174, Sam 6229616411): the save has already succeeded and the slot is
+                        // cleared, so storage that cannot be read (disabled by browser policy) must not turn this into a
+                        // reported failure with no review and no retry. Unreadable → nothing is deleted (the exact-session
+                        // comparison inside is kept; there is no unconditional fallback) and settlement continues.
+                        try {
+                            clearSessionRecoveryDraft(targetSessionId);
+                        } catch (cleanupError) {
+                            logger.warn({ sessionId: targetSessionId, errorName: (cleanupError as Error)?.name ?? 'unknown' },
+                                '[controller] recovered save: recovery draft could not be read for cleanup — kept, settlement continues (#1258)');
+                        }
                         this.publishIfStopOwner(retryAuthority, retryToken, 'retry_full_save_settlement', () => {
                         this.markRecordingResolved();
                         // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
