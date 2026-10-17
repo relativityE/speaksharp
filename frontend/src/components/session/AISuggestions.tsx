@@ -727,7 +727,19 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
        */
       data-retry-scheduled={retrying ? 'true' : 'false'}
       data-lifecycle={inFlight ? 'pending' : terminal ? 'terminal' : suggestions ? 'complete' : 'idle'}
-      className="min-w-0"
+      /*
+       * #1474 G10 slot stability (SESSION_PAGE_SPEC §5b: the card "keeps its approximate height… Nothing below it may
+       * move when the review arrives"). The C/D row sits directly under this full-width card, so the card RESERVES the
+       * height of the tallest completed review at each desktop width: pending, failed and complete then occupy the same
+       * box and no slot moves. A MINIMUM, never a fixed height — content is never clipped; anything taller still grows.
+       * Sized from rendered measurements (local Chromium) of the tallest completed review at the narrowest width of each
+       * range: a 240 + 240 character pair (the server ceiling) on the REAL Focus Points card (its longer disclosure) with
+       * `focusPointsEvidence`'s longest output (7 points, four lines) is 518 / 454 / 413 px at 768 / 1024 / 1280+ (the
+       * card stops widening at 1280); Open Mic's tallest is lower at every width. About 24 px of headroom is added
+       * because Inter is not bundled, so text metrics follow each platform's fallback font. Below `md` the layout
+       * stacks; mobile is not covered here.
+       */
+      className="min-w-0 md:min-h-[544px] lg:min-h-[480px] xl:min-h-[440px]"
     >
       <div className="mb-4 flex items-center justify-between gap-3.5">
         {/* A real heading at the eyebrow's visual size: it names the review section for screen-reader

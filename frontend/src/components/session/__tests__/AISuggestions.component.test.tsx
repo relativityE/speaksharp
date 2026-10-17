@@ -1435,6 +1435,31 @@ describe('#1258 punch list D3 — manual Try again policy by failure reason (PM 
         expect(await screen.findByRole('button', { name: /^try again$/i })).toBeEnabled();
     });
 
+    /*
+     * #1474 G10 slot stability — the card reserves the tallest completed review's height at every desktop range, in
+     * EVERY lifecycle state, so pending, failed and complete occupy one box and the C/D row never moves. jsdom has no
+     * layout: the rendered-geometry proof is `tests/e2e/saved-review-rendered-acceptance-1474.e2e.spec.ts`; this pins
+     * that the reservation is a min-height (never a fixed height or clipping) and that no state drops it.
+     */
+    it.each([
+        ['complete', { data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Pause first.' } }, error: null }],
+        ['terminal', httpErrorStatus(429)],
+    ])('#1474: the %s card reserves its height with a responsive min-height and never clips', async (state, answer) => {
+        mockSupabaseClient.functions.invoke.mockResolvedValue(answer);
+        render(<AISuggestions transcript="Hello world" canReview sessionId={`s-reserve-${state}`} product="open_mic" />);
+        await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', state));
+        const classes = screen.getByTestId('ai-suggestions-card').className.split(/\s+/);
+        expect(classes).toEqual(expect.arrayContaining(['md:min-h-[544px]', 'lg:min-h-[480px]', 'xl:min-h-[440px]']));
+        expect(classes.filter((c) => /(^|:)(h-|max-h-|overflow-|line-clamp)/.test(c)), 'no fixed height, cap or clipping').toEqual([]);
+    });
+
+    it('#1474: a pending card holds the same reservation', async () => {
+        mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* stays in flight */ }));
+        render(<AISuggestions transcript="Hello world" canReview sessionId="s-reserve-pending" product="focus_points" />);
+        await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'pending'));
+        expect(screen.getByTestId('ai-suggestions-card').className).toContain('md:min-h-[544px] lg:min-h-[480px] xl:min-h-[440px]');
+    });
+
     it('Focus Points keeps its own disclosure in a terminal failure', async () => {
         mockSupabaseClient.functions.invoke.mockResolvedValue(httpErrorStatus(503, { code: 'service_configuration' }));
         render(<AISuggestions transcript="Hello world" canReview sessionId="s-fp" product="focus_points" />);
