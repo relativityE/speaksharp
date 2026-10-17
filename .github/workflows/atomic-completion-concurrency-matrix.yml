@@ -21,6 +21,10 @@ on:
       - 'scripts/run-atomic-completion-concurrency.sh'
       - 'scripts/run-migration-partial-apply-proof.sh'
       - 'scripts/test-retention-failure-realpg.sh'
+      # #1258 P0: the retention-expiry row-version race proof, its migration, and the suite it reads its schema from.
+      - 'backend/supabase/migrations/20261013120000_retention_expiry_without_superuser_1258.sql'
+      - 'tests/db/run-retention-expiry-edit-race-realpg.sh'
+      - 'tests/db/retention-expiry-no-superuser-1258.integration.test.ts'
       - '.github/workflows/atomic-completion-concurrency-matrix.yml'
 
 permissions:
@@ -93,6 +97,17 @@ jobs:
           set -o pipefail
           bash scripts/test-retention-failure-realpg.sh | tee retention-failure-${{ matrix.pg }}.txt
 
+      # #1258 P0 (PM 6149494459): a completed take edited and committed while the expiry is lock-waiting on it must keep
+      # its words. PGlite cannot interleave two transactions, so this is the only automated proof of the row-version
+      # binding. External mode: a fresh database + NOSUPERUSER owner on this service, both dropped on exit.
+      - name: Retention-expiry concurrent-edit race (#1258 P0)
+        env:
+          RACE_PG_EXTERNAL: '1'
+        run: |
+          # `set -o pipefail` is REQUIRED (see the contention step above).
+          set -o pipefail
+          bash tests/db/run-retention-expiry-edit-race-realpg.sh | tee edit-race-${{ matrix.pg }}.txt
+
       - name: Summary
         if: always()
         run: |
@@ -108,5 +123,9 @@ jobs:
             echo "### Retention-failure invariants — postgres:${{ matrix.pg }}"
             echo '```'
             cat retention-failure-${{ matrix.pg }}.txt 2>/dev/null | grep -E '^==|^  (OK|FAIL)|^PASS|^FAIL' || echo 'no result captured'
+            echo '```'
+            echo "### Retention-expiry concurrent-edit race — postgres:${{ matrix.pg }}"
+            echo '```'
+            cat edit-race-${{ matrix.pg }}.txt 2>/dev/null | grep -E '^PASS|^FAIL|^RESULT|server:' || echo 'no result captured'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
