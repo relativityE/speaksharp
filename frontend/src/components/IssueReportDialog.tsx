@@ -28,6 +28,7 @@ import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { submitBlockers, lengthBand, emitFeedbackFieldState, emitFeedbackDialogOpened, emitFeedbackSubmit, type FeedbackField, classifyFeedbackStorageError } from '@/services/telemetry/feedbackTelemetry';
 import { coachingDiagnosticForSession } from '@/services/coachingDiagnosticLink';
+import { useFeedbackOpenRequest } from '@/contexts/feedbackOpener';
 
 interface IssueReportDialogProps {
   userId?: string | null;
@@ -387,6 +388,28 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     setOpen(next);
   };
 
+  /*
+   * #1474 (opener disposition 6239720648) — page content ("Count look wrong?") opens THIS dialog through the one typed,
+   * owner-scoped request path, never by clicking the navigation button or mounting a second form. The request goes through
+   * the same opening initialization as the button (`handleOpenChange(true)`: the session snapshot, the restored-choice →
+   * viewed → newest → No session default, the draft restore), and only when its owner is this dialog's user — a request
+   * filed for another account is acknowledged and dropped. Closing returns focus to the control that asked.
+   */
+  const openRequest = useFeedbackOpenRequest();
+  const pendingRequest = openRequest?.request ?? null;
+  const settleRequest = openRequest?.settle;
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
+  const handleOpenChangeRef = React.useRef(handleOpenChange);
+  React.useLayoutEffect(() => { handleOpenChangeRef.current = handleOpenChange; });
+  React.useEffect(() => {
+    if (!pendingRequest || !settleRequest) return;
+    if (pendingRequest.ownerId === (userId ?? null) && !open) {
+      returnFocusRef.current = pendingRequest.returnFocus;
+      handleOpenChangeRef.current(true);
+    }
+    settleRequest(pendingRequest.seq);
+  }, [pendingRequest, settleRequest, userId, open]);
+
   const cancel = () => {
     clearFeedbackDraft();
     setType(null);
@@ -527,6 +550,16 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           // returning to their own draft was told, by the focus, that they had picked something else.
           event.preventDefault();
           typeRefs.current[typeIndex >= 0 ? typeIndex : 0]?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          // #1474: an opening requested by page content returns focus to the control that asked for it. An opening from
+          // the navigation button keeps Radix's default (back to that button).
+          const target = returnFocusRef.current;
+          returnFocusRef.current = null;
+          if (target && target.isConnected) {
+            event.preventDefault();
+            target.focus();
+          }
         }}
       >
         <DialogHeader><DialogTitle className="text-[24px] font-extrabold tracking-[-0.03em] text-neutral-heading">Share feedback</DialogTitle></DialogHeader>

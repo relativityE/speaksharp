@@ -27,9 +27,10 @@ export interface ThisRunCardProps {
     /**
      * Opens the correction path for the product's weakest claim (missed fillers). The spec treats this as
      * non-optional; it is optional in this component only because a link that opens nothing is worse than
-     * an absent one, so it renders only once an opener exists.
+     * an absent one, so it renders only once an opener exists. #1474: it receives the link itself, so the
+     * Share Feedback dialog it opens can return focus there on close.
      */
-    onCountLookWrong?: () => void;
+    onCountLookWrong?: (trigger: HTMLButtonElement) => void;
 }
 
 /**
@@ -72,7 +73,7 @@ export const ThisRunCard: React.FC<ThisRunCardProps> = ({
             {onCountLookWrong && (
                 <button
                     type="button"
-                    onClick={onCountLookWrong}
+                    onClick={(event) => onCountLookWrong(event.currentTarget)}
                     className="font-bold text-signature-text underline-offset-2 hover:underline"
                     data-testid="this-run-card-count-wrong"
                 >
