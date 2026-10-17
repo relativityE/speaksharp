@@ -92,43 +92,63 @@ const isLocal = (url: string): boolean => {
 const originOf = (url: string): string => { try { return new URL(url).origin; } catch { return 'unparseable'; } };
 
 /**
- * Strict localhost isolation (Sam 6235397901). The shared mocks end in a catch-all that lets every non-Supabase request
- * through to the network, and Playwright checks the LAST-registered route first — so a guard registered before login
- * would never be reached. Two layers instead:
- *   DETECT from the first moment: a response with a server address came from the network (a mock fulfilment has none),
- *   so any such response from a non-local origin is recorded;
- *   REJECT once login has registered its routes and before the journey navigates (`arm`): this guard, registered last, is
- *   checked first and aborts every non-local request, recording only its origin.
- * Both lists must be empty: the page never reached, nor even tried to reach, anything off localhost.
+ * Strict localhost isolation (Sam 6235397901 / 6235656382, Codex P2 r4303190151). EGRESS IS PREVENTED BEFORE THE FIRST
+ * NAVIGATION. The shared mocks end in a catch-all that lets every non-Supabase request through to the network, and
+ * Playwright checks the LAST-registered route first, so a guard registered before login would sit behind that catch-all
+ * and never run. Login's helper registers all its routes and THEN navigates (`page.goto('/')`), with none after. So the
+ * blocking guard is armed INSIDE that first `goto`, after the helper's routes and before any request: it is checked
+ * first and aborts every non-local request at the request stage — nothing leaves the browser, response or not.
+ * Records, origins only, all of which must stay empty in an ordinary journey:
+ *   ATTEMPTED from the outset: every non-local request the page issues, whatever then happens to it;
+ *   REJECTED: what the guard blocked;
+ *   REACHED from the outset: a non-local response with a server address (a mock fulfilment has none).
+ * `armedBeforeAnyRequest` proves the ordering: no request of any kind was issued before the guard was armed.
  */
-type Isolation = { arm: () => Promise<void>; reached: () => string[]; rejected: () => string[] };
+type Isolation = { attempted: () => string[]; rejected: () => string[]; reached: () => string[]; armedBeforeAnyRequest: () => boolean };
 function isolateFromExternalNetwork(page: Page): Isolation {
-    const reached: string[] = [];
+    const attempted: string[] = [];
     const rejected: string[] = [];
+    const reached: string[] = [];
+    let armed = false;
+    let requestBeforeArm = false;
+    page.on('request', (request) => {
+        if (!armed) requestBeforeArm = true;
+        if (!isLocal(request.url())) attempted.push(originOf(request.url()));
+    });
     page.on('response', (response) => {
         if (isLocal(response.url())) return;
         void response.serverAddr().then((addr) => { if (addr) reached.push(originOf(response.url())); }, () => {});
     });
+    const navigate = page.goto.bind(page);
+    page.goto = (async (...args: Parameters<Page['goto']>) => {
+        if (!armed) {
+            await page.route('**/*', async (route) => {
+                const url = route.request().url();
+                if (isLocal(url)) { await route.fallback(); return; }
+                rejected.push(originOf(url));
+                await route.abort('blockedbyclient');
+            });
+            armed = true;
+        }
+        return navigate(...args);
+    }) as Page['goto'];
     return {
-        arm: () => page.route('**/*', async (route) => {
-            const url = route.request().url();
-            if (isLocal(url)) { await route.fallback(); return; }
-            rejected.push(originOf(url));
-            await route.abort('blockedbyclient');
-        }),
-        reached: () => [...reached],
+        attempted: () => [...attempted],
         rejected: () => [...rejected],
+        reached: () => [...reached],
+        armedBeforeAnyRequest: () => armed && !requestBeforeArm,
     };
 }
 
 async function expectIsolated(isolation: Isolation) {
+    expect(isolation.armedBeforeAnyRequest(), 'the egress guard was armed before the first request').toBe(true);
+    expect(isolation.attempted(), 'the page never issued a request off localhost, mocked or not').toEqual([]);
+    expect(isolation.rejected(), 'nothing off localhost had to be blocked').toEqual([]);
     expect(isolation.reached(), 'no response came from a server off localhost').toEqual([]);
-    expect(isolation.rejected(), 'the page never tried to reach anything off localhost').toEqual([]);
 }
 
-async function recordSavedTake(page: Page, answers: Answer[], isolation: Isolation): Promise<() => Promise<number>> {
+async function recordSavedTake(page: Page, answers: Answer[]): Promise<() => Promise<number>> {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
-    await isolation.arm();
     await navigateToRoute(page, '/session');
     const requests = await scriptReview(page, answers);
     await startRecording(page);
@@ -223,7 +243,7 @@ async function reviewJourney(page: Page): Promise<Record<ReviewState, Layout>> {
     const isolation = isolateFromExternalNetwork(page);
 
     // ── SAVED REVIEW ──
-    const savedRequests = await recordSavedTake(page, ['pair'], isolation);
+    const savedRequests = await recordSavedTake(page, ['pair']);
     const card = page.getByTestId('ai-suggestions-card');
     await expect(card).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
     await expect(page.getByTestId('ai-suggestions-pair'), 'saved review: the pair renders').toBeVisible();
@@ -286,6 +306,33 @@ async function reviewJourney(page: Page): Promise<Record<ReviewState, Layout>> {
 }
 
 test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
+    test('isolation guard: an external request issued during the initial login is blocked before it leaves the browser', async ({ page }) => {
+        test.setTimeout(60_000);
+        const PROBE = 'https://isolation-probe.invalid';
+        const isolation = isolateFromExternalNetwork(page);
+        // The blocked probe's own console line is the only console error this test may see.
+        page.removeAllListeners('console');
+        const consoleErrors: string[] = [];
+        page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 200)); });
+        const failed: string[] = [];
+        page.on('requestfailed', (request) => {
+            if (!isLocal(request.url())) failed.push(`${originOf(request.url())} ${request.failure()?.errorText ?? ''}`);
+        });
+        // Fired by the page itself during login's FIRST navigation, before the app has rendered anything.
+        await page.addInitScript((probe) => { void fetch(`${probe}/login`).catch(() => null); }, PROBE);
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        await expect.poll(() => failed, { message: 'the probe failed in the browser' }).not.toEqual([]);
+
+        expect(isolation.armedBeforeAnyRequest(), 'armed before the first request').toBe(true);
+        expect(isolation.attempted(), 'the page did issue the probe').toContain(PROBE);
+        expect(isolation.rejected(), 'the guard blocked it').toContain(PROBE);
+        // Blocked by this guard at the request stage — not a DNS failure, and no response ever arrived.
+        // (Chromium reports a route abort as `net::ERR_BLOCKED_BY_CLIENT.Inspector`.)
+        expect(failed.every((f) => f.startsWith(`${PROBE} net::ERR_BLOCKED_BY_CLIENT`)), failed.join(' | ')).toBe(true);
+        expect(isolation.reached(), 'no response from off localhost').toEqual([]);
+        expect(consoleErrors.filter((e) => !/ERR_BLOCKED_BY_CLIENT/.test(e)), 'no other console error').toEqual([]);
+    });
+
     test('saved review vs terminal failure vs scheduled retry: counts only in THIS RUN, a next action in every state', async ({ page }) => {
         test.setTimeout(240_000);
         const layouts = await reviewJourney(page);
@@ -310,7 +357,7 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
         test.setTimeout(120_000);
         const consoleGuard = guardConsole(page);
         const isolation = isolateFromExternalNetwork(page);
-        await recordSavedTake(page, ['pair'], isolation);
+        await recordSavedTake(page, ['pair']);
         await expect(page.getByTestId('ai-suggestions-card')).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
         await expect(page.getByTestId('this-run-card'), 'setup: THIS RUN rendered').toBeVisible();
         expect(consoleGuard.unexpected(), 'setup: no unexpected console error').toEqual([]);
