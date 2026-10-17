@@ -43,7 +43,7 @@ describe('wiring — the accepted receipt carries the row, not only an unused he
     });
     it('both Focus suites (full and partial) REQUIRE the row for acceptance', () => {
         for (const suite of ['focus-points-session', 'focus-points-partial'] as const) {
-            expect(requiredAutomatedRows(suite)?.product, suite).toContain('saved exactly once');
+            expect(requiredAutomatedRows(suite)?.product ?? []).toContain('saved exactly once');
         }
     });
 });
