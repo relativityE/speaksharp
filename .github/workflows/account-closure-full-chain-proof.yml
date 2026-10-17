@@ -10,7 +10,11 @@ on:
       - 'tests/db/account-closure-tokens.integration.test.ts'
       - 'tests/db/account-closure-enforcement-full-chain.sql'
       - 'tests/db/account-closure-denial-control.sql'
+      - 'tests/db/checkout-rejection-recovery.sql'
+      - 'tests/db/checkoutRejectionRecovery.integration.test.ts'
       - 'scripts/lib/accountClosure*'
+      - 'scripts/lib/checkoutRejectionGate.mjs'
+      - 'scripts/checkout-rejection-gate.mjs'
       - 'scripts/account-closure-*-gate.mjs'
       - '.github/workflows/account-closure-full-chain-proof.yml'
 
