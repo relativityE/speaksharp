@@ -176,6 +176,17 @@ export function savedTakeReadbackVerdict(rows: readonly SessionRowFacts[], saved
     return { status: 'PASS', detail: 'one completed session for the take, bound by the page, with its transcript kept' };
 }
 
+/**
+ * #1258 — the next take's saved identity has ARRIVED: a non-null id that is not the previous take's.
+ *
+ * `data-session-persisted-id` is CLEARED when the next recording starts (signal contract), so waiting for it merely to
+ * differ from the previous id passes at once on `null` — before the next take's completion is even sent. Live run
+ * 39032621328 read the rows that early and reported "did not save a new session" with no completion POST yet made.
+ */
+export function nextTakeIdArrived(currentId: string | null, savedId: string | null): boolean {
+    return currentId !== null && currentId !== savedId;
+}
+
 /** The next take saves only itself, and newest-one retention moves the transcript to it. */
 export function nextTakeRetentionVerdict(rows: readonly SessionRowFacts[], savedId: string | null, nextId: string | null): Verdict {
     if (nextId === null || nextId === savedId) return { status: 'FAIL', detail: 'the next take did not save a new session' };

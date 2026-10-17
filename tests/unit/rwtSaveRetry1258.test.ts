@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    RECOVERY_COPY, SAVE_RETRY_SUITE, type SessionRowFacts, completionDropDisposition, nextTakeRetentionVerdict,
+    RECOVERY_COPY, SAVE_RETRY_SUITE, type SessionRowFacts, completionDropDisposition, nextTakeIdArrived, nextTakeRetentionVerdict,
     CompletionObserver, classifyTransportFailure, recoveryBannerVerdict, sanitizedCompletionOutcome, savedTakeReadbackVerdict,
 } from '../live/helpers/rwtSaveRetry';
 import {
@@ -54,6 +54,26 @@ describe('recoveryBannerVerdict — every claim is true of the page', () => {
         expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save }).detail, 'words on the page but no claim').toMatch(/does not say they are still here/);
         expect(recoveryBannerVerdict({ ...ok, wordsOnPage: 0 }).detail, 'a words claim with none on the page').toMatch(/none are on the page/);
         expect(recoveryBannerVerdict({ ...ok, message: RECOVERY_COPY.full_save, wordsOnPage: 0 }).status, 'no words, no claim: truthful').toBe('PASS');
+    });
+});
+
+describe('nextTakeIdArrived — wait for take 2\'s OWN saved id (live 39032621328)', () => {
+    it('the start-of-take clear (null) is NOT arrival — the RED that read rows before take 2 saved', () => {
+        expect(nextTakeIdArrived(null, 's1')).toBe(false);
+    });
+    it('the previous take\'s id is not arrival', () => {
+        expect(nextTakeIdArrived('s1', 's1')).toBe(false);
+    });
+    it('a new, non-null id is arrival', () => {
+        expect(nextTakeIdArrived('s2', 's1')).toBe(true);
+    });
+});
+
+describe('spec wiring — the next-take wait uses the arrival predicate, never a bare "not the previous id"', () => {
+    const spec = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../live/rwt-save-retry-recovery.live.spec.ts'), 'utf8');
+    it('polls nextTakeIdArrived and no longer polls persistedId().not.toBe(savedId)', () => {
+        expect(spec).toContain('nextTakeIdArrived(await persistedId(page), savedId)');
+        expect(spec).not.toMatch(/expect\.poll\(\(\) => persistedId\(page\)[^)]*\)\.not\.toBe\(savedId\)/);
     });
 });
 

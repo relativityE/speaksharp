@@ -28,7 +28,7 @@ import {
 } from './helpers/benchmark-utils';
 import {
     CompletionObserver, SAVE_RETRY_SUITE, type SaveRetryVariant, type SessionRowFacts, completionDropDisposition,
-    nextTakeRetentionVerdict, recoveryBannerVerdict, savedTakeReadbackVerdict,
+    nextTakeIdArrived, nextTakeRetentionVerdict, recoveryBannerVerdict, savedTakeReadbackVerdict,
 } from './helpers/rwtSaveRetry';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -165,7 +165,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         await expectBenchmarkRecordingStarted(page, `save-retry-${variant}-2`);
         await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         await stopBenchmarkRecording(page, `save-retry-${variant}-2`, 180_000);
-        await expect.poll(() => persistedId(page), { timeout: 180_000 }).not.toBe(savedId);
+        // Wait for take 2's OWN saved identity — not merely "not take 1's", which the start-of-take clear satisfies at once.
+        await expect.poll(async () => nextTakeIdArrived(await persistedId(page), savedId), { timeout: 180_000 }).toBe(true);
         const nextId = await persistedId(page);
         if (nextId) takes.push(nextId);
         const rowsAfterNext = await readSessionRows(owner.uid);
