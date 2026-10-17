@@ -36,6 +36,8 @@ export const V4_TELEMETRY_ALLOWED_PROPS = [
     'attemptedProvider',
     'finalProvider',
     'fallbackProvider',
+    'requestedCandidateId',
+    'observedCandidateId',
     'loadMs',
     'decodeMs',
     'rtf',

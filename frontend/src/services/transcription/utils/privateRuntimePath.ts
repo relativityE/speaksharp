@@ -92,10 +92,20 @@ export interface PrivateRuntimeDecision {
    *
    * `config` is the normal path: a checked-in file named the candidate. `remote_safety_kill` means the
    * one-way emergency switch forced the v2 floor, so the session must not be read as evidence about the
-   * configured candidate. `dev_harness` remains for dev/test only. `posthog_flag` is retained solely so
-   * historical rows stay readable — no live path emits it, because flags can no longer select a model.
+   * configured candidate. `pre_start_fallback` records a permitted v4-to-v2 preparation fallback;
+   * requested/observed candidate IDs retain both sides. `dev_harness` remains for dev/test only.
+   * `posthog_flag` is retained solely so historical rows stay readable — no live path emits it, because
+   * flags can no longer select a model.
    */
-  selectionSource: 'config' | 'runtime_switch' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness' | 'default';
+  selectionSource: 'config' | 'runtime_switch' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness' | 'default' | 'pre_start_fallback';
+  /** Candidate requested before preparation; kept when a permitted pre-Start fallback is selected. */
+  requestedCandidateId?: string;
+  /** Candidate that actually initialized and will remain locked for this take. */
+  observedCandidateId?: string;
+  /** Reason a configured primary was replaced before capture. */
+  fallbackReason?: 'v4_init_failed' | 'v4_device_unavailable';
+  /** The attempted engine when provider names the fallback engine. */
+  attemptedProvider?: 'transformers-js-v4';
 }
 
 export interface ResolvePrivateRuntimePathOptions {
