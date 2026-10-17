@@ -8,6 +8,7 @@ import { runAccountClosureCurrentFactsCommand } from '../../scripts/account-clos
 import { createAccountClosureCurrentFacts } from '../../scripts/lib/accountClosureCurrentFacts.mjs';
 import { createAccountClosureAttestationTransport } from '../../scripts/lib/accountClosureAttestationTransport.mjs';
 import { enforcedClosureReceipt } from '../helpers/accountClosureEnforcementReceipt.mjs';
+import { fixture as registrationFixture } from '../helpers/accountClosureAttestationFixture.mjs';
 
 const user = '11111111-1111-4111-8111-111111111111';
 const operation = '22222222-2222-4222-8222-222222222222';
@@ -56,7 +57,9 @@ function setup(mutate = () => {}) {
     if (url === 'https://api.stripe.com/v1/account') return json({ id: config.stripeAccountId });
     if (url.startsWith('https://api.stripe.com/v1/checkout/sessions?')) {
       if (!url.includes('starting_after=')) providerPage = 0;
-      return json(state.providerPages[providerPage++]);
+      const result = state.providerPages[providerPage++];
+      state.onProviderPage?.();
+      return json(result);
     }
     throw new Error('unexpected endpoint');
   });
@@ -222,10 +225,66 @@ describe('available live-fact acquisition — mocked providers, missing global d
       .toEqual({ status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE', mutationOutcome: 'not_attempted', activationAuthorized: false });
     expect(s.fetcher.mock.calls.some(([url]) => /\/rpc\/(record_|invalidate_)/.test(url))).toBe(false);
   });
+
+  it.each([
+    ['responding instances and active deployment pins', 'unknown', 0],
+    ['elapsed worker lifetime without a last-start cutoff', 'unknown', 400001],
+    ['apparently settled database/provider lists', 'settled', 0],
+  ])('fully acquired %s cannot authorize the wired registration path', async (_label, phase, elapsed) => {
+    let clock = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    const s = setup((state) => {
+      state.dbPages[0][0].phase = phase;
+      state.providerPages[0].data.push({ id: 'cs_provider_only', status: 'expired' });
+      state.onProviderPage = () => { clock += elapsed; };
+    });
+    const before = clock;
+    const receipt = await s.collector.readAvailableFacts();
+    expect(clock - before).toBe(elapsed);
+    expect(receipt).toMatchObject({ status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE', activationAuthorized: false,
+      facts: { generation: '7', schemaReceipt: { mode: 'verify', passed: true }, respondingInstanceConfigVerified: true,
+        configurationCoverage: 'RESPONDING_INSTANCES_ONLY', regionalWorkerCoverage: 'UNVERIFIED', effectiveRuntimeValuesVerified: false,
+        databaseInventory: { observedPaginationExhausted: true, snapshotConsistency: 'UNVERIFIED_UNTIL_DRAIN' },
+        providerInventory: { sessionCount: 2, observedPaginationExhausted: true } } });
+    expect(receipt.facts.functions).toHaveLength(2);
+    expect(receipt.facts.effectiveRuntimeObservations).toHaveLength(4);
+    expect(receipt.facts.databaseInventory.operations).toEqual([expect.objectContaining({ operationId: operation, userId: user,
+      sessionId: 'cs_fixture', phase, providerStatus: 'complete',
+      disposition: phase === 'settled' ? 'REQUIRES_SEPARATE_SETTLEMENT_PROOF' : 'quarantined' })]);
+    expect(receipt.facts.providerInventory.sessions).toContainEqual({ sessionId: 'cs_provider_only', providerStatus: 'expired',
+      databaseOperationIds: [], linkage: 'SESSION_ID_MATCH_ONLY', disposition: 'quarantined' });
+    const mutation = vi.fn();
+    const transport = createAccountClosureAttestationTransport(s.config, s.collector.collectCurrentFacts, mutation);
+    expect(await transport.register(registrationFixture().request)).toEqual({ status: 'HOLD',
+      reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE', mutationOutcome: 'not_attempted', activationAuthorized: false });
+    expect(mutation).not.toHaveBeenCalled();
+    expect(s.fetcher.mock.calls.some(([url]) => /\/rpc\/(record_|invalidate_)/.test(url))).toBe(false);
+  });
+
+  it.each(['receipt', 'facts', 'claimed-complete'])('rejects a populated partial %s substituted for authoritative current context', async (kind) => {
+    const s = setup();
+    const receipt = await s.collector.readAvailableFacts();
+    expect(receipt.facts.schemaReceipt.passed).toBe(true);
+    expect(receipt.facts.providerInventory.observedPaginationExhausted).toBe(true);
+    const substituted = kind === 'receipt' ? receipt : kind === 'facts' ? receipt.facts : {
+      ...receipt.facts, status: 'READY', passed: true, globalDrainVerified: true, activationAuthorized: true,
+      regionalWorkerCoverage: 'VERIFIED', effectiveRuntimeValuesVerified: true,
+      context: { target: { projectId: target.projectId, environment: target.environment } },
+    };
+    const collect = vi.fn(async () => structuredClone(substituted));
+    const mutation = vi.fn();
+    const transport = createAccountClosureAttestationTransport(s.config, collect, mutation);
+    expect(await transport.register(registrationFixture().request)).toEqual({ status: 'HOLD',
+      reason: kind === 'claimed-complete' ? 'CONTEXT_INVALID' : 'CONTEXT_UNAVAILABLE',
+      mutationOutcome: 'not_attempted', activationAuthorized: false });
+    expect(collect).toHaveBeenCalledTimes(1);
+    expect(mutation).not.toHaveBeenCalled();
+    expect(receipt.activationAuthorized).toBe(false);
+  });
 });
 
 const ownedDirectories = [];
-afterEach(() => { for (const path of ownedDirectories.splice(0)) rmSync(path, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const path of ownedDirectories.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function commandFixture() {
   const s = setup(); const directory = mkdtempSync(join(tmpdir(), 'closure-facts-')); ownedDirectories.push(directory);
   const manifest = join(directory, 'target.json'); const output = join(directory, 'receipt.json');
