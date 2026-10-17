@@ -455,6 +455,16 @@ All colors MUST be HSL.
     [data-sonner-toaster][data-position="top-center"] {
       top: calc(var(--header-height) + 0.75rem + env(safe-area-inset-top)) !important;
     }
+
+    /*
+     * #1474: the fixed mobile session bar (MobileActionBar, md:hidden) covers the bottom of the viewport, so a
+     * keyboard- or script-focused control that the browser treated as "already in view" could sit under it.
+     * Reserving the bar's height in the root scroll snapport makes focus/scrollIntoView stop above the bar.
+     * Bar height = pt-3 + h-12 button + pb-3.5 + border + safe area; 0.5rem of breathing room on top.
+     */
+    html:has([data-fixed-mobile-action-bar]) {
+      scroll-padding-bottom: calc(5.25rem + env(safe-area-inset-bottom));
+    }
   }
 }
 

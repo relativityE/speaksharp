@@ -424,10 +424,11 @@ type Viewport = (typeof DESKTOP_VIEWPORTS)[number] | (typeof MOBILE_VIEWPORTS)[n
 /**
  * Measured mobile gaps (OPEN, Sam 6240521998): each keeps its strict assertions in a test marked as an expected failure only
  * after the take saved and was measured, annotated `unmet-requirement`, and flips red the moment the product meets it.
+ * CLOSED: 'open_mic · partial' action-focus-clear — the root scroll-padding-bottom reserved for the fixed mobile bar
+ * (index.css, `[data-fixed-mobile-action-bar]`) makes focus-scroll stop above the bar; the ordinary case now asserts it.
  */
 const MOBILE_UNMET: Partial<Record<string, { gap: Gap; text: string }>> = {
     'open_mic · full': { gap: 'coaching-visible', text: 'the full "Try this next run" box ends under the fixed bottom bar at the top of the page' },
-    'open_mic · partial': { gap: 'action-focus-clear', text: 'programmatic focus leaves Practice again partly under the fixed bottom bar (the browser treats it as already in view)' },
     'focus_points · full': { gap: 'coaching-visible', text: 'the full "Try this next run" box ends under the fixed bottom bar at the top of the page' },
 };
 type Product = 'open_mic' | 'focus_points';
