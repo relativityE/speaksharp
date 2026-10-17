@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ACCOUNT_CLOSURE_ENFORCEMENT_SHA256, ENFORCED_JOURNAL_DIGEST } from './accountClosureEnforcementIdentity.mjs';
 
 const BASELINE_SHA256 = '76188035d2b050aa4bcd4cf4753fa86d1cc030a12f371f05c9c143378beff030';
 const columns = {
@@ -25,8 +26,13 @@ const tableDigests = {
 };
 const literal = (value) => `'${value.replaceAll("'", "''")}'`;
 
-export function accountClosureRolloutQuery(mode, baseline) {
-    if (!['before', 'after'].includes(mode)) throw new Error('expected before or after');
+export function accountClosureRolloutQuery(mode, baseline, enforcementSource) {
+    if (!['before', 'after', 'enforced'].includes(mode)) throw new Error('expected before, after or enforced');
+    if (mode === 'enforced' && (typeof enforcementSource !== 'string'
+        || createHash('sha256').update(enforcementSource).digest('hex') !== ACCOUNT_CLOSURE_ENFORCEMENT_SHA256)) {
+        throw new Error('enforced rollout requires pinned enforcement source');
+    }
+    const expectedTables = mode === 'enforced' ? { ...tableDigests, account_closure_attempts: ENFORCED_JOURNAL_DIGEST } : tableDigests;
     if (createHash('sha256').update(baseline).digest('hex') !== BASELINE_SHA256) throw new Error('baseline source checksum mismatch');
     const body = baseline.match(/AS \$\$([\s\S]*?)\$\$;/)?.[1];
     if (!body) throw new Error('baseline function body missing');
@@ -41,7 +47,7 @@ export function accountClosureRolloutQuery(mode, baseline) {
         AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0)) AS ok
     ` : `
       SELECT 'exact_table_definitions' AS name, NOT EXISTS(SELECT 1 FROM
-        (VALUES ${Object.entries(tableDigests).map(([name, hash]) => `(${literal(name)},'${hash}')`).join(',')}) AS expected(name,digest)
+        (VALUES ${Object.entries(expectedTables).map(([name, hash]) => `(${literal(name)},'${hash}')`).join(',')}) AS expected(name,digest)
         LEFT JOIN pg_class c ON c.oid=to_regclass('public.'||expected.name)
         WHERE c.oid IS NULL OR md5(jsonb_build_object('columns',
           (SELECT jsonb_agg(jsonb_build_array(a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull,pg_get_expr(d.adbin,d.adrelid)) ORDER BY a.attnum)
@@ -93,7 +99,7 @@ export function accountClosureRolloutQuery(mode, baseline) {
 export function assertAccountClosureRollout(result, mode) {
     const value = typeof result === 'string' ? JSON.parse(result) : result;
     const shared = ['required_columns', 'signup_trigger', 'trial_email_arbiter', 'trial_owner_fk'];
-    const names = mode === 'before' ? ['baseline_function', ...shared] : mode === 'after' ? ['exact_table_definitions', ...shared] : [];
+    const names = mode === 'before' ? ['baseline_function', ...shared] : ['after', 'enforced'].includes(mode) ? ['exact_table_definitions', ...shared] : [];
     if (!names.length || value?.mode !== `rollout-${mode}` || value?.passed !== true || !value.checks
         || Object.keys(value.checks).length !== names.length || names.some((name) => value.checks[name] !== true)) throw new Error('closure rollout schema check failed');
     return value;

@@ -68,7 +68,7 @@ describe('account closure read-only schema gate', () => {
     });
     it('rejects changed migration bytes and malformed or incomplete gate results', () => {
         expect(() => accountClosureSchemaQuery('after', `${source}\n`)).toThrow('checksum');
-        expect(() => accountClosureSchemaQuery('activate', source)).toThrow('before or after');
+        expect(() => accountClosureSchemaQuery('activate', source)).toThrow('before, after or enforced');
         expect(() => assertAccountClosureSchema({ mode: 'after', passed: true, checks: {} }, 'after')).toThrow();
         expect(() => assertAccountClosureSchema({ mode: 'before', passed: true, checks: {} }, 'after')).toThrow();
     });

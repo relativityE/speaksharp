@@ -181,6 +181,20 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // Persistence only. The already-applied closure schema is required;
+        // neither registration nor this exact apply authorizes activation.
+        version: '20261016090000',
+        file: '20261016090000_account_closure_drain_persistence.sql',
+        sha256: 'd8a5b1d153890167869b2e7d366fb1ae3dd1272a67cd26f3980e6d2cd5233145',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20261016180000',
+        file: '20261016180000_account_closure_drain_enforcement.sql',
+        sha256: '2613a3921d084d008d18e94834c59d0764c108b38385afbcb280cd01760bdce1',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -611,6 +625,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     // #1258 P0 follow-up: typed expiry identity + unchanged trigger/ACLs/grants table, read-only.
     Object.freeze({ id: 'postflight_20261013140000', targetFile: '20261013140000_retention_expiry_typed_empty_array_1258' }),
     Object.freeze({ id: 'postflight_20261013180000', targetFile: '20261013180000_account_closure_tokens' }),
+    Object.freeze({ id: 'postflight_20261016090000', targetFile: '20261016090000_account_closure_drain_persistence' }),
+    Object.freeze({ id: 'postflight_20261016180000', targetFile: '20261016180000_account_closure_drain_enforcement' }),
 ]);
 
 /**
