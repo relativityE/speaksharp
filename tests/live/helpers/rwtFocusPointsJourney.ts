@@ -15,7 +15,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './benchmark-utils';
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
-import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation } from './rwtOracles';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
@@ -539,6 +539,21 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         }
 
         // ── Practice again through the rendered controls: Analytics → the same set → the review's Retry (#1533) ──
+        // #1407 / #1491 6180077610 (Codex P1 r4302807716): the first take is saved EXACTLY ONCE, and the one completed row is the
+        // take the page bound. Read here — after the take has settled (coaching, Analytics, Back/reload) and BEFORE the first later
+        // legitimate take (this Practice again, then any product switch) — so a duplicate or retry landing after the first save is
+        // counted, and no later take is.
+        await test.step('first take saved exactly once (settled, before the next take)', async () => {
+            const { data: completed, error: completedErr } = await admin!.from('sessions').select('id')
+                .eq('user_id', owner.uid).eq('status', 'completed');
+            const once = firstTakeSavedExactlyOnceVerdict({
+                persistedId,
+                completedIds: completedErr ? null : (completed ?? []).map((r: { id: string }) => r.id),
+            });
+            receipt.row('saved exactly once', once.verdict, once.detail,
+                { completedSessions: completedErr ? null : (completed ?? []).length, queryError: completedErr?.code ?? null });
+        });
+
         await test.step('Practice again — Analytics action, then the completed review\'s Retry this set', async () => {
             generationsForTake = tap.sent('practice_loop_review_requested').length;
             rowsGenerationsAt = Date.now();

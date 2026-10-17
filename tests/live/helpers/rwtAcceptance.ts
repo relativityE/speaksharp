@@ -436,7 +436,7 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
 const FOCUS_PRODUCT_ROWS = Object.freeze([
     'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
     'pace guide', 'Head to session', 'rail legend', 'pending points labelled', 'rail before speaking', 'model identity',
-    'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved',
+    'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved', 'saved exactly once',
     'final point verdicts', 'not-detected explained', 'coverage count', 'average per point', 'final rail colours and words',
     'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching request bound to this take',
     'Focus coaching length',
