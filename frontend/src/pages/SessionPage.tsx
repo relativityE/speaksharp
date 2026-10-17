@@ -717,7 +717,8 @@ export const SessionPage: React.FC = () => {
                 {!((displayStatus.type === 'ready' || displayStatus.type === 'idle') && !postSaveReady && !isListening) && (
                     <StatusNotificationBar
                         // #1047: the page owns the gap below the status bar, not the shared component.
-                        className="mb-[26px]"
+                        // #1474: 12px below md, where the fixed mobile bar leaves no room for the full prescription.
+                        className="mb-3 md:mb-[26px]"
                         status={displayStatus}
                         analyticsAction={postSaveReady && !startupWaiting ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
                         startupRetry={startupWaiting && startupSlow ? {

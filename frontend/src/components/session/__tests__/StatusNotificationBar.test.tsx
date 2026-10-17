@@ -184,6 +184,20 @@ describe('StatusNotificationBar', () => {
             expect(screen.getAllByTestId('live-session-header')).toHaveLength(1);
         });
 
+        it('#1474: on mobile the lone Progress action shares the message row; detail text keeps the stacked layout', () => {
+            mockStore();
+            const { unmount } = renderRouted(<StatusNotificationBar status={{ type: 'ready', message: '✓ Session saved.' }} analyticsAction={{}} />);
+            const bar = screen.getByTestId('live-session-header');
+            expect(bar.className).toMatch(/(^|\s)flex-row(\s|$)/);
+            expect(bar.className).not.toMatch(/(^|\s)flex-col(\s|$)/);
+            // The tap target is unchanged by the compact row.
+            expect(screen.getByTestId('post-save-review-session-link').className).toMatch(/(^|\s)min-h-9(\s|$)/);
+            unmount();
+
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: '✓ Session saved.', detail: 'Finalizing your transcript.' }} analyticsAction={{}} />);
+            expect(screen.getByTestId('live-session-header').className).toMatch(/(^|\s)flex-col(\s|$)/);
+        });
+
         it('labels the action exactly "Progress" (#1258 D2; not "Check out Analytics"/"View analytics") with an aria-hidden arrow', () => {
             mockStore();
             renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved.' }} analyticsAction={{}} />);
