@@ -526,6 +526,15 @@ describe('#1258 C — a recovered save enters the review; nothing else does', ()
         expect(st.pendingResolutionKind).toBeNull();
     });
 
+    it('a recovered save clears its own finalized recovery draft, as a first-pass save does', async () => {
+        const drafts = await import('../sessionRecoveryDraft');
+        const c = await failedStop();
+        expect(drafts.getSessionRecoveryDraft()?.sessionId, 'precondition: the failed save kept a finalized draft').toBe('session-A');
+        await expect(c.retryRecordingSave()).resolves.toBe(true);
+        await settle();
+        expect(drafts.getSessionRecoveryDraft(), 'no stale "not saved" draft survives the recovered save').toBeNull();
+    });
+
     it('CONTROL: a status written after the failure (a microphone error) is never cleared by the recovery', async () => {
         const c = await failedStop();
         const micError = { type: 'error' as const, message: 'Microphone access is denied. Please grant permission in your browser settings.' };

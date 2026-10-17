@@ -1478,6 +1478,11 @@ export class SpeechRuntimeController {
                         // publications are fenced, so a superseded retry still finishes its own work.
                         this.pendingFullSaveRetry = null;
                         if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
+                        // #1258 RWT round 2 C — the take is saved, so its finalized recovery draft is spent, exactly as a
+                        // first-pass save clears it. Left behind, it told the person "Your last session finished but was
+                        // not saved" over the very review of the take that had just been saved. Scoped to THIS session's
+                        // own draft — bookkeeping, like the slots above, so it is not behind the shared-publication fence.
+                        clearSessionRecoveryDraft(targetSessionId);
                         this.publishIfStopOwner(retryAuthority, retryToken, 'retry_full_save_settlement', () => {
                         this.markRecordingResolved();
                         // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
