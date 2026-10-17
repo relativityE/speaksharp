@@ -12,10 +12,10 @@ interface DeletionResponse {
   customerDeleted?: boolean;
 }
 
-function closureResponse(value: unknown): DeletionResponse | null {
+function closureResponse(value: unknown, action: 'request' | 'confirm'): DeletionResponse | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;
-  if (row.outcome === 'email_requested') return { outcome: 'email_requested' };
+  if (action === 'request') return row.outcome === 'email_requested' ? { outcome: 'email_requested' } : null;
   if (!['deleted', 'refused', 'incomplete', 'verification_pending'].includes(String(row.outcome))
     || (row.accountDeleted !== null && typeof row.accountDeleted !== 'boolean') || typeof row.billingClosed !== 'boolean'
     || typeof row.customerDeleted !== 'boolean') return null;
@@ -45,10 +45,10 @@ export default function AccountDeletionPage() {
       const { data, error } = await client.functions.invoke('account-closure', {
         body: action === 'request' ? { action } : { action, token, confirmIrreversible: true },
       });
-      let result = closureResponse(data);
+      let result = closureResponse(data, action);
       if (!result && error && typeof error === 'object' && 'context' in error
         && error.context instanceof Response) {
-        try { result = closureResponse(await error.context.json()); } catch { /* bounded fallback below */ }
+        try { result = closureResponse(await error.context.json(), action); } catch { /* bounded fallback below */ }
       }
       if (action === 'request') {
         if (error || result?.outcome !== 'email_requested') throw new Error('Email unavailable');

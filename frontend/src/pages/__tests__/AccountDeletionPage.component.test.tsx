@@ -24,6 +24,22 @@ beforeEach(() => {
 });
 
 describe('deletion confirmation UI — real component, mocked provider boundary', () => {
+  it.each(['success body', 'SDK error context'])('a request-only result during confirmation stays unverified (%s)', async (transport) => {
+    mocks.token = secret;
+    const data = { outcome: 'email_requested' };
+    mocks.invoke.mockResolvedValue(transport === 'success body'
+      ? { data, error: null }
+      : { data: null, error: { context: new Response(JSON.stringify(data), { status: 409 }) } });
+    mount(); fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    await screen.findByText(/could not verify the deletion result/);
+    expect(screen.queryByText(/your account has not been deleted/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Check your account email/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.clear).toHaveBeenCalled();
+  });
   it('unknown auth outcome warns deletion may have happened and offers no blind retry/link', async () => {
     mocks.token = secret;
     mocks.invoke.mockResolvedValue({ data: { ...done, outcome: 'verification_pending', accountDeleted: null }, error: null });
