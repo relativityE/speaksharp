@@ -24,6 +24,41 @@ beforeEach(() => {
 });
 
 describe('deletion confirmation UI — real component, mocked provider boundary', () => {
+  it('returning to the same account cannot revive a retired confirmation', async () => {
+    mocks.token = secret;
+    let finish: (value: unknown) => void = () => {};
+    mocks.invoke.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const view = mount();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    mocks.user = { id: 'different-account' };
+    view.rerender(<MemoryRouter><AccountDeletionPage /></MemoryRouter>);
+    mocks.user = { id: 'owner' };
+    view.rerender(<MemoryRouter><AccountDeletionPage /></MemoryRouter>);
+    await act(async () => { finish({ data: done, error: null }); });
+    expect(screen.getByText(/could not verify the deletion result/)).toBeInTheDocument();
+    expect(screen.queryByText(/Your account has been deleted/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  });
+  it.each(['success', 'error'])('a retired email-request %s cannot publish a result after an account round trip', async (outcome) => {
+    let finish: (value: unknown) => void = () => {};
+    mocks.invoke.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const view = mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a verification link' }));
+    mocks.user = { id: 'different-account' };
+    view.rerender(<MemoryRouter><AccountDeletionPage /></MemoryRouter>);
+    mocks.user = { id: 'owner' };
+    view.rerender(<MemoryRouter><AccountDeletionPage /></MemoryRouter>);
+    await act(async () => { finish(outcome === 'success'
+      ? { data: { outcome: 'email_requested' }, error: null }
+      : { data: null, error: new Error('request result unavailable') }); });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Email me a verification link' })).toBeEnabled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  });
   it('an old-account confirmation cannot report completion or sign out a newly signed-in account', async () => {
     mocks.token = secret;
     let finish: (value: unknown) => void = () => {};

@@ -33,15 +33,15 @@ export default function AccountDeletionPage() {
   const [completed, setCompleted] = useState(false);
   const [reconciliationPending, setReconciliationPending] = useState(false);
   const inFlight = useRef(false);
-  const activeAccount = useRef<string | null>(null);
+  const operationEpoch = useRef(0);
   useLayoutEffect(() => {
-    activeAccount.current = user?.id ?? null;
-    return () => { activeAccount.current = null; };
+    operationEpoch.current += 1;
+    return () => { operationEpoch.current += 1; };
   }, [user?.id]);
 
   const submit = async (action: 'request' | 'confirm') => {
     if (inFlight.current || !user || (action === 'confirm' && (!token || !confirmed))) return;
-    const submittingAccount = user.id;
+    const submittingEpoch = ++operationEpoch.current;
     inFlight.current = true;
     setBusy(true);
     setMessage(null);
@@ -57,12 +57,13 @@ export default function AccountDeletionPage() {
         try { result = closureResponse(await error.context.json(), action); } catch { /* bounded fallback below */ }
       }
       if (action === 'request') {
+        if (operationEpoch.current !== submittingEpoch) return;
         if (error || result?.outcome !== 'email_requested') throw new Error('Email unavailable');
         setMessage('Check your account email. The verification link expires after 15 minutes. Opening it does not delete your account.');
         return;
       }
       // Confirmation is never automatically replayed, including an uncertain network result.
-      if (activeAccount.current !== submittingAccount) throw new Error('Confirmation account is no longer active');
+      if (operationEpoch.current !== submittingEpoch) throw new Error('Confirmation operation is no longer active');
       clearAccountDeletionToken();
       setToken(null);
       setConfirmed(false);
@@ -84,6 +85,7 @@ export default function AccountDeletionPage() {
           : 'Your account has not been deleted. Billing cancellation could not be confirmed. Request a new verification link after one minute or contact support.');
       }
     } catch {
+      if (action === 'request' && operationEpoch.current !== submittingEpoch) return;
       if (action === 'confirm') {
         clearAccountDeletionToken();
         setToken(null);
