@@ -296,34 +296,44 @@ const startInitializing = async () => {
 
   logger.debug('[main.tsx] Initialize started');
 
-  // Defer heavy WASM initialization to avoid competing with React hydration
-  const initSTT = () => {
-    // Install the hidden CDP qualification switch. It has no UI/URL/storage input and accepts only the
-    // PO-approved three-model slate; canonical Production needs it for the authenticated human test.
+  /**
+   * The hidden CDP qualification switch. UNGATED BY ROUTE, DELIBERATELY.
+   *
+   * #1517 P1 (Codex, exact head 08f3d0e9): this used to sit inside `initSTT`, so route-gating the
+   * runtime also stopped installing the switch. The model-comparison tooling enters from `/`
+   * (`prepare-take.mjs`) and `/practice` (`practice-loop-journey.live.spec.ts`) and requires
+   * `__SS_SWITCH_CANDIDATE__` to exist BEFORE it navigates to `/session`; `TranscriptionProvider`
+   * installs nothing. Every authorized comparison run would have stopped with "comparison switch
+   * surface did not install".
+   *
+   * Installing it costs nothing: it is a small module that registers one window function, starts no engine
+   * and enters no state machine, so it arms no reclamation timer — the churn came from
+   * `initializeInfrastructure()` alone, which main.tsx no longer calls. It has no UI/URL/storage input and
+   * accepts only the PO-approved three-model slate.
+   */
+  const installComparisonSwitch = () => {
     void import('./services/transcription/installRuntimeSwitch')
       .then(async ({ installRuntimeCandidateSwitch }) => {
         if (await installRuntimeCandidateSwitch()) logger.debug('[main.tsx] CDP model-comparison switch installed');
       })
       .catch((err) => logger.warn({ err }, '[main.tsx] runtime model switch unavailable'));
-    // Lazy import of SpeechRuntimeController
-    void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
-      speechRuntimeController.initializeInfrastructure()
-        .then(() => {
-          logger.debug('[main.tsx] STT Infrastructure Ready');
-        })
-        .catch(err => {
-          logger.error({ err }, '[main.tsx] ❌ SpeechRuntimeController failed');
-        });
-    });
-
   };
+
+  /*
+   * #1517 (option A): main.tsx does NOT boot the speech runtime. It used to call `initializeInfrastructure()` on
+   * every route, which arms the 5-minute idle-reclamation timer and cycles IDLE→TERMINATED→IDLE forever on a tab
+   * nobody records on. A path gate here could not fix it: this runs before React knows who the user is, so a
+   * signed-out deep link to `/session` still booted it and ProtectedRoute redirected to `/auth` with the timer
+   * running (Codex P2 on 4746c00d). The runtime's ONE initializer is TranscriptionProvider, which mounts only
+   * inside an admitted ProtectedRoute (pinned by runtimeBootOwnership.test.ts).
+   */
 
   if (isTestMode) {
     const { initE2EConfig } = await import('../../tests/types/e2eConfig');
     initE2EConfig({});
 
-    // Start STT infrastructure after E2E config is ready
-    initSTT();
+    // The switch installs on every route; the runtime is TranscriptionProvider's to boot.
+    installComparisonSwitch();
 
     const { initializeE2EEnvironment } = await import('./lib/e2e-bridge');
     await initializeE2EEnvironment();
@@ -337,8 +347,8 @@ const startInitializing = async () => {
     }
     await renderApp();
   } else {
-    // Standard Production Path
-    initSTT();
+    // Standard Production Path. The switch installs on every route; the runtime is TranscriptionProvider's to boot.
+    installComparisonSwitch();
     useReadinessStore.getState().setReady('msw'); // Always ready in production (no MSW)
     await renderApp();
   }
