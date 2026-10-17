@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 as ACCOUNT_CLOSURE_SHA256 } from '../../scripts/lib/accountClosureEnforcementIdentity.mjs';
 import { enforcedClosureReceipt } from '../helpers/accountClosureEnforcementReceipt.mjs';
@@ -38,7 +39,7 @@ function fixture(now = Date.now()) {
 }
 
 function inputs(input = fixture()) {
-    const directory = mkdtempSync('/private/tmp/cli-dev-closure-command-'); owned.push(directory);
+    const directory = mkdtempSync(join(tmpdir(), 'closure-command-')); owned.push(directory);
     const paths = Object.fromEntries(Object.entries(input).map(([name, data]) => {
         const path = join(directory, `${name}.json`); writeFileSync(path, JSON.stringify(data)); return [name, path];
     }));

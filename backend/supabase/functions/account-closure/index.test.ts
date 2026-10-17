@@ -283,6 +283,27 @@ Deno.test('pre-grant operator config is readable while ordinary closure remains 
     assertEquals(ordinary.status, 503); assertEquals(outbound, 0);
   } finally { globalThis.fetch = original; }
 });
+Deno.test('real pre-grant closure handler refuses lossy path and trailing-slash site evidence', async () => {
+  const { environment } = fixture(); delete environment.ACCOUNT_CLOSURE_RUNTIME_BINDING;
+  Object.assign(environment, { SUPABASE_SERVICE_ROLE_KEY: 'synthetic-service', STRIPE_SECRET_KEY: 'sk_test_synthetic',
+    SB_REGION: 'us-east-1', SB_EXECUTION_ID: '44444444-4444-4444-8444-444444444444',
+    DENO_DEPLOYMENT_ID: 'fixture-project_33333333-3333-4333-8333-333333333333_2' });
+  const original = globalThis.fetch; let outbound = 0;
+  globalThis.fetch = () => { outbound++; throw new Error('unexpected outbound'); };
+  try {
+    for (const suffix of ['', '/', '/nested']) {
+      environment.SITE_URL = `https://example.test${suffix}`;
+      const response = await handler(new Request('https://fixture-project.supabase.co/functions/v1/account-closure?__operator_config=1', {
+        method: 'POST', headers: { Authorization: 'Bearer synthetic-service' },
+        body: JSON.stringify({ nonce: 'a'.repeat(64), expectedDeploymentId: environment.DENO_DEPLOYMENT_ID }),
+      }), (key) => environment[key]);
+      assertEquals(response.status, suffix ? 503 : 200);
+      if (!suffix) assertEquals((await response.json()).configuration.siteOrigin, environment.SITE_URL);
+    }
+    assertEquals(outbound, 0);
+  } finally { globalThis.fetch = original; }
+});
+
 Deno.test('expired current drain blocks every subsequent irreversible provider/storage boundary', async () => {
   for (const boundary of ['cancel', 'customer', 'storage', 'auth']) {
     const { adapters, calls, settings } = fixture();

@@ -108,6 +108,53 @@ const createSupabase = (stripeCustomerId: string | null = null, profileError: un
 
 const createAdmin = () => ({ rpc: async (name: string) => ({ data: name === 'inspect_account_checkout' ? [] : name === "begin_account_checkout" ? "operation" : null, error: null }) }) as unknown as import("npm:@supabase/supabase-js@2").SupabaseClient;
 
+Deno.test('operator evidence preserves the exact trimmed price consumed by real checkout', async () => {
+  for (const priceId of ['price_First', 'price_Second']) {
+    const deploymentId = 'example_33333333-3333-4333-8333-333333333333_2';
+    const getEnv = envWith({ STRIPE_PRO_PRICE_ID: `  ${priceId}\t`, DENO_DEPLOYMENT_ID: deploymentId,
+      SB_REGION: 'us-east-1', SB_EXECUTION_ID: '44444444-4444-4444-8444-444444444444' });
+    let retrieved = ''; let purchased = '';
+    const dependencies = { getEnv, stripeClientMode: 'live' as const,
+      createSupabase: createSupabase(), createAdmin,
+      stripeClient: { prices: { retrieve: async (id: string) => { retrieved = id; return validProPrice; } },
+        checkout: { sessions: { create: async (params: Record<string, unknown>) => {
+          purchased = (params.line_items as {price:string}[])[0].price;
+          return { id: 'cs_parity', url: 'https://checkout.stripe.com/parity' };
+        } } } } };
+    const probe = await handler(new Request('https://example.supabase.co/functions/v1/stripe-checkout?__operator_config=1', {
+      method: 'POST', headers: { Authorization: 'Bearer service-key' },
+      body: JSON.stringify({ nonce: 'a'.repeat(64), expectedDeploymentId: deploymentId }),
+    }), dependencies);
+    assertEquals(probe.status, 200);
+    const configuration = (await probe.json()).configuration;
+    assertEquals((await handler(request('pro'), dependencies)).status, 200);
+    assertEquals(configuration.proPriceId, retrieved);
+    assertEquals(configuration.proPriceId, purchased);
+    assertEquals(configuration.proPriceId, priceId);
+  }
+});
+
+Deno.test('operator evidence refuses site URLs whose checkout redirects cannot be represented by an origin', async () => {
+  for (const suffix of ['', '/', '/nested']) {
+    const siteUrl = `https://speaksharp-public.vercel.app${suffix}`;
+    const deploymentId = 'example_33333333-3333-4333-8333-333333333333_2';
+    const getEnv = envWith({ SITE_URL: siteUrl, DENO_DEPLOYMENT_ID: deploymentId,
+      SB_REGION: 'us-east-1', SB_EXECUTION_ID: '44444444-4444-4444-8444-444444444444' });
+    let actualRedirect = '';
+    const dependencies = { getEnv, stripeClientMode: 'live' as const, createSupabase: createSupabase(), createAdmin,
+      stripeClient: stripeWith({ sessions: { create: async (params) => {
+        actualRedirect = String(params.success_url); return { id: 'cs_site', url: 'https://checkout.stripe.com/site' };
+      } } }) };
+    const probe = await handler(new Request('https://example.supabase.co/functions/v1/stripe-checkout?__operator_config=1', {
+      method: 'POST', headers: { Authorization: 'Bearer service-key' },
+      body: JSON.stringify({ nonce: 'a'.repeat(64), expectedDeploymentId: deploymentId }),
+    }), dependencies);
+    assertEquals(probe.status, suffix ? 503 : 200);
+    assertEquals((await handler(request('pro'), dependencies)).status, 200);
+    assertEquals(actualRedirect.startsWith(`${siteUrl}/session?`), true);
+  }
+});
+
 Deno.test("stripe-checkout edge function", async (t) => {
   await t.step('cancel-return retries reuse the verified open checkout without another purchase',async()=>{
     const calls:string[]=[];

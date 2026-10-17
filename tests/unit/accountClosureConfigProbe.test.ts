@@ -63,4 +63,15 @@ describe('separately authenticated pre-grant effective-config readback', () => {
     const s = fixture(); const before = s.config(); s.values.ACCOUNT_CLOSURE_RUNTIME_BINDING = 'different-grant';
     expect(s.config()).toEqual(before);
   });
+  it.each(['https://example.test/', 'https://example.test/path', ' https://example.test', 'not-a-url'])('refuses unrepresentable SITE_URL %s', async (site) => {
+    const s = fixture(); s.values.SITE_URL = site;
+    const response = (await s.probe(s.request()))!;
+    expect(response.status).toBe(503); expect(await response.text()).not.toContain(site);
+  });
+  it('reports the checkout-trimmed price and refuses invalid nonempty prices', async () => {
+    const s = fixture(); s.values.STRIPE_PRO_PRICE_ID = '  price_fixture\t';
+    const response = (await s.probe(s.request()))!;
+    expect(response.status).toBe(200); expect((await response.json()).configuration.proPriceId).toBe('price_fixture');
+    s.values.STRIPE_PRO_PRICE_ID = 'invalid-price'; expect((await s.probe(s.request()))!.status).toBe(503);
+  });
 });

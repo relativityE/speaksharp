@@ -12,7 +12,8 @@ export function readAccountClosureEffectiveConfig(env: Env, capturedMode: Stripe
     if (site.protocol === 'https:' && !site.username && !site.password && !site.search && !site.hash && site.pathname === '/') siteOrigin = site.origin;
   } catch { /* Missing/malformed configuration is reported closed. */ }
   const configuredStripeMode = stripeKeyMode(env('STRIPE_SECRET_KEY'));
-  const price = env('STRIPE_PRO_PRICE_ID');
+  // Checkout trims the configured price before retrieval and session creation.
+  const price = env('STRIPE_PRO_PRICE_ID')?.trim();
   return { paymentsEnabled: env('PAYMENTS_ENABLED') === 'true', configuredStripeMode, capturedStripeMode: capturedMode,
     stripeModeMatches: capturedMode !== 'unknown' && capturedMode === configuredStripeMode,
     siteOrigin, proPriceId: price && /^price_[a-zA-Z0-9]+$/.test(price) ? price : null,
@@ -72,6 +73,11 @@ export async function accountClosureConfigProbe(req: Request, env: Env, fn: Func
       || !region || !/^[a-z0-9-]{1,40}$/.test(region) || !executionId || !new RegExp(`^${id}$`).test(executionId)) throw new Error('invalid probe');
     const configuration = readConfig();
     if (!configuration.stripeModeMatches || configuration.capturedStripeMode === 'invalid') throw new Error('invalid probe');
+    // Checkout concatenates the raw SITE_URL into redirects. An origin cannot
+    // represent paths, trailing slashes or other URL normalization faithfully.
+    // Refuse evidence for those values rather than changing ordinary behavior.
+    const siteUrl = env('SITE_URL'); const price = env('STRIPE_PRO_PRICE_ID')?.trim();
+    if ((siteUrl && siteUrl !== configuration.siteOrigin) || (price && price !== configuration.proPriceId)) throw new Error('invalid probe');
     return reply(200, { version: 1, function: fn, nonce: body.nonce, projectId: project, deploymentId: deployment,
       region, executionId, observedAt: Date.now(), configuration });
   } catch { return reply(503, { error: 'runtime_config_unavailable' }); }
