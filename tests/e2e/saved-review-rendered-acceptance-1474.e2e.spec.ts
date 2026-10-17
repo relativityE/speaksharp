@@ -11,15 +11,25 @@
  * containment), fillers/pace/words in THIS RUN only (PM 6045315752 removed counts from every review-band state),
  * Practice again enabled, the microphone, and no playback transport.
  *
- * TWO UNMET REQUIREMENTS on main, each kept as a strict oracle in a `test.fail` (tracking, never acceptance) that flips
- * red the moment the product meets it:
- *   - ALL FOUR SLOT TOPS identical across saved, pending and terminal states (Sam RETURN 6235391344). Slots A and B hold,
- *     but slot B's height follows the review, so the transcript/THIS RUN row (C/D) moves vertically between states.
- *   - "Count look wrong?", the spec's correction path: no caller gives `ThisRunCard` an opener, so it never renders.
+ * SLOT STABILITY (spec "every slot's top is unchanged between `after` and `after · review failed`"; §5b "nothing below
+ * it may move when the review arrives"): the review card reserves the tallest completed review's height at each desktop
+ * range (`AISuggestions.tsx`, #1474 layout fix, Sam GO 6236271597). Proven three ways, all strict:
+ *   - ALL FOUR slot tops identical across saved, terminal, scheduled-retry and terminal-after-retry at 1280×800, with a
+ *     short pair AND a maximum-length (240 + 240 character, the server ceiling) pair;
+ *   - pending → complete: the C/D row does not move when a held review arrives;
+ *   - at the narrowest width of every desktop range, the tallest completed review fits inside the reservation — Open
+ *     Mic's maximum as rendered; a REAL Focus Points completed review (seven-point brief, its saved evidence, its
+ *     disclosure) as rendered; and, as an upper bound on that real card, `focusPointsEvidence`'s longest output written
+ *     into its evidence lines. Practice again stays enabled, keyboard-focusable and unclipped at every width; the
+ *     card-top check proves the TOP EDGE only — no whole-card or CTA above-the-fold claim.
+ * Mobile (below `md`) is not covered and stays OPEN.
+ *
+ * ONE UNMET REQUIREMENT on main, kept as a strict oracle in a `test.fail` (tracking, never acceptance) that flips red the
+ * moment the product meets it: "Count look wrong?", the spec's correction path — no caller gives `ThisRunCard` an opener.
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { mockLiveTranscript, navigateToRoute, programmaticLoginWithRoutes, startRecording, stopRecording } from './helpers';
+import { mockLiveTranscript, navigateToRoute, programmaticLoginWithRoutes, simulateTranscription, startRecording, stopRecording } from './helpers';
 import { TEST_IDS } from '../constants';
 
 test.use({ viewport: { width: 1280, height: 800 } });
@@ -29,21 +39,39 @@ const FOLD = 800;
 const SPEECH = ['So um I think we should start with the main point.', 'Uh and then we close on the next step, um, today.'];
 /** Pace is stated only from 15 s of speech (MIN_LIVE_PACE_SECONDS), so each take runs past it. */
 const TAKE_MS = 16_500;
-const PAIR = {
+type Pair = { version: string; what_worked: string; what_to_try_next: string };
+const SHORT_PAIR: Pair = {
     version: 'gemini_coaching_v1',
     what_worked: 'You opened with the point.',
     what_to_try_next: 'Pause before the takeaway.',
 };
+/** The tallest pair the server will serve: both fields at `COACHING_CHARACTER_CEILING` (240). */
+const MAX_PAIR: Pair = {
+    version: 'gemini_coaching_v1',
+    what_worked: 'You opened with the point and kept it clear. '.repeat(6).slice(0, 240),
+    what_to_try_next: 'Pause before the takeaway so it lands with weight. '.repeat(6).slice(0, 240),
+};
 
-/** One scripted answer per review request: the persisted pair, an HTTP status, or a request that never arrived. */
-type Answer = 'pair' | 'network' | { status: number };
+/** The tallest Focus Points pair: the Focus version, both fields at the ceiling. */
+const MAX_FOCUS_PAIR: Pair = { ...MAX_PAIR, version: 'gemini_coaching_focus_v1' };
+/** A full Focus brief (OBJECTIVE_MAX_POINTS = 7), of which the take below covers the first five. */
+const FOCUS_POINTS = ['Name the price', 'State the guarantee', 'Explain the timeline', 'Mention the warranty', 'Offer the discount',
+    'Compare the competitors', 'Invite questions'] as const;
+const FOCUS_SPEECH = 'First I will name the price clearly. Then I state the guarantee we offer. Next I explain the timeline for delivery. '
+    + 'I also mention the warranty on every unit. Finally I offer the discount for early orders.';
+
+/**
+ * One scripted answer per review request: the persisted pair, an HTTP status, a request that never arrived, or the pair
+ * HELD in flight until the spec releases it (`releaseHeldReview`).
+ */
+type Answer = 'pair' | 'held-pair' | 'network' | { status: number };
 
 /**
  * Wraps the e2e double's `functions.invoke` for `get-ai-suggestions` only. Each request takes the next scripted answer
  * (the last one repeats); a status rejects the way supabase-js does, a `FunctionsHttpError` with the `Response` on
  * `context`, and `network` the way a dropped request does, a `FunctionsFetchError` with no status. Requests are counted.
  */
-async function scriptReview(page: Page, answers: Answer[]): Promise<() => Promise<number>> {
+async function scriptReview(page: Page, answers: Answer[], pair: Pair = SHORT_PAIR): Promise<() => Promise<number>> {
     await page.waitForFunction(() => Boolean((window as unknown as { supabase?: unknown }).supabase));
     await page.evaluate(({ script, pair }) => {
         type Invoke = (name: string, options?: unknown) => Promise<unknown>;
@@ -55,13 +83,18 @@ async function scriptReview(page: Page, answers: Answer[]): Promise<() => Promis
             const answer = script[Math.min(w.__reviewRequests1474__, script.length - 1)];
             w.__reviewRequests1474__ += 1;
             if (answer === 'pair') return Promise.resolve({ data: { suggestions: pair }, error: null });
+            if (answer === 'held-pair') {
+                return new Promise((resolve) => {
+                    (window as unknown as { __releaseReview1474__?: () => void }).__releaseReview1474__ = () => resolve({ data: { suggestions: pair }, error: null });
+                });
+            }
             if (answer === 'network') {
                 return Promise.resolve({ data: null, error: { name: 'FunctionsFetchError', message: 'Failed to send a request to the Edge Function' } });
             }
             const context = new Response(JSON.stringify({ error: 'scripted' }), { status: answer.status, headers: { 'Content-Type': 'application/json' } });
             return Promise.resolve({ data: null, error: { name: 'FunctionsHttpError', message: 'Edge Function returned a non-2xx status code', context } });
         };
-    }, { script: answers, pair: PAIR });
+    }, { script: answers, pair });
     return () => page.evaluate(() => (window as unknown as { __reviewRequests1474__: number }).__reviewRequests1474__);
 }
 
@@ -147,10 +180,10 @@ async function expectIsolated(isolation: Isolation) {
     expect(isolation.reached(), 'no response came from a server off localhost').toEqual([]);
 }
 
-async function recordSavedTake(page: Page, answers: Answer[]): Promise<() => Promise<number>> {
+async function recordSavedTake(page: Page, answers: Answer[], pair: Pair = SHORT_PAIR): Promise<() => Promise<number>> {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    const requests = await scriptReview(page, answers);
+    const requests = await scriptReview(page, answers, pair);
     await startRecording(page);
     await mockLiveTranscript(page, SPEECH);
     await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15_000 });
@@ -238,12 +271,12 @@ type ReviewState = 'saved review' | 'terminal failure' | 'scheduled retry' | 'te
  * The three review answers, one take each, asserting every state's invariants. Returns each state's layout. The
  * acceptance test and the slot-top tracking test both run it, so the tracking test's ONLY extra claim is the tops.
  */
-async function reviewJourney(page: Page): Promise<Record<ReviewState, Layout>> {
+async function reviewJourney(page: Page, pair: Pair = SHORT_PAIR): Promise<Record<ReviewState, Layout>> {
     const consoleGuard = guardConsole(page);
     const isolation = isolateFromExternalNetwork(page);
 
     // ── SAVED REVIEW ──
-    const savedRequests = await recordSavedTake(page, ['pair']);
+    const savedRequests = await recordSavedTake(page, ['pair'], pair);
     const card = page.getByTestId('ai-suggestions-card');
     await expect(card).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
     await expect(page.getByTestId('ai-suggestions-pair'), 'saved review: the pair renders').toBeVisible();
@@ -339,18 +372,171 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
         await test.info().attach('slot-layouts-1280x800.json', { body: JSON.stringify(layouts, null, 2), contentType: 'application/json' });
     });
 
-    test('ALL FOUR slot tops identical across saved, pending and terminal states (UNMET: slot C/D tops move with slot B)', async ({ page }) => {
-        test.setTimeout(240_000);
-        const layouts = await reviewJourney(page);
-        // Marked only now, after the whole journey succeeded, so a setup failure can never pass as this known failure.
-        // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
-        test.info().annotations.push({ type: 'unmet-requirement', description: '#1474 G10 slot stability — C/D tops differ between review states on main' });
-        test.fail(true, 'UNMET on main: slot C/D tops move with slot B between review states');
-        const tops = (l: Layout) => ({ A: l.A.top, B: l.B.top, C: l.C.top, D: l.D.top });
-        await test.info().attach('slot-tops-1280x800.json', { body: JSON.stringify(Object.fromEntries(Object.entries(layouts).map(([k, l]) => [k, tops(l)])), null, 2), contentType: 'application/json' });
-        for (const state of ['terminal failure', 'scheduled retry', 'terminal after retry'] as const) {
-            expect.soft(tops(layouts[state]), `${state}: every slot top matches the saved review`).toEqual(tops(layouts['saved review']));
+    const tops = (l: Layout) => ({ A: l.A.top, B: l.B.top, C: l.C.top, D: l.D.top });
+
+    for (const [label, pair] of [['short pair', SHORT_PAIR], ['maximum-length pair', MAX_PAIR]] as const) {
+        test(`slot stability (${label}): ALL FOUR slot tops identical across saved, terminal and scheduled-retry states`, async ({ page }) => {
+            test.setTimeout(240_000);
+            const layouts = await reviewJourney(page, pair);
+            await test.info().attach('slot-tops-1280x800.json', { body: JSON.stringify(Object.fromEntries(Object.entries(layouts).map(([k, l]) => [k, tops(l)])), null, 2), contentType: 'application/json' });
+            for (const state of ['terminal failure', 'scheduled retry', 'terminal after retry'] as const) {
+                expect.soft(tops(layouts[state]), `${state}: every slot top matches the saved review`).toEqual(tops(layouts['saved review']));
+            }
+        });
+    }
+
+    test('slot stability: nothing below the review moves when a held review arrives (pending → complete, maximum-length pair)', async ({ page }) => {
+        test.setTimeout(120_000);
+        const consoleGuard = guardConsole(page);
+        const isolation = isolateFromExternalNetwork(page);
+        await recordSavedTake(page, ['held-pair'], MAX_PAIR);
+        const card = page.getByTestId('ai-suggestions-card');
+        await expect(card).toHaveAttribute('data-lifecycle', 'pending', { timeout: 20_000 });
+        const pending = await layout(page);
+        await page.evaluate(() => (window as unknown as { __releaseReview1474__: () => void }).__releaseReview1474__());
+        await expect(card).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
+        await expect(page.getByTestId('ai-suggestions-pair')).toBeVisible();
+        const complete = await layout(page);
+        expect(tops(complete), 'the review arrived without moving any slot').toEqual(tops(pending));
+        expect(consoleGuard.unexpected()).toEqual([]);
+        await expectIsolated(isolation);
+    });
+
+    test('slot stability at every desktop range: the tallest completed review fits the reservation; THIS RUN and Practice again stay usable', async ({ page }) => {
+        test.setTimeout(120_000);
+        const consoleGuard = guardConsole(page);
+        const isolation = isolateFromExternalNetwork(page);
+        await recordSavedTake(page, ['pair'], MAX_PAIR);
+        const card = page.getByTestId('ai-suggestions-card');
+        await expect(card).toHaveAttribute('data-lifecycle', 'complete', { timeout: 20_000 });
+        await expect(page.getByTestId('review-evidence'), 'the saved evidence line rendered').toBeVisible({ timeout: 10_000 });
+        const measured: Record<number, unknown> = {};
+        // The narrowest and widest width of each Tailwind range the rule covers (md 768–1023, lg 1024–1279, xl 1280+).
+        for (const width of [768, 1023, 1024, 1279, 1280, 1440]) {
+            await page.setViewportSize({ width, height: 800 });
+            const m = await page.evaluate(() => {
+                const c = document.querySelector('[data-testid="ai-suggestions-card"]') as HTMLElement;
+                const reserved = parseFloat(getComputedStyle(c).minHeight) || 0;
+                // Natural heights: the reservation lifted for the measurement only, then restored.
+                c.style.minHeight = '0px';
+                const openMic = Math.ceil(c.getBoundingClientRect().height);
+                // Focus Points' worst evidence (OBJECTIVE_MAX_POINTS = 7: five detected with mm:ss, one not detected, one
+                // not checked, and the recorded length — `focusPointsEvidence`'s four lines) in the same rendered markup.
+                const ev = document.querySelector('[data-testid="review-evidence"]') as HTMLElement;
+                const line = ev.querySelector('p:last-child') as HTMLElement;
+                const original = line.textContent;
+                line.textContent = 'Detected: point 1 at 10:12, point 2 at 10:41, point 3 at 11:05, point 4 at 11:30, point 5 at 12:00.';
+                const extra = ['Not detected: point 6.', 'Not checked: point 7.', 'Recorded for 15:00.'].map((t) => {
+                    const n = line.cloneNode() as HTMLElement;
+                    n.textContent = t;
+                    ev.appendChild(n);
+                    return n;
+                });
+                const focusWorst = Math.ceil(c.getBoundingClientRect().height);
+                extra.forEach((n) => n.remove());
+                line.textContent = original;
+                c.style.minHeight = '';
+                return { reserved, openMic, focusWorst, scrollable: c.scrollHeight <= Math.ceil(c.getBoundingClientRect().height) };
+            });
+            measured[width] = m;
+            expect(m.reserved, `${width}px: the card reserves a height`).toBeGreaterThan(0);
+            expect(m.openMic, `${width}px: Open Mic's tallest review fits the reservation`).toBeLessThanOrEqual(m.reserved);
+            expect(m.focusWorst, `${width}px: Focus Points' tallest review fits the reservation`).toBeLessThanOrEqual(m.reserved);
+            expect(m.scrollable, `${width}px: nothing inside the card is clipped`).toBe(true);
+            // Still usable at every width: THIS RUN's counts and the primary action can be reached and used.
+            const thisRun = page.getByTestId('this-run-card');
+            await thisRun.scrollIntoViewIfNeeded();
+            await expect(thisRun.getByTestId('this-run-card-words'), `${width}px: THIS RUN readable`).toBeVisible();
+            const again = page.getByTestId('verdict-practice-again');
+            await again.scrollIntoViewIfNeeded();
+            await expect(again, `${width}px: Practice again reachable`).toBeVisible();
+            await expect(again).toBeEnabled();
+            // Keyboard-reachable and unclipped: it takes focus, and its own centre hit-tests to it (nothing covers it).
+            await again.focus();
+            await expect(again, `${width}px: Practice again takes keyboard focus`).toBeFocused();
+            expect(await again.evaluate((el) => {
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0 && el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+            }), `${width}px: Practice again is not clipped or covered`).toBe(true);
         }
+        await test.info().attach('review-reservation-by-width.json', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' });
+        expect(consoleGuard.unexpected()).toEqual([]);
+        await expectIsolated(isolation);
+    });
+
+    test('slot stability, Focus Points: the REAL completed review (7-point brief, its saved evidence, disclosure) fits the reservation at every desktop range', async ({ page }) => {
+        test.setTimeout(180_000);
+        const consoleGuard = guardConsole(page);
+        const isolation = isolateFromExternalNetwork(page);
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+        await navigateToRoute(page, '/practice');
+        await page.getByTestId('practice-card-objective').click();
+        await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
+        await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
+        // OBJECTIVE_MAX_POINTS = 7: the form opens with three, so add four.
+        for (let i = 3; i < FOCUS_POINTS.length; i++) await page.getByTestId('objective-add-point').click();
+        for (let i = 0; i < FOCUS_POINTS.length; i++) await page.getByTestId(`objective-point-label-${i}`).fill(FOCUS_POINTS[i]);
+        await page.getByTestId('objective-setup-submit').click();
+        await page.waitForURL('**/session');
+        await scriptReview(page, ['pair'], MAX_FOCUS_PAIR);
+        await startRecording(page);
+        await simulateTranscription(page, FOCUS_SPEECH, true);
+        await page.waitForTimeout(TAKE_MS);
+        await stopRecording(page);
+        await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
+        const card = page.getByTestId('ai-suggestions-card');
+        await expect(card).toHaveAttribute('data-lifecycle', 'complete', { timeout: 30_000 });
+        const evidence = page.getByTestId('review-evidence');
+        await expect(evidence, 'the saved Focus evidence rendered').toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('ai-suggestions-disclosure')).toContainText('saved Focus Points topic, points and results');
+        const realLines = await evidence.locator('p').allInnerTexts();
+        expect(realLines.some((l) => l.startsWith('Detected:')), `real evidence: ${realLines.join(' | ')}`).toBe(true);
+
+        const measured: Record<number, unknown> = {};
+        for (const width of [768, 1023, 1024, 1279, 1280, 1440]) {
+            await page.setViewportSize({ width, height: 800 });
+            const m = await page.evaluate(() => {
+                const c = document.querySelector('[data-testid="ai-suggestions-card"]') as HTMLElement;
+                const reserved = parseFloat(getComputedStyle(c).minHeight) || 0;
+                c.style.minHeight = '0px';
+                // The real completed Focus card, as saved and rendered.
+                const real = Math.ceil(c.getBoundingClientRect().height);
+                // Upper bound on the same real card: `focusPointsEvidence`'s longest output (7 points: five detected with
+                // mm:ss, one not detected, one not checked, and the recorded length) replacing the saved lines.
+                const ev = document.querySelector('[data-testid="review-evidence"]') as HTMLElement;
+                const lines = Array.from(ev.querySelectorAll('p')).slice(1) as HTMLElement[];
+                const template = lines[lines.length - 1];
+                const originals = lines.map((l) => l.textContent);
+                const worst = ['Detected: point 1 at 10:12, point 2 at 10:41, point 3 at 11:05, point 4 at 11:30, point 5 at 12:00.',
+                    'Not detected: point 6.', 'Not checked: point 7.', 'Recorded for 15:00.'];
+                const added: HTMLElement[] = [];
+                worst.forEach((text, i) => {
+                    if (lines[i]) { lines[i].textContent = text; return; }
+                    const n = template.cloneNode() as HTMLElement;
+                    n.textContent = text;
+                    ev.appendChild(n);
+                    added.push(n);
+                });
+                const extraLines = lines.slice(worst.length);
+                extraLines.forEach((l) => { l.style.display = 'none'; });
+                const worstCase = Math.ceil(c.getBoundingClientRect().height);
+                extraLines.forEach((l) => { l.style.display = ''; });
+                added.forEach((n) => n.remove());
+                lines.forEach((l, i) => { l.textContent = originals[i]; });
+                c.style.minHeight = '';
+                return { reserved, real, worstCase, unclipped: c.scrollHeight <= Math.ceil(c.getBoundingClientRect().height) };
+            });
+            measured[width] = m;
+        }
+        // Attached BEFORE the assertions, so a failing width still leaves its measurements behind.
+        await test.info().attach('focus-review-reservation-by-width.json', { body: JSON.stringify({ realLines, measured }, null, 2), contentType: 'application/json' });
+        for (const [width, m] of Object.entries(measured) as Array<[string, { reserved: number; real: number; worstCase: number; unclipped: boolean }]>) {
+            expect.soft(m.real, `${width}px: the real Focus review fits the reservation`).toBeLessThanOrEqual(m.reserved);
+            expect.soft(m.worstCase, `${width}px: Focus's longest evidence fits the reservation`).toBeLessThanOrEqual(m.reserved);
+            expect.soft(m.unclipped, `${width}px: nothing inside the card is clipped`).toBe(true);
+        }
+        expect(consoleGuard.unexpected()).toEqual([]);
+        await expectIsolated(isolation);
     });
 
     test('"Count look wrong?" — the correction path in THIS RUN (UNMET: no caller wires ThisRunCard.onCountLookWrong)', async ({ page }) => {
