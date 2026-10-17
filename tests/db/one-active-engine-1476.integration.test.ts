@@ -284,3 +284,58 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
         expect(created(await start(d, L2))).toBe(true);
     });
 });
+
+/**
+ * #1258 RWT round 2 C — WHY THE CLIENT MUST NOT CLOSE A TAKE WHOSE SAVE IS STILL RECOVERABLE.
+ *
+ * The real `complete_session_v2` (the client's only completion path, all eleven arguments named) against the #1476 fence.
+ * Request-lost: the take's completion never reached the server. Retry Save then succeeds — UNLESS the client first wrote
+ * a `failed` marker, after which the fence refuses the revival forever (that was the round-2 failure). Response-lost: the
+ * completion committed; the identical replay is idempotent, adds nothing, and a stray `failed` marker cannot unsave it.
+ * The fence itself is unchanged and stays load-bearing.
+ */
+describe('#1258 C — Retry Save against the real completion RPC and the #1476 fence', () => {
+    const NEXT_ACTION = JSON.stringify({ kind: 'practice_again', reason: 'synthetic' });
+    const complete = (d: PGlite, id: string, status: 'completed' | 'failed') =>
+        d.query<{ r: J }>(
+            `SELECT public.complete_session_v2(
+                 p_session_id => $1::uuid, p_status => $2, p_final_duration => $3, p_reason => $4,
+                 p_next_action => $5::jsonb, p_total_words => $6, p_clarity_score => $7, p_wpm => $8,
+                 p_filler_counts => $9::jsonb, p_pause_metrics => $10::jsonb, p_final_transcript => $11) AS r`,
+            status === 'completed'
+                ? [id, status, 42, null, NEXT_ACTION, 7, 0.9, 120, '{}', null, 'synthetic take words']
+                : [id, status, null, 'Stop recording failed: SESSION_COMPLETION_FAILED', null, null, null, null, null, null, null],
+        ).then((res) => res.rows[0].r);
+    const row = async (d: PGlite, id: string) =>
+        (await d.query<{ status: string; total_words: number | null; n: number }>(
+            `SELECT status, total_words, (SELECT count(*)::int FROM public.sessions WHERE user_id = $2) AS n
+               FROM public.sessions WHERE id = $1`, [id, U])).rows[0];
+
+    it('request-lost, FIXED client: no failed marker, so Retry Save completes the leased take', async () => {
+        const d = await db();
+        await acquire(d, L1);
+        const id = sessionId(await start(d, L1)) as string;
+        // The first completion was lost in transit: the server never saw it. Retry Save replays it.
+        expect(await complete(d, id, 'completed')).toMatchObject({ success: true, idempotent: false, final_status: 'completed' });
+        expect(await row(d, id)).toMatchObject({ status: 'completed', total_words: 7, n: 1 });
+    });
+
+    it('request-lost, round-2 client: a failed marker first, and the fence refuses Retry Save forever (unchanged fence)', async () => {
+        const d = await db();
+        await acquire(d, L1);
+        const id = sessionId(await start(d, L1)) as string;
+        expect(await complete(d, id, 'failed'), 'closing a leased take is always allowed').toMatchObject({ success: true });
+        await expect(complete(d, id, 'completed'), 'and a failed take is never revived').rejects.toThrow(/cannot be revived/);
+        expect(await row(d, id)).toMatchObject({ status: 'failed', n: 1 });
+    });
+
+    it('response-lost: the identical replay is idempotent — no duplicate row or metrics — and a failed marker cannot unsave it', async () => {
+        const d = await db();
+        await acquire(d, L1);
+        const id = sessionId(await start(d, L1)) as string;
+        expect(await complete(d, id, 'completed')).toMatchObject({ success: true, idempotent: false });
+        expect(await complete(d, id, 'completed'), 'Retry Save replays the same payload').toMatchObject({ success: true, idempotent: true });
+        await expect(complete(d, id, 'failed'), 'a completed take is never re-marked failed').rejects.toThrow(/idempotency conflict/);
+        expect(await row(d, id)).toMatchObject({ status: 'completed', total_words: 7, n: 1 });
+    });
+});
