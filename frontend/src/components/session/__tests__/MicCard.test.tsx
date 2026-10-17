@@ -97,7 +97,8 @@ describe('MicCard (#1222 slot A)', () => {
     });
 
     it('downloading: shows "Downloading… N%" and greys/disables the mic until ready', () => {
-        render(<MicCard onStart={vi.fn()} privateModelStatus="loading" modelLoadingProgress={0.42} />);
+        // The store's real shape: an integer percent (#1491 6238566653), never a raw fraction.
+        render(<MicCard onStart={vi.fn()} privateModelStatus="loading" modelLoadingProgress={42} />);
         expect(screen.getByTestId('mic-progress')).toHaveTextContent('42%');
         expect(screen.getByTestId('mic-status')).toHaveTextContent(/Downloading private transcription… 42%/i);
         expect(screen.getByTestId('mic-start')).toBeDisabled();
