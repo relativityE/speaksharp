@@ -9,6 +9,10 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { ABANDON_VARIANTS } from '../live/helpers/rwtAbandonTakeover';
+import { ADVERSE_VARIANTS } from '../live/helpers/rwtAdverse';
+import { newDisposableEmail } from '../live/helpers/rwtJourney';
+import { SAVE_RETRY_VARIANTS } from '../live/helpers/rwtSaveRetry';
 import {
     MIN_AGE_MS, PROTECTED_DEFAULT_BRANCH, RECOVERY_DELETE_ACK_PREFIX, RWT_JOURNEY_LABELS, deletionDomain, listAuthUsersBounded, ownedPrefixOf, recoverInterruptedRuns,
     recoveryAuthority, recoveryDeleteAck, recoveryReportLine, runOwnedDomain, selectInterruptedRunAccounts,
@@ -47,6 +51,36 @@ const recover = (p: Partial<Parameters<typeof recoverInterruptedRuns>[0]> & { ad
     recoverInterruptedRuns({ nowMs: NOW, ack: ACK, sha: SHA, domain: D, ...p });
 
 describe('ownership (#1580 P1 4237980478): the full synthetic identity at the exact domain', () => {
+    it('recognizes every dynamic RWT generator label under an explicit domain, without accepting an unknown label', () => {
+        // These are the labels the live run-owned account call sites build from the variant sets.
+        const labels = [
+            ...SAVE_RETRY_VARIANTS.map((variant) => `save-retry-${variant}`),
+            ...ABANDON_VARIANTS.map((variant) => `abandon-${variant}`),
+            'two-tab',
+            ...ADVERSE_VARIANTS.map((variant) => `adverse-${variant}`),
+        ];
+        expect(labels).toEqual([
+            'save-retry-request-lost', 'save-retry-response-lost',
+            'abandon-navigate-away', 'abandon-close-tab', 'two-tab',
+            'adverse-mic-denied', 'adverse-download-fails', 'adverse-offline-mid-download',
+        ]);
+        vi.stubEnv('LIVE_TEST_EMAIL_DOMAIN', D);
+        vi.stubEnv('GITHUB_RUN_ID', '38000000001');
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(1760000000000);
+        try {
+            const emails = labels.map(newDisposableEmail);
+            expect(emails.map((email) => ownedPrefixOf(email, D))).toEqual(labels.map(() => 'rwt-journey-'));
+            const owned = selectInterruptedRunAccounts(emails.map((email, i) => user(i + 1, email, old)), NOW, D);
+            expect([owned.eligible.length, owned.counts.ownershipUnproven]).toEqual([labels.length, 0]);
+            const legacy = selectInterruptedRunAccounts(emails.map((email, i) =>
+                user(i + 1, email.replace(`@${D}`, '@example.com'), old)), NOW, null);
+            expect([legacy.eligible.length, legacy.counts.legacyUnqualified]).toEqual([0, labels.length]);
+            expect(ownedPrefixOf(newDisposableEmail('unknown-variant'), D)).toBeNull();
+        } finally {
+            clock.mockRestore();
+            vi.unstubAllEnvs();
+        }
+    });
     it('accepts exactly what the generators mint', () => {
         expect(ownedPrefixOf(journey(1), D)).toBe('rwt-journey-');
         expect(ownedPrefixOf(journey(2, 'focus-points'), D)).toBe('rwt-journey-');
