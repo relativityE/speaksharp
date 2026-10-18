@@ -339,8 +339,27 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(spec).toContain('sameBrowserTab = await tabA.context().newPage();');
         expect(spec).toContain("otherDevice = await browser.newContext({ baseURL, permissions: ['microphone'] });");
         expect(spec).toContain('await owner.signInOn(deviceB);');
-        expect(spec).toContain('const leaseRefusal = await deviceB.getByText(BLOCKED_COPY)');
+        expect(spec).toContain('const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();');
         expect(spec).not.toMatch(/tabB = await tabA\.context\(\)\.newPage\(\)/);
+    });
+
+    it('#1593 case 11: on a cold device the first press IS the Start the lease decides — never the download-only setup helper', () => {
+        const deviceStart = spec.indexOf('await owner.signInOn(deviceB);');
+        const device = spec.slice(deviceStart, spec.indexOf("receipt.row('another device is refused by the account lease'", deviceStart));
+        expect(device, 'the cold control is pressed as the Start').toContain("await deviceB.getByTestId('mic-download').click();");
+        expect(device, 'no download-only helper on device B').not.toContain('preparePrivateModelIfPrompted(deviceB');
+        expect(device, 'a cold press must answer in seconds: refused, or visibly into the download').toMatch(/coldPressAnswered = !coldB \|\| await expect\.poll\([\s\S]*?\{ timeout: 30_000 \}\)/);
+        expect(device, 'a dead cold press is never a refusal').toContain('const leaseRefusal = coldPressAnswered');
+        const takeOver = spec.slice(spec.indexOf("// The person's explicit second press is the take-over"));
+        expect(takeOver, 'the take-over presses the control the refused page renders').toContain(`await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();`);
+        expect(takeOver, 'a cold take-over gets the model budget').toContain('await isRecording(deviceB, coldB ? 900_000 : 60_000);');
+    });
+
+    it('#1593 case 9: navigate away closes the Focus Points setup modal before using Products again', () => {
+        const navStart = spec.indexOf("if (variant === 'navigate-away')");
+        const nav = spec.slice(navStart, spec.indexOf("await openProductsItem(page, 'open-mic')", navStart));
+        expect(nav.indexOf("await page.keyboard.press('Escape');"), 'the modal is closed').toBeGreaterThan(nav.indexOf("receipt.row('leaving mid-recording releases the microphone'"));
+        expect(nav).toContain("await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0, { timeout: 10_000 });");
     });
 
     it('nothing is intercepted: the scenarios are the person\'s own actions', () => {

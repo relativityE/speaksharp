@@ -154,6 +154,14 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
             const afterLeaving = await tabState(page);
             const left = releasedVerdict(afterLeaving, 'after leaving');
             receipt.row('leaving mid-recording releases the microphone', left.status, left.detail, { ...afterLeaving });
+            // #1593 (live case 9, run 39167895568): Focus Points opens its setup as a MODAL over the header, which
+            // intercepted the Products click for 20 s. A person closes it before using Products again — exactly as the
+            // pending-start and returning-user journeys do — so the return below is reachable.
+            const setupOpen = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+            if (setupOpen) {
+                await page.keyboard.press('Escape');
+                await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0, { timeout: 10_000 });
+            }
             await openProductsItem(page, 'open-mic');
             await page.waitForURL(/\/session/, { timeout: 45_000 });
         } else {
@@ -313,21 +321,35 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             await owner.signInOn(deviceB);
             await openOpenMic(deviceB);
             await selectBenchmarkMode(deviceB, 'private');
-            const setupB = await preparePrivateModelIfPrompted(deviceB, 900_000);
-            if (!setupB.recordingAlreadyStarted) {
+            // #1593 (live case 11, run 39167899488): a fresh device has no model, and since #1415 the cold control is ONE
+            // activation — consent, download AND start ("Download & start recording" = `onStart`). Under A's lease that
+            // press is a Start the lease decides, so it is the person's first press here; the download-only setup helper
+            // (which requires the status to leave `download-required`) asserted a control the product no longer has.
+            const coldB = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status')) === 'download-required';
+            if (coldB) {
+                await deviceB.getByTestId('mic-download').click();
+            } else {
                 await waitForPrivateEngineReady(deviceB, 600_000);
                 await deviceB.getByTestId('mic-start').click();
             }
-            const leaseRefusal = await deviceB.getByText(BLOCKED_COPY).first().waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
+            // Cold, the press must answer in SECONDS — refused at once, or visibly into the one-time download (after which
+            // the lease decides, within the model budget). A press that does neither is the dead control this row reports.
+            const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();
+            const coldPressAnswered = !coldB || await expect.poll(async () => await refusalShownB.isVisible().catch(() => false)
+                || await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status')) !== 'download-required',
+            { timeout: 30_000 }).toBe(true).then(() => true, () => false);
+            const leaseRefusal = coldPressAnswered
+                && await refusalShownB.waitFor({ timeout: coldB ? 900_000 : 15_000 }).then(() => true).catch(() => false);
             await deviceB.waitForTimeout(2_000);
             const [refusedB, stillA2] = [await tabState(deviceB), await tabState(tabA)];
             const lease = secondTabBlockedVerdict({ refusalCopyShown: leaseRefusal, tabB: refusedB, tabA: stillA2 });
             receipt.row('another device is refused by the account lease', lease.status, lease.detail,
-                { refusalCopyShown: leaseRefusal, ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
+                { refusalCopyShown: leaseRefusal, coldB, coldPressAnswered, ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
 
-            // The person's explicit second press is the take-over.
-            await deviceB.getByTestId('mic-start').click();
-            await isRecording(deviceB, 60_000);
+            // The person's explicit second press is the take-over — on whichever primary control the refused page renders
+            // (still the cold `mic-download` when the lease refused before any download).
+            await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();
+            await isRecording(deviceB, coldB ? 900_000 : 60_000);
             const displacedCopyShown = await tabA.getByText(DISPLACED_COPY).waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
             await expect.poll(async () => (await tabState(tabA)).liveTracks, { timeout: 20_000 }).toBe(0).catch(() => undefined);
             const [displacedA, takingB] = [await tabState(tabA), await tabState(deviceB)];
