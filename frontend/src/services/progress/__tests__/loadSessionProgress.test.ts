@@ -148,6 +148,21 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(view.disclosure?.deltaPercent).toBeCloseTo(7.142857142857142, 6);
     });
 
+    it('#1254: an INTERVENING ineligible recording is skipped, and the takeaway names the previous COMPARABLE session, not the last one', async () => {
+        // s1 is the most recent prior recording but is not comparable (ineligible), so the persisted comparison is s0.
+        // "Clearer than your last session" would point at s1; the copy must name what was actually compared.
+        current = ev('s2', { clarity_raw: 90, baseline_session_id: 's0', previous_comparable_session_id: 's0' });
+        references = [ev('s0', { clarity_raw: 80 })];
+        recommendation = rec('rec-1254');
+        const view = await loadSessionProgress('s2');
+        expect(view.status).toBe('eligible');
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.disclosure).toMatchObject({ referenceSessionId: 's0', referenceRole: 'previous comparable session' });
+        expect(view.direction.deltaPoints).toBe(10);
+        expect(view.takeaways.whatWorked).toBe('Clearer than your previous comparable session');
+        expect(view.takeaways.whatWorked).not.toMatch(/last session/);
+    });
+
     it('uses the sole prior evaluation as both baseline and previous on the first comparison', async () => {
         current = ev('s2', { clarity_raw: 90, baseline_session_id: 's1', previous_comparable_session_id: 's1' });
         references = [ev('s1', { clarity_raw: 84 })];
