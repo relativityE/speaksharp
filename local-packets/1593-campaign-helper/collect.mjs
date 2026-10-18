@@ -394,13 +394,13 @@ export const RECONCILED_PRIOR = Object.freeze(['no_dast', 'non_rwt', 'read_only'
 const attemptTime = (a) => { const t = Date.parse(a?.run_started_at ?? ''); return Number.isFinite(t) ? t : null; };
 
 /**
- * Correction 4 (Sam, e1680001 review) — window accounting from runs and their attempts. A run's summary start is only a
- * shortcut: a summary that is readable AND before the window cannot have an attempt inside it. Every other run is
- * expanded, and an attempt with an unreadable start is counted in the window (so it is unaccounted → the ledger holds).
+ * Correction 4 (Sam 1792325347.393409; PM repro 918a35c5) — window accounting from every attempt of every run in the
+ * re-run horizon. A run summary NEVER substitutes for its attempts' own start times (an old summary cannot skip
+ * inspection of an unknown attempt), and an attempt with an unreadable start counts in the window, so it is unaccounted
+ * and the ledger holds.
  */
 export function windowAttempts({ runs, attemptsOf, validFrom }) {
-    return runs.filter((r) => { const t = attemptTime(r); return t === null || t >= validFrom; })
-        .flatMap((r) => attemptsInWindow(attemptsOf(r), validFrom));
+    return runs.flatMap((r) => attemptsInWindow(attemptsOf(r), validFrom));
 }
 
 /**
@@ -515,8 +515,8 @@ const attemptsOf = (run) => Array.from({ length: run.run_attempt }, (_, i) => JS
 
 /**
  * Every rc-gates attempt that STARTED since the authority window opened (paginated). Runs are read back to the re-run
- * horizon, because a run created before the window can be re-run inside it; a run whose latest start precedes the window
- * cannot have an attempt inside it.
+ * horizon, because a run created before the window can be re-run inside it, and EVERY attempt is read through the
+ * attempt API — the run summary is never trusted to rule an attempt out.
  */
 export function campaignWindowRuns(validFrom) {
     const runs = ghList(`repos/${REPO}/actions/workflows/rc-gates.yml/runs`, { created: `>=${new Date(validFrom - RERUN_HORIZON_MS).toISOString()}` }, 'workflow_runs');
