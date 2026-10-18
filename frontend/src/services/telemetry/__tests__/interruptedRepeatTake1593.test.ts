@@ -158,7 +158,7 @@ describe('interrupted repeat take — the declared take and the review\'s own Re
         const otherBoot = replace(openAtInvalidation(), (r) => r.properties?.stage === 'requested', lc('requested', 4, { origin_boot_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' }));
         expect(check(otherBoot)).toMatch(/did not start in this boot/);
         const endOtherOrigin = replace(openAtInvalidation(), isEnd, lc('ended', 11, { end_reason: 'superseded_session', origin_attempt_id: B }));
-        expect(check(endOtherOrigin)).toMatch(/end names another origin attempt/);
+        expect(check(endOtherOrigin)).toMatch(/conflicting origin take or boot across its lifecycle/);
         const afterRepeat = replace(openAtInvalidation(), (r) => r.properties?.stage === 'requested', lc('requested', 10.5));
         expect(check(afterRepeat)).toMatch(/did not start before the repeat Start/);
     });
@@ -208,9 +208,9 @@ describe('interrupted repeat take — FAIL only on proven stale application into
             expect(isObservedFailureReason(reason)).toBe(false);
         }
         const shownAgain = String(check([...completedBeforeRepeat(), lc('ready', 14, { attempt_id: null })]));
-        expect(shownAgain).toMatch(/shown again after it completed — ambiguous target/);
+        expect(shownAgain).toMatch(/without exactly one readiness report/);
         expect(isObservedFailureReason(shownAgain)).toBe(false);
-        expect(check([...openAtInvalidation(), row('ai_coaching_lifecycle', 0, { stage: 'ready', diagnostic_request_id: R, producer_ts: null })]))
+        expect(check([...openAtInvalidation(), lc('ready', 0, { producer_ts: null })]))
             .toMatch(/ready\/rendered row for the request has no producer time/);
     });
 });
@@ -227,5 +227,46 @@ describe('the declared stage', () => {
             .toContain('session_interrupted_repeat: missing required family ai_coaching_lifecycle');
         // The stage reads the run's declaration through the evaluator, not a guess from the rows.
         expect(evaluateQualificationStage(declared, openAtInvalidation()).join(' | ')).toMatch(/not declared by the run/);
+    });
+});
+
+describe('Sam source RETURN on bbc58543 — four false-qualification probes, now HOLD (#1593)', () => {
+    it('(1) the post-Stop chain is ordered by PRODUCER time: a terminate reported after save HOLDs even if received first', () => {
+        // Received in order (the flush's capture time), but the producer says recording_terminated happened after the save.
+        const late = { ...stage('recording_terminated', 1), properties: { stage: 'recording_terminated', attempt_id: A, producer_ts: 1_800_000_000_000 + 3.5 } } as DecodedTelemetryRow;
+        expect(check(replace(openAtInvalidation(), (r) => r.properties?.stage === 'recording_terminated', late))).toMatch(/post-Stop chain is out of order at final_transcript/);
+        const untimed = { ...stage('final_transcript', 2), properties: { stage: 'final_transcript', attempt_id: A, producer_ts: null } } as DecodedTelemetryRow;
+        expect(check(replace(openAtInvalidation(), (r) => r.properties?.stage === 'final_transcript', untimed))).toMatch(/final_transcript stage row has no producer time/);
+    });
+
+    it('(2) completed branch: request ≤ ready/render ≤ completed < Repeat press — a render before the request HOLDs', () => {
+        // Ready and rendered reported before R's own request; its completion after it.
+        const renderedBeforeRequest = [...transition(), lc('ready', 3.6), lc('rendered', 3.7), lc('ended', 5, { end_reason: 'completed' })];
+        expect(check(renderedBeforeRequest)).toMatch(/ready or rendered before it was requested/);
+        expect(check([...transition(), lc('rendered', 8), lc('ended', 8, { end_reason: 'completed' })])).toMatch(/without exactly one readiness report/);
+        expect(check([...transition(), lc('ready', 7), lc('ready', 7.5), lc('rendered', 8), lc('ended', 8, { end_reason: 'completed' })]))
+            .toMatch(/without exactly one readiness report/);
+        expect(check([...transition(), lc('rendered', 8), lc('ended', 8, { end_reason: 'completed' }), lc('ready', 9.2)]))
+            .toMatch(/readiness was reported only after the Repeat press/);
+        // POSITIVE: a synchronous render publishes rendered+completed in the effect declared FIRST, so ready legitimately
+        // follows completed in the same commit — not a second render, and not a failure.
+        const readyAfterCompletion = [...transition(), lc('rendered', 8), lc('ended', 8, { end_reason: 'completed' }), lc('ready', 8.001)];
+        expect(classifyInterruptedRepeat(readyAfterCompletion, DECLARED)).toMatchObject({ ok: true, branch: 'completed_before_repeat' });
+        // Readiness before the request is not legitimate in the open branch either.
+        expect(check([...transition(), lc('ready', 3.5), lc('ended', 11, { end_reason: 'superseded_session' })])).toMatch(/before it was requested/);
+    });
+
+    it('(3) the same R with a conflicting origin boot or take anywhere in its lifecycle HOLDs', () => {
+        const otherBoot = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+        expect(check(replace(openAtInvalidation(), isEnd, lc('ended', 11, { end_reason: 'superseded_session', origin_boot_id: otherBoot }))))
+            .toMatch(/conflicting origin take or boot/);
+        expect(check([...openAtInvalidation(), lc('response_received', 20, { origin_boot_id: otherBoot })])).toMatch(/conflicting origin take or boot/);
+        expect(check([...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { origin_attempt_id: C })]))
+            .toMatch(/conflicting origin take or boot/);
+    });
+
+    it('(4) an accepted repeat Start naming no take is not a wildcard for the next recording', () => {
+        expect(check(replace(openAtInvalidation(), (r) => r.event === 'recording_intent', start(10, 'accepted', null))))
+            .toMatch(/accepted repeat Start names no take/);
     });
 });

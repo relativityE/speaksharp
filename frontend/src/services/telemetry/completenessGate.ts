@@ -610,13 +610,14 @@ export function classifyInterruptedRepeat(
     const takeAttempt = [...savedAttempts][0] as string;
     const savedAt = timed(earliest(saved));
 
-    // A's post-Stop chain through save, in order, all its own.
+    // A's post-Stop chain through save, in causal (producer-time) order, all its own. The received `timestamp` is the
+    // flush's capture time, shared by events drained together, so it cannot order a chain (Sam, bbc58543 return 1).
     let previous = Number.NEGATIVE_INFINITY;
     for (const name of OPEN_MIC_INTERRUPTED_CHAIN) {
         const own = rows.filter((r) => r?.event === 'stage_latency' && r?.properties?.stage === name && attemptOf(r) === takeAttempt);
         if (own.length === 0) return hold(`the interrupted take has no ${name} stage for its own attempt`);
-        const first = Math.min(...own.map((r) => rowTime(r?.timestamp)));
-        if (!Number.isFinite(first)) return hold(`a ${name} stage row has no readable timestamp`);
+        if (own.some((r) => !Number.isFinite(timed(r)))) return hold(`a ${name} stage row has no producer time, so the chain cannot be ordered`);
+        const first = Math.min(...own.map(timed));
         if (first < previous) return hold(`the interrupted take's post-Stop chain is out of order at ${name}`);
         previous = first;
     }
@@ -664,7 +665,9 @@ export function classifyInterruptedRepeat(
     if (recordings.length === 0) return hold('no recording follows the accepted repeat Start');
     const successor = attemptOf(earliest(recordings));
     if (successor === null || successor === takeAttempt) return hold('the recording after the accepted repeat Start is not a new take');
-    if (attemptOf(intent) !== null && attemptOf(intent) !== successor) return hold('the accepted repeat Start names a different take than the recording that followed it');
+    // The accepted intent mints and carries the take it starts; one naming no take is not a wildcard (bbc58543 return 4).
+    if (attemptOf(intent) === null) return hold('the accepted repeat Start names no take, so the recording after it cannot be bound to it');
+    if (attemptOf(intent) !== successor) return hold('the accepted repeat Start names a different take than the recording that followed it');
     const successorStarted = rows.some((r) => r?.event === 'session_started' && attemptOf(r) === successor
         && Number.isFinite(timed(r)) && timed(r) >= repeatAt);
     if (!successorStarted) return hold('the successor take\'s recording has no session_started of its own after the repeat');
@@ -672,6 +675,11 @@ export function classifyInterruptedRepeat(
     // Stale application into B — R rendered under B's attempt — is an observed failure, whatever else is missing.
     const own = lifecycle.filter((r) => prop(r, 'diagnostic_request_id') === requestId);
     const shown = (r: DecodedTelemetryRow) => prop(r, 'stage') === 'ready' || prop(r, 'stage') === 'rendered';
+    // Every row of R names the SAME origin take and boot it was requested under (bbc58543 return 3).
+    const originBoot = prop(requested[0], 'origin_boot_id');
+    if (own.some((r) => prop(r, 'origin_attempt_id') !== takeAttempt || prop(r, 'origin_boot_id') !== originBoot)) {
+        return hold('the interrupted take\'s coaching request reports conflicting origin take or boot across its lifecycle');
+    }
     if (own.some((r) => prop(r, 'stage') === 'rendered' && attemptOf(r) === successor)) {
         return hold('FAIL: the interrupted take\'s coaching was rendered under the next take — an observed stale application into B');
     }
@@ -681,21 +689,27 @@ export function classifyInterruptedRepeat(
     if (ended.length === 0) return hold('the interrupted take\'s coaching request has no observed end — neither branch is inferred from absence');
     if (ended.length > 1) return hold('the interrupted take\'s coaching request reports more than one UI terminal');
     const [end] = ended;
-    if (prop(end, 'origin_attempt_id') !== takeAttempt) return hold('the interrupted take\'s coaching end names another origin attempt');
     const endedAt = timed(end);
     if (!Number.isFinite(endedAt) || endedAt < requestedAt) return hold('the coaching request\'s terminal precedes the request itself');
     if (own.some((r) => shown(r) && !Number.isFinite(timed(r)))) return hold('a ready/rendered row for the request has no producer time');
     const reason = String(prop(end, 'end_reason') ?? '');
     const result = (branch: 'completed_before_repeat' | 'open_at_invalidation'): InterruptedRepeatResult =>
         ({ ok: true, branch, requestId: requestId as string, takeAttempt, successorAttempt: successor });
+    if (own.some((r) => shown(r) && timed(r) < requestedAt)) return hold('the interrupted take\'s coaching was ready or rendered before it was requested');
     if (reason === 'completed') {
+        // request ≤ render ≤ completed < Repeat press (bbc58543 return 2). `rendered` and `completed` are published together,
+        // once per session; `ready` is its own once-per-session effect, which may run in the same commit just AFTER a
+        // synchronous render (the rendered effect is declared first), so ready is bounded by the request and the press,
+        // never ordered against the render.
         const rendered = own.filter((r) => prop(r, 'stage') === 'rendered');
+        const ready = own.filter((r) => prop(r, 'stage') === 'ready');
         if (rendered.length !== 1 || timed(rendered[0]) > endedAt) {
             return hold('the interrupted take\'s coaching completed without exactly one render of its own at completion');
         }
+        if (ready.length !== 1) return hold('the interrupted take\'s coaching completed without exactly one readiness report');
         // `ended` is the terminal REPORT, emitted after the render: a completion after the press is not certified from silence.
         if (endedAt >= pressAt) return hold('the interrupted take\'s coaching completed only after the Repeat press, so its target is ambiguous');
-        if (own.some((r) => shown(r) && timed(r) > endedAt)) return hold('the interrupted take\'s coaching was shown again after it completed — ambiguous target');
+        if (timed(ready[0]) >= pressAt) return hold('the interrupted take\'s coaching readiness was reported only after the Repeat press — ambiguous target');
         return result('completed_before_repeat');
     }
     if (SUPERSEDED_END_REASONS.has(reason)) {
