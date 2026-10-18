@@ -243,6 +243,7 @@ Each RC gate should report: **Gate ID** (1–5); **Definition of green** (binary
 ## 7. Interpretation & closure rules
 
 - **Raw artifacts win when summaries disagree.** Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, stress/endurance JSON, and browser traces are the source of truth until the aggregator is fixed and rerun on the same commit.
+- **Diagnosis does not waive required qualification.** Green shard jobs or manually interpreted raw artifacts do not establish a required aggregate/report PASS. Correct the aggregation, count or collector defect and obtain the required exact-head qualification result. Preserve each failed/cancelled attempt separately; neither a later rerun nor a high quality score rewrites the earlier evidence.
 - **Quality score cannot override red release gates.** A high quality/coverage number does not prove STT quality, billing safety, quota enforcement, or privacy behavior.
 - **Advisory metrics become blocking only when explicitly promoted** for a release in `RELEASE_PROCESS.md` gate definitions or `RELEASE_STATUS.md`.
 - **Local generated output helps debugging; GitHub-generated artifacts close release evidence.**
