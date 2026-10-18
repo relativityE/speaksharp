@@ -668,14 +668,17 @@ export function classifyInterruptedRepeat(
     const recordings = rows.filter((r) => r?.event === 'recording_state' && String(prop(r, 'to_state') ?? '').toUpperCase() === 'RECORDING'
         && Number.isFinite(timed(r)) && timed(r) >= repeatAt);
     if (recordings.length === 0) return hold('no recording follows the accepted repeat Start');
-    const successor = attemptOf(earliest(recordings));
+    const successorRecording = earliest(recordings);
+    const successor = attemptOf(successorRecording);
     if (successor === null || successor === takeAttempt) return hold('the recording after the accepted repeat Start is not a new take');
     // The accepted intent mints and carries the take it starts; one naming no take is not a wildcard (bbc58543 return 4).
     if (attemptOf(intent) === null) return hold('the accepted repeat Start names no take, so the recording after it cannot be bound to it');
     if (attemptOf(intent) !== successor) return hold('the accepted repeat Start names a different take than the recording that followed it');
+    // `session_started` is pushed only after the start resolves, i.e. after the RECORDING transition, so it confirms B only
+    // when it follows THAT transition; an earlier B-tagged start row is out of order and confirms nothing (Codex r4308400151).
     const successorStarted = rows.some((r) => r?.event === 'session_started' && attemptOf(r) === successor
-        && Number.isFinite(timed(r)) && timed(r) >= repeatAt);
-    if (!successorStarted) return hold('the successor take\'s recording has no session_started of its own after the repeat');
+        && Number.isFinite(timed(r)) && timed(r) >= timed(successorRecording));
+    if (!successorStarted) return hold('the successor take\'s recording has no session_started of its own after that recording');
 
     // Stale application into B — R rendered under B's attempt — is an observed failure, whatever else is missing.
     const own = lifecycle.filter((r) => prop(r, 'diagnostic_request_id') === requestId);

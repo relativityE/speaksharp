@@ -150,6 +150,10 @@ describe('interrupted repeat take — the declared take and the review\'s own Re
         expect(check(mismatch)).toMatch(/names a different take than the recording/);
         const unrelated = replace(openAtInvalidation(), (r) => r.event === 'session_started', row('session_started', 13, { attempt_id: OTHER }));
         expect(check(unrelated)).toMatch(/successor take's recording has no session_started of its own/);
+        // Codex r4308400151: a B start row BEFORE B's RECORDING transition (between the intent and the recording) is out of
+        // order — the product pushes session_started only after the start resolves — and confirms nothing.
+        const early = replace(openAtInvalidation(), (r) => r.event === 'session_started', row('session_started', 11.5, { attempt_id: B }));
+        expect(check(early)).toMatch(/no session_started of its own after that recording/);
     });
 
     it('NEGATIVE (wrong-attempt substitution): R is requested under origin A, in this boot, before the repeat Start', () => {
