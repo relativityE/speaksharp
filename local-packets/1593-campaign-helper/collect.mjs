@@ -46,7 +46,7 @@ export const CANARY_ACK = 'RWT-CANARY-CLAIM-RUN-OWNED';
 export const REFLEX_MS = 500;
 export const FRESHNESS_MS = 5 * 60_000;
 /** The vendored reference contract's blob (ecd2c048). A different contract is a different decision table. */
-export const CONTRACT_BLOB = 'fe5b6c79';
+export const CONTRACT_BLOB = '86d81be7';
 /** Files whose exact bytes at S define the effective run configuration (bound into configDigest). */
 export const CONFIG_FILES = Object.freeze(['.github/workflows/rc-gates.yml', 'playwright.deployed-live.config.ts']);
 /** Trees the evaluator and the specs execute; their ids at S are bound into configDigest and the local checkout must equal S. */
@@ -142,6 +142,8 @@ export const DOMINANT_STEPS = Object.freeze(['receipt content-free', 'telemetry 
     'run-owned cleanup', 'no Cloud STT request', 'navigation writes nothing', 'no mic on navigation']);
 const RECEIVED_ROW = 'journey telemetry received';
 const BUDGET_ROW = 'coaching request budget';
+/** The Edge function's provider attempt cap (`providerRetry.ts` MAX_PROVIDER_ATTEMPTS) — a known quota attempt cost lies within it. */
+const PROVIDER_ATTEMPT_CAP = 3;
 
 /** Lines GitHub prints for STEP OUTPUT start with the timestamp; the step's own script text never matches (it is `echo …`). */
 const out = (pattern) => new RegExp(`^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z ${pattern}$`);
@@ -305,7 +307,19 @@ export function verifyCaseRun({ caseNumber, runId, runAttempt, ledgerCampaignId,
         const present = rows.some((r) => r.step === step);
         if (present ? verdictOf(step) !== 'PASS' : inventorySteps.has(step)) dominant.push(`stop:${step}`);
     }
-    if (rows.some((r) => r.verdict === 'EXTERNAL')) dominant.push('stop:provider_outage');
+    // #1593 (Sam 19:40): a PROVED provider quota is a completed quota-handling attempt, not an outage stop — but only when
+    // every EXTERNAL row is that one proved `provider_quota` parent or its own dependent (the finalizer's closed association).
+    // Any other EXTERNAL (5xx, timeout, unscoped, a second parent) keeps the dominant outage stop; so does an unknown
+    // provider attempt cost for the quota request.
+    const externalRows = rows.filter((r) => r.verdict === 'EXTERNAL');
+    const quotaParents = externalRows.filter((r) => r.external?.role === 'parent' && r.external?.kind === 'provider_quota');
+    const quotaLimited = externalRows.length > 0 && quotaParents.length === 1
+        && externalRows.every((r) => r === quotaParents[0] || (r.external?.role === 'dependent' && r.external?.parent === quotaParents[0].step));
+    if (externalRows.length > 0 && !quotaLimited) dominant.push('stop:provider_outage');
+    const providerAttempts = quotaLimited ? quotaParents[0].providerAttempts : null;
+    if (quotaLimited && !(Number.isSafeInteger(providerAttempts) && providerAttempts >= 1 && providerAttempts <= PROVIDER_ATTEMPT_CAP)) {
+        dominant.push('stop:unknown_provider_attempt_cost');
+    }
     if (c.readback === 'declared' && verdictOf(RECEIVED_ROW) !== 'PASS') dominant.push('stop:readback_not_qualified');
     // Sam (e0651330 disposition): case 15's maintained-account readiness is unproven until its own receipt proves it — a
     // missing credential or empty history is a HOLD of the campaign (identity rows above), never a reviewable outcome.
@@ -320,8 +334,11 @@ export function verifyCaseRun({ caseNumber, runId, runAttempt, ledgerCampaignId,
     if (c.readOnly) { if (cleanup.lines !== 0 || parsedLog.unparsedCleanup !== 0) fail('read_only_case_logged_a_cleanup'); }
     else if (!cleanup.ok) fail('cleanup_line_missing_ambiguous_or_unverified');
 
-    const verdicts = rows.map((r) => r.verdict);
-    const outcome = rows.length === 0 ? null : verdicts.includes('FAIL') ? 'FAIL' : verdicts.every((v) => v === 'PASS') ? 'PASS' : 'HOLD';
+    // The quota-scoped EXTERNAL rows are judged above; every other row decides the ordinary outcome as before. All of them
+    // PASS under a proved quota → COMPLETED_QUOTA_LIMITED, never PASS: the generated-AI output is unverified.
+    const verdicts = rows.filter((r) => !(quotaLimited && r.verdict === 'EXTERNAL')).map((r) => r.verdict);
+    const outcome = rows.length === 0 ? null : verdicts.includes('FAIL') ? 'FAIL'
+        : verdicts.every((v) => v === 'PASS') ? (quotaLimited ? 'COMPLETED_QUOTA_LIMITED' : 'PASS') : 'HOLD';
     const releaseSha = attempt?.head_sha ?? null;
     const runIdText = String(runId);
     const entry = {
@@ -332,6 +349,8 @@ export function verifyCaseRun({ caseNumber, runId, runAttempt, ledgerCampaignId,
         mandatoryReadbackComplete: errors.length === 0 && (c.readback === 'declared' ? verdictOf(RECEIVED_ROW) === 'PASS' : readbackState === 'not_applicable_source_defined'),
         dominantStop: errors.length > 0 || dominant.length > 0,
         outcome, continuationApproved: continuationApproved === true, requests,
+        aiOutputVerified: !quotaLimited, aiUnverifiedSteps: quotaLimited ? externalRows.map((r) => r.step) : [],
+        providerAttempts: quotaLimited ? providerAttempts : null,
         cleanup: c.readOnly ? null : {
             kind: 'run_owned_cleanup', verified: cleanup.ok, residue: cleanup.residue, ownerScope: cleanup.ok ? 'this_run_only' : null,
             scopeDigest: observedCleanupScope ?? null, runId: runIdText, runAttempt, campaignId: ledgerCampaignId, releaseSha,
@@ -376,7 +395,9 @@ export function finalReconciliation({ authority: a, ledger: l, dependencyIdentic
         if (identities.has(id)) hold(`case_${n}_duplicate_run_identity`);
         identities.add(id);
         if (r.terminal !== true || r.reviewed !== true || r.mandatoryReadbackComplete !== true || r.dominantStop !== false) hold(`case_${n}_unfinished_or_dominant`);
-        if (r.outcome !== 'PASS' && r.continuationApproved !== true) hold(`case_${n}_ordinary_outcome_needs_review`);
+        if (r.outcome !== 'PASS' && r.outcome !== 'COMPLETED_QUOTA_LIMITED' && r.continuationApproved !== true) hold(`case_${n}_ordinary_outcome_needs_review`);
+        if (r.outcome === 'COMPLETED_QUOTA_LIMITED' && (r.aiOutputVerified !== false || !Number.isSafeInteger(r.providerAttempts)
+            || r.providerAttempts < 1 || r.providerAttempts > PROVIDER_ATTEMPT_CAP)) hold(`case_${n}_quota_limited_without_known_attempt_cost`);
         if (!Number.isSafeInteger(r.requests) || r.requests < 0 || r.requests > c.maximum) hold(`case_${n}_unknown_or_exceeded_requests`);
         else used += r.requests;
         if (c.readOnly) { if (r.cleanup !== null) hold(`case_${n}_read_only_case_has_cleanup`); }
@@ -389,7 +410,11 @@ export function finalReconciliation({ authority: a, ledger: l, dependencyIdentic
     });
     if (used > (a?.budget ?? 0)) hold('campaign_request_budget_exceeded');
     const allPass = entries.length === CASES.length && entries.every((r) => r?.outcome === 'PASS');
-    return { complete: reasons.length === 0, outcome: reasons.length ? 'HOLD' : allPass ? 'PASS' : 'PASS_WITH_REVIEWED_CONTINUATIONS', used, reasons };
+    // #1593 (Sam 19:40): the aggregate keeps the AI-unverified cases explicitly — a quota-limited campaign is never bare PASS.
+    const aiUnverifiedCases = entries.filter((r) => r?.outcome === 'COMPLETED_QUOTA_LIMITED').map((r) => r.caseNumber);
+    const outcome = reasons.length ? 'HOLD' : aiUnverifiedCases.length ? 'PASS_WITH_QUOTA_LIMITED_AI_UNVERIFIED'
+        : allPass ? 'PASS' : 'PASS_WITH_REVIEWED_CONTINUATIONS';
+    return { complete: reasons.length === 0, outcome, used, aiUnverifiedCases, reasons };
 }
 
 /**

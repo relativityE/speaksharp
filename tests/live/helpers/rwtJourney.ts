@@ -2146,6 +2146,7 @@ export async function focusCoachingRows(
         two ? 'two coaching phrases rendered after Stop without any click' : parent.detail,
         { reviewState: state, httpStatus: take.unique ? take.evidence.httpStatus : request.status, failureReason: take.unique ? take.evidence.reason : request.reason ?? null,
             providerStatus: take.evidence.providerStatus, externalOutcome: parent.external, savedTakeProven: two ? null : savedTakeProven,
+            providerErrorStatus: take.evidence.providerErrorStatus ?? null, providerAttempts: take.evidence.providerAttempts ?? null,
             accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,
             unavailableShown: two ? null : ui.unavailableShown, retryEnabled: two ? null : ui.retryEnabled, takeExchangeUnique: take.unique });
     receipt.row('Focus coaching request marked focus_points', request.product === 'focus_points' ? 'PASS' : 'FAIL',

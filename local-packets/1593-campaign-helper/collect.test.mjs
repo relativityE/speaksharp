@@ -541,7 +541,7 @@ const fullLedger = (entries) => ({ verified: true, campaignId: 'rwt-campaign-1',
 
 test('FINAL: all 15 honest entries close the campaign PASS; nothing after case 15 is needed to trigger it', () => {
     const r = finalReconciliation({ authority, dependencyIdentical: true, ledger: fullLedger(honest(15)) });
-    assert.deepEqual(r, { complete: true, outcome: 'PASS', used: 30, reasons: [] });
+    assert.deepEqual(r, { complete: true, outcome: 'PASS', used: 30, aiUnverifiedCases: [], reasons: [] });
 });
 
 test('FINAL case 15: failed sign-in is FAIL and dominant; missing credential or empty history HOLDs — none closes the campaign', () => {
@@ -601,4 +601,65 @@ test('FINAL holds on unproven dependency identity and on a malformed authority (
     }
     const src = readFileSync('local-packets/1593-campaign-helper/collect.mjs', 'utf8');
     assert.match(src, /finalReconciliation\(\{ authority, ledger, dependencyIdentical: dependencyIdentity\(authority\.releaseSha\) \}\)/);
+});
+
+// ── #1593 (PO via Sam 19:40): provider quota is a completed, quota-limited attempt — AI output unverified ──────────────
+const QUOTA_EVIDENCE = Object.freeze({
+    reviewState: 'error', httpStatus: 502, failureReason: 'provider_http_4xx', providerStatus: 429, providerErrorStatus: 'RESOURCE_EXHAUSTED',
+    providerAttempts: 3, takeExchangeUnique: true, externalOutcome: 'provider_quota', savedTakeProven: true, unavailableShown: true, retryEnabled: true,
+});
+/** Case 1 under a PROVED provider quota: the parent with its proof, its success-only dependents EXTERNAL, everything else as given. */
+function quotaReceipt({ evidence = {}, verdicts = {}, extraExternal = [] } = {}) {
+    const body = receiptFor(1, { verdicts });
+    for (const row of body.rows) {
+        if (row.step === 'coaching rendered') Object.assign(row, { verdict: 'EXTERNAL', detail: 'completed — quota-limited', evidence: { ...QUOTA_EVIDENCE, ...evidence } });
+        if (['coaching length', 'coaching phrases distinct', 'coaching server receipt', ...extraExternal].includes(row.step)) {
+            Object.assign(row, { verdict: 'EXTERNAL', detail: 'not exercised: quota-limited' });
+        }
+    }
+    return body;
+}
+
+test('QUOTA POSITIVE: a proved provider-quota case is COMPLETED_QUOTA_LIMITED, not dominant, AI output unverified — and the next case is admitted', () => {
+    const { entry, errors } = caseRun(1, { receipt: quotaReceipt() });
+    assert.deepEqual(errors, []);
+    assert.equal(entry.outcome, 'COMPLETED_QUOTA_LIMITED');
+    assert.equal(entry.dominantStop, false, entry.dominantReasons.join(','));
+    assert.equal(entry.aiOutputVerified, false);
+    assert.deepEqual([...entry.aiUnverifiedSteps].sort(), ['coaching length', 'coaching phrases distinct', 'coaching rendered', 'coaching server receipt']);
+    assert.equal(entry.providerAttempts, 3);
+    assert.equal(decide(2, [{ ...entry, continuationApproved: false }]).eligible, true);
+});
+
+test('QUOTA NEGATIVE: mixed with an independent product FAIL, the case is that ordinary FAIL (reviewable), never quota-limited', () => {
+    const { entry } = caseRun(1, { receipt: quotaReceipt({ verdicts: { 'saved exactly once': 'FAIL' } }) });
+    assert.equal(entry.outcome, 'FAIL');
+    assert.equal(entry.aiOutputVerified, false);
+});
+
+test('QUOTA NEGATIVE: a 5xx outage, an unproved quota, or a missing attempt count stays a dominant stop', () => {
+    const fiveXX = caseRun(1, { receipt: quotaReceipt({ evidence: { externalOutcome: 'provider_5xx', failureReason: 'provider_http_5xx', providerStatus: 503 } }) }).entry;
+    assert.ok(fiveXX.dominantReasons.includes('stop:provider_outage'));
+    for (const evidence of [{ providerErrorStatus: null }, { providerAttempts: null }, { providerAttempts: 4 }, { providerStatus: 400 }]) {
+        const { entry } = caseRun(1, { receipt: quotaReceipt({ evidence }) });
+        assert.equal(entry.dominantStop, true, JSON.stringify(evidence));
+        assert.notEqual(entry.outcome, 'COMPLETED_QUOTA_LIMITED');
+    }
+});
+
+test('QUOTA NEGATIVE: an EXTERNAL row outside the quota parent\'s scope keeps the outage stop', () => {
+    const { entry } = caseRun(1, { receipt: quotaReceipt({ extraExternal: ['saved exactly once'] }) });
+    assert.equal(entry.dominantStop, true);
+    assert.notEqual(entry.outcome, 'COMPLETED_QUOTA_LIMITED');
+});
+
+test('QUOTA FINAL: the aggregate names the AI-unverified cases and is never bare PASS; an unknown attempt cost holds', () => {
+    const quota = { ...caseRun(1, { receipt: quotaReceipt() }).entry, continuationApproved: false };
+    const entries = [quota, ...honest(15).slice(1)];
+    const r = finalReconciliation({ authority, dependencyIdentical: true, ledger: fullLedger(entries) });
+    assert.equal(r.outcome, 'PASS_WITH_QUOTA_LIMITED_AI_UNVERIFIED');
+    assert.deepEqual(r.aiUnverifiedCases, [1]);
+    const unknownCost = finalReconciliation({ authority, dependencyIdentical: true, ledger: fullLedger([{ ...quota, providerAttempts: null }, ...honest(15).slice(1)]) });
+    assert.equal(unknownCost.outcome, 'HOLD');
+    assert.ok(unknownCost.reasons.includes('case_1_quota_limited_without_known_attempt_cost'));
 });

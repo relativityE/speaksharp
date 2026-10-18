@@ -140,3 +140,29 @@ test('zero-budget case still refuses maintained-account write/claim acks or miss
 test('malformed inputs never grant eligibility', () => {
     for (const f of [null, undefined, {}, { caseNumber: 0 }, { caseNumber: 16 }]) assert.equal(assess(f).eligible, false);
 });
+
+// #1593 (PO via Sam 19:40) — a proved provider-quota case is a COMPLETED quota-handling attempt: it does not stop the next
+// independent case and needs no continuation, but only with its AI output unverified and a known provider attempt cost.
+test('a COMPLETED_QUOTA_LIMITED predecessor admits the next case without continuation review', () => {
+    const f = fixture(2);
+    Object.assign(f.ledger.entries[0], { outcome: 'COMPLETED_QUOTA_LIMITED', aiOutputVerified: false, providerAttempts: 3 });
+    f.previousReceipt = clone(f.ledger.entries[0]);
+    assert.equal(assess(f).eligible, true);
+});
+test('a quota-limited predecessor without unverified AI output or a known attempt cost holds', () => {
+    for (const bad of [{ aiOutputVerified: true }, { aiOutputVerified: undefined }, { providerAttempts: null }, { providerAttempts: 0 },
+        { providerAttempts: 4 }, { providerAttempts: 1.5 }]) {
+        const f = fixture(2);
+        Object.assign(f.ledger.entries[0], { outcome: 'COMPLETED_QUOTA_LIMITED', aiOutputVerified: false, providerAttempts: 3 }, bad);
+        f.previousReceipt = clone(f.ledger.entries[0]);
+        assert.equal(assess(f).reason, 'quota_limited_without_known_attempt_cost', JSON.stringify(bad));
+    }
+});
+test('quota-limited never excuses a dominant stop, an unfinished receipt or an unknown outcome', () => {
+    for (const bad of [{ dominantStop: true }, { terminal: false }, { mandatoryReadbackComplete: false }, { outcome: 'QUOTA_LIMITED' }]) {
+        const f = fixture(2);
+        Object.assign(f.ledger.entries[0], { outcome: 'COMPLETED_QUOTA_LIMITED', aiOutputVerified: false, providerAttempts: 3 }, bad);
+        f.previousReceipt = clone(f.ledger.entries[0]);
+        assert.equal(assess(f).reason, 'unfinished_or_dominant_receipt', JSON.stringify(bad));
+    }
+});

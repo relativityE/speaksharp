@@ -9,6 +9,10 @@
  *   • PROVIDER OUTCOME — the Edge response for the coaching request names `reason: provider_http_5xx` with an integer
  *     `diagnostics.provider_status` in 500–599, or `reason: provider_timeout`. An Edge 502 alone, a missing/malformed/
  *     unknown reason, `provider_transport`, or a browser/harness timeout is NOT proof.
+ *   • PROVIDER QUOTA (#1593, PO via Sam 19:40) — `reason: provider_http_4xx` with `provider_status` 429 AND the decoded
+ *     `provider_error_status` RESOURCE_EXHAUSTED, after a known integer number of provider attempts within the Edge cap.
+ *     It is the provider's quota (not the product's own `quota_exceeded`): recorded as EXTERNAL `provider_quota`, a
+ *     completed quota-handling attempt whose generated-AI output is UNVERIFIED — never a PASS.
  *   • GRACEFUL APP — independently: the exact take is saved exactly once, the review card settles on `error` with the
  *     unavailable message, and Try again is present and enabled (it is not pressed: a press would be another provider
  *     request). The failure-path telemetry (requested + failed) left the page.
@@ -35,7 +39,9 @@ export function coachingFailureReason(body: unknown): string | null {
 
 
 /** The closed provider-outcome classes that may prove an external outage. */
-export type ExternalProviderOutcome = 'provider_5xx' | 'provider_timeout';
+export type ExternalProviderOutcome = 'provider_5xx' | 'provider_timeout' | 'provider_quota';
+/** The Edge function's provider attempt cap (`providerRetry.ts` MAX_PROVIDER_ATTEMPTS): a quota proof names a count within it. */
+export const PROVIDER_ATTEMPT_CAP = 3;
 
 /** Allowlisted scalars read once from the failed coaching response (nothing else from the body is kept). */
 export interface CoachingFailureEvidence {
@@ -45,6 +51,10 @@ export interface CoachingFailureEvidence {
     reason: string | null;
     /** `diagnostics.provider_status` — the provider's own HTTP status, when it is an integer in 100–599. */
     providerStatus: number | null;
+    /** `diagnostics.provider_error_status`, kept ONLY when it is the quota code RESOURCE_EXHAUSTED (else null). */
+    providerErrorStatus?: 'RESOURCE_EXHAUSTED' | null;
+    /** `diagnostics.provider_attempts` — the provider calls this request cost, an integer within the Edge cap (else null). */
+    providerAttempts?: number | null;
 }
 
 /** Read `diagnostics.provider_status` from a parsed failure body: an integer in 100–599, else null. */
@@ -54,11 +64,29 @@ export function providerStatusFrom(body: unknown): number | null {
     return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599 ? value : null;
 }
 
+/** `diagnostics.provider_error_status` when it is exactly the provider quota code; anything else is not kept. */
+export function providerQuotaCodeFrom(body: unknown): 'RESOURCE_EXHAUSTED' | null {
+    const diagnostics = body && typeof body === 'object' ? (body as { diagnostics?: unknown }).diagnostics : undefined;
+    const value = diagnostics && typeof diagnostics === 'object' ? (diagnostics as { provider_error_status?: unknown }).provider_error_status : undefined;
+    return value === 'RESOURCE_EXHAUSTED' ? 'RESOURCE_EXHAUSTED' : null;
+}
+
+/** `diagnostics.provider_attempts` when it is an integer from 1 to the Edge cap; else null (an unknown attempt cost). */
+export function providerAttemptsFrom(body: unknown): number | null {
+    const diagnostics = body && typeof body === 'object' ? (body as { diagnostics?: unknown }).diagnostics : undefined;
+    const value = diagnostics && typeof diagnostics === 'object' ? (diagnostics as { provider_attempts?: unknown }).provider_attempts : undefined;
+    return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= PROVIDER_ATTEMPT_CAP ? value : null;
+}
+
 /** The external outcome the request-bound evidence PROVES, or null when it proves nothing. */
 export function provenExternalOutcome(e: CoachingFailureEvidence): ExternalProviderOutcome | null {
     if (e.httpStatus !== 502) return null; // the Edge function answers a provider failure with 502, and only then
     if (e.reason === 'provider_http_5xx' && e.providerStatus !== null && e.providerStatus >= 500 && e.providerStatus <= 599) return 'provider_5xx';
     if (e.reason === 'provider_timeout') return 'provider_timeout';
+    // Provider quota: the 429 AND its decoded quota code AND a known attempt cost. Any one missing proves nothing.
+    if (e.reason === 'provider_http_4xx' && e.providerStatus === 429 && e.providerErrorStatus === 'RESOURCE_EXHAUSTED'
+        && typeof e.providerAttempts === 'number' && Number.isInteger(e.providerAttempts)
+        && e.providerAttempts >= 1 && e.providerAttempts <= PROVIDER_ATTEMPT_CAP) return 'provider_quota';
     return null;
 }
 
@@ -107,6 +135,13 @@ export function coachingParentVerdict(args: {
     if (!outcome) return { verdict: 'FAIL', detail: `${base}; the cause is not proved external`, external: null };
     const failed = gracefulFailures(args.graceful);
     if (failed.length > 0) return { verdict: 'FAIL', detail: `${base}; the provider was unavailable but the app did not degrade gracefully: ${failed.join('; ')}`, external: null };
+    if (outcome === 'provider_quota') {
+        return {
+            verdict: 'EXTERNAL',
+            detail: `completed — quota-limited: the coaching provider's quota was exhausted (provider 429 RESOURCE_EXHAUSTED after ${String(args.evidence.providerAttempts)} attempt(s)) — the take stayed saved, the unavailable message and an enabled Try again were shown. Generated-AI output is UNVERIFIED, not passed.`,
+            external: outcome,
+        };
+    }
     return {
         verdict: 'EXTERNAL',
         detail: `external provider unavailable (${outcome === 'provider_5xx' ? `provider ${String(args.evidence.providerStatus)}` : 'provider timeout'}) — non-blocking per PO; the take stayed saved, the unavailable message and an enabled Try again were shown. Successful coaching was not exercised.`,
@@ -189,7 +224,10 @@ export function coachingTelemetryVerdict(parent: CoachingParentVerdict, failure:
  *     are duplicate terminal evidence → unproven.
  * Anything unresolved proves nothing (`unique: false`).
  */
-const UNPROVEN = { evidence: { httpStatus: null, reason: null, providerStatus: null }, diagnosticRequestId: null, unique: false } as const;
+const UNPROVEN = {
+    evidence: { httpStatus: null, reason: null, providerStatus: null, providerErrorStatus: null, providerAttempts: null },
+    diagnosticRequestId: null, unique: false,
+} as const;
 
 export function takeExchangeEvidence(forSession: readonly CoachingExchange[]): {
     evidence: CoachingFailureEvidence;
@@ -230,6 +268,8 @@ export function takeExchangeEvidence(forSession: readonly CoachingExchange[]): {
             // arbitrary slug into the receipt and the row detail. Absent diagnostics stay null; neither proves anything.
             reason: exchange.diagnostics ? coachingFailureReason({ reason }) ?? 'unrecognized' : null,
             providerStatus: providerStatusFrom({ diagnostics: exchange.diagnostics }),
+            providerErrorStatus: providerQuotaCodeFrom({ diagnostics: exchange.diagnostics }),
+            providerAttempts: providerAttemptsFrom({ diagnostics: exchange.diagnostics }),
         },
         diagnosticRequestId: lifecycle,
         unique: true,

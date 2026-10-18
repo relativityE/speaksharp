@@ -42,8 +42,12 @@ export function assess(input) {
             if (identities.has(identity)) return held('duplicate_run_identity');
             identities.add(identity);
             if (r.terminal !== true || r.reviewed !== true || r.mandatoryReadbackComplete !== true
-                || r.dominantStop !== false || !['PASS', 'FAIL', 'HOLD'].includes(r.outcome)) return held('unfinished_or_dominant_receipt');
-            if (r.outcome !== 'PASS' && r.continuationApproved !== true) return held('ordinary_outcome_needs_review');
+                || r.dominantStop !== false || !['PASS', 'FAIL', 'HOLD', 'COMPLETED_QUOTA_LIMITED'].includes(r.outcome)) return held('unfinished_or_dominant_receipt');
+            // #1593 (PO via Sam 19:40): a proved provider-quota case is a COMPLETED quota-handling attempt — it does not stop the
+            // next independent case — but only with its generated-AI output marked unverified and a known provider attempt cost.
+            if (r.outcome === 'COMPLETED_QUOTA_LIMITED' && (r.aiOutputVerified !== false || !Number.isSafeInteger(r.providerAttempts)
+                || r.providerAttempts < 1 || r.providerAttempts > 3)) return held('quota_limited_without_known_attempt_cost');
+            if (r.outcome !== 'PASS' && r.outcome !== 'COMPLETED_QUOTA_LIMITED' && r.continuationApproved !== true) return held('ordinary_outcome_needs_review');
             if (!count(r.requests) || r.requests > CASE_MAXIMA[i]) return held('unknown_or_exceeded_case_requests');
             const c = r.cleanup;
             if (!c || c.kind !== 'run_owned_cleanup' || c.verified !== true || c.residue !== 0

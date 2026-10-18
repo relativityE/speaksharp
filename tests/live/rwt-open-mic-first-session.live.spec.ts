@@ -484,6 +484,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 coachingParentOutcome = coachingParent;
                 receipt.row('coaching rendered', coachingParent.verdict, coachingParent.detail,
                     { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, providerStatus: take.evidence.providerStatus,
+                        providerErrorStatus: take.evidence.providerErrorStatus ?? null, providerAttempts: take.evidence.providerAttempts ?? null,
                         takeExchangeUnique: take.unique, externalOutcome: coachingParent.external, unavailableShown: rendered ? null : ui.unavailableShown,
                         savedTakeProven: rendered ? null : firstSave?.proven ?? false,
                         accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,

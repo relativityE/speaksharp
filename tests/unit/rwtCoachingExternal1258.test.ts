@@ -150,7 +150,7 @@ describe('PM 6174134686 §1 — only the CLOSED reason vocabulary can reach the 
         expect(v.detail).not.toContain('customer_content_123');
     });
     it('the permitted provider outcomes stay intact', () => {
-        expect(takeExchangeEvidence([exchange('provider_http_5xx', 503)]).evidence).toEqual({ httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503 });
+        expect(takeExchangeEvidence([exchange('provider_http_5xx', 503)]).evidence).toEqual({ httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503, providerErrorStatus: null, providerAttempts: null });
         expect(takeExchangeEvidence([exchange('provider_timeout')]).evidence.reason).toBe('provider_timeout');
     });
     it('a non-string or absent reason is unrecognized / null', () => {
@@ -190,9 +190,9 @@ describe('PM 6173420642 §3 — external proof is the take\'s own request/respon
         const a = takeExchangeEvidence(tap.forSession('sess-A'));
         const b = takeExchangeEvidence(tap.forSession('sess-B'));
         // `internal_error` is outside the closed coaching vocabulary, so it is `unrecognized` (PM 6174134686 §1).
-        expect(a.evidence).toEqual({ httpStatus: 502, reason: 'unrecognized', providerStatus: null });
+        expect(a.evidence).toEqual({ httpStatus: 502, reason: 'unrecognized', providerStatus: null, providerErrorStatus: null, providerAttempts: null });
         expect(provenExternalOutcome(a.evidence)).toBeNull();
-        expect(b.evidence).toEqual({ httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503 });
+        expect(b.evidence).toEqual({ httpStatus: 502, reason: 'provider_http_5xx', providerStatus: 503, providerErrorStatus: null, providerAttempts: null });
         expect(a.diagnosticRequestId).toBe('req-A');
         expect(parent(a.evidence).verdict, 'A never borrows B\'s external proof').toBe('FAIL');
     });

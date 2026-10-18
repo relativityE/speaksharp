@@ -11,6 +11,7 @@ import { coherentCoachingResult } from '../../../frontend/src/services/telemetry
 import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
 import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
 import { ADVERSE_SUITE } from './rwtAdverse';
+import { PROVIDER_ATTEMPT_CAP } from './coachingExternal';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
@@ -146,8 +147,17 @@ export function externalParentProofGaps(row: ReceiptRow): string[] {
         if (typeof ps !== 'number' || !Number.isInteger(ps) || ps < 500 || ps > 599) gaps.push('providerStatus is not an integer 500–599');
     } else if (e.externalOutcome === 'provider_timeout') {
         if (e.failureReason !== 'provider_timeout') gaps.push('failureReason is not provider_timeout');
+    } else if (e.externalOutcome === 'provider_quota') {
+        // #1593 (Sam 19:40): the provider's quota — its 429, its decoded quota code, and a known attempt cost within the cap.
+        const attempts = e.providerAttempts;
+        if (e.failureReason !== 'provider_http_4xx') gaps.push('failureReason is not provider_http_4xx');
+        if (e.providerStatus !== 429) gaps.push('providerStatus is not 429');
+        if (e.providerErrorStatus !== 'RESOURCE_EXHAUSTED') gaps.push('providerErrorStatus is not RESOURCE_EXHAUSTED');
+        if (typeof attempts !== 'number' || !Number.isInteger(attempts) || attempts < 1 || attempts > PROVIDER_ATTEMPT_CAP) {
+            gaps.push('providerAttempts is not a known count within the provider attempt cap');
+        }
     } else {
-        gaps.push('externalOutcome is not provider_5xx or provider_timeout');
+        gaps.push('externalOutcome is not provider_5xx, provider_timeout or provider_quota');
     }
     if (e.takeExchangeUnique !== true) gaps.push('the take exchange is not unique');
     if (e.savedTakeProven !== true) gaps.push('the saved take is not proven');
@@ -155,6 +165,28 @@ export function externalParentProofGaps(row: ReceiptRow): string[] {
     if (e.unavailableShown !== true) gaps.push('the unavailable message was not shown');
     if (e.retryEnabled !== true) gaps.push('Try again was not enabled');
     return gaps;
+}
+
+/**
+ * #1593 (Sam 19:40) — the closed EXTERNAL association a consumer may carry forward, read from the suite's own scope (never
+ * from detail text): the parent row with its PROVED kind (`externalOutcome`, which `externalParentProofGaps` validated),
+ * and each dependent naming that parent. A dependent does not repeat the parent's kind. Rows outside the scope are
+ * `unscoped` (and are already validation errors). Meaningful only for a receipt that validated.
+ */
+export interface ExternalRowRole { step: string; role: 'parent' | 'dependent' | 'unscoped'; parent: string | null; kind: string | null }
+export function externalRowRoles(suite: string, rows: readonly ReceiptRow[]): ExternalRowRole[] {
+    const scope = EXTERNAL_SCOPES[suite];
+    const external = rows.filter((r) => r.verdict === 'EXTERNAL' && !isHumanObservation(r));
+    const parentRow = scope ? external.find((r) => r.step === scope.parent) : undefined;
+    const parentKind = parentRow && externalParentProofGaps(parentRow).length === 0 && typeof parentRow.evidence?.externalOutcome === 'string'
+        ? parentRow.evidence.externalOutcome : null;
+    return external.map((r) => {
+        if (scope && r.step === scope.parent) return { step: r.step, role: 'parent', parent: null, kind: parentKind };
+        if (scope && parentRow && (scope.dependents.includes(r.step) || r.step === scope.telemetry)) {
+            return { step: r.step, role: 'dependent', parent: scope.parent, kind: null };
+        }
+        return { step: r.step, role: 'unscoped', parent: null, kind: null };
+    });
 }
 
 /** Every EXTERNAL row in an INPUT receipt must sit inside its suite's closed scope (see `EXTERNAL_SCOPES`). */

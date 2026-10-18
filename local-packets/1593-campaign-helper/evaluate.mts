@@ -8,7 +8,7 @@
 //
 // Reads local files only; writes one JSON line to stdout. No network, no GitHub, no dispatch.
 import { readFileSync } from 'node:fs';
-import { automatedEvaluation, requiredAutomatedRows, requiredHumanObservations } from '../../tests/live/helpers/rwtAcceptance.ts';
+import { automatedEvaluation, externalRowRoles, requiredAutomatedRows, requiredHumanObservations } from '../../tests/live/helpers/rwtAcceptance.ts';
 
 const arg = (name: string): string | null => {
     const i = process.argv.indexOf(`--${name}`);
@@ -26,7 +26,15 @@ if (suite) {
     const readback = arg('readback');
     const out = automatedEvaluation(parse(receipt), readback ? parse(readback) : undefined);
     // Steps, verdicts and the budget's numeric evidence only: the receipt is already content-free, and nothing else is needed.
-    const rows = out.rows.map((r) => ({ step: r.step, verdict: r.verdict,
-        ...(r.step === 'coaching request budget' ? { browserRequests: r.evidence?.browserRequests ?? null } : {}) }));
+    // #1593 (Sam 19:40): an EXTERNAL row also carries the finalizer's CLOSED association (role, parent, proved kind), and the
+    // parent its provider attempt count — never parsed from detail text.
+    const roles = new Map(externalRowRoles(out.suite ?? '', out.rows).map((x) => [x.step, x]));
+    const rows = out.rows.map((r) => {
+        const ext = r.verdict === 'EXTERNAL' ? roles.get(r.step) : undefined;
+        return { step: r.step, verdict: r.verdict,
+            ...(r.step === 'coaching request budget' ? { browserRequests: r.evidence?.browserRequests ?? null } : {}),
+            ...(ext ? { external: { role: ext.role, parent: ext.parent, kind: ext.kind } } : {}),
+            ...(ext?.role === 'parent' ? { providerAttempts: r.evidence?.providerAttempts ?? null } : {}) };
+    });
     process.stdout.write(`${JSON.stringify({ suite: out.suite, release: out.release, errors: out.errors, rows })}\n`);
 }
