@@ -80,12 +80,11 @@ async function startFirstPrivateTake(page: Page, label: string): Promise<void> {
 }
 
 async function finish(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
-    owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], leftTakeBaseline?: readonly RowFacts[] | null): Promise<void> {
+    owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null): Promise<void> {
     const cloudVerdict = noCloudVerdict(cloud.requests);
     receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
     await generations.settle();
-    const sessionIdsVerified = leftTakeBaseline === undefined
-        || await refreshCompletedTakeIds(takes, leftTakeBaseline, () => readRows(owner.uid));
+    const sessionIdsVerified = await refreshCompletedTakeIds(takes, takeBaseline, () => readRows(owner.uid));
     coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes, sessionIdsVerified });
     if (owner.uid) {
         try {
@@ -257,12 +256,14 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         const owner: RunOwner = { email: '', uid: '' };
         const takes: string[] = [];
         let claimed = false;
+        let rowsBeforeFirst: RowFacts[] | null = null;
         let sameBrowserTab: Page | null = null;
         let otherDevice: BrowserContext | null = null;
         try {
             await suppressPageSnapshot(testInfo);
             claimed = await prepareRunOwnedAccount(tabA, receipt, owner, 'two-tab', admin, SERVICE_ROLE);
             if (!claimed) return;
+            rowsBeforeFirst = await readRows(owner.uid);
             await openOpenMic(tabA);
             await startFirstPrivateTake(tabA, 'two-tab-a');
             await tabA.waitForTimeout(3_000);
@@ -333,7 +334,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
-            await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes);
+            await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
             await sameBrowserTab?.close().catch(() => undefined);
             await otherDevice?.close().catch(() => undefined);
         }
