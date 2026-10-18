@@ -1,0 +1,244 @@
+{
+  "kind": "LOCAL_DIAGNOSTIC_NOT_A_FIX",
+  "sourceBase": "52623c6bc6f065fdf43633ed99d48b7b643e63e6",
+  "stats": {
+    "startTime": "2026-10-18T08:42:36.978Z",
+    "duration": 39347.124,
+    "expected": 10,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "workers": 1,
+  "retries": 0,
+  "rows": [
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1257.704999923706,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 19.61,
+      "removedAfterMs": 215.94
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1169.6349992752075,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 15.16,
+      "removedAfterMs": 195.49
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1211.244999885559,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 19.72,
+      "removedAfterMs": 218.53
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 893.625,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 16.66,
+      "removedAfterMs": 228.18
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1153.8149995803833,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 13.86,
+      "removedAfterMs": 209.18
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1179.3900003433228,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 18.22,
+      "removedAfterMs": 214.52
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1189.625,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 10.14,
+      "removedAfterMs": 205.18
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1209.4499998092651,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 18.38,
+      "removedAfterMs": 213.79
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1267.954999923706,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 20.35,
+      "removedAfterMs": 216.02
+    },
+    {
+      "status": "passed",
+      "retry": 0,
+      "atEscape": {
+        "event": "escape-capture",
+        "at": 1187.0200004577637,
+        "modalPresent": true,
+        "modalState": "open",
+        "menuStates": [
+          "closed"
+        ],
+        "modalPointerEvents": "auto",
+        "modalVisible": true,
+        "focusInsideModal": true,
+        "activeTag": "SELECT",
+        "activeRole": null,
+        "bodyPointerEvents": "auto",
+        "closeEnabled": true
+      },
+      "closedAfterMs": 15.38,
+      "removedAfterMs": 212.57
+    }
+  ],
+  "conclusion": "All10 locally passed with visible open modal and focus on SELECT inside it at Escape; all subsequently closed and unmounted. The original CI timeout was not reproduced, so its cause is unresolved and cannot be discounted.",
+  "notPerformed": [
+    "full CI rerun",
+    "production/provider operation",
+    "queued-branch edit",
+    "product fix"
+  ],
+  "originalCITrace": "Original attempt1 artifact12130045841 returned404; original timeout/retry logs and reports preserved by references."
+}

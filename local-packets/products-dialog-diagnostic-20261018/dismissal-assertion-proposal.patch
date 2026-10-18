@@ -1,0 +1,12 @@
+diff --git a/tests/e2e/products-menu-back-to-back.e2e.spec.ts b/tests/e2e/products-menu-back-to-back.e2e.spec.ts
+--- a/tests/e2e/products-menu-back-to-back.e2e.spec.ts
++++ b/tests/e2e/products-menu-back-to-back.e2e.spec.ts
+@@ -22,6 +22,8 @@
+         await expect(page.getByTestId('objective-setup-dialog')).toBeVisible({ timeout: 15_000 });
+ 
+         await page.keyboard.press('Escape');
++        await expect(page.getByTestId('objective-setup-dialog'), 'Focus setup dismissed before header navigation')
++            .toBeHidden({ timeout: 8_000 });
+         await openProductsItem(page, 'open-mic', 8_000);
+         await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30_000 });
+     });
