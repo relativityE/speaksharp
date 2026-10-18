@@ -394,14 +394,27 @@ export function coachingRequestBudgetRow(
         || maxProviderAttemptsForOneRequest > EDGE_MAX_PROVIDER_ATTEMPTS || perSession.some((n) => n > 1);
     const unprovable = !exceeded && (malformed > 0 || readable.length !== tap.sentCount || answered.length !== tap.sentCount);
     const verdict: Verdict = exceeded ? 'FAIL' : unprovable ? 'HOLD' : 'PASS';
+    // #1474 (Sam 6242612760): how each unproven exchange ended, as observed after settling every sent request.
+    const outcomeCount = (o: CoachingExchange['outcome']) => tap.exchanges.filter((e) => e.outcome === o).length;
+    const unansweredAtBound = outcomeCount('unanswered');
+    const bodyPendingAtBound = outcomeCount('body_pending');
+    const failedInBrowser = outcomeCount('failed');
+    const holdReason = unansweredAtBound > 0
+        ? 'a sent coaching request was still unanswered when the bounded wait ended, so provider invocations are unproven'
+        : bodyPendingAtBound > 0
+            ? 'a coaching response body was still unread when the bounded wait ended, so provider invocations are unproven'
+            : failedInBrowser > 0
+                ? 'a sent coaching request failed in the browser before an answer, so provider invocations are unproven'
+                : 'a sent coaching request has no readable Edge diagnostics, so provider invocations are unproven';
     receipt.row('coaching request budget', verdict,
         verdict === 'PASS' ? `the whole scenario sent at most ${budget.maximum} coaching request(s); the Edge reported at most ${providerAttemptAllowance} provider attempt(s) in all and at most ${EDGE_MAX_PROVIDER_ATTEMPTS} for any one request`
             : verdict === 'FAIL' ? 'the scenario exceeded its coaching request budget, its provider-attempt allowance or the per-request provider-attempt cap, or a take was requested twice'
-                : 'a sent coaching request has no readable Edge diagnostics, so provider invocations are unproven',
+                : holdReason,
         {
             maximum: budget.maximum, browserRequests: tap.sentCount, answered: answered.length,
             withDiagnostics: readable.length, malformedProviderAttempts: malformed, providerAttemptsReported,
             providerAttemptAllowance, perRequestProviderAttemptCap: EDGE_MAX_PROVIDER_ATTEMPTS, maxProviderAttemptsForOneRequest,
             maxRequestsForOneTake: perSession.length > 0 ? Math.max(...perSession) : 0,
+            unansweredAtBound, bodyPendingAtBound, failedInBrowser,
         });
 }

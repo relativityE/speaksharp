@@ -59,10 +59,11 @@ export function useUnresolvedRecovery({
         setRecoveredStatus({
             type: 'warning',
             message: draft.recoveryState === 'finalized_pending_save'
-                ? 'Your last session finished but was not saved.'
+                // #1474: unconfirmed, not a known loss — the save's answer may have been lost after the server committed.
+                ? 'Your last session finished, but we couldn’t confirm it was saved.'
                 : 'Your last session was interrupted before it was saved.',
             detail: draft.recoveryState === 'finalized_pending_save'
-                ? 'Its measurements were kept on this device. No transcript was stored.'
+                ? 'Its measurements were kept on this device.'
                 : 'No transcript was saved. Only partial measurements were captured.',
         });
         setRecoveryDraft(null);

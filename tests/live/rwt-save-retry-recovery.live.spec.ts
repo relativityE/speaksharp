@@ -130,12 +130,13 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         const discardOfferedBeforeRetry = await page.getByTestId('session-discard').count() > 0;
         const wordsOnPage = await transcriptOnPageLength(page);
         const rowsBeforeRetry = await readSessionRows(owner.uid);
+        const completedBeforeRetry = rowsBeforeRetry.filter((r) => r.status === 'completed').length;
         const dropDisposition = completionDropDisposition(variant, drop, rowsBeforeRetry);
         receipt.row('completion request altered once', dropDisposition.status, dropDisposition.detail,
             { completionPosts: drop.completionPosts, droppedStatus: drop.droppedStatus, rowsBeforeRetry: rowsBeforeRetry.length,
-                completedBeforeRetry: rowsBeforeRetry.filter((r) => r.status === 'completed').length,
+                completedBeforeRetry,
                 completionOutcomes: await completions.evidence() });
-        const bannerVerdict = recoveryBannerVerdict({ bannerShown, resolution, message, retryOffered, wordsOnPage });
+        const bannerVerdict = recoveryBannerVerdict({ bannerShown, resolution, message, retryOffered, wordsOnPage, completedBeforeRetry });
         receipt.row('recovery banner is truthful', bannerVerdict.status, bannerVerdict.detail,
             { bannerShown, resolution, retryOffered, wordsOnPageLength: wordsOnPage, discardOfferedBeforeRetry,
                 messageLength: message.length });

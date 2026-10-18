@@ -20,6 +20,21 @@ export const EDGE_MAX_PROVIDER_ATTEMPTS = (() => {
   return n;
 })();
 
+/**
+ * #1474 (Sam 6242612760) — the Edge function's OWN total provider budget for one coaching request, read from its source
+ * like the attempt ceiling above. Waiting for every sent coaching exchange is bounded by this budget plus a fixed
+ * transport/body allowance, so a never-answered request ends the wait instead of holding the receipt. Fails closed.
+ */
+export const EDGE_PROVIDER_BUDGET_MS = (() => {
+  const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)),
+    '../../../backend/supabase/functions/get-ai-suggestions/providerRetry.ts'), 'utf8');
+  const n = Number(/export const PROVIDER_BUDGET_MS = ([\d_]+);/.exec(src)?.[1]?.replace(/_/g, ''));
+  if (!Number.isInteger(n) || n < 1) throw new Error('rwtCoachingEvidence: the Edge PROVIDER_BUDGET_MS could not be read');
+  return n;
+})();
+/** The bound for settling every sent coaching exchange: the Edge budget plus 15 s for transport and the response body. */
+export const COACHING_SETTLE_BOUND_MS = EDGE_PROVIDER_BUDGET_MS + 15_000;
+
 export const coachingContract = JSON.parse(readFileSync(
     resolve(dirname(fileURLToPath(import.meta.url)), '../../../backend/supabase/functions/get-ai-suggestions/contract.json'), 'utf8',
 )) as { model: string; promptTemplate: string };
