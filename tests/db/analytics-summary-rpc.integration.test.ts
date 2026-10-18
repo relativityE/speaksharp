@@ -24,6 +24,8 @@ const STAGE_A = M('20260816223606_metrics_only_additive_1306.sql');
 // #1306 cutover: the analytics RPC repoint to flat filler_counts is ADDITIVE and ships with the cutover (Stage B
 // enforcement is not required to make the client↔RPC agree — only the repoint is).
 const REPOINT = M('20260817140000_repoint_analytics_summary_flat_1306.sql');
+// #1472 increment 3: the current get_analytics_summary — the filler RATE counts OBSERVED evidence only.
+const OBSERVED_RATE = M('20261018090000_analytics_summary_observed_filler_rate_1472.sql');
 
 const U = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -60,7 +62,10 @@ let seq = 0;
 const sid = () => `aaaaaaaa-aaaa-4aaa-8aaa-${String(++seq).padStart(12, '0')}`;
 
 interface Summary {
-  overallStats: { avgFillerWordsPerMin: string | null; fillerRateContributorCount: number; totalSessions: number };
+  overallStats: {
+    avgFillerWordsPerMin: string | null; fillerRateContributorCount: number; totalSessions: number;
+    chartData: { 'FW/min': string | null }[];
+  } & Record<string, unknown>;
   topFillerWords: { word: string; count: number }[];
   fillerWordTrends: Record<string, unknown>;
 }
@@ -70,6 +75,7 @@ async function freshDb(): Promise<PGlite> {
   await db.exec(BOOTSTRAP);
   await db.exec(STAGE_A);
   await db.exec(REPOINT);
+  await db.exec(OBSERVED_RATE);
   return db;
 }
 
@@ -82,6 +88,13 @@ const insertRow = (db: PGlite, r: { duration: number; total_words: number | null
         [sid(), U, r.duration, r.total_words, r.clarity_score ?? null])
     : db.query(`INSERT INTO public.sessions (id,user_id,status,duration,total_words,clarity_score,filler_counts) VALUES ($1,$2,'active',$3,$4,$5,$6)`,
         [sid(), U, r.duration, r.total_words, r.clarity_score ?? null, JSON.stringify(r.filler_counts)]);
+
+const mixedChartRows = async (db: PGlite) => {
+  for (const [at, counts] of [['2025-01-03', { um: 3 }], ['2025-01-02', {}], ['2025-01-01', { um: 0 }]] as const) {
+    await db.query(`INSERT INTO public.sessions (id,user_id,status,duration,total_words,created_at,filler_counts) VALUES ($1,$2,'active',60,120,$3,$4)`,
+      [sid(), U, `${at}T00:00:00Z`, JSON.stringify(counts)]);
+  }
+};
 
 // The client-side equivalent of a seeded row — a metrics-only PracticeSession with FLAT filler_counts.
 const clientSession = (over: Partial<PracticeSession>): PracticeSession => ({
@@ -133,10 +146,11 @@ describe('#1306 get_analytics_summary — client↔RPC parity on flat filler_cou
     expect(Object.keys(rpc.fillerWordTrends).length).toBe(0);
   });
 
-  it('4. NULL is EXCLUDED (not measured) while {} is INCLUDED as a measured zero — RPC and client agree', async () => {
+  // #1472 increment 3 (plan 6102829932, Sam 6243872053): the parity casualty, rewritten. {} is NOT a measured zero.
+  it('4. only OBSERVED evidence enters the rate: {um:6} + {} + NULL → 6.0/min from ONE contributor, RPC and client agree', async () => {
     const mix = await freshDb();
-    await insertRow(mix, { duration: 60, total_words: 120, filler_counts: { um: 6 } }); // measured
-    await insertRow(mix, { duration: 60, total_words: 120, filler_counts: {} });         // measured ZERO
+    await insertRow(mix, { duration: 60, total_words: 120, filler_counts: { um: 6 } }); // observed
+    await insertRow(mix, { duration: 60, total_words: 120, filler_counts: {} });         // NOT a measured zero
     await insertRow(mix, { duration: 60, total_words: 120, filler_counts: undefined });  // NULL — not measured
     const rpc = await summaryFor(mix, U);
     const client = calculateOverallStats([
@@ -144,10 +158,63 @@ describe('#1306 get_analytics_summary — client↔RPC parity on flat filler_cou
       clientSession({ duration: 60, total_words: 120, filler_counts: {} }),
       clientSession({ duration: 60, total_words: 120 }), // filler_counts absent → NULL
     ]);
-    // Denominator = the two MEASURED rows (2.0 min); the NULL row is excluded. 6 / 2.0 = 3.0/min.
-    expect(rpc.overallStats.avgFillerWordsPerMin).toBe('3.0');
-    expect(client.avgFillerWordsPerMin).toBe('3.0');
-    expect(rpc.overallStats.fillerRateContributorCount).toBe(2); // {} counts; NULL does not
+    // Denominator = the ONE observed row (1.0 min): 6 / 1.0 = 6.0/min. Under the old gate {} dragged this to 3.0.
+    expect(rpc.overallStats.avgFillerWordsPerMin).toBe('6.0');
+    expect(client.avgFillerWordsPerMin).toBe('6.0');
+    expect(rpc.overallStats.fillerRateContributorCount).toBe(1);
+  });
+
+  it('4b. an all-zero map, an empty map and a malformed map are all excluded; with no observed row the rate is absent, never 0.0', async () => {
+    const none = await freshDb();
+    await insertRow(none, { duration: 60, total_words: 120, filler_counts: { um: 0 } }); // all-zero: unobservable
+    await insertRow(none, { duration: 60, total_words: 120, filler_counts: {} });
+    // A malformed map cannot be stored (the #1306 filler_counts constraint rejects it), so it is a client-only case.
+    const rpc = await summaryFor(none, U);
+    const client = calculateOverallStats([
+      clientSession({ duration: 60, total_words: 120, filler_counts: { um: 0 } }),
+      clientSession({ duration: 60, total_words: 120, filler_counts: {} }),
+      clientSession({ duration: 60, total_words: 120, filler_counts: { um: 'two' } as never }),
+    ]);
+    expect(rpc.overallStats.avgFillerWordsPerMin).toBeNull();
+    expect(client.avgFillerWordsPerMin).toBeNull();
+    expect(rpc.overallStats.fillerRateContributorCount).toBe(0);
+  });
+
+  it('4c. chart: an observed take plots its rate; {} and an all-zero map plot an omitted point (null), RPC and client agree', async () => {
+    const chart = await freshDb();
+    await mixedChartRows(chart);
+    const rpc = await summaryFor(chart, U);
+    const client = calculateOverallStats([
+      clientSession({ created_at: '2025-01-03T00:00:00Z', duration: 60, total_words: 120, filler_counts: { um: 3 } }),
+      clientSession({ created_at: '2025-01-02T00:00:00Z', duration: 60, total_words: 120, filler_counts: {} }),
+      clientSession({ created_at: '2025-01-01T00:00:00Z', duration: 60, total_words: 120, filler_counts: { um: 0 } }),
+    ]);
+    const rpcPoints = rpc.overallStats.chartData.map((d) => (d['FW/min'] === null ? null : Number(d['FW/min'])));
+    const clientPoints = client.chartData.map((d) => (d['FW/min'] === null ? null : Number(d['FW/min'])));
+    expect(rpcPoints.filter((v) => v !== null)).toEqual([3]);
+    expect(rpcPoints.filter((v) => v === null)).toHaveLength(2);
+    expect(clientPoints.filter((v) => v !== null)).toEqual([3]);
+    expect(clientPoints.filter((v) => v === null)).toHaveLength(2);
+  });
+
+  it('4d. non-filler outputs, top filler words and trend windows are unchanged by the observed-rate gate', async () => {
+    const before = new PGlite();
+    await before.exec(BOOTSTRAP); await before.exec(STAGE_A); await before.exec(REPOINT);
+    const after = await freshDb();
+    for (const target of [before, after]) {
+      await insertRow(target, { duration: 60, total_words: 120, clarity_score: 0.9, filler_counts: { um: 3, uh: 1 } });
+      await insertRow(target, { duration: 90, total_words: 150, clarity_score: 0.8, filler_counts: {} });
+      await insertRow(target, { duration: 30, total_words: 40, filler_counts: undefined });
+    }
+    const [old, cur] = [await summaryFor(before, U), await summaryFor(after, U)];
+    const nonFiller = (s: Summary) => Object.fromEntries(Object.entries(s.overallStats)
+      .filter(([k]) => !['avgFillerWordsPerMin', 'fillerRateContributorCount', 'chartData'].includes(k)));
+    expect(nonFiller(cur)).toEqual(nonFiller(old));
+    expect(cur.topFillerWords).toEqual(old.topFillerWords);
+    expect(cur.fillerWordTrends).toEqual(old.fillerWordTrends);
+    // Only the rate moved: 4 fillers over the ONE observed minute, not over the 2.5 eligible minutes before.
+    expect(old.overallStats.avgFillerWordsPerMin).toBe('1.6');
+    expect(cur.overallStats.avgFillerWordsPerMin).toBe('4.0');
   });
 
   it('5. three or more metrics-only sessions remain available (retention regression)', async () => {

@@ -8,6 +8,7 @@ import {
     isValidFillerCount,
 } from '@/utils/sessionAnalysis';
 import { persistedFillerTotal } from '@/contracts/fillerCounts';
+import { measuredFillerTotal, persistedFillerEvidence } from '@/contracts/fillerEvidence';
 
 const isRealNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -46,6 +47,15 @@ const fillerMetricEligible = (s: PracticeSession): boolean => {
     const hasFiller = hasRealFillerData(s);
     return metricEligible(s, hasFiller) && hasFiller;
 };
+/**
+ * #1472 increment 3 (plan 6102829932, Sam 6243872053): the all-key filler RATE — the average numerator, its duration
+ * denominator and the per-session chart point — counts a session only with OBSERVED evidence (a valid all-key total
+ * > 0). An empty map, an all-zero map, NULL or a malformed map is not a measured zero, so it contributes nothing
+ * (never a flattering 0.0/min). Mirrors `get_analytics_summary` (`_ss_valid_filler_total(...) > 0`), the value users
+ * see. Deliberately NOT `fillerMetricEligible`: that gate also selects trend windows and top filler words, whose
+ * server counterparts keep their existing `IS NOT NULL` gate, so changing it globally would break client↔RPC parity.
+ */
+const observedFillerRateTotal = (s: PracticeSession): number | null => measuredFillerTotal(persistedFillerEvidence(s));
 // #1306: the per-session STT-accuracy series is RETIRED (accuracy has no customer ground truth and is
 // benchmark-only). `calculateAccuracyData` now returns an empty series; no accuracy eligibility gate remains.
 
@@ -132,11 +142,11 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
             wpmDurationSeconds += duration;
             totalWords += sessionMetrics.wordCount;
         }
-        if (fillerMetricEligible(s)) {
+        // #1472 increment 3: only OBSERVED all-key evidence enters the filler rate (see observedFillerRateTotal).
+        const observedFillers = observedFillerRateTotal(s);
+        if (observedFillers !== null) {
             fillerDurationSeconds += duration;
-            // #1131 correction 3: the filler NUMERATOR is the validated, total-authoritative count (honors a
-            // total-only snapshot); a row is only eligible when this is a real value, so it is never null here.
-            totalFillerWords += persistedFillerTotal(s.filler_counts) ?? 0;
+            totalFillerWords += observedFillers;
         }
         // #1045 finding 1: object truthiness is not evidence — `pause_metrics: {}` is truthy and
         // carries no measurement. Only a structurally complete snapshot contributes. (Pause rhythm is
@@ -183,8 +193,8 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // and could become the user's "What worked". A genuine take with words and no fillers still
     // reports 0.0; that is real evidence.
     // #1131 review correction 1: the filler RATE must NOT depend on word-count / WPM evidence. Its denominator
-    // is the FILLER-metric-eligible speaking time (fillerDurationSeconds), which already includes only rows
-    // that carry genuine persisted filler data (hasRealFillerData) — a wordless/silent take contributes no
+    // is the FILLER-rate speaking time (fillerDurationSeconds), which includes only rows with OBSERVED all-key
+    // filler evidence (#1472 increment 3: observedFillerRateTotal) — a wordless/silent take contributes no
     // such evidence and is excluded upstream, so it can no longer be praised as a flattering 0.0. Coupling the
     // filler rate to totalWords (the WPM aggregate) let a take with genuine fillers but unpersisted words go
     // dark, and made two independent metrics share one denominator condition.
@@ -204,14 +214,14 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     const chartData = sessionHistory.slice(0, 10).map(s => {
         const duration = s.duration || 0;
         const sessionMetrics = getSessionAnalysisMetrics(s);
-        // #1131 correction 3: the plotted filler count is the validated, total-authoritative value.
-        const totalFillerCount = persistedFillerTotal(s.filler_counts) ?? 0;
+        // #1472 increment 3: plot a filler rate only for OBSERVED all-key evidence; otherwise an omitted point (null).
+        const observedFillers = observedFillerRateTotal(s);
 
         return {
             date: new Date(s.created_at).toLocaleDateString(),
             // #1047 U1: metric-specific — plot a filler rate only when THIS row's filler evidence is persisted
             // (available; or expired/legacy with real filler data). Otherwise null (omitted point).
-            'FW/min': fillerMetricEligible(s) ? calculateRatePerMinute(totalFillerCount, duration, 2) : null,
+            'FW/min': observedFillers !== null ? calculateRatePerMinute(observedFillers, duration, 2) : null,
             // #1091 + #1047 U1 + #1131 correction 1: plot clarity only when it is scorable AND a genuinely
             // persisted clarity_score is showable for this provenance (expired → never reconstructed).
             // `null` is an omitted point (Recharts renders a gap); never a fabricated zero.
