@@ -22,6 +22,10 @@ test.describe('Products menu used back to back (#1258 returning-user bridge)', (
         await expect(page.getByTestId('objective-setup-dialog')).toBeVisible({ timeout: 15_000 });
 
         await page.keyboard.press('Escape');
+        // Escape is the user action under test. Prove the setup has actually
+        // dismissed before pressing the header; a missed Escape must fail here
+        // rather than spending eight seconds clicking through an open modal.
+        await expect(page.getByTestId('objective-setup-dialog'), 'Escape dismisses Focus Points setup').toHaveCount(0, { timeout: 1_000 });
         await openProductsItem(page, 'open-mic', 8_000);
         await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30_000 });
     });
