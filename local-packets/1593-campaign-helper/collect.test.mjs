@@ -578,3 +578,13 @@ test('FINAL mode never prints a dispatch', () => {
     const block = src.slice(src.indexOf("if (argv.includes('--final'))"), src.indexOf('const now = Date.now(); // after every read'));
     assert.doesNotMatch(block, /dispatchArgv/);
 });
+
+// Live case 1 (run 39136771332): `gh api …/jobs/<id>/logs` refuses ANSI-bearing output without --allow-escape-sequences,
+// so every real Gate 3 log read threw and the case was unreadable. parseGateLog strips the sequences after reading.
+test('every job-log read passes --allow-escape-sequences (the log parser strips them after reading)', () => {
+    const src = readFileSync('local-packets/1593-campaign-helper/collect.mjs', 'utf8');
+    const reads = [...src.matchAll(/run\('gh', \[([^\]]*)`repos\/\$\{REPO\}\/actions\/jobs\//g)];
+    assert.equal(reads.length, 2);
+    for (const r of reads) assert.match(r[1], /'--allow-escape-sequences'/);
+    assert.ok(parseGateLog(`${ts(1)} \x1b[36mspec=${CASES[0].spec} grep=${CASES[0].grep}\x1b[0m`).specs.length >= 0);
+});
