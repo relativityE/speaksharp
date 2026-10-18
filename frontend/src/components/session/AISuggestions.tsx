@@ -548,6 +548,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    * transition genuinely is a new lifecycle.
    */
   const mountedRef = useRef(true);
+  // #1593 — the page this review was mounted on. Only leaving it is a route exit (see the unmount effect below).
+  const mountedPathRef = useRef(typeof window === 'undefined' ? '' : window.location.pathname);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -573,7 +575,14 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     const lc = lifecycleRef.current;
     if (!lc) return;
     setTimeout(() => {
-      if (!mountedRef.current) {
+      // #1593 (live RWT case 1, run 39166041750): an UNMOUNT is not a route exit. Practice again replaces the after-state
+      // review with the recording state on the SAME page, which unmounts this component — and aborting there cancelled the
+      // interrupted take's accepted request (Edge `request_cancelled`, its coaching never persisted), the opposite of the PO
+      // rule. Only leaving the page this review was mounted on aborts; an in-page unmount is a superseded session.
+      const leftRoute = typeof window === 'undefined' || window.location.pathname !== mountedPathRef.current;
+      if (!mountedRef.current && !leftRoute) {
+        endLifecycle(lc, 'superseded_session');
+      } else if (!mountedRef.current) {
         // Route exit: cancel the browser's wait for this request (supported abort propagation). Nothing new starts:
         // the retry timer was cleared by the mount cleanup, and `isCurrentRequest` is false from here on.
         // Codex r4307758219: the ABORT is not gated on `ended` — a request the watchdog already reported as `timeout` is
