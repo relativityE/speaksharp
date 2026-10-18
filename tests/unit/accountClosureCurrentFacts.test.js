@@ -54,6 +54,14 @@ function setup(mutate = () => {}) {
       return json([{ json_build_object: stage }], 201);
     }
     if (url === 'https://api.stripe.com/v1/account') return json({ id: config.stripeAccountId });
+    if (url.startsWith('https://api.stripe.com/v1/checkout/sessions/')) {
+      const sessionId = url.split('/').at(-1);
+      const listed = state.providerPages.flatMap((page) => page.data).find((session) => session.id === sessionId);
+      const value = { object: 'checkout.session', livemode: false, customer: null, subscription: null,
+        payment_status: 'unpaid', after_expiration: null, ...listed };
+      state.readbackMutation?.(value);
+      return json(value);
+    }
     if (url.startsWith('https://api.stripe.com/v1/checkout/sessions?')) {
       if (!url.includes('starting_after=')) providerPage = 0;
       return json(state.providerPages[providerPage++]);
@@ -64,6 +72,88 @@ function setup(mutate = () => {}) {
 }
 
 describe('available live-fact acquisition — mocked providers, missing global drain stays explicit', () => {
+  it('independently retrieves listed sessions, retaining unpaid complete processing and provider-only reconciliation gaps', async () => {
+    const s = setup((state) => {
+      state.dbPages[0][0].phase = 'settled';
+      state.providerPages[0].data.push({ id: 'cs_provideronly', status: 'expired' });
+    });
+    const result = await s.collector.readAvailableFacts();
+    expect(result.facts.providerReadbacks).toMatchObject({ complete: true, requestedSessionCount: 2,
+      providerSettlementVerified: false, sessions: [
+        { sessionId: 'cs_fixture', providerStatus: 'complete', paymentStatus: 'unpaid',
+          processing: 'UNVERIFIED', ownershipMatchedOperationIds: [operation] },
+        { sessionId: 'cs_provideronly', providerStatus: 'expired', processing: 'EXPIRED_SESSION_ONLY',
+          disposition: 'REQUIRES_PROVIDER_ONLY_RECONCILIATION' },
+      ] });
+    expect(s.fetcher.mock.calls.filter(([url]) => url.startsWith('https://api.stripe.com/v1/checkout/sessions/'))).toHaveLength(2);
+    expect(result.facts.databaseInventory.operations[0].disposition).toBe('REQUIRES_SEPARATE_SETTLEMENT_PROOF');
+    expect(result.status).toBe('HOLD');
+  });
+  it('uses independent provider readback rather than treating a list status as current settlement evidence', async () => {
+    const s = setup((state) => { state.readbackMutation = (value) => { value.status = 'open'; }; });
+    const result = await s.collector.readAvailableFacts();
+    expect(result.facts.providerReadbacks.sessions[0]).toMatchObject({ providerStatus: 'open',
+      listedStatus: 'complete', listStatusMatches: false, processing: 'UNVERIFIED', disposition: 'quarantined' });
+    expect(result.activationAuthorized).toBe(false);
+  });
+  it.each([
+    ['id', 'cs_wrong'], ['object', 'customer'], ['livemode', true], ['status', 'settled'],
+    ['payment_status', 'unknown'], ['customer', 'private@example.test'], ['subscription', 'cus_wrong'],
+  ])('refuses wrong-target/malformed direct readback %s without registering or exposing the response', async (field, value) => {
+    const s = setup((state) => { state.readbackMutation = (row) => { row[field] = value; }; });
+    const result = await s.collector.readAvailableFacts();
+    expect(result).toEqual({ status: 'HOLD', reason: 'PROVIDER_READBACK_UNVERIFIED', activationAuthorized: false });
+    expect(JSON.stringify(result)).not.toContain('private@example.test');
+    expect(s.fetcher.mock.calls.some(([url]) => /\/rpc\/(record_|invalidate_)/.test(url))).toBe(false);
+  });
+  it('retains a conflicting owner as unmatched and strips private provider fields from readback evidence', async () => {
+    const s = setup((state) => { state.readbackMutation = (value) => {
+      value.metadata = { userId: 'private-owner@example.test', private_note: 'private-note' };
+      value.client_secret = 'private-session-secret';
+      value.customer_details = { email: 'private-customer@example.test' };
+      value.url = 'https://checkout.stripe.com/private-checkout';
+    }; });
+    const result = await s.collector.readAvailableFacts();
+    expect(result.facts.providerReadbacks.sessions[0].ownershipMatchedOperationIds).toEqual([]);
+    expect(JSON.stringify(result)).not.toMatch(/private-owner|private-note|private-session-secret|private-customer|private-checkout/);
+    expect(result.facts.providerReadbacks.providerSettlementVerified).toBe(false);
+  });
+  it('retains every unobserved identity at the direct-read bound rather than claiming complete coverage', async () => {
+    const s = setup((state) => { state.providerPages[0].data.push(...Array.from({ length: 32 }, (_, index) => ({
+      id: `cs_extra${index}`, status: 'expired',
+    }))); });
+    const result = await s.collector.readAvailableFacts();
+    expect(result.facts.providerInventory.sessionCount).toBe(33);
+    expect(result.facts.providerReadbacks).toMatchObject({ complete: false, requestedSessionCount: 33,
+      unreadSessionIds: ['cs_extra31'], providerSettlementVerified: false });
+    expect(result.facts.providerReadbacks.sessions).toHaveLength(32);
+    expect(s.fetcher.mock.calls.filter(([url]) => url.startsWith('https://api.stripe.com/v1/checkout/sessions/'))).toHaveLength(32);
+    expect(result.status).toBe('HOLD');
+  });
+  it('also retrieves DB-linked objects missing from the list and preserves that discrepancy', async () => {
+    const s = setup((state) => {
+      state.providerPages[0].data = [];
+      state.readbackMutation = (value) => { value.id = 'cs_fixture'; value.status = 'expired'; };
+    });
+    const result = await s.collector.readAvailableFacts();
+    expect(result.facts.providerReadbacks.sessions[0]).toMatchObject({ sessionId: 'cs_fixture', listedStatus: null,
+      listStatusMatches: false, providerStatus: 'expired', disposition: 'quarantined' });
+    expect(result.facts.databaseInventory.operations[0]).toMatchObject({ phase: 'unknown', disposition: 'quarantined' });
+    expect(result.activationAuthorized).toBe(false);
+  });
+  it('does not promote a paid complete session or an expired recovery-enabled session into settlement authority', async () => {
+    for (const status of ['complete', 'expired']) {
+      const s = setup((state) => { state.dbPages[0][0].phase = 'settled'; state.readbackMutation = (value) => {
+        value.status = status; value.payment_status = 'paid'; value.customer = 'cus_fixture'; value.subscription = 'sub_fixture';
+        value.after_expiration = { recovery: { enabled: true, url: 'private-recovery-url' } };
+      }; });
+      const result = await s.collector.readAvailableFacts();
+      expect(result.facts.providerReadbacks).toMatchObject({ providerSettlementVerified: false,
+        sessions: [{ providerStatus: status, recoveryEnabled: true, disposition: 'REQUIRES_SEPARATE_SETTLEMENT_PROOF' }] });
+      expect(result.facts.databaseInventory.operations[0].disposition).toBe('REQUIRES_SEPARATE_SETTLEMENT_PROOF');
+      expect(JSON.stringify(result)).not.toContain('private-recovery-url');
+    }
+  });
   it('reads real-shaped metadata/schema/generation/inventory twice-bound without creating an attestation', async () => {
     const s = setup(); const result = await s.collector.readAvailableFacts();
     expect(result).toMatchObject({ status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE', activationAuthorized: false,

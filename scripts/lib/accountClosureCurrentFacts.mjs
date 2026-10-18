@@ -6,7 +6,8 @@ import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 } from './accountClosureEnforceme
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const uuid = (v) => typeof v === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(v);
 const sha = (v) => typeof v === 'string' && /^[a-f0-9]{40}$/.test(v);
-const missing = ['AUTHORITATIVE_LEGACY_WORKER_DRAIN_EVIDENCE', 'PROTECTED_EFFECTIVE_RUNTIME_CONFIG_READBACK'];
+const missing = ['AUTHORITATIVE_LEGACY_WORKER_DRAIN_EVIDENCE', 'PROTECTED_EFFECTIVE_RUNTIME_CONFIG_READBACK',
+  'INDEPENDENT_PROVIDER_SETTLEMENT_VERIFICATION'];
 class AcquisitionError extends Error { constructor(code) { super(code); this.code = code; } }
 const stop = (code) => { throw new AcquisitionError(code); };
 async function bodyJson(response, signal) {
@@ -159,6 +160,45 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
       }
       stop('PROVIDER_INVENTORY_PAGE_BOUND');
     }
+    async function providerReadbacks(database, provider) {
+      // A paginated listing is not an independent settlement readback. Retrieve
+      // exact objects with the already account-verified credential, retaining
+      // provider-only and DB-linked-but-unlisted IDs. Keep both observations.
+      const listed = new Map(provider.sessions.map((session) => [session.id, session]));
+      const ids = [...new Set([...database.operations.map((row) => row.session_id).filter(Boolean), ...listed.keys()])];
+      const sessions = [];
+      for (const sessionId of ids.slice(0, 32)) {
+        const value = await request(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, stripeKey);
+        if (value?.object !== 'checkout.session' || value.id !== sessionId
+          || value.livemode !== (environment === 'production')
+          || !['open', 'complete', 'expired'].includes(value.status)
+          || !['paid', 'unpaid', 'no_payment_required'].includes(value.payment_status)
+          || ![value.customer, value.subscription].every((id, index) => id === null
+            || (typeof id === 'string' && new RegExp(`^${index === 0 ? 'cus' : 'sub'}_[a-zA-Z0-9]+$`).test(id)))) {
+          stop('PROVIDER_READBACK_UNVERIFIED');
+        }
+        const linked = database.operations.filter((row) => row.session_id === sessionId);
+        const references = [value.client_reference_id ?? null, value.metadata?.userId ?? null];
+        const ownershipMatchedOperationIds = linked.filter((row) => references.some((id) => id === row.user_id)
+          && references.every((id) => id === null || id === row.user_id)).map((row) => row.operation_id);
+        const observation = { sessionId, providerStatus: value.status, listedStatus: listed.get(sessionId)?.status ?? null,
+          listStatusMatches: listed.get(sessionId)?.status === value.status,
+          paymentStatus: value.payment_status, customerId: value.customer, subscriptionId: value.subscription,
+          recoveryEnabled: value.after_expiration === null ? false
+            : typeof value.after_expiration?.recovery?.enabled === 'boolean' ? value.after_expiration.recovery.enabled : null,
+          ownershipMatchedOperationIds,
+          // Stripe's contract explicitly says COMPLETE may still be processing:
+          // https://docs.stripe.com/api/checkout/sessions/object#checkout_session_object-status
+          // Even EXPIRED proves only that session's state, not global no-future-
+          // charge, customer/subscription ownership, or accepted-call settlement.
+          processing: value.status === 'expired' ? 'EXPIRED_SESSION_ONLY' : 'UNVERIFIED',
+          disposition: linked.length === 0 ? 'REQUIRES_PROVIDER_ONLY_RECONCILIATION'
+            : linked.some((row) => row.phase !== 'settled') ? 'quarantined' : 'REQUIRES_SEPARATE_SETTLEMENT_PROOF' };
+        sessions.push({ ...observation, evidenceDigest: digest(observation), observedAt: new Date().toISOString() });
+      }
+      return { complete: ids.length <= 32, requestedSessionCount: ids.length, sessions,
+        unreadSessionIds: ids.slice(32), providerSettlementVerified: false };
+    }
     const before = await snapshot();
     const [schema, database, provider] = await Promise.all([
       Promise.all(stages.map(async ([query, verify]) => {
@@ -167,6 +207,7 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
         return verify(rows[0].json_build_object);
       })), databaseInventory(), providerInventory(),
     ]);
+    const readbacks = await providerReadbacks(database, provider);
     const after = await snapshot();
     if (digest(before) !== digest(after)) stop('CONTEXT_DRIFT');
     const bySession = new Map(provider.sessions.map((s) => [s.id, s]));
@@ -197,6 +238,7 @@ export function createAccountClosureCurrentFacts(configuration, fetcher = fetch)
     return { status: 'HOLD', reason: 'MISSING_AUTHORITATIVE_DRAIN_EVIDENCE', missingCapabilities: missing,
       activationAuthorized: false, facts: { target, candidateSha, migrationDigest: ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256,
         ...after, schemaReceipt: { mode: 'verify', passed: true, stages: schema }, databaseInventory: { ...database, operations: observations },
+        providerReadbacks: readbacks,
         providerInventory: { accountId: provider.accountId, pages: provider.pages, sessionCount: provider.sessions.length,
           sessions: providerObservations, observedPaginationExhausted: provider.observedPaginationExhausted },
         effectiveRuntimeObservations: probeObservations, respondingInstanceConfigVerified: true,
