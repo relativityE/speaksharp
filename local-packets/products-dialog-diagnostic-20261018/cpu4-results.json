@@ -1,0 +1,22 @@
+{
+  "classification": "ORIGINAL_FAILURE_NOT_REPRODUCED_CAUSE_UNKNOWN",
+  "productBaseline": "52623c6bc6f065fdf43633ed99d48b7b643e63e6",
+  "startTime": "2026-10-18T09:45:35.160Z",
+  "durationMs": 29554.551,
+  "cpuRate": 4,
+  "workers": 1,
+  "retries": 0,
+  "passed": 5,
+  "failed": 0,
+  "flaky": 0,
+  "singleVisibleOpenModalAtEscape": 5,
+  "focusSelectInsideModalAtEscape": 5,
+  "precedingMenuClosed": 4,
+  "precedingMenuAbsent": 1,
+  "closedAfterEscapeMs": [32.19, 30.28, 43.35, 26.62, 38.45],
+  "unmountedAfterEscapeMs": [220.28, 207.00, 237.31, 210.95, 213.16],
+  "report": "/private/tmp/cli-dev-products-dialog-cpu4/report.json",
+  "originalArtifactMetadataStatus": 404,
+  "releaseAcceptance": false,
+  "note": "Capture-scheduled microtasks do not prove all native listeners ran; source label clarified after execution."
+}
