@@ -93,10 +93,24 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
     },
     issue: async (userId, hash) => {
       currentBinding();
-      const rows = await drainRpc('issue_account_closure_token_with_drain', { p_user_id: userId, p_token_hash: hash });
+      const rows = await rpc('issue_account_closure_pending_token', { p_user_id: userId, p_token_hash: hash });
       return Array.isArray(rows) && rows.length === 1;
     },
     revoke: async (userId, hash) => { await rpc('revoke_account_closure_token', { p_user_id: userId, p_token_hash: hash }); },
+    pending: {
+      confirm: async (userId, hash) => {
+        currentBinding();
+        return await rpc('begin_account_closure_pending', {
+          p_user_id: userId, p_token_hash: hash, p_confirm_irreversible: true,
+        });
+      },
+      status: async () => {
+        currentBinding();
+        const { data, error } = await auth.rpc('account_closure_pending_status');
+        if (error) throw new Error('pending_status_unavailable');
+        return data;
+      },
+    },
     sendLink: async (email, redirect) => {
       // Supabase owns the single-use magic link and its configured SMTP transport. Never a no-op sender.
       const { error } = await auth.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: redirect } });
