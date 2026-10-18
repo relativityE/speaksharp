@@ -1,0 +1,297 @@
+{
+  "source": "7163f00d",
+  "originKind": "localhost",
+  "platform": "darwin",
+  "browserVersion": "143.0.7499.4",
+  "nodeVersion": "v22.12.0",
+  "scenarios": [
+    {
+      "scenario": "pinned_grant_no_cdp",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": null,
+        "fakeUi": true,
+        "fakeUiDeny": false,
+        "captureFile": true
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "granted",
+        "acquisition": "resolved",
+        "audioTracks": 1,
+        "trackStates": [
+          "live"
+        ]
+      }
+    },
+    {
+      "scenario": "pinned_grant_cdp_deny",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "denied",
+        "fakeUi": true,
+        "fakeUiDeny": false,
+        "captureFile": true
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "prompt",
+        "acquisition": "resolved",
+        "audioTracks": 1,
+        "trackStates": [
+          "live"
+        ]
+      }
+    },
+    {
+      "scenario": "pinned_grant_cdp_deny_keep_session",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "denied",
+        "fakeUi": true,
+        "fakeUiDeny": false,
+        "captureFile": true
+      },
+      "keptCdpSession": true,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "denied",
+        "acquisition": "resolved",
+        "audioTracks": 1,
+        "trackStates": [
+          "live"
+        ]
+      }
+    },
+    {
+      "scenario": "pinned_grant_cdp_grant",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "granted",
+        "fakeUi": true,
+        "fakeUiDeny": false,
+        "captureFile": true
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "prompt",
+        "acquisition": "resolved",
+        "audioTracks": 1,
+        "trackStates": [
+          "live"
+        ]
+      }
+    },
+    {
+      "scenario": "pinned_no_grant_cdp_deny",
+      "requested": {
+        "contextGrant": false,
+        "cdpSetting": "denied",
+        "fakeUi": true,
+        "fakeUiDeny": false,
+        "captureFile": true
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "denied",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "prompt",
+        "acquisition": "resolved",
+        "audioTracks": 1,
+        "trackStates": [
+          "live"
+        ]
+      }
+    },
+    {
+      "scenario": "pinned_no_grant_cdp_deny_keep_session",
+      "requested": {
+        "contextGrant": false,
+        "cdpSetting": "denied",
+        "fakeUi": true,
+        "fakeUiDeny": false,
+        "captureFile": true
+      },
+      "keptCdpSession": true,
+      "queriedBefore": "denied",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "denied",
+        "acquisition": "resolved",
+        "audioTracks": 1,
+        "trackStates": [
+          "live"
+        ]
+      }
+    },
+    {
+      "scenario": "fake_ui_deny_cdp_deny_keep_session",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "denied",
+        "fakeUi": true,
+        "fakeUiDeny": true,
+        "captureFile": true
+      },
+      "keptCdpSession": true,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "denied",
+        "acquisition": "rejected",
+        "errorName": "NotAllowedError"
+      }
+    },
+    {
+      "scenario": "fake_ui_deny_cdp_grant_keep_session",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "granted",
+        "fakeUi": true,
+        "fakeUiDeny": true,
+        "captureFile": true
+      },
+      "keptCdpSession": true,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "granted",
+        "acquisition": "rejected",
+        "errorName": "NotAllowedError"
+      }
+    },
+    {
+      "scenario": "fake_ui_deny_no_cdp",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": null,
+        "fakeUi": true,
+        "fakeUiDeny": true,
+        "captureFile": true
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "granted",
+        "acquisition": "rejected",
+        "errorName": "NotAllowedError"
+      }
+    },
+    {
+      "scenario": "no_fake_ui_grant_cdp_deny",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "denied",
+        "fakeUi": false,
+        "fakeUiDeny": false,
+        "captureFile": true
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "prompt",
+        "acquisition": "rejected",
+        "errorName": "NotSupportedError"
+      }
+    },
+    {
+      "scenario": "no_fake_ui_grant_cdp_grant",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "granted",
+        "fakeUi": false,
+        "fakeUiDeny": false,
+        "captureFile": true
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "prompt",
+        "acquisition": "rejected",
+        "errorName": "NotSupportedError"
+      }
+    },
+    {
+      "scenario": "dummy_device_grant_no_cdp",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": null,
+        "fakeUi": false,
+        "fakeUiDeny": false,
+        "captureFile": false
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "granted",
+        "acquisition": "rejected",
+        "errorName": "NotSupportedError"
+      }
+    },
+    {
+      "scenario": "dummy_device_grant_cdp_deny",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "denied",
+        "fakeUi": false,
+        "fakeUiDeny": false,
+        "captureFile": false
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "prompt",
+        "acquisition": "rejected",
+        "errorName": "NotSupportedError"
+      }
+    },
+    {
+      "scenario": "dummy_device_grant_cdp_deny_keep_session",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "denied",
+        "fakeUi": false,
+        "fakeUiDeny": false,
+        "captureFile": false
+      },
+      "keptCdpSession": true,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "denied",
+        "acquisition": "rejected",
+        "errorName": "NotSupportedError"
+      }
+    },
+    {
+      "scenario": "dummy_device_grant_cdp_grant",
+      "requested": {
+        "contextGrant": true,
+        "cdpSetting": "granted",
+        "fakeUi": false,
+        "fakeUiDeny": false,
+        "captureFile": false
+      },
+      "keptCdpSession": false,
+      "queriedBefore": "granted",
+      "contextIdPresent": true,
+      "effective": {
+        "queried": "prompt",
+        "acquisition": "rejected",
+        "errorName": "NotSupportedError"
+      }
+    }
+  ]
+}
