@@ -22,6 +22,12 @@ Prepared 18 October 2026. Review/preparation only; operational HOLD. Coordinatio
 
 These are the same six groups Sam consolidated at1792317800.759069, not a competing implementation. App acknowledged the full set at1792320040.661479. All remain open until the corrected exact artifact is independently reviewed. The immutable review probes intentionally characterize only the rejected head; App's successor tests must assert HOLD for unsafe inputs.
 
+## Additional consolidated CLI cross-check — returned in this same handoff
+
+CLI's06:44EDT return1792320274.399249 identifies two additional gaps for App's existing batch. PM independently read cleanup blob `1cf31f1cb12b9d0463c48f029bb37c84a8b40e53` at S18895054: runOwnedCleanup.ts:195–197 turns `count ?? 0` into an asserted zero, while line40 emits a verified residue0 log. CLI executed a mocked boundary reproduction: all23 null counts were accepted; actual0 passed and actual1 rejected. That execution is CLI evidence, not an independently rerun PM test. Require actual nonnegative safe-integer zero counts at the producing boundary; a numeric downstream log alone cannot establish known zero. Unknown counts must fail closed. Retain per-run scope/provenance; no production cleanup was performed for this review.
+
+PM also confirms maintained returning-user spec has neither a coaching generation tap nor coachingRequestBudgetRow. Its maximum0 therefore lacks automatic observed-request proof. Add bounded source-appropriate zero-request observation to App's batch, without writes, claim ACKs or cleanup on that maintained account. CLI reports RWT_RETURNING_EMAIL absent after its authorized nonsecret Variables check; exact maintained-account identity remains a real missing input, not something PM has supplied or read from Secrets. Keep this with the existing test/helper correction, not a competing PR or a new global-account-cleanup task.
+
 ## Executable-case / expected-observation matrix
 
 Binding source is collect.mjs CASES, independently checked against exact maintained spec titles (one selected test each). Nine spec groups, 15 serial cases; workers1, retries0, fullyParallel=false. Browser-request maxima sum30; theoretical provider reservation90 (max3 per browser request). This arithmetic is an allowance, not proof of actual consumed cost. All current-campaign live rows remain NOT RUN in this packet; historical runs do not populate them.
