@@ -162,7 +162,8 @@ describe('#1421 P1 `3984043475` — each saved take needs exactly one verified r
                 enforcesBinding: reasons.includes(binding),
             };
         });
-        const isAfter = (stage: string) => stage.startsWith('session_after_');
+        // #1593: the interrupted repeat take is a saved take too, so it binds its receipt exactly like an After profile.
+        const isAfter = (stage: string) => stage.startsWith('session_after_') || stage === 'session_interrupted_repeat';
         // The After profiles exist, so the comparison below cannot pass vacuously.
         expect(observed.filter(({ stage }) => isAfter(stage)).length).toBeGreaterThan(0);
         // Every After profile requires the receipt and enforces the binding; no other profile enforces it.

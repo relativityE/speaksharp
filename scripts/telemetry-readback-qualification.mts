@@ -390,6 +390,16 @@ async function main(): Promise<void> {
                 producer_ts: cells[35] ?? null,
                 // #1258 — a take's own save outcome (`transcript_authority` finalize/save), so the review rule judges per take.
                 persisted: cells[36] ?? null,
+                // #1593 — the coaching lifecycle's request id, origin attempt and closed end reason (interrupted repeat take).
+                diagnostic_request_id: cells[37] ?? null,
+                origin_attempt_id: cells[38] ?? null,
+                end_reason: cells[39] ?? null,
+                origin_boot_id: cells[40] ?? null,
+                intent_kind: cells[41] ?? null,
+                intent_outcome: cells[42] ?? null,
+                // #1593 (Sam 16:44:51) — the review's Repeat press (`journey_step` option_selected), never a generic Start.
+                step: cells[43] ?? null,
+                option_selected: cells[44] ?? null,
             },
         };
     });
@@ -421,6 +431,9 @@ async function main(): Promise<void> {
     if (declared.length === 0) {
         hold('QUALIFICATION_STAGES is not set: a run must declare which UI stages it exercised');
     }
+    // #1532 Codex P1 r4124290575: the recording attempts the run named for this binding (the saved take). #1593 (Sam
+    // 16:44:51): the same declaration binds the interrupted repeat take's stage to THE declared take, never a guessed one.
+    const expectedAttempts = (process.env.QUALIFICATION_ATTEMPT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const stageReasons: string[] = [];
     for (const name of declared) {
         const stage = QUALIFICATION_STAGES.find((candidate) => candidate.stage === name);
@@ -432,7 +445,7 @@ async function main(): Promise<void> {
         // family check uses, never the whole readback — plus any attribution receipt whose SUBJECT is this
         // journey, wherever it was emitted (#1421 P1 `3984043475`).
         const scoped = stageEvidenceRows(readback, journeyId, PRE_JOURNEY_EVENT_FAMILIES);
-        stageReasons.push(...evaluateQualificationStage(stage, scoped));
+        stageReasons.push(...evaluateQualificationStage(stage, scoped, { expectedAttemptIds: expectedAttempts }));
     }
 
     // #1532 Codex P1 r4120338743: the base families follow the declared stages (a feedback-only journey never records).
@@ -453,7 +466,6 @@ async function main(): Promise<void> {
     // #1532 Codex P1 r4120724715: the singleton set follows the declared stages (a feedback-only journey never records).
     // #1532 Codex P1 r4124290575: the recording singletons are judged per EXPECTED attempt the run named (the saved take),
     // so the unsaved repeat and next-Start takes in the same journey neither count against it nor hide its absence.
-    const expectedAttempts = (process.env.QUALIFICATION_ATTEMPT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const delivery = evaluateAttemptScopedDelivery(deliveryRows, exactlyOnceFamiliesForStages(declared), expectedAttempts);
     // #1258 (#1563, Codex r4197007854): an OBSERVED failure is FAIL (exit 3, never retried into HOLD); missing is HOLD.
     const verdict: ReadbackVerdict = readbackVerdict(stageReasons, result.verdict, delivery.verdict);

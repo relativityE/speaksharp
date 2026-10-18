@@ -19,7 +19,7 @@ import { evaluateAttemptScopedDelivery } from '../../frontend/src/services/telem
 
 const ev = (event: string, at: number, journeyId: string, trafficType = 'canary') => ({ event, at, journeyId, trafficType });
 const RECORDING = ['session_during', 'session_after_open_mic'];
-const REPEAT = ['session_during', 'session_after_open_mic'];
+const REPEAT = ['session_during', 'session_interrupted_repeat'];
 
 describe('bindReadbackJourneys', () => {
     it('#1258 (#1563): practice_again binds to the journey of the first canary press — and is not imposed when declared off or never pressed', () => {
@@ -269,7 +269,7 @@ describe('v12 manual order: each stage set binds to the journey it lands in', ()
 
     it('Open Mic binds the PDF where it lands; the recording journey no longer claims session_pdf_export', () => {
         const om = source('live/rwt-open-mic-first-session.live.spec.ts');
-        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\], repeatRecording: \['session_during', 'session_after_open_mic'\],[\s\S]{0,400}feedback: true, pdfExport: true,/);
+        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\],[\s\S]{0,300}repeatRecording: \['session_during', 'session_interrupted_repeat'\],[\s\S]{0,400}feedback: true, pdfExport: true,/);
         expect(om).not.toMatch(/recording: \[[^\]]*session_pdf_export/);
     });
 });
@@ -282,7 +282,7 @@ describe('v12 manual order: each stage set binds to the journey it lands in', ()
  */
 describe('repeat recording in the post-reload journey (P1 r4124290575)', () => {
     const OM_FIRST = ['session_during', 'session_after_open_mic', 'analytics_inventory'];
-    const OM_REPEAT = ['session_during', 'session_after_open_mic'];
+    const OM_REPEAT = ['session_during', 'session_interrupted_repeat'];
     type Sent = { event: string; at: number; journeyId: string; attemptId?: string; trafficType: string };
     const sent = (event: string, at: number, journeyId: string, attemptId?: string): Sent => ({ event, at, journeyId, attemptId, trafficType: 'canary' });
 
@@ -344,8 +344,8 @@ describe('repeat recording in the post-reload journey (P1 r4124290575)', () => {
             expect(src).toMatch(/repeat: repeatWindow \? takeStartedAfter\(tap\.events, repeatWindow\[0\], repeatWindow\[1\]\) : null/);
             expect(src).toMatch(/repeatWindow = \[repeatFrom, saveTakeEnd >= 0 \? saveTakeEnd : tap\.events\.length\];/);
         }
-        expect(om).toMatch(/repeatRecording: \['session_during', 'session_after_open_mic'\]/);
-        expect(fp).toMatch(/repeatRecording: \['session_during', 'session_after_focus_points'\]/);
+        expect(om).toMatch(/repeatRecording: \['session_during', 'session_interrupted_repeat'\]/);
+        expect(fp).toMatch(/repeatRecording: \['session_during', 'session_interrupted_repeat'\]/);
     });
 
     describe('the gate on the real J2 received rows, judged per expected attempt', () => {
