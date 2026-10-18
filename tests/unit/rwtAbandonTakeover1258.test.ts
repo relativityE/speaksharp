@@ -288,6 +288,9 @@ describe('two tabs — refused truthfully, one engine after the take-over, both 
         expect(takeOverRowsVerdict(done, null, 'b').detail).toMatch(/no saved session was bound/);
         expect(takeOverRowsVerdict([{ id: 'a', status: 'failed' }, { id: 'b', status: 'completed' }], 'a', 'b').status).toBe('FAIL');
     });
+    it('one completed row cannot stand in for two distinct takes', () => {
+        expect(takeOverRowsVerdict([{ id: 'a', status: 'completed' }], 'a', 'a').status).toBe('FAIL');
+    });
     it('any Cloud STT request → FAIL', () => {
         expect(noCloudVerdict(0).status).toBe('PASS');
         expect(noCloudVerdict(1).status).toBe('FAIL');
