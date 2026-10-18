@@ -21,6 +21,10 @@ function closureResponse(value: unknown, action: 'request' | 'confirm'): Deletio
     || typeof row.customerDeleted !== 'boolean') return null;
   if (row.outcome === 'deleted' && (row.accountDeleted !== true || row.billingClosed !== true)) return null;
   if ((row.accountDeleted === null) !== (row.outcome === 'verification_pending')) return null;
+  // The backend cannot reach customer/Auth deletion before billing is closed,
+  // and verification refusal occurs before any destructive stage.
+  if ((row.outcome === 'refused' && (row.accountDeleted !== false || row.billingClosed !== false || row.customerDeleted !== false))
+    || ((row.accountDeleted !== false || row.customerDeleted === true) && row.billingClosed !== true)) return null;
   return row as unknown as DeletionResponse;
 }
 

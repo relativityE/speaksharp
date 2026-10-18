@@ -24,6 +24,27 @@ beforeEach(() => {
 });
 
 describe('deletion confirmation UI — real component, mocked provider boundary', () => {
+  it.each([
+    ['refused with deletion', { ...done, outcome: 'refused' }],
+    ['deleted without closed billing', { ...done, outcome: 'incomplete', billingClosed: false }],
+    ['customer deleted before billing closed', { ...done, outcome: 'incomplete', accountDeleted: false, billingClosed: false }],
+  ])('contradictory %s stays unverified for both successful and SDK error responses', async (_label, data) => {
+    for (const transport of ['success', 'SDK error']) {
+      mocks.token = secret;
+      mocks.invoke.mockResolvedValue(transport === 'success'
+        ? { data, error: null }
+        : { data: null, error: { context: new Response(JSON.stringify(data), { status: 409 }) } });
+      const view = mount();
+      fireEvent.click(screen.getByRole('checkbox'));
+      fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+      await screen.findByText(/could not verify the deletion result/);
+      expect(screen.queryByText(/Your account has been deleted/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/your account has not been deleted/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      expect(mocks.signOut).not.toHaveBeenCalled();
+      view.unmount();
+    }
+  });
   it('a pending confirmation cannot be submitted twice and an uncertain result offers no replay', async () => {
     mocks.token = secret;
     let finish: (value: unknown) => void = () => {};
@@ -262,6 +283,15 @@ describe('deletion confirmation UI — real component, mocked provider boundary'
     fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
     await screen.findByText(/complete cleanup could not be verified/);
     expect(mocks.signOut).toHaveBeenCalledTimes(1);
+  });
+  it('verified deletion without a prior Stripe customer remains a valid completed outcome', async () => {
+    mocks.token = secret;
+    mocks.invoke.mockResolvedValue({ data: { ...done, customerDeleted: false }, error: null });
+    mount(); fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    await screen.findByText(/Your account has been deleted/);
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/could not verify the deletion result/)).not.toBeInTheDocument();
   });
   it('unsigned users cannot request verification or delete', () => {
     mocks.user = null; mocks.token = secret; mount();
