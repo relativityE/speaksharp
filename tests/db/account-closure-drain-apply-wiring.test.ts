@@ -8,6 +8,7 @@ const version = '20261016090000';
 const target = `${version}_account_closure_drain_persistence.sql`;
 const gate = `postflight_${version}`;
 const enforcementVersion = '20261016180000';
+const recoveryVersion = '20261017200000';
 describe('drain persistence exact apply — no activation', () => {
     it('pins source, requires closure schema, and excludes commercial activation', () => {
         const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: version });
@@ -87,5 +88,47 @@ describe('drain enforcement exact apply — separate reviewed target, no activat
             expect(steps[index].run).toContain('"$RUNNER_TEMP/pooler.env"');
             expect(steps[index].run).toContain('unset DB_URL');
         }
+    });
+});
+
+describe('checkout rejection exact apply — schema prerequisite, no Edge release', () => {
+    const target = `${recoveryVersion}_checkout_rejection_recovery.sql`;
+    const gate = `postflight_${recoveryVersion}`;
+    it('pins120 and requires117–119 while excluding commercial activation', () => {
+        const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: recoveryVersion });
+        expect(config.targetFile).toBe(target);
+        expect(config.targetSha256).toBe('3f53ad3408a35af5cea6baac456e3b34ba433c7bd37d2c238e345df53fc05f6c');
+        expect(config.requiredAppliedVersions).toEqual(expect.arrayContaining(['20261013180000','20261016090000','20261016180000']));
+        expect(config.requiredAppliedVersions).not.toContain('20260812042000');
+        expect(config.excludedMigrations.map((item: { version: string }) => item.version)).toContain('20260812042000');
+        expect(() => verifyMigrationSourceIdentity('backend/supabase', config)).not.toThrow();
+    });
+    it.each([undefined,'skipped','failure','cancelled'])('refuses terminal success with %s recovery postflight', (outcome) => {
+        expect(() => assertTerminalOutcome({ apply: 'success', verify: 'success', lint: 'success', targetFile: target,
+            postflights: outcome ? { [gate]: outcome } : {} })).toThrow('postflight');
+    });
+    it('requires its own named postflight', () => {
+        expect(assertTerminalOutcome({ apply: 'success', verify: 'success', lint: 'success', targetFile: target,
+            postflights: { [gate]: 'success' } }).enforcedPostflights).toEqual([gate]);
+    });
+    it('wires target-only dispatch, verified pooler, preflight and enforced postflight without deploying Edge', () => {
+        const workflow = parse(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml', 'utf8'));
+        expect(Object.keys(workflow.on)).toEqual(['workflow_dispatch']);
+        expect(workflow.on.workflow_dispatch.inputs.target_version.options).toContain(recoveryVersion);
+        const steps = workflow.jobs['apply-one-allowlisted-migration'].steps;
+        const before = steps.findIndex((s: { run?: string }) => s.run?.includes('checkout-rejection-gate.mjs before'));
+        const apply = steps.findIndex((s: { id?: string }) => s.id === 'apply');
+        const after = steps.findIndex((s: { id?: string }) => s.id === gate);
+        const terminal = steps.findIndex((s: { id?: string }) => s.id === 'terminal');
+        expect(before).toBeGreaterThan(-1); expect(apply).toBeGreaterThan(before);
+        expect(after).toBeGreaterThan(apply); expect(terminal).toBeGreaterThan(after);
+        expect(steps.find((s: { id?: string }) => s.id === 'connectivity_preflight').if).toContain(target.replace('.sql',''));
+        expect(steps[after].if).toContain("steps.apply.outcome == 'success'");
+        expect(steps[after].run).toContain('checkout-rejection-gate.mjs after');
+        expect(steps[terminal].run).toContain(`${gate}=\${{ steps.${gate}.outcome }}`);
+        for (const index of [before,after]) {
+            expect(steps[index].run).toContain('"$RUNNER_TEMP/pooler.env"'); expect(steps[index].run).toContain('unset DB_URL');
+        }
+        expect(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml','utf8')).not.toContain('supabase functions deploy');
     });
 });
