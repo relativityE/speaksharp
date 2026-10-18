@@ -31,6 +31,20 @@ let MODEL: string = MODELS[0];
 /** A complete, honest journey for one stage: every required family, every invariant satisfied. */
 const completeRows = (stage: QualificationStage, model: string = MODELS[0]): DecodedTelemetryRow[] => (
     MODEL = model, stage.requiredFamilies.flatMap((family): DecodedTelemetryRow | DecodedTelemetryRow[] => {
+    // #1593: the interrupted repeat take — saved, its request R pending at an accepted repeat Start, the successor B
+    // recording under its own attempt, and R explicitly superseded (the pending_at_repeat branch).
+    if (stage.stage === 'session_interrupted_repeat') {
+        const lc = (s: string, at: number, extra: Record<string, unknown> = {}) => ({ ...row(family, { stage: s, diagnostic_request_id: 'request-1',
+            origin_attempt_id: 'attempt-1', origin_boot_id: 'boot-1', producer_ts: at, ...extra }), bootId: 'boot-1' });
+        if (family === 'stage_latency') {
+            return ['recording_terminated', 'final_transcript', 'session_saved']
+                .map((name, i) => ({ ...row(family, { stage: name, attempt_id: 'attempt-1' }), timestamp: 1_000 + i }));
+        }
+        if (family === 'ai_coaching_lifecycle') return [lc('requested', 1_600), lc('ended', 2_550, { end_reason: 'superseded_session' })];
+        if (family === 'recording_intent') return row(family, { intent_kind: 'start', intent_outcome: 'accepted', producer_ts: 2_500 });
+        if (family === 'recording_state') return row(family, { to_state: 'RECORDING', attempt_id: 'attempt-2', producer_ts: 2_600 });
+        if (family === 'session_started') return row(family, { attempt_id: 'attempt-2', producer_ts: 2_700 });
+    }
     // #1258 (#1563): a received attempt and ITS outcome (same boot, same submit_seq, outcome after the attempt).
     if (family === 'feedback_submit') return [row(family, { outcome: 'attempted', submit_seq: 1, producer_ts: 1_000 }), row(family, { outcome: 'storage_ok', submit_seq: 1, producer_ts: 1_001 })];
     // #1258 (#1563): a received Practice-again press and the SAME press's arrival at its intended route.
@@ -54,7 +68,7 @@ const completeRows = (stage: QualificationStage, model: string = MODELS[0]): Dec
     }
     // #1421 P1 `3984043475`: a saved take and the one verified receipt that names it, from the same boot.
     if (family === 'session_saved') {
-        return { ...row(family, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' }),
+        return { ...row(family, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1', producer_ts: 1_500 }),
             journeyId: 'journey-1', bootId: 'boot-1' };
     }
     if (family === 'model_attribution_receipt') {

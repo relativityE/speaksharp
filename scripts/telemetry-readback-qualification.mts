@@ -390,6 +390,13 @@ async function main(): Promise<void> {
                 producer_ts: cells[35] ?? null,
                 // #1258 — a take's own save outcome (`transcript_authority` finalize/save), so the review rule judges per take.
                 persisted: cells[36] ?? null,
+                // #1593 — the coaching lifecycle's request id, origin attempt and closed end reason (interrupted repeat take).
+                diagnostic_request_id: cells[37] ?? null,
+                origin_attempt_id: cells[38] ?? null,
+                end_reason: cells[39] ?? null,
+                origin_boot_id: cells[40] ?? null,
+                intent_kind: cells[41] ?? null,
+                intent_outcome: cells[42] ?? null,
             },
         };
     });

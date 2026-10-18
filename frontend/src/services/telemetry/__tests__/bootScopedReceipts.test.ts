@@ -8,6 +8,7 @@
  * several journeys while the receipts are emitted once per boot. Ordering cannot separate "new boot"
  * from "re-entered the product". These drive the declared-authority rule that replaced it.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
     __resetBootIdentityForTests,
@@ -217,6 +218,21 @@ describe('#1258 (#1563, Codex r4196394184) — the readback selects the outcome-
         const select = q.slice(q.indexOf('SELECT') + 'SELECT'.length, q.indexOf('FROM events'));
         const columns = select.split(',').map((c) => c.trim()).filter(Boolean);
         expect(columns.findIndex((c) => c.endsWith('AS producer_ts'))).toBe(35);
+    });
+    // #1593 (Sam 15:51): the interrupted repeat take reads the coaching lifecycle's request id, origin attempt and end reason.
+    it('appends the coaching lifecycle fields after every existing column, at the cells the decoder reads (37–39)', () => {
+        const q = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['ai_coaching_lifecycle'], quote: (v) => `'${v}'` });
+        const select = q.slice(q.indexOf('SELECT') + 'SELECT'.length, q.indexOf('FROM events'));
+        const columns = select.split(',').map((c) => c.trim()).filter(Boolean);
+        expect(['persisted', 'diagnostic_request_id', 'origin_attempt_id', 'end_reason', 'origin_boot_id', 'intent_kind', 'intent_outcome']
+            .map((k) => columns.findIndex((c) => c.endsWith(`AS ${k}`)))).toEqual([36, 37, 38, 39, 40, 41, 42]);
+        const decoder = readFileSync('scripts/telemetry-readback-qualification.mts', 'utf8');
+        expect(decoder).toMatch(/diagnostic_request_id: cells\[37\]/);
+        expect(decoder).toMatch(/origin_attempt_id: cells\[38\]/);
+        expect(decoder).toMatch(/end_reason: cells\[39\]/);
+        expect(decoder).toMatch(/origin_boot_id: cells\[40\]/);
+        expect(decoder).toMatch(/intent_kind: cells\[41\]/);
+        expect(decoder).toMatch(/intent_outcome: cells\[42\]/);
     });
 });
 

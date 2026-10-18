@@ -160,6 +160,10 @@ export function buildReadbackQuery(params: {
      * same way, so the received Practice-again press→arrival and feedback submit→outcome can be paired.
      * Codex r4197007868: plus the producer time `$ts` (`producer_ts`), which orders that pairing — the received
      * `timestamp` is the flush's capture time, shared by events drained together.
+     * #1593 (Sam 15:51, case-1 contract): the coaching lifecycle's opaque request id, the ORIGIN attempt it started under
+     * and its closed end reason, appended the same way, so an interrupted repeat take can prove its own request was
+     * explicitly superseded rather than having supersession inferred from a missing render. Plus the request's origin
+     * boot and the accepted repeat Start (`recording_intent` kind/outcome) that proves the A → repeat → B transition.
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
@@ -185,7 +189,12 @@ export function buildReadbackQuery(params: {
                properties.link_state AS link_state, properties.submit_seq AS submit_seq,
                properties.error_category AS error_category,
                properties.$ts AS producer_ts,
-               properties.persisted AS persisted
+               properties.persisted AS persisted,
+               properties.diagnostic_request_id AS diagnostic_request_id,
+               properties.origin_attempt_id AS origin_attempt_id,
+               properties.end_reason AS end_reason,
+               properties.origin_boot_id AS origin_boot_id,
+               properties.intent_kind AS intent_kind, properties.intent_outcome AS intent_outcome
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}

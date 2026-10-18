@@ -863,7 +863,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         }
         receipt.write(testInfo,
             bindReadbackJourneys(tap.events, {
-                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'], repeatRecording: ['session_during', 'session_after_focus_points'],
+                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'],
+                // #1593 (Sam 15:51, same contract as Open Mic): the Focus repeat take is interrupted by the next take on purpose.
+                repeatRecording: ['session_during', 'session_interrupted_repeat'],
                 takes: {
                     first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
