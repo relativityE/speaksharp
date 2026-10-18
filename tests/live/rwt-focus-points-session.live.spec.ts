@@ -45,6 +45,6 @@ test.describe('RWT — Focus Points @live', () => {
         // PO 2026-10-10: 35 min. Cold model acquisition + the ~50 s take + review + Analytics, plus the #1258 New Set / Edit and
         // product-switch takes (~115 s of recording, three more coaching requests); still inside the 45-min gate-3-dast job.
         test.setTimeout(2_100_000);
-        await focusPointsJourney(page, testInfo, 'focus_points_tts', 'focus-points-session', owner);
+        await focusPointsJourney(page, testInfo, 'focus_points_tts', 'focus-points-session', owner, 7);
     });
 });
