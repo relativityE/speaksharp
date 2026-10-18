@@ -297,6 +297,9 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             // not keyed by user, so the next account must not inherit the previous account's rows. Explicit sign-out
             // clears the whole cache; an identity change through an auth event clears these rows here.
             queryClient.removeQueries({ queryKey: ['session'] });
+            // #1593 (Sam) — and the completed take's review identity + subject: the next account never reviews, repeats or
+            // attributes coaching to the previous account's take.
+            useSessionStore.getState().retireCompletedSessionBinding();
           }
           setCurrentLogin(nextUserId, loginStartedAtOf(nextSession));
           sessionStateRef.current = nextSession;
@@ -419,6 +422,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         clearFeedbackDraft();
         clearLoginSessions();
         queryClient.removeQueries({ queryKey: ['session'] }); // same rule as the auth-event path (#1258 PR 4)
+        useSessionStore.getState().retireCompletedSessionBinding(); // same rule as the auth-event path (#1593)
       }
       setCurrentLogin(s?.user?.id ?? null, loginStartedAtOf(s));
       sessionStateRef.current = s;

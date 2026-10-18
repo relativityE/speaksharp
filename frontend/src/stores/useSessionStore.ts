@@ -291,6 +291,8 @@ interface SessionActions {
     setCompletedSessionId: (sessionId: string | null) => void;
     setRecoveredSaveSessionId: (sessionId: string | null) => void;
     setCompletedSessionSubject: (completed: CompletedSessionSubject | null) => void;
+    /** #1593 (Sam) — an identity change retires the completed take's review identity and its subject together. */
+    retireCompletedSessionBinding: () => void;
     setFinalizedWordCount: (wordCount: number | null) => void;
     setFinalizedFillerData: (data: FillerCounts | null) => void;
     setFinalizedFillerCount: (count: number | null) => void;
@@ -683,6 +685,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     setCompletedSessionId: (completedSessionId) => set({ completedSessionId }),
     setRecoveredSaveSessionId: (recoveredSaveSessionId) => set({ recoveredSaveSessionId }),
     setCompletedSessionSubject: (completedSessionSubject) => set({ completedSessionSubject }),
+    retireCompletedSessionBinding: () => set({ completedSessionId: null, completedSessionSubject: null }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
     setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),

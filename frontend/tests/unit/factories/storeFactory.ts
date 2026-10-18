@@ -229,6 +229,7 @@ export function createTestSessionStore(
         setCompletedSessionId: vi.fn((completedSessionId) => set({ completedSessionId })),
         setRecoveredSaveSessionId: vi.fn((recoveredSaveSessionId) => set({ recoveredSaveSessionId })),
         setCompletedSessionSubject: vi.fn((completedSessionSubject) => set({ completedSessionSubject })),
+        retireCompletedSessionBinding: vi.fn(() => set({ completedSessionId: null, completedSessionSubject: null })),
         setActiveObjectiveBrief: vi.fn((activeObjectiveBrief) => set({ activeObjectiveBrief })),
         setPracticeFocus: vi.fn((practiceFocus) => set({ practiceFocus })),
         setCompletedObjectiveBrief: vi.fn((completedObjectiveBrief) => set({ completedObjectiveBrief })),

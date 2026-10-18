@@ -240,6 +240,24 @@ describe('#1403 full-save recovery publishes a receipt where there was none', ()
         expect(useSessionStore.getState().completedSessionSubject).toEqual({ sessionId: SESSION, subject: TAKE_SUBJECT });
     });
 
+    it('#1593 (Sam): a recovered save that SETTLES AFTER AN ACCOUNT CHANGE reinstalls no binding for the departed account', async () => {
+        const { setCurrentLogin } = await import('@/services/loginSessionLog');
+        setCurrentLogin('user-a', 1);
+        useSessionStore.getState().setCompletedSessionId(null);
+        useSessionStore.getState().setCompletedSessionSubject(null);
+        stageFullSaveFailure(SESSION, TAKE_SUBJECT);
+        const storage = await import('@/lib/storage');
+        // The account switches while the completion is in flight; the save then succeeds for the take that recorded it.
+        vi.spyOn(storage, 'completeSession').mockImplementation(async () => {
+            setCurrentLogin('user-b', 2);
+            return { success: true } as never;
+        });
+        expect(await priv().retryRecordingSave()).toBe(true);
+        expect({ id: useSessionStore.getState().completedSessionId, subject: useSessionStore.getState().completedSessionSubject })
+            .toEqual({ id: null, subject: null });
+        setCurrentLogin(null, null);
+    });
+
     it('#1593 (Sam): a recovered save with NO valid subject (legacy draft) publishes unknown, never an ambient one', async () => {
         for (const subject of [undefined, null, { ...TAKE_SUBJECT, session_id: SESSION }]) {
             useSessionStore.getState().setCompletedSessionSubject({ sessionId: 'stale', subject: TAKE_SUBJECT });

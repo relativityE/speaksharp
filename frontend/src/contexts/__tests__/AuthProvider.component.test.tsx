@@ -6,6 +6,7 @@ import { AuthProvider, AuthContext } from '../AuthProvider';
 import React, { useContext } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as supabaseClient from '../../lib/supabaseClient';
+import { reviewSubjectFor, useSessionStore } from '@/stores/useSessionStore';
 
 // Mock dependencies
 vi.mock('../../lib/supabaseClient', () => ({
@@ -462,6 +463,70 @@ describe('AuthProvider', () => {
             act(() => { setSession({ user: { id: 'user-b' } }); });
             await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-b'));
             expect(client.getQueryData(['session', 's-a1'])).toBeUndefined();
+        });
+    });
+
+    describe('#1593 (Sam): the completed take\'s review binding never crosses accounts', () => {
+        const SUBJECT_A = { subject_boot_id: 'boot-a', subject_journey_id: 'journey-a', subject_attempt_id: 'attempt-a', subject_attempt_seq: 1 };
+        const bindA = () => {
+            useSessionStore.getState().setCompletedSessionId('s-a1');
+            useSessionStore.getState().setCompletedSessionSubject({ sessionId: 's-a1', subject: SUBJECT_A });
+        };
+        const binding = () => ({ id: useSessionStore.getState().completedSessionId, subject: useSessionStore.getState().completedSessionSubject });
+        const mountWithEvents = () => {
+            mockSupabase.auth.getSession.mockResolvedValue({ data: { session: { user: { id: 'user-a' } } }, error: null });
+            let emit!: (event: string, session: unknown) => void;
+            mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
+                emit = callback;
+                return { data: { subscription: { unsubscribe: vi.fn() } } };
+            });
+            render(<QueryClientProvider client={new QueryClient()}><AuthProvider><TestConsumer /></AuthProvider></QueryClientProvider>);
+            return (event: string, session: unknown) => act(() => { emit(event, session); });
+        };
+        beforeEach(() => useSessionStore.getState().resetSession());
+
+        it('AUTH EVENT A → B retires A\'s review id and subject (B can never resolve them)', async () => {
+            const emit = mountWithEvents();
+            emit('SIGNED_IN', { user: { id: 'user-a' } });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-a'));
+            bindA();
+            emit('SIGNED_IN', { user: { id: 'user-b' } });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-b'));
+            expect(binding()).toEqual({ id: null, subject: null });
+            expect(reviewSubjectFor('s-a1', useSessionStore.getState().completedSessionSubject)).toBeNull();
+        });
+
+        it('AUTH EVENT A → SIGNED_OUT → B retires it at the sign-out, before B arrives', async () => {
+            const emit = mountWithEvents();
+            emit('SIGNED_IN', { user: { id: 'user-a' } });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-a'));
+            bindA();
+            emit('SIGNED_OUT', null);
+            expect(binding()).toEqual({ id: null, subject: null });
+            emit('SIGNED_IN', { user: { id: 'user-b' } });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-b'));
+            expect(binding()).toEqual({ id: null, subject: null });
+        });
+
+        it('setSession A → B retires it too', async () => {
+            mockSupabase.auth.getSession.mockResolvedValue({ data: { session: { user: { id: 'user-a' } } }, error: null });
+            let setSession!: (s: unknown) => void;
+            const Grab = () => { const ctx = useContext(AuthContext); setSession = ctx!.setSession as (s: unknown) => void; return null; };
+            render(<QueryClientProvider client={new QueryClient()}><AuthProvider><TestConsumer /><Grab /></AuthProvider></QueryClientProvider>);
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-a'));
+            bindA();
+            act(() => { setSession({ user: { id: 'user-b' } }); });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-b'));
+            expect(binding()).toEqual({ id: null, subject: null });
+        });
+
+        it('CONTROL: a token refresh for the SAME account keeps the binding (not an identity change)', async () => {
+            const emit = mountWithEvents();
+            emit('SIGNED_IN', { user: { id: 'user-a' } });
+            await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-a'));
+            bindA();
+            emit('TOKEN_REFRESHED', { user: { id: 'user-a' } });
+            expect(binding()).toEqual({ id: 's-a1', subject: { sessionId: 's-a1', subject: SUBJECT_A } });
         });
     });
 
