@@ -612,15 +612,20 @@ export function classifyInterruptedRepeat(
 
     // A's post-Stop chain through save, in causal (producer-time) order, all its own. The received `timestamp` is the
     // flush's capture time, shared by events drained together, so it cannot order a chain (Sam, bbc58543 return 1).
-    let previous = Number.NEGATIVE_INFINITY;
-    for (const name of OPEN_MIC_INTERRUPTED_CHAIN) {
-        const own = rows.filter((r) => r?.event === 'stage_latency' && r?.properties?.stage === name && attemptOf(r) === takeAttempt);
-        if (own.length === 0) return hold(`the interrupted take has no ${name} stage for its own attempt`);
-        if (own.some((r) => !Number.isFinite(timed(r)))) return hold(`a ${name} stage row has no producer time, so the chain cannot be ordered`);
-        const first = Math.min(...own.map(timed));
-        if (first < previous) return hold(`the interrupted take's post-Stop chain is out of order at ${name}`);
-        previous = first;
-    }
+    // Its HOLD is kept but DEFERRED: a stale render into B that the rows independently prove must still dominate as FAIL
+    // (Codex r4308033817), so the chain is judged after that check.
+    const chainHold = ((): string | null => {
+        let previous = Number.NEGATIVE_INFINITY;
+        for (const name of OPEN_MIC_INTERRUPTED_CHAIN) {
+            const own = rows.filter((r) => r?.event === 'stage_latency' && r?.properties?.stage === name && attemptOf(r) === takeAttempt);
+            if (own.length === 0) return `the interrupted take has no ${name} stage for its own attempt`;
+            if (own.some((r) => !Number.isFinite(timed(r)))) return `a ${name} stage row has no producer time, so the chain cannot be ordered`;
+            const first = Math.min(...own.map(timed));
+            if (first < previous) return `the interrupted take's post-Stop chain is out of order at ${name}`;
+            previous = first;
+        }
+        return null;
+    })();
 
     // R — one request under origin A, from this boot.
     const lifecycle = rows.filter((r) => r?.event === 'ai_coaching_lifecycle');
@@ -683,6 +688,7 @@ export function classifyInterruptedRepeat(
     if (own.some((r) => prop(r, 'stage') === 'rendered' && attemptOf(r) === successor)) {
         return hold('FAIL: the interrupted take\'s coaching was rendered under the next take — an observed stale application into B');
     }
+    if (chainHold !== null) return hold(chainHold);
 
     // R's observed state at the invalidation: its single UI terminal.
     const ended = own.filter((r) => prop(r, 'stage') === 'ended');
@@ -705,6 +711,15 @@ export function classifyInterruptedRepeat(
         const ready = own.filter((r) => prop(r, 'stage') === 'ready');
         if (rendered.length !== 1 || timed(rendered[0]) > endedAt) {
             return hold('the interrupted take\'s coaching completed without exactly one render of its own at completion');
+        }
+        // The render is R's (its origin is A and this boot, checked above), and it must not have been shown while ANOTHER
+        // take was current (Codex r4308033814). The producer ties `rendered` to the visible, validated review of its own
+        // session, independent of an open recording attempt, so an ambient take of A, or no ambient attempt reported, is
+        // accepted HERE only — beside the positive origin/boot/readiness/single-render/completed/pre-press bindings. It is no
+        // wildcard elsewhere: any other ambient take makes the render unattributable (HOLD); one under B is FAIL above.
+        const renderedUnder = attemptOf(rendered[0]);
+        if (renderedUnder !== null && renderedUnder !== takeAttempt) {
+            return hold('the interrupted take\'s coaching was rendered while another take was current — unattributable');
         }
         if (ready.length !== 1) return hold('the interrupted take\'s coaching completed without exactly one readiness report');
         // `ended` is the terminal REPORT, emitted after the render: a completion after the press is not certified from silence.

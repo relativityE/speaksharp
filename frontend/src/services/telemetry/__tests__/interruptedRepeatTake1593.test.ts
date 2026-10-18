@@ -270,3 +270,30 @@ describe('Sam source RETURN on bbc58543 — four false-qualification probes, now
             .toMatch(/accepted repeat Start names no take/);
     });
 });
+
+describe('Codex review on 580bd93e (#1593)', () => {
+    it('P1 r4308033814: a completed render shown while ANOTHER take was current is unattributable — HOLD', () => {
+        const underC = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { attempt_id: C })];
+        expect(check(underC)).toMatch(/rendered while another take was current — unattributable/);
+        // POSITIVE (Sam): no ambient attempt reported, beside every positive binding, qualifies; under A itself is the default.
+        const noAmbient = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'), lc('rendered', 8, { attempt_id: null })];
+        expect(classifyInterruptedRepeat(noAmbient, DECLARED)).toMatchObject({ ok: true, branch: 'completed_before_repeat' });
+        expect(classifyInterruptedRepeat(completedBeforeRepeat(), DECLARED)).toMatchObject({ ok: true });
+        // PAIRED CONTROLS (Sam): no ambient attempt is not a wildcard — a missing or conflicting R origin still HOLDs.
+        const noAmbientNoOrigin = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'),
+            lc('rendered', 8, { attempt_id: null, origin_attempt_id: null })];
+        expect(check(noAmbientNoOrigin)).toMatch(/conflicting origin take or boot/);
+        const noAmbientOtherBoot = [...completedBeforeRepeat().filter((r) => r.properties?.stage !== 'rendered'),
+            lc('rendered', 8, { attempt_id: null, origin_boot_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' })];
+        expect(check(noAmbientOtherBoot)).toMatch(/conflicting origin take or boot/);
+    });
+
+    it('P2 r4308033817: a proven stale render into B is FAIL even when A\'s post-Stop chain is incomplete', () => {
+        const noFinal = without(openAtInvalidation(), (r) => r.properties?.stage === 'final_transcript');
+        const reason = String(check([...noFinal, lc('rendered', 15, { attempt_id: B })]));
+        expect(reason).toMatch(/observed stale application into B/);
+        expect(isObservedFailureReason(reason)).toBe(true);
+        // Without that proof, the incomplete chain is still the HOLD it was.
+        expect(check(noFinal)).toMatch(/no final_transcript stage for its own attempt/);
+    });
+});
