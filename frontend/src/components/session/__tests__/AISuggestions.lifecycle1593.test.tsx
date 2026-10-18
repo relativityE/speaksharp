@@ -419,6 +419,44 @@ describe('#1593 RETURN — the route is read at the teardown boundary, not at th
         expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual(['ended:superseded_session']);
     });
 
+    /*
+     * Browser PM settlement-order controls on 889d7b21: the answer (or error) arriving AFTER the teardown but BEFORE the
+     * deferred tick ended the lifecycle `unmounted` even on a same-page repeat, and the once-only terminal kept that
+     * reason. The teardown's classification now decides it, whenever the settlement lands.
+     */
+    const settleBeforeTick = async (outcome: 'success' | 'error', leaveFirst: boolean) => {
+        const answer = deferred<unknown>();
+        invoke.mockImplementationOnce(() => answer.promise);
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        const [id] = requestIds();
+        if (leaveFirst) setPath('/analytics');
+        view.unmount();
+        // Settle in the microtask window: before the deferred (setTimeout 0) cleanup runs.
+        answer.resolve(outcome === 'success'
+            ? { data: { suggestions: VALID_A }, error: null }
+            : { data: null, error: { name: 'FunctionsFetchError', message: 'network' } });
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+        return stagesOf(id).filter((s) => s.startsWith('ended:'));
+    };
+
+    it('SETTLEMENT ORDER: a success before the tick on a same-page repeat ends superseded_session, once', async () => {
+        expect(await settleBeforeTick('success', false)).toEqual(['ended:superseded_session']);
+    });
+
+    it('SETTLEMENT ORDER: an error before the tick on a same-page repeat ends superseded_session, once', async () => {
+        expect(await settleBeforeTick('error', false)).toEqual(['ended:superseded_session']);
+    });
+
+    it('SETTLEMENT ORDER: a success before the tick after a route exit ends unmounted, once', async () => {
+        expect(await settleBeforeTick('success', true)).toEqual(['ended:unmounted']);
+    });
+
+    it('SETTLEMENT ORDER: an error before the tick after a route exit ends unmounted, once', async () => {
+        expect(await settleBeforeTick('error', true)).toEqual(['ended:unmounted']);
+    });
+
     it('STRICTMODE replay still never ends or aborts the automatic request, whatever the URL does afterwards', async () => {
         let signal: AbortSignal | undefined;
         invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return new Promise(() => {}); });
