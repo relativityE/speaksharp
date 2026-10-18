@@ -8,7 +8,7 @@ export type SaveRetryVariant = (typeof SAVE_RETRY_VARIANTS)[number];
 
 /** The banner's own copy (UnresolvedRecoveryBanner.tsx); a source guard keeps these in step with the component. */
 export const RECOVERY_COPY = {
-    full_save: 'Your last recording was not fully saved.',
+    full_save: 'We couldn’t confirm that your last recording was fully saved.',
     initial_save: 'Your last recording has not been saved yet.',
     words: 'Your words are still here.',
 } as const;
@@ -143,14 +143,26 @@ export function completionDropDisposition(variant: SaveRetryVariant, drop: Compl
  * when words are on the page, and must NOT appear when none are. Whether the spoken words survive for Retry Save is
  * proven by the retry's own completion and readback rows, not by this copy.
  */
+/**
+ * A DEFINITE claim that the take is not persisted. True only when the server is known not to hold it; after a lost
+ * response the server may already have committed, so such a claim is false there (#1474, Sam 6242612760).
+ */
+const DEFINITE_UNSAVED_CLAIM = /\b(?:not (?:fully )?saved|has not been saved|was not saved|wasn['\u2019]t saved|is not saved|isn['\u2019]t saved)\b/i;
+
 export function recoveryBannerVerdict(o: {
     bannerShown: boolean; resolution: string | null; message: string; retryOffered: boolean; wordsOnPage: number;
+    /** Completed rows for the take read from the server BEFORE any retry: 0 for request-lost, 1 for response-lost. */
+    completedBeforeRetry: number;
 }): Verdict {
     if (!o.bannerShown) return { status: 'FAIL', detail: 'no recovery banner appeared after the save failed' };
     if (o.resolution !== 'full_save' && o.resolution !== 'initial_save') {
         return { status: 'FAIL', detail: `the banner named the wrong unresolved state (${o.resolution ?? 'none'})` };
     }
     if (!o.retryOffered) return { status: 'FAIL', detail: 'the banner offered no Retry Save' };
+    // Semantics before string equality: matching the component's copy proves agreement, not truth.
+    if (o.completedBeforeRetry > 0 && DEFINITE_UNSAVED_CLAIM.test(o.message)) {
+        return { status: 'FAIL', detail: 'the banner says the take is not saved, but the server had already saved it' };
+    }
     if (!o.message.startsWith(RECOVERY_COPY[o.resolution])) {
         return { status: 'FAIL', detail: 'the banner copy does not match its unresolved state' };
     }
@@ -158,8 +170,8 @@ export function recoveryBannerVerdict(o: {
     if (claimsWords && o.wordsOnPage === 0) return { status: 'FAIL', detail: 'the banner says the words are still here, but none are on the page' };
     if (!claimsWords && o.wordsOnPage > 0) return { status: 'FAIL', detail: 'words are on the page, but the banner does not say they are still here' };
     return claimsWords
-        ? { status: 'PASS', detail: 'the banner says the take is not saved, the words are on the page, and Retry Save is offered' }
-        : { status: 'PASS', detail: 'the banner says the take is not saved and offers Retry Save, and truthfully makes no words claim for a page with none' };
+        ? { status: 'PASS', detail: 'the banner says the save could not be confirmed, the words are on the page, and Retry Save is offered' }
+        : { status: 'PASS', detail: 'the banner says the save could not be confirmed and offers Retry Save, and truthfully makes no words claim for a page with none' };
 }
 
 /** After Retry Save: exactly one saved session for the take, the one the page bound, with its transcript retained. */

@@ -83,11 +83,12 @@ export function returnStartVerdict(o: {
 }
 
 /**
- * #1258 (Sam 6218709582 / 6219021013) — the recovery notice's own wordings (SessionPage `session-recovery-message`). Every
- * one of them says the take was NOT saved, in two different phrasings, so the unsaved claim is read from all of them.
+ * #1258 (Sam 6218709582 / 6219021013) — the recovery notice's own wordings (SessionPage `session-recovery-message`). The two
+ * interrupted wordings say the take was NOT saved (no completion was ever sent, so that is known). #1474 (Sam 1792278508):
+ * the finalized wording claims neither — its save is unconfirmed — so it is truthful whatever the server holds.
  */
 export const RECOVERY_NOTICE_COPY = Object.freeze({
-    finalized_pending_save: 'Your last session finished but was not saved. Its measurements were kept on this device; no transcript was stored.',
+    finalized_pending_save: 'Your last session finished, but we couldn’t confirm it was saved. Its measurements were kept on this device.',
     interrupted_partial: 'Your last session was interrupted before it was saved. No transcript was saved, and only partial measurements were captured.',
     interrupted: 'Your last session was interrupted before it was saved. No transcript was saved.',
 });

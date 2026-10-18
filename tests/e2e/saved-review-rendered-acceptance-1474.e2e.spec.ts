@@ -422,14 +422,11 @@ const DESKTOP_VIEWPORTS = [
 const MOBILE_VIEWPORTS = [{ name: 'mobile 375×812', width: 375, height: 812 }] as const;
 type Viewport = (typeof DESKTOP_VIEWPORTS)[number] | (typeof MOBILE_VIEWPORTS)[number];
 /**
- * Measured mobile gaps (OPEN, Sam 6240521998): each keeps its strict assertions in a test marked as an expected failure only
- * after the take saved and was measured, annotated `unmet-requirement`, and flips red the moment the product meets it.
+ * The three mobile gaps measured on main (Sam 6240521998) are closed by the #1474 mobile clearance fix, so every mobile case
+ * now asserts every criterion: below md the root reserves the fixed bar in its scroll snapport (index.css,
+ * `[data-fixed-mobile-action-bar]`), so focus-scroll stops above it; the post-save status bar is one row and the gaps above
+ * the review are tighter, so the full maximum-length prescription sits above the bar at the top of the page.
  */
-const MOBILE_UNMET: Partial<Record<string, { gap: Gap; text: string }>> = {
-    'open_mic · full': { gap: 'coaching-visible', text: 'the full "Try this next run" box ends under the fixed bottom bar at the top of the page' },
-    'open_mic · partial': { gap: 'action-focus-clear', text: 'programmatic focus leaves Practice again partly under the fixed bottom bar (the browser treats it as already in view)' },
-    'focus_points · full': { gap: 'coaching-visible', text: 'the full "Try this next run" box ends under the fixed bottom bar at the top of the page' },
-};
 type Product = 'open_mic' | 'focus_points';
 type GammaState = 'full' | 'partial' | 'pending' | 'terminal';
 
@@ -584,21 +581,14 @@ async function gammaCase(page: Page, product: Product, state: GammaState, viewpo
     return results;
 }
 
-/** The one measured gap a mobile tracker isolates; every OTHER criterion keeps failing normally on regression. */
-type Gap = 'coaching-visible' | 'action-focus-clear';
-
-function expectGamma(results: ViewportResult[], excluded: Gap | null = null) {
+function expectGamma(results: ViewportResult[]) {
     for (const r of results) {
         expect.soft(r.coaching, `${r.viewport}: the coaching element rendered`).not.toBeNull();
-        if (excluded !== 'coaching-visible') {
-            expect.soft(r.coaching?.fullyVisible, `${r.viewport}: ${r.coaching?.which} is fully readable at the top of the page`).toBe(true);
-        }
+        expect.soft(r.coaching?.fullyVisible, `${r.viewport}: ${r.coaching?.which} is fully readable at the top of the page`).toBe(true);
         expect.soft(r.action, `${r.viewport}: the repeat/retry action rendered`).not.toBeNull();
         expect.soft(r.action?.enabled, `${r.viewport}: the action is enabled`).toBe(true);
-        if (excluded !== 'action-focus-clear') {
-            expect.soft(r.action?.afterFocus.focused && r.action?.afterFocus.fullyUnobscured && r.action?.afterFocus.hitsItself,
-                `${r.viewport}: programmatic focus (focus-scroll) leaves the action fully clear of any fixed bar`).toBe(true);
-        }
+        expect.soft(r.action?.afterFocus.focused && r.action?.afterFocus.fullyUnobscured && r.action?.afterFocus.hitsItself,
+            `${r.viewport}: programmatic focus (focus-scroll) leaves the action fully clear of any fixed bar`).toBe(true);
         expect.soft(r.action?.afterScroll.fullyUnobscured && r.action?.afterScroll.hitsItself,
             `${r.viewport}: scrolled into view, the action is fully clear of any fixed bar`).toBe(true);
         expect.soft(r.counts.length, `${r.viewport}: all three count rows render`).toBe(3);
@@ -615,39 +605,11 @@ test.describe('#1474 γ desktop — natural growth: useful coaching at eye level
     }
 });
 
-test.describe('#1474 γ mobile 375×812 — the same criteria; every non-gap criterion must pass', () => {
+test.describe('#1474 γ mobile 375×812 — the same criteria, all asserted', () => {
     for (const { product, state } of GAMMA_CASES) {
-        const key = `${product} · ${state}`;
-        const unmet = MOBILE_UNMET[key];
-        test(`${key} at 375×812${unmet ? ` (all criteria except the isolated gap: ${unmet.gap})` : ''}`, async ({ page }) => {
+        test(`${product} · ${state} at 375×812`, async ({ page }) => {
             test.setTimeout(200_000);
-            expectGamma(await gammaCase(page, product, state, MOBILE_VIEWPORTS, 'mobile'), unmet?.gap ?? null);
-        });
-    }
-});
-
-/*
- * Sam 6240939196 — each measured mobile gap is its OWN narrow tracker: it asserts ONLY the documented gap, marked as an
- * expected failure only after the take saved, rendered its intended content and was measured. Every other criterion for
- * the same case is asserted in the ordinary test above, so an unrelated regression fails normally instead of hiding here.
- */
-test.describe('#1474 γ mobile 375×812 — measured gaps (OPEN, unmet requirements)', () => {
-    for (const [key, unmet] of Object.entries(MOBILE_UNMET)) {
-        if (!unmet) continue;
-        const [product, state] = key.split(' · ') as [Product, GammaState];
-        test(`UNMET ${key} at 375×812: ${unmet.text}`, async ({ page }) => {
-            test.setTimeout(200_000);
-            const [r] = await gammaCase(page, product, state, MOBILE_VIEWPORTS, 'mobile-gap');
-            // Marked only now, after setup succeeded, so a setup failure cannot pass as this gap.
-            // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
-            test.info().annotations.push({ type: 'unmet-requirement', description: `#1474 mobile 375×812 ${key}: ${unmet.text}` });
-            test.fail(true, `UNMET on main: ${unmet.text}`);
-            if (unmet.gap === 'coaching-visible') {
-                expect(r.coaching?.fullyVisible, `${r.viewport}: ${r.coaching?.which} is fully readable at the top of the page`).toBe(true);
-            } else {
-                expect(r.action?.afterFocus.focused && r.action?.afterFocus.fullyUnobscured && r.action?.afterFocus.hitsItself,
-                    `${r.viewport}: programmatic focus (focus-scroll) leaves the action fully clear of any fixed bar`).toBe(true);
-            }
+            expectGamma(await gammaCase(page, product, state, MOBILE_VIEWPORTS, 'mobile'));
         });
     }
 });
