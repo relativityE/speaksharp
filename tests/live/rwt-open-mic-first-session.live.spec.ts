@@ -40,6 +40,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { characterCeilingVerdict, fillerAdviceVerdict, readTwoTakesCoaching, takesDifferVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
 import { MODEL_COMPARISON_AUTH_KEY } from './helpers/practiceLoopJourney';
@@ -229,6 +230,8 @@ test.describe('RWT — Open Mic first session @live', () => {
         const tap = new AnalyticsTap();
         tap.attach(page);
         activeTap = tap;
+        // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
         const entitlement = new EntitlementTap();
         entitlement.attach(page);
         // #1258 (PM 6114590729): every coaching exchange at the request boundary — the ids the page sent and the Edge
@@ -793,6 +796,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 });
             });
         } finally {
+            watch.record(receipt);
             // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
             receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 })).observed;
             // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary

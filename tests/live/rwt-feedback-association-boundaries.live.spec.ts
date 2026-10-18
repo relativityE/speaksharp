@@ -25,6 +25,7 @@ import {
 } from './helpers/feedbackDiagnosticRef';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
+import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
     stopBenchmarkRecording, waitForBenchmarkSaveCandidate, waitForPrivateEngineReady,
@@ -192,14 +193,23 @@ async function finishReceipt(
     }), tap.trafficTypes());
 }
 
+/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
+const backstop = new CleanupBackstop<Owner>();
+
 test.describe('RWT — Share Feedback association boundaries @live', () => {
+    test.afterEach(async () => {
+        await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+    });
+
     test('feedback selected for an older take links only to that take', async ({ page }, testInfo) => {
         test.setTimeout(1_800_000);
-        const owner: Owner = { email: '', uid: '' };
+        const owner: Owner = backstop.track({ email: '', uid: '' });
         const receipt = new RwtReceipt(`${SUITE}-older-take`);
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(`${SUITE}-older-take`), label: `${SUITE}-older-take` });
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
@@ -240,6 +250,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
+            watch.record(receipt);
             await generations.settle();
             // The WHOLE scenario, after feedback and navigation: at most one request per saved take (two in all).
             coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes });
@@ -256,19 +267,23 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 }
             }
             if (owner.uid && !accountDeleted) {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }).catch(() => undefined);
+                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })
+                    .then(() => { accountDeleted = true; }, () => undefined);
             }
+            if (accountDeleted) backstop.done(owner);
             await finishReceipt(receipt, testInfo, tap, claimed);
         }
     });
 
     test('No session feedback stores no take or coaching link', async ({ page }, testInfo) => {
         test.setTimeout(300_000);
-        const owner: Owner = { email: '', uid: '' };
+        const owner: Owner = backstop.track({ email: '', uid: '' });
         const receipt = new RwtReceipt(`${SUITE}-no-session`);
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
         tap.attach(page); generations.attach(page);
+        // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(`${SUITE}-no-session`), label: `${SUITE}-no-session` });
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
@@ -285,6 +300,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
+            watch.record(receipt);
             await generations.settle();
             // No session links no take, so the whole scenario must send no coaching request at all.
             coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
@@ -301,8 +317,10 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
                 }
             }
             if (owner.uid && !accountDeleted) {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }).catch(() => undefined);
+                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })
+                    .then(() => { accountDeleted = true; }, () => undefined);
             }
+            if (accountDeleted) backstop.done(owner);
             await finishReceipt(receipt, testInfo, tap, claimed);
         }
     });

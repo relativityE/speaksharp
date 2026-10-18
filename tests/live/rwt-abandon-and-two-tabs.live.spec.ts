@@ -25,6 +25,7 @@ import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAc
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
+import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { openProductsItem } from './helpers/productsMenu';
 import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
@@ -79,6 +80,9 @@ async function startFirstPrivateTake(page: Page, label: string): Promise<void> {
     }
 }
 
+/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
+const backstop = new CleanupBackstop<RunOwner>();
+
 async function finish(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
     owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null): Promise<void> {
     const cloudVerdict = noCloudVerdict(cloud.requests);
@@ -89,6 +93,7 @@ async function finish(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap
     if (owner.uid) {
         try {
             await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+            backstop.done(owner);
             receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
         } catch {
             receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
@@ -99,12 +104,15 @@ async function finish(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap
 }
 
 async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: AbandonVariant): Promise<void> {
+    const suite = `${ABANDON_SUITE}-${variant}`;
     const receipt = new RwtReceipt(`${ABANDON_SUITE}-${variant}`);
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     const cloud = { requests: 0 };
     observe(page, tap, generations, cloud);
-    const owner: RunOwner = { email: '', uid: '' };
+    const owner: RunOwner = backstop.track({ email: '', uid: '' });
+    // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     const takes: string[] = [];
     let claimed = false;
     let rowsBeforeFirst: RowFacts[] | null = null;
@@ -162,6 +170,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
                 ? 'the tab closed, ending its document and every microphone track it held'
                 : 'the tab did not close after the person chose Leave', { leavePrompt, tabClosed });
             returned = await context.newPage();
+            watch.setPage(returned);
             observe(returned, tap, generations, cloud);
             await installMicAcquisitionCounter(returned);
             await openOpenMic(returned);
@@ -231,11 +240,16 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
+        watch.record(receipt);
         await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
     }
 }
 
 test.describe('RWT — leaving a recording, and two tabs @live', () => {
+    test.afterEach(async () => {
+        await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+    });
+
     test('navigate away mid-recording, return, and the next take saves only itself', async ({ page }, testInfo) => {
         test.setTimeout(1_800_000);
         await abandonAndReturn(page, testInfo, 'navigate-away');
@@ -253,12 +267,14 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         const generations = new CoachingGenerationTap();
         const cloud = { requests: 0 };
         observe(tabA, tap, generations, cloud);
-        const owner: RunOwner = { email: '', uid: '' };
+        const owner: RunOwner = backstop.track({ email: '', uid: '' });
         const takes: string[] = [];
         let claimed = false;
         let rowsBeforeFirst: RowFacts[] | null = null;
         let sameBrowserTab: Page | null = null;
         let otherDevice: BrowserContext | null = null;
+        // #1593 fail early, across both places: tab A's context and the other device are closed together on a trip.
+        const watch = armWatchdog({ page: tabA, tap, profile: watchProfileFor(TWO_TAB_SUITE), label: TWO_TAB_SUITE, contexts: () => [otherDevice] });
         try {
             await suppressPageSnapshot(testInfo);
             claimed = await prepareRunOwnedAccount(tabA, receipt, owner, 'two-tab', admin, SERVICE_ROLE);
@@ -334,6 +350,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
+            watch.record(receipt);
             await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
             await sameBrowserTab?.close().catch(() => undefined);
             await otherDevice?.close().catch(() => undefined);

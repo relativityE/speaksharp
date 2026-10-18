@@ -21,6 +21,7 @@ import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAc
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
+import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { openProductsItem } from './helpers/productsMenu';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
@@ -73,12 +74,18 @@ async function transcriptOnPageLength(page: Page): Promise<number> {
 
 const persistedId = (page: Page) => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
 
+/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
+const backstop = new CleanupBackstop<RunOwner>();
+
 async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVariant): Promise<void> {
+    const suite = `${SAVE_RETRY_SUITE}-${variant}`;
     const receipt = new RwtReceipt(`${SAVE_RETRY_SUITE}-${variant}`);
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     tap.attach(page); generations.attach(page);
-    const owner: RunOwner = { email: '', uid: '' };
+    const owner: RunOwner = backstop.track({ email: '', uid: '' });
+    // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     const takes: string[] = [];
     let claimed = false;
     let accountDeleted = false;
@@ -180,6 +187,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
+        watch.record(receipt);
         await page.unroute(COMPLETION_RPC).catch(() => undefined);
         await generations.settle();
         // Two saved takes: at most one coaching request each.
@@ -188,6 +196,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             try {
                 await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
                 accountDeleted = true;
+                backstop.done(owner);
                 receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
             } catch {
                 receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
@@ -199,6 +208,10 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
 }
 
 test.describe('RWT — Retry Save and recovery @live', () => {
+    test.afterEach(async () => {
+        await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+    });
+
     test('request lost: the completion never reaches the server; Retry Save saves the take once', async ({ page }, testInfo) => {
         test.setTimeout(1_800_000);
         await runVariant(page, testInfo, 'request-lost');

@@ -35,6 +35,7 @@ import {
     telemetryClassRows,
     signOutThroughProduct,
 } from './helpers/rwtJourney';
+import { armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { RWT_BROWSER_IDENTITY_ARGS } from './helpers/rwtBrowserIdentity';
 import { openProductsItem, type ProductsMenuItem } from './helpers/productsMenu';
@@ -79,6 +80,8 @@ test.describe('RWT — returning user and Products navigation @live', () => {
         receipt.meta.account = process.env.RWT_RETURNING_EMAIL ? 'authorized factory disposable' : 'maintained FREE_TEST account';
         const tap = new AnalyticsTap();
         tap.attach(page);
+        // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
         const entitlement = new EntitlementTap();
         entitlement.attach(page);
         // #1593 (CLI Dev 2026-10-18): case 15's budget maximum is 0, so the campaign needs an OBSERVED zero, not an absent
@@ -216,6 +219,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 { path: signOutPath ?? 'none', sessionCleared });
             if (historyUnproven) throw new Error('HOLD returning history: the returning-user account has no saved session, so returning history is unproven');
         } finally {
+            watch.record(receipt);
             await tap.awaitObserved(page, { journey_step: 1 });
             await generations.settle();
             coachingRequestBudgetRow(receipt, generations, { maximum: 0 });

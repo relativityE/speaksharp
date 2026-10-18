@@ -17,6 +17,7 @@ import {
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
+import { armWatchdog, watchProfileFor } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { CoachingGenerationTap } from './coachingGenerationTap';
@@ -149,6 +150,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
 
     const tap = new AnalyticsTap();
     tap.attach(page);
+    // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     const entitlement = new EntitlementTap();
     entitlement.attach(page);
     // #1258 (PM 6114590729): every coaching exchange at the request boundary, in memory only (diagnostic chain + artifact).
@@ -779,6 +782,7 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             });
         }
     } finally {
+        watch.record(receipt);
         // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
         receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { coverage_evaluation: 1 })).observed;
         // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count, from the same request-boundary tap after a

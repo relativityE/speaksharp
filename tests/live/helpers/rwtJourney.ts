@@ -43,6 +43,7 @@ import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 import { readFeedbackUiState, readPracticeActionState, type PracticeActionState } from './rwtStepDiagnostics';
 import { activeHumanReflexMs } from './rwtHumanReflex';
 import { resolveProductsTrigger } from './productsMenu';
+import { WATCHED_FIELDS } from './rwtWatchdog';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -529,6 +530,8 @@ export interface SentEvent {
     acquisition?: AcquisitionTiming;
     /** #1258: closed enum / integer fields of the outcome events (OUTCOME_FIELDS only) — never content. */
     fields?: Readonly<Record<string, string | number | boolean>>;
+    /** #1593 fail-early: the watched lifecycle events' closed enums (`WATCHED_FIELDS`). Memory only, never in a receipt. */
+    watch?: Readonly<Record<string, string>>;
 }
 
 /** #1258 (#1563): the ONLY properties kept from these events, so a press can be paired with its arrival and a feedback
@@ -547,6 +550,12 @@ function outcomeFields(event: string, props: Record<string, unknown>): SentEvent
         const v = props[key];
         if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') kept[key] = v;
     }
+    return kept;
+}
+
+function watchedFields(event: string, props: Record<string, unknown>): Record<string, string> {
+    const kept: Record<string, string> = {};
+    for (const key of WATCHED_FIELDS[event] ?? []) if (typeof props[key] === 'string') kept[key] = props[key] as string;
     return kept;
 }
 
@@ -733,6 +742,7 @@ export class AnalyticsTap {
                     journeyStep: text('step'),
                     toRoute: text('to_route'),
                     ...(OUTCOME_FIELDS[record.event] ? { fields: outcomeFields(record.event, props) } : {}),
+                    ...(WATCHED_FIELDS[record.event] ? { watch: watchedFields(record.event, props) } : {}),
                     ...(record.event === 'private_model_acquisition_success' ? { acquisition: {
                         cacheResult: text('cache_result'), completeness: text('measurement_completeness'),
                         downloadMs: typeof props.download_ms === 'number' ? props.download_ms : null,

@@ -20,6 +20,7 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
+import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 
 const SUITE = 'pending-start-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -65,6 +66,12 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }) },
 });
 
+/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
+const backstop = new CleanupBackstop<{ uid: string; email: string }>();
+test.afterEach(async () => {
+    await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+});
+
 test('leaving during a cold Start does not leave a recording or session behind @live', async ({ page }, testInfo) => {
     test.setTimeout(1_500_000);
     const receipt = new RwtReceipt(SUITE);
@@ -75,6 +82,9 @@ test('leaving during a cold Start does not leave a recording or session behind @
     let uid = '';
     let claimed = false;
     let accountDeleted = false;
+    const owner = backstop.track({ uid: '', email: '' });
+    // #1593 fail early: an unexpected failure, refusal or stall (case 4's dead Start) ends the journey in seconds.
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
     try {
         await suppressPageSnapshot(testInfo);
         const missing = rwtPreconditionFailures();
@@ -89,9 +99,11 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await page.goto('/auth/signup');
         await requireApprovedSurface(page, receipt);
         email = newDisposableEmail('pending-start');
+        owner.email = email;
         receipt.forbid(email, SERVICE_ROLE);
         const account = await signUpDisposableAccount(page, email);
         uid = account.uid;
+        owner.uid = uid;
         const identity = await runOwnedIdentityFailures(admin as never, uid, email);
         if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
         receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');
@@ -230,6 +242,7 @@ test('leaving during a cold Start does not leave a recording or session behind @
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
+        watch.record(receipt);
         await generations.settle();
         // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
         coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
@@ -237,6 +250,7 @@ test('leaving during a cold Start does not leave a recording or session behind @
             try {
                 await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
                 accountDeleted = true;
+                backstop.done(owner);
                 receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
             } catch {
                 receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
