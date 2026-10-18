@@ -855,6 +855,21 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     }));
 }
 
+/**
+ * #1593 (Sam 1792317800 §1–2) — the AUTOMATED half of finalization, for the campaign's between-case admission: the same
+ * receipt validation and the same readback settlement `finalizeReceipt` applies, without a worksheet. Human observations
+ * are left out (they are the PO's human/device acceptance, never inferred here). Any error means the receipt or its
+ * readback cannot be trusted; a missing `readback` leaves `journey telemetry received` exactly as the receipt wrote it.
+ */
+export function automatedEvaluation(raw: unknown, readback?: unknown): { suite: string | null; release: string | null; errors: string[]; rows: ReceiptRow[] } {
+    const validated = validateReceipt(raw);
+    if (!validated.receipt) return { suite: null, release: null, errors: validated.errors, rows: [] };
+    const receipt = validated.receipt;
+    const errors = [...validated.errors];
+    const rows = readback === undefined ? receipt.rows : applyReadback(receipt, readback, errors);
+    return { suite: receipt.suite, release: receipt.release, errors, rows: rows.filter((r) => !isHumanObservation(r)) };
+}
+
 export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readback?: unknown): FinalizationResult {
     const validated = validateReceipt(raw);
     if (!validated.receipt) {

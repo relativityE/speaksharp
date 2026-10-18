@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-    finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, type ReceiptRow, requiredAutomatedRows,
+    automatedEvaluation, finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance, type ReceiptRow, requiredAutomatedRows,
 } from '../live/helpers/rwtAcceptance';
 
 const SUITE = 'open-mic-first-session';
@@ -224,4 +224,32 @@ describe('the finalization STEP itself (`pnpm rwt:finalize` → scripts/rwt-fina
         expect(fail.code).toBe(1);
         expect(fail.final.finalAcceptance).toBe('FAIL');
     }, 60_000);
+});
+
+// #1593 (Sam 1792317800 §1–2): the campaign admits the next case on the AUTOMATED half of finalization — the same receipt
+// validation and readback settlement, no worksheet, human rows left out (never inferred).
+describe('automatedEvaluation — the finalizer\'s automated half, for between-case admission', () => {
+    const step = (rs: ReceiptRow[], name: string) => rs.find((r) => r.step === name)?.verdict;
+    it('a valid receipt with its qualified readback: no errors, received telemetry settles PASS, no human row is returned', () => {
+        const out = automatedEvaluation(receipt, readbackOk);
+        expect(out).toMatchObject({ suite: SUITE, release: SHA, errors: [] });
+        expect(step(out.rows, 'journey telemetry received')).toBe('PASS');
+        expect(out.rows.some((r) => typeof r.evidence?.observationId === 'string')).toBe(false);
+    });
+    it('no readback leaves received telemetry HOLD; a HOLD journey keeps it HOLD', () => {
+        expect(step(automatedEvaluation(receipt).rows, 'journey telemetry received')).toBe('HOLD');
+        const held = { ...readbackOk, journeys: [{ ...readbackOk.journeys[0], verdict: 'HOLD' }] };
+        expect(step(automatedEvaluation(receipt, held).rows, 'journey telemetry received')).toBe('HOLD');
+    });
+    it.each([
+        ['another suite\'s readback', { ...readbackOk, suite: 'focus-points-session' }, /readback verdicts name suite/],
+        ['another release\'s readback', { ...readbackOk, release: 'b'.repeat(40) }, /different release/],
+        ['a readback for other journeys', { ...readbackOk, journeys: [{ ...readbackOk.journeys[0], journeyId: 'journey-x' }] }, /bound journeys/],
+    ])('%s is an error, never a settlement', (_label, rb, message) => {
+        expect(automatedEvaluation(receipt, rb).errors.join(' ')).toMatch(message as RegExp);
+    });
+    it('a receipt with a required row stripped is an error', () => {
+        const stripped = { ...receipt, rows: rows.filter((r) => r.step !== 'coaching request budget') };
+        expect(automatedEvaluation(stripped, readbackOk).errors.join(' ')).toMatch(/coaching request budget/);
+    });
 });
