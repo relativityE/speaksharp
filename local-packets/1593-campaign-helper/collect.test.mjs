@@ -10,7 +10,8 @@ import { assess, CASE_MAXIMA } from '../1593-bootstrap/contract.mjs';
 import {
     BASE_URL, CASES, CANARY_ACK, FRESHNESS_MS, GATE3_JOB, WORKFLOW_PATH, WRITES_ACK, attemptsInWindow, bindingsFromPlaywrightConfig,
     campaignStartPreflight, classifyActivity, classifyPriorAttempt, cleanupFromLog, configRecord, dispatchArgv, evaluateWithFinalizer,
-    expectedInputs, invocationFor, observationAt, parseGateLog, parseStepEnv, suiteFacts, verifyCaseRun, verifyLedger,
+    expectedInputs, invocationFor, observationAt, parseGateLog, parseStepEnv, priorAttemptStates, suiteFacts, verifyCaseRun, verifyLedger,
+    windowAttempts,
 } from './collect.mjs';
 
 const S = '18487853bc0d0f117e639fc0477ee6b30a932289';
@@ -499,4 +500,31 @@ test('C3-4 bridge N/A needs journeys AND missingBindings to be explicitly empty 
     const listed = receiptFor(4);
     listed.readback.missingBindings = ['session_during'];
     assert.ok(caseRun(4, { receipt: listed }).errors.includes('bridge_suite_declares_readback_bindings'));
+});
+
+// ── Correction 4 regression (Sam, e1680001 review): older run summary + unreadable attempt time ─────────────────────
+test('C4 an older run summary with an UNREADABLE attempt time is not dropped by both paths — case 1 holds', () => {
+    const before = new Date(authority.validFrom - 3_600_000).toISOString();
+    const runs = [{ id: 901, run_attempt: 1, run_started_at: before }];
+    const attemptsOf = () => [{ id: 901, run_attempt: 1 }]; // the attempt's own start time is absent
+    const classifyAttempt = () => 'rwt_clean';
+    // Window path: the readable older summary is a valid shortcut (that run has no attempt inside the window)...
+    assert.deepEqual(windowAttempts({ runs, attemptsOf, validFrom: authority.validFrom }), []);
+    // ...so the prior path must carry the unreadable attempt, as unknown — never filtered out.
+    const prior = priorAttemptStates({ runs, attemptsOf, classifyAttempt, validFrom: authority.validFrom });
+    assert.deepEqual(prior, [{ runId: '901', runAttempt: 1, state: 'unknown_attempt_time' }]);
+    const bootstrap = campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: [], priorRuns: prior });
+    assert.equal(bootstrap.priorCampaignCleanupReconciled, false);
+    assert.equal(assess({ caseNumber: 1, now: NOW, authority, observation, ledger: ledgerOf([]), previousReceipt: null, invocation: invocationFor(1), bootstrap }).reason, 'bootstrap_missing_or_not_fresh');
+});
+
+test('C4 an unreadable SUMMARY time expands the run; an unreadable attempt inside it is a window attempt (unaccounted → held)', () => {
+    const runs = [{ id: 902, run_attempt: 2 }];
+    const attemptsOf = () => [{ id: 902, run_attempt: 1, run_started_at: new Date(authority.validFrom - 1).toISOString() }, { id: 902, run_attempt: 2 }];
+    const win = windowAttempts({ runs, attemptsOf, validFrom: authority.validFrom });
+    assert.deepEqual(win, [{ id: 902, run_attempt: 2 }]);
+    assert.equal(verifyLedger({ ledgerFile: ledgerFileOf(0), authority, verifiedEntries: [], windowRuns: win }).verified, false);
+    // Readable attempts are placed exactly: before → classified; inside → the window's, not the prior list's.
+    const prior = priorAttemptStates({ runs, attemptsOf, classifyAttempt: () => 'rwt_clean', validFrom: authority.validFrom });
+    assert.deepEqual(prior.map((p) => [p.runAttempt, p.state]), [[1, 'rwt_clean'], [2, 'unknown_attempt_time']]);
 });

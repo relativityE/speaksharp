@@ -16,6 +16,9 @@ This correction answers Sam's operational HOLD on `7e3e6872` (review 1792317800,
 3. **Effective inputs are bound.** The attempt's own diagnostic step prints its `env:` block in the job log (verified on rc-gates runs 39076238188 and 39075833843). These must equal the case's expected values exactly: `BASE_URL`, `EXPECTED_RELEASE_SHA` (= run head), `EVIDENCE_SCOPE=diagnostic`, spec, grep, `MODEL_COMPARISON_AUTHORIZATION_FILE=''` (`comparison_cell=none`), `RWT_WRITES_ACK`, `RWT_CANARY_CLAIM_ACK` and `RWT_HUMAN_REFLEX_MS=500`. The receipt's `meta.humanReflexMs` must be 500. Every gate job other than Gate 3, and the comparison authorization, must be `skipped`. A missing key, a repeated key, or a second step block is an error.
 4. **Bridge N/A is explicit.** `readback.journeys` and `readback.missingBindings` must both be arrays and both empty (the receipt always writes both: `rwtJourney.ts` `write()`). An absent field is unknown, never empty.
 
+## Correction 4 (Sam, review of e1680001)
+**An unreadable attempt time is never dropped.** `windowAttempts` uses a run's summary start only as a shortcut. A summary that is readable and before the window can't contain an in-window attempt; every other run is expanded, and an unreadable attempt time counts as a window attempt, so it is unaccounted and the ledger holds. `priorAttemptStates` classifies every non-window attempt on S, and an unreadable start becomes `unknown_attempt_time`, which holds case 1. Sam's exact counterexample (an older summary skipped by the window path plus an unreadable attempt dropped by the prior path, giving GO) is regression C4.
+
 ## Who judges a receipt: the repository finalizer, not this helper (§1)
 `evaluate.mts` runs `automatedEvaluation()` from `tests/live/helpers/rwtAcceptance.ts`, added in #1655. That is the same `validateReceipt` and readback settlement that `pnpm rwt:finalize` uses, minus the worksheet. Human observations are excluded; they are the PO's human/device acceptance and are never inferred. The rows each suite must carry come from that suite's own `requiredAutomatedRows()` inventory. **No row label is written into the helper.** Before it trusts the evaluator, the helper requires `git diff --quiet S -- tests/live/helpers frontend/src/services/telemetry` (dependency identity).
 
@@ -51,7 +54,7 @@ The entry's `dominantStop` is true on **any** verification error above. It is al
 
 ## Run
 ```sh
-node --test local-packets/1593-campaign-helper/collect.test.mjs     # 38 tests, no network (needs tsx: node_modules/.bin/tsx or TSX_BIN)
+node --test local-packets/1593-campaign-helper/collect.test.mjs     # 40 tests, no network (needs tsx: node_modules/.bin/tsx or TSX_BIN)
 node --test local-packets/1593-bootstrap/contract.test.mjs          # 70 tests, vendored contract, unchanged
 node local-packets/1593-campaign-helper/collect.mjs --case 1 --authority <authority.json> --ledger <ledger.json> --first-dispatch
 ```
