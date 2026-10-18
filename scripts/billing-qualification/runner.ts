@@ -188,7 +188,7 @@ export async function runBillingQualification(deps: RunnerDeps): Promise<{ resul
     // checkout + webhook: first binding grants Pro.
     await applyEvent(deps, supabase, {
       id: "evt_checkout", type: "checkout.session.completed", created: deps.frozenTime,
-      data: { object: { metadata: { userId }, client_reference_id: userId, subscription: subId, customer: customerId } },
+      data: { object: { id: "cs_test_billing_qualification", metadata: { userId }, client_reference_id: userId, subscription: subId, customer: customerId } },
     }, "checkout");
     await require("pro", "checkout");
     evidence.checkout = true; evidence.webhook = true;
