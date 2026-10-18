@@ -211,6 +211,31 @@ describe('#1306 get_analytics_summary — client↔RPC parity on flat filler_cou
     expect(rpc.overallStats.avgFillerWordsPerMin).toBe(client.avgFillerWordsPerMin);
   });
 
+  it('4f. chart boundary, NULL duration (Sam 1792315940): observed counts with NO duration plot an omitted point on both sides', async () => {
+    const nul = await freshDb();
+    await nul.query(`INSERT INTO public.sessions (id,user_id,status,duration,total_words,filler_counts) VALUES ($1,$2,'active',NULL,120,$3)`,
+      [sid(), U, JSON.stringify({ um: 4 })]);
+    const rpc = await summaryFor(nul, U);
+    const client = calculateOverallStats([clientSession({ duration: null as never, total_words: 120, filler_counts: { um: 4 } })]);
+    expect(rpc.overallStats.chartData.map((d) => d['FW/min'])).toEqual([null]);
+    expect(client.chartData.map((d) => d['FW/min'])).toEqual([null]);
+    expect(rpc.overallStats.avgFillerWordsPerMin).toBe(client.avgFillerWordsPerMin);
+  });
+
+  it('4g. DOCUMENTED RESIDUAL (not corrected here): mixed history — a zero-duration observed row still adds its fillers to the average numerator on BOTH sides', async () => {
+    const mixed = await freshDb();
+    await insertRow(mixed, { duration: 60, total_words: 120, filler_counts: { um: 3 } });
+    await insertRow(mixed, { duration: 0, total_words: 120, filler_counts: { um: 3 } });
+    const rpc = await summaryFor(mixed, U);
+    const client = calculateOverallStats([
+      clientSession({ duration: 60, total_words: 120, filler_counts: { um: 3 } }),
+      clientSession({ duration: 0, total_words: 120, filler_counts: { um: 3 } }),
+    ]);
+    // 6 fillers over the ONE timed minute → 6.0, identical on both sides (pre-existing numerator behaviour, kept explicit).
+    expect(rpc.overallStats.avgFillerWordsPerMin).toBe('6.0');
+    expect(client.avgFillerWordsPerMin).toBe('6.0');
+  });
+
   it('4d. non-filler outputs, top filler words and trend windows are unchanged by the observed-rate gate', async () => {
     const before = new PGlite();
     await before.exec(BOOTSTRAP); await before.exec(STAGE_A); await before.exec(REPOINT);
