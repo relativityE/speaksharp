@@ -19,6 +19,7 @@ const workflow = readFileSync(
 
 // Functions a browser calls cross-origin — the exact-origin CORS guard must be able to run first.
 const BROWSER_CALLABLE = [
+  'account-closure',
   'attest-session-engine',
   'check-usage-limit',
   'get-ai-suggestions',
@@ -89,5 +90,12 @@ describe('P0.3 — edge CORS requires gateway JWT pass-through so corsGuard runs
 
   it('keeps the retired guided waitlist out of the production deployment manifest', () => {
     expect(workflow).not.toMatch(/supabase functions deploy guided-waitlist/);
+  });
+
+  it('includes account closure in both deploy and hosted verification inventories', () => {
+    const config = readFileSync(resolve(ROOT, 'backend/supabase/config.toml'), 'utf8');
+    expect(workflow.match(/supabase functions deploy account-closure /g)).toHaveLength(1);
+    expect(workflow).toMatch(/for function_name in[^\n]* account-closure; do/);
+    expect(config).toMatch(/\[functions\.account-closure\][\s\S]*entrypoint = "\.\/functions\/account-closure\/index\.ts"/);
   });
 });

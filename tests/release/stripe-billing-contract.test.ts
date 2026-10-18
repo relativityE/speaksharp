@@ -28,7 +28,9 @@ describe('paid soft-launch billing contract', () => {
     expect(reusable).not.toMatch(/edge_changes_present:\s*[\s\S]{0,80}type: boolean/);
     expect(scopeValidator).toMatch(/Edge source\/shared configuration changed but deploy_edge_functions=false/);
     expect(reusable).toMatch(/git diff --name-only "\$BEFORE_SHA" "\$HEAD_SHA"/);
-    expect(reusable).toMatch(/deploy-edge-functions:[\s\S]*needs: \[validate-edge-configuration, deploy-production-db\][\s\S]*deploy_edge_functions == 'true'/);
+    // Backend context changes must revoke deletion authority before deployment.
+    expect(reusable).toMatch(/deploy-edge-functions:[\s\S]*needs: \[validate-edge-configuration, invalidate-account-closure-authority, deploy-production-db\][\s\S]*deploy_edge_functions == 'true'/);
+    expect(reusable).toMatch(/needs\.invalidate-account-closure-authority\.result == 'success'/);
     expect(reusable).toMatch(/needs\.deploy-production-db\.result == 'success'/);
     expect(reusable).toMatch(/verify-edge-functions:[\s\S]*deploy_edge_functions == 'true'/);
     expect(releaseCaller).toMatch(/uses: \.\/\.github\/workflows\/deploy-supabase-migrations\.yml/);
