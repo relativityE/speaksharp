@@ -187,9 +187,31 @@ test('leaving during a cold Start does not leave a recording or session behind @
         const startAvailable = Boolean(startControl)
             && await startControl!.isVisible().catch(() => false)
             && await startControl!.isEnabled().catch(() => false);
+        // #1593 (case 4, run 39165065684): the FAIL named no cause. Record WHAT the return showed — which primary control
+        // exists, whether it is visible/enabled, its closed aria-label (`Starting…` = a stale start wait, `…unavailable while
+        // your last session finishes` = the Progress gate, plain `Start recording` disabled = runtime/finalizing state) and the
+        // session-shell state — so a failure classifies its own cause. Closed product copy and booleans only.
+        const controlState = async (id: string) => {
+            const el = page.getByTestId(id);
+            const present = (await el.count()) > 0;
+            return {
+                present,
+                visible: present ? await el.first().isVisible().catch(() => false) : false,
+                enabled: present ? await el.first().isEnabled().catch(() => false) : false,
+                ariaLabel: present ? await el.first().getAttribute('aria-label').catch(() => null) : null,
+            };
+        };
+        const [startState, downloadState, retryState] = await Promise.all([controlState('mic-start'), controlState('mic-download'), controlState('mic-retry')]);
+        const shellState = await page.getByTestId('session-shell').first().getAttribute('data-session-state').catch(() => null);
         receipt.row('return to Open Mic exposes truthful Start state', startAvailable ? 'PASS' : 'FAIL',
             startAvailable ? `return shows the ${expectedControl} action for model state ${modelStatus}`
-                : `return did not expose an enabled Start/retry action consistent with model state ${modelStatus ?? 'unreadable'}`);
+                : `return did not expose an enabled Start/retry action consistent with model state ${modelStatus ?? 'unreadable'}`,
+            {
+                modelStatus: modelStatus ?? null, expectedControl: expectedControl ?? null, shellState,
+                startPresent: startState.present, startVisible: startState.visible, startEnabled: startState.enabled, startAriaLabel: startState.ariaLabel,
+                downloadPresent: downloadState.present, downloadEnabled: downloadState.enabled,
+                retryPresent: retryState.present, retryEnabled: retryState.enabled,
+            });
         const recorderAfterReturn = await page.getByTestId('recorder-stop').count().then((n) => n > 0);
         const micAfterReturn = await readMicEvidence(page);
         const sessionIdsAfterReturn = await readSessionIds(uid);
