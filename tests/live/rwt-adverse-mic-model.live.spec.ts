@@ -146,8 +146,9 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
             await setSiteMicrophone(page, browser, 'denied');
             const denialApplied = (await micPermissionState(page)) === 'denied';
             const control = page.getByTestId('mic-download').or(page.getByTestId('mic-start')).filter({ visible: true }).first();
-            // Live case 12: with the microphone denied, a RECORDING transition is the failure itself — stop there.
-            watch.setForbidRecording(denialApplied);
+            // Live case 12: with the microphone denied, a RECORDING transition is the failure itself — stop there. Armed
+            // whether or not the denial reads as applied: a recording here is never this scenario's truthful outcome.
+            watch.setForbidRecording(true);
             await control.click();
             // The model downloads first on a fresh account; the blocked microphone is met at the recording boundary.
             const blockedCopyShown = await page.getByText(MIC_BLOCKED_COPY).first().waitFor({ timeout: 900_000 }).then(() => true).catch(() => false);
@@ -226,9 +227,22 @@ test.describe('RWT — adverse microphone and model states @live', () => {
         await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
     });
 
-    test('mic denied: stated truthfully, nothing records, no Cloud; allowed → a take saves', async ({ page, browser }, testInfo) => {
-        test.setTimeout(1_800_000);
-        await runVariant(page, browser, testInfo, 'mic-denied');
+    /**
+     * #1593 (live case 12, run 39167876945): `--use-fake-ui-for-media-stream` auto-approves every media request without
+     * consulting the site permission, and the context was created with the microphone already granted — so the CDP
+     * "Blocked" setting never reached `getUserMedia` and the take recorded. This variant alone launches without the
+     * auto-approve flag and without the pre-granted permission; the fake capture DEVICE stays, so once the person allows
+     * the microphone a take still records the fixture.
+     */
+    test.describe('mic denied (real permission decision)', () => {
+        test.use({
+            permissions: [],
+            launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }).filter((a) => a !== '--use-fake-ui-for-media-stream') },
+        });
+        test('mic denied: stated truthfully, nothing records, no Cloud; allowed → a take saves', async ({ page, browser }, testInfo) => {
+            test.setTimeout(1_800_000);
+            await runVariant(page, browser, testInfo, 'mic-denied');
+        });
     });
 
     test('model download fails: Retry, never ready, stays Private, no Cloud; fixed → Retry saves a take', async ({ page, browser }, testInfo) => {
