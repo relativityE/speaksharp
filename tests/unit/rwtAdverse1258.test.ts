@@ -90,7 +90,11 @@ describe('guards — the spec, the acceptance map and the product stay in step',
         expect(spec).toContain('await context.setOffline(true);');
         expect(spec).toContain("if (variant === 'download-fails') await context.unroute(MODEL_ASSETS);");
         expect(spec).toContain('else await context.setOffline(false);');
-        expect(spec).toContain("await setSiteMicrophone(page, browser, 'granted');");
+        // #1593 (live case 12 + local probe): the denial is a real NotAllowedError (`=deny`), and allowing the microphone
+        // happens where a person would do it — the same account, in an ordinarily launched browser.
+        expect(spec).toContain("a === '--use-fake-ui-for-media-stream' ? '--use-fake-ui-for-media-stream=deny' : a");
+        expect(spec).toContain('recoveryBrowser = await chromium.launch({ args: rwtLaunchArgs(fixture, { webgpu: false }) });');
+        expect(spec).toContain('await owner.signInOn(allowedPage);');
         expect(spec).not.toMatch(/route\.fulfill|addInitScript/);
     });
 });

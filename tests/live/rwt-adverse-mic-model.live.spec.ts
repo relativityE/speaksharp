@@ -10,7 +10,9 @@
  * requires a fresh release-bound RWT authorization.
  */
 import { createClient } from '@supabase/supabase-js';
-import type { Browser, Page, TestInfo } from '@playwright/test';
+import { chromium, type Browser, type Page, type TestInfo } from '@playwright/test';
+import { routeVercelBypass } from './helpers/deployedLiveTest';
+import { applyRwtIdentity, rwtIdentityFor } from './helpers/rwtBrowserIdentity';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
@@ -130,8 +132,10 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
     const takes: string[] = [];
     let claimed = false;
     const context = page.context();
+    // Mic-denied only: the browser in which the person allows the microphone (see below).
+    let recoveryBrowser: Browser | null = null;
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
-    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite, contexts: () => recoveryBrowser?.contexts() ?? [] });
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `adverse-${variant}`, admin, SERVICE_ROLE);
@@ -158,9 +162,24 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
             receipt.row('blocked microphone is stated truthfully', denied.status, denied.detail,
                 { denialApplied, blockedCopyShown, ...state, mode: await sttMode(page) });
             watch.setForbidRecording(false);
-            await setSiteMicrophone(page, browser, 'granted');
-            await context.grantPermissions(['microphone']);
-            const recovered = await saveRecoveredTake(page, owner.uid, `adverse-${variant}`, takes);
+            // #1593 (local probe, 2026-10-18): only `--use-fake-ui-for-media-stream=deny` makes the browser answer a
+            // truthful NotAllowedError, and that browser can never grant afterwards. Allowing the microphone is therefore
+            // what a person does next: the same account, in a browser that allows it (the harness's ordinary launch).
+            recoveryBrowser = await chromium.launch({ args: rwtLaunchArgs(fixture, { webgpu: false }) });
+            const baseURL = new URL(page.url()).origin;
+            const allowed = await recoveryBrowser.newContext({ baseURL, permissions: ['microphone'] });
+            await routeVercelBypass(allowed, baseURL);
+            const allowedPage = await allowed.newPage();
+            await applyRwtIdentity(allowed, allowedPage, await rwtIdentityFor(recoveryBrowser));
+            tap.attach(allowedPage); generations.attach(allowedPage); observeCloudStt(allowedPage, cloud);
+            watch.setPage(allowedPage);
+            if (!owner.signInOn) throw new Error('the run-owned account cannot sign in on another browser');
+            await owner.signInOn(allowedPage);
+            await allowedPage.goto('/practice');
+            await openProductsItem(allowedPage, 'open-mic');
+            await allowedPage.waitForURL(/\/session/, { timeout: 45_000 });
+            await selectBenchmarkMode(allowedPage, 'private');
+            const recovered = await saveRecoveredTake(allowedPage, owner.uid, `adverse-${variant}`, takes);
             receipt.row('after allowing the microphone a take saves', recovered.status, recovered.detail);
         } else {
             const modelFailures = { afterFault: 0 };
@@ -202,6 +221,7 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
         throw error;
     } finally {
         watch.record(receipt);
+        await recoveryBrowser?.close().catch(() => undefined);
         await context.setOffline(false).catch(() => undefined);
         await context.unroute(MODEL_ASSETS).catch(() => undefined);
         const cloudVerdict = noCloudVerdict(cloud.requests);
@@ -229,15 +249,16 @@ test.describe('RWT — adverse microphone and model states @live', () => {
 
     /**
      * #1593 (live case 12, run 39167876945): `--use-fake-ui-for-media-stream` auto-approves every media request without
-     * consulting the site permission, and the context was created with the microphone already granted — so the CDP
-     * "Blocked" setting never reached `getUserMedia` and the take recorded. This variant alone launches without the
-     * auto-approve flag and without the pre-granted permission; the fake capture DEVICE stays, so once the person allows
-     * the microphone a take still records the fixture.
+     * consulting the site permission, so the CDP "Blocked" setting never reached `getUserMedia` and the take recorded.
+     * Local probe 2026-10-18 (Chromium, same flags): auto-approve → a live track even when denied; no flag → a
+     * NotSupportedError, not a denial; `=deny` → the truthful NotAllowedError a blocked site setting produces. This
+     * variant launches with `=deny` and no pre-granted permission; the recovery runs in an ordinarily launched browser.
      */
     test.describe('mic denied (real permission decision)', () => {
         test.use({
             permissions: [],
-            launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }).filter((a) => a !== '--use-fake-ui-for-media-stream') },
+            launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false })
+                .map((a) => (a === '--use-fake-ui-for-media-stream' ? '--use-fake-ui-for-media-stream=deny' : a)) },
         });
         test('mic denied: stated truthfully, nothing records, no Cloud; allowed → a take saves', async ({ page, browser }, testInfo) => {
             test.setTimeout(1_800_000);
