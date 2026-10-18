@@ -1,8 +1,20 @@
-# #1593 campaign helper: App Dev's read-only integration of the bootstrap contract (correction 2)
+# #1593 campaign helper: App Dev's read-only integration of the bootstrap contract (correction 3)
 
 `collect.mjs` is the **read-only adapter** that feeds the Browser PM's decision table, `../1593-bootstrap/contract.mjs`. The contract is vendored byte-identical from `ecd2c048` (blob `fe5b6c79`) and is **unchanged**; its own 70 tests still pass. The adapter gathers each fact from its real source, asks `assess()` for GO or HOLD, and **prints** the exact dispatch for that case. It never dispatches, writes, deletes, claims, cleans up or mints a receipt. Any fact it cannot prove reaches the contract as missing or dominant, so the contract holds.
 
 This correction answers Sam's operational HOLD on `7e3e6872` (review 1792317800, findings §1–§6) and CLI Dev's 2026-10-18 cross-check. §6 and the cleanup null-count finding are fixed in the maintained specs on PR #1655, which this branch is built on.
+
+## Correction 3 (Sam 1792322163.663469: four reproduced gaps in correction 2)
+1. **Unknown history holds.** `classifyPriorAttempt` exempts only positively identified evidence:
+   - `no_dast`: the single Gate 3 job was skipped;
+   - `non_rwt`: one named non-RWT spec, matching in output and environment;
+   - `read_only`: exactly case 15's spec and grep, both acks empty, no cleanup line;
+   - `rwt_clean`: one verified zero-residue cleanup.
+
+   A missing or ambiguous spec, an environment mismatch, a missing log, or an RWT spec without cleanup proof is `unknown`, and it holds case 1.
+2. **Attempts by their own start time.** The window lists runs back to GitHub's re-run horizon (31 days) and expands each to its attempts via the attempt API. An in-window retry of an older run is counted. An unreadable start time is counted, never dropped. Bootstrap classifies **every** earlier attempt on S, not just the latest, so an earlier attempt's residue can't hide behind a clean retry. An unreadable list leaves the bootstrap unverified.
+3. **Effective inputs are bound.** The attempt's own diagnostic step prints its `env:` block in the job log (verified on rc-gates runs 39076238188 and 39075833843). These must equal the case's expected values exactly: `BASE_URL`, `EXPECTED_RELEASE_SHA` (= run head), `EVIDENCE_SCOPE=diagnostic`, spec, grep, `MODEL_COMPARISON_AUTHORIZATION_FILE=''` (`comparison_cell=none`), `RWT_WRITES_ACK`, `RWT_CANARY_CLAIM_ACK` and `RWT_HUMAN_REFLEX_MS=500`. The receipt's `meta.humanReflexMs` must be 500. Every gate job other than Gate 3, and the comparison authorization, must be `skipped`. A missing key, a repeated key, or a second step block is an error.
+4. **Bridge N/A is explicit.** `readback.journeys` and `readback.missingBindings` must both be arrays and both empty (the receipt always writes both: `rwtJourney.ts` `write()`). An absent field is unknown, never empty.
 
 ## Who judges a receipt: the repository finalizer, not this helper (§1)
 `evaluate.mts` runs `automatedEvaluation()` from `tests/live/helpers/rwtAcceptance.ts`, added in #1655. That is the same `validateReceipt` and readback settlement that `pnpm rwt:finalize` uses, minus the worksheet. Human observations are excluded; they are the PO's human/device acceptance and are never inferred. The rows each suite must carry come from that suite's own `requiredAutomatedRows()` inventory. **No row label is written into the helper.** Before it trusts the evaluator, the helper requires `git diff --quiet S -- tests/live/helpers frontend/src/services/telemetry` (dependency identity).
@@ -39,7 +51,7 @@ The entry's `dominantStop` is true on **any** verification error above. It is al
 
 ## Run
 ```sh
-node --test local-packets/1593-campaign-helper/collect.test.mjs     # 31 tests, no network (needs tsx: node_modules/.bin/tsx or TSX_BIN)
+node --test local-packets/1593-campaign-helper/collect.test.mjs     # 38 tests, no network (needs tsx: node_modules/.bin/tsx or TSX_BIN)
 node --test local-packets/1593-bootstrap/contract.test.mjs          # 70 tests, vendored contract, unchanged
 node local-packets/1593-campaign-helper/collect.mjs --case 1 --authority <authority.json> --ledger <ledger.json> --first-dispatch
 ```
@@ -54,4 +66,4 @@ They also cover:
 - dependency identity;
 - no authority stamping.
 
-Mutating any dominant check, the ledger defaults or the `now` ordering turns the suite red.
+Mutating any dominant check, the ledger defaults or the `now` ordering turns the suite red. The same is true of each correction-3 fix: unknown→read-only, latest-attempt-only, unbound env inputs, unbound receipt reflex, and absent→empty bridge arrays.

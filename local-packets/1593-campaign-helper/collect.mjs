@@ -17,6 +17,10 @@
 //     the authority window opened is accounted for (paginated), active runs of any age are busy, bootstrap reconciliation
 //     is read from the actual earlier runs on S, dependency identity is checked, and `now` is taken after collection.
 //
+// Correction 3 (Sam 1792322163.663469): unknown historical evidence holds (never read-only); every relevant ATTEMPT is
+// accounted by its actual start time and reconciled individually; the attempt's effective inputs are bound from its own
+// step environment and receipt metadata; bridge N/A needs explicitly empty `journeys` and `missingBindings` arrays.
+//
 // Usage (read-only):
 //   node local-packets/1593-campaign-helper/collect.mjs --case <1..15> --authority <authority.json> --ledger <ledger.json> \
 //        [--first-dispatch]   (case 1 only: the operator's explicit statement that this is the campaign's first dispatch)
@@ -46,6 +50,11 @@ export const EVALUATED_TREES = Object.freeze(['tests/live/helpers', 'frontend/sr
 export const CLEANUP_SOURCE = 'tests/live/helpers/runOwnedCleanup.ts';
 export const PRODUCTION_WORKFLOWS = Object.freeze(['deploy-supabase-edge-release.yml', 'canary.yml', 'apply-exact-allowlisted-migration.yml', 'deploy-supabase-migrations.yml']);
 const ACTIVE_STATUSES = Object.freeze(['queued', 'in_progress', 'waiting', 'requested', 'pending']);
+/** GitHub re-runs a workflow run only within 30 days of its creation, so every attempt that can start inside the window
+ * belongs to a run created at most this long before it opened. */
+export const RERUN_HORIZON_MS = 31 * 24 * 60 * 60_000;
+/** The diagnostic Gate 3 step's own header line; its printed `env:` block is the attempt's EFFECTIVE inputs. */
+const DIAGNOSTIC_STEP = '##[group]Run echo "DIAGNOSTIC_SINGLE_SPEC=true"';
 
 /**
  * The 15 selected cases. `suite` is the receipt's own suite id; `readback` says whether the suite DECLARES journey
@@ -161,6 +170,52 @@ export function cleanupFromLog(parsedLog) {
 }
 
 /**
+ * The diagnostic step's printed environment: exactly one step header, then `env:` and `  KEY: value` lines up to its
+ * `##[endgroup]`. Returns null when the step is absent, repeated, or a key repeats — never a partial or default map.
+ */
+export function parseStepEnv(log) {
+    const lines = String(log ?? '').split('\n').map((l) => l.replace(/\r$/, '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''));
+    const strip = (l) => l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z /, '');
+    const starts = lines.map((l, i) => (strip(l) === DIAGNOSTIC_STEP ? i : -1)).filter((i) => i >= 0);
+    if (starts.length !== 1) return null;
+    const env = {};
+    let inEnv = false;
+    for (let i = starts[0] + 1; i < lines.length; i += 1) {
+        const l = strip(lines[i]);
+        if (l === '##[endgroup]') return inEnv ? env : null;
+        if (l === 'env:') { inEnv = true; continue; }
+        const m = inEnv ? /^ {2}([A-Z][A-Z0-9_]*):(?: (.*))?$/.exec(l) : null;
+        if (m) {
+            if (Object.hasOwn(env, m[1])) return null;
+            env[m[1]] = (m[2] ?? '').trimEnd();
+        }
+    }
+    return null;
+}
+
+/** The inputs a case's dispatch must have taken effect with (the printed argv, as the workflow saw them). */
+export function expectedInputs(caseNumber, headSha) {
+    const c = caseFor(caseNumber);
+    const inv = invocationFor(caseNumber);
+    if (!c || !inv) return null;
+    return { BASE_URL, EXPECTED_RELEASE_SHA: headSha, EVIDENCE_SCOPE: 'diagnostic', DIAGNOSTIC_DAST_SPEC: c.spec,
+        DIAGNOSTIC_DAST_GREP: c.grep, MODEL_COMPARISON_AUTHORIZATION_FILE: '', RWT_WRITES_ACK: inv.writesAck,
+        RWT_CANARY_CLAIM_ACK: inv.canaryAck, RWT_HUMAN_REFLEX_MS: String(REFLEX_MS) };
+}
+
+/** Effective inputs: every expected key present EXACTLY with its expected value. Missing or differing → named errors. */
+export function inputMismatches(env, expected) {
+    if (!env) return ['effective_inputs_unreadable'];
+    return Object.entries(expected).filter(([k, v]) => env[k] !== v).map(([k]) => `effective_input_${k.toLowerCase()}_${Object.hasOwn(env, k) ? 'differs' : 'missing'}`);
+}
+
+/** Only Gate 3 may have run: every other gate job (and the comparison authorization) must be skipped. */
+export function otherGatesRan(jobs) {
+    if (!Array.isArray(jobs)) return true;
+    return jobs.some((j) => (/^Gate \d/.test(j?.name ?? '') && j.name !== GATE3_JOB || j?.name === 'Model Comparison Authorization') && j.conclusion !== 'skipped');
+}
+
+/**
  * Verify ONE case's actual run attempt and produce its ledger entry. Pure: every input is an observation the I/O layer
  * read, `evaluation` is the repository finalizer at S on the artifact's receipt (and readback), and `inventory` is the
  * suite's own required rows at S. Every failed check is named in `errors`; any error, and any dominant row, sets
@@ -186,6 +241,9 @@ export function verifyCaseRun({ caseNumber, runId, runAttempt, ledgerCampaignId,
     }
     const gate3 = Array.isArray(jobs) ? jobs.filter((j) => j?.name === GATE3_JOB) : [];
     if (gate3.length !== 1) fail('not_exactly_one_gate3_job');
+    if (otherGatesRan(jobs)) fail('a_gate_other_than_gate3_ran');
+    // Correction 3 §3 — the attempt's EFFECTIVE inputs, from its own step environment, never from source defaults.
+    for (const e of inputMismatches(parseStepEnv(log), expectedInputs(caseNumber, attempt?.head_sha ?? null))) fail(e);
 
     const parsedLog = parseGateLog(log);
     if (parsedLog.specs.length !== 1) fail('not_exactly_one_observed_spec_line');
@@ -204,9 +262,11 @@ export function verifyCaseRun({ caseNumber, runId, runAttempt, ledgerCampaignId,
     const receiptBody = receiptFiles.length === 1 ? parse(receiptFiles[0].text) : null;
     const logBody = parsedLog.receipts.length === 1 ? parse(parsedLog.receipts[0]) : null;
     if (!receiptBody || !logBody || JSON.stringify(receiptBody) !== JSON.stringify(logBody)) fail('artifact_receipt_differs_from_job_log_receipt');
+    if (receiptBody?.meta?.humanReflexMs !== REFLEX_MS) fail('receipt_human_reflex_is_not_the_selected_500');
     const bindings = receiptBody?.readback;
+    // Correction 3 §4 — both arrays must EXIST; an absent field is unknown, never an empty one.
     const bound = Array.isArray(bindings?.journeys) ? bindings.journeys.length : null;
-    const missing = Array.isArray(bindings?.missingBindings) ? bindings.missingBindings.length : 0;
+    const missing = Array.isArray(bindings?.missingBindings) ? bindings.missingBindings.length : null;
     let readbackState;
     if (c.readback === 'declared') {
         if (readbackFiles.length !== 1 || readbackFiles[0].name !== `${c.suite}.readback-verdicts.json`) fail('declared_readback_verdicts_missing_or_ambiguous');
@@ -304,9 +364,44 @@ export function verifyLedger({ ledgerFile, authority, verifiedEntries, windowRun
 }
 
 /**
+ * Correction 3 §1 — what an EARLIER attempt on S did, from its own jobs and log. Only positively identified evidence is
+ * exempt from run-owned cleanup; anything missing, ambiguous or unrecognised is `unknown` and holds.
+ *  - `no_dast`: its single Gate 3 job was skipped (that attempt ran no live spec);
+ *  - `non_rwt`: one diagnostic spec, identical in output and environment, outside `tests/live/rwt-`;
+ *  - `read_only`: exactly case 15's spec and grep with BOTH acks empty and no cleanup line;
+ *  - `rwt_clean` / `rwt_residue`: an RWT run-owned spec whose single verified cleanup proved zero / did not.
+ */
+export function classifyPriorAttempt({ jobs, log }) {
+    const gate3 = Array.isArray(jobs) ? jobs.filter((j) => j?.name === GATE3_JOB) : null;
+    if (!gate3 || gate3.length !== 1) return 'unknown';
+    if (gate3[0].conclusion === 'skipped') return 'no_dast';
+    const parsed = parseGateLog(log);
+    const env = parseStepEnv(log);
+    if (parsed.specs.length !== 1 || !env || env.DIAGNOSTIC_DAST_SPEC !== parsed.specs[0].spec) return 'unknown';
+    const { spec, grep } = parsed.specs[0];
+    if (!spec.startsWith('tests/live/')) return 'unknown';
+    if (!spec.startsWith('tests/live/rwt-')) return 'non_rwt';
+    const c15 = caseFor(15);
+    if (spec === c15.spec && grep === c15.grep && env.RWT_WRITES_ACK === '' && env.RWT_CANARY_CLAIM_ACK === ''
+        && parsed.cleanups.length === 0 && parsed.unparsedCleanup === 0) return 'read_only';
+    const cleanup = cleanupFromLog(parsed);
+    return cleanup.ok ? (cleanup.residue === 0 ? 'rwt_clean' : 'rwt_residue') : 'unknown';
+}
+export const RECONCILED_PRIOR = Object.freeze(['no_dast', 'non_rwt', 'read_only', 'rwt_clean']);
+
+/**
+ * Correction 3 §2 — the attempts that STARTED inside the window, from each attempt's own start time. A run created before
+ * the window can be re-run inside it, so runs are not filtered by creation; an unreadable start time is not dropped.
+ */
+export function attemptsInWindow(attempts, validFrom) {
+    return attempts.filter((a) => { const t = Date.parse(a?.run_started_at ?? ''); return !Number.isFinite(t) || t >= validFrom; })
+        .map((a) => ({ id: a.id, run_attempt: a.run_attempt }));
+}
+
+/**
  * Case 1's campaign-start preflight, every flag from evidence: the operator's explicit first-dispatch statement, no
- * rc-gates run since the window opened, and every earlier RWT run on S reconciled to a verified zero-residue cleanup
- * (or the read-only case). Never a cleanup receipt and never an invented predecessor. Unreadable sources → not verified.
+ * rc-gates attempt started since the window opened, and every earlier ATTEMPT on S positively classified as reconciled
+ * (classifyPriorAttempt). Never a cleanup receipt and never an invented predecessor. Unreadable sources → not verified.
  */
 export function campaignStartPreflight({ authority, explicitFirstDispatch, windowRuns, priorRuns }) {
     const readable = Array.isArray(windowRuns) && Array.isArray(priorRuns);
@@ -314,7 +409,8 @@ export function campaignStartPreflight({ authority, explicitFirstDispatch, windo
         releaseSha: authority.releaseSha, configDigest: authority.configDigest, previousReceipt: null,
         explicitFirstDispatch: explicitFirstDispatch === true,
         noEarlierAttempt: readable && windowRuns.length === 0,
-        priorCampaignCleanupReconciled: readable && priorRuns.every((p) => p && (p.readOnly === true || (p.cleanupOk === true && p.residue === 0))) };
+        // Every earlier ATTEMPT on S, each classified from its own evidence; one unknown or residue holds the campaign.
+        priorCampaignCleanupReconciled: readable && priorRuns.every((p) => RECONCILED_PRIOR.includes(p?.state)) };
 }
 
 /** Freshness is judged at the DECISION, after collection: the observation window starts when observation began. */
@@ -387,10 +483,17 @@ export function activity() {
     };
 }
 
-/** Every rc-gates run ATTEMPT created since the authority window opened (paginated; every attempt of each run). */
+/** Every attempt of a run, each with its OWN start time (attempt API). */
+const attemptsOf = (run) => Array.from({ length: run.run_attempt }, (_, i) => JSON.parse(ghApi(`repos/${REPO}/actions/runs/${run.id}/attempts/${i + 1}`)));
+
+/**
+ * Every rc-gates attempt that STARTED since the authority window opened (paginated). Runs are read back to the re-run
+ * horizon, because a run created before the window can be re-run inside it; a run whose latest start precedes the window
+ * cannot have an attempt inside it.
+ */
 export function campaignWindowRuns(validFrom) {
-    const runs = ghList(`repos/${REPO}/actions/workflows/rc-gates.yml/runs`, { created: `>=${new Date(validFrom).toISOString()}` }, 'workflow_runs');
-    return runs.flatMap((r) => Array.from({ length: r.run_attempt }, (_, i) => ({ id: r.id, run_attempt: i + 1 })));
+    const runs = ghList(`repos/${REPO}/actions/workflows/rc-gates.yml/runs`, { created: `>=${new Date(validFrom - RERUN_HORIZON_MS).toISOString()}` }, 'workflow_runs');
+    return runs.filter((r) => !(Date.parse(r.run_started_at ?? '') < validFrom)).flatMap((r) => attemptsInWindow(attemptsOf(r), validFrom));
 }
 
 /** Read one attempt's facts: attempt metadata, jobs, Gate 3 log, artifacts, and the downloaded receipt/readback files. */
@@ -414,18 +517,18 @@ export function readAttempt(runId, runAttempt) {
     return { attempt, jobs, log, artifacts, files };
 }
 
-/** Earlier rc-gates runs on S, before the window: each must be non-RWT, the read-only case, or a verified zero-residue cleanup. */
+/**
+ * Every EARLIER attempt on S (each attempt of each rc-gates run at S that started before the window), classified from
+ * that attempt's own jobs and Gate 3 log. Attempts inside the window are the window accounting's, not this list's.
+ */
 export function priorRunsOnRelease(releaseSha, validFrom) {
-    const runs = ghList(`repos/${REPO}/actions/workflows/rc-gates.yml/runs`, { head_sha: releaseSha }, 'workflow_runs')
-        .filter((r) => Date.parse(r.created_at) < validFrom);
-    return runs.map((r) => {
-        const jobs = ghList(`repos/${REPO}/actions/runs/${r.id}/attempts/${r.run_attempt}/jobs`, {}, 'jobs').filter((j) => j.name === GATE3_JOB);
-        const parsed = parseGateLog(jobs.length === 1 ? run('gh', ['api', `repos/${REPO}/actions/jobs/${jobs[0].id}/logs`]) : '');
-        const spec = parsed.specs.length === 1 ? parsed.specs[0].spec : null;
-        const rwt = typeof spec === 'string' && spec.startsWith('tests/live/rwt-');
-        const cleanup = cleanupFromLog(parsed);
-        return { runId: String(r.id), rwt, readOnly: !rwt || spec === caseFor(15).spec, cleanupOk: cleanup.ok, residue: cleanup.residue };
-    });
+    const runs = ghList(`repos/${REPO}/actions/workflows/rc-gates.yml/runs`, { head_sha: releaseSha }, 'workflow_runs');
+    return runs.flatMap((r) => attemptsOf(r).filter((a) => Date.parse(a.run_started_at ?? '') < validFrom).map((a) => {
+        const jobs = ghList(`repos/${REPO}/actions/runs/${r.id}/attempts/${a.run_attempt}/jobs`, {}, 'jobs');
+        const gate3 = jobs.filter((j) => j.name === GATE3_JOB);
+        const log = gate3.length === 1 && gate3[0].conclusion !== 'skipped' ? run('gh', ['api', `repos/${REPO}/actions/jobs/${gate3[0].id}/logs`]) : '';
+        return { runId: String(r.id), runAttempt: a.run_attempt, state: classifyPriorAttempt({ jobs, log }) };
+    }));
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────────────────────────────────────────────

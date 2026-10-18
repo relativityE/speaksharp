@@ -8,9 +8,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { assess, CASE_MAXIMA } from '../1593-bootstrap/contract.mjs';
 import {
-    CASES, CANARY_ACK, FRESHNESS_MS, GATE3_JOB, WORKFLOW_PATH, WRITES_ACK, bindingsFromPlaywrightConfig, campaignStartPreflight,
-    classifyActivity, cleanupFromLog, configRecord, dispatchArgv, evaluateWithFinalizer, invocationFor, observationAt, parseGateLog,
-    suiteFacts, verifyCaseRun, verifyLedger,
+    BASE_URL, CASES, CANARY_ACK, FRESHNESS_MS, GATE3_JOB, WORKFLOW_PATH, WRITES_ACK, attemptsInWindow, bindingsFromPlaywrightConfig,
+    campaignStartPreflight, classifyActivity, classifyPriorAttempt, cleanupFromLog, configRecord, dispatchArgv, evaluateWithFinalizer,
+    expectedInputs, invocationFor, observationAt, parseGateLog, parseStepEnv, suiteFacts, verifyCaseRun, verifyLedger,
 } from './collect.mjs';
 
 const S = '18487853bc0d0f117e639fc0477ee6b30a932289';
@@ -52,17 +52,25 @@ function receiptFor(n, { release = S, verdicts = {}, requests, drop = [], suite 
         ...(step === 'coaching request budget' ? { evidence: { browserRequests: requests ?? c.maximum } } : {}) }));
     for (const id of f.human) rows.push({ step: `human: ${id}`, verdict: 'HUMAN', detail: 'pending', evidence: { observationId: id, runbookRow: 'r', passCriterion: 'p', recorded: 'pending' } });
     const declared = c.readback === 'declared';
-    return { suite: suite ?? c.suite, release, meta: { fixtureKind: 'human' }, rows,
+    return { suite: suite ?? c.suite, release, meta: { fixtureKind: 'human', humanReflexMs: 500 }, rows,
         readback: { journeys: declared ? [{ journeyId: `journey-${n}`, stages: ['session_during'] }] : [], reportedJourneyIds: [], missingBindings: [] } };
 }
 const verdictsFor = (n, verdict = 'QUALIFIED', release = S) => ({ suite: CASES[n - 1].suite, release,
     journeys: [{ journeyId: `journey-${n}`, stages: ['session_during'], verdict }], missingBindings: [] });
 
 const ts = (s) => `2026-10-18T10:00:${String(s).padStart(2, '0')}.0000000Z`;
+/** The diagnostic step header and its printed `env:` block, in GitHub's real log format (rc-gates run 39076238188). */
+function envBlock(n, { env = {}, drop = [], head = S } = {}) {
+    const values = { ...expectedInputs(n, head), SUPABASE_URL: 'https://example.supabase.co', ...env };
+    const keys = Object.keys(values).filter((k) => !drop.includes(k));
+    return [`${ts(0)} ##[group]Run echo "DIAGNOSTIC_SINGLE_SPEC=true"`, `${ts(0)} echo "DIAGNOSTIC_SINGLE_SPEC=true"`, `${ts(0)} env:`,
+        ...keys.map((k) => `${ts(0)}   ${k}: ${values[k]}`), `${ts(0)} ##[endgroup]`];
+}
 /** A Gate 3 log in the real format, including the step's own script text (which must never be read as output). */
-function logFor(n, body, { spec, grep, cleanup } = {}) {
+function logFor(n, body, { spec, grep, cleanup, env, drop, noEnv } = {}) {
     const c = CASES[n - 1];
     const lines = [
+        ...(noEnv ? [] : envBlock(n, { env, drop })),
         `${ts(1)} echo "spec=$DIAGNOSTIC_DAST_SPEC grep=\${DIAGNOSTIC_DAST_GREP:-<none>}"`,
         `${ts(2)} spec=${spec ?? c.spec} grep=${grep ?? c.grep}`,
         `${ts(3)} RWT_RECEIPT ${JSON.stringify(body)}`,
@@ -90,7 +98,7 @@ function caseRun(n, o = {}) {
     return verifyCaseRun({
         caseNumber: n, runId, runAttempt, ledgerCampaignId: 'rwt-campaign-1', reviewed: o.reviewed ?? true,
         continuationApproved: o.continuationApproved ?? true,
-        attempt, jobs: o.jobs ?? [{ id: 1, name: GATE3_JOB }, { id: 2, name: 'Gate 1 - Static' }],
+        attempt, jobs: o.jobs ?? GATE_JOBS(),
         log: o.log ?? logFor(n, o.logReceipt ?? body, o.logOpts),
         artifacts: o.artifacts ?? [{ name: `rwt-receipts-attempt-${runAttempt}`, expired: false }],
         files,
@@ -99,6 +107,10 @@ function caseRun(n, o = {}) {
     });
 }
 
+/** The real rc-gates job set (run 39076238188): only Gate 3 runs for a `gate-3-dast` dispatch; the rest are skipped. */
+const GATE_JOBS = (over = {}) => [GATE3_JOB, 'Gate 4 - SCA / Dependency Review', 'Gate 5 - UX Smoke', 'Gate 1 - Product Truth',
+    'Gate 2 - SAST / OWASP Code Review', 'Model Comparison Authorization']
+    .map((name, i) => ({ id: i + 1, name, conclusion: over[name] ?? (name === GATE3_JOB ? 'success' : 'skipped') }));
 const ledgerOf = (entries) => ({ verified: true, campaignId: 'rwt-campaign-1', entries, inFlight: [], unresolvedCleanup: [] });
 const decide = (n, entries, extra = {}) => assess({ caseNumber: n, now: NOW, authority, observation, ledger: ledgerOf(entries),
     bootstrap: null, previousReceipt: entries.at(-1), invocation: invocationFor(n), ...extra });
@@ -182,13 +194,13 @@ test('INTEGRATION: every honest case run verifies with no error, readback settle
 });
 
 test('INTEGRATION case 1 bootstrap: explicit, no earlier attempt, prior runs reconciled → GO; each missing fact holds', () => {
-    const bootstrap = (o = {}) => campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: [], priorRuns: [{ readOnly: false, cleanupOk: true, residue: 0 }], ...o });
+    const bootstrap = (o = {}) => campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: [], priorRuns: [{ state: 'rwt_clean' }, { state: 'no_dast' }], ...o });
     const base = { caseNumber: 1, now: NOW, authority, observation, ledger: ledgerOf([]), previousReceipt: null, invocation: invocationFor(1) };
     assert.equal(assess({ ...base, bootstrap: bootstrap() }).reason, 'explicit_bootstrap');
     assert.equal(assess({ ...base, bootstrap: bootstrap({ explicitFirstDispatch: false }) }).reason, 'bootstrap_missing_or_not_fresh');
     assert.equal(assess({ ...base, bootstrap: bootstrap({ windowRuns: [{ id: 1, run_attempt: 1 }] }) }).reason, 'bootstrap_missing_or_not_fresh');
-    assert.equal(assess({ ...base, bootstrap: bootstrap({ priorRuns: [{ readOnly: false, cleanupOk: false, residue: null }] }) }).reason, 'bootstrap_missing_or_not_fresh');
-    assert.equal(assess({ ...base, bootstrap: bootstrap({ priorRuns: [{ readOnly: false, cleanupOk: true, residue: 1 }] }) }).reason, 'bootstrap_missing_or_not_fresh');
+    assert.equal(assess({ ...base, bootstrap: bootstrap({ priorRuns: [{ state: 'unknown' }] }) }).reason, 'bootstrap_missing_or_not_fresh');
+    assert.equal(assess({ ...base, bootstrap: bootstrap({ priorRuns: [{ state: 'rwt_residue' }] }) }).reason, 'bootstrap_missing_or_not_fresh');
     assert.equal(assess({ ...base, bootstrap: bootstrap({ priorRuns: null }) }).reason, 'bootstrap_missing_or_not_fresh');
 });
 
@@ -238,7 +250,7 @@ test('NEGATIVE run identity: wrong workflow, not a main dispatch, outside the wi
     assert.ok(caseRun(1, { attempt: { path: '.github/workflows/ci.yml' } }).errors.includes('workflow_path_mismatch'));
     assert.ok(caseRun(1, { attempt: { event: 'push' } }).errors.includes('not_a_main_workflow_dispatch'));
     assert.ok(caseRun(1, { attempt: { run_started_at: new Date(authority.validFrom - 1).toISOString() } }).errors.includes('attempt_outside_authority_window'));
-    assert.ok(caseRun(1, { jobs: [{ id: 2, name: 'Gate 1 - Static' }] }).errors.includes('not_exactly_one_gate3_job'));
+    assert.ok(caseRun(1, { jobs: GATE_JOBS().filter((j) => j.name !== GATE3_JOB) }).errors.includes('not_exactly_one_gate3_job'));
     const other = caseRun(1, { receipt: receiptFor(1, { release: OTHER }), readback: verdictsFor(1, 'QUALIFIED', OTHER) });
     assert.ok(other.errors.includes('receipt_release_is_not_the_run_head'));
 });
@@ -382,4 +394,109 @@ test('no authority field is stamped as observed: entry release/config/cleanup sc
     const src = readFileSync('local-packets/1593-campaign-helper/collect.mjs', 'utf8');
     const verify = src.slice(src.indexOf('export function verifyCaseRun'), src.indexOf('export function verifyLedger'));
     assert.doesNotMatch(verify, /authority\./);
+});
+
+// ── Correction 3 regressions (Sam 1792322163.663469): each reproduced counterexample ─────────────────────────────────
+const priorLog = (n, o = {}) => logFor(n, receiptFor(n), o);
+const ranGate3 = GATE_JOBS();
+const skippedGate3 = GATE_JOBS({ [GATE3_JOB]: 'skipped' });
+
+test('C3-1 unknown historical evidence HOLDS: missing, ambiguous or mismatched spec is unknown — never read-only', () => {
+    const noSpec = priorLog(1).split('\n').filter((l) => !/Z spec=/.test(l)).join('\n');
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: noSpec }), 'unknown');
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: `${priorLog(1)}\n${ts(9)} spec=${CASES[1].spec} grep=PO corpus` }), 'unknown');
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: priorLog(1, { env: { DIAGNOSTIC_DAST_SPEC: CASES[14].spec } }) }), 'unknown');
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: priorLog(1, { noEnv: true }) }), 'unknown');
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: '' }), 'unknown');
+    assert.equal(classifyPriorAttempt({ jobs: null, log: priorLog(1) }), 'unknown');
+    // An RWT run-owned spec with no cleanup proof is unknown (Sam's counterexample: it used to read as read-only → GO).
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: priorLog(4, { cleanup: [] }) }), 'unknown');
+    const bootstrap = campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: [], priorRuns: [{ state: classifyPriorAttempt({ jobs: ranGate3, log: noSpec }) }] });
+    assert.equal(assess({ caseNumber: 1, now: NOW, authority, observation, ledger: ledgerOf([]), previousReceipt: null, invocation: invocationFor(1), bootstrap }).reason, 'bootstrap_missing_or_not_fresh');
+});
+
+test('C3-1 only POSITIVELY identified evidence is exempt: skipped Gate 3, a named non-RWT spec, or case 15 exactly with no acks', () => {
+    assert.equal(classifyPriorAttempt({ jobs: skippedGate3, log: '' }), 'no_dast');
+    const nonRwt = priorLog(1, { spec: 'tests/live/stt-switching-contract.live.spec.ts', env: { DIAGNOSTIC_DAST_SPEC: 'tests/live/stt-switching-contract.live.spec.ts' } });
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: nonRwt }), 'non_rwt');
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: priorLog(15) }), 'read_only');
+    // Case 15's spec WITH the run-owned acks is not the read-only case.
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: priorLog(15, { env: { RWT_WRITES_ACK: WRITES_ACK } }) }), 'unknown');
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: priorLog(1) }), 'rwt_clean');
+    assert.equal(classifyPriorAttempt({ jobs: ranGate3, log: priorLog(1, { cleanup: ['cleanup_verified residue=3 tables_verified=23'] }) }), 'rwt_residue');
+});
+
+test('C3-2 attempts are accounted by their OWN start time: an in-window retry of an older run is in; unreadable time is in', () => {
+    const attempts = [
+        { id: 7, run_attempt: 1, run_started_at: new Date(authority.validFrom - 86_400_000).toISOString() },
+        { id: 7, run_attempt: 2, run_started_at: new Date(authority.validFrom + 60_000).toISOString() },
+        { id: 8, run_attempt: 1 },
+    ];
+    assert.deepEqual(attemptsInWindow(attempts, authority.validFrom), [{ id: 7, run_attempt: 2 }, { id: 8, run_attempt: 1 }]);
+    // That retry is then an unaccounted window attempt unless the ledger lists it.
+    assert.deepEqual(verifyLedger({ ledgerFile: ledgerFileOf(0), authority, verifiedEntries: [], windowRuns: attemptsInWindow(attempts, authority.validFrom) }).reasons,
+        ['unaccounted_rc_gates_run_7_attempt_2', 'unaccounted_rc_gates_run_8_attempt_1']);
+    const src = readFileSync('local-packets/1593-campaign-helper/collect.mjs', 'utf8');
+    assert.doesNotMatch(src, /Date\.parse\(r\.created_at\) < validFrom/);
+    assert.match(src, /created: `>=\$\{new Date\(validFrom - RERUN_HORIZON_MS\)/);
+});
+
+test('C3-2 an EARLIER attempt\'s residue is not hidden by a clean latest attempt; incomplete reconciliation holds', () => {
+    const perAttempt = [{ runId: '7', runAttempt: 1, state: classifyPriorAttempt({ jobs: ranGate3, log: priorLog(1, { cleanup: ['cleanup_verified residue=2 tables_verified=23'] }) }) },
+        { runId: '7', runAttempt: 2, state: classifyPriorAttempt({ jobs: ranGate3, log: priorLog(1) }) }];
+    assert.deepEqual(perAttempt.map((p) => p.state), ['rwt_residue', 'rwt_clean']);
+    const base = { caseNumber: 1, now: NOW, authority, observation, ledger: ledgerOf([]), previousReceipt: null, invocation: invocationFor(1) };
+    assert.equal(assess({ ...base, bootstrap: campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: [], priorRuns: perAttempt }) }).reason, 'bootstrap_missing_or_not_fresh');
+    assert.equal(assess({ ...base, bootstrap: campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: [], priorRuns: null }) }).reason, 'bootstrap_missing_or_not_fresh');
+});
+
+test('C3-3 effective inputs are BOUND from the attempt\'s own environment: reflex 1000 against the selected 500 is refused', () => {
+    assert.deepEqual(parseStepEnv(priorLog(1)), { ...expectedInputs(1, S), SUPABASE_URL: 'https://example.supabase.co' });
+    const reflex = caseRun(1, { logOpts: { env: { RWT_HUMAN_REFLEX_MS: '1000' } } });
+    assert.ok(reflex.errors.includes('effective_input_rwt_human_reflex_ms_differs'));
+    assert.equal(heldOn(reflex.entry), 'unfinished_or_dominant_receipt');
+    const meta = receiptFor(1);
+    meta.meta.humanReflexMs = 1000;
+    assert.ok(caseRun(1, { receipt: meta }).errors.includes('receipt_human_reflex_is_not_the_selected_500'));
+    const noMeta = receiptFor(1);
+    delete noMeta.meta.humanReflexMs;
+    assert.ok(caseRun(1, { receipt: noMeta }).errors.includes('receipt_human_reflex_is_not_the_selected_500'));
+    assert.ok(caseRun(1, { logOpts: { drop: ['RWT_HUMAN_REFLEX_MS'] } }).errors.includes('effective_input_rwt_human_reflex_ms_missing'));
+    assert.ok(caseRun(1, { logOpts: { noEnv: true } }).errors.includes('effective_inputs_unreadable'));
+});
+
+test('C3-3 every other selected input is bound too: base URL, release, scope, comparison cell, acks, gate', () => {
+    const cases = [
+        [1, { BASE_URL: 'https://speaksharp-git-x.vercel.app' }, 'effective_input_base_url_differs'],
+        [1, { EXPECTED_RELEASE_SHA: OTHER }, 'effective_input_expected_release_sha_differs'],
+        [1, { EVIDENCE_SCOPE: 'release' }, 'effective_input_evidence_scope_differs'],
+        [1, { MODEL_COMPARISON_AUTHORIZATION_FILE: '/tmp/x.json' }, 'effective_input_model_comparison_authorization_file_differs'],
+        [1, { RWT_CANARY_CLAIM_ACK: '' }, 'effective_input_rwt_canary_claim_ack_differs'],
+        [15, { RWT_WRITES_ACK: WRITES_ACK }, 'effective_input_rwt_writes_ack_differs'],
+        [5, { DIAGNOSTIC_DAST_GREP: 'response lost' }, 'effective_input_diagnostic_dast_grep_differs'],
+    ];
+    for (const [n, env, error] of cases) assert.ok(caseRun(n, { logOpts: { env } }).errors.includes(error), error);
+    assert.equal(expectedInputs(1, S).BASE_URL, BASE_URL);
+    assert.ok(caseRun(1, { jobs: GATE_JOBS({ 'Gate 1 - Product Truth': 'success' }) }).errors.includes('a_gate_other_than_gate3_ran'));
+    assert.ok(caseRun(1, { jobs: GATE_JOBS({ 'Model Comparison Authorization': 'success' }) }).errors.includes('a_gate_other_than_gate3_ran'));
+    // A repeated key or a second diagnostic step is unreadable, never "last one wins".
+    const dup = priorLog(1).replace(`   RWT_HUMAN_REFLEX_MS: 500`, `   RWT_HUMAN_REFLEX_MS: 500\n${ts(0)}   RWT_HUMAN_REFLEX_MS: 1000`);
+    assert.equal(parseStepEnv(dup), null);
+    assert.equal(parseStepEnv(`${priorLog(1)}\n${envBlock(1).join('\n')}`), null);
+});
+
+test('C3-4 bridge N/A needs journeys AND missingBindings to be explicitly empty arrays; absent is unknown', () => {
+    for (const field of ['missingBindings', 'journeys']) {
+        const r = receiptFor(4);
+        delete r.readback[field];
+        const out = caseRun(4, { receipt: r });
+        assert.ok(out.errors.includes('bridge_suite_declares_readback_bindings'), field);
+        assert.equal(decide(5, [...honest(3), out.entry]).reason, 'unfinished_or_dominant_receipt');
+    }
+    const notArray = receiptFor(4);
+    notArray.readback.missingBindings = 'none';
+    assert.ok(caseRun(4, { receipt: notArray }).errors.includes('bridge_suite_declares_readback_bindings'));
+    const listed = receiptFor(4);
+    listed.readback.missingBindings = ['session_during'];
+    assert.ok(caseRun(4, { receipt: listed }).errors.includes('bridge_suite_declares_readback_bindings'));
 });
