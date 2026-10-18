@@ -27,6 +27,8 @@
 // Usage (read-only):
 //   node local-packets/1593-campaign-helper/collect.mjs --case <1..15> --authority <authority.json> --ledger <ledger.json> \
 //        [--first-dispatch]   (case 1 only: the operator's explicit statement that this is the campaign's first dispatch)
+//   node local-packets/1593-campaign-helper/collect.mjs --final --authority <authority.json> --ledger <ledger.json>
+//        (after case 15: terminal reconciliation of all 15 actual entries; never prints a dispatch)
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -305,6 +307,9 @@ export function verifyCaseRun({ caseNumber, runId, runAttempt, ledgerCampaignId,
     }
     if (rows.some((r) => r.verdict === 'EXTERNAL')) dominant.push('stop:provider_outage');
     if (c.readback === 'declared' && verdictOf(RECEIVED_ROW) !== 'PASS') dominant.push('stop:readback_not_qualified');
+    // Sam (e0651330 disposition): case 15's maintained-account readiness is unproven until its own receipt proves it — a
+    // missing credential or empty history is a HOLD of the campaign (identity rows above), never a reviewable outcome.
+    if (c.readOnly && verdictOf('returning history') !== 'PASS') dominant.push('stop:returning_history_unproven');
     const budget = rows.filter((r) => r.step === BUDGET_ROW);
     const requests = budget.length === 1 && budget[0].verdict === 'PASS' && Number.isSafeInteger(budget[0].browserRequests)
         && budget[0].browserRequests >= 0 ? budget[0].browserRequests : null;
@@ -334,6 +339,49 @@ export function verifyCaseRun({ caseNumber, runId, runAttempt, ledgerCampaignId,
         readback: readbackState, identityRows: identity, dominantReasons: dominant,
     };
     return { entry, errors };
+}
+
+/**
+ * Terminal reconciliation (Sam, e0651330 disposition) — after case 15 no following case triggers the contract, so the
+ * campaign closes only through this check over all 15 actual entries. It applies the contract's own per-entry rules
+ * (identity, order, terminal, reviewed, readback, dominance, continuation, per-case and total request budget, and the
+ * run-owned cleanup of cases 1–14) to the full ledger, plus case 15's read-only shape. Anything missing holds.
+ */
+export function finalReconciliation({ authority: a, ledger: l }) {
+    const reasons = [];
+    const hold = (why) => { reasons.push(why); };
+    if (!a || a.verified !== true) hold('authority_missing');
+    if (!l || l.verified !== true) hold('ledger_unverified');
+    if (!Array.isArray(l?.inFlight) || l.inFlight.length || !Array.isArray(l?.unresolvedCleanup) || l.unresolvedCleanup.length) hold('unresolved_attempt_or_cleanup');
+    const entries = Array.isArray(l?.entries) ? l.entries : [];
+    if (entries.length !== CASES.length) hold('not_all_15_cases_recorded');
+    let used = 0;
+    const identities = new Set();
+    entries.forEach((r, i) => {
+        const n = i + 1;
+        const c = caseFor(n);
+        if (!r || r.caseNumber !== n || r.campaignId !== a?.campaignId || r.releaseSha !== a?.releaseSha || r.configDigest !== a?.configDigest
+            || !/^\d+$/.test(String(r.runId ?? '')) || !Number.isSafeInteger(r.runAttempt) || !/^[a-f0-9]{64}$/.test(String(r.receiptDigest ?? ''))) {
+            hold(`case_${n}_identity_or_order`); return;
+        }
+        const id = `${r.runId}/${r.runAttempt}`;
+        if (identities.has(id)) hold(`case_${n}_duplicate_run_identity`);
+        identities.add(id);
+        if (r.terminal !== true || r.reviewed !== true || r.mandatoryReadbackComplete !== true || r.dominantStop !== false) hold(`case_${n}_unfinished_or_dominant`);
+        if (r.outcome !== 'PASS' && r.continuationApproved !== true) hold(`case_${n}_ordinary_outcome_needs_review`);
+        if (!Number.isSafeInteger(r.requests) || r.requests < 0 || r.requests > c.maximum) hold(`case_${n}_unknown_or_exceeded_requests`);
+        else used += r.requests;
+        if (c.readOnly) { if (r.cleanup !== null) hold(`case_${n}_read_only_case_has_cleanup`); }
+        else {
+            const k = r.cleanup;
+            if (!k || k.kind !== 'run_owned_cleanup' || k.verified !== true || k.residue !== 0 || k.ownerScope !== 'this_run_only'
+                || k.scopeDigest !== a?.cleanupScopeDigest || k.runId !== r.runId || k.runAttempt !== r.runAttempt
+                || k.campaignId !== r.campaignId || k.releaseSha !== r.releaseSha) hold(`case_${n}_cleanup_missing_mismatched_or_not_zero`);
+        }
+    });
+    if (used > (a?.budget ?? 0)) hold('campaign_request_budget_exceeded');
+    const allPass = entries.length === CASES.length && entries.every((r) => r?.outcome === 'PASS');
+    return { complete: reasons.length === 0, outcome: reasons.length ? 'HOLD' : allPass ? 'PASS' : 'PASS_WITH_REVIEWED_CONTINUATIONS', used, reasons };
 }
 
 /**
@@ -603,6 +651,13 @@ export async function main(argv = process.argv.slice(2)) {
     const observation = observationAt({ startedAt, mainSha, servedSha: served, configDigest: atMain.config.digest,
         bindingsOk: atMain.bindings.ok, dependencyIdentical: dependencyIdentity(authority.releaseSha), activity: act });
 
+    if (argv.includes('--final')) {
+        // Terminal reconciliation after case 15 — no dispatch is ever printed in this mode.
+        const final = finalReconciliation({ authority, ledger });
+        process.stdout.write(`${JSON.stringify({ final, ledgerReasons: ledgerCheck.reasons, caseErrors,
+            dominant: Object.fromEntries(verified.filter((e) => e?.dominantStop).map((e) => [e.caseNumber, e.dominantReasons])) }, null, 2)}\n`);
+        return final.complete ? 0 : 1;
+    }
     const now = Date.now(); // after every read: an observation or authority that expired during collection holds
     const decision = assess({ caseNumber: n, now, authority, observation, ledger, bootstrap,
         previousReceipt: n === 1 ? null : verified.at(-1) ?? undefined, invocation: invocationFor(n) });

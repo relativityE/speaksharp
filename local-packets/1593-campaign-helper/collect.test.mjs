@@ -10,7 +10,7 @@ import { assess, CASE_MAXIMA } from '../1593-bootstrap/contract.mjs';
 import {
     BASE_URL, CASES, CANARY_ACK, FRESHNESS_MS, GATE3_JOB, WORKFLOW_PATH, WRITES_ACK, attemptsInWindow, bindingsFromPlaywrightConfig,
     campaignStartPreflight, classifyActivity, classifyPriorAttempt, cleanupFromLog, configRecord, dispatchArgv, evaluateWithFinalizer,
-    expectedInputs, invocationFor, observationAt, parseGateLog, parseStepEnv, priorAttemptStates, suiteFacts, verifyCaseRun, verifyLedger,
+    expectedInputs, finalReconciliation, invocationFor, observationAt, parseGateLog, parseStepEnv, priorAttemptStates, suiteFacts, verifyCaseRun, verifyLedger,
     windowAttempts,
 } from './collect.mjs';
 
@@ -534,4 +534,47 @@ test('C4 an unreadable SUMMARY time expands the run; an unreadable attempt insid
     // Readable attempts are placed exactly: before → classified; inside → the window's, not the prior list's.
     const prior = priorAttemptStates({ runs, attemptsOf, classifyAttempt: () => 'rwt_clean', validFrom: authority.validFrom });
     assert.deepEqual(prior.map((p) => [p.runAttempt, p.state]), [[1, 'rwt_clean'], [2, 'unknown_attempt_time']]);
+});
+
+// ── Terminal reconciliation (Sam, e0651330 disposition) ────────────────────────────────────────────────────────────
+const fullLedger = (entries) => ({ verified: true, campaignId: 'rwt-campaign-1', entries, inFlight: [], unresolvedCleanup: [] });
+
+test('FINAL: all 15 honest entries close the campaign PASS; nothing after case 15 is needed to trigger it', () => {
+    const r = finalReconciliation({ authority, ledger: fullLedger(honest(15)) });
+    assert.deepEqual(r, { complete: true, outcome: 'PASS', used: 30, reasons: [] });
+});
+
+test('FINAL case 15: failed sign-in is FAIL and dominant; missing credential or empty history HOLDs — none closes the campaign', () => {
+    const signInFail = caseRun(15, { receipt: receiptFor(15, { verdicts: { 'returning-user sign-in': 'FAIL' } }) }).entry;
+    assert.equal(signInFail.outcome, 'FAIL');
+    const noCredential = caseRun(15, { receipt: receiptFor(15, { verdicts: { 'returning-user sign-in': 'HOLD' } }) }).entry;
+    const noHistory = caseRun(15, { receipt: receiptFor(15, { verdicts: { 'returning history': 'HOLD' } }), continuationApproved: true }).entry;
+    assert.ok(noHistory.dominantReasons.includes('stop:returning_history_unproven'));
+    for (const e15 of [signInFail, noCredential, noHistory]) {
+        assert.equal(e15.dominantStop, true);
+        const r = finalReconciliation({ authority, ledger: fullLedger([...honest(14), e15]) });
+        assert.equal(r.complete, false);
+        assert.ok(r.reasons.includes('case_15_unfinished_or_dominant'));
+    }
+});
+
+test('FINAL holds on a missing case 15, an unverified ledger, an in-flight attempt, a residue, or an ordinary HOLD without review', () => {
+    assert.ok(finalReconciliation({ authority, ledger: fullLedger(honest(14)) }).reasons.includes('not_all_15_cases_recorded'));
+    assert.ok(finalReconciliation({ authority, ledger: { ...fullLedger(honest(15)), verified: false } }).reasons.includes('ledger_unverified'));
+    assert.ok(finalReconciliation({ authority, ledger: { ...fullLedger(honest(15)), inFlight: [{}] } }).reasons.includes('unresolved_attempt_or_cleanup'));
+    const entries = honest(15);
+    entries[3] = caseRun(4, { logOpts: { cleanup: ['cleanup_verified residue=1 tables_verified=23'] } }).entry;
+    assert.ok(finalReconciliation({ authority, ledger: fullLedger(entries) }).reasons.includes('case_4_cleanup_missing_mismatched_or_not_zero'));
+    const unreviewed = honest(15);
+    unreviewed[0] = caseRun(1, { receipt: receiptFor(1, { verdicts: { 'coaching length': 'HOLD' } }), continuationApproved: false }).entry;
+    assert.ok(finalReconciliation({ authority, ledger: fullLedger(unreviewed) }).reasons.includes('case_1_ordinary_outcome_needs_review'));
+    const reviewed = honest(15);
+    reviewed[0] = caseRun(1, { receipt: receiptFor(1, { verdicts: { 'coaching length': 'HOLD' } }), continuationApproved: true }).entry;
+    assert.equal(finalReconciliation({ authority, ledger: fullLedger(reviewed) }).outcome, 'PASS_WITH_REVIEWED_CONTINUATIONS');
+});
+
+test('FINAL mode never prints a dispatch', () => {
+    const src = readFileSync('local-packets/1593-campaign-helper/collect.mjs', 'utf8');
+    const block = src.slice(src.indexOf("if (argv.includes('--final'))"), src.indexOf('const now = Date.now(); // after every read'));
+    assert.doesNotMatch(block, /dispatchArgv/);
 });

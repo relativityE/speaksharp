@@ -19,6 +19,25 @@ This correction answers Sam's operational HOLD on `7e3e6872` (review 1792317800,
 ## Correction 4 (Sam, review of e1680001)
 **An unreadable attempt time is never dropped, and a run summary never skips inspection.** `windowAttempts` reads **every** attempt of every rc-gates run in the 31-day re-run horizon through the attempt API (9 runs and 9 attempts on 2026-10-18). An attempt with an unreadable start counts as a window attempt, so it is unaccounted and the ledger holds. `priorAttemptStates` classifies every non-window attempt on S, and an unreadable start becomes `unknown_attempt_time`, which holds case 1. Sam's exact counterexample (an older summary skipped by the window path plus an unreadable attempt dropped by the prior path, giving GO) is regression C4. Either path alone now holds it. The PM's mocked repro (`918a35c5`), run through the actual I/O functions, now yields `windowRuns=[123/1]`, `priorRuns=[unknown_attempt_time]` and HOLD `bootstrap_missing_or_not_fresh`.
 
+## Terminal reconciliation (Sam, e0651330 disposition)
+Case 15 runs last and no later case triggers the contract, so the campaign closes only through `--final`:
+```sh
+node local-packets/1593-campaign-helper/collect.mjs --final --authority <authority.json> --ledger <ledger.json>
+```
+`finalReconciliation` applies the contract's own per-entry rules to all 15 actual entries:
+- identity and order, terminal, reviewed, readback complete, not dominant;
+- each case's request maximum and the 30 total;
+- verified zero-residue run-owned cleanup for cases 1–14, and no cleanup for case 15;
+- verified ledger, nothing in flight or unresolved.
+
+It returns `PASS`, or `PASS_WITH_REVIEWED_CONTINUATIONS` when ordinary HOLDs were reviewed; anything else is `HOLD` with named reasons. It never prints a dispatch.
+
+**Case-15 readiness stays explicitly unproven until its own receipt proves it.**
+- A failed sign-in is `FAIL` (dominant).
+- A missing credential (sign-in `HOLD`) or an empty history (`returning history` not PASS → `stop:returning_history_unproven`) is a dominant HOLD.
+
+None of these can be continued past, and the campaign does not close.
+
 ## Who judges a receipt: the repository finalizer, not this helper (§1)
 `evaluate.mts` runs `automatedEvaluation()` from `tests/live/helpers/rwtAcceptance.ts`, added in #1655. That is the same `validateReceipt` and readback settlement that `pnpm rwt:finalize` uses, minus the worksheet. Human observations are excluded; they are the PO's human/device acceptance and are never inferred. The rows each suite must carry come from that suite's own `requiredAutomatedRows()` inventory. **No row label is written into the helper.** Before it trusts the evaluator, the helper requires `git diff --quiet S -- tests/live/helpers frontend/src/services/telemetry` (dependency identity).
 
@@ -54,7 +73,7 @@ The entry's `dominantStop` is true on **any** verification error above. It is al
 
 ## Run
 ```sh
-node --test local-packets/1593-campaign-helper/collect.test.mjs     # 40 tests, no network (needs tsx: node_modules/.bin/tsx or TSX_BIN)
+node --test local-packets/1593-campaign-helper/collect.test.mjs     # 44 tests, no network (needs tsx: node_modules/.bin/tsx or TSX_BIN)
 node --test local-packets/1593-bootstrap/contract.test.mjs          # 70 tests, vendored contract, unchanged
 node local-packets/1593-campaign-helper/collect.mjs --case 1 --authority <authority.json> --ledger <ledger.json> --first-dispatch
 ```
