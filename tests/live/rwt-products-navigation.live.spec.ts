@@ -38,6 +38,8 @@ import {
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { RWT_BROWSER_IDENTITY_ARGS } from './helpers/rwtBrowserIdentity';
 import { openProductsItem, type ProductsMenuItem } from './helpers/productsMenu';
+import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
+import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 
 const SUITE = 'returning-user-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -78,6 +80,10 @@ test.describe('RWT — returning user and Products navigation @live', () => {
         tap.attach(page);
         const entitlement = new EntitlementTap();
         entitlement.attach(page);
+        // #1593 (CLI Dev 2026-10-18): case 15's budget maximum is 0, so the campaign needs an OBSERVED zero, not an absent
+        // row. The same request-boundary tap the recording journeys use counts every coaching request this page sends.
+        const generations = new CoachingGenerationTap();
+        generations.attach(page);
         await installMicAcquisitionCounter(page);
         await suppressPageSnapshot(testInfo);
 
@@ -206,6 +212,8 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             if (historyUnproven) throw new Error('HOLD returning history: the returning-user account has no saved session, so returning history is unproven');
         } finally {
             await tap.awaitObserved(page, { journey_step: 1 });
+            await generations.settle();
+            coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
             receipt.row('journey_step sent', tap.sent('journey_step').length > 0 ? 'PASS' : 'HOLD',
                 'journey_step left the page (sent, not yet received)', { sent: tap.sent('journey_step').length });
             // A maintained account is never given the canary claim, so its telemetry is not readback-eligible here.
