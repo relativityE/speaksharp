@@ -40,6 +40,11 @@ export interface WatchProfile {
     readonly allowSaveFailed?: boolean;
     /** A failed model acquisition or a failed Start is part of the scenario (adverse model download). */
     readonly allowModelFailure?: boolean;
+    /**
+     * Codex P1 r4309261413: a failed Start — and only that — is part of the scenario (a denied microphone fails the Start
+     * through the ordinary start-error path: `recording_start_failed` + a start measured `failed`). Model failures stay fatal.
+     */
+    readonly allowStartFailure?: boolean;
 }
 
 export interface WatchSignal {
@@ -70,7 +75,10 @@ export const WATCH_PROFILES: Readonly<Record<string, WatchProfile>> = Object.fre
     'abandon-and-two-tabs-close-tab': { allowStartRefused: true, allowFailureCodes: [...LEASE_CODES, 'aborted'] },
     'abandon-and-two-tabs-take-over': { allowStartRefused: true, allowFailureCodes: [...LEASE_CODES, 'aborted'] },
     // The denied microphone must fail the Start truthfully; RECORDING during that step trips (`setForbidRecording`).
-    'adverse-mic-model-mic-denied': { allowFailureCodes: ['mic_permission', 'mic_not_allowed', 'mic_not_readable', 'start_failed'] },
+    'adverse-mic-model-mic-denied': {
+        allowFailureCodes: ['mic_permission', 'mic_not_allowed', 'mic_not_readable', 'start_failed'],
+        allowStartFailure: true,
+    },
     'adverse-mic-model-download-fails': { allowModelFailure: true, allowFailureCodes: ['start_model_unavailable', 'engine_error', 'start_failed', 'timeout'] },
     'adverse-mic-model-offline-mid-download': {
         allowModelFailure: true, allowStartRefused: true,
@@ -109,9 +117,13 @@ export function fatalSignalOf(e: Pick<SentEvent, 'event' | 'watch'>, profile: Wa
             return f.outcome === 'failed' && !profile.allowSaveFailed ? 'save_failed' : null;
         case 'session_start_latency_measured':
             if (f.outcome === 'refused') return profile.allowStartRefused ? null : 'start_refused';
-            return f.outcome === 'failed' && !profile.allowModelFailure ? 'start_failed' : null;
+            return f.outcome === 'failed' && !(profile.allowModelFailure || profile.allowStartFailure) ? 'start_failed' : null;
         case 'recording_start_failed':
-            return profile.allowModelFailure ? null : 'start_failed';
+            return profile.allowModelFailure || profile.allowStartFailure ? null : 'start_failed';
+        case 'recording_intent':
+            // Codex P2 r4309261417: a usage-limit, stale-client or lock/lease refusal returns before any start measurement,
+            // so the intent's own closed outcome is the only signal that the press was refused.
+            return f.intent_outcome?.startsWith('blocked_') && !profile.allowStartRefused ? 'start_refused' : null;
         case 'private_model_acquisition_failure':
             return profile.allowModelFailure ? null : 'model_failed';
         default:

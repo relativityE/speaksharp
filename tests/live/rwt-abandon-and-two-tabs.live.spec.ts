@@ -296,6 +296,8 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // server lease is involved. It must be refused truthfully and start no engine; A keeps recording.
             sameBrowserTab = await tabA.context().newPage();
             observe(sameBrowserTab, tap, generations, cloud);
+            // Codex P1 r4309261415: the long waits of this phase run on the second tab, so its DOM is what can stall.
+            watch.setPage(sameBrowserTab);
             await installMicAcquisitionCounter(sameBrowserTab);
             await openOpenMic(sameBrowserTab);
             await waitForPrivateEngineReady(sameBrowserTab, 600_000);
@@ -306,6 +308,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const local = secondTabBlockedVerdict({ refusalCopyShown: localRefusal, tabB: refusedLocal, tabA: stillA });
             receipt.row('same-browser tab is refused', local.status, local.detail,
                 { refusalCopyShown: localRefusal, ...flatTabState('tabB', refusedLocal), ...flatTabState('tabA', stillA) });
+            watch.setPage(tabA);
             await sameBrowserTab.close();
             sameBrowserTab = null;
 
@@ -314,6 +317,8 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             otherDevice = await browser.newContext({ baseURL, permissions: ['microphone'] });
             await routeVercelBypass(otherDevice, baseURL);
             const deviceB = await otherDevice.newPage();
+            // From here every long wait (sign-in, the cold press, the refusal, the take-over recording) runs on device B.
+            watch.setPage(deviceB);
             await applyRwtIdentity(otherDevice, deviceB, await rwtIdentityFor(browser));
             observe(deviceB, tap, generations, cloud);
             await installMicAcquisitionCounter(deviceB);

@@ -38,6 +38,23 @@ describe('fatalSignalOf — an unexpected failure, refusal or forbidden recordin
         expect(fatalSignalOf(ev('private_model_acquisition_failure'), { allowModelFailure: true })).toBeNull();
     });
 
+    it('Codex P1 r4309261413: mic-denied expects its own failed Start, but a model failure stays fatal', () => {
+        const micDenied = { allowStartFailure: true };
+        expect(fatalSignalOf(ev('recording_start_failed', { runtime_state: 'INITIATING' }), micDenied)).toBeNull();
+        expect(fatalSignalOf(ev('session_start_latency_measured', { outcome: 'failed' }), micDenied)).toBeNull();
+        expect(fatalSignalOf(ev('private_model_acquisition_failure'), micDenied)).toBe('model_failed');
+        expect(fatalSignalOf(ev('session_start_latency_measured', { outcome: 'refused' }), micDenied)).toBe('start_refused');
+    });
+
+    it('Codex P2 r4309261417: a blocked intent (usage limit, stale client, lock/lease) is a refused Start', () => {
+        for (const outcome of ['blocked_usage_limit', 'blocked_stale_client', 'blocked_lock_held']) {
+            expect(fatalSignalOf(ev('recording_intent', { intent_kind: 'start', intent_outcome: outcome }), NONE)).toBe('start_refused');
+            expect(fatalSignalOf(ev('recording_intent', { intent_kind: 'start', intent_outcome: outcome }), { allowStartRefused: true })).toBeNull();
+        }
+        expect(fatalSignalOf(ev('recording_intent', { intent_kind: 'start', intent_outcome: 'accepted' }), NONE)).toBeNull();
+        expect(fatalSignalOf(ev('recording_intent', { intent_kind: 'start', intent_outcome: 'suppressed_in_flight' }), NONE)).toBeNull();
+    });
+
     it('unwatched events never trip', () => {
         expect(fatalSignalOf(ev('journey_step', { step: 'cta_click' }), NONE)).toBeNull();
         expect(fatalSignalOf(ev('ai_coaching_diagnostic', { outcome: 'failed' }), NONE)).toBeNull();
@@ -155,6 +172,13 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
             expect(armed, `${f} arms the watchdog`).toBeGreaterThan(0);
             expect((src.match(/watch\.record\(receipt\)/g) ?? []).length, `${f} records every armed watchdog`).toBe(armed);
         }
+    });
+
+    it('Codex P1 r4309261415: the two-device journey points the watchdog at the page each phase waits on', () => {
+        const src = read('tests/live/rwt-abandon-and-two-tabs.live.spec.ts');
+        const order = ['watch.setPage(sameBrowserTab);', 'watch.setPage(tabA);', 'watch.setPage(deviceB);'].map((m) => src.indexOf(m));
+        expect(order.every((i) => i > 0), 'each retarget is present').toBe(true);
+        expect(order, 'in phase order').toEqual([...order].sort((a, b) => a - b));
     });
 
     it('a spec that deletes its run-owned account in the test body also has the afterEach backstop (live case 12)', () => {
