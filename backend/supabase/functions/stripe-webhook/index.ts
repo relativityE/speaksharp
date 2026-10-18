@@ -186,11 +186,19 @@ export async function handler(
       p_user_id: bindUserId,
       p_event_created: typeof event.created === 'number' ? event.created : null,
     };
-    const { data, error } = await supabase.rpc(checkoutOperation
+    let usedAtomicCheckout = Boolean(checkoutOperation);
+    let { data, error } = await supabase.rpc(checkoutOperation
       ? 'apply_account_checkout_snapshot' : 'apply_stripe_subscription_snapshot', {
       ...snapshotArgs,
       ...(checkoutOperation ? { p_operation_id: checkoutOperation, p_session_id: event.data.object.id } : {}),
     });
+    // Edge publishes separately from schema. PGRST202 means this function/signature
+    // was not found, so no call executed. Preserve the old checkout path until
+    // the successor is present; never replay an ambiguous/failed mutation here.
+    if (checkoutOperation && error?.code === 'PGRST202') {
+      ({ data, error } = await supabase.rpc('apply_stripe_subscription_snapshot', snapshotArgs));
+      usedAtomicCheckout = false;
+    }
 
     if (error || (data && data.success === false)) {
       console.error(`[Stripe Webhook] snapshot application failed for ${event.id}:`, error ?? data?.error);
@@ -200,7 +208,7 @@ export async function handler(
     // Reconcile the reserved checkout only AFTER its canonical billing identity
     // has attached. Retry even for an already-processed snapshot: a prior process
     // may have stopped between these two durable operations.
-    if (event.type === 'checkout.session.completed' && bindUserId && !checkoutOperation) {
+    if (event.type === 'checkout.session.completed' && bindUserId && !usedAtomicCheckout) {
       const session = event.data.object;
       const settled = await supabase.rpc('settle_account_checkout', {
         p_user_id:bindUserId,p_session_id:session.id,p_customer_id:customerId,

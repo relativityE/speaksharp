@@ -27,7 +27,7 @@ BEGIN
 END $$;
 SET LOCAL ROLE service_role;
 DO $$ DECLARE u uuid:='c5555555-5555-4555-8555-555555555555'; other_user uuid:='c6666666-6666-4666-8666-666666666666';
-  op uuid; result jsonb; first_status jsonb;
+  op uuid; other_op uuid; result jsonb; first_status jsonb;
 BEGIN
   PERFORM public.issue_account_closure_pending_token(u,repeat('5',64));
   IF public.inspect_account_closure_pending(u) IS NOT NULL THEN RAISE EXCEPTION 'email created pending'; END IF;
@@ -40,13 +40,19 @@ BEGIN
   BEGIN
     PERFORM public.begin_account_checkout(u); RAISE EXCEPTION 'pending admitted checkout';
   EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'billing operation pending' THEN RAISE; END IF; END;
-  PERFORM public.begin_account_checkout(other_user);
+  other_op:=public.begin_account_checkout(other_user);
   PERFORM public.record_account_checkout(u,op,'cs_pending_proof');
   IF public.confirm_account_checkout_reuse(u,op,'cs_pending_proof') THEN RAISE EXCEPTION 'pending reused checkout'; END IF;
   result:=public.apply_account_checkout_snapshot(u,op,'cs_pending_proof','evt_pending_proof','sub_pending_proof','cus_pending_proof','active',true);
   IF result->>'success' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'admitted snapshot did not settle'; END IF;
   IF public.inspect_account_closure_pending(u)->>'checkoutPending' IS DISTINCT FROM '0'
     THEN RAISE EXCEPTION 'settlement remains pending'; END IF;
+  result:=public.apply_account_checkout_snapshot(u,op,'cs_pending_proof','evt_pending_terminal','sub_pending_proof','cus_pending_proof','canceled',false);
+  IF result->>'success' IS DISTINCT FROM 'true' OR result->>'entitlement' IS DISTINCT FROM 'free'
+    THEN RAISE EXCEPTION 'pending terminal redelivery refused revocation'; END IF;
+  PERFORM public.apply_account_checkout_snapshot(u,op,'cs_pending_proof','evt_pending_terminal','sub_pending_proof','cus_pending_proof','canceled',false);
+  PERFORM public.apply_account_checkout_snapshot(other_user,other_op,'cs_other_proof','evt_other_active','sub_other_proof','cus_other_proof','active',true);
+  PERFORM public.apply_account_checkout_snapshot(other_user,other_op,'cs_other_proof','evt_other_terminal','sub_other_proof','cus_other_proof','canceled',false);
   PERFORM public.finish_account_closure_attempt(u,(first_status->>'requestId')::uuid);
   IF public.inspect_account_closure_pending(u)->>'phase' IS DISTINCT FROM 'pending' THEN RAISE EXCEPTION 'finish reopened pending'; END IF;
 END $$;
@@ -65,6 +71,10 @@ END $$;
 RESET ROLE;
 DO $$ BEGIN
   IF EXISTS(SELECT 1 FROM public.account_checkout_snapshot_permits) THEN RAISE EXCEPTION 'permit residue'; END IF;
+  IF EXISTS(SELECT 1 FROM public.user_profiles WHERE id IN ('c5555555-5555-4555-8555-555555555555','c6666666-6666-4666-8666-666666666666')
+    AND (subscription_status<>'free' OR stripe_subscription_id IS NOT NULL))
+    OR (SELECT count(*) FROM public.stripe_subscription_tombstones WHERE subscription_id IN ('sub_pending_proof','sub_other_proof'))<>2
+    THEN RAISE EXCEPTION 'terminal revocation rolled back'; END IF;
   IF EXISTS(SELECT 1 FROM public.account_billing_coordination WHERE checkout_workers_drained OR evidence_reference IS NOT NULL)
     THEN RAISE EXCEPTION 'proof enabled destruction'; END IF;
 END $$;

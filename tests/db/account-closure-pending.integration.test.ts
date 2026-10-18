@@ -75,6 +75,28 @@ describe('inactive pending/checkout successor on the actual enforcement chain', 
     expect((await complete(op)).rows[0].result).toMatchObject({ success: true });
     expect(await state()).toMatchObject({ phase: 'pending', checkoutPending: 0 });
   });
+  it.each([
+    [false,'canceled'],[true,'canceled'],[false,'incomplete_expired'],[true,'incomplete_expired'],
+  ] as const)('terminal checkout redelivery commits canonical revocation and idempotent settlement (pending=%s, terminal=%s)', async (confirmed, terminal) => {
+    await issue(); const op = await begin(); await complete(op);
+    if (confirmed) await pending();
+    const result = await service("SELECT apply_account_checkout_snapshot($1,$2,'cs_a','evt_terminal','sub_a','cus_a',$3,false) AS result", [A, op, terminal]);
+    expect(result.rows[0].result).toMatchObject({ success: true });
+    expect((await db.query('SELECT subscription_status,stripe_customer_id,stripe_subscription_id FROM user_profiles WHERE id=$1', [A])).rows)
+      .toEqual([{ subscription_status: 'free', stripe_customer_id: 'cus_a', stripe_subscription_id: null }]);
+    expect((await db.query('SELECT customer_id,terminal_status FROM stripe_subscription_tombstones WHERE subscription_id=$1', ['sub_a'])).rows)
+      .toEqual([{ customer_id: 'cus_a', terminal_status: terminal }]);
+    expect((await db.query('SELECT phase FROM account_checkout_operations WHERE operation_id=$1', [op])).rows).toEqual([{ phase: 'settled' }]);
+    const again = await service("SELECT apply_account_checkout_snapshot($1,$2,'cs_a','evt_terminal','sub_a','cus_a',$3,false) AS result", [A, op, terminal]);
+    expect(again.rows[0].result).toMatchObject({ success: true });
+    const pendingStatus = expect.objectContaining({ phase: 'pending', checkoutPending: 0 });
+    const expected = confirmed ? pendingStatus : null;
+    expect(await state()).toEqual(expected);
+    await expect(complete(op, A, 'cus_wrong')).rejects.toThrow('checkout ownership mismatch');
+    await expect(complete(op)).rejects.toThrow('checkout snapshot refused');
+    expect((await db.query('SELECT subscription_status,stripe_subscription_id FROM user_profiles WHERE id=$1', [A])).rows)
+      .toEqual([{ subscription_status: 'free', stripe_subscription_id: null }]);
+  });
   it('a provider-proven parameter rejection settles admitted issuance without allowing a replacement', async () => {
     await issue(); const op = await begin(); await pending();
     expect((await service("SELECT reconcile_rejected_account_checkout($1,$2,'req_pending','parameter_missing','line_items') AS settled", [A, op])).rows)

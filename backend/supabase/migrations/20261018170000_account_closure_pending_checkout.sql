@@ -137,8 +137,13 @@ BEGIN
     WHERE user_id=p_user_id AND operation_id=p_operation_id AND closure_request_id=f.request_id
       AND session_id=p_session_id AND completed_customer_id=p_customer_id AND completed_subscription_id=p_subscription_id)
     THEN RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
-  IF NOT EXISTS(SELECT 1 FROM public.user_profiles WHERE id=p_user_id AND stripe_customer_id=p_customer_id
-    AND stripe_subscription_id=p_subscription_id) THEN RAISE EXCEPTION 'checkout not attached'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.user_profiles p WHERE p.id=p_user_id AND p.stripe_customer_id=p_customer_id
+    AND (p.stripe_subscription_id=p_subscription_id OR (p.stripe_subscription_id IS NULL AND p.subscription_status='free'
+      AND EXISTS(SELECT 1 FROM public.stripe_subscription_tombstones t WHERE t.subscription_id=p_subscription_id
+        AND t.customer_id=p_customer_id AND t.terminal_status IN ('canceled','incomplete_expired'))
+      AND EXISTS(SELECT 1 FROM public.account_checkout_operations o WHERE o.user_id=p_user_id AND o.operation_id=p_operation_id
+        AND o.session_id=p_session_id AND o.completed_customer_id=p_customer_id AND o.completed_subscription_id=p_subscription_id))))
+    THEN RAISE EXCEPTION 'checkout not attached'; END IF;
   IF p_operation_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.account_checkout_operations
     WHERE user_id=p_user_id AND operation_id=p_operation_id AND
       (session_id=p_session_id OR (session_id IS NULL AND phase='issuing')))
@@ -222,7 +227,7 @@ CREATE FUNCTION public.apply_account_checkout_snapshot(
   p_status text,p_has_approved_price boolean,p_cancel_at_period_end boolean DEFAULT false,
   p_current_period_end bigint DEFAULT NULL,p_event_created bigint DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE f public.account_billing_fences; o public.account_checkout_operations; result jsonb;
+DECLARE f public.account_billing_fences; o public.account_checkout_operations; result jsonb; snapshot_user uuid:=p_user_id;
 BEGIN
   PERFORM 1 FROM public.user_profiles WHERE id=p_user_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'account profile unavailable'; END IF;
@@ -235,13 +240,26 @@ BEGIN
     OR (o.completed_subscription_id IS NOT NULL AND o.completed_subscription_id IS DISTINCT FROM p_subscription_id)
     OR f.phase='closing' OR (f.phase='pending' AND o.closure_request_id IS DISTINCT FROM f.request_id)
     THEN RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
+  IF lower(btrim(p_status)) IN ('canceled','incomplete_expired') THEN
+    -- A hydrated terminal redelivery is not a first activation. Resolve through
+    -- the canonical existing-binding/tombstone path, after verifying that the
+    -- same account owns that identity. Never let a canceled duplicate roll back
+    -- revocation merely because the canonical writer correctly clears the sub.
+    IF NOT EXISTS(SELECT 1 FROM public.user_profiles p WHERE p.id=p_user_id AND p.stripe_customer_id=p_customer_id
+      AND (p.stripe_subscription_id=p_subscription_id OR (p.stripe_subscription_id IS NULL
+        AND o.completed_customer_id=p_customer_id AND o.completed_subscription_id=p_subscription_id
+        AND EXISTS(SELECT 1 FROM public.stripe_subscription_tombstones t WHERE t.subscription_id=p_subscription_id
+          AND t.customer_id=p_customer_id AND t.terminal_status IN ('canceled','incomplete_expired')))))
+      THEN RAISE EXCEPTION 'checkout ownership mismatch'; END IF;
+    snapshot_user:=NULL;
+  END IF;
   UPDATE public.account_checkout_operations SET session_id=p_session_id,phase=CASE WHEN phase='settled' THEN phase ELSE 'open' END,
     completed_customer_id=p_customer_id,completed_subscription_id=p_subscription_id WHERE operation_id=o.operation_id;
   IF f.phase='pending' THEN
     INSERT INTO public.account_checkout_snapshot_permits VALUES(p_user_id,o.operation_id,f.request_id,p_customer_id,p_subscription_id,txid_current());
   END IF;
   result:=public.apply_stripe_subscription_snapshot(p_event_id,p_subscription_id,p_customer_id,p_status,
-    p_has_approved_price,p_cancel_at_period_end,p_current_period_end,p_user_id,p_event_created);
+    p_has_approved_price,p_cancel_at_period_end,p_current_period_end,snapshot_user,p_event_created);
   IF result->>'success' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'checkout snapshot refused'; END IF;
   PERFORM public.settle_account_checkout(p_user_id,p_session_id,p_customer_id,p_subscription_id,p_operation_id);
   DELETE FROM public.account_checkout_snapshot_permits WHERE user_id=p_user_id AND transaction_id=txid_current();
