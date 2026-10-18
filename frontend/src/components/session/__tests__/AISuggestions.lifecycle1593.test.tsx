@@ -250,6 +250,45 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
         expect(lifecycle().some((e) => e.end_reason === 'unmounted')).toBe(false);
     });
 
+    it('Sam #1657: a TRANSPORT failure (FunctionsFetchError, no response) is `transport_failed`, never `response_received` — retry semantics kept', async () => {
+        invoke
+            .mockResolvedValueOnce({ data: null, error: { name: 'FunctionsFetchError', message: 'network' } })
+            .mockResolvedValueOnce({ data: null, error: { name: 'FunctionsFetchError', message: 'network' } });
+        render(<AISuggestions transcript="hello" canReview sessionId="s-transport" retryBackoffMs={5} />);
+        await waitFor(() => expect(lifecycle().some((e) => e.stage === 'ended')).toBe(true));
+        const [id] = requestIds();
+        expect(stagesOf(id)).toEqual(['requested', 'transport_failed', 'requested', 'transport_failed', 'ended:failed']);
+        expect(invoke).toHaveBeenCalledTimes(2);
+    });
+
+    it('CONTROL: an HTTP ERROR response (FunctionsHttpError) WAS received — `response_received`, then the failure', async () => {
+        const httpError = { name: 'FunctionsHttpError', message: 'Edge Function returned a non-2xx status code', context: { status: 503, clone() { return this; }, json: async () => ({}) } };
+        invoke.mockResolvedValue({ data: null, error: httpError });
+        render(<AISuggestions transcript="hello" canReview sessionId="s-http" retryBackoffMs={5} />);
+        await waitFor(() => expect(lifecycle().some((e) => e.stage === 'ended')).toBe(true));
+        const [id] = requestIds();
+        expect(stagesOf(id).filter((s) => s === 'response_received').length).toBeGreaterThanOrEqual(1);
+        expect(stagesOf(id)).not.toContain('transport_failed');
+    });
+
+    it('Sam #1657: a rapid repeat then route exit aborts only the CURRENT request — superseded A settles with no abort claim', async () => {
+        let signalA: AbortSignal | undefined;
+        let signalB: AbortSignal | undefined;
+        invoke.mockImplementationOnce((_n: string, o: { signal?: AbortSignal }) => { signalA = o.signal; return new Promise(() => {}); });
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(signalA).toBeDefined());
+        const [idA] = requestIds();
+        invoke.mockImplementationOnce((_n: string, o: { signal?: AbortSignal }) => { signalB = o.signal; return new Promise(() => {}); });
+        view.rerender(<AISuggestions transcript="take b" canReview sessionId="take-b" />);
+        await waitFor(() => expect(signalB).toBeDefined());
+        const idB = requestIds().find((id) => id !== idA);
+        view.unmount();
+        await waitFor(() => expect(signalB!.aborted).toBe(true));
+        expect(signalA!.aborted).toBe(false);
+        expect(forRequest(idA).filter((e) => e.stage === 'ended').map((e) => [e.end_reason, e.client_aborted])).toEqual([['superseded_session', undefined]]);
+        expect(forRequest(idB).filter((e) => e.stage === 'ended').map((e) => [e.end_reason, e.client_aborted])).toEqual([['unmounted', true]]);
+    });
+
     it('BELOW THE FOLD: ready is reported when the review is available; rendered only when the card is seen', async () => {
         invoke.mockResolvedValue({ data: { suggestions: VALID_A }, error: null });
         render(<AISuggestions transcript="hello" canReview sessionId="s-fold" />);
@@ -287,6 +326,19 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
             expect(text).not.toContain('11111111-1111-4111-8111-111111111111');
             expect(text).not.toContain('Take A');
             expect(text).not.toContain('secret transcript');
+        }
+    });
+});
+
+describe('origin fields accept the identity formats journeyIdentity actually mints (#1593, Sam #1657 review)', () => {
+    it('a UUID and the no-crypto fallback `j-<base36>-<base36>` both survive the allowlist; prose and queries do not', () => {
+        for (const id of ['11111111-1111-4111-8111-111111111111', 'j-lz3k9q2a-4f9xk2m1qz']) {
+            const { props, dropped } = projectEventProps('ai_coaching_lifecycle', { stage: 'requested', elapsed_ms: 0, product: 'open_mic', origin_journey_id: id, origin_boot_id: id, origin_attempt_id: id });
+            expect(dropped).toEqual([]);
+            expect([props.origin_journey_id, props.origin_boot_id, props.origin_attempt_id]).toEqual([id, id, id]);
+        }
+        for (const bad of ['has space', 'x?y=1', 'a'.repeat(49)]) {
+            expect(projectEventProps('ai_coaching_lifecycle', { stage: 'requested', origin_attempt_id: bad }).dropped).toContain('origin_attempt_id');
         }
     });
 });

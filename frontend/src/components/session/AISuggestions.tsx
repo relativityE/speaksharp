@@ -562,6 +562,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    * network abort). Deferred one tick and re-checked, so StrictMode's setup → cleanup → setup replay (same session,
    * mounted again) never reports a false end.
    */
+  /*
+   * WHAT A ROUTE EXIT CANCELS, stated exactly (Sam, #1657 review): only the CURRENT lifecycle's live invoke is aborted —
+   * including one the watchdog already reported as `timeout`. A request superseded earlier by a session change (a rapid
+   * repeat) is deliberately NOT aborted: the PO allows accepted work to settle, and its lifecycle already ended
+   * `superseded_*` with no abort claim. `client_aborted` is reported only on the `unmounted` end of a request whose wait
+   * was actually aborted; nothing ever claims the server stopped.
+   */
   useEffect(() => () => {
     const lc = lifecycleRef.current;
     if (!lc) return;
@@ -662,7 +669,11 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
         if (lifecycle.watchdog) { clearTimeout(lifecycle.watchdog); lifecycle.watchdog = null; }
         lifecycle.abort = null; // settled: nothing is in flight any more, so a later route exit aborts nothing
-        lifecycleStage(lifecycle, 'response_received');
+        // Sam (#1657 review): a response is RECEIVED only when one arrived. An HTTP error response (FunctionsHttpError /
+        // FunctionsRelayError) is a received response; a FunctionsFetchError means the browser got no response at all.
+        // Same definition the failure copy uses: a transport failure with no HTTP status reached no verdict at all.
+        const noResponse = Boolean(invokeError) && isTransportFailure(invokeError) && errorStatus(invokeError) === null;
+        lifecycleStage(lifecycle, noResponse ? 'transport_failed' : 'response_received');
         serverDiagnostic = await readServerDiagnostic(data);
 
         if (invokeError) {

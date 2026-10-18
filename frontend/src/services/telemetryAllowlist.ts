@@ -119,7 +119,9 @@ const enumOf = (values: readonly string[]): FieldRule => ({ kind: 'enum', values
 
 /** #1593 — the coaching request lifecycle's closed vocabularies (practiceLoopTelemetry's producer types mirror them). */
 export const COACHING_LIFECYCLE_STAGES = Object.freeze([
-    'requested', 'response_received', 'response_parsed', 'persisted', 'ready', 'rendered', 'ended',
+    // `response_received` only when a response actually arrived (an HTTP error response counts); `transport_failed` when
+    // the attempt got no response at all (Sam, #1657 review: a FunctionsFetchError is not a received response).
+    'requested', 'response_received', 'transport_failed', 'response_parsed', 'persisted', 'ready', 'rendered', 'ended',
 ] as const);
 /**
  * Why a lifecycle ended. `superseded_session`: the user moved to another session; `superseded_request`: a newer request
@@ -689,9 +691,11 @@ export const EVENT_SCHEMAS = Object.freeze({
         // `ended: unmounted` only: the browser's wait was aborted on route exit. It never claims the server stopped.
         client_aborted: { kind: 'bool' } as FieldRule,
         elapsed_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
-        origin_journey_id: uuid,
-        origin_boot_id: uuid,
-        origin_attempt_id: uuid,
+        // Bounded tokens, not `uuid`: journeyIdentity mints a UUID, or `j-<base36>-<base36>` where crypto is absent
+        // (Sam, #1657 review) — a uuid rule silently dropped all three origin fields in that fallback.
+        origin_journey_id: slug(48),
+        origin_boot_id: slug(48),
+        origin_attempt_id: slug(48),
         product: enumOf(['open_mic', 'focus_points', 'unknown']),
     },
     // #1258 — a content-free request/attempt record. The opaque ids join the server diagnostic to the feedback row;
