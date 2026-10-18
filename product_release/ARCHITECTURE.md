@@ -11,8 +11,10 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Currentized 15 Sep 2026.** The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. The remaining owners are #1471/#1476 for durable progress/reconciliation, #1473 for automatic review and structured failure handling, #1472 for filler-evidence completeness, #1304/#1390 for comparable **v2/v4** authority, with #1263 Moonshine deferred until after RWT or MVP, and #1474 for the full G10 presentation. Newest-one retention remains the approved target, not a claim of Production activation; #1452 must close before activation. Historical newest-two migrations remain immutable provenance.
+> **Currentized 15 Sep 2026.** The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. The remaining owners are #1471/#1476 for durable progress/reconciliation, #1473 for automatic review and structured failure handling, #1472 for filler-evidence completeness, and #1474 for the full G10 presentation. Newest-one retention remains the approved target, not a claim of Production activation; #1452 must close before activation. Historical newest-two migrations remain immutable provenance.
 <!-- /pm-currentization:2026-09-15 -->
+
+**Current model phase — supersedes the earlier RWT/MVP comparison prerequisite.** Private v2 may complete MVP. Candidate evaluation and the proposed primary/fallback transition remain post-MVP under #1304/#1565 and the [accepted plan](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6234300811), reusing #1567/#1568; Moonshine evaluation remains deferred. The current selected model still needs full useful product journeys and applicable device evidence. Single-producer take locking, truthful provenance and separately evidenced Product Owner promotion remain architectural boundaries; this document grants no runtime or activation authority.
 
 # SpeakSharp Architecture (v1)
 

@@ -11,8 +11,10 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. Release evidence must compare **v2 and v4** under one corpus/identity/word-count/filler-completeness/WER contract, validating v4 as provisional primary against v2 as fallback. **Moonshine is deferred until after RWT or MVP and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
+> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. **Moonshine evaluation remains deferred and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
 <!-- /pm-currentization:2026-09-15 -->
+
+**Current model phase — supersedes the earlier RWT/MVP comparison prerequisite.** Private v2 may complete MVP. Candidate evaluation and the proposed primary/fallback transition are post-MVP under the [accepted #1565 plan](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6234300811), reusing #1567/#1568. A future comparison must retain one corpus/identity/word-count/filler-completeness/WER contract and comparable failure, performance and device evidence before explicit promotion; it is not a current MVP gate. Current-model full useful Open Mic, full and partial Focus Points, real-device acceptance, truthful attribution and one producer per take remain required. No research run or model activation is authorized here.
 
 # SpeakSharp Quality (v1)
 
