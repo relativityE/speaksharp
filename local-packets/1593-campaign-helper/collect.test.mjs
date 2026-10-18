@@ -508,14 +508,21 @@ test('C4 an older run summary with an UNREADABLE attempt time is not dropped by 
     const runs = [{ id: 901, run_attempt: 1, run_started_at: before }];
     const attemptsOf = () => [{ id: 901, run_attempt: 1 }]; // the attempt's own start time is absent
     const classifyAttempt = () => 'rwt_clean';
-    // Window path: the readable older summary is a valid shortcut (that run has no attempt inside the window)...
-    assert.deepEqual(windowAttempts({ runs, attemptsOf, validFrom: authority.validFrom }), []);
-    // ...so the prior path must carry the unreadable attempt, as unknown — never filtered out.
+    // BOTH paths inspect the attempt itself — the older summary never skips it — and both hold on it.
+    const win = windowAttempts({ runs, attemptsOf, validFrom: authority.validFrom });
+    assert.deepEqual(win, [{ id: 901, run_attempt: 1 }]);
     const prior = priorAttemptStates({ runs, attemptsOf, classifyAttempt, validFrom: authority.validFrom });
     assert.deepEqual(prior, [{ runId: '901', runAttempt: 1, state: 'unknown_attempt_time' }]);
-    const bootstrap = campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: [], priorRuns: prior });
-    assert.equal(bootstrap.priorCampaignCleanupReconciled, false);
+    const bootstrap = campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: win, priorRuns: prior });
+    assert.deepEqual([bootstrap.noEarlierAttempt, bootstrap.priorCampaignCleanupReconciled], [false, false]);
     assert.equal(assess({ caseNumber: 1, now: NOW, authority, observation, ledger: ledgerOf([]), previousReceipt: null, invocation: invocationFor(1), bootstrap }).reason, 'bootstrap_missing_or_not_fresh');
+    // Each path alone is sufficient to hold.
+    for (const [w, p] of [[win, []], [[], prior]]) {
+        const b = campaignStartPreflight({ authority, explicitFirstDispatch: true, windowRuns: w, priorRuns: p });
+        assert.equal(assess({ caseNumber: 1, now: NOW, authority, observation, ledger: ledgerOf([]), previousReceipt: null, invocation: invocationFor(1), bootstrap: b }).eligible, false);
+    }
+    // A readable older summary with readable older attempts is placed exactly: no window attempt.
+    assert.deepEqual(windowAttempts({ runs, attemptsOf: () => [{ id: 901, run_attempt: 1, run_started_at: before }], validFrom: authority.validFrom }), []);
 });
 
 test('C4 an unreadable SUMMARY time expands the run; an unreadable attempt inside it is a window attempt (unaccounted → held)', () => {
