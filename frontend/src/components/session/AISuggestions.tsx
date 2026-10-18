@@ -574,12 +574,20 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   useEffect(() => () => {
     const lc = lifecycleRef.current;
     if (!lc) return;
+    // #1593 (Sam RETURN on 7b76c257, Browser PM counterexamples): the route is read HERE, at the teardown boundary, not at
+    // the deferred tick. Sampling it later could not preserve event order: an exit followed by an immediate return looked
+    // like an in-page unmount (the live request was never aborted), and a Practice-again unmount followed by an immediate
+    // exit looked like a route exit (the superseded take was aborted). Whatever happens to the URL after this teardown
+    // belongs to the next lifecycle, not this one.
+    const leftRoute = typeof window === 'undefined' || window.location.pathname !== mountedPathRef.current;
     setTimeout(() => {
       // #1593 (live RWT case 1, run 39166041750): an UNMOUNT is not a route exit. Practice again replaces the after-state
       // review with the recording state on the SAME page, which unmounts this component — and aborting there cancelled the
       // interrupted take's accepted request (Edge `request_cancelled`, its coaching never persisted), the opposite of the PO
-      // rule. Only leaving the page this review was mounted on aborts; an in-page unmount is a superseded session.
-      const leftRoute = typeof window === 'undefined' || window.location.pathname !== mountedPathRef.current;
+      // rule. Only leaving the page this review was mounted on aborts. Any teardown that keeps the person on that page —
+      // Practice again, or a loading/error/profile boundary re-rendering it — ends this lifecycle `superseded_session`
+      // without an abort: the accepted request may settle (the PO's superseded-A policy), and its late answer is discarded
+      // here because nothing is mounted to show it.
       if (!mountedRef.current && !leftRoute) {
         endLifecycle(lc, 'superseded_session');
       } else if (!mountedRef.current) {

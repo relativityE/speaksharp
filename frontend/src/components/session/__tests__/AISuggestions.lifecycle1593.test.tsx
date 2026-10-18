@@ -384,3 +384,50 @@ describe('#1593 (live RWT case 1, run 39166041750) — an in-page unmount is NOT
         expect(forRequest(id).filter((e) => e.stage === 'ended').map((e) => [e.end_reason, e.client_aborted])).toEqual([['unmounted', true]]);
     });
 });
+
+/**
+ * #1593 — Sam's RETURN on 7b76c257, from the Browser PM's executed counterexamples. The route was sampled at the deferred
+ * tick, so whatever the URL did between the teardown and that tick decided the outcome. Each sequence below changes the
+ * URL in exactly that window; the outcome must follow the route AT TEARDOWN.
+ */
+describe('#1593 RETURN — the route is read at the teardown boundary, not at the deferred tick', () => {
+    it('FAIL1: exit, then an immediate return before the deferred tick — the live request is still aborted (unmounted)', async () => {
+        let signal: AbortSignal | undefined;
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return new Promise(() => {}); });
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        setPath('/analytics');
+        view.unmount();
+        setPath('/session'); // back before the deferred callback runs
+        await waitFor(() => expect(signal!.aborted).toBe(true));
+        expect(forRequest(id).filter((e) => e.stage === 'ended').map((e) => [e.end_reason, e.client_aborted])).toEqual([['unmounted', true]]);
+    });
+
+    it('FAIL2: Practice again unmounts the review on /session, then an immediate exit — the superseded take is NOT aborted', async () => {
+        let signal: AbortSignal | undefined;
+        const answer = deferred<unknown>();
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return answer.promise; });
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        view.unmount(); // the recording state replaces the review — same page
+        setPath('/analytics'); // the person leaves before the deferred callback runs
+        await waitFor(() => expect(stagesOf(id)).toContain('ended:superseded_session'));
+        expect(signal!.aborted, 'the superseded take keeps its accepted request').toBe(false);
+        expect(forRequest(id).find((e) => e.stage === 'ended')).not.toHaveProperty('client_aborted');
+        expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual(['ended:superseded_session']);
+    });
+
+    it('STRICTMODE replay still never ends or aborts the automatic request, whatever the URL does afterwards', async () => {
+        let signal: AbortSignal | undefined;
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return new Promise(() => {}); });
+        render(<React.StrictMode><AISuggestions transcript="take a" canReview sessionId="take-a" /></React.StrictMode>);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        setPath('/analytics');
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+        expect(signal!.aborted).toBe(false);
+        expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual([]);
+    });
+});
