@@ -31,3 +31,19 @@ operation were performed in this follow-up. Preserve OPEN/UNKNOWN: the original
 trace or a naturally captured failing trace is still needed to distinguish an
 early Escape from a valid-ready dismissal failure. Existing passing diagnostics
 do not close that requirement.
+
+## Natural current CI observation (20:18 UTC)
+
+Inspected an already completed standard PR run, not a requested rerun:
+[CI39161147960, shard2 job117774973261](https://github.com/relativityE/speaksharp/actions/runs/39161147960/job/117774973261)
+for #1660 head `1acf0d1dbe306f6e50c9875151a239baa34afd12`, based on main7163f00d.
+The job reported48 passed and no flaky test. Its uploaded artifact12148883025
+has SHA256 `22b8fef65b0b20412c1b25c0ae676caceac6c2b3ca508639a5bfc2fd5421d45e`.
+The blob report identifies test `products-menu-back-to-back.e2e.spec.ts:12`,
+"Practice → Open Mic → Focus Points setup → Open Mic, each through the header
+Products menu", with one result:passed, retry0,3540ms, no errors. Synthetic CI
+merge build commit is `1f6f311042fd2d489563dbd17e5461c2fc042ba4`.
+
+This supplies one verified naturally passing observation on a newer source,
+and no failing trace. It does not reproduce, explain or repair the historical
+Escape/header interception. The investigation remains OPEN/UNKNOWN.
