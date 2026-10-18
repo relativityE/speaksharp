@@ -3,7 +3,7 @@
 **Status:** Unvalidated financial-planning artifact  
 **As of:** 2026-10-12  
 **Workbook:** `SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx`  
-**SHA-256:** `3c08c02b1820a4678eb894a358bf874fed69737e8f1ff7f5a7f323c1ab83f582`  
+**SHA-256:** `0be91eb36743ff3260b651fe03fff039b01c4cff140618ce5b9ad3ba89e17575`
 **Supersedes:** `FINANCIAL_MODEL_REVIEW_2026-09-05.md` and its workbook, which are kept unchanged
 as the prior point-in-time record.
 
@@ -141,6 +141,33 @@ The thinking cost is unknown and is not treated as negligible. Measurement is de
 #1259/#1491. No pricing, cohort-size or `thinking_level` change is assigned.
 
 ## Verification performed
+
+### Status-control correction — 18 October 2026
+
+Sam's bounded review at #1599 comment6251940867 reproduced text in `Assumptions!B33`
+causing calculation errors while the model status still said PASS. `Checks!A18` now
+requires all 27 expected checks to say `OK`. Its existing link to `Key!C62` is unchanged.
+Only that formula changed; assumptions, pricing scenarios, layout and every other
+workbook package entry are preserved from source `764890c3` (prior workbook hash
+`3c08c02b1820a4678eb894a358bf874fed69737e8f1ff7f5a7f323c1ab83f582`).
+
+Native LibreOffice verification: 16 controls PASS across 20 recalculations. Default
+results retain 1,517 formulas, zero errors and PASS. Text B33 reproduces the original
+false PASS and changes both corrected status locations to FAIL. Blank, error,
+unrecognized and FAIL check statuses cannot pass. Swapped/equal-sum duplicate/blank
+months, cap below the paying base and a two-month trial remain FAIL. The $20, $40
+and Exclude tool selections preserve every calculated output; an openpyxl
+save/recalculate round-trip preserves the same results. Native recalculation is
+LibreOffice evidence; Microsoft Excel was not independently exercised.
+
+Artifact Tool authored the formula. Its full export normalizes unrelated style
+metadata, so the authored formula was transferred into the original package to
+preserve all unrelated content and native features. Changed status views were rendered
+before and after the correction. Executable local controls are preserved under
+`local-packets/1599-model-status-control/`. This correction does not change pricing,
+billing or release policy.
+
+### Prior workbook validation at source 764890c3
 
 - LibreOffice recalculation: 1,517 formulas, 0 errors; all checks `OK`; `MODEL STATUS: PASS`.
 - Price Sensitivity ties to `Forecast 12M` and `Unit Economics` (`Checks!F25:F30`).
