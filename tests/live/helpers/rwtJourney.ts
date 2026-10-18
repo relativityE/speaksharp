@@ -1395,6 +1395,18 @@ export interface PracticeAgainEvidence {
 }
 /** The save take's sub-steps, in order: mic ready → Start pressed → recording confirmed → Stop pressed → review shown. */
 export type PracticeSaveTakeStep = 'mic_ready' | 'start' | 'recording_started' | 'stop' | 'review';
+/**
+ * #1593 — the saved take's identity as the page reports it NOW (`data-session-persisted-id` / `data-session-persisted`).
+ * Read after the persistence wait; `saveTakeNewSession` is null while no id is reported.
+ */
+export async function savedTakeIdentity(
+    page: Pick<Page, 'evaluate'>, previousSessionId: string | null,
+): Promise<{ savedSessionId: string | null; saveTakePersisted: boolean; saveTakeNewSession: boolean | null }> {
+    const savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+    const saveTakePersisted = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted') === 'true');
+    return { savedSessionId, saveTakePersisted, saveTakeNewSession: savedSessionId !== null ? savedSessionId !== previousSessionId : null };
+}
+
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
@@ -1467,6 +1479,11 @@ export async function practiceAgainEvidence(
             .then(() => Date.now()).catch(() => null);
         ev.stopToSaveMs = stopClickedAt !== null && savedAt !== null ? savedAt - stopClickedAt : null;
         savedAtForGate = savedAt;
+        // #1593 (Sam case-1 diagnosis, run 39136771332): the identity read above is a snapshot taken when the review
+        // appeared — BEFORE persistence (`saveTakePersisted:false` there while the take saved 7.9 s later). Re-read it after
+        // the bounded persistence wait, so downstream readers (the two-take coaching read, product markers) bind the take
+        // that was actually saved, never a stale pre-save value.
+        Object.assign(ev, await savedTakeIdentity(page, sessionId));
     } catch {
         ev.reviewReached = false;
         ev.saveTakeFailedStep = step;

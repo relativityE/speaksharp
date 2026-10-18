@@ -50,7 +50,7 @@ describe('CoachingGenerationTap.settle — every sent exchange, bounded (#1474)'
         // The second answer arrives 40 ms AFTER settle starts — the old settle had already returned by then.
         setTimeout(() => page.emit('response', answer(second, 1)), 40);
         const settled = await tap.settle(500);
-        expect(settled).toEqual({ unanswered: 0, bodyPending: 0 });
+        expect(settled).toEqual({ unanswered: 0, bodyPending: 0, inFlight: 0 });
         expect(tap.exchanges.map((e) => [e.sent.sessionId, e.outcome])).toEqual([['take-1', 'answered'], ['take-2', 'answered']]);
         const receipt = receiptRows();
         coachingRequestBudgetRow(receipt, tap, { maximum: 2, oneRequestPerSession: ['take-1', 'take-2'] });
@@ -69,7 +69,7 @@ describe('CoachingGenerationTap.settle — every sent exchange, bounded (#1474)'
         const started = Date.now();
         const settled = await tap.settle(60);
         expect(Date.now() - started).toBeGreaterThanOrEqual(55);
-        expect(settled).toEqual({ unanswered: 1, bodyPending: 0 });
+        expect(settled).toEqual({ unanswered: 1, bodyPending: 0, inFlight: 0 });
         const unanswered = tap.exchanges.find((e) => e.sent.sessionId === 'take-2');
         expect(unanswered).toMatchObject({ outcome: 'unanswered', status: null, diagnostics: null });
         const receipt = receiptRows();
@@ -99,10 +99,10 @@ describe('CoachingGenerationTap.settle — every sent exchange, bounded (#1474)'
         const stuck = coachingRequest('take-1');
         page.emit('request', stuck);
         page.emit('response', { request: () => stuck, status: () => 200, json: () => new Promise(() => undefined) });
-        expect(await tap.settle(40)).toEqual({ unanswered: 0, bodyPending: 1 });
+        expect(await tap.settle(40)).toEqual({ unanswered: 0, bodyPending: 1, inFlight: 0 });
         expect(tap.exchanges[0]).toMatchObject({ outcome: 'body_pending', status: 200, diagnostics: null });
         const started = Date.now();
-        expect(await tap.settle(5_000)).toEqual({ unanswered: 0, bodyPending: 0 });
+        expect(await tap.settle(5_000)).toEqual({ unanswered: 0, bodyPending: 0, inFlight: 0 });
         expect(Date.now() - started).toBeLessThan(500);
         expect(tap.exchanges).toHaveLength(1);
     });

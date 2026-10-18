@@ -12,6 +12,7 @@
  * Public output is one receipt row of closed codes, the per-take prompt-binding verdicts and the artifact SHA-256.
  * Transcript, prompt, coaching text, identifiers and the response-only session-binding hash never leave the artifact.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -374,6 +375,17 @@ export async function coachingPromptBindingRow(input: {
  * attempts are now bounded TWICE: in aggregate by `maximum × EDGE_MAX_PROVIDER_ATTEMPTS`, AND per request by
  * `EDGE_MAX_PROVIDER_ATTEMPTS`, so a request over the server cap can never hide behind another request's underspend.
  */
+const sha = (v: string | null): string => (v ? createHash('sha256').update(v, 'utf8').digest('hex') : '-');
+const n = (v: number | null | undefined): string => (Number.isFinite(v) ? String(v) : '-');
+/**
+ * #1593 — one record per exchange, in arrival order: `outcome|status|sentAt|recordedAt|clientMs|requestSha256|attemptSha256|clientAttempt`
+ * (epoch ms; `-` when absent). Content-free: hashed ids and numbers only.
+ */
+export function exchangeTimeline(exchanges: readonly CoachingExchange[]): string {
+    return exchanges.map((e) => [e.outcome ?? '-', n(e.status), n(e.sentAt), n(e.at), n(e.clientMs), sha(e.sent.requestId),
+        sha(e.sent.attemptId), n(e.sent.clientAttempt)].join('|')).join(';');
+}
+
 export function coachingRequestBudgetRow(
     receipt: ReceiptLike,
     tap: { sentCount: number; exchanges: readonly CoachingExchange[] },
@@ -399,7 +411,12 @@ export function coachingRequestBudgetRow(
     const unansweredAtBound = outcomeCount('unanswered');
     const bodyPendingAtBound = outcomeCount('body_pending');
     const failedInBrowser = outcomeCount('failed');
-    const holdReason = unansweredAtBound > 0
+    // #1593 (Sam case-1 diagnosis): a request still inside its own allowance when the scenario ended is left OPEN by
+    // settle() — not closed as unanswered — so it is counted here, and it keeps the budget unprovable (HOLD), never PASS.
+    const inFlightAtEnd = Math.max(0, tap.sentCount - tap.exchanges.length);
+    const holdReason = inFlightAtEnd > 0
+        ? 'a sent coaching request was still inside its allowance when the scenario ended, so provider invocations are unproven'
+        : unansweredAtBound > 0
         ? 'a sent coaching request was still unanswered when the bounded wait ended, so provider invocations are unproven'
         : bodyPendingAtBound > 0
             ? 'a coaching response body was still unread when the bounded wait ended, so provider invocations are unproven'
@@ -415,6 +432,11 @@ export function coachingRequestBudgetRow(
             withDiagnostics: readable.length, malformedProviderAttempts: malformed, providerAttemptsReported,
             providerAttemptAllowance, perRequestProviderAttemptCap: EDGE_MAX_PROVIDER_ATTEMPTS, maxProviderAttemptsForOneRequest,
             maxRequestsForOneTake: perSession.length > 0 ? Math.max(...perSession) : 0,
-            unansweredAtBound, bodyPendingAtBound, failedInBrowser,
+            unansweredAtBound, bodyPendingAtBound, failedInBrowser, inFlightAtEnd,
+            // #1593 (Sam case-1 diagnosis): per-exchange, content-free correlation and timing, so each browser exchange can be
+            // bound to the Edge's own diagnostic (which records the same SHA-256 of the request and attempt ids) instead of
+            // inferred from order. Ids are hashed; no session id, text or token is published. Receipt evidence is scalar,
+            // so the exchanges are one ';'-separated string (see exchangeTimeline).
+            exchangeTimeline: exchangeTimeline(tap.exchanges),
         });
 }
