@@ -120,7 +120,7 @@ const decide = (n, entries, extra = {}) => assess({ caseNumber: n, now: NOW, aut
     bootstrap: null, previousReceipt: entries.at(-1), invocation: invocationFor(n), ...extra });
 const honest = (upTo) => Array.from({ length: upTo }, (_, i) => caseRun(i + 1).entry);
 
-// Independent CLI characterization. PASS means the excluded terminal defect is reproduced.
+// Independent CLI successor regression: the positive control passes, both former terminal defects must HOLD.
 // Calls the UNCHANGED main() with fully mocked network/child-process ports. Finalizer outputs are precomputed
 // with the real evaluator above, before mocking any port. Never dispatches or contacts a live service.
 async function mockedFinal({ badDependencies = false, authorityChanges = {} } = {}) {
@@ -215,19 +215,21 @@ test('CLI terminal control: valid observed context closes the complete fixture l
     console.log(`CLI_TERMINAL control ${JSON.stringify(out)}`);
 });
 
-test('CLI terminal defect: failed dependency identity still exits0 with complete PASS', async () => {
+test('CLI terminal fixed: failed dependency identity returns HOLD', async () => {
     const out = await mockedFinal({ badDependencies: true });
-    assert.equal(out.dependencyRefusals, 1);
-    assert.equal(out.exitCode, 0, JSON.stringify(out));
-    assert.equal(out.report.final.complete, true);
-    assert.equal(out.report.final.outcome, 'PASS');
+    assert.equal(out.dependencyRefusals, 2);
+    assert.equal(out.exitCode, 1, JSON.stringify(out));
+    assert.equal(out.report.final.complete, false);
+    assert.equal(out.report.final.outcome, 'HOLD');
+    assert.ok(out.report.final.reasons.includes('dependency_identity_not_proven'));
     console.log(`CLI_TERMINAL failed_dependencies ${JSON.stringify(out)}`);
 });
 
-test('CLI terminal defect: malformed authority budget still exits0 with complete PASS', async () => {
+test('CLI terminal fixed: malformed authority budget returns HOLD', async () => {
     const out = await mockedFinal({ authorityChanges: { budget: 'unknown', firstCase: 2, allowMaintainedReadOnly: false } });
-    assert.equal(out.exitCode, 0, JSON.stringify(out));
-    assert.equal(out.report.final.complete, true);
-    assert.equal(out.report.final.outcome, 'PASS');
+    assert.equal(out.exitCode, 1, JSON.stringify(out));
+    assert.equal(out.report.final.complete, false);
+    assert.equal(out.report.final.outcome, 'HOLD');
+    assert.ok(out.report.final.reasons.includes('authority_missing_or_malformed'));
     console.log(`CLI_TERMINAL malformed_authority ${JSON.stringify(out)}`);
 });

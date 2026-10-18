@@ -1,0 +1,590 @@
+TAP version 13
+# Subtest: case1 bootstraps without any predecessor; it creates no receipt and does not mutate evidence
+ok 1 - case1 bootstraps without any predecessor; it creates no receipt and does not mutate evidence
+  ---
+  duration_ms: 1.786167
+  ...
+# Subtest: old campaign cleanup can be reconciled without pretending it ran on current S
+ok 2 - old campaign cleanup can be reconciled without pretending it ran on current S
+  ---
+  duration_ms: 0.223292
+  ...
+# Subtest: case2 accepts its actual finalized predecessor on S
+ok 3 - case2 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.152458
+  ...
+# Subtest: case3 accepts its actual finalized predecessor on S
+ok 4 - case3 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.148791
+  ...
+# Subtest: case4 accepts its actual finalized predecessor on S
+ok 5 - case4 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.085666
+  ...
+# Subtest: case5 accepts its actual finalized predecessor on S
+ok 6 - case5 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.278166
+  ...
+# Subtest: case6 accepts its actual finalized predecessor on S
+ok 7 - case6 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.081
+  ...
+# Subtest: case7 accepts its actual finalized predecessor on S
+ok 8 - case7 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.057708
+  ...
+# Subtest: case8 accepts its actual finalized predecessor on S
+ok 9 - case8 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.288917
+  ...
+# Subtest: case9 accepts its actual finalized predecessor on S
+ok 10 - case9 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.334416
+  ...
+# Subtest: case10 accepts its actual finalized predecessor on S
+ok 11 - case10 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.124083
+  ...
+# Subtest: case11 accepts its actual finalized predecessor on S
+ok 12 - case11 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.053875
+  ...
+# Subtest: case12 accepts its actual finalized predecessor on S
+ok 13 - case12 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.044917
+  ...
+# Subtest: case13 accepts its actual finalized predecessor on S
+ok 14 - case13 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.043583
+  ...
+# Subtest: case14 accepts its actual finalized predecessor on S
+ok 15 - case14 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.04575
+  ...
+# Subtest: case15 accepts its actual finalized predecessor on S
+ok 16 - case15 accepts its actual finalized predecessor on S
+  ---
+  duration_ms: 0.051292
+  ...
+# Subtest: maxima sum30; fullFocus includes7 and full+partial remain independent
+ok 17 - maxima sum30; fullFocus includes7 and full+partial remain independent
+  ---
+  duration_ms: 0.056417
+  ...
+# Subtest: case15 is eligible at exactly exhausted budget with read-only command and all other guards
+ok 18 - case15 is eligible at exactly exhausted budget with read-only command and all other guards
+  ---
+  duration_ms: 0.056667
+  ...
+# Subtest: insufficient allowance stops before another request-bearing case starts
+ok 19 - insufficient allowance stops before another request-bearing case starts
+  ---
+  duration_ms: 0.043542
+  ...
+# Subtest: HOLD: missing authority
+ok 20 - HOLD: missing authority
+  ---
+  duration_ms: 0.048125
+  ...
+# Subtest: HOLD: expired approval
+ok 21 - HOLD: expired approval
+  ---
+  duration_ms: 0.031959
+  ...
+# Subtest: HOLD: unverified approval
+ok 22 - HOLD: unverified approval
+  ---
+  duration_ms: 0.028625
+  ...
+# Subtest: HOLD: larger-than-selected budget
+ok 23 - HOLD: larger-than-selected budget
+  ---
+  duration_ms: 0.026333
+  ...
+# Subtest: HOLD: changed main
+ok 24 - HOLD: changed main
+  ---
+  duration_ms: 0.02975
+  ...
+# Subtest: HOLD: changed served release
+ok 25 - HOLD: changed served release
+  ---
+  duration_ms: 0.027375
+  ...
+# Subtest: HOLD: changed workflow revision
+ok 26 - HOLD: changed workflow revision
+  ---
+  duration_ms: 0.027541
+  ...
+# Subtest: HOLD: changed effective config
+ok 27 - HOLD: changed effective config
+  ---
+  duration_ms: 0.03
+  ...
+# Subtest: HOLD: stale guard observation
+ok 28 - HOLD: stale guard observation
+  ---
+  duration_ms: 0.027709
+  ...
+# Subtest: HOLD: future observation
+ok 29 - HOLD: future observation
+  ---
+  duration_ms: 0.026167
+  ...
+# Subtest: HOLD: main action in flight
+ok 30 - HOLD: main action in flight
+  ---
+  duration_ms: 0.07275
+  ...
+# Subtest: HOLD: rc gate in flight
+ok 31 - HOLD: rc gate in flight
+  ---
+  duration_ms: 0.029542
+  ...
+# Subtest: HOLD: unknown production activity
+ok 32 - HOLD: unknown production activity
+  ---
+  duration_ms: 0.030042
+  ...
+# Subtest: HOLD: missing bootstrap
+ok 33 - HOLD: missing bootstrap
+  ---
+  duration_ms: 0.028583
+  ...
+# Subtest: HOLD: bootstrap wrong kind
+ok 34 - HOLD: bootstrap wrong kind
+  ---
+  duration_ms: 0.025291
+  ...
+# Subtest: HOLD: bootstrap wrong release
+ok 35 - HOLD: bootstrap wrong release
+  ---
+  duration_ms: 0.027625
+  ...
+# Subtest: HOLD: implicit first-case approval
+ok 36 - HOLD: implicit first-case approval
+  ---
+  duration_ms: 0.025625
+  ...
+# Subtest: HOLD: unknown prior attempt
+ok 37 - HOLD: unknown prior attempt
+  ---
+  duration_ms: 0.024834
+  ...
+# Subtest: HOLD: unknown historical cleanup
+ok 38 - HOLD: unknown historical cleanup
+  ---
+  duration_ms: 0.025167
+  ...
+# Subtest: HOLD: fabricated case1 predecessor
+ok 39 - HOLD: fabricated case1 predecessor
+  ---
+  duration_ms: 0.028833
+  ...
+# Subtest: HOLD: unverified ledger
+ok 40 - HOLD: unverified ledger
+  ---
+  duration_ms: 0.024125
+  ...
+# Subtest: HOLD: existing case1 attempt
+ok 41 - HOLD: existing case1 attempt
+  ---
+  duration_ms: 0.036333
+  ...
+# Subtest: HOLD: unresolved cleanup
+ok 42 - HOLD: unresolved cleanup
+  ---
+  duration_ms: 0.02625
+  ...
+# Subtest: HOLD: absent cleanup authority
+ok 43 - HOLD: absent cleanup authority
+  ---
+  duration_ms: 0.025083
+  ...
+# Subtest: HOLD: absent claim authority
+ok 44 - HOLD: absent claim authority
+  ---
+  duration_ms: 0.025666
+  ...
+# Subtest: HOLD: missing disposable write ack
+ok 45 - HOLD: missing disposable write ack
+  ---
+  duration_ms: 0.025917
+  ...
+# Subtest: HOLD successor: missing predecessor
+ok 46 - HOLD successor: missing predecessor
+  ---
+  duration_ms: 0.036875
+  ...
+# Subtest: HOLD successor: substituted run
+ok 47 - HOLD successor: substituted run
+  ---
+  duration_ms: 0.0345
+  ...
+# Subtest: HOLD successor: substituted retry attempt
+ok 48 - HOLD successor: substituted retry attempt
+  ---
+  duration_ms: 0.030208
+  ...
+# Subtest: HOLD successor: substituted receipt artifact
+ok 49 - HOLD successor: substituted receipt artifact
+  ---
+  duration_ms: 0.031458
+  ...
+# Subtest: HOLD successor: old-release predecessor
+ok 50 - HOLD successor: old-release predecessor
+  ---
+  duration_ms: 0.031667
+  ...
+# Subtest: HOLD successor: other campaign receipt
+ok 51 - HOLD successor: other campaign receipt
+  ---
+  duration_ms: 0.03075
+  ...
+# Subtest: HOLD successor: unfinished predecessor
+ok 52 - HOLD successor: unfinished predecessor
+  ---
+  duration_ms: 0.028959
+  ...
+# Subtest: HOLD successor: missing mandatory received evidence
+ok 53 - HOLD successor: missing mandatory received evidence
+  ---
+  duration_ms: 0.028958
+  ...
+# Subtest: HOLD successor: dominant stop despite approval
+ok 54 - HOLD successor: dominant stop despite approval
+  ---
+  duration_ms: 0.0345
+  ...
+# Subtest: HOLD successor: unknown request count
+ok 55 - HOLD successor: unknown request count
+  ---
+  duration_ms: 0.029166
+  ...
+# Subtest: HOLD successor: over-case request count
+ok 56 - HOLD successor: over-case request count
+  ---
+  duration_ms: 0.027959
+  ...
+# Subtest: HOLD successor: cleanup only attempted
+ok 57 - HOLD successor: cleanup only attempted
+  ---
+  duration_ms: 0.02925
+  ...
+# Subtest: HOLD successor: nonzero cleanup residue
+ok 58 - HOLD successor: nonzero cleanup residue
+  ---
+  duration_ms: 0.028709
+  ...
+# Subtest: HOLD successor: string zero is not verified numeric zero
+ok 59 - HOLD successor: string zero is not verified numeric zero
+  ---
+  duration_ms: 0.028917
+  ...
+# Subtest: HOLD successor: wrong cleanup owner
+ok 60 - HOLD successor: wrong cleanup owner
+  ---
+  duration_ms: 0.028875
+  ...
+# Subtest: HOLD successor: wrong cleanup run
+ok 61 - HOLD successor: wrong cleanup run
+  ---
+  duration_ms: 0.029375
+  ...
+# Subtest: HOLD successor: wrong cleanup attempt
+ok 62 - HOLD successor: wrong cleanup attempt
+  ---
+  duration_ms: 0.029833
+  ...
+# Subtest: HOLD successor: incomplete cleanup scope
+ok 63 - HOLD successor: incomplete cleanup scope
+  ---
+  duration_ms: 0.029458
+  ...
+# Subtest: HOLD successor: bootstrap reused for case2
+ok 64 - HOLD successor: bootstrap reused for case2
+  ---
+  duration_ms: 0.028625
+  ...
+# Subtest: HOLD successor: unreviewed ordinary failure
+ok 65 - HOLD successor: unreviewed ordinary failure
+  ---
+  duration_ms: 0.028542
+  ...
+# Subtest: reviewed ordinary product failure can continue only with completed mandatory evidence/cleanup
+ok 66 - reviewed ordinary product failure can continue only with completed mandatory evidence/cleanup
+  ---
+  duration_ms: 0.038416
+  ...
+# Subtest: case1 cannot be replayed with an already-finalized ledger entry
+ok 67 - case1 cannot be replayed with an already-finalized ledger entry
+  ---
+  duration_ms: 0.0305
+  ...
+# Subtest: skipped predecessor, duplicate run and out-of-order prefix all HOLD
+ok 68 - skipped predecessor, duplicate run and out-of-order prefix all HOLD
+  ---
+  duration_ms: 0.052
+  ...
+# Subtest: zero-budget case still refuses maintained-account write/claim acks or missing scope
+ok 69 - zero-budget case still refuses maintained-account write/claim acks or missing scope
+  ---
+  duration_ms: 0.116708
+  ...
+# Subtest: malformed inputs never grant eligibility
+ok 70 - malformed inputs never grant eligibility
+  ---
+  duration_ms: 0.204167
+  ...
+# Subtest: 15 cases, the selected maxima (30 total), one spec + grep each; case 15 alone is read-only
+ok 71 - 15 cases, the selected maxima (30 total), one spec + grep each; case 15 alone is read-only
+  ---
+  duration_ms: 0.881375
+  ...
+# Subtest: every case grep selects EXACTLY ONE test title in its spec
+ok 72 - every case grep selects EXACTLY ONE test title in its spec
+  ---
+  duration_ms: 2.715417
+  ...
+# Subtest: dispatch argv: run-owned cases carry both literal acks; case 15 carries NEITHER; all pin main, Gate 3, reflex 500
+ok 73 - dispatch argv: run-owned cases carry both literal acks; case 15 carries NEITHER; all pin main, Gate 3, reflex 500
+  ---
+  duration_ms: 0.248167
+  ...
+# Subtest: workers=1 / retries=0 / fullyParallel=false are read from the ACTUAL live config, and drift is caught
+ok 74 - workers=1 / retries=0 / fullyParallel=false are read from the ACTUAL live config, and drift is caught
+  ---
+  duration_ms: 0.320584
+  ...
+# Subtest: config digest is deterministic and changes when any bound blob or binding changes
+ok 75 - config digest is deterministic and changes when any bound blob or binding changes
+  ---
+  duration_ms: 7.060833
+  ...
+# Subtest: §1 every case suite is one the repository finalizer knows, and its readback declaration matches the source inventory
+ok 76 - §1 every case suite is one the repository finalizer knows, and its readback declaration matches the source inventory
+  ---
+  duration_ms: 0.183458
+  ...
+# Subtest: §1 identity rows are the suite's OWN identity steps — Focus has no signup row (flagged, not normalized away)
+ok 77 - §1 identity rows are the suite's OWN identity steps — Focus has no signup row (flagged, not normalized away)
+  ---
+  duration_ms: 2887.127416
+  ...
+# Subtest: §1 an identity row that is not PASS is dominant (Open Mic signup FAIL; Focus canary claim HOLD)
+ok 78 - §1 an identity row that is not PASS is dominant (Open Mic signup FAIL; Focus canary claim HOLD)
+  ---
+  duration_ms: 389.228166
+  ...
+# Subtest: INTEGRATION: every honest case run verifies with no error, readback settled or validated N/A, counted requests
+ok 79 - INTEGRATION: every honest case run verifies with no error, readback settled or validated N/A, counted requests
+  ---
+  duration_ms: 2.371583
+  ...
+# Subtest: INTEGRATION case 1 bootstrap: explicit, no earlier attempt, prior runs reconciled → GO; each missing fact holds
+ok 80 - INTEGRATION case 1 bootstrap: explicit, no earlier attempt, prior runs reconciled → GO; each missing fact holds
+  ---
+  duration_ms: 0.768
+  ...
+# Subtest: INTEGRATION full chain: honest cases 1–14 admit case 15 (read-only, no acks); every intermediate case is admitted
+ok 81 - INTEGRATION full chain: honest cases 1–14 admit case 15 (read-only, no acks); every intermediate case is admitted
+  ---
+  duration_ms: 1.889334
+  ...
+# Subtest: an ordinary product HOLD/FAIL still needs continuation review — and only that row class can be continued
+ok 82 - an ordinary product HOLD/FAIL still needs continuation review — and only that row class can be continued
+  ---
+  duration_ms: 202.103583
+  ...
+# Subtest: NEGATIVE wrong suite: case 1 artifact holds case 2's receipt → error, dominant, held even with continuation
+ok 83 - NEGATIVE wrong suite: case 1 artifact holds case 2's receipt → error, dominant, held even with continuation
+  ---
+  duration_ms: 0.309292
+  ...
+# Subtest: NEGATIVE wrong attempt: ledger names attempt 1, the run is attempt 2 / only attempt-2 artifact exists → held
+ok 84 - NEGATIVE wrong attempt: ledger names attempt 1, the run is attempt 2 / only attempt-2 artifact exists → held
+  ---
+  duration_ms: 0.385875
+  ...
+# Subtest: NEGATIVE wrong artifact: expired, duplicated, two receipts, or a receipt that differs from the job-log receipt
+ok 85 - NEGATIVE wrong artifact: expired, duplicated, two receipts, or a receipt that differs from the job-log receipt
+  ---
+  duration_ms: 0.704125
+  ...
+# Subtest: NEGATIVE run identity: wrong workflow, not a main dispatch, outside the window, no single Gate 3 job, receipt for another release
+ok 86 - NEGATIVE run identity: wrong workflow, not a main dispatch, outside the window, no single Gate 3 job, receipt for another release
+  ---
+  duration_ms: 194.802917
+  ...
+# Subtest: NEGATIVE observed spec/grep: another case's spec or grep, or none — and the step's script text is never read as output
+ok 87 - NEGATIVE observed spec/grep: another case's spec or grep, or none — and the step's script text is never read as output
+  ---
+  duration_ms: 0.605042
+  ...
+# Subtest: NEGATIVE missing readback: a declared suite with no verdicts file, a HOLD journey, or a FAIL journey is DOMINANT
+ok 88 - NEGATIVE missing readback: a declared suite with no verdicts file, a HOLD journey, or a FAIL journey is DOMINANT
+  ---
+  duration_ms: 621.418
+  ...
+# Subtest: NEGATIVE bridge N/A is validated: a bridge with a verdicts file or declared bindings is an error, not "complete"
+ok 89 - NEGATIVE bridge N/A is validated: a bridge with a verdicts file or declared bindings is an error, not "complete"
+  ---
+  duration_ms: 201.414708
+  ...
+# Subtest: NEGATIVE unknown cost: an unanswered/HOLD budget, a FAIL budget, or no budget row is dominant despite continuation
+ok 90 - NEGATIVE unknown cost: an unanswered/HOLD budget, a FAIL budget, or no budget row is dominant despite continuation
+  ---
+  duration_ms: 595.800458
+  ...
+# Subtest: NEGATIVE privacy FAIL: receipt content-free ≠ PASS is dominant despite continuation (and a leak-redacted receipt is an error)
+ok 91 - NEGATIVE privacy FAIL: receipt content-free ≠ PASS is dominant despite continuation (and a leak-redacted receipt is an error)
+  ---
+  duration_ms: 512.044417
+  ...
+# Subtest: NEGATIVE effect and outage stops: Cloud STT used, navigation wrote, or an EXTERNAL provider outage row
+ok 92 - NEGATIVE effect and outage stops: Cloud STT used, navigation wrote, or an EXTERNAL provider outage row
+  ---
+  duration_ms: 589.342417
+  ...
+# Subtest: cleanup: exactly one verified line FIRST from this job; partial-suite afterEach not_required after it is allowed
+ok 93 - cleanup: exactly one verified line FIRST from this job; partial-suite afterEach not_required after it is allowed
+  ---
+  duration_ms: 0.133875
+  ...
+# Subtest: NEGATIVE cleanup: no line, a non-zero residue, or a cleanup line in the read-only case → held
+ok 94 - NEGATIVE cleanup: no line, a non-zero residue, or a cleanup line in the read-only case → held
+  ---
+  duration_ms: 0.715417
+  ...
+# Subtest: ledger: a complete, accounted ledger verifies; `verified` is computed, never read from the file
+ok 95 - ledger: a complete, accounted ledger verifies; `verified` is computed, never read from the file
+  ---
+  duration_ms: 1.343875
+  ...
+# Subtest: NEGATIVE omitted ledger state: missing inFlight / unresolvedCleanup / entries, or an incomplete entry, never defaults to empty
+ok 96 - NEGATIVE omitted ledger state: missing inFlight / unresolvedCleanup / entries, or an incomplete entry, never defaults to empty
+  ---
+  duration_ms: 0.676209
+  ...
+# Subtest: NEGATIVE accounting: an unlisted rc-gates attempt in the window, or an entry from outside it, leaves the ledger unverified
+ok 97 - NEGATIVE accounting: an unlisted rc-gates attempt in the window, or an entry from outside it, leaves the ledger unverified
+  ---
+  duration_ms: 0.979584
+  ...
+# Subtest: NEGATIVE older active runs: any non-completed run of any age is busy; the active-run reads are complete, not latest-20
+ok 98 - NEGATIVE older active runs: any non-completed run of any age is busy; the active-run reads are complete, not latest-20
+  ---
+  duration_ms: 1.488125
+  ...
+# Subtest: NEGATIVE expiry during collection: the decision uses time AFTER collection, so an observation or authority that expired holds
+ok 99 - NEGATIVE expiry during collection: the decision uses time AFTER collection, so an observation or authority that expired holds
+  ---
+  duration_ms: 0.666125
+  ...
+# Subtest: NEGATIVE dependency identity / config: a checkout that differs from S, an unbound config, or another release holds
+ok 100 - NEGATIVE dependency identity / config: a checkout that differs from S, an unbound config, or another release holds
+  ---
+  duration_ms: 0.569125
+  ...
+# Subtest: no authority field is stamped as observed: entry release/config/cleanup scope come only from the run and its head
+ok 101 - no authority field is stamped as observed: entry release/config/cleanup scope come only from the run and its head
+  ---
+  duration_ms: 0.329917
+  ...
+# Subtest: C3-1 unknown historical evidence HOLDS: missing, ambiguous or mismatched spec is unknown — never read-only
+ok 102 - C3-1 unknown historical evidence HOLDS: missing, ambiguous or mismatched spec is unknown — never read-only
+  ---
+  duration_ms: 0.409208
+  ...
+# Subtest: C3-1 only POSITIVELY identified evidence is exempt: skipped Gate 3, a named non-RWT spec, or case 15 exactly with no acks
+ok 103 - C3-1 only POSITIVELY identified evidence is exempt: skipped Gate 3, a named non-RWT spec, or case 15 exactly with no acks
+  ---
+  duration_ms: 0.260042
+  ...
+# Subtest: C3-2 attempts are accounted by their OWN start time: an in-window retry of an older run is in; unreadable time is in
+ok 104 - C3-2 attempts are accounted by their OWN start time: an in-window retry of an older run is in; unreadable time is in
+  ---
+  duration_ms: 0.195917
+  ...
+# Subtest: C3-2 an EARLIER attempt's residue is not hidden by a clean latest attempt; incomplete reconciliation holds
+ok 105 - C3-2 an EARLIER attempt's residue is not hidden by a clean latest attempt; incomplete reconciliation holds
+  ---
+  duration_ms: 0.176417
+  ...
+# Subtest: C3-3 effective inputs are BOUND from the attempt's own environment: reflex 1000 against the selected 500 is refused
+ok 106 - C3-3 effective inputs are BOUND from the attempt's own environment: reflex 1000 against the selected 500 is refused
+  ---
+  duration_ms: 385.891417
+  ...
+# Subtest: C3-3 every other selected input is bound too: base URL, release, scope, comparison cell, acks, gate
+ok 107 - C3-3 every other selected input is bound too: base URL, release, scope, comparison cell, acks, gate
+  ---
+  duration_ms: 1.482375
+  ...
+# Subtest: C3-4 bridge N/A needs journeys AND missingBindings to be explicitly empty arrays; absent is unknown
+ok 108 - C3-4 bridge N/A needs journeys AND missingBindings to be explicitly empty arrays; absent is unknown
+  ---
+  duration_ms: 794.117458
+  ...
+# Subtest: C4 an older run summary with an UNREADABLE attempt time is not dropped by both paths — case 1 holds
+ok 109 - C4 an older run summary with an UNREADABLE attempt time is not dropped by both paths — case 1 holds
+  ---
+  duration_ms: 0.289708
+  ...
+# Subtest: C4 an unreadable SUMMARY time expands the run; an unreadable attempt inside it is a window attempt (unaccounted → held)
+ok 110 - C4 an unreadable SUMMARY time expands the run; an unreadable attempt inside it is a window attempt (unaccounted → held)
+  ---
+  duration_ms: 0.121292
+  ...
+# Subtest: FINAL: all 15 honest entries close the campaign PASS; nothing after case 15 is needed to trigger it
+ok 111 - FINAL: all 15 honest entries close the campaign PASS; nothing after case 15 is needed to trigger it
+  ---
+  duration_ms: 1.855042
+  ...
+# Subtest: FINAL case 15: failed sign-in is FAIL and dominant; missing credential or empty history HOLDs — none closes the campaign
+ok 112 - FINAL case 15: failed sign-in is FAIL and dominant; missing credential or empty history HOLDs — none closes the campaign
+  ---
+  duration_ms: 596.620125
+  ...
+# Subtest: FINAL holds on a missing case 15, an unverified ledger, an in-flight attempt, a residue, or an ordinary HOLD without review
+ok 113 - FINAL holds on a missing case 15, an unverified ledger, an in-flight attempt, a residue, or an ordinary HOLD without review
+  ---
+  duration_ms: 201.678375
+  ...
+# Subtest: FINAL mode never prints a dispatch
+ok 114 - FINAL mode never prints a dispatch
+  ---
+  duration_ms: 0.231042
+  ...
+# Subtest: every job-log read passes --allow-escape-sequences (the log parser strips them after reading)
+ok 115 - every job-log read passes --allow-escape-sequences (the log parser strips them after reading)
+  ---
+  duration_ms: 0.216625
+  ...
+# Subtest: FINAL holds on unproven dependency identity and on a malformed authority (CLI terminal-review negatives)
+ok 116 - FINAL holds on unproven dependency identity and on a malformed authority (CLI terminal-review negatives)
+  ---
+  duration_ms: 1.575167
+  ...
+1..116
+# tests 116
+# suites 0
+# pass 116
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11286.906167

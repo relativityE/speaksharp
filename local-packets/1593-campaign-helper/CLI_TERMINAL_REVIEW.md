@@ -1,4 +1,16 @@
-# CLI terminal review: executable evidence
+# CLI terminal review: successor verification
+
+**Latest reviewed helper: `8cec8233a9ccaa15309c3d6408e517b251ed17dc`. The two reproduced counterexamples are now rejected.**
+
+Independent execution on the exact successor: **116/116 helper/reference tests PASS**, plus **3/3 whole-command regression controls PASS**. The control still exits0/complete PASS. A dependency-check refusal now exits1/HOLD with `dependency_identity_not_proven`; malformed authority now exits1/HOLD with `authority_missing_or_malformed`. The dependency guard runs twice (observation and final decision), so the regression expects two simulated refusals. Source and mocked I/O remain otherwise the same as the original review.
+
+At this successor, `cli-terminal-review.test.mjs` and `cli-terminal-review.tap` contain the updated assertions/results; `cli-helper-suite.tap` preserves the116-test run. The commands below use these current files when run on this branch. To reproduce the original unsafe results instead, use the immutable [original review commit4a88409b](https://github.com/relativityE/speaksharp/commit/4a88409b484daaea8562702a45d1204e64dc77eb).
+
+**This closes these two source-level counterexamples only. Sam's exclusion of `--final` for the existing campaign remains in force.** Case1's cost/readback stops and the campaign halt are unchanged; no retry, continuation, rerun or acceptance is authorized. The source fix is App's; this branch changes only CLI's evidence files relative to8cec8233. No deployed code or App implementation is edited here.
+
+## Historical baseline report: c4761785
+
+Everything below records the original baseline failure, not the successor's behavior. Original test/TAP files remain available at4a88409b above.
 
 **Disposition: `--final` remains excluded from completion acceptance, consistent with Sam's 2026-10-18 12:47:48 decision. This review adds no gate to the separately approved per-case campaign.**
 
