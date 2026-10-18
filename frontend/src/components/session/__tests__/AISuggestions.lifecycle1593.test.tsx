@@ -13,7 +13,8 @@ import AISuggestions from '@/components/session/AISuggestions';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { __resetPracticeLoopTelemetryForTests } from '@/services/telemetry/practiceLoopTelemetry';
-import { __resetJourneyIdentityForTests, beginJourney, beginRecordingAttempt } from '@/services/telemetry/journeyIdentity';
+import { __resetJourneyIdentityForTests, beginJourney, beginRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
+import { captureRecordingSubject } from '@/services/telemetry/recordingSubject';
 import { __resetCompletionStagesForTests } from '@/services/telemetry/completionStages';
 import { projectEventProps } from '@/services/telemetryAllowlist';
 
@@ -71,15 +72,18 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
     it('THE CASE-1 RACE: take A requests, B starts, A returns late — A keeps its own origin and ends superseded with no render claim; B shows its complete chain exactly once', async () => {
         const answerA = deferred<unknown>();
         const attemptA = beginRecordingAttempt();
+        // The page supplies each review's take subject, frozen while that take recorded (Sam, saved-review subject).
+        const subjectA = captureRecordingSubject();
         invoke.mockImplementationOnce(() => answerA.promise);
-        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" subject={subjectA} />);
         await waitFor(() => expect(lifecycle().some((e) => e.stage === 'requested')).toBe(true));
         const [idA] = requestIds();
 
         // The user immediately starts take B: a new recording attempt, a new session, a new request.
         const attemptB = beginRecordingAttempt();
+        const subjectB = captureRecordingSubject();
         invoke.mockResolvedValueOnce({ data: { suggestions: VALID_B }, error: null });
-        view.rerender(<AISuggestions transcript="take b" canReview sessionId="take-b" />);
+        view.rerender(<AISuggestions transcript="take b" canReview sessionId="take-b" subject={subjectB} />);
         await waitFor(() => expect(requestIds()).toHaveLength(2));
         const idB = requestIds().find((id) => id !== idA);
 
@@ -340,5 +344,124 @@ describe('origin fields accept the identity formats journeyIdentity actually min
         for (const bad of ['has space', 'x?y=1', 'a'.repeat(49)]) {
             expect(projectEventProps('ai_coaching_lifecycle', { stage: 'requested', origin_attempt_id: bad }).dropped).toContain('origin_attempt_id');
         }
+    });
+});
+
+describe('the coaching origin is the reviewed take\'s frozen subject, never the ambient identity (#1593, Sam saved-review subject)', () => {
+    const originOf = (id: unknown) => forRequest(id).map((e) => [e.origin_journey_id, e.origin_boot_id, e.origin_attempt_id]);
+
+    it('AMBIENT CLEARED: the take\'s attempt closed (engine torn down) before its review requests — the origin still names A', async () => {
+        const attemptA = beginRecordingAttempt();
+        const subjectA = captureRecordingSubject()!;
+        endRecordingAttempt();
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_A }, error: null });
+        render(<AISuggestions transcript="take a" canReview sessionId="take-a" subject={subjectA} />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        const [id] = requestIds();
+        expect(new Set(originOf(id).map((o) => o[2]))).toEqual(new Set([attemptA]));
+        expect(new Set(originOf(id).map((o) => o[1]))).toEqual(new Set([subjectA.subject_boot_id]));
+    });
+
+    it('AMBIENT CHANGED TO B before A\'s review requests — the origin is A, not the ambient B', async () => {
+        const attemptA = beginRecordingAttempt();
+        const subjectA = captureRecordingSubject()!;
+        const attemptB = beginRecordingAttempt();
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_A }, error: null });
+        render(<AISuggestions transcript="take a" canReview sessionId="take-a" subject={subjectA} />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        const [id] = requestIds();
+        expect(attemptB).not.toBe(attemptA);
+        for (const e of forRequest(id)) expect(e.origin_attempt_id).toBe(attemptA);
+    });
+
+    it('ABSENT SUBJECT: the origin is unknown (omitted) — the ambient attempt is never borrowed', async () => {
+        beginRecordingAttempt();
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_A }, error: null });
+        render(<AISuggestions transcript="legacy" canReview sessionId="legacy-take" />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        const [id] = requestIds();
+        for (const e of forRequest(id)) {
+            expect(e).not.toHaveProperty('origin_attempt_id');
+            expect(e).not.toHaveProperty('origin_boot_id');
+            expect(e).not.toHaveProperty('origin_journey_id');
+        }
+    });
+
+    it('B\'s review never reuses A\'s subject: each request is stamped with the subject supplied for ITS session', async () => {
+        const attemptA = beginRecordingAttempt();
+        const subjectA = captureRecordingSubject()!;
+        const answerA = deferred<unknown>();
+        invoke.mockImplementationOnce(() => answerA.promise);
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" subject={subjectA} />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        const [idA] = requestIds();
+        const attemptB = beginRecordingAttempt();
+        const subjectB = captureRecordingSubject()!;
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_B }, error: null });
+        view.rerender(<AISuggestions transcript="take b" canReview sessionId="take-b" subject={subjectB} />);
+        await waitFor(() => expect(requestIds()).toHaveLength(2));
+        const idB = requestIds().find((id) => id !== idA);
+        await act(async () => { answerA.resolve({ data: { suggestions: VALID_A }, error: null }); await Promise.resolve(); });
+        await waitFor(() => expect(stagesOf(idA)).toContain('response_received'));
+        for (const e of forRequest(idA)) expect(e.origin_attempt_id).toBe(attemptA);
+        for (const e of forRequest(idB)) expect(e.origin_attempt_id).toBe(attemptB);
+    });
+
+    it('a subject published AFTER the review mounted (saved with the take) is the one its request uses — never a stale render\'s', async () => {
+        const attemptA = beginRecordingAttempt();
+        const subjectA = captureRecordingSubject()!;
+        invoke.mockResolvedValue({ data: { suggestions: VALID_A }, error: null });
+        // Mounted before the save settled: not reviewable yet, no subject yet.
+        const view = render(<AISuggestions transcript="take a" canReview={false} sessionId="take-a" subject={null} />);
+        view.rerender(<AISuggestions transcript="take a" canReview={false} sessionId="take-a" subject={subjectA} />);
+        view.rerender(<AISuggestions transcript="take a" canReview sessionId="take-a" subject={subjectA} />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        for (const e of forRequest(requestIds()[0])) expect(e.origin_attempt_id).toBe(attemptA);
+    });
+
+    it('a subject that arrives while a failure is on screen is the one the user\'s Try again request uses', async () => {
+        const attemptA = beginRecordingAttempt();
+        const subjectA = captureRecordingSubject()!;
+        const unavailable = () => ({ data: null, error: Object.assign(new Error('upstream'), { name: 'FunctionsHttpError', context: { status: 503 } }) });
+        invoke.mockResolvedValue(unavailable());
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" subject={null} retryBackoffMs={10} />);
+        // The first request and its one automatic retry both fail; the manual Try again is offered.
+        const tryAgain = await screen.findByTestId('ai-suggestions-retry', {}, { timeout: 3_000 });
+        const [first] = requestIds();
+        // The subject is published now — the request callback was created before it existed.
+        view.rerender(<AISuggestions transcript="take a" canReview sessionId="take-a" subject={subjectA} retryBackoffMs={10} />);
+        invoke.mockResolvedValue({ data: { suggestions: VALID_A }, error: null });
+        act(() => { tryAgain.click(); });
+        await waitFor(() => expect(requestIds()).toHaveLength(2));
+        const retry = requestIds().find((id) => id !== first);
+        expect(forRequest(first).some((e) => 'origin_attempt_id' in e)).toBe(false);
+        for (const e of forRequest(retry)) expect(e.origin_attempt_id).toBe(attemptA);
+    });
+
+    it('a request for A that starts after the view moved to B takes neither A\'s nor B\'s subject from the wrong session', async () => {
+        beginRecordingAttempt();
+        const subjectA = captureRecordingSubject()!;
+        const answerA = deferred<unknown>();
+        invoke.mockImplementationOnce(() => answerA.promise);
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" subject={subjectA} />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        // B's subject is supplied for B's session only; nothing for A is re-stamped with it.
+        beginRecordingAttempt();
+        const subjectB = captureRecordingSubject()!;
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_B }, error: null });
+        view.rerender(<AISuggestions transcript="take b" canReview sessionId="take-b" subject={subjectB} />);
+        await waitFor(() => expect(requestIds()).toHaveLength(2));
+        const [idA, idB] = requestIds();
+        expect(new Set(forRequest(idA).map((e) => e.origin_attempt_id))).toEqual(new Set([subjectA.subject_attempt_id]));
+        expect(new Set(forRequest(idB).map((e) => e.origin_attempt_id))).toEqual(new Set([subjectB.subject_attempt_id]));
+    });
+
+    it('a malformed or extra-keyed subject (e.g. carrying a raw session id) is unknown, not partially used', async () => {
+        beginRecordingAttempt();
+        const subject = { ...captureRecordingSubject()!, session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' };
+        invoke.mockResolvedValueOnce({ data: { suggestions: VALID_A }, error: null });
+        render(<AISuggestions transcript="t" canReview sessionId="s" subject={subject as never} />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        for (const e of forRequest(requestIds()[0])) expect(e).not.toHaveProperty('origin_attempt_id');
     });
 });

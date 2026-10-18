@@ -414,6 +414,11 @@ export const EVENT_SCHEMAS = Object.freeze({
         options_shown: { kind: 'enum[]', values: NAVIGATION_OPTIONS, maxLength: 8 } as FieldRule,
         option_selected: enumOf(NAVIGATION_OPTIONS),
         points_entered: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        // #1593 (Sam, saved-review subject) — `option_selected` on a saved review names the TAKE that review shows: its
+        // frozen subject, the same opaque correlation ids the attribution receipt carries. The ambient envelope still
+        // stamps its own identity beside it; neither replaces the other. No session id, no content.
+        subject_boot_id: slug(64), subject_journey_id: slug(64), subject_attempt_id: slug(64),
+        subject_attempt_seq: { kind: 'int', min: 1, max: 1_000_000 } as FieldRule,
     },
 
     /**

@@ -45,7 +45,7 @@ const completeRows = (stage: QualificationStage, model: string = MODELS[0]): Dec
         }
         if (family === 'ai_coaching_lifecycle') return [lc('requested', 1_600), lc('ended', 2_550, { end_reason: 'superseded_session' })];
         if (family === 'journey_step') {
-            return { ...row(family, { step: 'option_selected', option_selected: 'practice_next', attempt_id: 'attempt-1', producer_ts: 2_400 }), bootId: 'boot-1' };
+            return { ...row(family, { step: 'option_selected', option_selected: 'practice_next', subject_attempt_id: 'attempt-1', subject_boot_id: 'boot-1', producer_ts: 2_400 }), bootId: 'boot-1' };
         }
         if (family === 'recording_intent') return row(family, { intent_kind: 'start', intent_outcome: 'accepted', attempt_id: 'attempt-2', producer_ts: 2_500 });
         if (family === 'recording_state') return row(family, { to_state: 'RECORDING', attempt_id: 'attempt-2', producer_ts: 2_600 });

@@ -558,8 +558,8 @@ const POST_STOP_CHAIN_OPEN_MIC = {
  *   R — exactly one coaching request id requested under ORIGIN attempt A, from this boot (`origin_boot_id`), before
  *       the repeat Start.
  *   Repeat — the review's own Repeat press (`journey_step` option_selected `practice_next` / `retry_points`, emitted
- *       before the press delegates to Start) after A saved, made under A in R's boot; then the FIRST Start intent after
- *       that press is `accepted`. A generic Start with no press, an accepted Start before the press, or a suppressed
+ *       before the press delegates to Start) after A saved, whose own `subject_*` names A (the reviewed take's frozen
+ *       subject), made in R's boot; then the FIRST Start intent after that press is `accepted`. A generic Start with no press, an accepted Start before the press, or a suppressed
  *       first Start proves no repeat.
  *   B — the first RECORDING transition after that intent, under a new attempt (the accepted intent's own attempt, when
  *       it names one), confirmed by B's own `session_started`.
@@ -646,10 +646,13 @@ export function classifyInterruptedRepeat(
     if (presses.length === 0) return hold('no review Repeat press follows the saved take — a generic Start is not the review\'s Repeat action');
     const press = earliest(presses);
     const pressAt = timed(press);
-    // Bound to the declared take and this boot (release is bound by the readback query). A press that names no take is
-    // not inferred to be A's: it HOLDs.
-    if (attemptOf(press) === null) return hold('the review\'s Repeat press names no take, so it cannot be bound to the declared take');
-    if (attemptOf(press) !== takeAttempt) return hold('the Repeat press was made under another take');
+    // Bound to the declared take by the press's OWN subject — the reviewed take's frozen identity, not the ambient envelope,
+    // which a torn-down engine has already closed (Sam, saved-review subject) — and made in the request's boot (release is
+    // bound by the readback query). A press that names no take is not inferred to be A's: it HOLDs.
+    const pressTake = prop(press, 'subject_attempt_id');
+    if (!nonBlank(pressTake)) return hold('the review\'s Repeat press names no saved take, so it cannot be bound to the declared take');
+    if (pressTake !== takeAttempt) return hold('the Repeat press names another saved take');
+    if (prop(press, 'subject_boot_id') !== prop(requested[0], 'origin_boot_id')) return hold('the Repeat press\'s take was saved in another boot than the coaching request\'s origin');
     if (!nonBlank(press.bootId) || press.bootId !== requested[0].bootId) return hold('the review\'s Repeat press was not made in the coaching request\'s boot');
     const starts = rows.filter((r) => r?.event === 'recording_intent' && prop(r, 'intent_kind') === 'start' && Number.isFinite(timed(r)));
     if (starts.some((r) => prop(r, 'intent_outcome') === 'accepted' && timed(r) > savedAt && timed(r) < pressAt)) {

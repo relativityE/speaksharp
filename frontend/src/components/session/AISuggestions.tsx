@@ -22,6 +22,7 @@ import {
   type AiCoachingDiagnosticTelemetry, type CoachingLifecycleEndReason, type CoachingLifecycleOrigin, type CoachingLifecycleStage,
 } from '@/services/practiceLoopTelemetry';
 import { providerCodeFields } from '@/services/telemetry/providerCodes';
+import type { RecordingSubject } from '@/services/telemetry/recordingSubject';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -62,6 +63,11 @@ interface AISuggestionsProps {
    * Shown in place of the generic not-ready line; nothing is requested or retried while it is set.
    */
   blockedReason?: string | null;
+  /**
+   * #1593 (Sam, saved-review subject) — the frozen subject of the take whose review this is, supplied by the page only when
+   * paired with `sessionId`. A coaching request's origin is THIS take; with none, the origin is unknown, never ambient.
+   */
+  subject?: RecordingSubject | null;
 }
 
 interface SafeSuggestionError {
@@ -348,9 +354,14 @@ const endLifecycle = (lc: CoachingLifecycle | null, reason: CoachingLifecycleEnd
 
 const AISuggestions: React.FC<AISuggestionsProps> = ({
   transcript = '', canReview, sessionId, initialSuggestions, retryBackoffMs = AI_REVIEW_AUTO_RETRY_BACKOFF_MS,
-  sessionLabel, product, blockedReason,
+  sessionLabel, product, blockedReason, subject = null,
 }) => {
   const activeSessionRef = useRef(sessionId);
+  // Read when each request STARTS (a retry included), not captured by `fetchSuggestions`: the subject is published with the
+  // save and may arrive after the review mounted, and re-creating the request callback for it would re-fire the review.
+  // The page supplies it only paired with this `sessionId` (`reviewSubjectFor`).
+  const subjectRef = useRef<RecordingSubject | null>(subject);
+  subjectRef.current = subject;
   const requestGenerationRef = useRef(0);
   if (activeSessionRef.current !== sessionId) {
     activeSessionRef.current = sessionId;
@@ -607,7 +618,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         : previous.waitingRetry ? 'retry_cancelled' : 'superseded_request');
     }
     const lifecycle: CoachingLifecycle = {
-      requestId: diagnosticRequestId, attemptId: null, clientAttempt: null, origin: snapshotCoachingOrigin(),
+      requestId: diagnosticRequestId, attemptId: null, clientAttempt: null, origin: snapshotCoachingOrigin(subjectRef.current),
       startedAt: performance.now(), sessionId: requestSessionId, product: product ?? 'unknown',
       ended: false, waitingRetry: false, watchdog: null, abort: null, clientAborted: false,
     };

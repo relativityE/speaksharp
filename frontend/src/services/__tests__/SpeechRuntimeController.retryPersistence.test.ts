@@ -175,13 +175,18 @@ describe('#1403 attribution-only recovery republishes the receipt', () => {
 
 describe('#1403 full-save recovery publishes a receipt where there was none', () => {
     /** The state after a full-save failure: the row exists but nothing durable was claimed. */
-    function stageFullSaveFailure(sessionId: string | null = SESSION) {
+    function stageFullSaveFailure(sessionId: string | null = SESSION, subject: unknown = undefined) {
         const c = priv();
         c.pendingFullSaveRetry = {
             sessionId, completeArgs: {}, attributionEvidence: null,
             progressContext: { mode: 'private' }, progressMetrics: { payload: null, persisted: false },
+            ...(subject === undefined ? {} : { subject }),
         };
     }
+    /** #1593 — the failed take's frozen subject, as the Stop (or the reloaded draft) armed it for Retry Save. */
+    const TAKE_SUBJECT = Object.freeze({
+        subject_boot_id: 'boot-of-take-a', subject_journey_id: 'journey-of-take-a', subject_attempt_id: 'attempt-take-a', subject_attempt_seq: 2,
+    });
 
     it('CONTROL: the initial full-save failure claims NO durable save', () => {
         stageFullSaveFailure();
@@ -226,6 +231,27 @@ describe('#1403 full-save recovery publishes a receipt where there was none', ()
         ).toBe(SESSION);
     });
 
+    it('#1593 (Sam): a recovered save publishes the RECOVERED take\'s own subject, paired with its session', async () => {
+        useSessionStore.getState().setCompletedSessionSubject(null);
+        stageFullSaveFailure(SESSION, TAKE_SUBJECT);
+        const storage = await import('@/lib/storage');
+        vi.spyOn(storage, 'completeSession').mockResolvedValue({ success: true } as never);
+        expect(await priv().retryRecordingSave()).toBe(true);
+        expect(useSessionStore.getState().completedSessionSubject).toEqual({ sessionId: SESSION, subject: TAKE_SUBJECT });
+    });
+
+    it('#1593 (Sam): a recovered save with NO valid subject (legacy draft) publishes unknown, never an ambient one', async () => {
+        for (const subject of [undefined, null, { ...TAKE_SUBJECT, session_id: SESSION }]) {
+            useSessionStore.getState().setCompletedSessionSubject({ sessionId: 'stale', subject: TAKE_SUBJECT });
+            stageFullSaveFailure(SESSION, subject);
+            const storage = await import('@/lib/storage');
+            vi.spyOn(storage, 'completeSession').mockResolvedValue({ success: true } as never);
+            expect(await priv().retryRecordingSave()).toBe(true);
+            expect({ staged: subject ?? null, published: useSessionStore.getState().completedSessionSubject })
+                .toEqual({ staged: subject ?? null, published: null });
+        }
+    });
+
     it('CASUALTY D2: a FAILED recovery publishes no review identity either', async () => {
         // The negative half. A controller that published the identity unconditionally would satisfy
         // the casualty above while telling the user an unrecovered take was ready to read.
@@ -237,6 +263,7 @@ describe('#1403 full-save recovery publishes a receipt where there was none', ()
         const ok = await priv().retryRecordingSave();
         expect(ok).toBe(false);
         expect(useSessionStore.getState().completedSessionId).toBeNull();
+        expect(useSessionStore.getState().completedSessionSubject).toBeNull();
     });
 
     it('CASUALTY: a failed COMPLETION publishes nothing', async () => {

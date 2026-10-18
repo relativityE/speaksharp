@@ -34,6 +34,7 @@ import { RuntimeState } from '@/services/SpeechRuntimeController';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { noteTranscriptUpdate, emitTranscriptStability } from '@/services/telemetry/transcriptStability';
 import { markCompletionStage } from '@/services/telemetry/completionStages';
+import type { RecordingSubject } from '@/services/telemetry/recordingSubject';
 
 export type NativeFormattingUiStatus = 'idle' | 'pending' | 'complete' | 'failed';
 
@@ -49,6 +50,23 @@ export interface NativeFormattingUiState {
  * Drives the consolidated status bar's mode-aware copy, the Analytics cue (session-scoped via
  * `sessionId`), and the one-shot completion toast. Persisted total == canonical live (#944).
  */
+/** #1593 — a saved take's frozen subject, bound to the session it saved (see `completedSessionSubject`). */
+export interface CompletedSessionSubject {
+    sessionId: string;
+    subject: RecordingSubject;
+}
+
+/**
+ * #1593 — the subject a review may name: only the one published for THAT review session. A review of B can never carry A's
+ * subject (a stale pairing, or the other take's), and anything unpaired is unknown — null, never the ambient attempt.
+ */
+export function reviewSubjectFor(
+    reviewSessionId: string | null | undefined,
+    completed: CompletedSessionSubject | null | undefined,
+): RecordingSubject | null {
+    return reviewSessionId && completed && completed.sessionId === reviewSessionId ? completed.subject : null;
+}
+
 export interface FinalizedAnalysisState {
     sessionId: string;
     /** Engine that finalized this session ('native' | 'private' | 'cloud' | ...). */
@@ -137,6 +155,16 @@ export interface SessionState {
      * handler. A no-op or superseded retry never sets it. Retired with the take's other after-state identity.
      */
     recoveredSaveSessionId: string | null;
+    /**
+     * #1593 (Sam, saved-review subject) — THE SAVED TAKE'S OWN IDENTITY, PAIRED WITH ITS SESSION.
+     *
+     * The review's Repeat press and its coaching request used to read the AMBIENT attempt, which a torn-down engine
+     * has already closed and the next accepted Start replaces. This is the take's frozen `RecordingSubject`, published
+     * with `completedSessionId` by the same owner-fenced settlements (first-pass save and recovered Retry Save) and
+     * retired with it, so a review can only ever name the take whose session it shows. Null means unknown — never
+     * re-derived from ambient identity.
+     */
+    completedSessionSubject: CompletedSessionSubject | null;
     /**
      * #1046 slice 3b-ii: the Focus Points brief the CURRENT recording is being made against, or null for
      * a freeform (Open Mic) recording. Set at objective-session entry (slice 5); read at the stop seam
@@ -262,6 +290,7 @@ interface SessionActions {
     setFinalizedAnalysis: (analysis: FinalizedAnalysisState | null) => void;
     setCompletedSessionId: (sessionId: string | null) => void;
     setRecoveredSaveSessionId: (sessionId: string | null) => void;
+    setCompletedSessionSubject: (completed: CompletedSessionSubject | null) => void;
     setFinalizedWordCount: (wordCount: number | null) => void;
     setFinalizedFillerData: (data: FillerCounts | null) => void;
     setFinalizedFillerCount: (count: number | null) => void;
@@ -318,6 +347,7 @@ const initialState: SessionState = {
     completedSessionDurationSeconds: null,
     completedSessionId: null,
     recoveredSaveSessionId: null,
+    completedSessionSubject: null,
     activeObjectiveBrief: null,
     practiceFocus: readPracticeFocus(),
     completedObjectiveBrief: null,
@@ -595,6 +625,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
             completedSessionDurationSeconds: null,
             completedSessionId: null,
             recoveredSaveSessionId: null,
+            completedSessionSubject: null,
             sessionSaved: false,
             pauseMetrics: initialState.pauseMetrics,
             finalizedAnalysis: null,
@@ -651,6 +682,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
     setCompletedSessionId: (completedSessionId) => set({ completedSessionId }),
     setRecoveredSaveSessionId: (recoveredSaveSessionId) => set({ recoveredSaveSessionId }),
+    setCompletedSessionSubject: (completedSessionSubject) => set({ completedSessionSubject }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
     setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),

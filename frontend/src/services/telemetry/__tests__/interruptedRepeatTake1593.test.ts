@@ -27,8 +27,9 @@ const stage = (name: string, at: number, attempt = A) => row('stage_latency', at
 /** R's lifecycle row; its envelope attempt is A unless a test places it under another take. */
 const lc = (stageName: string, at: number, extra: Record<string, unknown> = {}) =>
     row('ai_coaching_lifecycle', at, { stage: stageName, diagnostic_request_id: R, origin_attempt_id: A, origin_boot_id: BOOT, attempt_id: A, ...extra });
-const press = (at: number, option = 'practice_next', attempt: string | null = A) =>
-    row('journey_step', at, { step: 'option_selected', option_selected: option, attempt_id: attempt });
+/** The review's Repeat press: its own `subject_*` names the reviewed take; its ambient envelope may have no attempt at all. */
+const press = (at: number, option = 'practice_next', subjectAttempt: string | null = A, extra: Record<string, unknown> = {}) =>
+    row('journey_step', at, { step: 'option_selected', option_selected: option, attempt_id: null, subject_attempt_id: subjectAttempt, subject_boot_id: BOOT, ...extra });
 const start = (at: number, outcome = 'accepted', attempt: string | null = B) =>
     row('recording_intent', at, { intent_kind: 'start', intent_outcome: outcome, attempt_id: attempt });
 const savedTake = (attempt: string, at: number) => [
@@ -125,10 +126,17 @@ describe('interrupted repeat take — the declared take and the review\'s own Re
         expect(check(without(openAtInvalidation(), (r) => r.event === 'recording_intent'))).toMatch(/no Start follows the review's Repeat press/);
     });
 
-    it('NEGATIVE: the press is bound to the declared take A and this boot — never another take, no take, or another boot', () => {
-        expect(check(replace(openAtInvalidation(), (r) => r.event === 'journey_step', press(9, 'practice_next', OTHER)))).toMatch(/press was made under another take/);
+    it('NEGATIVE: the press is bound to the declared take A by its OWN subject and this boot — never another take, no take, or another boot', () => {
+        expect(check(replace(openAtInvalidation(), (r) => r.event === 'journey_step', press(9, 'practice_next', OTHER)))).toMatch(/press names another saved take/);
         expect(check(replace(openAtInvalidation(), (r) => r.event === 'journey_step', press(9, 'practice_next', null))))
-            .toMatch(/Repeat press names no take, so it cannot be bound to the declared take/);
+            .toMatch(/Repeat press names no saved take, so it cannot be bound to the declared take/);
+        // The AMBIENT attempt is never a substitute: an envelope naming A with no subject still names no saved take.
+        expect(check(replace(openAtInvalidation(), (r) => r.event === 'journey_step', press(9, 'practice_next', null, { attempt_id: A }))))
+            .toMatch(/names no saved take/);
+        // POSITIVE: the ambient envelope already closed (TERMINATED before the press) — the subject still binds A.
+        expect(classifyInterruptedRepeat(openAtInvalidation(), DECLARED)).toMatchObject({ ok: true, takeAttempt: A });
+        expect(check(replace(openAtInvalidation(), (r) => r.event === 'journey_step', press(9, 'practice_next', A, { subject_boot_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' }))))
+            .toMatch(/saved in another boot than the coaching request's origin/);
         const otherBoot = { ...press(9), bootId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' } as DecodedTelemetryRow;
         expect(check(replace(openAtInvalidation(), (r) => r.event === 'journey_step', otherBoot))).toMatch(/not made in the coaching request's boot/);
     });

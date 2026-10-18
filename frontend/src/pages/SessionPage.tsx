@@ -19,7 +19,7 @@ import { restorableSession, restoreRefused } from '@/components/session/restorab
 import { ObjectiveSetupDialog } from '@/components/practice/ObjectiveSetupDialog';
 import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import { useSessionStore } from '@/stores/useSessionStore';
+import { reviewSubjectFor, useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -92,6 +92,7 @@ export const SessionPage: React.FC = () => {
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
     const completedSessionId = useSessionStore(state => state.completedSessionId);
+    const completedSessionSubject = useSessionStore(state => state.completedSessionSubject);
     // #1258 RWT round 2 C — the recovered take's review licence (see useSessionLifecycle / SessionOverhaulView).
     const recoveredSaveSessionId = useSessionStore(state => state.recoveredSaveSessionId);
     // #1306 Option A: the terminal review's word count + filler breakdown come from the FINAL snapshot (captured
@@ -254,6 +255,9 @@ export const SessionPage: React.FC = () => {
     // keeps existing behaviour wherever it exists; falling back to the persisted id is what makes an
     // optional extra unable to take the user's transcript away.
     const reviewSessionId = finalizedAnalysis?.sessionId ?? completedSessionId ?? null;
+    // #1593 (Sam, saved-review subject) — the reviewed take's frozen subject, ONLY when it was published for this exact
+    // review session. A review of B can never carry A's subject; anything unpaired is unknown (null), never ambient.
+    const reviewSubject = reviewSubjectFor(reviewSessionId, completedSessionSubject);
     const queryClient = useQueryClient();
     const {
         data: savedSession, isFetching: reviewFetching,
@@ -840,6 +844,7 @@ export const SessionPage: React.FC = () => {
                 ) : (
                 <SessionOverhaulView
                     authUserId={authUserId}
+                    reviewSubject={reviewSubject}
                     isListening={isListening}
                     sttStatus={sttStatus}
                     elapsedTime={elapsedTime}
@@ -872,6 +877,7 @@ export const SessionPage: React.FC = () => {
                              * and a Retry control that could not fire either. Half a fix is its own defect.
                              */
                             sessionId={reviewSessionId ?? undefined}
+                            subject={reviewSubject}
                             /**
                              * #1422 P2/P5 — READINESS IS THE SERVER'S TRANSCRIPT STATE, not a word count.
                              *

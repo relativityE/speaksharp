@@ -1,7 +1,7 @@
 /** Content-free Practice Loop review telemetry. Generated coaching and provider errors never enter it. */
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import type { COACHING_LIFECYCLE_END_REASONS, COACHING_LIFECYCLE_STAGES, GovernedEvent } from '@/services/telemetryAllowlist';
-import { currentAttemptId, currentBootId, currentJourneyId } from '@/services/telemetry/journeyIdentity';
+import { sanitizeRecordingSubject, type RecordingSubject } from '@/services/telemetry/recordingSubject';
 import type { ProviderCodeFields } from '@/services/telemetry/providerCodes';
 
 export type PracticeLoopReviewFailureReason =
@@ -80,17 +80,20 @@ export const trackAiCoachingDiagnostic = (diagnostic: AiCoachingDiagnosticTeleme
   emit('ai_coaching_diagnostic', { ...diagnostic });
 
 /**
- * #1593 — the journey/boot/recording attempt a coaching request STARTED in. Captured once, at request start, and carried
- * on every lifecycle stage of that request, so a late answer for take A can never be attributed to take B by the ambient
- * envelope (which is read at push time). `attempt` is null outside a recording attempt — honest absence.
+ * #1593 — the journey/boot/recording attempt a coaching request STARTED for, carried on every lifecycle stage of that
+ * request, so a late answer for take A can never be attributed to take B by the ambient envelope (read at push time).
+ *
+ * Sam (saved-review subject): the origin is the reviewed take's own frozen subject, never the ambient identity. By the
+ * time its review requests coaching the take's attempt may already be closed (a torn-down engine) or replaced (the next
+ * accepted Start), so the ambient read named no take or the wrong one. With no authoritative subject the origin is
+ * unknown — empty fields, which the emitter omits — never a guess.
  */
 export interface CoachingLifecycleOrigin { journeyId: string; bootId: string; attemptId: string | null }
-export const snapshotCoachingOrigin = (): CoachingLifecycleOrigin => {
-  try {
-    return { journeyId: currentJourneyId(), bootId: currentBootId(), attemptId: currentAttemptId() };
-  } catch {
-    return { journeyId: '', bootId: '', attemptId: null };
-  }
+export const snapshotCoachingOrigin = (subject: RecordingSubject | null | undefined): CoachingLifecycleOrigin => {
+  const take = sanitizeRecordingSubject(subject);
+  return take
+    ? { journeyId: take.subject_journey_id, bootId: take.subject_boot_id, attemptId: take.subject_attempt_id }
+    : { journeyId: '', bootId: '', attemptId: null };
 };
 
 export type CoachingLifecycleStage = typeof COACHING_LIFECYCLE_STAGES[number];

@@ -1514,6 +1514,11 @@ export class SpeechRuntimeController {
                          * is stale and must not overwrite that newer take's.
                          */
                         useSessionStore.getState().setCompletedSessionId(targetSessionId);
+                        // #1593 — the recovered take's own subject, carried by its Retry Save since the failed Stop (or the
+                        // reloaded draft); never the attempt ambient now.
+                        const recoveredSubject = sanitizeRecordingSubject(fullSave.subject);
+                        useSessionStore.getState().setCompletedSessionSubject(
+                            targetSessionId && recoveredSubject ? { sessionId: targetSessionId, subject: recoveredSubject } : null);
                         /**
                          * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
                          * saved-take review, so a recovered save left the page on its failed Stop: no review, no
@@ -4679,6 +4684,7 @@ export class SpeechRuntimeController {
                     && acceptedHere.serviceGeneration === this.serviceGeneration) {
                     const store = useSessionStore.getState();
                     store.setCompletedSessionId(null);
+                    store.setCompletedSessionSubject(null);
                     store.setRecoveredSaveSessionId(null);
                     this.recoverableSaveFailureStatus = null;
                     store.setFinalizedAnalysis(null);
@@ -5859,6 +5865,11 @@ export class SpeechRuntimeController {
                                 // optional analysis whose failure is non-fatal, and the review reader used to depend on it: a
                                 // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
                                 useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
+                                // #1593 — and the take it saved, frozen at RECORDING: the review's Repeat press and its coaching
+                                // request name THIS take, never whatever attempt is ambient when they happen.
+                                const savedSubject = sanitizeRecordingSubject(takeSubject);
+                                useSessionStore.getState().setCompletedSessionSubject(
+                                    sessionId && savedSubject ? { sessionId, subject: savedSubject } : null);
                             });
 
                             // Track 1 finalized reconciliation (disclosure-only). Computed against the

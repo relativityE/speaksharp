@@ -9,6 +9,7 @@ import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as RecoveryHook from '@/hooks/useUnresolvedRecovery';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 /** #1538 Codex P1 r4118176188: every coaching request declares the closed capability. */
 const ACCEPTED_COACHING_VERSIONS = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
@@ -885,5 +886,58 @@ describe('#1258 PR A — next-take prewarm and page visibility (Codex r429124468
         act(() => { document.dispatchEvent(new Event('visibilitychange')); });
         await settleMicrotasks();
         expect(prepare).not.toHaveBeenCalled();
+    });
+});
+
+describe('#1593 (Sam saved-review subject) — the page pairs the reviewed take\'s subject with its session', () => {
+    const SUBJECT_A = Object.freeze({
+        subject_boot_id: 'boot-of-take-a', subject_journey_id: 'journey-of-take-a', subject_attempt_id: 'attempt-take-a', subject_attempt_seq: 1,
+    });
+    const VALID = { data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Lead with it.' } }, error: null };
+    /** A previous test's unmount ends its lifecycle one tick later; let it land, then observe only this test. */
+    const freshPushSpy = async () => {
+        const spy = vi.spyOn(analyticsBuffer, 'push').mockImplementation(() => undefined);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        spy.mockClear();
+        return spy;
+    };
+    const lifecycleOrigins = (spy: ReturnType<typeof vi.spyOn>) => spy.mock.calls
+        .filter((c) => c[0] === 'ai_coaching_lifecycle')
+        .map((c) => (c[1] as Record<string, unknown>).origin_attempt_id);
+
+    it('the coaching request\'s origin is the subject published for THIS review session', async () => {
+        const push = await freshPushSpy();
+        const store = useSessionStore.getState();
+        store.setFinalizedWordCount(4);
+        store.setFinalizedFillerData({});
+        store.setFinalizedFillerCount(0);
+        store.setCompletedSessionId('session-complete-1');
+        store.setCompletedSessionSubject({ sessionId: 'session-complete-1', subject: SUBJECT_A });
+        store.setFinalizedAnalysis(null);
+        getSessionById.mockResolvedValue(savedRow('available'));
+        invoke.mockResolvedValue(VALID);
+
+        render(<SessionPage />);
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
+        await waitFor(() => expect(lifecycleOrigins(push).length).toBeGreaterThan(0));
+        expect(new Set(lifecycleOrigins(push))).toEqual(new Set(['attempt-take-a']));
+    });
+
+    it('a subject published for ANOTHER session is never used — the origin is unknown', async () => {
+        const push = await freshPushSpy();
+        const store = useSessionStore.getState();
+        store.setFinalizedWordCount(4);
+        store.setFinalizedFillerData({});
+        store.setFinalizedFillerCount(0);
+        store.setCompletedSessionId('session-complete-1');
+        store.setCompletedSessionSubject({ sessionId: 'session-previous-take', subject: SUBJECT_A });
+        store.setFinalizedAnalysis(null);
+        getSessionById.mockResolvedValue(savedRow('available'));
+        invoke.mockResolvedValue(VALID);
+
+        render(<SessionPage />);
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
+        await waitFor(() => expect(lifecycleOrigins(push).length).toBeGreaterThan(0));
+        expect(new Set(lifecycleOrigins(push))).toEqual(new Set([undefined]));
     });
 });

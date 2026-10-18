@@ -41,6 +41,7 @@ import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthorit
 import type { TranscriptView } from '@/lib/storage';
 import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
 import { useOpenShareFeedback } from '@/contexts/feedbackOpener';
+import type { RecordingSubject } from '@/services/telemetry/recordingSubject';
 
 /** #1258 — how long a settled review may wait for its saved transcript before reporting it as not shown. */
 const REVIEW_RECEIPT_UNBOUND_SETTLE_MS = 2_000;
@@ -167,6 +168,11 @@ export interface SessionOverhaulViewProps {
     onEditPoints?: () => void;
     onRetryPoints?: () => void;
     onNewSet?: () => void;
+    /**
+     * #1593 (Sam, saved-review subject) — the frozen subject of the take this review shows, supplied only when it is paired
+     * with the review's own session. The review's Repeat actions name it; absent means unknown, never the ambient attempt.
+     */
+    reviewSubject?: RecordingSubject | null;
     /** #1264 — the optional Open Mic Practice Focus + setter. Open Mic only; display-only intention. */
     practiceFocus?: PracticeFocus | null;
     onSelectFocus?: (focus: PracticeFocus) => void;
@@ -226,6 +232,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onEditPoints,
     onRetryPoints,
     onNewSet,
+    reviewSubject = null,
     history,
 }) => {
     // #1474 — the owner-scoped opener for the Navigation-owned Share Feedback dialog ("Count look wrong?" in THIS RUN).
@@ -413,9 +420,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }, [authUserId]);
     const choosePracticeAgain = React.useCallback(() => {
         if (liveGateBlocksStart()) return;
-        emitJourneyStep({ step: 'option_selected', optionSelected: 'practice_next' });
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'practice_next', subject: reviewSubject });
         onStartStop();
-    }, [liveGateBlocksStart, onStartStop]);
+    }, [liveGateBlocksStart, onStartStop, reviewSubject]);
 
     // The rail's two actions were passed through unwrapped, so the Focus Points review recorded which
     // options were offered and never which one was taken — the same gap `option_selected` was added to
@@ -423,9 +430,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // cannot swallow the fact.
     const chooseRetryPoints = React.useCallback(() => {
         if (liveGateBlocksStart()) return;
-        emitJourneyStep({ step: 'option_selected', optionSelected: 'retry_points' });
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'retry_points', subject: reviewSubject });
         (onRetryPoints ?? onStartStop)();
-    }, [liveGateBlocksStart, onRetryPoints, onStartStop]);
+    }, [liveGateBlocksStart, onRetryPoints, onStartStop, reviewSubject]);
 
     const chooseNewSet = React.useCallback(() => {
         emitJourneyStep({ step: 'option_selected', optionSelected: 'new_set' });

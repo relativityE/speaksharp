@@ -22,6 +22,7 @@
  * quietly sent, so paths are normalised before they are offered.
  */
 import { safeEmit } from './safeEmit';
+import { sanitizeRecordingSubject, type RecordingSubject } from './recordingSubject';
 
 export type JourneyStepKind =
     | 'route_change'
@@ -82,7 +83,20 @@ export interface JourneyStepInput {
     optionsShown?: readonly string[] | null;
     optionSelected?: string | null;
     pointsEntered?: number | null;
+    /** #1593 — the saved take a review option acts on (its frozen subject). Absent means unknown, never ambient. */
+    subject?: RecordingSubject | null;
 }
+
+/** The subject's four governed fields — re-validated, so a malformed or partial subject is sent as unknown (all null). */
+const subjectFields = (raw: RecordingSubject | null | undefined) => {
+    const subject = sanitizeRecordingSubject(raw);
+    return {
+        subject_boot_id: subject?.subject_boot_id ?? null,
+        subject_journey_id: subject?.subject_journey_id ?? null,
+        subject_attempt_id: subject?.subject_attempt_id ?? null,
+        subject_attempt_seq: subject?.subject_attempt_seq ?? null,
+    };
+};
 
 export function emitJourneyStep(input: JourneyStepInput): void {
     safeEmit('journey_step', {
@@ -98,5 +112,6 @@ export function emitJourneyStep(input: JourneyStepInput): void {
         options_shown: input.optionsShown ? [...input.optionsShown] : null,
         option_selected: input.optionSelected ?? null,
         points_entered: input.pointsEntered ?? null,
+        ...subjectFields(input.subject),
     }, 'HIGH');
 }

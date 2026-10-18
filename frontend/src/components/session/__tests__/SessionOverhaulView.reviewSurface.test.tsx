@@ -9,7 +9,7 @@
  *
  * Decoded, an entire product looked like a review whose generation had failed.
  */
-import { act, render, screen } from '../../../../tests/support/test-utils';
+import { act, cleanup, render, screen } from '../../../../tests/support/test-utils';
 import { fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
@@ -267,5 +267,55 @@ describe('#1533 P2 #3 — no option_selected receipt while the after-session act
 
         expect({ receipts: selections().length, starts: onStartStop.mock.calls.length + onRetryPoints.mock.calls.length })
             .toEqual({ receipts: 0, starts: 0 });
+    });
+});
+
+describe('#1593 (Sam saved-review subject) — the review\'s Repeat actions name the reviewed take', () => {
+    const SUBJECT = Object.freeze({
+        subject_boot_id: 'boot-of-take-a', subject_journey_id: 'journey-of-take-a', subject_attempt_id: 'attempt-take-a', subject_attempt_seq: 2,
+    });
+    const subjectOf = (row: Record<string, unknown> | undefined) => (row ? {
+        subject_boot_id: row.subject_boot_id, subject_journey_id: row.subject_journey_id,
+        subject_attempt_id: row.subject_attempt_id, subject_attempt_seq: row.subject_attempt_seq,
+    } : undefined);
+    const UNKNOWN = { subject_boot_id: null, subject_journey_id: null, subject_attempt_id: null, subject_attempt_seq: null };
+    const openMic = (extra: Partial<SessionOverhaulViewProps> = {}) => render(
+        <SessionOverhaulView {...base} objectivePoints={null} showAnalyticsPrompt transcriptContent=""
+            reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }} elapsedTime={84} onStartStop={vi.fn()} {...extra} />,
+    );
+    const lastSelection = () => last(rows('journey_step').filter((r) => r.step === 'option_selected'));
+    // Resolve the before-state start gate for this viewer (as S-11 does), so these exercise the subject, not the fence.
+    beforeEach(() => { useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'user-1' }); });
+
+    it('Open Mic "Practice this again" carries the reviewed take\'s subject', () => {
+        openMic({ reviewSubject: SUBJECT });
+        fireEvent.click(screen.getByTestId('verdict-practice-again'));
+        expect(subjectOf(lastSelection())).toEqual(SUBJECT);
+    });
+
+    it('Focus Points "Retry this set" carries the reviewed take\'s subject', () => {
+        renderFocusPointsReview({ onRetryPoints: vi.fn(), reviewSubject: SUBJECT });
+        fireEvent.click(screen.getByTestId('focus-points-retry'));
+        expect(subjectOf(lastSelection())).toEqual(SUBJECT);
+    });
+
+    it('no subject (legacy or unpaired review) is UNKNOWN — the press never borrows the ambient attempt', () => {
+        openMic();
+        fireEvent.click(screen.getByTestId('verdict-practice-again'));
+        expect(subjectOf(lastSelection())).toEqual(UNKNOWN);
+    });
+
+    it('PRIVACY: a subject carrying a raw session id, or prose, is rejected whole — never partially sent', () => {
+        for (const bad of [
+            { ...SUBJECT, session_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+            { ...SUBJECT, subject_attempt_id: 'I will name the price now.' },
+        ]) {
+            cleanup();
+            openMic({ reviewSubject: bad as never });
+            fireEvent.click(screen.getByTestId('verdict-practice-again'));
+            const row = lastSelection();
+            expect(subjectOf(row)).toEqual(UNKNOWN);
+            expect(row).not.toHaveProperty('session_id');
+        }
     });
 });
