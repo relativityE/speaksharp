@@ -32,7 +32,7 @@ import {
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    completedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    addCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -182,7 +182,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         const leftTakeSaved = priorTakeSaved(rowsBeforeFirst, rowsAtReturn);
         const leftTakeOnce = leftTakeSavedOnce(rowsBeforeFirst, rowsAtReturn);
         const leftTakeRows = newRowsSince(rowsBeforeFirst, rowsAtReturn);
-        takes.push(...completedTakeIds(leftTakeRows));
+        addCompletedTakeIds(takes, leftTakeRows);
         const leftTakeRowCounts = { newRows: leftTakeRows.length, newCompleted: leftTakeRows.filter((r) => r.status === 'completed').length };
         if (variant === 'navigate-away') {
             // Codex P1 r4296551953 / r4297070691: Leave is "Stop and save" — exactly one completed row for the left take.
@@ -222,6 +222,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         const nextId = await persistedId(returned);
         if (nextId) takes.push(nextId);
         const rowsAfter = await readRows(owner.uid);
+        addCompletedTakeIds(takes, newRowsSince(rowsBeforeFirst, rowsAfter));
         const only = nextTakeOnlyItselfVerdict(rowsBeforeNext, rowsAfter, nextId);
         receipt.row('next take saves only itself', only.status, only.detail,
             { rowsBefore: rowsBeforeNext.length, rowsAfter: rowsAfter.length, activeAfter: rowsAfter.filter((r) => r.status === 'active').length });

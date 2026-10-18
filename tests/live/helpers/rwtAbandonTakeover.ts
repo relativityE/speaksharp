@@ -111,6 +111,11 @@ export function completedTakeIds(rows: readonly RowFacts[]): string[] {
     return rows.filter((row) => row.status === 'completed').map((row) => row.id);
 }
 
+/** Refresh after later server reads too: an abandoned take may finish saving after return. */
+export function addCompletedTakeIds(takes: string[], rows: readonly RowFacts[]): void {
+    for (const id of completedTakeIds(rows)) if (!takes.includes(id)) takes.push(id);
+}
+
 /**
  * Whether ANY transcript of the take the person left was persisted, as the SERVER holds it: at least one completed row
  * that was not there before the first Start. This is what the recovery notice must tell the truth about (Sam 6220514829):
