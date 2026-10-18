@@ -116,6 +116,16 @@ export function addCompletedTakeIds(takes: string[], rows: readonly RowFacts[]):
     for (const id of completedTakeIds(rows)) if (!takes.includes(id)) takes.push(id);
 }
 
+/** Finalization runs on successful, returned and thrown paths; unreadable identities are never verified. */
+export async function refreshCompletedTakeIds(takes: string[], baseline: readonly RowFacts[] | null,
+    readFinalRows: () => Promise<readonly RowFacts[]>): Promise<boolean> {
+    if (baseline === null) return false;
+    try {
+        addCompletedTakeIds(takes, newRowsSince(baseline, await readFinalRows()));
+        return true;
+    } catch { return false; }
+}
+
 /**
  * Whether ANY transcript of the take the person left was persisted, as the SERVER holds it: at least one completed row
  * that was not there before the first Start. This is what the recovery notice must tell the truth about (Sam 6220514829):

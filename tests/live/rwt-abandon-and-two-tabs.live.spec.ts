@@ -32,7 +32,7 @@ import {
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    addCompletedTakeIds, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -80,11 +80,13 @@ async function startFirstPrivateTake(page: Page, label: string): Promise<void> {
 }
 
 async function finish(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
-    owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[]): Promise<void> {
+    owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], leftTakeBaseline?: readonly RowFacts[] | null): Promise<void> {
     const cloudVerdict = noCloudVerdict(cloud.requests);
     receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
     await generations.settle();
-    coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes });
+    const sessionIdsVerified = leftTakeBaseline === undefined
+        || await refreshCompletedTakeIds(takes, leftTakeBaseline, () => readRows(owner.uid));
+    coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes, sessionIdsVerified });
     if (owner.uid) {
         try {
             await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
@@ -106,13 +108,14 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
     const owner: RunOwner = { email: '', uid: '' };
     const takes: string[] = [];
     let claimed = false;
+    let rowsBeforeFirst: RowFacts[] | null = null;
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `abandon-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
         await openOpenMic(page);
         // The account's rows before the first take: the baseline the left take's persistence is read against.
-        const rowsBeforeFirst = await readRows(owner.uid);
+        rowsBeforeFirst = await readRows(owner.uid);
         await startFirstPrivateTake(page, `abandon-${variant}-1`);
         await page.waitForTimeout(MID_TAKE_MS);
         const during = await tabState(page);
@@ -222,7 +225,6 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         const nextId = await persistedId(returned);
         if (nextId) takes.push(nextId);
         const rowsAfter = await readRows(owner.uid);
-        addCompletedTakeIds(takes, newRowsSince(rowsBeforeFirst, rowsAfter));
         const only = nextTakeOnlyItselfVerdict(rowsBeforeNext, rowsAfter, nextId);
         receipt.row('next take saves only itself', only.status, only.detail,
             { rowsBefore: rowsBeforeNext.length, rowsAfter: rowsAfter.length, activeAfter: rowsAfter.filter((r) => r.status === 'active').length });
@@ -230,7 +232,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
-        await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes);
+        await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
     }
 }
 

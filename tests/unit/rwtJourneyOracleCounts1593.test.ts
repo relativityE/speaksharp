@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
-import { addCompletedTakeIds, completedTakeIds, newRowsSince, nextTakeOnlyItselfVerdict } from '../live/helpers/rwtAbandonTakeover';
+import { describe, expect, it, vi } from 'vitest';
+import { addCompletedTakeIds, completedTakeIds, newRowsSince, nextTakeOnlyItselfVerdict, refreshCompletedTakeIds } from '../live/helpers/rwtAbandonTakeover';
 import { knownSessionCount, navigationWritesVerdict } from '../live/helpers/rwtNavigationCounts';
 import { coachingRequestBudgetRow } from '../live/helpers/rwtCoachingCollector';
 import type { CoachingExchange } from '../live/helpers/coachingGenerationTap';
@@ -13,10 +13,10 @@ describe('case9 includes the saved left take in the per-take coaching budget', (
         sent: { sessionId, product: 'open_mic', requestId: 'request', attemptId: 'attempt', clientAttempt: 1, clientReleaseId: 'release' },
         status: 200, diagnostics: { provider_attempts: 1 }, suggestions: null, clientMs: 1, at: 1, outcome: 'answered',
     });
-    function budget(exchanges: CoachingExchange[], observedTakes = takes) {
+    function budget(exchanges: CoachingExchange[], observedTakes = takes, sessionIdsVerified = true) {
         const rows: { verdict: string; evidence: Record<string, unknown> | undefined }[] = [];
         coachingRequestBudgetRow({ row: (_step, verdict, _detail, evidence) => { rows.push({ verdict, evidence }); } },
-            { sentCount: exchanges.length, exchanges }, { maximum: 2, oneRequestPerSession: observedTakes });
+            { sentCount: exchanges.length, exchanges }, { maximum: 2, oneRequestPerSession: observedTakes, sessionIdsVerified });
         return rows[0];
     }
     it('two left requests and zero next requests FAIL even though the whole-scenario maximum is two', () => {
@@ -45,6 +45,40 @@ describe('case9 includes the saved left take in the per-take coaching budget', (
             .toMatchObject({ verdict: 'FAIL', evidence: { maxRequestsForOneTake: 2 } });
         expect(budget([exchange('left'), exchange('next')], observed))
             .toMatchObject({ verdict: 'PASS', evidence: { maxRequestsForOneTake: 1 } });
+    });
+    it.each(['return', 'throw'])('finalization includes a late-completed left take after an early %s', async exit => {
+        const observed: string[] = [];
+        let finalBudget: ReturnType<typeof budget> | undefined;
+        async function scenario() {
+            try {
+                addCompletedTakeIds(observed, [{ id: 'left', status: 'active' }]);
+                if (exit === 'throw') throw new Error('next Start failed');
+                return;
+            } finally {
+                const verified = await refreshCompletedTakeIds(observed, before, async () => atReturn);
+                finalBudget = budget([exchange('left'), exchange('left')], observed, verified);
+            }
+        }
+        const failure: unknown = await scenario().then(() => null, (error: unknown) => error);
+        expect(failure instanceof Error ? failure.message : null).toBe(exit === 'throw' ? 'next Start failed' : null);
+        expect(finalBudget).toMatchObject({ verdict: 'FAIL', evidence: { maxRequestsForOneTake: 2 } });
+        expect(observed).toEqual(['left']);
+    });
+    it('an unreadable final row read HOLDs instead of claiming a verified per-take budget', async () => {
+        const observed: string[] = [];
+        const verified = await refreshCompletedTakeIds(observed, before, async () => { throw new Error('row read unavailable'); });
+        expect(verified).toBe(false);
+        expect(budget([exchange('left'), exchange('left')], observed, verified).verdict).toBe('HOLD');
+        expect(budget([exchange('left'), exchange('left')], ['left'], verified).verdict).toBe('FAIL');
+        expect(budget([exchange('left'), exchange('left'), exchange('next')], observed, verified).verdict).toBe('FAIL');
+    });
+    it('a missing initial baseline leaves identities unverified without reading another account', async () => {
+        const observed: string[] = [];
+        const read = vi.fn(async () => []);
+        const verified = await refreshCompletedTakeIds(observed, null, read);
+        expect(verified).toBe(false);
+        expect(read).not.toHaveBeenCalled();
+        expect(budget([], observed, verified).verdict).toBe('HOLD');
     });
 });
 
