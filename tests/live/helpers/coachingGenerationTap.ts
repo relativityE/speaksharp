@@ -175,6 +175,16 @@ export class CoachingGenerationTap {
         return { unanswered, bodyPending };
     }
 
+    /**
+     * #1474 (Sam 6243698211) — THE way a receipt reader reads one take's exchanges: the bounded settle of every sent
+     * request first, then the take's records. A reader that capped the settle (the old 5 s reason bound) read before a
+     * legitimate answer inside the Edge budget arrived; routing every reader through here keeps that impossible.
+     */
+    async settledForSession(sessionId: string | null): Promise<CoachingExchange[]> {
+        await this.settle();
+        return sessionId ? this.forSession(sessionId) : [];
+    }
+
     /** Exchanges the page sent for one saved session, in arrival order. */
     forSession(sessionId: string): CoachingExchange[] {
         return this.exchanges.filter((e) => e.sent.sessionId === sessionId);

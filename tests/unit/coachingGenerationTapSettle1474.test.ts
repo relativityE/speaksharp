@@ -4,7 +4,7 @@
  * seen, so an exchange still in flight was silently missing. These are deterministic controls on a fake page: nothing is
  * sent to any provider, and a missing answer stays HOLD — never a fabricated zero or a PASS.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { CoachingGenerationTap } from '../live/helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from '../live/helpers/rwtCoachingCollector';
@@ -107,9 +107,34 @@ describe('CoachingGenerationTap.settle — every sent exchange, bounded (#1474)'
         expect(tap.exchanges).toHaveLength(1);
     });
 
-    it('Codex r4305107827: no caller caps the bounded settle with the 5 s reason bound before reading exchanges', () => {
+    it('READER (Sam 6243698211): an answer delayed past the old 5 s cap but inside the bound is in the take\'s exchanges', async () => {
+        vi.useFakeTimers();
+        try {
+            const page = new FakePage();
+            const tap = new CoachingGenerationTap();
+            tap.attach(page as never);
+            const slow = coachingRequest('take-1');
+            page.emit('request', slow);
+            setTimeout(() => page.emit('response', answer(slow, 1)), 6_000);
+            let read: unknown[] | null = null;
+            const reading = tap.settledForSession('take-1').then((r) => { read = r; });
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(read, 'the reader must still be waiting at the old 5 s cap').toBeNull();
+            await vi.advanceTimersByTimeAsync(1_500);
+            await reading;
+            expect(read).toHaveLength(1);
+            expect((read as unknown as { outcome: string }[])[0].outcome).toBe('answered');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('Codex r4305107827: both receipt readers read through the bounded settledForSession, with no 5 s cap', () => {
         for (const f of ['tests/live/rwt-open-mic-first-session.live.spec.ts', 'tests/live/helpers/rwtJourney.ts']) {
-            expect(readFileSync(f, 'utf8')).not.toMatch(/settleCoachingReason\([^)]*generations[^)]*\.settle\(\)\)/);
+            const src = readFileSync(f, 'utf8');
+            expect(src).not.toMatch(/settleCoachingReason\([^)]*generations[^)]*\.settle\(\)\)/);
+            expect(src).toContain('settledForSession(');
+            expect(src).not.toMatch(/generations\??\.forSession\(/);
         }
     });
 

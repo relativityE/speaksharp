@@ -2105,9 +2105,8 @@ export async function focusCoachingRows(
     if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
     // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body. An
     // exchange still unread at the bound is simply absent, so nothing is proved from it.
-    // #1474 (Codex r4305107827): the settle is itself bounded by the Edge budget; a 5 s cap read the exchanges early.
-    if (request.generations) await request.generations.settle();
-    const take = takeExchangeEvidence(request.generations?.forSession(sessionId) ?? []);
+    // #1474 (Codex r4305107827, Sam 6243698211): read through the tap's own bounded settle; a 5 s cap read early.
+    const take = takeExchangeEvidence(request.generations ? await request.generations.settledForSession(sessionId) : []);
     // #1258 R3b (run 38308997906 hung 24 min here): read each phrase from the review pair's own test id, bounded. The old
     // heading → div → <p> walk waited without limit when its structure did not resolve. A phrase that is absent reads as
     // '' and the row below FAILs; the rendered-vs-saved check is unchanged.
