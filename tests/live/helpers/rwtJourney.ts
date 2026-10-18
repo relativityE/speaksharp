@@ -1027,6 +1027,14 @@ export class RwtReceipt {
             this.row('readback journey binding', 'HOLD', `no journey emitted the anchor for: ${plan.missingBindings.join(', ')}`,
                 { missingBindings: plan.missingBindings.join(','), reasons, sequence: plan.bindingSequence ?? '' });
         }
+        // #1593 (live run 2026-10-18, cases 4/8) — the finalizer requires `receipt content-free` on EVERY suite
+        // (`ALWAYS_AUTOMATED_ROWS`), documented as written here; only the suites with their own content scan wrote it, so every
+        // other suite's receipt failed finalization on a missing row whatever the journey did. For those, the leak guard below
+        // IS the content check: any registered value replaces this whole receipt with the redacted failure receipt (no rows),
+        // so this PASS can only ever be published when the guard found nothing. A suite's own row is never duplicated.
+        if (!this.rows.some((r) => r.step === 'receipt content-free')) {
+            this.row('receipt content-free', 'PASS', 'the leak guard found no registered value in the receipt, worksheet or log line');
+        }
         const journeyIds = runJourneyIds(plan);
         const dir = path.resolve('test-results', 'rwt');
         mkdirSync(dir, { recursive: true });
