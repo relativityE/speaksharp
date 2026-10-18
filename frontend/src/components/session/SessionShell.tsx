@@ -64,11 +64,12 @@ export const SessionShell: React.FC<SessionShellProps> = ({ sessionState, slotA,
     <div
         data-testid="session-shell"
         data-session-state={sessionState}
-        className={`flex flex-col gap-[14px] ${className ?? ''}`}
+        // #1474: the slot gap tightens below md (mobile vertical budget under the fixed bar); md+ keeps 14px.
+        className={`flex flex-col gap-2 md:gap-[14px] ${className ?? ''}`}
     >
         <Slot slot="A" className="w-full min-w-0">{slotA}</Slot>
         {/* S-2: ink in every state, owned here. Flat fill only — no gradient, opacity or overlay (G2). */}
-        <Slot slot="B" className="w-full min-w-0 rounded-[14px] bg-ink px-5 py-4 text-ink-text md:px-6">{slotB}</Slot>
+        <Slot slot="B" className="w-full min-w-0 rounded-[14px] bg-ink px-5 pb-4 pt-2 text-ink-text md:px-6 md:pt-4">{slotB}</Slot>
         {/* G16 D2: in `before` the two columns share the row's height so they end level (the rail's cards
             fill it). `during`/`after` keep `items-start` so a long transcript never stretches the rail. */}
         <div data-testid="session-shell-row" className={`flex flex-col gap-[14px] md:flex-row ${sessionState === 'before' ? 'md:items-stretch' : 'md:items-start'}`}>

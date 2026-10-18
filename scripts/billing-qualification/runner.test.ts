@@ -8,6 +8,7 @@ import { assert, assertEquals, assertRejects, assertStringIncludes } from "https
 import Stripe from "npm:stripe@16";
 import { handler } from "../../backend/supabase/functions/stripe-webhook/index.ts";
 import { runBillingQualification, assertStripeTestMode, REQUIRED_PHASES } from "./runner.ts";
+import { migratedDb } from "./pglite_supabase.ts";
 
 // The REAL Stripe SDK signature verifier (pure crypto, no network). The fake Stripe delegates webhook
 // verification to this, so every event's signature scheme AND ~5-min timestamp tolerance are genuinely
@@ -97,6 +98,51 @@ Deno.test("full lifecycle proves every phase, with a REAL failed-invoice recover
   assert(payIdx > 0 && payIdx < cancelIdx, "the failed invoice is paid before scheduling cancellation");
   for (let i = 0; i < order.length; i++) if (order[i] === "testClocks.advance") assertEquals(order[i + 1], "testClocks.retrieve", "every advance is followed by a clock-ready poll");
   assert(order.includes("testClocks.del"), "the run-owned clock is deleted");
+});
+
+Deno.test("real webhook lifecycle settles an owned checkout and preserves the legacy no-operation path", async (t) => {
+  for (const reserved of [false, true]) {
+    await t.step(reserved ? "owned open reservation" : "legacy completion without a reservation", async () => {
+      let settlements = 0;
+      const out = await runBillingQualification({
+        ...baseDeps(fakeStripe()),
+        makeDb: async (userId) => {
+          const fixture = await migratedDb(userId);
+          let operation: string | null = null;
+          if (reserved) {
+            operation = (await fixture.db.query<{ id: string }>(
+              "SELECT public.begin_account_checkout($1) AS id", [userId],
+            )).rows[0].id;
+            await fixture.db.query("SELECT public.record_account_checkout($1,$2,$3)",
+              [userId, operation, "cs_test_billing_qualification"]);
+          }
+          return {
+            ...fixture,
+            supabase: {
+              rpc: async (fn, args) => {
+                const result = await fixture.supabase.rpc(fn, args);
+                if (fn === "settle_account_checkout") {
+                  settlements++;
+                  assertEquals(result.error, null);
+                  assertEquals(args.p_session_id, "cs_test_billing_qualification");
+                  const rows = (await fixture.db.query(
+                    "SELECT operation_id,user_id,session_id,phase FROM public.account_checkout_operations",
+                  )).rows;
+                  assertEquals(rows, reserved ? [{
+                    operation_id: operation, user_id: userId,
+                    session_id: "cs_test_billing_qualification", phase: "settled",
+                  }] : []);
+                }
+                return result;
+              },
+            },
+          };
+        },
+      });
+      assertEquals(out.phases, REQUIRED_PHASES);
+      assertEquals(settlements, 1);
+    });
+  }
 });
 
 Deno.test("each webhook is signed with a FRESH timestamp; a stale one is rejected by the real verifier", async () => {
