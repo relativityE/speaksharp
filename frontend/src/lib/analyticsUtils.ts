@@ -221,7 +221,9 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
             date: new Date(s.created_at).toLocaleDateString(),
             // #1047 U1: metric-specific — plot a filler rate only when THIS row's filler evidence is persisted
             // (available; or expired/legacy with real filler data). Otherwise null (omitted point).
-            'FW/min': observedFillers !== null ? calculateRatePerMinute(observedFillers, duration, 2) : null,
+            // Sam 1792314330: a rate needs time — with no positive duration the point is omitted (null), exactly as the RPC's
+            // `CASE WHEN filler_eligible AND duration > 0`; never a fabricated 0.00 from observed counts over zero time.
+            'FW/min': observedFillers !== null && duration > 0 ? calculateRatePerMinute(observedFillers, duration, 2) : null,
             // #1091 + #1047 U1 + #1131 correction 1: plot clarity only when it is scorable AND a genuinely
             // persisted clarity_score is showable for this provenance (expired → never reconstructed).
             // `null` is an omitted point (Recharts renders a gap); never a fabricated zero.

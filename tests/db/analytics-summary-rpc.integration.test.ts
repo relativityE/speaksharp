@@ -197,6 +197,20 @@ describe('#1306 get_analytics_summary — client↔RPC parity on flat filler_cou
     expect(clientPoints.filter((v) => v === null)).toHaveLength(2);
   });
 
+  it('4e. chart boundary (Sam 1792314330): observed counts with ZERO duration plot an omitted point on both sides, not 0.00', async () => {
+    const zero = await freshDb();
+    await zero.query(`INSERT INTO public.sessions (id,user_id,status,duration,total_words,filler_counts) VALUES ($1,$2,'active',0,120,$3)`,
+      [sid(), U, JSON.stringify({ um: 4 })]);
+    const rpc = await summaryFor(zero, U);
+    const client = calculateOverallStats([clientSession({ duration: 0, total_words: 120, filler_counts: { um: 4 } })]);
+    expect(rpc.overallStats.chartData.map((d) => d['FW/min'])).toEqual([null]);
+    expect(client.chartData.map((d) => d['FW/min'])).toEqual([null]);
+    // Documented residual, NOT claimed as a correction here: the AVERAGE adds such a row's fillers with zero time on
+    // BOTH sides alike (same pre-existing behaviour as the previous body), so its parity holds but its meaning is the
+    // numerator's; a duration-gated average numerator would be a separate, explicitly selected change.
+    expect(rpc.overallStats.avgFillerWordsPerMin).toBe(client.avgFillerWordsPerMin);
+  });
+
   it('4d. non-filler outputs, top filler words and trend windows are unchanged by the observed-rate gate', async () => {
     const before = new PGlite();
     await before.exec(BOOTSTRAP); await before.exec(STAGE_A); await before.exec(REPOINT);
