@@ -781,7 +781,11 @@ describe('Codex P1 r4277350691 (PM 6180758593) — Open Mic re-reads the save pr
     it('wiring contract: the spec re-reads the proof after the waits, uses it for the verdict AND the receipt, before Practice-again', () => {
         const src = readFileSync(path.resolve(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
         const proof = src.indexOf('await firstTakeSavedExactlyOnce(admin! as never, capturedUid, persistedId)');
-        expect(proof).toBeGreaterThan(src.indexOf('await settleCoachingReason(generations.settle());'));
+        // #1474 (Codex r4305132345): anchor on the CURRENT settle call and require it to exist, so a renamed call can never
+        // turn this ordering check into a vacuous `proof > -1`.
+        const settled = src.indexOf('await generations.settledForSession(persistedId)');
+        expect(settled).toBeGreaterThan(-1);
+        expect(proof).toBeGreaterThan(settled);
         expect(proof).toBeLessThan(src.indexOf('const coachingParent = coachingParentVerdict({'));
         expect(proof).toBeLessThan(src.indexOf('await practiceAgainEvidence('));
         expect(src).toContain('graceful: { savedTakeProven: firstSave?.proven ?? false,');
