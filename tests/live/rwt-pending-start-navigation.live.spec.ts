@@ -209,8 +209,8 @@ test('leaving during a cold Start does not leave a recording or session behind @
             {
                 modelStatus: modelStatus ?? null, expectedControl: expectedControl ?? null, shellState,
                 startPresent: startState.present, startVisible: startState.visible, startEnabled: startState.enabled, startAriaLabel: startState.ariaLabel,
-                downloadPresent: downloadState.present, downloadEnabled: downloadState.enabled,
-                retryPresent: retryState.present, retryEnabled: retryState.enabled,
+                downloadPresent: downloadState.present, downloadVisible: downloadState.visible, downloadEnabled: downloadState.enabled, downloadAriaLabel: downloadState.ariaLabel,
+                retryPresent: retryState.present, retryVisible: retryState.visible, retryEnabled: retryState.enabled, retryAriaLabel: retryState.ariaLabel,
             });
         const recorderAfterReturn = await page.getByTestId('recorder-stop').count().then((n) => n > 0);
         const micAfterReturn = await readMicEvidence(page);
