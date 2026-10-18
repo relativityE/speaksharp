@@ -21,6 +21,9 @@
 // accounted by its actual start time and reconciled individually; the attempt's effective inputs are bound from its own
 // step environment and receipt metadata; bridge N/A needs explicitly empty `journeys` and `missingBindings` arrays.
 //
+// Correction 4 (Sam, e1680001): an attempt with an unreadable start time is never dropped — it counts in the window and
+// is `unknown_attempt_time` among prior attempts, so either path holds.
+//
 // Usage (read-only):
 //   node local-packets/1593-campaign-helper/collect.mjs --case <1..15> --authority <authority.json> --ledger <ledger.json> \
 //        [--first-dispatch]   (case 1 only: the operator's explicit statement that this is the campaign's first dispatch)
@@ -388,6 +391,30 @@ export function classifyPriorAttempt({ jobs, log }) {
     return cleanup.ok ? (cleanup.residue === 0 ? 'rwt_clean' : 'rwt_residue') : 'unknown';
 }
 export const RECONCILED_PRIOR = Object.freeze(['no_dast', 'non_rwt', 'read_only', 'rwt_clean']);
+const attemptTime = (a) => { const t = Date.parse(a?.run_started_at ?? ''); return Number.isFinite(t) ? t : null; };
+
+/**
+ * Correction 4 (Sam, e1680001 review) — window accounting from runs and their attempts. A run's summary start is only a
+ * shortcut: a summary that is readable AND before the window cannot have an attempt inside it. Every other run is
+ * expanded, and an attempt with an unreadable start is counted in the window (so it is unaccounted → the ledger holds).
+ */
+export function windowAttempts({ runs, attemptsOf, validFrom }) {
+    return runs.filter((r) => { const t = attemptTime(r); return t === null || t >= validFrom; })
+        .flatMap((r) => attemptsInWindow(attemptsOf(r), validFrom));
+}
+
+/**
+ * Correction 4 — every attempt on S that is NOT a window attempt, classified. An attempt whose start time is unreadable
+ * cannot be placed before or inside the window, so it is `unknown_attempt_time` and holds — never dropped (the e1680001
+ * gap: an older run summary skipped by the window path, its unreadable attempt filtered out here, case 1 returned GO).
+ */
+export function priorAttemptStates({ runs, attemptsOf, classifyAttempt, validFrom }) {
+    return runs.flatMap((r) => attemptsOf(r).flatMap((a) => {
+        const t = attemptTime(a);
+        if (t === null) return [{ runId: String(r.id), runAttempt: a?.run_attempt ?? null, state: 'unknown_attempt_time' }];
+        return t < validFrom ? [{ runId: String(r.id), runAttempt: a.run_attempt, state: classifyAttempt(r, a) }] : [];
+    }));
+}
 
 /**
  * Correction 3 §2 — the attempts that STARTED inside the window, from each attempt's own start time. A run created before
@@ -493,7 +520,7 @@ const attemptsOf = (run) => Array.from({ length: run.run_attempt }, (_, i) => JS
  */
 export function campaignWindowRuns(validFrom) {
     const runs = ghList(`repos/${REPO}/actions/workflows/rc-gates.yml/runs`, { created: `>=${new Date(validFrom - RERUN_HORIZON_MS).toISOString()}` }, 'workflow_runs');
-    return runs.filter((r) => !(Date.parse(r.run_started_at ?? '') < validFrom)).flatMap((r) => attemptsInWindow(attemptsOf(r), validFrom));
+    return windowAttempts({ runs, attemptsOf, validFrom });
 }
 
 /** Read one attempt's facts: attempt metadata, jobs, Gate 3 log, artifacts, and the downloaded receipt/readback files. */
@@ -523,12 +550,12 @@ export function readAttempt(runId, runAttempt) {
  */
 export function priorRunsOnRelease(releaseSha, validFrom) {
     const runs = ghList(`repos/${REPO}/actions/workflows/rc-gates.yml/runs`, { head_sha: releaseSha }, 'workflow_runs');
-    return runs.flatMap((r) => attemptsOf(r).filter((a) => Date.parse(a.run_started_at ?? '') < validFrom).map((a) => {
+    return priorAttemptStates({ runs, attemptsOf, validFrom, classifyAttempt: (r, a) => {
         const jobs = ghList(`repos/${REPO}/actions/runs/${r.id}/attempts/${a.run_attempt}/jobs`, {}, 'jobs');
         const gate3 = jobs.filter((j) => j.name === GATE3_JOB);
         const log = gate3.length === 1 && gate3[0].conclusion !== 'skipped' ? run('gh', ['api', `repos/${REPO}/actions/jobs/${gate3[0].id}/logs`]) : '';
-        return { runId: String(r.id), runAttempt: a.run_attempt, state: classifyPriorAttempt({ jobs, log }) };
-    }));
+        return classifyPriorAttempt({ jobs, log });
+    } });
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────────────────────────────────────────────
