@@ -347,10 +347,18 @@ export function verifyCaseRun({ caseNumber, runId, runAttempt, ledgerCampaignId,
  * (identity, order, terminal, reviewed, readback, dominance, continuation, per-case and total request budget, and the
  * run-owned cleanup of cases 1–14) to the full ledger, plus case 15's read-only shape. Anything missing holds.
  */
-export function finalReconciliation({ authority: a, ledger: l }) {
+export function finalReconciliation({ authority: a, ledger: l, dependencyIdentical }) {
     const reasons = [];
     const hold = (why) => { reasons.push(why); };
-    if (!a || a.verified !== true) hold('authority_missing');
+    // CLI terminal review 4a88409b: the terminal branch must hold on the same authority shape the contract requires and on
+    // a checkout whose evaluated trees differ from S — the per-case path already does (observation.verified).
+    const count = (v) => Number.isSafeInteger(v) && v >= 0;
+    const digest = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+    if (!a || a.verified !== true || typeof a.campaignId !== 'string' || !a.campaignId || !/^[a-f0-9]{40}$/.test(String(a.releaseSha))
+        || !digest(a.configDigest) || !digest(a.cleanupScopeDigest) || !count(a.budget) || a.budget > 30 || a.firstCase !== 1 || a.lastCase !== 15
+        || !count(a.validFrom) || !count(a.validUntil) || a.validFrom > a.validUntil || a.allowRunOwnedCreation !== true
+        || a.allowPermanentRunOwnedCleanup !== true || a.allowRunOwnedCanaryClaim !== true || a.allowMaintainedReadOnly !== true) hold('authority_missing_or_malformed');
+    if (dependencyIdentical !== true) hold('dependency_identity_not_proven');
     if (!l || l.verified !== true) hold('ledger_unverified');
     if (!Array.isArray(l?.inFlight) || l.inFlight.length || !Array.isArray(l?.unresolvedCleanup) || l.unresolvedCleanup.length) hold('unresolved_attempt_or_cleanup');
     const entries = Array.isArray(l?.entries) ? l.entries : [];
@@ -653,7 +661,7 @@ export async function main(argv = process.argv.slice(2)) {
 
     if (argv.includes('--final')) {
         // Terminal reconciliation after case 15 — no dispatch is ever printed in this mode.
-        const final = finalReconciliation({ authority, ledger });
+        const final = finalReconciliation({ authority, ledger, dependencyIdentical: dependencyIdentity(authority.releaseSha) });
         process.stdout.write(`${JSON.stringify({ final, ledgerReasons: ledgerCheck.reasons, caseErrors,
             dominant: Object.fromEntries(verified.filter((e) => e?.dominantStop).map((e) => [e.caseNumber, e.dominantReasons])) }, null, 2)}\n`);
         return final.complete ? 0 : 1;
