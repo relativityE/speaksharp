@@ -106,6 +106,26 @@ export function newRowsSince(baseline: readonly RowFacts[], atReturn: readonly R
     return atReturn.filter((r) => !before.has(r.id));
 }
 
+/** Include every saved left take in the whole-scenario per-take coaching budget. */
+export function completedTakeIds(rows: readonly RowFacts[]): string[] {
+    return rows.filter((row) => row.status === 'completed').map((row) => row.id);
+}
+
+/** Refresh after later server reads too: an abandoned take may finish saving after return. */
+export function addCompletedTakeIds(takes: string[], rows: readonly RowFacts[]): void {
+    for (const id of completedTakeIds(rows)) if (!takes.includes(id)) takes.push(id);
+}
+
+/** Finalization runs on successful, returned and thrown paths; unreadable identities are never verified. */
+export async function refreshCompletedTakeIds(takes: string[], baseline: readonly RowFacts[] | null,
+    readFinalRows: () => Promise<readonly RowFacts[]>): Promise<boolean> {
+    if (baseline === null) return false;
+    try {
+        addCompletedTakeIds(takes, newRowsSince(baseline, await readFinalRows()));
+        return true;
+    } catch { return false; }
+}
+
 /**
  * Whether ANY transcript of the take the person left was persisted, as the SERVER holds it: at least one completed row
  * that was not there before the first Start. This is what the recovery notice must tell the truth about (Sam 6220514829):
@@ -197,6 +217,7 @@ export function noCloudVerdict(cloudRequests: number): Verdict {
 /** After the take-over: the taking-over tab's take is completed, the displaced take was closed (saved), none is active. */
 export function takeOverRowsVerdict(rows: readonly RowFacts[], displacedId: string | null, takeOverId: string | null): Verdict {
     if (takeOverId === null) return { status: 'FAIL', detail: 'the taking-over tab bound no saved session' };
+    if (displacedId === takeOverId) return { status: 'FAIL', detail: 'the displaced and taking-over tabs bound the same saved session instead of distinct takes' };
     const own = rows.find((r) => r.id === takeOverId);
     if (own?.status !== 'completed') return { status: 'FAIL', detail: 'the taking-over tab\'s take is not completed' };
     const orphans = rows.filter((r) => r.status === 'active').length;

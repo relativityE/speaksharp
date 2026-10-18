@@ -400,7 +400,7 @@ export function inFlightTimeline(open: readonly { sent: CoachingExchange['sent']
 export function coachingRequestBudgetRow(
     receipt: ReceiptLike,
     tap: { sentCount: number; exchanges: readonly CoachingExchange[]; inFlight?: () => { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[] },
-    budget: { maximum: number; oneRequestPerSession?: readonly string[] },
+    budget: { maximum: number; oneRequestPerSession?: readonly string[]; sessionIdsVerified?: boolean },
 ): void {
     const answered = tap.exchanges.filter((e) => e.status !== null);
     // PM RETURN 6121020210: only a nonnegative SAFE integer is a provider-attempt count. A malformed value (negative,
@@ -415,7 +415,8 @@ export function coachingRequestBudgetRow(
     const maxProviderAttemptsForOneRequest = readable.reduce((m, e) => Math.max(m, Number(e.diagnostics!.provider_attempts)), 0);
     const exceeded = tap.sentCount > budget.maximum || providerAttemptsReported > providerAttemptAllowance
         || maxProviderAttemptsForOneRequest > EDGE_MAX_PROVIDER_ATTEMPTS || perSession.some((n) => n > 1);
-    const unprovable = !exceeded && (malformed > 0 || readable.length !== tap.sentCount || answered.length !== tap.sentCount);
+    const unprovable = !exceeded && (budget.sessionIdsVerified === false
+        || malformed > 0 || readable.length !== tap.sentCount || answered.length !== tap.sentCount);
     const verdict: Verdict = exceeded ? 'FAIL' : unprovable ? 'HOLD' : 'PASS';
     // #1474 (Sam 6242612760): how each unproven exchange ended, as observed after settling every sent request.
     const outcomeCount = (o: CoachingExchange['outcome']) => tap.exchanges.filter((e) => e.outcome === o).length;
@@ -425,7 +426,9 @@ export function coachingRequestBudgetRow(
     // #1593 (Sam case-1 diagnosis): a request still inside its own allowance when the scenario ended is left OPEN by
     // settle() — not closed as unanswered — so it is counted here, and it keeps the budget unprovable (HOLD), never PASS.
     const inFlightAtEnd = Math.max(0, tap.sentCount - tap.exchanges.length);
-    const holdReason = inFlightAtEnd > 0
+    const holdReason = budget.sessionIdsVerified === false
+        ? 'final saved-take identities could not be verified, so the per-take coaching budget is unproven'
+        : inFlightAtEnd > 0
         ? 'a sent coaching request was still inside its allowance when the scenario ended, so provider invocations are unproven'
         : unansweredAtBound > 0
         ? 'a sent coaching request was still unanswered when the bounded wait ended, so provider invocations are unproven'
