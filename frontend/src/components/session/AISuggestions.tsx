@@ -564,12 +564,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    */
   useEffect(() => () => {
     const lc = lifecycleRef.current;
-    if (!lc || lc.ended) return;
+    if (!lc) return;
     setTimeout(() => {
-      if (lc.ended) return;
       if (!mountedRef.current) {
         // Route exit: cancel the browser's wait for this request (supported abort propagation). Nothing new starts:
         // the retry timer was cleared by the mount cleanup, and `isCurrentRequest` is false from here on.
+        // Codex r4307758219: the ABORT is not gated on `ended` — a request the watchdog already reported as `timeout` is
+        // still hung and must still be cancelled. Only the terminal telemetry is once-only (endLifecycle is idempotent).
         if (lc.abort && !lc.abort.signal.aborted) { lc.clientAborted = true; lc.abort.abort(); }
         endLifecycle(lc, 'unmounted');
       } else if (activeSessionRef.current !== lc.sessionId) endLifecycle(lc, 'superseded_session');

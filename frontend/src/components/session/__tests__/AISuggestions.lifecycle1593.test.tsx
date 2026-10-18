@@ -192,6 +192,25 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
         expect(invoke).toHaveBeenCalledTimes(1);
     });
 
+    it('Codex r4307758219: ROUTE EXIT after the watchdog reported `timeout` still aborts the hung invoke (one end only)', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        let signal: AbortSignal | undefined;
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => {
+            signal = options.signal;
+            return new Promise(() => { /* hung */ });
+        });
+        const view = render(<AISuggestions transcript="hello" canReview sessionId="s-hung-exit" />);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        await act(async () => { vi.advanceTimersByTime(61_000); });
+        expect(stagesOf(id)).toEqual(['requested', 'ended:timeout']);
+        view.unmount();
+        await act(async () => { vi.advanceTimersByTime(10); });
+        expect(signal!.aborted).toBe(true);
+        expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual(['ended:timeout']);
+        expect(invoke).toHaveBeenCalledTimes(1);
+    });
+
     it('ROUTE EXIT during a retry wait cancels the retry; nothing was in flight, so nothing is reported aborted', async () => {
         invoke.mockResolvedValueOnce({ data: null, error: { name: 'FunctionsFetchError', message: 'network' } });
         const view = render(<AISuggestions transcript="hello" canReview sessionId="s-route-retry" retryBackoffMs={40} />);
