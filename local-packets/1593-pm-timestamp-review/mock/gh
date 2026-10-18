@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+const route = process.argv.find(x => x.startsWith('repos/'));
+const old = new Date(1800000000000 - 60000).toISOString();
+if (route?.endsWith('/workflows/rc-gates.yml/runs')) process.stdout.write(JSON.stringify({id:123,run_attempt:1,run_started_at:old,created_at:old})+'\n');
+else if (route?.endsWith('/runs/123/attempts/1')) process.stdout.write(JSON.stringify({id:123,run_attempt:1,run_started_at:null}));
+else throw new Error('Unexpected mocked route; network execution forbidden: '+route);
