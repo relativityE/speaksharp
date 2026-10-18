@@ -83,15 +83,13 @@ export class CoachingGenerationTap {
     readonly exchanges: CoachingExchange[] = [];
     /** Coaching POSTs the BROWSER sent (including any still unanswered). Not a provider-invocation count. */
     sentCount = 0;
-    private readonly pending: Promise<void>[] = [];
     private readonly startedAt = new WeakMap<Request, number>();
     /**
      * #1474 (Sam 6242612760) — every SENT request until it reaches a terminal record. `settle()` used to wait only for
      * bodies of responses already seen, so a coaching exchange still in flight when the scenario ended was silently
      * missing (live RWT 39075833843 / 39076238188: 2 sent, 1 answered). Each entry resolves when its record is pushed.
      */
-    private readonly outstanding = new Map<Request, () => void>();
-    private readonly terminal: Promise<void>[] = [];
+    private readonly outstanding = new Map<Request, { done: Promise<void>; resolve: () => void }>();
     /** Status seen for a request whose body is still being read — reported as `body_pending` if the bound expires. */
     private readonly statusSeen = new Map<Request, number>();
     /** Requests already recorded as unanswered/body_pending at a bound: a late event must not add a second record. */
@@ -101,9 +99,9 @@ export class CoachingGenerationTap {
         if (this.closedAtBound.has(request)) return;
         this.exchanges.push(exchange);
         this.statusSeen.delete(request);
-        const done = this.outstanding.get(request);
+        const open = this.outstanding.get(request);
         this.outstanding.delete(request);
-        done?.();
+        open?.resolve();
     }
 
     attach(page: Page): void {
@@ -116,7 +114,9 @@ export class CoachingGenerationTap {
             if (!isCoaching(request)) return;
             this.sentCount += 1;
             this.startedAt.set(request, Date.now());
-            this.terminal.push(new Promise<void>((resolve) => { this.outstanding.set(request, resolve); }));
+            let resolve: () => void = () => undefined;
+            const done = new Promise<void>((r) => { resolve = r; });
+            this.outstanding.set(request, { done, resolve });
         });
         page.on('response', (response: Response) => {
             const request = response.request();
@@ -125,7 +125,7 @@ export class CoachingGenerationTap {
             const status = response.status();
             const clientMs = elapsed(request);
             this.statusSeen.set(request, status);
-            this.pending.push(response.json().then((payload: unknown) => {
+            void response.json().then((payload: unknown) => {
                 const diagnostics = payload && typeof payload === 'object' ? (payload as { diagnostics?: unknown }).diagnostics : null;
                 this.record(request, {
                     sent, status,
@@ -133,7 +133,7 @@ export class CoachingGenerationTap {
                     suggestions: status >= 200 && status < 300 ? readSuggestionPair(payload) : null,
                     clientMs, at: Date.now(), outcome: 'answered',
                 });
-            }, () => { this.record(request, { sent, status, diagnostics: null, suggestions: null, clientMs, at: Date.now(), outcome: 'answered' }); }));
+            }, () => { this.record(request, { sent, status, diagnostics: null, suggestions: null, clientMs, at: Date.now(), outcome: 'answered' }); });
         });
         page.on('requestfailed', (request: Request) => {
             if (!isCoaching(request)) return;
@@ -156,7 +156,9 @@ export class CoachingGenerationTap {
     async settle(boundMs: number = COACHING_SETTLE_BOUND_MS): Promise<{ unanswered: number; bodyPending: number }> {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const bound = new Promise<void>((resolve) => { timer = setTimeout(resolve, boundMs); });
-        await Promise.race([Promise.allSettled([...this.terminal, ...this.pending]).then(() => undefined), bound]);
+        // Codex r4305107830: wait ONLY on requests still open — a request already closed (recorded, or closed at an earlier
+        // bound with its body still unread) never makes a later settle() wait again.
+        await Promise.race([Promise.allSettled([...this.outstanding.values()].map((o) => o.done)).then(() => undefined), bound]);
         clearTimeout(timer);
         let unanswered = 0;
         let bodyPending = 0;

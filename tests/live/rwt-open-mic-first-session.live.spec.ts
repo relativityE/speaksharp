@@ -464,7 +464,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // The reason is read before its row is written; a read still pending at the bound is UNKNOWN, never `null`.
                 if (!(await settleCoachingReason(coaching.reasonRead))) coaching.reason = COACHING_REASON_UNKNOWN;
                 // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body.
-                await settleCoachingReason(generations.settle());
+                // #1474 (Codex r4305107827): the settle is itself bounded by the Edge budget; a 5 s cap read the exchanges early.
+                await generations.settle();
                 const take = persistedId ? takeExchangeEvidence(generations.forSession(persistedId)) : takeExchangeEvidence([]);
                 coachingTakeRequestId = take.diagnosticRequestId;
                 // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage the app handled gracefully is EXTERNAL —

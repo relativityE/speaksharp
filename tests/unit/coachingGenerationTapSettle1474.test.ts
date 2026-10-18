@@ -5,6 +5,7 @@
  * sent to any provider, and a missing answer stays HOLD — never a fabricated zero or a PASS.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { CoachingGenerationTap } from '../live/helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from '../live/helpers/rwtCoachingCollector';
 import { COACHING_SETTLE_BOUND_MS, EDGE_PROVIDER_BUDGET_MS } from '../live/helpers/rwtCoachingEvidence';
@@ -89,6 +90,27 @@ describe('CoachingGenerationTap.settle — every sent exchange, bounded (#1474)'
         await tick(20);
         expect(tap.exchanges).toHaveLength(1);
         expect(tap.exchanges[0].outcome).toBe('unanswered');
+    });
+
+    it('Codex r4305107830: a body that never finishes is closed ONCE; a later settle does not wait for it again', async () => {
+        const page = new FakePage();
+        const tap = new CoachingGenerationTap();
+        tap.attach(page as never);
+        const stuck = coachingRequest('take-1');
+        page.emit('request', stuck);
+        page.emit('response', { request: () => stuck, status: () => 200, json: () => new Promise(() => undefined) });
+        expect(await tap.settle(40)).toEqual({ unanswered: 0, bodyPending: 1 });
+        expect(tap.exchanges[0]).toMatchObject({ outcome: 'body_pending', status: 200, diagnostics: null });
+        const started = Date.now();
+        expect(await tap.settle(5_000)).toEqual({ unanswered: 0, bodyPending: 0 });
+        expect(Date.now() - started).toBeLessThan(500);
+        expect(tap.exchanges).toHaveLength(1);
+    });
+
+    it('Codex r4305107827: no caller caps the bounded settle with the 5 s reason bound before reading exchanges', () => {
+        for (const f of ['tests/live/rwt-open-mic-first-session.live.spec.ts', 'tests/live/helpers/rwtJourney.ts']) {
+            expect(readFileSync(f, 'utf8')).not.toMatch(/settleCoachingReason\([^)]*generations[^)]*\.settle\(\)\)/);
+        }
     });
 
     it('a request the browser FAILED is recorded as failed, settles at once, and HOLDs the budget with its own reason', async () => {
