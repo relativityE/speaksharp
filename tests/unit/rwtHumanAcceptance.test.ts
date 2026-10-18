@@ -146,6 +146,8 @@ describe('PM RETURN 2026-09-26 — the receipt is untrusted input: a malformed r
         ['retired flat journeyIds shape', { ...receipt, readback: { journeyIds: [JOURNEY], stages: ['session_during'] } }, /readback\.journeys/],
         ['a binding with no stages', { ...receipt, readback: { journeys: [{ journeyId: JOURNEY, stages: [] }], reportedJourneyIds: [] } }, /readback\.journeys/],
         ['an unknown suite', { ...receipt, suite: 'something-else' }, /unknown RWT suite/],
+        // #1593 (Codex on #1655): a receipt with the whole-scenario budget row removed carries no coaching-request count.
+        ['the coaching request budget row stripped', { ...receipt, rows: rows.filter((r) => r.step !== 'coaching request budget') }, /coaching request budget/],
         ['not an object', [receipt], /not a JSON object/],
     ])('%s → INCOMPLETE with a named error, never PASS', (_label, bad, message) => {
         const r = attempt(bad);

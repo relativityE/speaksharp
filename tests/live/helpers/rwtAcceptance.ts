@@ -413,8 +413,10 @@ export async function recordRunOwnedCleanup(
  * differ between valid configurations (Focus full-only feedback rows; partial-only cleanup). Required PRESENT; the
  * telemetry/cleanup singletons above stay exactly-once. Source: the suite files and the rwtJourney helpers they call.
  */
+// #1593 (Sam decision (a); Codex on #1655): the whole-scenario `coaching request budget` row is REQUIRED for Open Mic, both
+// Focus suites and returning-user navigation (maximum 0), so a receipt with the row stripped can never finalize PASS.
 const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
-    'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
+    'coaching request budget', 'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
     // #1258 R4: the coaching checks text can prove — ceiling, no contradiction with saved fillers, not identical across takes.
@@ -434,7 +436,7 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'feedback diagnostic chain', 'coaching prompt binding',
 ]);
 const FOCUS_PRODUCT_ROWS = Object.freeze([
-    'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
+    'coaching request budget', 'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
     'pace guide', 'Head to session', 'rail legend', 'pending points labelled', 'rail before speaking', 'model identity',
     'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved', 'saved exactly once',
     'final point verdicts', 'not-detected explained', 'coverage count', 'average per point', 'final rail colours and words',
@@ -536,6 +538,7 @@ const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
+    'coaching request budget',
 ]);
 
 export function requiredAutomatedRows(suite: string): { required: readonly string[]; product: readonly string[]; absent: readonly string[] } | null {

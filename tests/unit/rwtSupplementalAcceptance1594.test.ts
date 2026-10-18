@@ -109,11 +109,18 @@ describe('#1594 supplemental suites in acceptance and finalization', () => {
         }
     });
 
-    it('the four core suites are unchanged: none requires a supplemental-only row', () => {
-        const supplementalOnly = ['older-take association', 'no-session association', 'cold Start is pending', 'coaching request budget', 'two saved takes'];
+    it('the four core suites require no supplemental-only row', () => {
+        const supplementalOnly = ['older-take association', 'no-session association', 'cold Start is pending', 'two saved takes'];
         for (const suite of ['open-mic-first-session', 'focus-points-session', 'focus-points-partial', 'returning-user-navigation']) {
             const inv = requiredAutomatedRows(suite)!;
             for (const step of supplementalOnly) expect(inv.product.includes(step) || inv.required.includes(step)).toBe(false);
+        }
+    });
+
+    // #1593 (Codex on #1655): the four core suites now emit the whole-scenario budget row, so it is required for them too.
+    it('the four core suites REQUIRE the coaching request budget row', () => {
+        for (const suite of ['open-mic-first-session', 'focus-points-session', 'focus-points-partial', 'returning-user-navigation']) {
+            expect({ suite, required: requiredAutomatedRows(suite)!.product.includes('coaching request budget') }).toEqual({ suite, required: true });
         }
     });
 
