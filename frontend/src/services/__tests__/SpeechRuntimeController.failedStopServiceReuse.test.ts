@@ -19,13 +19,14 @@
  * its service currently holds, so "A's engine" below is `serviceA.live`. Each casualty carries a POSITIVE CONTROL — B's own
  * callback is delivered — so "A was dropped" cannot pass on a controller that drops everything.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSessionStore } from '@/stores/useSessionStore';
 import type { TranscriptionServiceOptions } from '@/services/transcription/TranscriptionService';
 import { completeSession, saveSession } from '../../lib/storage';
 import { __resetRecordingIntentForTests } from '../recordingIntent';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
+import { setCurrentLogin } from '../loginSessionLog';
 
 type FakeService = {
     isServiceDestroyed: () => boolean;
@@ -643,5 +644,84 @@ describe('#1258 C — a newer admitted Start retires the recovered-review licenc
         expect(failedA, 'A stays saved: nothing closes it').toHaveLength(0);
         expect(vi.mocked(completeSession).mock.calls.filter(([id, a]) => id === 'session-A' && (a as { status?: string })?.status === 'completed'))
             .toHaveLength(aCompleted);
+    });
+});
+
+/**
+ * #1593 (Sam, 28d80424 return) — the saved review's binding (id + subject + review licence) belongs to the identity the take
+ * RECORDED under. A Stop or Retry Save that settles under another identity publishes none of it and leaves any newer review
+ * state untouched.
+ */
+describe('#1593 — a Stop or Retry Save settling under another identity publishes no review state', () => {
+    type Retrying = PrivateController & { retryRecordingSave: () => Promise<boolean> };
+    const SUBJECT_B = { subject_boot_id: 'boot-b', subject_journey_id: 'journey-b', subject_attempt_id: 'attempt-b', subject_attempt_seq: 1 };
+    const bindingOf = () => {
+        const st = useSessionStore.getState();
+        return { id: st.completedSessionId, subjectFor: st.completedSessionSubject?.sessionId ?? null, licence: st.recoveredSaveSessionId };
+    };
+    const recordA = async (): Promise<Retrying> => {
+        const c = newController() as Retrying;
+        c.state = 'READY';
+        factory.queue.push(recordingService('A'));
+        enterProduct('open_mic', BRIEF_A);
+        await c.startRecording(POLICY, []);
+        return c;
+    };
+
+    beforeEach(() => {
+        __resetRecordingIntentForTests();
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('READY');
+        factory.queue.length = 0;
+        factory.active = null;
+        vi.mocked(saveSession).mockReset().mockResolvedValueOnce({ status: 'saved', session: { id: 'session-A' } } as never);
+        vi.mocked(completeSession).mockReset().mockResolvedValue({ success: true } as never);
+        setCurrentLogin('user-a', 1);
+    });
+    afterEach(() => setCurrentLogin(null, null));
+
+    it('CONTROL: a Stop under the identity that recorded publishes the review id and its subject', async () => {
+        const c = await recordA();
+        await c.stopRecording();
+        await settle();
+        expect(bindingOf()).toMatchObject({ id: 'session-A', subjectFor: 'session-A' });
+    });
+
+    it('an account change DURING Stop\'s first await publishes neither A\'s review id nor its subject', async () => {
+        const c = await recordA();
+        const stopping = c.stopRecording();
+        // The account switches while Stop is suspended at its first await (STOPPING), before any save settles.
+        setCurrentLogin('user-b', 2);
+        await stopping.catch(() => undefined);
+        await settle();
+        expect(bindingOf()).toEqual({ id: null, subjectFor: null, licence: null });
+    });
+
+    it('A\'s Retry Save settling AFTER B\'s recovered review published leaves B\'s review state untouched', async () => {
+        const c = await recordA();
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(c.stopRecording()).rejects.toThrow('SESSION_COMPLETION_FAILED');
+        await settle();
+        // The account switches to B, and B's own recovered review is published.
+        setCurrentLogin('user-b', 2);
+        const store = useSessionStore.getState();
+        store.setCompletedSessionId('session-B');
+        store.setCompletedSessionSubject({ sessionId: 'session-B', subject: SUBJECT_B });
+        store.setRecoveredSaveSessionId('session-B');
+        // A's recovery then settles late.
+        await c.retryRecordingSave();
+        await settle();
+        expect(bindingOf()).toEqual({ id: 'session-B', subjectFor: 'session-B', licence: 'session-B' });
+        expect(useSessionStore.getState().completedSessionSubject?.subject).toEqual(SUBJECT_B);
+    });
+
+    it('CONTROL: A\'s Retry Save under the SAME identity still publishes A\'s recovered review (normal Retry unchanged)', async () => {
+        const c = await recordA();
+        vi.mocked(completeSession).mockResolvedValueOnce({ success: false } as never);
+        await expect(c.stopRecording()).rejects.toThrow('SESSION_COMPLETION_FAILED');
+        await settle();
+        await expect(c.retryRecordingSave()).resolves.toBe(true);
+        await settle();
+        expect(bindingOf()).toMatchObject({ id: 'session-A', licence: 'session-A' });
     });
 });

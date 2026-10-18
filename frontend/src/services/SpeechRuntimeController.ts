@@ -640,6 +640,11 @@ export class SpeechRuntimeController {
     /** #1421 Option A: the attempt this take belongs to, snapshotted when the take enters RECORDING. */
     private currentRecordingSubject: RecordingSubject | null = null;
     /**
+     * #1593 (Sam) — the signed-in identity (`authEpoch`) this take RECORDED under, captured beside its subject. Stop and
+     * Retry Save carry it, so a settlement after an account change publishes no review state for the departed account.
+     */
+    private currentRecordingAuthEpoch: number | null = null;
+    /**
      * #1431 — THE ACCEPTED ATTEMPT: who is allowed to publish RECORDING after the intent is claimed.
      *
      * `isCurrentIntent` is the right authority BEFORE the claim — nothing else yet distinguishes this
@@ -1138,6 +1143,8 @@ export class SpeechRuntimeController {
         progressMetrics: ProgressMetricsState;
         /** #1421 Option A: the take this verdict belongs to, never the attempt current when it settles. */
         subject?: RecordingSubject | null;
+        /** #1593 (Sam): the identity that take recorded (or, for a reloaded draft, was re-armed) under. */
+        authEpoch?: number | null;
     } | null = null;
     /**
      * #1258 RWT round 2 C — the EXACT status object a failed Stop left on screen for the session whose full save
@@ -1380,9 +1387,10 @@ export class SpeechRuntimeController {
             const retryAuthority = this.captureStopAuthority(this.lifecycleVersion, this.service, targetSessionId);
             const retryToken = { cancelled: false, version: retryAuthority.lifecycleVersion };
             const retryStillOwnsSharedState = () => this.stopStillOwnsSharedState(retryAuthority, retryToken);
-            // #1593 (Sam) — the signed-in identity this retry began under; a settlement after an account change publishes no
-            // review binding for the departed account.
-            const retryAuthEpoch = authEpoch();
+            // #1593 (Sam) — the identity the take recorded (or was re-armed) under, carried in the slot and fixed before the
+            // first await below. A settlement under any other identity publishes no review state at all.
+            const retryAuthEpoch = fullSave.authEpoch ?? null;
+            const retryIdentityCurrent = () => retryAuthEpoch !== null && authEpoch() === retryAuthEpoch;
             try {
                 // #1033 (1): INITIAL SAVE — the row never existed (failure landed between RECORDING and the
                 // placeholder save). Create it with THIS recording's idempotency key so a retry can never
@@ -1516,17 +1524,17 @@ export class SpeechRuntimeController {
                          * the marker is: if the slot moved to another session while the completion was in flight, this identity
                          * is stale and must not overwrite that newer take's.
                          */
-                        // #1593 (Sam) — a settlement after an account change publishes no review binding for the departed
-                        // account: the pair is retired instead, so it cannot be reinstalled behind the identity change.
-                        if (authEpoch() === retryAuthEpoch) {
+                        // #1593 (Sam) — a settlement after an account change publishes NO review state for the departed
+                        // account and touches none that is newer: no id, no subject, no review licence (below). The
+                        // identity change already retired the departed account's binding.
+                        const identityCurrent = retryIdentityCurrent();
+                        if (identityCurrent) {
                             useSessionStore.getState().setCompletedSessionId(targetSessionId);
                             // #1593 — the recovered take's own subject, carried by its Retry Save since the failed Stop (or the
                             // reloaded draft); never the attempt ambient now.
                             const recoveredSubject = sanitizeRecordingSubject(fullSave.subject);
                             useSessionStore.getState().setCompletedSessionSubject(
                                 targetSessionId && recoveredSubject ? { sessionId: targetSessionId, subject: recoveredSubject } : null);
-                        } else {
-                            useSessionStore.getState().retireCompletedSessionBinding();
                         }
                         /**
                          * #1258 RWT round 2 C — AND THE PAGE ENTERS THAT REVIEW. Only a successful Stop enters the
@@ -1542,7 +1550,7 @@ export class SpeechRuntimeController {
                                 useSessionStore.getState().setSTTStatus({ type: 'info', message: '✓ Session saved.' });
                             }
                         }
-                        useSessionStore.getState().setRecoveredSaveSessionId(targetSessionId);
+                        if (identityCurrent) useSessionStore.getState().setRecoveredSaveSessionId(targetSessionId);
                         });
                     }
                 }
@@ -1721,6 +1729,7 @@ export class SpeechRuntimeController {
                 },
                 attributionEvidence: null,  // #1161: mid-recording failure has no trusted identity → no authority
                 subject: draftForThisSession.subject ?? null,
+                authEpoch: this.currentRecordingAuthEpoch,
                 progressContext: this.buildProgressCompletionContext(dur),
                 progressMetrics: { payload: null, persisted: false },
             };
@@ -1816,6 +1825,8 @@ export class SpeechRuntimeController {
             },
             attributionEvidence: null,  // #1161: rehydrated recording has no trusted identity → no authority
             subject: draft.subject ?? null,
+            // Re-armed for the owner the page passed (`getRecoverableDraftForUser`), under the identity current now.
+            authEpoch: authEpoch(),
             // The recovery draft carries no objective brief linkage. Missing mode context fails closed instead
             // of being guessed as Open Mic after reload.
             progressContext: { mode: 'unknown' },
@@ -2744,6 +2755,7 @@ export class SpeechRuntimeController {
                     // later verdict for it, including a Retry Save that settles while another take is
                     // current, names this snapshot rather than whatever attempt is current then.
                     this.currentRecordingSubject = captureRecordingSubject();
+                    this.currentRecordingAuthEpoch = authEpoch();
                     // #1259 F04 — churn is measured PER TAKE. Resetting here rather than inside the
                     // identity module keeps the dependency one-way: the store's transcript setter
                     // already reaches the telemetry layer, and importing it back would close a cycle
@@ -5192,6 +5204,9 @@ export class SpeechRuntimeController {
              * "may this stop still publish?" answerable after each one, instead of a warn-and-continue.
              */
             const stopAuthority = this.captureStopAuthority(token.version, this.service, this.sessionId);
+            // #1593 (Sam) — the take's recording-owned identity, read BEFORE the first suspension below: an account change
+            // during any await of this Stop makes its review publication stale.
+            const takeAuthEpoch = this.currentRecordingAuthEpoch;
             /**
              * #1431 P1 — set ONLY when the rightful owner performs its own terminal lifecycle advance.
              *
@@ -5266,9 +5281,6 @@ export class SpeechRuntimeController {
                     // #1421 Option A: fixed alongside the evidence, so every path this take's verdict can
                     // settle on (first try, either retry, reload) names the same take.
                     const takeSubject = this.currentRecordingSubject;
-                    // #1593 (Sam) — and the signed-in identity it was recorded under: a save settling after an account change
-                    // must not reinstall the departed account's review binding.
-                    const takeAuthEpoch = authEpoch();
                     // #1089 BOUNDED FINALIZATION. stopTranscription() runs the whole-utterance decode and
                     // has no internal ceiling; the watchdog was stopped just above. Because Finalizing…
                     // now disables the record control, a hang here means the user cannot start, stop or
@@ -5803,6 +5815,7 @@ export class SpeechRuntimeController {
                                         completeArgs,
                                         attributionEvidence: attestationEvidence,
                                         subject: takeSubject,
+                                        authEpoch: takeAuthEpoch,
                                         progressContext,
                                         progressMetrics: { payload: richMetricsPayload, persisted: false },
                                     };
@@ -5876,17 +5889,15 @@ export class SpeechRuntimeController {
                                 // fact being reported — but only while this stop still owns the shared surfaces. Everything below is
                                 // optional analysis whose failure is non-fatal, and the review reader used to depend on it: a
                                 // reconciliation failure meant no id, a disabled query, and a saved session stuck on "Loading…".
-                                // #1593 (Sam) — only while the identity that recorded the take is still signed in: a save settling
-                                // after an account change retires the review binding instead of reinstalling the departed account's.
-                                if (authEpoch() === takeAuthEpoch) {
+                                // #1593 (Sam) — only while the identity that recorded the take is still signed in. A save settling
+                                // after an account change publishes no review state and leaves any newer review untouched.
+                                if (takeAuthEpoch !== null && authEpoch() === takeAuthEpoch) {
                                     useSessionStore.getState().setCompletedSessionId(sessionId ?? null);
                                     // #1593 — and the take it saved, frozen at RECORDING: the review's Repeat press and its coaching
                                     // request name THIS take, never whatever attempt is ambient when they happen.
                                     const savedSubject = sanitizeRecordingSubject(takeSubject);
                                     useSessionStore.getState().setCompletedSessionSubject(
                                         sessionId && savedSubject ? { sessionId, subject: savedSubject } : null);
-                                } else {
-                                    useSessionStore.getState().retireCompletedSessionBinding();
                                 }
                             });
 

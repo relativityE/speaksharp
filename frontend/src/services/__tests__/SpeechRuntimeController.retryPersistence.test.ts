@@ -21,6 +21,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
+import { authEpoch as currentAuthEpoch } from '../loginSessionLog';
 // The observer is plain ESM outside the typed frontend tree and ships no declarations. Importing the
 // REAL module is the whole point — a typed re-declaration here would be a second copy of the contract,
 // and the drift between the two is exactly what these tests exist to catch.
@@ -175,12 +176,14 @@ describe('#1403 attribution-only recovery republishes the receipt', () => {
 
 describe('#1403 full-save recovery publishes a receipt where there was none', () => {
     /** The state after a full-save failure: the row exists but nothing durable was claimed. */
-    function stageFullSaveFailure(sessionId: string | null = SESSION, subject: unknown = undefined) {
+    // #1593 (Sam): every real Retry slot carries the identity its take recorded under; stage it the same way.
+    function stageFullSaveFailure(sessionId: string | null = SESSION, subject: unknown = undefined, recordedUnder: number | null = currentAuthEpoch()) {
         const c = priv();
         c.pendingFullSaveRetry = {
             sessionId, completeArgs: {}, attributionEvidence: null,
             progressContext: { mode: 'private' }, progressMetrics: { payload: null, persisted: false },
             ...(subject === undefined ? {} : { subject }),
+            authEpoch: recordedUnder,
         };
     }
     /** #1593 — the failed take's frozen subject, as the Stop (or the reloaded draft) armed it for Retry Save. */
@@ -256,6 +259,17 @@ describe('#1403 full-save recovery publishes a receipt where there was none', ()
         expect({ id: useSessionStore.getState().completedSessionId, subject: useSessionStore.getState().completedSessionSubject })
             .toEqual({ id: null, subject: null });
         setCurrentLogin(null, null);
+    });
+
+    it('#1593 (Sam): a Retry slot with NO recorded identity publishes no review state (fails closed)', async () => {
+        useSessionStore.getState().setCompletedSessionId(null);
+        useSessionStore.getState().setCompletedSessionSubject(null);
+        stageFullSaveFailure(SESSION, TAKE_SUBJECT, null);
+        const storage = await import('@/lib/storage');
+        vi.spyOn(storage, 'completeSession').mockResolvedValue({ success: true } as never);
+        expect(await priv().retryRecordingSave()).toBe(true);
+        expect({ id: useSessionStore.getState().completedSessionId, subject: useSessionStore.getState().completedSessionSubject,
+            licence: useSessionStore.getState().recoveredSaveSessionId }).toEqual({ id: null, subject: null, licence: null });
     });
 
     it('#1593 (Sam): a recovered save with NO valid subject (legacy draft) publishes unknown, never an ambient one', async () => {
