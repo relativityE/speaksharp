@@ -33,6 +33,21 @@ const complete = (op: string, user = A, customer = 'cus_a', subscription = 'sub_
   'SELECT apply_account_checkout_snapshot($1,$2,$3,$4,$5,$6,$7,true) AS result',
   [user, op, 'cs_a', 'evt_a', subscription, customer, 'active']);
 
+function handlerFixture() {
+  const destructive = vi.fn(() => { throw new Error('must not reach destructive adapters'); });
+  const deps: ClosureRequestDependencies = {
+    authenticate: async () => ({ id: A, email: 'a@example.test' }), siteUrl: 'https://example.test',
+    randomToken: () => 'b'.repeat(64), hashToken: async () => HASH,
+    issue: async () => (await issue()).rows.length === 1, revoke: async () => {}, sendLink: async () => {},
+    closure: destructive, finish: vi.fn(), pending: {
+      confirm: async (user, hash) => (await service('SELECT begin_account_closure_pending($1,$2,true) AS status', [user, hash])).rows[0].status,
+      status: async () => (await roleQuery('authenticated', 'SELECT account_closure_pending_status() AS status')).rows[0].status,
+    },
+  };
+  const request = (body: object) => new Request('https://example.test', { method: 'POST', body: JSON.stringify(body) });
+  return { deps, destructive, request };
+}
+
 describe('inactive pending/checkout successor on the actual enforcement chain', () => {
   it('applies without enabling deletion; emailed proof alone leaves checkout open', async () => {
     await issue(); expect(await begin()).toBeTruthy(); expect(await state()).toBeNull();
@@ -153,23 +168,32 @@ describe('inactive pending/checkout successor on the actual enforcement chain', 
     expect((await pending()).rows[0].status).toBeNull(); expect(await state()).toBeNull();
   });
   it('real request handler consumes authenticated confirmation into pending and recovers a lost reply via owner status', async () => {
-    const destructive = vi.fn(() => { throw new Error('must not reach destructive adapters'); });
-    const deps: ClosureRequestDependencies = {
-      authenticate: async () => ({ id: A, email: 'a@example.test' }), siteUrl: 'https://example.test',
-      randomToken: () => 'b'.repeat(64), hashToken: async () => HASH,
-      issue: async () => (await issue()).rows.length === 1, revoke: async () => {}, sendLink: async () => {},
-      closure: destructive, finish: vi.fn(), pending: {
-        confirm: async (user, hash) => (await service('SELECT begin_account_closure_pending($1,$2,true) AS status', [user, hash])).rows[0].status,
-        status: async () => (await roleQuery('authenticated', 'SELECT account_closure_pending_status() AS status')).rows[0].status,
-      },
-    };
-    const request = (body: object) => new Request('https://example.test', { method: 'POST', body: JSON.stringify(body) });
+    const { deps, destructive, request } = handlerFixture();
     expect((await handleClosureRequest(request({ action: 'request' }), deps)).status).toBe(200);
     await begin();
     expect((await handleClosureRequest(request({ action: 'confirm', token: 'b'.repeat(64), confirmIrreversible: true, userId: B }), deps)).status).toBe(202);
     // Drop the confirm response; a new status request needs neither token nor destructive flag.
     const recovered = await handleClosureRequest(request({ action: 'status', userId: B }), deps);
     expect(await recovered.json()).toMatchObject({ outcome: 'pending', phase: 'pending', checkoutPending: 1, destructiveEnabled: false });
+    expect(destructive).not.toHaveBeenCalled(); expect(deps.finish).not.toHaveBeenCalled();
+  });
+  it('recovers first confirmation after SQL commits but its RPC response is lost', async () => {
+    const { deps, destructive, request } = handlerFixture();
+    expect((await handleClosureRequest(request({ action: 'request' }), deps)).status).toBe(200);
+    await begin();
+    expect(await state()).toBeNull();
+    // Also model the RPC committing successfully before its transport reply is
+    // lost. 503 means unknown, not absent; status recovers the same durable intent.
+    if (!deps.pending) throw new Error('pending adapter missing');
+    const confirm = deps.pending.confirm;
+    deps.pending.confirm = async (user, hash) => { await confirm(user, hash); throw new Error('lost RPC reply'); };
+    const lost = await handleClosureRequest(request({ action: 'confirm', token: 'b'.repeat(64), confirmIrreversible: true }), deps);
+    expect(lost.status).toBe(503);
+    expect(await lost.json()).toEqual({ error: 'account_closure_unavailable' });
+    expect(await (await handleClosureRequest(request({ action: 'status' }), deps)).json())
+      .toMatchObject({ outcome: 'pending', phase: 'pending', checkoutPending: 1, destructiveEnabled: false });
+    expect((await db.query('SELECT consumed_at IS NOT NULL AS consumed FROM account_closure_tokens')).rows)
+      .toEqual([{ consumed: true }]);
     expect(destructive).not.toHaveBeenCalled(); expect(deps.finish).not.toHaveBeenCalled();
   });
 });
