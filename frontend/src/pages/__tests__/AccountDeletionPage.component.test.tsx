@@ -24,6 +24,87 @@ beforeEach(() => {
 });
 
 describe('deletion confirmation UI — real component, mocked provider boundary', () => {
+  it('a pending confirmation cannot be submitted twice and an uncertain result offers no replay', async () => {
+    mocks.token = secret;
+    let finish: (value: unknown) => void = () => {};
+    mocks.invoke.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    mount();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    const pending = screen.getByRole('button', { name: 'Deleting…' });
+    expect(pending).toBeDisabled();
+    expect(screen.getByRole('checkbox')).toBeDisabled();
+    fireEvent.click(pending);
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Your account has been deleted/)).not.toBeInTheDocument();
+    await act(async () => { finish({ data: { ...done, outcome: 'verification_pending', accountDeleted: null }, error: null }); });
+    expect(screen.getByText(/It may already have happened/)).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  });
+  it('email-request failure retries only on an explicit click and clears the old error after success', async () => {
+    mocks.invoke.mockRejectedValueOnce(new Error('request lost'))
+      .mockResolvedValueOnce({ data: { outcome: 'email_requested' }, error: null });
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a verification link' }));
+    await screen.findByText(/could not send a verification link/);
+    const retry = screen.getByRole('button', { name: 'Email me a verification link' });
+    expect(retry).toBeEnabled();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Check your account email/)).not.toBeInTheDocument();
+    fireEvent.click(retry);
+    await screen.findByText(/Check your account email/);
+    expect(screen.queryByText(/could not send a verification link/)).not.toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+    expect(mocks.invoke).toHaveBeenLastCalledWith('account-closure', { body: { action: 'request' } });
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+  it('verified token refusal consumes confirmation and requires a new explicit email request', async () => {
+    mocks.token = secret;
+    mocks.invoke.mockResolvedValue({ data: null, error: { context: new Response(JSON.stringify({
+      outcome: 'refused', accountDeleted: false, billingClosed: false, customerDeleted: false,
+    }), { status: 403 }) } });
+    mount();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    await screen.findByText(/Verification was refused or expired/);
+    expect(screen.getByRole('button', { name: 'Email me a verification link' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Permanently delete my account' })).not.toBeInTheDocument();
+    expect(mocks.clear).toHaveBeenCalledTimes(1);
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+  it('an expired auth response without a verified deletion result never claims success or offers blind retry', async () => {
+    mocks.token = secret;
+    mocks.invoke.mockResolvedValue({ data: null, error: { context: new Response(
+      JSON.stringify({ error: 'JWT expired' }), { status: 401 },
+    ) } });
+    mount();
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete my account' }));
+    await screen.findByText(/could not verify the deletion result/);
+    expect(screen.queryByText(/Your account has been deleted/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/your account has not been deleted/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(mocks.clear).toHaveBeenCalled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  });
+  it('auth expiry while an email request is pending retires its late result and shows sign-in', async () => {
+    let finish: (value: unknown) => void = () => {};
+    mocks.invoke.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const view = mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a verification link' }));
+    mocks.user = null;
+    view.rerender(<MemoryRouter><AccountDeletionPage /></MemoryRouter>);
+    await act(async () => { finish({ data: { outcome: 'email_requested' }, error: null }); });
+    expect(screen.getByRole('link', { name: 'Sign in' })).toBeInTheDocument();
+    expect(screen.queryByText(/Check your account email/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
   it('returning to the same account cannot revive a retired confirmation', async () => {
     mocks.token = secret;
     let finish: (value: unknown) => void = () => {};
