@@ -190,6 +190,20 @@ export async function handler(
       return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Snapshot application failed", responseHeaders);
     }
 
+    // Reconcile the reserved checkout only AFTER its canonical billing identity
+    // has attached. Retry even for an already-processed snapshot: a prior process
+    // may have stopped between these two durable operations.
+    if (event.type === 'checkout.session.completed' && bindUserId) {
+      const session = event.data.object;
+      const settled = await supabase.rpc('settle_account_checkout', {
+        p_user_id:bindUserId,p_session_id:session.id,p_customer_id:customerId,
+        p_subscription_id:subscriptionId,
+        p_operation_id:session.metadata?.billingOperationId ?? null,
+      });
+      if (settled.error) return createErrorResponse(ErrorCodes.DATABASE_ERROR,
+        'Checkout settlement unverified',responseHeaders);
+    }
+
     // A definitive wrong-price snapshot must first revoke/refuse entitlement in the database, then remain
     // non-2xx so Stripe/operator evidence cannot mistake it for a valid paid subscription.
     if (grantingStatus && !hasApprovedPrice) {
