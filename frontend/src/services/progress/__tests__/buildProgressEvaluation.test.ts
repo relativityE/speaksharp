@@ -135,6 +135,14 @@ describe('#1045 resolveComparisonRefs — baseline and previous comparable', () 
         expect(refs.previousComparableSessionId).toBe('s3');
     });
 
+    it('#1254: an INTERVENING ineligible evaluation is skipped — previous comparable is the last ELIGIBLE one, not the last recording', () => {
+        const s0 = evalOf('s0');
+        const s1Ineligible = evalOf('s1', { eligible: false }); // the most recent prior recording, not comparable
+        const refs = resolveComparisonRefs(evalOf('s2'), [s0, s1Ineligible]);
+        expect(refs.previousComparableSessionId).toBe('s0');
+        expect(refs.baselineSessionId).toBe('s0');
+    });
+
     it('sessions from a DIFFERENT cohort are never comparable (engine/model/version change)', () => {
         const otherCohort = evalOf('s1', { cohortKey: 'cloud|v9|other-model|clarity_v1' });
         const refs = resolveComparisonRefs(evalOf('s2'), [otherCohort]);

@@ -152,7 +152,8 @@ describe('#1047 U2 loadSessionProgress', () => {
         // s1 is the most recent prior recording but is not comparable (ineligible), so the persisted comparison is s0.
         // "Clearer than your last session" would point at s1; the copy must name what was actually compared.
         current = ev('s2', { clarity_raw: 90, baseline_session_id: 's0', previous_comparable_session_id: 's0' });
-        references = [ev('s0', { clarity_raw: 80 })];
+        // The ineligible s1 evaluation is present (newer, and a worse 60) — the loader must still use the persisted s0.
+        references = [ev('s1', { eligible: false, exclusion_reasons: ['too_few_words'], clarity_raw: 60 }), ev('s0', { clarity_raw: 80 })];
         recommendation = rec('rec-1254');
         const view = await loadSessionProgress('s2');
         expect(view.status).toBe('eligible');
