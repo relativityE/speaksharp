@@ -105,7 +105,7 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { productFillerCount } from './helpers/rwtFillerOracle';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
-import { coachingPromptBindingRow } from './helpers/rwtCoachingCollector';
+import { coachingPromptBindingRow, coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 
@@ -795,6 +795,10 @@ test.describe('RWT — Open Mic first session @live', () => {
         } finally {
             // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
             receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 })).observed;
+            // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary
+            // tap after a bounded settle of every sent exchange. Unanswered or unreadable stays HOLD — never a zero or the max.
+            await generations.settle();
+            coachingRequestBudgetRow(receipt, generations, { maximum: 4 });
             // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.
             sampler.stop();
             activeSampler = null;
