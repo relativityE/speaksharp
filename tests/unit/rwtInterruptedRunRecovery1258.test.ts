@@ -51,7 +51,7 @@ const recover = (p: Partial<Parameters<typeof recoverInterruptedRuns>[0]> & { ad
     recoverInterruptedRuns({ nowMs: NOW, ack: ACK, sha: SHA, domain: D, ...p });
 
 describe('ownership (#1580 P1 4237980478): the full synthetic identity at the exact domain', () => {
-    it('recognizes every dynamic RWT generator label under an explicit domain, without accepting an unknown label', () => {
+    it('recognizes every dynamic RWT generator label under an explicit domain', () => {
         // These are the labels the live run-owned account call sites build from the variant sets.
         const labels = [
             ...SAVE_RETRY_VARIANTS.map((variant) => `save-retry-${variant}`),
@@ -72,14 +72,18 @@ describe('ownership (#1580 P1 4237980478): the full synthetic identity at the ex
             expect(emails.map((email) => ownedPrefixOf(email, D))).toEqual(labels.map(() => 'rwt-journey-'));
             const owned = selectInterruptedRunAccounts(emails.map((email, i) => user(i + 1, email, old)), NOW, D);
             expect([owned.eligible.length, owned.counts.ownershipUnproven]).toEqual([labels.length, 0]);
-            const legacy = selectInterruptedRunAccounts(emails.map((email, i) =>
-                user(i + 1, email.replace(`@${D}`, '@example.com'), old)), NOW, null);
-            expect([legacy.eligible.length, legacy.counts.legacyUnqualified]).toEqual([0, labels.length]);
-            expect(ownedPrefixOf(newDisposableEmail('unknown-variant'), D)).toBeNull();
         } finally {
             clock.mockRestore();
             vi.unstubAllEnvs();
         }
+    });
+    it('rejects legacy-domain and unknown-label identities independently of dynamic-label recognition', () => {
+        const known = journey(1, 'open-mic', 'example.com');
+        const legacy = selectInterruptedRunAccounts([user(1, known, old)], NOW, null);
+        expect([legacy.eligible.length, legacy.counts.legacyUnqualified]).toEqual([0, 1]);
+        expect(ownedPrefixOf(journey(2, 'unknown-variant'), D)).toBeNull();
+        const unknown = selectInterruptedRunAccounts([user(2, journey(2, 'unknown-variant'), old)], NOW, D);
+        expect([unknown.eligible.length, unknown.counts.ownershipUnproven]).toEqual([0, 1]);
     });
     it('accepts exactly what the generators mint', () => {
         expect(ownedPrefixOf(journey(1), D)).toBe('rwt-journey-');

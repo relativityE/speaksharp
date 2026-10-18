@@ -12,17 +12,19 @@ const EMAIL = 'rwt-journey-fixture@example.test';
 const UID = '00000000-0000-4000-8000-000000000001';
 
 /** A fake admin whose residue readbacks all return `count`; the auth user resolves, deletes, then is not found. */
-function adminReturning(count: number | null) {
+function adminReturning(count: number | null, listedUsers: Array<{ id: string; email: string }> = []) {
     let deleted = false;
     const reads: string[] = [];
+    const listUsers = vi.fn(async () => ({ data: { users: listedUsers }, error: null }));
+    const deleteUser = vi.fn(async () => { deleted = true; return { error: null }; });
     const admin = {
         auth: {
             admin: {
-                listUsers: async () => ({ data: { users: [] }, error: null }),
+                listUsers,
                 getUserById: async () => (deleted
                     ? { data: null, error: { status: 404, code: 'user_not_found', message: 'User not found' } }
                     : { data: { user: { email: EMAIL } }, error: null }),
-                deleteUser: async () => { deleted = true; return { error: null }; },
+                deleteUser,
             },
         },
         from: (table: string) => ({
@@ -30,7 +32,7 @@ function adminReturning(count: number | null) {
             select: () => ({ eq: async () => { reads.push(table); return { count, error: null }; } }),
         }),
     };
-    return { admin, reads };
+    return { admin, reads, listUsers, deleteUser };
 }
 
 const verdictLines = (spy: ReturnType<typeof vi.spyOn>) =>
@@ -55,6 +57,26 @@ describe('run-owned cleanup residue counts are counted zeros, never unknowns (#1
         expect(reads.length).toBeGreaterThan(20);
         expect(reads.at(-1)).toBe('trial_entitlements');
         expect(verdictLines(log)).toEqual([`RUN_OWNED_CLEANUP cleanup_verified residue=0 tables_verified=${reads.length}`]);
+    });
+
+    it('PARTIAL SIGNUP: minted email with no captured UID recovers one exact account and proves zero', async () => {
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const { admin, reads, listUsers, deleteUser } = adminReturning(0, [{ id: UID, email: EMAIL }]);
+        await expect(cleanupRunOwnedAccount({ admin: admin as never, capturedUid: '', createdEmail: EMAIL, runOwnedPrefix: 'rwt-journey-' }))
+            .resolves.toBe(UID);
+        expect(listUsers).toHaveBeenCalledTimes(1);
+        expect(deleteUser).toHaveBeenCalledTimes(1);
+        expect(deleteUser).toHaveBeenCalledWith(UID);
+        expect(verdictLines(log)).toEqual([`RUN_OWNED_CLEANUP cleanup_verified residue=0 tables_verified=${reads.length}`]);
+    });
+
+    it('PARTIAL SIGNUP: ambiguous exact-email lookup fails closed before deletion or a clean verdict', async () => {
+        const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const { admin, deleteUser } = adminReturning(0, [{ id: UID, email: EMAIL }, { id: 'other-uid', email: EMAIL }]);
+        await expect(cleanupRunOwnedAccount({ admin: admin as never, capturedUid: '', createdEmail: EMAIL, runOwnedPrefix: 'rwt-journey-' }))
+            .rejects.toThrow(/ambiguous delete/);
+        expect(deleteUser).not.toHaveBeenCalled();
+        expect(verdictLines(log)).toEqual([]);
     });
 
     it('CONTROL: a positive count is residue and throws at the first read', async () => {
