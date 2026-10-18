@@ -386,9 +386,20 @@ export function exchangeTimeline(exchanges: readonly CoachingExchange[]): string
         sha(e.sent.attemptId), n(e.sent.clientAttempt)].join('|')).join(';');
 }
 
+/**
+ * #1593 (Sam, #1656 review) — the requests STILL OPEN when the row is written, one record each:
+ * `in_flight|statusSeen|sentAt|ageMs|requestSha256|attemptSha256|clientAttempt`. Nonterminal and separate from
+ * `exchangeTimeline`, so an in-flight request is correlatable (its hashes are captured at the request event) without
+ * being counted as answered or unanswered.
+ */
+export function inFlightTimeline(open: readonly { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[]): string {
+    return open.map((o) => ['in_flight', n(o.status), n(o.sentAt), n(o.ageMs), sha(o.sent.requestId), sha(o.sent.attemptId),
+        n(o.sent.clientAttempt)].join('|')).join(';');
+}
+
 export function coachingRequestBudgetRow(
     receipt: ReceiptLike,
-    tap: { sentCount: number; exchanges: readonly CoachingExchange[] },
+    tap: { sentCount: number; exchanges: readonly CoachingExchange[]; inFlight?: () => { sent: CoachingExchange['sent']; sentAt: number | null; ageMs: number | null; status: number | null }[] },
     budget: { maximum: number; oneRequestPerSession?: readonly string[] },
 ): void {
     const answered = tap.exchanges.filter((e) => e.status !== null);
@@ -438,5 +449,6 @@ export function coachingRequestBudgetRow(
             // inferred from order. Ids are hashed; no session id, text or token is published. Receipt evidence is scalar,
             // so the exchanges are one ';'-separated string (see exchangeTimeline).
             exchangeTimeline: exchangeTimeline(tap.exchanges),
+            inFlightTimeline: inFlightTimeline(tap.inFlight?.() ?? []),
         });
 }

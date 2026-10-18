@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { CoachingGenerationTap } from '../live/helpers/coachingGenerationTap';
-import { coachingRequestBudgetRow, exchangeTimeline } from '../live/helpers/rwtCoachingCollector';
+import { coachingRequestBudgetRow, exchangeTimeline, inFlightTimeline } from '../live/helpers/rwtCoachingCollector';
 import { savedTakeIdentity } from '../live/helpers/rwtJourney';
 
 type Handler = (arg: unknown) => void;
@@ -153,5 +153,49 @@ describe('practiceAgainEvidence re-reads the saved take AFTER persistence (#1593
         expect(wait).toBeGreaterThan(-1);
         expect(reread).toBeGreaterThan(wait);
         expect(again).toBeGreaterThan(reread);
+    });
+});
+
+// Sam's #1656 review counterexample: A answered, B in flight at the deadline — the HOLD was right but B had no hash anywhere.
+describe('an in-flight request is identifiable in the receipt without being counted (#1593, #1656 review)', () => {
+    it('NEGATIVE (Sam): A answered, B in flight at the deadline — B appears in inFlightTimeline with its hashes and age; counts and HOLD unchanged', async () => {
+        const page = new FakePage();
+        const tap = new CoachingGenerationTap();
+        tap.attach(page as never);
+        const a = coachingRequest('take-a');
+        page.emit('request', a);
+        const settling = tap.settle(100);
+        const b = coachingRequest('take-b');
+        setTimeout(() => page.emit('request', b), 60); // B is sent while settle still waits on A
+        setTimeout(() => page.emit('response', answer(a)), 80); // A answers inside its allowance; B is still open at ~100 ms
+        expect(await settling).toEqual({ unanswered: 0, bodyPending: 0, inFlight: 1 });
+        const receipt = receiptRows();
+        coachingRequestBudgetRow(receipt, tap, { maximum: 2 });
+        const ev = receipt.rows[0].evidence as Record<string, unknown>;
+        expect(receipt.rows[0].verdict).toBe('HOLD');
+        expect(ev).toMatchObject({ browserRequests: 2, answered: 1, inFlightAtEnd: 1, unansweredAtBound: 0 });
+        expect(String(ev.exchangeTimeline)).toContain(sha('req-take-a'));
+        expect(String(ev.exchangeTimeline)).not.toContain(sha('req-take-b'));
+        const [kind, status, sentAt, ageMs, requestSha, attemptSha, clientAttempt] = String(ev.inFlightTimeline).split('|');
+        expect([kind, status, requestSha, attemptSha, clientAttempt]).toEqual(['in_flight', '-', sha('req-take-b'), sha('att-take-b'), '1']);
+        expect(Number(sentAt)).toBeGreaterThan(0);
+        expect(Number(ageMs)).toBeGreaterThanOrEqual(0);
+        expect(JSON.stringify(receipt.rows[0])).not.toContain('req-take-b"');
+    });
+
+    it('CONTROL: with nothing in flight the in-flight timeline is empty and a settled exchange is never listed twice', async () => {
+        const page = new FakePage();
+        const tap = new CoachingGenerationTap();
+        tap.attach(page as never);
+        const a = coachingRequest('take-a');
+        page.emit('request', a);
+        page.emit('response', answer(a));
+        await tap.settle(100);
+        expect(tap.inFlight()).toEqual([]);
+        expect(inFlightTimeline(tap.inFlight())).toBe('');
+        const receipt = receiptRows();
+        coachingRequestBudgetRow(receipt, tap, { maximum: 1 });
+        expect((receipt.rows[0].evidence as Record<string, unknown>).inFlightTimeline).toBe('');
+        expect(receipt.rows[0].verdict).toBe('PASS');
     });
 });

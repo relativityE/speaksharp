@@ -90,6 +90,8 @@ export class CoachingGenerationTap {
     /** Coaching POSTs the BROWSER sent (including any still unanswered). Not a provider-invocation count. */
     sentCount = 0;
     private readonly startedAt = new WeakMap<Request, number>();
+    /** #1593 (Sam, #1656 review) — what each request named, captured AT THE REQUEST EVENT, so one still in flight is identifiable. */
+    private readonly sentInfo = new WeakMap<Request, CoachingSentRequest>();
     /**
      * #1474 (Sam 6242612760) — every SENT request until it reaches a terminal record. `settle()` used to wait only for
      * bodies of responses already seen, so a coaching exchange still in flight when the scenario ended was silently
@@ -125,6 +127,7 @@ export class CoachingGenerationTap {
             if (!isCoaching(request)) return;
             this.sentCount += 1;
             this.startedAt.set(request, Date.now());
+            this.sentInfo.set(request, readSentRequest(request));
             let resolve: () => void = () => undefined;
             const done = new Promise<void>((r) => { resolve = r; });
             this.outstanding.set(request, { done, resolve });
@@ -207,6 +210,19 @@ export class CoachingGenerationTap {
     async settledForSession(sessionId: string | null): Promise<CoachingExchange[]> {
         await this.settle();
         return sessionId ? this.forSession(sessionId) : [];
+    }
+
+    /**
+     * #1593 (Sam, #1656 review) — a NONTERMINAL snapshot of the requests still open, in send order: what each named, when
+     * it was sent, its age now and any status already seen. Separate from the terminal `exchanges`; it changes no count,
+     * no cost uncertainty and no HOLD — it only makes an in-flight request identifiable instead of invisible.
+     */
+    inFlight(now: number = Date.now()): { sent: CoachingSentRequest; sentAt: number | null; ageMs: number | null; status: number | null }[] {
+        return [...this.outstanding.keys()].map((request) => {
+            const sentAt = this.startedAt.get(request) ?? null;
+            return { sent: this.sentInfo.get(request) ?? readSentRequest(request), sentAt,
+                ageMs: sentAt === null ? null : Math.max(0, now - sentAt), status: this.statusSeen.get(request) ?? null };
+        });
     }
 
     /** Exchanges the page sent for one saved session, in arrival order. */
