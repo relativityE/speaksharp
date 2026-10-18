@@ -26,6 +26,9 @@ const coachingRequest = (sessionId: string, product: 'open_mic' | 'focus_points'
         diagnostic_attempt_id: expect.stringMatching(UUID_V4),
         client_attempt: clientAttempt,
     },
+    // #1593 (PO route-exit requirement): the invoke carries an abort signal so leaving the review cancels the wait.
+    // A transport option, not body content: the body above is still exactly the saved session id and capability.
+    signal: expect.any(AbortSignal),
 });
 type CoachingBody = { sessionId: string; diagnostic_request_id: string; diagnostic_attempt_id: string; client_attempt: number };
 
