@@ -645,6 +645,7 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => {
                 expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+                    signal: expect.any(AbortSignal), // #1593: route exit aborts the wait; not body content
                     // #1538 Codex P1 r4118176188: the closed capability declaring this client reads Focus provenance.
                     body: expect.objectContaining({
                         sessionId: 'session-test', accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'],
@@ -665,6 +666,7 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => expect(screen.getByText('Named the price first.')).toBeInTheDocument());
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
+                signal: expect.any(AbortSignal), // #1593: route exit aborts the wait; not body content
                 body: expect.objectContaining({
                     sessionId: 'session-focus', product: 'focus_points',
                     accepted_coaching_versions: ['gemini_coaching_v1', 'gemini_coaching_focus_v1'],
