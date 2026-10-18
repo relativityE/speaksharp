@@ -164,6 +164,8 @@ export function buildReadbackQuery(params: {
      * and its closed end reason, appended the same way, so an interrupted repeat take can prove its own request was
      * explicitly superseded rather than having supersession inferred from a missing render. Plus the request's origin
      * boot and the accepted repeat Start (`recording_intent` kind/outcome) that proves the A → repeat → B transition.
+     * Sam (16:44:51): plus the review's own Repeat press (`journey_step` step/option_selected), so the repeat is the
+     * button the review offered, never a generic Start.
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
@@ -194,7 +196,8 @@ export function buildReadbackQuery(params: {
                properties.origin_attempt_id AS origin_attempt_id,
                properties.end_reason AS end_reason,
                properties.origin_boot_id AS origin_boot_id,
-               properties.intent_kind AS intent_kind, properties.intent_outcome AS intent_outcome
+               properties.intent_kind AS intent_kind, properties.intent_outcome AS intent_outcome,
+               properties.step AS step, properties.option_selected AS option_selected
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}
