@@ -576,7 +576,7 @@ export function readAttempt(runId, runAttempt) {
     const attempt = JSON.parse(ghApi(`repos/${REPO}/actions/runs/${runId}/attempts/${runAttempt}`));
     const jobs = ghList(`repos/${REPO}/actions/runs/${runId}/attempts/${runAttempt}/jobs`, {}, 'jobs');
     const gate3 = jobs.filter((j) => j.name === GATE3_JOB);
-    const log = gate3.length === 1 ? run('gh', ['api', `repos/${REPO}/actions/jobs/${gate3[0].id}/logs`]) : '';
+    const log = gate3.length === 1 ? run('gh', ['api', '--allow-escape-sequences', `repos/${REPO}/actions/jobs/${gate3[0].id}/logs`]) : '';
     const artifacts = ghList(`repos/${REPO}/actions/runs/${runId}/artifacts`, {}, 'artifacts');
     const dir = mkdtempSync(path.join(tmpdir(), 'rwt-case-'));
     const files = { receipts: [], readbacks: [], dir };
@@ -601,7 +601,7 @@ export function priorRunsOnRelease(releaseSha, validFrom) {
     return priorAttemptStates({ runs, attemptsOf, validFrom, classifyAttempt: (r, a) => {
         const jobs = ghList(`repos/${REPO}/actions/runs/${r.id}/attempts/${a.run_attempt}/jobs`, {}, 'jobs');
         const gate3 = jobs.filter((j) => j.name === GATE3_JOB);
-        const log = gate3.length === 1 && gate3[0].conclusion !== 'skipped' ? run('gh', ['api', `repos/${REPO}/actions/jobs/${gate3[0].id}/logs`]) : '';
+        const log = gate3.length === 1 && gate3[0].conclusion !== 'skipped' ? run('gh', ['api', '--allow-escape-sequences', `repos/${REPO}/actions/jobs/${gate3[0].id}/logs`]) : '';
         return classifyPriorAttempt({ jobs, log });
     } });
 }
