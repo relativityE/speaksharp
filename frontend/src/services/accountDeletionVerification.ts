@@ -23,3 +23,9 @@ if (typeof window !== 'undefined') {
 
 export const accountDeletionToken = () => verificationToken;
 export const clearAccountDeletionToken = () => { verificationToken = null; };
+/** Claim the current in-memory link once, before any asynchronous confirmation work. */
+export function consumeAccountDeletionToken(expected: string): boolean {
+  if (verificationToken !== expected) return false;
+  clearAccountDeletionToken();
+  return true;
+}

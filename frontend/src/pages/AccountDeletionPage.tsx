@@ -1,8 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { accountDeletionToken, clearAccountDeletionToken } from '@/services/accountDeletionVerification';
+import { accountDeletionToken, consumeAccountDeletionToken } from '@/services/accountDeletionVerification';
+import { accountDeletionAttempts } from '@/services/accountDeletionAttempts';
 import { Button } from '@/components/ui/button';
 
 interface DeletionResponse {
@@ -30,25 +31,43 @@ function closureResponse(value: unknown, action: 'request' | 'confirm'): Deletio
 
 export default function AccountDeletionPage() {
   const { user, loading, signOut } = useAuthProvider();
-  const [token, setToken] = useState(accountDeletionToken);
-  const [confirmed, setConfirmed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [completed, setCompleted] = useState(false);
-  const [reconciliationPending, setReconciliationPending] = useState(false);
+  const token = accountDeletionToken();
+  const [acknowledgement, setAcknowledgement] = useState<{ ownerId: string; checked: boolean } | null>(null);
+  const [email, setEmail] = useState<{ ownerId: string; busy: boolean; message: string | null } | null>(null);
+  const [completion, setCompletion] = useState<{ ownerId: string; message: string } | null>(null);
+  const attempt = useSyncExternalStore(accountDeletionAttempts.subscribe,
+    () => accountDeletionAttempts.snapshot(user?.id ?? null));
+  const currentEmail = email?.ownerId === user?.id ? email : null;
+  const currentCompletion = completion && (!user || completion.ownerId === user.id) ? completion : null;
+  const confirmed = !!user && acknowledgement?.ownerId === user.id && acknowledgement.checked;
+  const busy = !!currentEmail?.busy || attempt.phase === 'pending';
+  const completed = !!currentCompletion || attempt.phase === 'completed';
+  const confirmationBlocked = attempt.phase === 'pending' || attempt.phase === 'reconciliation';
+  const message = currentCompletion?.message
+    ?? (attempt.phase === 'ready' && currentEmail ? currentEmail.message : attempt.message);
   const inFlight = useRef(false);
   const operationEpoch = useRef(0);
   useLayoutEffect(() => {
     operationEpoch.current += 1;
+    setAcknowledgement(null);
+    setEmail(null);
     return () => { operationEpoch.current += 1; };
   }, [user?.id]);
 
   const submit = async (action: 'request' | 'confirm') => {
-    if (inFlight.current || !user || (action === 'confirm' && (!token || !confirmed))) return;
+    if (inFlight.current || !user || accountDeletionAttempts.snapshot(user.id).phase !== 'ready'
+      || (action === 'confirm' && (!token || !confirmed))) return;
+    const ownerId = user.id;
+    let confirmationId: symbol | null = null;
+    if (action === 'confirm') {
+      if (!token || !consumeAccountDeletionToken(token)) return;
+      confirmationId = accountDeletionAttempts.begin(ownerId);
+      if (!confirmationId) return;
+      setAcknowledgement(null);
+    }
     const submittingEpoch = ++operationEpoch.current;
     inFlight.current = true;
-    setBusy(true);
-    setMessage(null);
+    setEmail(action === 'request' ? { ownerId, busy: true, message: null } : null);
     try {
       const client = getSupabaseClient();
       if (!client) throw new Error('Unavailable');
@@ -63,44 +82,42 @@ export default function AccountDeletionPage() {
       if (action === 'request') {
         if (operationEpoch.current !== submittingEpoch) return;
         if (error || result?.outcome !== 'email_requested') throw new Error('Email unavailable');
-        setMessage('Check your account email. The verification link expires after 15 minutes. Opening it does not delete your account.');
+        setEmail({ ownerId, busy: false, message: 'Check your account email. The verification link expires after 15 minutes. Opening it does not delete your account.' });
         return;
       }
       // Confirmation is never automatically replayed, including an uncertain network result.
       if (operationEpoch.current !== submittingEpoch) throw new Error('Confirmation operation is no longer active');
-      clearAccountDeletionToken();
-      setToken(null);
-      setConfirmed(false);
       if (!result) throw new Error('Deletion result unverified');
+      if (!confirmationId) throw new Error('Missing confirmation operation');
       if (result.accountDeleted === null) {
-        setReconciliationPending(true);
-        setMessage('Account deletion could not be verified. It may already have happened. Do not request another link or retry deletion; contact support for reconciliation.');
+        accountDeletionAttempts.finish(ownerId, confirmationId, { phase: 'reconciliation',
+          message: 'Account deletion could not be verified. It may already have happened. Do not request another link or retry deletion; contact support for reconciliation.' });
       } else if (result.accountDeleted) {
-        setCompleted(true);
-        try { await signOut(); } catch { /* deletion already happened; preserve the factual result */ }
-        setMessage(result.outcome === 'deleted'
+        const completionMessage = result.outcome === 'deleted'
           ? 'Your account has been deleted. Your trial email is retained to prevent repeat trials. Historical billing and support records may remain.'
-          : 'Your account was deleted, but complete cleanup could not be verified. Please contact support.');
+          : 'Your account was deleted, but complete cleanup could not be verified. Please contact support.';
+        accountDeletionAttempts.finish(ownerId, confirmationId, { phase: 'completed', message: completionMessage });
+        setCompletion({ ownerId, message: completionMessage });
+        try { await signOut(); } catch { /* deletion already happened; preserve the factual result */ }
       } else if (result.outcome === 'refused') {
-        setMessage('Verification was refused or expired. Request a new emailed link while signed in to the correct account.');
+        accountDeletionAttempts.finish(ownerId, confirmationId, { phase: 'ready',
+          message: 'Verification was refused or expired. Request a new emailed link while signed in to the correct account.' });
       } else {
-        setMessage(result.billingClosed
+        accountDeletionAttempts.finish(ownerId, confirmationId, { phase: 'ready', message: result.billingClosed
           ? 'Billing is closed, but your account has not been deleted. Request a new verification link after one minute or contact support.'
-          : 'Your account has not been deleted. Billing cancellation could not be confirmed. Request a new verification link after one minute or contact support.');
+          : 'Your account has not been deleted. Billing cancellation could not be confirmed. Request a new verification link after one minute or contact support.' });
       }
     } catch {
       if (action === 'request' && operationEpoch.current !== submittingEpoch) return;
-      if (action === 'confirm') {
-        clearAccountDeletionToken();
-        setToken(null);
-        setReconciliationPending(true);
+      if (action === 'confirm' && confirmationId) {
+        accountDeletionAttempts.finish(ownerId, confirmationId, { phase: 'reconciliation',
+          message: 'We could not verify the deletion result. Do not assume your account or billing was changed. Please contact support before retrying.' });
+      } else {
+        setEmail({ ownerId, busy: false, message: 'We could not send a verification link. Please try again later or contact support.' });
       }
-      setMessage(action === 'request'
-        ? 'We could not send a verification link. Please try again later or contact support.'
-        : 'We could not verify the deletion result. Do not assume your account or billing was changed. Please contact support before retrying.');
     } finally {
       inFlight.current = false;
-      setBusy(false);
+      setEmail((current) => current?.ownerId === ownerId ? { ...current, busy: false } : current);
     }
   };
 
@@ -111,11 +128,11 @@ export default function AccountDeletionPage() {
       <p className="mt-3">We will cancel your subscriptions and delete your Stripe customer. Deleting now ends access immediately and forfeits remaining paid time without a refund. If cancellation cannot be confirmed, deletion stops.</p>
       <p className="mt-3">Your trial email is retained to prevent repeat trials. Historical billing and support records may remain.</p>
       <p className="mt-3">To keep your account and use the rest of your paid period, cancel membership instead and return here later. Cancelling membership never schedules account deletion.</p>
-      {reconciliationPending ? null : loading ? <p role="status" className="mt-6">Checking your sign-in…</p> : !user ?
+      {confirmationBlocked ? null : loading ? <p role="status" className="mt-6">Checking your sign-in…</p> : !user ?
         <p className="mt-6"><Link to="/auth/signin">Sign in</Link> before requesting a verification link.</p> : token ?
           <div className="mt-6 space-y-4">
             <label className="flex items-start gap-3"><input type="checkbox" checked={confirmed}
-              onChange={(e) => setConfirmed(e.target.checked)} disabled={busy} />
+              onChange={(e) => { if (user) setAcknowledgement({ ownerId: user.id, checked: e.target.checked }); }} disabled={busy} />
               <span>I understand this is permanent, ends my access now, and provides no refund.</span></label>
             <Button variant="destructive" disabled={!confirmed || busy} onClick={() => { void submit('confirm'); }}>
               {busy ? 'Deleting…' : 'Permanently delete my account'}
