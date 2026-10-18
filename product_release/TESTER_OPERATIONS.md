@@ -19,15 +19,18 @@
 >   with a positive AND a negative control; an accepted request only shows something was sent.
 > - **Record requested identity and observed identity separately**, and bracket the user's intent
 >   through review and reopen. Where they diverge is the finding.
-> - **Exercise every registered runtime candidate through controlled configuration**, across Open Mic
->   and Focus Points, rather than whichever one happens to be resolved.
+> - **Exercise the selected current customer configuration**, with complete useful Open Mic, full Focus
+>   and partial Focus Points journeys. Exercising comparison candidates belongs to the separately
+>   authorized post-MVP model phase; it is not a current MVP prerequisite.
 > - **Never ask the Product Owner to choose Preview, local, or internal testing.** The customer
 >   surface is the only one their judgment is being asked about.
 
 <!-- pm-currentization:2026-09-15 -->
 > [!IMPORTANT]
-> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. A qualifying matrix must run **v4 (provisional primary) and v2 (fallback)** with requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Moonshine is deferred until after RWT or MVP and is not a required row in the current matrix. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
+> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. Current-model qualification requires requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Moonshine evaluation remains deferred and is not a required row in the current matrix. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
 <!-- /pm-currentization:2026-09-15 -->
+
+**Current model phase — supersedes the earlier v4/v2 MVP matrix prerequisite.** Private v2 may complete MVP. Candidate evaluation and the proposed primary/fallback transition are post-MVP under the [accepted #1565 plan](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6234300811), reusing #1567/#1568. Section 6.1 retains the separately authorized comparison procedure for that future phase, not an instruction to run it now. Full useful Open Mic, full and partial Focus Points, actual received/cleanup evidence and human/device acceptance still apply to the current selected model. One engine per take and truthful attribution remain required; this correction grants no model-run or promotion authority.
 
 # SpeakSharp Tester Operations
 
@@ -139,7 +142,8 @@ Private v4 is OFF. Operators must not target, expose, or activate it for custome
 
 ### 6.1 Authorized two-candidate Production comparison
 
-This procedure is available only during a Product Owner-authorized comparison window. It exercises the
+This retained procedure is for the post-MVP model phase under the accepted #1565 plan and is available
+only during a separately Product Owner-authorized comparison window. It exercises the
 canonical Production deployment; a pull-request Preview, local build, URL flag, browser-storage value, or
 visible customer control is not qualifying evidence.
 
@@ -160,7 +164,7 @@ Preparation is separate from execution:
    exactly one `https://speaksharp-public.vercel.app` tab and sign in manually through the normal product path.
    Never expose the debugging endpoint off-device.
 
-For each of the **two authorised candidates** — v4 (provisional primary) and v2 (fallback) — perform one Open Mic take and one Focus Points take. Moonshine is deferred until after RWT or MVP: it is not dispatchable and must not be attempted, because `rc-gates.yml` no longer offers its cells. The
+For each of the **two authorised candidates** in that future comparison — v4 (provisional primary) and v2 (fallback) — perform one Open Mic take and one Focus Points take. Moonshine remains deferred: it is not dispatchable under this two-candidate procedure and must not be attempted, because `rc-gates.yml` no longer offers its cells. The
 Focus Points count is user-selected within the MVP's 1–7 range; the comparison does not prescribe four or
 any other count. Every point the user enters and substantively speaks must remain present, in order, and be
 evaluated. Generate one lowercase UUIDv4 as the evidence-document id and reuse that id for exactly these
