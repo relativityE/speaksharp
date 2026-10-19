@@ -1,0 +1,254 @@
+{
+  "source": "6185f14cd05b2aa985aa539e8221282c2237e200",
+  "cases": [
+    {
+      "name": "wrong-wav",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/wrong-wav/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/wrong-wav/candidate.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/wrong-wav/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/wrong-wav/device.json",
+        "--out",
+        "artifacts/preflight-wrong-wav.json"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: WAV digest mismatch: a\n    at <anonymous> (<isolated-source>/scripts/model-evaluator/run.mts:82:46)\n    at async Promise.all (index 0)\n    at async main (<isolated-source>/scripts/model-evaluator/run.mts:77:20)\n",
+      "reportWritten": false
+    },
+    {
+      "name": "wrong-pcm",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/wrong-pcm/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/wrong-pcm/candidate.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/wrong-pcm/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/wrong-pcm/device.json",
+        "--out",
+        "artifacts/preflight-wrong-pcm.json"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: PCM digest mismatch: a\n    at <anonymous> (<isolated-source>/scripts/model-evaluator/run.mts:85:40)\n    at async Promise.all (index 0)\n    at async main (<isolated-source>/scripts/model-evaluator/run.mts:77:20)\n",
+      "reportWritten": false
+    },
+    {
+      "name": "wrong-device",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/wrong-device/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/wrong-device/candidate.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/wrong-device/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/wrong-device/device.json",
+        "--out",
+        "artifacts/preflight-wrong-device.json"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: device backend differs from an arm manifest\n    at main (<isolated-source>/scripts/model-evaluator/run.mts:68:11)\n",
+      "reportWritten": false
+    },
+    {
+      "name": "wrong-schema",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/wrong-schema/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/wrong-schema/candidate.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/wrong-schema/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/wrong-schema/device.json",
+        "--out",
+        "artifacts/preflight-wrong-schema.json"
+      ],
+      "exit": 1,
+      "stdout": "",
+      "stderr": "Error: candidate manifest version must be 1\n    at readManifest (<isolated-source>/scripts/model-evaluator/run.mts:37:70)\n    at async main (<isolated-source>/scripts/model-evaluator/run.mts:59:29)\n",
+      "reportWritten": false
+    },
+    {
+      "name": "trace",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/trace/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/trace/candidate.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/trace/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/trace/device.json",
+        "--out",
+        "artifacts/preflight-trace.json"
+      ],
+      "exit": 2,
+      "stdout": "{\"out\":\"<isolated-source>/artifacts/preflight-trace.json\",\"verdict\":\"HOLD\",\"reasons\":[\"missing_or_invalid_predeclared_policy\",\"product_path_and_required_metrics_not_run\"]}\n",
+      "stderr": "",
+      "reportWritten": true,
+      "acceptance": {
+        "verdict": "HOLD",
+        "reasons": [
+          "missing_or_invalid_predeclared_policy",
+          "product_path_and_required_metrics_not_run"
+        ]
+      },
+      "sha256": "cc1b2aab9f31281215555d9e5b41d1e2d27572e002b6f7c96d00684ba1eebea3"
+    }
+  ],
+  "trace": [
+    {
+      "arm": "baseline",
+      "phase": "initialized",
+      "logicalResident": [
+        "baseline"
+      ]
+    },
+    {
+      "arm": "candidate",
+      "phase": "initialized",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "candidate",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "candidate",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "candidate",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "candidate",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "candidate",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "candidate",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "phase": "decode",
+      "logicalResident": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    {
+      "arm": "baseline",
+      "phase": "disposed",
+      "logicalResident": [
+        "candidate"
+      ]
+    },
+    {
+      "arm": "candidate",
+      "phase": "disposed",
+      "logicalResident": []
+    }
+  ],
+  "meaning": "Logical adapter lifetime, not physical device memory or real one-arm cold/warm evidence"
+}

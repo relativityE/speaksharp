@@ -1,0 +1,33 @@
+{
+  "package.json": {
+    "sha256": "84c765e807aef348788bd7214cfce1ec49498213f271bc89dabab31f56d4a874"
+  },
+  "pnpm-lock.yaml": {
+    "sha256": "847997ce69bb4fe97c27eafd0ca40c1021fef6ac32adbe4be240a56be3867b55"
+  },
+  "sourceDependencies": {
+    "@huggingface/transformers": "4.3.0",
+    "@xenova/transformers": "^2.17.2"
+  },
+  "installed:@xenova/transformers": {
+    "version": "2.17.2",
+    "sha256": "0d605ca8d31ccbcff74729534f6f5e2f722d047c534cef6f53fafd22ef0b4c3d"
+  },
+  "installed:@huggingface/transformers": {
+    "version": "4.3.0",
+    "sha256": "7b62eddbd0bb7a7da16775803c13c9310b5aecdf5a60e9c78e579f2e3ece2e27"
+  },
+  "installed:tsx": {
+    "version": "4.20.6",
+    "sha256": "1712340c8942ca0af1efaf2b42fd0cd608fb023f6a4fae427399ed08c61cf0f4"
+  },
+  "installed:typescript": {
+    "version": "5.9.3",
+    "sha256": "822ef7ca6452205657b6288b066481ecf508bfbf43455d715cf7d3ec457561e6"
+  },
+  "installed:vitest": {
+    "version": "3.2.4",
+    "sha256": "555361762b31957f3960220aad50df9f43c9f82d830862ef6e3588168fbe111c"
+  },
+  "meaning": "Installed package metadata is not executed model runtime evidence. Offline adapter imports no model package."
+}

@@ -1,0 +1,332 @@
+{
+  "numTotalTests": 71,
+  "numPassedTests": 71,
+  "numFailedTests": 0,
+  "numFailedTestSuites": 0,
+  "success": true,
+  "source": "6185f14cd05b2aa985aa539e8221282c2237e200",
+  "exit": 0,
+  "rawReportSha256": "a1a31dc7cd9603de4c6db05856640b2d275a149204f566ac64ffee1052c2a612",
+  "files": [
+    {
+      "path": "tests/evidence/__tests__/modelEvaluator.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "title": "#1565 paired model evaluator passes an identical paired corpus when every required slice has enough independent clusters",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired model evaluator holds when a slice has too few independent speakers, even if both arms match",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired model evaluator rejects a noisy-slice regression hidden by favorable aggregate performance",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired model evaluator rejects missing or duplicate clips and empty model output",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired model evaluator rejects wrong observed identity, including a silent backend fallback",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired model evaluator rejects relative and absolute finalized latency regressions",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired model evaluator holds without predeclared policy",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "tests/evidence/__tests__/modelEvaluatorAdapters.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "title": "#1565 candidate asset binding binds each selected model and decoder precision to its committed asset pins",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "tests/evidence/__tests__/modelEvaluatorCommand.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "title": "retained CLI consumes independent declared pairs and writes raw rows/observed identities with honest HOLD",
+          "status": "passed"
+        },
+        {
+          "title": "retained CLI keeps every decode failure and rejected disposal in the immutable report",
+          "status": "passed"
+        },
+        {
+          "title": "retained CLI preserves wrong observed runtime identity rather than replacing it with the manifest",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "tests/evidence/__tests__/modelEvaluatorPairedRun.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "title": "#1565 retained runner paired-population integration uses independent frozen corpus \u00d7 declared trials, not the intersection of observed arms",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 retained runner paired-population integration freezes the declared population before execution and rejects mutated references",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 retained runner paired-population integration rejects an entire declared trial omitted identically from both arms",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 retained runner paired-population integration retains failed trials and actual observed identity without replacing them from declarations",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 retained runner paired-population integration rejects mismatched, duplicate and absent result identity before statistics",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 retained runner paired-population integration preserves declared empty-reference rows; completeness alone grants no silence-quality PASS",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 retained runner paired-population integration requires declared trial count independently of policy or available outputs",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 retained runner paired-population integration counts raw coachable fillers before WER normalization and keeps all-key counts separate",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "tests/evidence/certification/__tests__/pairedEvidence.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "title": "#1565 paired completeness before statistics rejects an empty Set manifest rather than returning a successful empty population",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects non-array manifest containers at the runtime boundary",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects non-array A containers at the runtime boundary",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects non-array B containers at the runtime boundary",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics returns every exact pair in manifest order, retaining differing outputs and outcomes",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects duplicate sample IDs in A rather than collapsing a map",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects duplicate sample IDs in B rather than collapsing a map",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects missing, extra or substituted samples in A",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects missing, extra or substituted samples in B",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects the same missing sample in both arms against the predeclared manifest",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects referenceSha256 mismatch independently in either arm",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects referenceWords mismatch independently in either arm",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects clusterId mismatch independently in either arm",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics requires the exact trial set while preserving valid repeats as separate rows",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics uses collision-safe compound sample keys",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics preserves a valid expected-empty silence row with zero reference words",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects empty, duplicate or internally inconsistent manifests",
+          "status": "passed"
+        },
+        {
+          "title": "#1565 paired completeness before statistics rejects unmeasured or invalid identities rather than inventing a reference denominator",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "tests/evidence/certification/__tests__/selectionPolicy.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "title": "the policy is frozen and states its own constants cannot be mutated at runtime",
+          "status": "passed"
+        },
+        {
+          "title": "rule 1 \u2014 reliability: exactly 600/600, every failure counter zero a perfect run qualifies",
+          "status": "passed"
+        },
+        {
+          "title": "rule 1 \u2014 reliability: exactly 600/600, every failure counter zero a single threw disqualifies, however good the WER",
+          "status": "passed"
+        },
+        {
+          "title": "rule 1 \u2014 reliability: exactly 600/600, every failure counter zero a single emptyOutput disqualifies, however good the WER",
+          "status": "passed"
+        },
+        {
+          "title": "rule 1 \u2014 reliability: exactly 600/600, every failure counter zero a single timedOut disqualifies, however good the WER",
+          "status": "passed"
+        },
+        {
+          "title": "rule 1 \u2014 reliability: exactly 600/600, every failure counter zero a single audioRejected disqualifies, however good the WER",
+          "status": "passed"
+        },
+        {
+          "title": "rule 1 \u2014 reliability: exactly 600/600, every failure counter zero a single missing disqualifies, however good the WER",
+          "status": "passed"
+        },
+        {
+          "title": "rule 1 \u2014 reliability: exactly 600/600, every failure counter zero 599 of 600 disqualifies even with every counter zero",
+          "status": "passed"
+        },
+        {
+          "title": "rule 4 \u2014 p95 RTF must be under 1.0, and NULL is not a pass 0.99 passes, 1.0 does not",
+          "status": "passed"
+        },
+        {
+          "title": "rule 4 \u2014 p95 RTF must be under 1.0, and NULL is not a pass an UNMEASURED latency cannot clear a latency gate",
+          "status": "passed"
+        },
+        {
+          "title": "rule 5 \u2014 long-form integrity truncation disqualifies",
+          "status": "passed"
+        },
+        {
+          "title": "rule 5 \u2014 long-form integrity a lost tail disqualifies",
+          "status": "passed"
+        },
+        {
+          "title": "rule 5 \u2014 long-form integrity a repeated loop disqualifies",
+          "status": "passed"
+        },
+        {
+          "title": "rules 9 and 10 \u2014 aliases and unproven backends an alias is visible but never qualifies",
+          "status": "passed"
+        },
+        {
+          "title": "rules 9 and 10 \u2014 aliases and unproven backends an unproven backend disqualifies",
+          "status": "passed"
+        },
+        {
+          "title": "rules 9 and 10 \u2014 aliases and unproven backends a non-selection-grade set disqualifies",
+          "status": "passed"
+        },
+        {
+          "title": "rules 2 and 3 \u2014 paired bootstrap, and a tie is a tie identical arms are TIED, and the interval spans zero",
+          "status": "passed"
+        },
+        {
+          "title": "rules 2 and 3 \u2014 paired bootstrap, and a tie is a tie a LARGE consistent difference is not a tie",
+          "status": "passed"
+        },
+        {
+          "title": "rules 2 and 3 \u2014 paired bootstrap, and a tie is a tie a TINY difference from a handful of clips IS a tie",
+          "status": "passed"
+        },
+        {
+          "title": "rules 2 and 3 \u2014 paired bootstrap, and a tie is a tie is DETERMINISTIC \u2014 the same inputs give the same interval",
+          "status": "passed"
+        },
+        {
+          "title": "rules 2 and 3 \u2014 paired bootstrap, and a tie is a tie is PAIRED \u2014 it uses shared utterances, and refuses when there are none",
+          "status": "passed"
+        },
+        {
+          "title": "rules 2 and 3 \u2014 paired bootstrap, and a tie is a tie the sign convention is A minus B: negative means A is better",
+          "status": "passed"
+        },
+        {
+          "title": "rules 6 and 7 \u2014 primary is best, fallback fails DIFFERENTLY the primary is the best qualified model, with no integration adjustment",
+          "status": "passed"
+        },
+        {
+          "title": "rules 6 and 7 \u2014 primary is best, fallback fails DIFFERENTLY the fallback is NOT second place when second place fails the same way",
+          "status": "passed"
+        },
+        {
+          "title": "rules 6 and 7 \u2014 primary is best, fallback fails DIFFERENTLY says so plainly when no candidate has different exposure",
+          "status": "passed"
+        },
+        {
+          "title": "rules 6 and 7 \u2014 primary is best, fallback fails DIFFERENTLY records who is statistically TIED with the primary",
+          "status": "passed"
+        },
+        {
+          "title": "rules 6 and 7 \u2014 primary is best, fallback fails DIFFERENTLY a disqualified model cannot be primary however good its WER",
+          "status": "passed"
+        },
+        {
+          "title": "rule 8 \u2014 activation never rewrites who technically won a ready technical winner is activated",
+          "status": "passed"
+        },
+        {
+          "title": "rule 8 \u2014 activation never rewrites who technically won an unshippable winner STILL WON \u2014 something else is merely activated",
+          "status": "passed"
+        },
+        {
+          "title": "rule 8 \u2014 activation never rewrites who technically won names the situation when nothing qualified is ready",
+          "status": "passed"
+        },
+        {
+          "title": "measured arms that must never rank a DIAGNOSTIC row is disqualified, however good its numbers",
+          "status": "passed"
+        },
+        {
+          "title": "measured arms that must never rank a selection row with the same numbers DOES qualify \u2014 the role is what differs",
+          "status": "passed"
+        },
+        {
+          "title": "measured arms that must never rank both extras are excluded from a ranking, and the rest survive",
+          "status": "passed"
+        },
+        {
+          "title": "measured arms that must never rank a row with no role recorded still ranks \u2014 absence is not a diagnostic claim",
+          "status": "passed"
+        }
+      ]
+    }
+  ]
+}

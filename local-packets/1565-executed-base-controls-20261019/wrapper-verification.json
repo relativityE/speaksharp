@@ -1,0 +1,102 @@
+{
+  "controls": [
+    {
+      "case": "identical",
+      "accepted": true
+    },
+    {
+      "case": "identical",
+      "negative": "no-report",
+      "rejected": "report_required"
+    },
+    {
+      "case": "identical",
+      "negative": "wrong-verdict",
+      "rejected": "acceptance_verdict"
+    },
+    {
+      "case": "identical",
+      "negative": "missing-pair",
+      "rejected": "six_pairs_required"
+    },
+    {
+      "case": "identical",
+      "negative": "wrong-cause",
+      "rejected": "clean_control"
+    },
+    {
+      "case": "decode-and-dispose-failure",
+      "accepted": true
+    },
+    {
+      "case": "decode-and-dispose-failure",
+      "negative": "no-report",
+      "rejected": "report_required"
+    },
+    {
+      "case": "decode-and-dispose-failure",
+      "negative": "wrong-verdict",
+      "rejected": "acceptance_verdict"
+    },
+    {
+      "case": "decode-and-dispose-failure",
+      "negative": "missing-pair",
+      "rejected": "six_pairs_required"
+    },
+    {
+      "case": "decode-and-dispose-failure",
+      "negative": "wrong-cause",
+      "rejected": "disposal_failure_required"
+    },
+    {
+      "case": "wrong-backend",
+      "accepted": true
+    },
+    {
+      "case": "wrong-backend",
+      "negative": "no-report",
+      "rejected": "report_required"
+    },
+    {
+      "case": "wrong-backend",
+      "negative": "wrong-verdict",
+      "rejected": "acceptance_verdict"
+    },
+    {
+      "case": "wrong-backend",
+      "negative": "missing-pair",
+      "rejected": "six_pairs_required"
+    },
+    {
+      "case": "wrong-backend",
+      "negative": "wrong-cause",
+      "rejected": "observed_backend_required"
+    },
+    {
+      "case": "initialization-failure",
+      "accepted": true
+    },
+    {
+      "case": "initialization-failure",
+      "negative": "no-report",
+      "rejected": "report_required"
+    },
+    {
+      "case": "initialization-failure",
+      "negative": "wrong-verdict",
+      "rejected": "acceptance_verdict"
+    },
+    {
+      "case": "initialization-failure",
+      "negative": "missing-pair",
+      "rejected": "six_pairs_required"
+    },
+    {
+      "case": "initialization-failure",
+      "negative": "wrong-cause",
+      "rejected": "init_failure_required"
+    }
+  ],
+  "positiveReports": 4,
+  "negativeMutationsRejected": 16
+}

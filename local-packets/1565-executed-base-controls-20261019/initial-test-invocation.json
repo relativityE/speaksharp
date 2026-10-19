@@ -1,0 +1,9 @@
+{
+  "numTotalTests": 71,
+  "numPassedTests": 68,
+  "numFailedTests": 3,
+  "numFailedTestSuites": 1,
+  "success": false,
+  "explanation": "Initial PM invocation had isolated test root but parent process cwd; three subprocess CLI tests resolved their runner from the parent checkout. Correct invocation runs with isolated source as cwd; no source changed.",
+  "exit": 1
+}

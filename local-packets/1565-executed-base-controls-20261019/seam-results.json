@@ -1,0 +1,1823 @@
+{
+  "source": "6185f14cd05b2aa985aa539e8221282c2237e200",
+  "node": "v24.19.0",
+  "controlGroups": 105,
+  "probeErrors": 0,
+  "sourceHashes": {
+    "scripts/model-evaluator/paired-run.ts": "fe6279b6f5d48ac7f8c5e4f491bfece9d5296e1e9f0a3677c96e4eb937d7cb1d",
+    "tests/evidence/certification/pairedEvidence.ts": "73a4bc30541043b170209d98852826884777dceeea8d2ccc0e4bb2ae4caf717b",
+    "tests/evidence/normalization/officialNormalizer.ts": "0121bff4654d44bf3b5ef3347c7a16ca974f124fbb7e914d6dc74a84a764c304",
+    "tests/evidence/normalization/english.json": "6607f948be9824d2e1b2fa2223cd94c06c45afa4e05ea0e3d5e1f2bdffde2465",
+    "tests/evidence/normalization/englishNumberNormalizer.ts": "ffffd403fed08e801b3c1a7ef0f352385080e97e0139f6c65854a24ecb0c223f",
+    "tests/evidence/modelEvaluator.ts": "1cb00c4badc575fa3480dcc530433196073ba651fc9b0856421c1438285c8061",
+    "tests/evidence/benchmarkScore.ts": "acfb3b71fb9ff84cb6d3cc38c08a7c9f1efd67919a44283b29e3e2114aae486c",
+    "tests/evidence/werMetric.ts": "f48617e7c691031ba5c978a16e571bec5bdfbc0bbd0f2d27d5881d4ff64f1afa",
+    "tests/evidence/normalization/tracks.ts": "fc39865dbaa7088f228c303365ac12790fdcbfaff3de529c69cd5dd4b9a0f572",
+    "tests/evidence/certification/selectionPolicy.ts": "edf4b104d97411106bd19963ce22d6b002e819d6e073bbd85f2bff6dd95d8e25",
+    "tests/evidence/certification/deploymentMetrics.ts": "3c6f227e028d0c3994f4bebb8dcf84413e8548fb6a91dacd495788f6718e0847",
+    "frontend/src/utils/fillerWordUtils.ts": "eda70bacb225b3bbb18f63ccb7317cb25938d55b52c7439de10c7f6124249c2c",
+    "frontend/src/config.ts": "814986867ed7fb0994101d13bc5726e8a5912e31eb190138f8580f0b30fcb297",
+    "frontend/src/services/objective/objectiveCoverage.ts": "95d9a47b4aac415812d3393412f1010bf28602a4a8b261c903aa76ea32e5c390",
+    "frontend/src/services/rehearsal/outcomeScorecard.ts": "b7b6924e9fb4e8372fc6f9d84a855023e202a6bf9b926f5a0c8c17749b286451",
+    "frontend/src/components/session/AISuggestions.tsx": "cc24d74b4945688d6e369c110a83e3326eccdaaf51382b023333d4c079435f9b",
+    "frontend/src/services/telemetry/coachingDiagnosticReceipt.ts": "a6ec6a78c97d229b11d499ea29237ac7144ac7bec6de8b16ec0df0381376c3a9",
+    "frontend/src/services/SpeechRuntimeController.ts": "b41a2cd7fbb4fb10c79dc8c1965598fc387d1ffb5fcc209e456d1eceeb0198a9",
+    "frontend/src/services/transcription/modelComparisonAuthorization.ts": "fd7c4fcfe290d296d4a508f55e379c92664108731123adb8283cb6f5079ab894"
+  },
+  "controls": [
+    {
+      "name": "identical arms and degenerate differences",
+      "status": "OBSERVED",
+      "classification": "integrity-only",
+      "paired": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "comparison": "PASS",
+      "populationPowerEstablished": false
+    },
+    {
+      "name": "known word degradation",
+      "status": "OBSERVED",
+      "verdict": "FAIL",
+      "wer": 0.5,
+      "reasons": [
+        "slice_wer_regression:all",
+        "pooled_wer_regression",
+        "slice_margin_not_proven:all",
+        "pooled_margin_not_proven"
+      ]
+    },
+    {
+      "name": "wrong PCM hash",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "verdict": "FAIL",
+      "reasons": [
+        "candidate_input_mismatch:a:0"
+      ]
+    },
+    {
+      "name": "wrong observed backend",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "verdict": "FAIL",
+      "reasons": [
+        "candidate_identity_mismatch_or_fallback"
+      ]
+    },
+    {
+      "name": "wrong observed model",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "verdict": "FAIL",
+      "reasons": [
+        "candidate_identity_mismatch_or_fallback"
+      ]
+    },
+    {
+      "name": "wrong observed runtime",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "verdict": "FAIL",
+      "reasons": [
+        "candidate_identity_mismatch_or_fallback"
+      ]
+    },
+    {
+      "name": "wrong observed asset digest",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "verdict": "FAIL",
+      "reasons": [
+        "candidate_identity_mismatch_or_fallback"
+      ]
+    },
+    {
+      "name": "duplicate trial",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "INVALID",
+        "expectedRows": 6,
+        "validatedPairs": null,
+        "error": "Error: paired_evidence_duplicate_sample:B"
+      },
+      "verdict": "HOLD"
+    },
+    {
+      "name": "missing trial in both arms",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "INVALID",
+        "expectedRows": 6,
+        "validatedPairs": null,
+        "error": "Error: paired_evidence_sample_set_mismatch:A"
+      },
+      "verdict": "HOLD"
+    },
+    {
+      "name": "excluded failed candidate row",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "INVALID",
+        "expectedRows": 6,
+        "validatedPairs": null,
+        "error": "Error: paired_evidence_sample_set_mismatch:B"
+      },
+      "verdict": "HOLD"
+    },
+    {
+      "name": "mutated reference after freeze",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "INVALID",
+        "expectedRows": 6,
+        "validatedPairs": null,
+        "error": "Error: paired_evidence_reference_or_cluster_mismatch:A"
+      },
+      "verdict": "HOLD"
+    },
+    {
+      "name": "wrong trial binding",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "INVALID",
+        "expectedRows": 6,
+        "validatedPairs": null,
+        "error": "Error: paired_result_identity_missing_or_mismatched"
+      },
+      "verdict": "HOLD"
+    },
+    {
+      "name": "wrong reference hash",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "INVALID",
+        "expectedRows": 6,
+        "validatedPairs": null,
+        "error": "Error: paired_evidence_reference_or_cluster_mismatch:B"
+      },
+      "verdict": "HOLD"
+    },
+    {
+      "name": "wrong cluster",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "INVALID",
+        "expectedRows": 6,
+        "validatedPairs": null,
+        "error": "Error: paired_evidence_reference_or_cluster_mismatch:B"
+      },
+      "verdict": "HOLD"
+    },
+    {
+      "name": "retained failure",
+      "status": "OBSERVED",
+      "paired": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "verdict": "FAIL",
+      "reasons": [
+        "candidate_decode_error:a:0",
+        "candidate_unscoreable:incomplete_corpus",
+        "unscoreable_slice:all",
+        "insufficient_slice_clusters:all",
+        "insufficient_corpus_clusters"
+      ]
+    },
+    {
+      "name": "nonfinite/invalid final latency NaN",
+      "status": "OBSERVED",
+      "verdict": "HOLD",
+      "reasons": [
+        "candidate_latency_unavailable:a:0"
+      ]
+    },
+    {
+      "name": "nonfinite/invalid final latency Infinity",
+      "status": "OBSERVED",
+      "verdict": "HOLD",
+      "reasons": [
+        "candidate_latency_unavailable:a:0"
+      ]
+    },
+    {
+      "name": "nonfinite/invalid final latency -1",
+      "status": "OBSERVED",
+      "verdict": "HOLD",
+      "reasons": [
+        "candidate_latency_unavailable:a:0"
+      ]
+    },
+    {
+      "name": "nonfinite/invalid final latency null",
+      "status": "OBSERVED",
+      "verdict": "HOLD",
+      "reasons": [
+        "candidate_latency_unavailable:a:0"
+      ]
+    },
+    {
+      "name": "arbitrary workflow-run metadata is not an evaluator binding",
+      "status": "OBSERVED",
+      "observed": "PASS",
+      "required": "No qualification by this API; trusted run/release/attempt binding is absent capability, not a field validated here",
+      "classification": "ABSENT_CAPABILITY"
+    },
+    {
+      "name": "Open Mic saved transcript saved text wins over DOM",
+      "status": "OBSERVED",
+      "actual": {
+        "ok": true,
+        "path": "product_path",
+        "row": {
+          "track": "track_a",
+          "wer": 0,
+          "referenceWords": 2,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "normalizationVersion": "norm_official_5f86d1d8_track_a"
+        }
+      },
+      "scope": "actual scoring seam; no DB persistence/reopen or rendered journey execution"
+    },
+    {
+      "name": "Open Mic saved transcript missing saved output",
+      "status": "OBSERVED",
+      "actual": {
+        "ok": false,
+        "path": "product_path",
+        "invalidReason": "no_finalized_saved_transcript"
+      },
+      "scope": "actual scoring seam; no DB persistence/reopen or rendered journey execution"
+    },
+    {
+      "name": "Open Mic saved transcript absent rendered surface",
+      "status": "OBSERVED",
+      "actual": {
+        "ok": false,
+        "path": "product_path",
+        "invalidReason": "transcript_surface_absent"
+      },
+      "scope": "actual scoring seam; no DB persistence/reopen or rendered journey execution"
+    },
+    {
+      "name": "Open Mic saved transcript empty saved output",
+      "status": "OBSERVED",
+      "actual": {
+        "ok": false,
+        "path": "product_path",
+        "invalidReason": "no_finalized_saved_transcript"
+      },
+      "scope": "actual scoring seam; no DB persistence/reopen or rendered journey execution"
+    },
+    {
+      "name": "STT identical",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": 0,
+        "referenceWords": 2,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": true,
+        "path": "corpus",
+        "utteranceId": "identical",
+        "row": {
+          "track": "track_a",
+          "wer": 0,
+          "referenceWords": 2,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "normalizationVersion": "norm_official_5f86d1d8_track_a"
+        }
+      },
+      "referenceFillers": 0,
+      "hypothesisFillers": 0,
+      "expected": "zero lexical delta; integrity only"
+    },
+    {
+      "name": "STT word-error",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": 0.5,
+        "referenceWords": 2,
+        "substitutions": 1,
+        "deletions": 0,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": true,
+        "path": "corpus",
+        "utteranceId": "word-error",
+        "row": {
+          "track": "track_a",
+          "wer": 0.5,
+          "referenceWords": 2,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "normalizationVersion": "norm_official_5f86d1d8_track_a"
+        }
+      },
+      "referenceFillers": 0,
+      "hypothesisFillers": 0,
+      "expected": "one substitution, WER 0.5"
+    },
+    {
+      "name": "STT speech-empty",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": 1,
+        "referenceWords": 2,
+        "substitutions": 0,
+        "deletions": 2,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": false,
+        "path": "corpus",
+        "utteranceId": "speech-empty",
+        "invalidReason": "empty_hypothesis"
+      },
+      "referenceFillers": 0,
+      "hypothesisFillers": 0,
+      "expected": "retain unsuccessful output; arm unscoreable in legacy scorer; proposed deletion denominator not implemented"
+    },
+    {
+      "name": "STT silence-empty",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": null,
+        "referenceWords": 0,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": false,
+        "path": "corpus",
+        "utteranceId": "silence-empty",
+        "invalidReason": "empty_hypothesis"
+      },
+      "referenceFillers": 0,
+      "hypothesisFillers": 0,
+      "expected": "lexical WER unavailable; separate hallucination measure absent"
+    },
+    {
+      "name": "STT silence-hallucination",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": null,
+        "referenceWords": 0,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": false,
+        "path": "corpus",
+        "utteranceId": "silence-hallucination",
+        "invalidReason": "unmeasurable_reference"
+      },
+      "referenceFillers": 0,
+      "hypothesisFillers": 0,
+      "expected": "not zero WER; separate hallucination failure remains unimplemented"
+    },
+    {
+      "name": "STT filler-omission",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": 0,
+        "referenceWords": 2,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": true,
+        "path": "corpus",
+        "utteranceId": "filler-omission",
+        "row": {
+          "track": "track_a",
+          "wer": 0,
+          "referenceWords": 2,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "normalizationVersion": "norm_official_5f86d1d8_track_a"
+        }
+      },
+      "referenceFillers": 2,
+      "hypothesisFillers": 0,
+      "expected": "Track-A tie; raw coachable filler count 2 versus 0; no acoustic claim"
+    },
+    {
+      "name": "STT focus-omission",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": 0.6666666666666666,
+        "referenceWords": 3,
+        "substitutions": 0,
+        "deletions": 2,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": true,
+        "path": "corpus",
+        "utteranceId": "focus-omission",
+        "row": {
+          "track": "track_a",
+          "wer": 0.6666666666666666,
+          "referenceWords": 3,
+          "substitutions": 0,
+          "deletions": 2,
+          "insertions": 0,
+          "normalizationVersion": "norm_official_5f86d1d8_track_a"
+        }
+      },
+      "referenceFillers": 0,
+      "hypothesisFillers": 0,
+      "expected": "two deletions; actual Focus coverage must separately lose evidence"
+    },
+    {
+      "name": "STT critical-polarity",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": 0.25,
+        "referenceWords": 4,
+        "substitutions": 0,
+        "deletions": 1,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": true,
+        "path": "corpus",
+        "utteranceId": "critical-polarity",
+        "row": {
+          "track": "track_a",
+          "wer": 0.25,
+          "referenceWords": 4,
+          "substitutions": 0,
+          "deletions": 1,
+          "insertions": 0,
+          "normalizationVersion": "norm_official_5f86d1d8_track_a"
+        }
+      },
+      "referenceFillers": 0,
+      "hypothesisFillers": 0,
+      "expected": "one deletion; critical meaning failure not licensed by pooled WER"
+    },
+    {
+      "name": "STT weak-slice",
+      "status": "OBSERVED",
+      "row": {
+        "track": "track_a",
+        "wer": 1,
+        "referenceWords": 2,
+        "substitutions": 0,
+        "deletions": 2,
+        "insertions": 0,
+        "normalizationVersion": "norm_official_5f86d1d8_track_a"
+      },
+      "corpus": {
+        "ok": false,
+        "path": "corpus",
+        "utteranceId": "weak-slice",
+        "invalidReason": "empty_hypothesis"
+      },
+      "referenceFillers": 0,
+      "hypothesisFillers": 0,
+      "expected": "cannot hide missing/failed slice in pooled success"
+    },
+    {
+      "name": "filler omission lexical false qualification counterexample",
+      "status": "OBSERVED",
+      "observed": "PASS",
+      "lexicalWer": 0,
+      "rawFillerDifference": -2,
+      "required": "Separate contextual filler score/annotations; overall command still HOLD",
+      "classification": "KNOWN_UNIMPLEMENTED_METRIC"
+    },
+    {
+      "name": "weak annotated slice cannot hide behind pooled budget",
+      "status": "OBSERVED",
+      "verdict": "FAIL",
+      "reasons": [
+        "slice_wer_regression:weak",
+        "insufficient_slice_clusters:weak",
+        "insufficient_slice_clusters:clear"
+      ]
+    },
+    {
+      "name": "undeclared required slice is absent, not proven",
+      "status": "OBSERVED",
+      "observedSliceNames": [
+        "all"
+      ],
+      "required": "External frozen required-slice register; no requiredSlice input in current evaluator policy",
+      "classification": "KNOWN_ABSENT_CAPABILITY"
+    },
+    {
+      "name": "all-zero reference bootstrap boundary legacy implementation",
+      "status": "OBSERVED",
+      "actual": {
+        "observedDelta": 0,
+        "lower": 0,
+        "upper": 0,
+        "tied": true,
+        "resamples": 2000
+      },
+      "required": "HOLD invalid replicate and separate hallucination scoring; never coerce zero",
+      "classification": "KNOWN_STATISTICAL_RETURN"
+    },
+    {
+      "name": "degenerate bootstrap errors=0",
+      "status": "OBSERVED",
+      "actual": {
+        "observedDelta": 0,
+        "lower": 0,
+        "upper": 0,
+        "tied": true,
+        "resamples": 2000
+      },
+      "classification": "finite-panel integrity only",
+      "allSuccessPopulationBoundImplemented": false,
+      "allFailurePopulationBoundImplemented": false
+    },
+    {
+      "name": "degenerate bootstrap errors=20",
+      "status": "OBSERVED",
+      "actual": {
+        "observedDelta": 0,
+        "lower": 0,
+        "upper": 0,
+        "tied": true,
+        "resamples": 2000
+      },
+      "classification": "finite-panel integrity only",
+      "allSuccessPopulationBoundImplemented": false,
+      "allFailurePopulationBoundImplemented": false
+    },
+    {
+      "name": "bootstrap silently intersects missing rows at legacy API",
+      "status": "OBSERVED",
+      "actual": {
+        "observedDelta": 0,
+        "lower": 0,
+        "upper": 0,
+        "tied": true,
+        "resamples": 2000
+      },
+      "required": "Only call after accepted paired-population validation; isolated legacy helper is not completeness authority",
+      "classification": "KNOWN_LEGACY_API_LIMIT"
+    },
+    {
+      "name": "empirical p95 is not population p95 confidence",
+      "status": "OBSERVED",
+      "actual": 19,
+      "sampleCount": 20,
+      "populationConfidenceBoundImplemented": false,
+      "familywiseRegisterImplemented": false,
+      "classification": "KNOWN_ABSENT_STATISTICAL_CAPABILITY"
+    },
+    {
+      "name": "legacy qualify p95 NaN",
+      "status": "OBSERVED",
+      "actual": {
+        "armId": "arm",
+        "qualified": true,
+        "reasons": []
+      },
+      "required": "Reject nonfinite, missing and negative metrics before selection",
+      "classification": "VERIFIED_RECEIVING_GAP"
+    },
+    {
+      "name": "legacy qualify p95 undefined",
+      "status": "OBSERVED",
+      "actual": {
+        "armId": "arm",
+        "qualified": true,
+        "reasons": []
+      },
+      "required": "Reject nonfinite, missing and negative metrics before selection",
+      "classification": "VERIFIED_RECEIVING_GAP"
+    },
+    {
+      "name": "legacy qualify p95 null",
+      "status": "OBSERVED",
+      "actual": {
+        "armId": "arm",
+        "qualified": false,
+        "reasons": [
+          "rtf_p95_too_slow"
+        ]
+      },
+      "required": "Reject nonfinite, missing and negative metrics before selection",
+      "classification": "GUARD_WORKS"
+    },
+    {
+      "name": "legacy qualify p95 negative",
+      "status": "OBSERVED",
+      "actual": {
+        "armId": "arm",
+        "qualified": true,
+        "reasons": []
+      },
+      "required": "Reject nonfinite, missing and negative metrics before selection",
+      "classification": "VERIFIED_RECEIVING_GAP"
+    },
+    {
+      "name": "legacy select can rank NaN p95 input",
+      "status": "OBSERVED",
+      "actual": {
+        "primary": "arm",
+        "fallback": null,
+        "fallbackRationale": "no qualified candidate has failure exposure different from the primary",
+        "qualified": [
+          "arm"
+        ],
+        "disqualified": [],
+        "tiedWithPrimary": []
+      },
+      "required": "No winner from invalid metrics; whole CLI acceptance still HOLD",
+      "classification": "VERIFIED_LEGACY_RECEIVING_GAP"
+    },
+    {
+      "name": "coaching open_mic-grounded",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "shape accepted; human usefulness UNEXECUTED",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching open_mic-identical",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "same pair; integrity only",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching open_mic-wrong-version",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching open_mic-wrong-product",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching open_mic-extra-key",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching open_mic-missing-suggestion",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching open_mic-generic",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "shape accepted; generic advice is rubric failure, semantic validator absent",
+      "humanUsefulness": null,
+      "classification": "SEMANTIC_RUBRIC_REQUIRED"
+    },
+    {
+      "name": "coaching open_mic-metric-recital",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "shape accepted; no usable next action; rubric failure",
+      "humanUsefulness": null,
+      "classification": "SEMANTIC_RUBRIC_REQUIRED"
+    },
+    {
+      "name": "coaching open_mic-unsupported",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "shape accepted; unsupported claim; rubric critical flag",
+      "humanUsefulness": null,
+      "classification": "SEMANTIC_RUBRIC_REQUIRED"
+    },
+    {
+      "name": "coaching open_mic-timeout",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "no output, never an accepted pair",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching open_mic-failure",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected; retain failed attempt",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching focus_points-grounded",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "shape accepted; human usefulness UNEXECUTED",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching focus_points-identical",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "same pair; integrity only",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching focus_points-wrong-version",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching focus_points-wrong-product",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching focus_points-extra-key",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching focus_points-missing-suggestion",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching focus_points-generic",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "shape accepted; generic advice is rubric failure, semantic validator absent",
+      "humanUsefulness": null,
+      "classification": "SEMANTIC_RUBRIC_REQUIRED"
+    },
+    {
+      "name": "coaching focus_points-metric-recital",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "shape accepted; no usable next action; rubric failure",
+      "humanUsefulness": null,
+      "classification": "SEMANTIC_RUBRIC_REQUIRED"
+    },
+    {
+      "name": "coaching focus_points-unsupported",
+      "status": "OBSERVED",
+      "shapeAccepted": true,
+      "expected": "shape accepted; unsupported claim; rubric critical flag",
+      "humanUsefulness": null,
+      "classification": "SEMANTIC_RUBRIC_REQUIRED"
+    },
+    {
+      "name": "coaching focus_points-timeout",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "no output, never an accepted pair",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "coaching focus_points-failure",
+      "status": "OBSERVED",
+      "shapeAccepted": false,
+      "expected": "shape rejected; retain failed attempt",
+      "humanUsefulness": null,
+      "classification": "SCHEMA_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic bound",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "PASS",
+        "reasons": [],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic wrong request",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "HOLD",
+        "reasons": [
+          "diagnostic_not_received"
+        ],
+        "diagnosticsForRequest": 0,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 0,
+          "distinctEventUuids": 0,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 0,
+          "missingAttemptId": 0,
+          "rows": [],
+          "classification": "none"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic wrong attempt",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "attempt_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 0,
+          "missingAttemptId": 1,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "unknown"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic wrong product",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "product_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic wrong model",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "configured_model_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic wrong release",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "release_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic unknown model",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "HOLD",
+        "reasons": [
+          "observed_model_missing"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic timeout",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "outcome_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "network_failure",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic missing terminal",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "HOLD",
+        "reasons": [
+          "diagnostic_not_received"
+        ],
+        "diagnosticsForRequest": 0,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 0,
+          "distinctEventUuids": 0,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 0,
+          "missingAttemptId": 0,
+          "rows": [],
+          "classification": "none"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching open_mic missing release",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "PASS",
+        "reasons": [],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "open_mic",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVING_PREFILTER_REQUIRED",
+      "required": "Trusted query must scope exact release; function alone does not authenticate missing release"
+    },
+    {
+      "name": "received coaching focus_points bound",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "PASS",
+        "reasons": [],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points wrong request",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "HOLD",
+        "reasons": [
+          "diagnostic_not_received"
+        ],
+        "diagnosticsForRequest": 0,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 0,
+          "distinctEventUuids": 0,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 0,
+          "missingAttemptId": 0,
+          "rows": [],
+          "classification": "none"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points wrong attempt",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "attempt_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 0,
+          "missingAttemptId": 1,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "unknown"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points wrong product",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "product_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points wrong model",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "configured_model_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points wrong release",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "release_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points unknown model",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "HOLD",
+        "reasons": [
+          "observed_model_missing"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points timeout",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "FAIL",
+        "reasons": [
+          "outcome_mismatch"
+        ],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "network_failure",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points missing terminal",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "HOLD",
+        "reasons": [
+          "diagnostic_not_received"
+        ],
+        "diagnosticsForRequest": 0,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 0,
+          "distinctEventUuids": 0,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 0,
+          "missingAttemptId": 0,
+          "rows": [],
+          "classification": "none"
+        }
+      },
+      "classification": "RECEIVED_BINDING_CONTROL"
+    },
+    {
+      "name": "received coaching focus_points missing release",
+      "status": "OBSERVED",
+      "actual": {
+        "verdict": "PASS",
+        "reasons": [],
+        "diagnosticsForRequest": 1,
+        "feedbackOutcomes": 1,
+        "release": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": {
+          "requestSha256": "11e594f481958c10e3015d0bf0447a22f068a8a647f475df15ce2c7ab4b8f3f1",
+          "attemptSha256": "e79acd97ac88086665d85a762f43d533a45195b6bac5961a993e6ed362471439",
+          "product": "focus_points",
+          "configuredModel": "synthetic-coach",
+          "outcome": "success"
+        },
+        "terminalIdentity": {
+          "terminalRows": 1,
+          "distinctEventUuids": 1,
+          "missingEventUuid": 0,
+          "distinctAttemptIds": 1,
+          "missingAttemptId": 0,
+          "rows": [
+            {
+              "outcome": "success",
+              "clientAttempt": 1
+            }
+          ],
+          "classification": "single"
+        }
+      },
+      "classification": "RECEIVING_PREFILTER_REQUIRED",
+      "required": "Trusted query must scope exact release; function alone does not authenticate missing release"
+    },
+    {
+      "name": "coherent received verdict PASS:diagnostic_not_received",
+      "status": "OBSERVED",
+      "actual": false
+    },
+    {
+      "name": "coherent received verdict HOLD:",
+      "status": "OBSERVED",
+      "actual": false
+    },
+    {
+      "name": "coherent received verdict FAIL:diagnostic_not_received",
+      "status": "OBSERVED",
+      "actual": false
+    },
+    {
+      "name": "coherent received verdict PASS:",
+      "status": "OBSERVED",
+      "actual": true
+    },
+    {
+      "name": "coherent received verdict FAIL:attempt_mismatch",
+      "status": "OBSERVED",
+      "actual": true
+    },
+    {
+      "name": "actual Focus coverage loses omitted point",
+      "status": "OBSERVED",
+      "full": {
+        "coverage": [
+          {
+            "point": "budget",
+            "status": "covered",
+            "matchRatio": 1,
+            "evidence": {
+              "quote": "budget deadline Friday",
+              "timestampSec": 1
+            },
+            "briefPointId": "budget"
+          },
+          {
+            "point": "deadline Friday",
+            "status": "covered",
+            "matchRatio": 1,
+            "evidence": {
+              "quote": "budget deadline Friday",
+              "timestampSec": 1
+            },
+            "briefPointId": "deadline"
+          }
+        ],
+        "signals": [
+          {
+            "brief_point_id": "budget",
+            "detected_at_seconds": 1
+          },
+          {
+            "brief_point_id": "deadline",
+            "detected_at_seconds": 1
+          }
+        ]
+      },
+      "partial": {
+        "coverage": [
+          {
+            "point": "budget",
+            "status": "covered",
+            "matchRatio": 1,
+            "evidence": {
+              "quote": "budget",
+              "timestampSec": 1
+            },
+            "briefPointId": "budget"
+          },
+          {
+            "point": "deadline Friday",
+            "status": "missing",
+            "matchRatio": 0,
+            "briefPointId": "deadline"
+          }
+        ],
+        "signals": [
+          {
+            "brief_point_id": "budget",
+            "detected_at_seconds": 1
+          },
+          {
+            "brief_point_id": "deadline",
+            "detected_at_seconds": null
+          }
+        ]
+      },
+      "scope": "actual deterministic saved-evidence bridge, not semantic/human/live acceptance"
+    },
+    {
+      "name": "in-flight producer selection INITIATING",
+      "status": "OBSERVED",
+      "actual": {
+        "accepted": false,
+        "reason": "engine_selection_locked"
+      },
+      "policy": {
+        "preferredMode": "private",
+        "allowNative": false,
+        "allowPrivate": true,
+        "allowFallback": false
+      },
+      "queued": {
+        "preferredMode": "native",
+        "allowNative": true,
+        "allowPrivate": false,
+        "allowFallback": true
+      },
+      "scope": "actual methods on controlled lifecycle state; no actual recording/fallback execution"
+    },
+    {
+      "name": "in-flight producer selection ENGINE_INITIALIZING",
+      "status": "OBSERVED",
+      "actual": {
+        "accepted": false,
+        "reason": "engine_selection_locked"
+      },
+      "policy": {
+        "preferredMode": "private",
+        "allowNative": false,
+        "allowPrivate": true,
+        "allowFallback": false
+      },
+      "queued": {
+        "preferredMode": "native",
+        "allowNative": true,
+        "allowPrivate": false,
+        "allowFallback": true
+      },
+      "scope": "actual methods on controlled lifecycle state; no actual recording/fallback execution"
+    },
+    {
+      "name": "in-flight producer selection RECORDING",
+      "status": "OBSERVED",
+      "actual": {
+        "accepted": false,
+        "reason": "engine_selection_locked"
+      },
+      "policy": {
+        "preferredMode": "private",
+        "allowNative": false,
+        "allowPrivate": true,
+        "allowFallback": false
+      },
+      "queued": {
+        "preferredMode": "native",
+        "allowNative": true,
+        "allowPrivate": false,
+        "allowFallback": true
+      },
+      "scope": "actual methods on controlled lifecycle state; no actual recording/fallback execution"
+    },
+    {
+      "name": "in-flight producer selection STOPPING",
+      "status": "OBSERVED",
+      "actual": {
+        "accepted": false,
+        "reason": "engine_selection_locked"
+      },
+      "policy": {
+        "preferredMode": "private",
+        "allowNative": false,
+        "allowPrivate": true,
+        "allowFallback": false
+      },
+      "queued": {
+        "preferredMode": "native",
+        "allowNative": true,
+        "allowPrivate": false,
+        "allowFallback": true
+      },
+      "scope": "actual methods on controlled lifecycle state; no actual recording/fallback execution"
+    },
+    {
+      "name": "in-flight producer selection FAILED",
+      "status": "OBSERVED",
+      "actual": {
+        "accepted": false,
+        "reason": "engine_selection_locked"
+      },
+      "policy": {
+        "preferredMode": "private",
+        "allowNative": false,
+        "allowPrivate": true,
+        "allowFallback": false
+      },
+      "queued": {
+        "preferredMode": "native",
+        "allowNative": true,
+        "allowPrivate": false,
+        "allowFallback": true
+      },
+      "scope": "actual methods on controlled lifecycle state; no actual recording/fallback execution"
+    },
+    {
+      "name": "in-flight producer selection READY",
+      "status": "OBSERVED",
+      "actual": {
+        "accepted": true
+      },
+      "policy": {
+        "preferredMode": "native",
+        "allowNative": true,
+        "allowPrivate": false,
+        "allowFallback": true
+      },
+      "queued": null,
+      "scope": "actual methods on controlled lifecycle state; no actual recording/fallback execution"
+    },
+    {
+      "name": "pending Start preparation holds producer lock",
+      "status": "OBSERVED",
+      "pending": true,
+      "afterExplicitIntentClear": false,
+      "scope": "state predicate only; no actual cancellation test"
+    },
+    {
+      "name": "product comparison authorization v2:base.en",
+      "status": "OBSERVED",
+      "armed": true,
+      "classification": "PLATFORM_DOUBLE_CONTROL",
+      "scope": "browser UX gate only; no trusted workflow authorization or activation"
+    },
+    {
+      "name": "product comparison authorization v4:base:q4",
+      "status": "OBSERVED",
+      "armed": false,
+      "classification": "ABSENT_AUTHORIZED_TARGET_CAPABILITY",
+      "scope": "browser UX gate only; no trusted workflow authorization or activation"
+    },
+    {
+      "name": "product comparison authorization v4:distil:q4",
+      "status": "OBSERVED",
+      "armed": true,
+      "classification": "PLATFORM_DOUBLE_CONTROL",
+      "scope": "browser UX gate only; no trusted workflow authorization or activation"
+    },
+    {
+      "name": "actual report unknown measurements and no synthetic winner",
+      "status": "OBSERVED",
+      "overall": {
+        "verdict": "HOLD",
+        "reasons": [
+          "missing_or_invalid_predeclared_policy",
+          "product_path_and_required_metrics_not_run"
+        ]
+      },
+      "device": {
+        "baseline": null,
+        "candidate": null
+      },
+      "assetTransfer": {
+        "baseline": null,
+        "candidate": null
+      },
+      "cost": null,
+      "tokens": null,
+      "costFieldsPresent": false,
+      "tokensFieldsPresent": false,
+      "unsupported": [
+        "first_useful_partial",
+        "cold_model_load_isolated",
+        "persistent_cache_size",
+        "browser_worker_memory",
+        "product_start_stop_next_take",
+        "focus_keyword_coverage",
+        "acoustic_filler_reference_validation",
+        "expected_silence_scoring_policy"
+      ]
+    }
+  ],
+  "scope": "Existing functions/selected actual AST methods, explicit deterministic I/O/platform doubles. No model, physical, provider or production execution. OBSERVED means reproduction recorded, not acceptance of its result."
+}
