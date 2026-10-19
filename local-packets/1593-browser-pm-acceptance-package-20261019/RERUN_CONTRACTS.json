@@ -97,7 +97,7 @@
       "owning_files": [
         "tests/live/rwt-open-mic-first-session.live.spec.ts",
         "tests/live/helpers/rwtOracles.ts",
-        "frontend/src/lib/analytics/completenessGate.ts",
+        "frontend/src/services/telemetry/completenessGate.ts",
         "tests/unit/rwtReadbackBinding1532.test.ts"
       ],
       "prerequisite_fixes": [
@@ -224,8 +224,7 @@
       "title": "Partial Focus \u2014 mutation timing",
       "owning_files": [
         "tests/live/rwt-focus-points-partial.live.spec.ts",
-        "tests/live/helpers/rwtFocusPointsJourney.ts",
-        "tests/live/helpers/rwtAbandonTakeover.ts"
+        "tests/live/helpers/rwtFocusPointsJourney.ts"
       ],
       "prerequisite_fixes": [
         "Integrate pre-Start marker observer on shared App-owned helper after lease; retain initial mutation, losses/retractions and document identity.",
@@ -287,7 +286,8 @@
       "owning_files": [
         "tests/live/rwt-pending-start-navigation.live.spec.ts",
         "frontend/src/components/session/MicCard.tsx",
-        "actual App retirement/service/controller owning files in published successor"
+        "frontend/src/services/SpeechRuntimeController.ts",
+        "frontend/src/services/transcription/TranscriptionService.ts"
       ],
       "prerequisite_fixes": [
         "Publish App case4 successor (13:45 local77780845ce2ff9550f0920eb2f1eb37fe2ff01a9 author-reported only), independent source/negative controls and qualification.",

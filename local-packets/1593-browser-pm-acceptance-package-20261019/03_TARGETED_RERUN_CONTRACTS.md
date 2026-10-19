@@ -60,7 +60,7 @@ Fresh reference boundary: #1664 served83029ebb is credited from Sam's canary/ser
 
 ## Case 1 — Open Mic / interrupted repeat
 
-**Status: UNEXECUTED.** Owning files: `tests/live/rwt-open-mic-first-session.live.spec.ts`; `tests/live/helpers/rwtOracles.ts`; `frontend/src/lib/analytics/completenessGate.ts`; `tests/unit/rwtReadbackBinding1532.test.ts`.
+**Status: UNEXECUTED.** Owning files: `tests/live/rwt-open-mic-first-session.live.spec.ts`; `tests/live/helpers/rwtOracles.ts`; `frontend/src/services/telemetry/completenessGate.ts`; `tests/unit/rwtReadbackBinding1532.test.ts`.
 
 **Prerequisites**
 
@@ -148,7 +148,7 @@ Fresh reference boundary: #1664 served83029ebb is credited from Sam's canary/ser
 
 ## Case 3 — Partial Focus — mutation timing
 
-**Status: UNEXECUTED.** Owning files: `tests/live/rwt-focus-points-partial.live.spec.ts`; `tests/live/helpers/rwtFocusPointsJourney.ts`; `tests/live/helpers/rwtAbandonTakeover.ts`.
+**Status: UNEXECUTED.** Owning files: `tests/live/rwt-focus-points-partial.live.spec.ts`; `tests/live/helpers/rwtFocusPointsJourney.ts`.
 
 **Prerequisites**
 
@@ -190,7 +190,7 @@ Fresh reference boundary: #1664 served83029ebb is credited from Sam's canary/ser
 
 ## Case 4 — Cancel pending Start then return
 
-**Status: UNEXECUTED.** Owning files: `tests/live/rwt-pending-start-navigation.live.spec.ts`; `frontend/src/components/session/MicCard.tsx`; `actual App retirement/service/controller owning files in published successor`.
+**Status: UNEXECUTED.** Owning files: `tests/live/rwt-pending-start-navigation.live.spec.ts`; `frontend/src/components/session/MicCard.tsx`; `frontend/src/services/SpeechRuntimeController.ts`; `frontend/src/services/transcription/TranscriptionService.ts`.
 
 **Prerequisites**
 
