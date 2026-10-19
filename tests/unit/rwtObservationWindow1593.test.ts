@@ -4,7 +4,7 @@
  * fake microphone tracks: interruptions between any two reads, activity after a read, and a replaced document.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TAKEOVER_BOUNDARY_MARGIN_MS, armTakeoverGesture, closeObservationWindow, leaseRefusalWindowVerdict, openObservationWindow, type ObservationClose } from '../live/helpers/rwtAbandonTakeover';
+import { armTakeoverGesture, crossRealmBoundary, measureRealmClock, closeObservationWindow, leaseRefusalWindowVerdict, openObservationWindow, type ObservationClose } from '../live/helpers/rwtAbandonTakeover';
 
 class FakeTrack extends EventTarget {
     readyState = 'live';
@@ -139,7 +139,7 @@ describe('16:15 tail RETURN — the refusal window ends at the take-over GESTURE
             tracks,
             advance: (ms: number) => vi.advanceTimersByTime(ms),
             stall: (to: number) => vi.setSystemTime(to),
-            close: () => closeObservationWindow({ until: 11_000, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS }),
+            close: (marginMs = 5) => closeObservationWindow({ until: 11_000, marginMs }),
         };
     };
     const deliver = () => Promise.resolve(); // the observer delivers at the end of the mutating task
@@ -187,13 +187,43 @@ describe('16:15 tail RETURN — the refusal window ends at the take-over GESTURE
         expect(a.close().boundaryUncertain).toBe(true);
     });
 
-    it('an A change within the clock margin of the gesture is uncertain (HOLD) even with ticks around it', async () => {
+    it('an A change within the MEASURED clock margin of the gesture is uncertain (HOLD) even with ticks around it', async () => {
         const a = realmA();
         a.advance(1_020);
         root.setAttribute('data-runtime-state', 'STOPPING');
         await deliver();
         a.advance(200);
-        expect(a.close().boundaryUncertain).toBe(true);
+        expect(a.close(40).boundaryUncertain, 'a 40 ms measured margin covers +20 ms').toBe(true);
+    });
+
+    it('coalesced records: a change before the gesture and one after it, delivered together after it, are uncertain (HOLD)', async () => {
+        const a = realmA();
+        a.advance(900);
+        root.setAttribute('data-runtime-state', 'STOPPING'); // before the gesture
+        a.stall(11_100);
+        root.setAttribute('data-runtime-state', 'RECORDING'); // after it — same task, one coalesced delivery
+        await deliver();
+        a.advance(200);
+        const closed = a.close();
+        expect(closed.boundaryUncertain).toBe(true);
+        expect(closed.runtimeTransitions, 'neither record is silently assigned').toEqual(['RECORDING']);
+    });
+
+    describe('the cross-realm clock mapping is measured, not assumed', () => {
+        it('measureRealmClock keeps the tightest round-trip sample and reports its error; an unreadable clock is null', async () => {
+            const host = [1_000, 1_010, 2_000, 2_002, 3_000, 3_040];
+            let h = 0;
+            const realm = [1_505, 2_501, 3_520];
+            let r = 0;
+            const clock = await measureRealmClock({ evaluate: async () => realm[r++] }, () => host[h++]);
+            expect(clock).toEqual({ offset: 500, error: 1 });
+            expect(await measureRealmClock({ evaluate: async () => { throw new Error('closed'); } })).toBeNull();
+        });
+
+        it('crossRealmBoundary maps B\'s gesture into A\'s clock with the measured margin (skewed realms)', () => {
+            // B runs 300 ms ahead of the host, A 200 ms behind: B's 11 300 is A's 10 800.
+            expect(crossRealmBoundary(11_300, { offset: -200, error: 3 }, { offset: 300, error: 4 })).toEqual({ until: 10_800, marginMs: 9 });
+        });
     });
 
 });

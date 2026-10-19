@@ -236,7 +236,8 @@ export function secondTabBlockedVerdict(o: { refusalCopyShown: boolean; tabB: Ta
  * stopped or ends, and the page's acquisitions. The refusal window ends at the take-over gesture itself:
  * - on B, `armTakeoverGesture` installs a capture-phase listener in B's own realm that, at the trusted take-over click,
  *   marks the exact index of each history — so B's refusal portion is cut by the event, not by a later read;
- * - on A, each entry is split at B's gesture time; an entry within TAKEOVER_BOUNDARY_MARGIN_MS of it is uncertain (HOLD).
+ * - on A, each entry is split at B's gesture time mapped into A's clock (measured, crossRealmBoundary) and bracketed by A's
+ *   own heartbeat; an entry that cannot be placed on one side is uncertain (HOLD).
  * Post-take-over activity (B recording, A displaced) is therefore never absorbed into the refusal window, and there is no
  * unobserved tail between the reads and the gesture. The window lives in the page's own JS realm, so a replaced document
  * has none — `token: null`, a lost observation. Self-contained page functions; the unit tests drive them in jsdom.
@@ -268,10 +269,33 @@ export type ObservationClose = {
 };
 
 /**
- * Sam (16:15 tail RETURN): the cross-realm clock tolerance of the A-side split at B's gesture. Delivery DELAY is not bounded
- * by it — that is the heartbeat's job (`OBSERVATION_TICK_MS`, see closeObservationWindow).
+ * Sam (delayed-observation RETURN on 21c8a9d9): the cross-realm clock mapping is MEASURED, not assumed. Each realm's clock is
+ * read through a host round trip: `page.evaluate(Date.now)` returns a value taken between the host's `t0` and `t1`, so the
+ * realm's offset from the host is `now − (t0 + t1) / 2` within ± (t1 − t0) / 2. The best (tightest) of three samples is kept.
+ * An unreadable clock is a lost observation (HOLD). Delivery delay is bounded separately, by each realm's heartbeat.
  */
-export const TAKEOVER_BOUNDARY_MARGIN_MS = 50;
+export type RealmClock = { offset: number; error: number };
+
+export async function measureRealmClock(page: { evaluate: (fn: () => number) => Promise<number> }, now: () => number = Date.now): Promise<RealmClock | null> {
+    let best: RealmClock | null = null;
+    for (let i = 0; i < 3; i += 1) {
+        const t0 = now();
+        let realm: number;
+        try { realm = await page.evaluate(() => Date.now()); } catch { return null; }
+        const t1 = now();
+        const sample = { offset: realm - (t0 + t1) / 2, error: (t1 - t0) / 2 };
+        if (!best || sample.error < best.error) best = sample;
+    }
+    return best;
+}
+
+/**
+ * B's gesture time mapped into A's clock, with the margin the two measurements actually support (each realm's offset error,
+ * plus 1 ms for each realm's whole-millisecond clock). Never a universal constant.
+ */
+export function crossRealmBoundary(gestureAtB: number, clockA: RealmClock, clockB: RealmClock): { until: number; marginMs: number } {
+    return { until: gestureAtB - clockB.offset + clockA.offset, marginMs: clockA.error + clockB.error + 2 };
+}
 
 /**
  * Sam (case-11 delayed-observation RETURN on 21c8a9d9): the page's own heartbeat while a window is open. An observer record

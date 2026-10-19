@@ -491,7 +491,9 @@ describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (S
         expect(arm).toBeLessThan(takeover);
         expect(Math.min(closeA, closeB)).toBeGreaterThan(takeover);
         expect(closeB).toBeLessThan(closeA);
-        expect(spec.slice(closeA, verdict)).toContain('until: gestureAt, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS');
+        // A is cut at B's gesture mapped through MEASURED realm clocks, and a missing measurement is a lost observation.
+        expect(spec.slice(closeB, closeA)).toContain('crossRealmBoundary(gestureAt, clockA, clockB)');
+        expect(spec).toContain('boundaryA !== null && closedA?.token');
         expect(verdict).toBeGreaterThan(closeA);
         expect(spec.slice(arm, takeover)).toContain('const modelRequestsBeforeGesture = modelRequestsB;');
         expect(spec).not.toContain('tabStateOrNull');

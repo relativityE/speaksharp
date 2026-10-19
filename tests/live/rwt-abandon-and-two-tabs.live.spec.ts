@@ -34,7 +34,7 @@ import {
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, TAKEOVER_BOUNDARY_MARGIN_MS, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, measureRealmClock, crossRealmBoundary, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -422,17 +422,21 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();
             const closedB = await deviceB.evaluate(closeObservationWindow, {}).catch(() => null);
             const gestureAt = closedB?.gestureAt ?? null;
-            const closedA = await tabA.evaluate(closeObservationWindow, gestureAt === null ? {} : { until: gestureAt, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS }).catch(() => null);
+            // B's gesture is in B's clock: map it into A's with MEASURED offsets and their actual uncertainty.
+            const [clockA, clockB] = [await measureRealmClock(tabA), await measureRealmClock(deviceB)];
+            const boundaryA = gestureAt !== null && clockA && clockB ? crossRealmBoundary(gestureAt, clockA, clockB) : null;
+            const closedA = await tabA.evaluate(closeObservationWindow, boundaryA ?? {}).catch(() => null);
             const lost: ObservationClose = {
                 token: null, boundary: 'none', boundaryUncertain: false, gestureAt: null, runtimeTransitions: [], runtimeNow: null, modelTransitions: [], modelNow: null,
                 micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false,
             };
-            const observedWindow = openedA && openedB && gestureArmed && closedA?.token === `${windowToken}-a` && closedB?.token === `${windowToken}-b`;
+            const observedWindow = openedA && openedB && gestureArmed && boundaryA !== null && closedA?.token === `${windowToken}-a` && closedB?.token === `${windowToken}-b`;
             const refusal = leaseRefusalWindowVerdict({
                 observed: observedWindow, refusalCopyShown: refusedInTime, cold: coldB, modelRequests: modelRequestsBeforeGesture, b: closedB ?? lost, a: closedA ?? lost,
             });
             receipt.row('another device is refused by the account lease', refusal.status, refusal.detail, {
                 refusalCopyShown: refusedInTime, coldB, observedWindow, gestureMarked: gestureAt !== null, boundaryUncertainA: (closedA ?? lost).boundaryUncertain,
+                clockMarginMs: boundaryA?.marginMs ?? -1,
                 modelRequestsBeforeRefusal, modelRequestsBeforeGesture,
                 modelTransitionsB: (closedB ?? lost).modelTransitions.length, micAcquisitionsB: (closedB ?? lost).micAcquisitionsSinceOpen ?? -1,
                 runtimeTransitionsA: (closedA ?? lost).runtimeTransitions.length, tracksStoppedA: (closedA ?? lost).tracksStoppedSinceOpen,
