@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "trials": 2,
+  "clips": [
+    {
+      "id": "a",
+      "clusterId": "synthetic-a",
+      "reference": "hello world",
+      "slices": [
+        "integrity"
+      ],
+      "path": "control.wav",
+      "wavSha256": "6d5a57285af5ab10fd11ee5fb4f564281eac95b3131bcadad5812952a39558e1",
+      "sha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462"
+    },
+    {
+      "id": "b",
+      "clusterId": "synthetic-b",
+      "reference": "hello world",
+      "slices": [
+        "integrity"
+      ],
+      "path": "control.wav",
+      "wavSha256": "6d5a57285af5ab10fd11ee5fb4f564281eac95b3131bcadad5812952a39558e1",
+      "sha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462"
+    },
+    {
+      "id": "c",
+      "clusterId": "synthetic-c",
+      "reference": "hello world",
+      "slices": [
+        "integrity"
+      ],
+      "path": "control.wav",
+      "wavSha256": "6d5a57285af5ab10fd11ee5fb4f564281eac95b3131bcadad5812952a39558e1",
+      "sha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462"
+    }
+  ]
+}

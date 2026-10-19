@@ -1,0 +1,422 @@
+{
+  "schema": "pm-1565-controls-v1",
+  "implementationSource": "6185f14cd05b2aa985aa539e8221282c2237e200",
+  "origin": "newly authored synthetic text and generated zero-valued PCM, not model observations",
+  "rubricSource": "e98da8f8c19a32857c4144697295e0d951bae268",
+  "stt": [
+    {
+      "id": "identical",
+      "reference": "hello world",
+      "hypothesis": "hello world",
+      "slices": [
+        "clear"
+      ],
+      "expected": "zero lexical delta; integrity only"
+    },
+    {
+      "id": "word-error",
+      "reference": "hello world",
+      "hypothesis": "hello earth",
+      "slices": [
+        "clear"
+      ],
+      "expected": "one substitution, WER 0.5"
+    },
+    {
+      "id": "speech-empty",
+      "reference": "hello world",
+      "hypothesis": "",
+      "slices": [
+        "clear"
+      ],
+      "expected": "retain unsuccessful output; arm unscoreable in legacy scorer; proposed deletion denominator not implemented"
+    },
+    {
+      "id": "silence-empty",
+      "reference": "",
+      "hypothesis": "",
+      "slices": [
+        "silence"
+      ],
+      "expected": "lexical WER unavailable; separate hallucination measure absent"
+    },
+    {
+      "id": "silence-hallucination",
+      "reference": "",
+      "hypothesis": "hello",
+      "slices": [
+        "silence"
+      ],
+      "expected": "not zero WER; separate hallucination failure remains unimplemented"
+    },
+    {
+      "id": "filler-omission",
+      "reference": "um hello uh world",
+      "hypothesis": "hello world",
+      "slices": [
+        "filler"
+      ],
+      "expected": "Track-A tie; raw coachable filler count 2 versus 0; no acoustic claim"
+    },
+    {
+      "id": "focus-omission",
+      "reference": "budget deadline Friday",
+      "hypothesis": "budget",
+      "slices": [
+        "focus"
+      ],
+      "expected": "two deletions; actual Focus coverage must separately lose evidence"
+    },
+    {
+      "id": "critical-polarity",
+      "reference": "do not approve payment",
+      "hypothesis": "do approve payment",
+      "slices": [
+        "critical"
+      ],
+      "expected": "one deletion; critical meaning failure not licensed by pooled WER"
+    },
+    {
+      "id": "weak-slice",
+      "reference": "deadline Friday",
+      "hypothesis": "",
+      "slices": [
+        "weak"
+      ],
+      "expected": "cannot hide missing/failed slice in pooled success"
+    }
+  ],
+  "coaching": [
+    {
+      "id": "open_mic-grounded",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "gemini_coaching_v1",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "shape accepted; human usefulness UNEXECUTED"
+    },
+    {
+      "id": "open_mic-identical",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "gemini_coaching_v1",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "same pair; integrity only"
+    },
+    {
+      "id": "open_mic-wrong-version",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "unknown_v9",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "shape rejected"
+    },
+    {
+      "id": "open_mic-wrong-product",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "gemini_coaching_focus_v1",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "shape rejected"
+    },
+    {
+      "id": "open_mic-extra-key",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "gemini_coaching_v1",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget.",
+        "tokenCost": 0
+      },
+      "expected": "shape rejected"
+    },
+    {
+      "id": "open_mic-missing-suggestion",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "gemini_coaching_v1",
+        "what_worked": "Friday."
+      },
+      "expected": "shape rejected"
+    },
+    {
+      "id": "open_mic-generic",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "gemini_coaching_v1",
+        "what_worked": "Good job.",
+        "what_to_try_next": "Keep practicing."
+      },
+      "expected": "shape accepted; generic advice is rubric failure, semantic validator absent"
+    },
+    {
+      "id": "open_mic-metric-recital",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "gemini_coaching_v1",
+        "what_worked": "You spoke 120 words per minute.",
+        "what_to_try_next": "You used two fillers."
+      },
+      "expected": "shape accepted; no usable next action; rubric failure"
+    },
+    {
+      "id": "open_mic-unsupported",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "version": "gemini_coaching_v1",
+        "what_worked": "Your audience applauded the million-dollar deal.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "shape accepted; unsupported claim; rubric critical flag"
+    },
+    {
+      "id": "open_mic-timeout",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": null,
+      "expected": "no output, never an accepted pair"
+    },
+    {
+      "id": "open_mic-failure",
+      "product": "open_mic",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": []
+      },
+      "payload": {
+        "error": "provider unavailable"
+      },
+      "expected": "shape rejected; retain failed attempt"
+    },
+    {
+      "id": "focus_points-grounded",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "gemini_coaching_focus_v1",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "shape accepted; human usefulness UNEXECUTED"
+    },
+    {
+      "id": "focus_points-identical",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "gemini_coaching_focus_v1",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "same pair; integrity only"
+    },
+    {
+      "id": "focus_points-wrong-version",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "unknown_v9",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "shape rejected"
+    },
+    {
+      "id": "focus_points-wrong-product",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "gemini_coaching_v1",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "shape rejected"
+    },
+    {
+      "id": "focus_points-extra-key",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "gemini_coaching_focus_v1",
+        "what_worked": "You named Friday as the deadline.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget.",
+        "tokenCost": 0
+      },
+      "expected": "shape rejected"
+    },
+    {
+      "id": "focus_points-missing-suggestion",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "gemini_coaching_focus_v1",
+        "what_worked": "Friday."
+      },
+      "expected": "shape rejected"
+    },
+    {
+      "id": "focus_points-generic",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "gemini_coaching_focus_v1",
+        "what_worked": "Good job.",
+        "what_to_try_next": "Keep practicing."
+      },
+      "expected": "shape accepted; generic advice is rubric failure, semantic validator absent"
+    },
+    {
+      "id": "focus_points-metric-recital",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "gemini_coaching_focus_v1",
+        "what_worked": "You spoke 120 words per minute.",
+        "what_to_try_next": "You used two fillers."
+      },
+      "expected": "shape accepted; no usable next action; rubric failure"
+    },
+    {
+      "id": "focus_points-unsupported",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "version": "gemini_coaching_focus_v1",
+        "what_worked": "Your audience applauded the million-dollar deal.",
+        "what_to_try_next": "Next take, open with “The deadline is Friday,” then give the budget."
+      },
+      "expected": "shape accepted; unsupported claim; rubric critical flag"
+    },
+    {
+      "id": "focus_points-timeout",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": null,
+      "expected": "no output, never an accepted pair"
+    },
+    {
+      "id": "focus_points-failure",
+      "product": "focus_points",
+      "context": {
+        "transcript": "The budget deadline is Friday.",
+        "focusTargets": [
+          "budget",
+          "deadline Friday"
+        ]
+      },
+      "payload": {
+        "error": "provider unavailable"
+      },
+      "expected": "shape rejected; retain failed attempt"
+    }
+  ],
+  "humanRatings": null,
+  "numericalPolicyApproved": false
+}

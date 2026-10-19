@@ -1,0 +1,454 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-19T16:55:16.651Z",
+  "lane": "model_only_corpus",
+  "productPath": "NOT_RUN",
+  "device": {
+    "version": 1,
+    "baseUrl": "http://unused.invalid",
+    "label": "offline integrity only, no device measurement",
+    "backend": "wasm"
+  },
+  "inputManifestSha256": {
+    "baseline": "063a2b20589fda52c9222ea65c27d8c19febca6d2ade0c81e3369259c2325e11",
+    "candidate": "4956c8a9bb3b78705fe5825ac96d956e671133c9f7dc31f4af8ad1d403cc5880",
+    "corpus": "a732970307a92eaa8ccef2961791a0c97667bd215bc0c00c5557c287083f9166",
+    "device": "c363d8e55699d501138f865df84048fae45fefbd90e89215cf37f3e2d4b297bb",
+    "policy": null
+  },
+  "inputFailures": [],
+  "adapterInitializeMs": {
+    "baseline": 0.024637000000012677,
+    "candidate": 0.004606999999992922
+  },
+  "modelAssetTransfer": {
+    "baseline": null,
+    "candidate": null
+  },
+  "workerAcquisition": {
+    "baseline": null,
+    "candidate": null
+  },
+  "deviceEvidence": {
+    "baseline": null,
+    "candidate": null
+  },
+  "baseline": {
+    "manifest": {
+      "engine": "offline-control",
+      "modelId": "no-model",
+      "revision": null,
+      "assetDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime": "deterministic-test-double",
+      "backend": "wasm"
+    },
+    "observed": {
+      "engine": "offline-control",
+      "modelId": "no-model",
+      "revision": null,
+      "assetDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime": "deterministic-test-double",
+      "backend": "wasm"
+    },
+    "results": [
+      {
+        "clipId": "a",
+        "trial": 0,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.06443699999999808,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.003221849999999904,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "a",
+          "trialId": "0",
+          "clusterId": "synthetic-a",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "b",
+        "trial": 0,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.01599400000000628,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.0007997000000003141,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "b",
+          "trialId": "0",
+          "clusterId": "synthetic-b",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "c",
+        "trial": 0,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.011056999999993877,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.0005528499999996938,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "c",
+          "trialId": "0",
+          "clusterId": "synthetic-c",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "a",
+        "trial": 1,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.009854999999987513,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.0004927499999993756,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "a",
+          "trialId": "1",
+          "clusterId": "synthetic-a",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "b",
+        "trial": 1,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.01257900000001655,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.0006289500000008274,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "b",
+          "trialId": "1",
+          "clusterId": "synthetic-b",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "c",
+        "trial": 1,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.015492999999992207,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.0007746499999996103,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "c",
+          "trialId": "1",
+          "clusterId": "synthetic-c",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      }
+    ]
+  },
+  "candidate": {
+    "manifest": {
+      "engine": "offline-control",
+      "modelId": "no-model",
+      "revision": null,
+      "assetDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime": "deterministic-test-double",
+      "backend": "wasm"
+    },
+    "observed": {
+      "engine": "offline-control",
+      "modelId": "no-model",
+      "revision": null,
+      "assetDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "runtime": "deterministic-test-double",
+      "backend": "cpu"
+    },
+    "results": [
+      {
+        "clipId": "a",
+        "trial": 0,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.028142000000002554,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.0014071000000001276,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "a",
+          "trialId": "0",
+          "clusterId": "synthetic-a",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "b",
+        "trial": 0,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.0100750000000005,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.000503750000000025,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "b",
+          "trialId": "0",
+          "clusterId": "synthetic-b",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "c",
+        "trial": 0,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.009765000000015789,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.00048825000000078943,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "c",
+          "trialId": "0",
+          "clusterId": "synthetic-c",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "a",
+        "trial": 1,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.01136700000000701,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.0005683500000003505,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "a",
+          "trialId": "1",
+          "clusterId": "synthetic-a",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "b",
+        "trial": 1,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.019519999999999982,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.0009759999999999991,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "b",
+          "trialId": "1",
+          "clusterId": "synthetic-b",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      },
+      {
+        "clipId": "c",
+        "trial": 1,
+        "transcript": "hello world",
+        "inputSha256": "bfe492baf731a0dbf6e1e050f5bc3fe8c1b049383194dcdf82f023bfa409f462",
+        "finalLatencyMs": 0.10017100000001733,
+        "audioDurationMs": 20,
+        "realTimeFactor": 0.005008550000000866,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        },
+        "evidence": {
+          "utteranceId": "c",
+          "trialId": "1",
+          "clusterId": "synthetic-c",
+          "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+          "referenceWords": 2
+        }
+      }
+    ]
+  },
+  "comparison": {
+    "verdict": "FAIL",
+    "reasons": [
+      "candidate_identity_mismatch_or_fallback",
+      "missing_or_invalid_predeclared_policy"
+    ],
+    "baseline": {
+      "wer": 0,
+      "referenceWords": 12,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "scoredCount": 6,
+      "invalidCount": 0,
+      "invalidReasons": {}
+    },
+    "candidate": {
+      "wer": 0,
+      "referenceWords": 12,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "scoredCount": 6,
+      "invalidCount": 0,
+      "invalidReasons": {}
+    },
+    "slices": {
+      "integrity": {
+        "baseline": {
+          "wer": 0,
+          "referenceWords": 12,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 6,
+          "invalidCount": 0,
+          "invalidReasons": {}
+        },
+        "candidate": {
+          "wer": 0,
+          "referenceWords": 12,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 6,
+          "invalidCount": 0,
+          "invalidReasons": {}
+        }
+      }
+    },
+    "finalLatencyMs": {
+      "baseline": 0.014036000000004378,
+      "candidate": 0.015443500000003496
+    }
+  },
+  "pairedEvidence": {
+    "status": "COMPLETE",
+    "expectedRows": 6,
+    "validatedPairs": 6,
+    "error": null
+  },
+  "declaredPopulation": {
+    "trials": 2,
+    "expected": [
+      {
+        "utteranceId": "a",
+        "trialId": "0",
+        "clusterId": "synthetic-a",
+        "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+        "referenceWords": 2
+      },
+      {
+        "utteranceId": "a",
+        "trialId": "1",
+        "clusterId": "synthetic-a",
+        "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+        "referenceWords": 2
+      },
+      {
+        "utteranceId": "b",
+        "trialId": "0",
+        "clusterId": "synthetic-b",
+        "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+        "referenceWords": 2
+      },
+      {
+        "utteranceId": "b",
+        "trialId": "1",
+        "clusterId": "synthetic-b",
+        "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+        "referenceWords": 2
+      },
+      {
+        "utteranceId": "c",
+        "trialId": "0",
+        "clusterId": "synthetic-c",
+        "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+        "referenceWords": 2
+      },
+      {
+        "utteranceId": "c",
+        "trialId": "1",
+        "clusterId": "synthetic-c",
+        "referenceSha256": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+        "referenceWords": 2
+      }
+    ]
+  },
+  "acceptance": {
+    "verdict": "FAIL",
+    "reasons": [
+      "candidate_identity_mismatch_or_fallback",
+      "missing_or_invalid_predeclared_policy"
+    ]
+  },
+  "identityLimitations": [],
+  "unsupportedMetrics": [
+    "first_useful_partial",
+    "cold_model_load_isolated",
+    "persistent_cache_size",
+    "browser_worker_memory",
+    "product_start_stop_next_take",
+    "focus_keyword_coverage",
+    "acoustic_filler_reference_validation",
+    "expected_silence_scoring_policy"
+  ]
+}

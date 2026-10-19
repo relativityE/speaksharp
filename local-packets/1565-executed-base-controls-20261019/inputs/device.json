@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "baseUrl": "http://unused.invalid",
+  "label": "offline integrity only, no device measurement",
+  "backend": "wasm"
+}

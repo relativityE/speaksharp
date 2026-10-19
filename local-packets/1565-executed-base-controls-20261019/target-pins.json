@@ -1,0 +1,49 @@
+{
+  "source": "6185f14cd05b2aa985aa539e8221282c2237e200",
+  "realTargets": {
+    "tests/evidence/fixtures/model-evaluator/baseline-v2-smoke.json": {
+      "sha256": "f32e752f3d39713c72b5c26fd3c3497af008a68760d0190efe5efdafd391a7e4",
+      "manifest": {
+        "version": 1,
+        "identity": {
+          "engine": "private-v2",
+          "modelId": "Xenova/whisper-base.en",
+          "revision": null,
+          "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+          "runtime": "@xenova/transformers@2.17.2",
+          "backend": "wasm"
+        },
+        "adapterModule": "./scripts/model-evaluator/adapters/private-v2-browser.ts"
+      }
+    },
+    "tests/evidence/fixtures/model-evaluator/candidate-v4-base-q4-4.3.0.json": {
+      "sha256": "0c3722bc5b66f35a4acca3aadb4fa9a7ac7fdc091d7307098990c6393f05b46c",
+      "manifest": {
+        "version": 1,
+        "identity": {
+          "engine": "private-v4",
+          "modelId": "onnx-community/whisper-base.en",
+          "revision": null,
+          "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+          "runtime": "@huggingface/transformers@4.3.0",
+          "backend": "wasm"
+        },
+        "adapterModule": "./scripts/model-evaluator/adapters/candidate-browser.ts",
+        "adapterOptions": {
+          "candidateId": "v4:base:q4"
+        }
+      }
+    },
+    "tests/evidence/fixtures/model-evaluator/device-local-wasm.json": {
+      "sha256": "4e2e3d9002a63693e59c676542a03d687ab0236f9b26e8dffd480b50c865c088",
+      "manifest": {
+        "version": 1,
+        "label": "local-browser-wasm-smoke",
+        "backend": "wasm",
+        "baseUrl": "http://127.0.0.1:5173"
+      }
+    }
+  },
+  "executedTarget": "offline-control/no-model; no actual v2/v4 inference in this run",
+  "missing": "download-response hashes, immutable revisions, supported devices and full audio admission remain unverified"
+}

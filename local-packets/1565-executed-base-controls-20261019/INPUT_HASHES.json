@@ -1,0 +1,13 @@
+{
+  "target-pins.json": "f690395ed99656d883211cee84b1ba2b59c343d90356285689a13e400bb3f0cf",
+  "prepare-controls.py": "cb6ec433ef5a4c87f9b95bbe62cc8b6218e578f894ebcc3b57c7c8425d984b1c",
+  "frozen-controls.json": "4f3ef5a8ea857d9877d738a8c47297ef8e84cc7482bdf2614368af6457492606",
+  "inputs/corpus.json": "a732970307a92eaa8ccef2961791a0c97667bd215bc0c00c5557c287083f9166",
+  "inputs/init-failure.json": "2369ab6bc19ba5f42d2fb03aebff56a106936b6d479704ff09fd4c289b788793",
+  "inputs/control.wav": "6d5a57285af5ab10fd11ee5fb4f564281eac95b3131bcadad5812952a39558e1",
+  "inputs/candidate.json": "063a2b20589fda52c9222ea65c27d8c19febca6d2ade0c81e3369259c2325e11",
+  "inputs/baseline.json": "063a2b20589fda52c9222ea65c27d8c19febca6d2ade0c81e3369259c2325e11",
+  "inputs/wrong-backend.json": "4956c8a9bb3b78705fe5825ac96d956e671133c9f7dc31f4af8ad1d403cc5880",
+  "inputs/decode-failure.json": "3e23f4b3ac7fdaf311f865ea6c5be54572e8087f22481c5cecffd97cc2dec20c",
+  "inputs/device.json": "c363d8e55699d501138f865df84048fae45fefbd90e89215cf37f3e2d4b297bb"
+}

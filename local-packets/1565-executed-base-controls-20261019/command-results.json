@@ -1,0 +1,201 @@
+{
+  "source": "6185f14cd05b2aa985aa539e8221282c2237e200",
+  "node": "v24.19.0",
+  "cases": [
+    {
+      "case": "identical",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/inputs/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/inputs/candidate.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/inputs/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/inputs/device.json",
+        "--out",
+        "artifacts/pm-1565-identical.json"
+      ],
+      "exit": 2,
+      "expectedExit": 2,
+      "report": "reports/pm-1565-identical.json",
+      "reportSha256": "62f2b1b1b936c2b5e7600944a40460d4a39ba55bed157d05033400d5f4f7c6f0",
+      "stdout": "{\"out\":\"<isolated-source>/artifacts/pm-1565-identical.json\",\"verdict\":\"HOLD\",\"reasons\":[\"missing_or_invalid_predeclared_policy\",\"product_path_and_required_metrics_not_run\"]}\n",
+      "stderr": "",
+      "acceptance": {
+        "verdict": "HOLD",
+        "reasons": [
+          "missing_or_invalid_predeclared_policy",
+          "product_path_and_required_metrics_not_run"
+        ]
+      },
+      "pairedEvidence": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "productPath": "NOT_RUN"
+    },
+    {
+      "case": "decode-and-dispose-failure",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/inputs/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/inputs/decode-failure.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/inputs/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/inputs/device.json",
+        "--out",
+        "artifacts/pm-1565-decode-and-dispose-failure.json"
+      ],
+      "exit": 1,
+      "expectedExit": 1,
+      "report": "reports/pm-1565-decode-and-dispose-failure.json",
+      "reportSha256": "e165c380eafed9489744cba9cae559674e6f5d7409c9a9eb86f64c9bf3d0eeb9",
+      "stdout": "{\"out\":\"<isolated-source>/artifacts/pm-1565-decode-and-dispose-failure.json\",\"verdict\":\"FAIL\",\"reasons\":[\"candidate_input_mismatch:a:0\",\"candidate_decode_error:a:0\",\"candidate_input_mismatch:b:0\",\"candidate_decode_error:b:0\",\"candidate_input_mismatch:c:0\",\"candidate_decode_error:c:0\",\"candidate_input_mismatch:a:1\",\"candidate_decode_error:a:1\",\"candidate_input_mismatch:b:1\",\"candidate_decode_error:b:1\",\"candidate_input_mismatch:c:1\",\"candidate_decode_error:c:1\",\"candidate_unscoreable:incomplete_corpus\",\"unscoreable_slice:integrity\",\"missing_or_invalid_predeclared_policy\",\"candidate_latency_unavailable:a:0\",\"candidate_latency_unavailable:b:0\",\"candidate_latency_unavailable:c:0\",\"candidate_latency_unavailable:a:1\",\"candidate_latency_unavailable:b:1\",\"candidate_latency_unavailable:c:1\"]}\n",
+      "stderr": "",
+      "acceptance": {
+        "verdict": "FAIL",
+        "reasons": [
+          "candidate_input_mismatch:a:0",
+          "candidate_decode_error:a:0",
+          "candidate_input_mismatch:b:0",
+          "candidate_decode_error:b:0",
+          "candidate_input_mismatch:c:0",
+          "candidate_decode_error:c:0",
+          "candidate_input_mismatch:a:1",
+          "candidate_decode_error:a:1",
+          "candidate_input_mismatch:b:1",
+          "candidate_decode_error:b:1",
+          "candidate_input_mismatch:c:1",
+          "candidate_decode_error:c:1",
+          "candidate_unscoreable:incomplete_corpus",
+          "unscoreable_slice:integrity",
+          "missing_or_invalid_predeclared_policy",
+          "candidate_latency_unavailable:a:0",
+          "candidate_latency_unavailable:b:0",
+          "candidate_latency_unavailable:c:0",
+          "candidate_latency_unavailable:a:1",
+          "candidate_latency_unavailable:b:1",
+          "candidate_latency_unavailable:c:1"
+        ]
+      },
+      "pairedEvidence": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "productPath": "NOT_RUN"
+    },
+    {
+      "case": "wrong-backend",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/inputs/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/inputs/wrong-backend.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/inputs/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/inputs/device.json",
+        "--out",
+        "artifacts/pm-1565-wrong-backend.json"
+      ],
+      "exit": 1,
+      "expectedExit": 1,
+      "report": "reports/pm-1565-wrong-backend.json",
+      "reportSha256": "f685d09a3f3f19bd760dd8f9f7010964f47d61ba6115904a3ecb028e64052640",
+      "stdout": "{\"out\":\"<isolated-source>/artifacts/pm-1565-wrong-backend.json\",\"verdict\":\"FAIL\",\"reasons\":[\"candidate_identity_mismatch_or_fallback\",\"missing_or_invalid_predeclared_policy\"]}\n",
+      "stderr": "",
+      "acceptance": {
+        "verdict": "FAIL",
+        "reasons": [
+          "candidate_identity_mismatch_or_fallback",
+          "missing_or_invalid_predeclared_policy"
+        ]
+      },
+      "pairedEvidence": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "productPath": "NOT_RUN"
+    },
+    {
+      "case": "initialization-failure",
+      "argv": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/model-evaluator/run.mts",
+        "--baseline",
+        "local-packets/pm-1565-controls/inputs/baseline.json",
+        "--candidate",
+        "local-packets/pm-1565-controls/inputs/init-failure.json",
+        "--corpus",
+        "local-packets/pm-1565-controls/inputs/corpus.json",
+        "--device",
+        "local-packets/pm-1565-controls/inputs/device.json",
+        "--out",
+        "artifacts/pm-1565-initialization-failure.json"
+      ],
+      "exit": 1,
+      "expectedExit": 1,
+      "report": "reports/pm-1565-initialization-failure.json",
+      "reportSha256": "f8357da87e3eadb0bafbf2229b8a451773886b0d15def0003b0b25aaed401fa3",
+      "stdout": "{\"out\":\"<isolated-source>/artifacts/pm-1565-initialization-failure.json\",\"verdict\":\"FAIL\",\"reasons\":[\"candidate_identity_mismatch_or_fallback\",\"candidate_input_mismatch:a:0\",\"candidate_decode_error:a:0\",\"candidate_input_mismatch:b:0\",\"candidate_decode_error:b:0\",\"candidate_input_mismatch:c:0\",\"candidate_decode_error:c:0\",\"candidate_input_mismatch:a:1\",\"candidate_decode_error:a:1\",\"candidate_input_mismatch:b:1\",\"candidate_decode_error:b:1\",\"candidate_input_mismatch:c:1\",\"candidate_decode_error:c:1\",\"candidate_unscoreable:incomplete_corpus\",\"unscoreable_slice:integrity\",\"missing_or_invalid_predeclared_policy\",\"candidate_latency_unavailable:a:0\",\"candidate_latency_unavailable:b:0\",\"candidate_latency_unavailable:c:0\",\"candidate_latency_unavailable:a:1\",\"candidate_latency_unavailable:b:1\",\"candidate_latency_unavailable:c:1\"]}\n",
+      "stderr": "",
+      "acceptance": {
+        "verdict": "FAIL",
+        "reasons": [
+          "candidate_identity_mismatch_or_fallback",
+          "candidate_input_mismatch:a:0",
+          "candidate_decode_error:a:0",
+          "candidate_input_mismatch:b:0",
+          "candidate_decode_error:b:0",
+          "candidate_input_mismatch:c:0",
+          "candidate_decode_error:c:0",
+          "candidate_input_mismatch:a:1",
+          "candidate_decode_error:a:1",
+          "candidate_input_mismatch:b:1",
+          "candidate_decode_error:b:1",
+          "candidate_input_mismatch:c:1",
+          "candidate_decode_error:c:1",
+          "candidate_unscoreable:incomplete_corpus",
+          "unscoreable_slice:integrity",
+          "missing_or_invalid_predeclared_policy",
+          "candidate_latency_unavailable:a:0",
+          "candidate_latency_unavailable:b:0",
+          "candidate_latency_unavailable:c:0",
+          "candidate_latency_unavailable:a:1",
+          "candidate_latency_unavailable:b:1",
+          "candidate_latency_unavailable:c:1"
+        ]
+      },
+      "pairedEvidence": {
+        "status": "COMPLETE",
+        "expectedRows": 6,
+        "validatedPairs": 6,
+        "error": null
+      },
+      "productPath": "NOT_RUN"
+    }
+  ]
+}

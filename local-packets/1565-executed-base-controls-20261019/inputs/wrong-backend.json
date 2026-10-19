@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "identity": {
+    "engine": "offline-control",
+    "modelId": "no-model",
+    "revision": null,
+    "assetDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runtime": "deterministic-test-double",
+    "backend": "wasm"
+  },
+  "adapterModule": "./tests/evidence/fixtures/model-evaluator/offline-control-adapter.ts",
+  "adapterOptions": {
+    "observedBackend": "cpu"
+  }
+}
