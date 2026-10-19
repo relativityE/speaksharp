@@ -13,6 +13,13 @@ export async function holdModelWeight(context: BrowserContext, origin: string, p
     let injected = false;
     let failed = false;
     let errorText: string | null = null;
+    let disposed = false;
+    let abortSucceeded = false;
+    let abortFailure: unknown = null;
+    let heldTask: Promise<void> | null = null;
+    let disposal: Promise<void> | null = null;
+    const handlers = new Set<Promise<void>>();
+    const contextClosed = (error: unknown) => error instanceof Error && /(?:target|page|context|browser).*closed/i.test(error.message);
     let signalFailed: () => void = () => {};
     const failedGate = new Promise<void>((resolve) => { signalFailed = resolve; });
     const onFailed = (observed: Request) => {
@@ -22,13 +29,29 @@ export async function holdModelWeight(context: BrowserContext, origin: string, p
             signalFailed();
         }
     };
-    const handler = async (route: Route) => {
-        if (held) { await route.continue(); return; }
-        held = route;
-        request = route.request();
-        signalHeld();
-        await releaseGate;
-        await route.abort(injected ? 'internetdisconnected' : 'aborted');
+    const handler = (route: Route) => {
+        const primary = !held && !disposed;
+        if (primary) {
+            held = route;
+            request = route.request();
+            signalHeld();
+        }
+        const task = (async () => {
+            if (!primary) {
+                try { if (disposed) await route.abort('aborted'); else await route.continue(); }
+                catch (error) { if (!contextClosed(error)) abortFailure = error; }
+                return;
+            }
+            await releaseGate;
+            try {
+                await route.abort(injected ? 'internetdisconnected' : 'aborted');
+                abortSucceeded = true;
+            } catch (error) { abortFailure = error; }
+        })();
+        if (primary) heldTask = task;
+        handlers.add(task);
+        void task.then(() => { handlers.delete(task); });
+        return task;
     };
     context.on('requestfailed', onFailed);
     await context.route(match, handler);
@@ -38,21 +61,43 @@ export async function holdModelWeight(context: BrowserContext, origin: string, p
             return await Promise.race([promise.then(() => true), new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); })]);
         } finally { if (timer) clearTimeout(timer); }
     };
-    const evidence = () => ({ matched: request !== null, injected, failed, errorText, exercised: injected && failed });
+    const evidence = () => ({ matched: request !== null, injected, failed, errorText,
+        exercised: injected && abortSucceeded && failed && errorText === 'net::ERR_INTERNET_DISCONNECTED' });
     return {
         waitUntilHeld: (timeoutMs = 2_000) => bounded(heldGate, timeoutMs),
         evidence,
         inject: async (timeoutMs = 2_000) => {
+            if (disposed) throw new Error('model_fault_disposed');
             if (!held) throw new Error('model_fault_not_exercised: no held weight request');
+            if (injected) throw new Error('model_fault_already_injected');
             injected = true;
             release();
-            if (!await bounded(failedGate, timeoutMs)) throw new Error('model_fault_unobserved: held request failure missing');
+            const settled = await bounded((async () => {
+                await heldTask;
+                if (!abortSucceeded) throw new Error('model_fault_abort_failed');
+                await failedGate;
+            })(), timeoutMs);
+            if (disposed) throw new Error('model_fault_disposed');
+            if (!settled) throw new Error('model_fault_unobserved: held request failure missing');
+            if (errorText !== 'net::ERR_INTERNET_DISCONNECTED') throw new Error('model_fault_wrong_failure');
             return evidence();
         },
-        dispose: async () => {
+        dispose: () => {
+            if (disposal) return disposal;
+            disposed = true;
             release();
-            context.off('requestfailed', onFailed);
-            await context.unroute(match, handler);
+            disposal = (async () => {
+                let unrouteFailure: unknown = null;
+                try { await context.unroute(match, handler); }
+                catch (error) { unrouteFailure = error; }
+                finally {
+                    await Promise.all([...handlers]);
+                    context.off('requestfailed', onFailed);
+                }
+                if (unrouteFailure && !contextClosed(unrouteFailure)) throw new Error('model_fault_disposal_unroute_failed');
+                if (abortFailure && !contextClosed(abortFailure)) throw new Error('model_fault_disposal_abort_failed');
+            })();
+            return disposal;
         },
     };
 }
