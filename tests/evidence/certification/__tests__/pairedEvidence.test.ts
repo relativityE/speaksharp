@@ -7,6 +7,26 @@ const row = (utteranceId: string, trialId = 'trial-1'): PairedEvidenceIdentity =
 const manifest = [row('clip-1'), row('clip-2')];
 
 describe('#1565 paired completeness before statistics', () => {
+    it('rejects an empty Set manifest rather than returning a successful empty population', () => {
+        expect(() => validatePairedEvidence(new Set() as unknown as PairedEvidenceIdentity[], [], []))
+            .toThrow('paired_evidence_invalid_container:manifest');
+    });
+
+    it.each(['manifest', 'A', 'B'] as const)('rejects non-array %s containers at the runtime boundary', (label) => {
+        const malformed = [
+            null, undefined, '', 'rows', {}, { length: 0 }, { 0: manifest[0], length: 1 },
+            new Set(manifest), new Map(manifest.map((item) => [item.utteranceId, item])),
+            (function* () { yield* manifest; })(),
+            { length: 1, *[Symbol.iterator]() { yield* manifest; } },
+        ];
+        for (const value of malformed) {
+            const inputs = [manifest, manifest, manifest];
+            inputs[label === 'manifest' ? 0 : label === 'A' ? 1 : 2] = value as PairedEvidenceIdentity[];
+            expect(() => validatePairedEvidence(inputs[0], inputs[1], inputs[2]))
+                .toThrow(`paired_evidence_invalid_container:${label}`);
+        }
+    });
+
     it('returns every exact pair in manifest order, retaining differing outputs and outcomes', () => {
         const a = manifest.map((identity) => ({ ...identity, outcome: 'decoded', errors: 1 }));
         const b = [...manifest].reverse().map((identity) => ({ ...identity, outcome: 'timed_out', errors: null }));

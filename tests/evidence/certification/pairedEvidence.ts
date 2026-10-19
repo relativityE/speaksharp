@@ -33,6 +33,8 @@ function indexRows<T extends PairedEvidenceIdentity>(rows: readonly T[], label: 
 /**
  * Require BOTH arms to cover exactly the predeclared manifest × trials. Do not intersect,
  * deduplicate, infer denominators from one arm, or use model output to repair identity.
+ * The caller must build expected independently from the frozen corpus × declared trials,
+ * never from observed output; equality cannot detect omissions already present in expected.
  *
  * Preserve each complete row, including execution failures: this check does not score,
  * remove reliability failures, aggregate trials, or approve a confidence-interval policy.
@@ -43,6 +45,9 @@ export function validatePairedEvidence<A extends PairedEvidenceIdentity, B exten
     armA: readonly A[],
     armB: readonly B[],
 ): readonly { expected: PairedEvidenceIdentity; a: A; b: B }[] {
+    for (const [label, rows] of [['manifest', expected], ['A', armA], ['B', armB]] as const) {
+        if (!Array.isArray(rows)) throw new Error(`paired_evidence_invalid_container:${label}`);
+    }
     if (expected.length === 0) throw new Error('paired_evidence_empty_manifest');
     const manifest = indexRows(expected, 'manifest');
     const clipIdentities = new Map<string, PairedEvidenceIdentity>();
