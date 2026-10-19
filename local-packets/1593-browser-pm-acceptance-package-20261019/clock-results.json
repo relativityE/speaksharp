@@ -1,0 +1,64 @@
+{
+  "observedAtUtc": "2026-10-19T13:35:31.143Z",
+  "oldHead": "45c579099c86c38a91d1df811856e822e9cdde97",
+  "newHead": "401da0f3e3d13795f2b8acaf36ce7bcc45eb65fa",
+  "sourcePath": "tests/live/helpers/rwtDocumentIdentity.ts",
+  "hashes": {
+    "45c579099c86c38a91d1df811856e822e9cdde97": "ad047a5aef459cee2f9fc7cbe94b35787b91ed3441e912b5212ffd594c67c4c7",
+    "401da0f3e3d13795f2b8acaf36ce7bcc45eb65fa": "00919377b57f0fe5b551d981f0962876577264cca73fef87a5cdb004047f85a8"
+  },
+  "groupedControls": 10,
+  "controls": [
+    {
+      "name": "parent reproduces moved document start",
+      "head": "45c579099c86c38a91d1df811856e822e9cdde97",
+      "documentStartDeltaMs": 20,
+      "captureAtMs": 3,
+      "captureBeforeComputedStart": true
+    },
+    {
+      "name": "successor preserves request-time mapping",
+      "head": "401da0f3e3d13795f2b8acaf36ce7bcc45eb65fa",
+      "documentStartDeltaMs": 0,
+      "captureAtMs": 3,
+      "captureBeforeComputedStart": false
+    },
+    {
+      "name": "pending body preserves start across later mapping delta",
+      "deltaMs": -20,
+      "result": "PASS"
+    },
+    {
+      "name": "pending body preserves start across later mapping delta",
+      "deltaMs": 0,
+      "result": "PASS"
+    },
+    {
+      "name": "pending body preserves start across later mapping delta",
+      "deltaMs": 100,
+      "result": "PASS"
+    },
+    {
+      "name": "inline body remains stable after later clock sample",
+      "result": "PASS"
+    },
+    {
+      "name": "body delay across navigation retains sending-time origin and mapping",
+      "result": "PASS"
+    },
+    {
+      "name": "body retrieval failure remains unattributed",
+      "result": "PASS"
+    },
+    {
+      "name": "duplicate candidate still invalidates provenance",
+      "result": "PASS"
+    },
+    {
+      "name": "notified source loss without queued events remains unproven",
+      "result": "PASS"
+    }
+  ],
+  "scope": "Actual provenance module with deterministic fake CDP/Page emitters; not full watchdog integration, complete test suite, browser clock-frequency evidence, CI or live qualification.",
+  "disposition": "Bounded request-time offset correction passes. Whole PR remains subject to current Sam disposition and outstanding blind-beacon/adverse/window evidence."
+}

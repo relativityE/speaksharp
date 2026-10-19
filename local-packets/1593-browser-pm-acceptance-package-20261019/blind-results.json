@@ -1,0 +1,73 @@
+{
+  "observedAtUtc": "2026-10-19T13:49:43.376Z",
+  "head": "401da0f3e3d13795f2b8acaf36ce7bcc45eb65fa",
+  "hashes": {
+    "tests/live/helpers/rwtDocumentIdentity.ts": "00919377b57f0fe5b551d981f0962876577264cca73fef87a5cdb004047f85a8",
+    "tests/live/helpers/rwtWatchdog.ts": "c3b5056c47a27c7a166103308b30173b1257b6a5b03936d6926e3920033faa74"
+  },
+  "groupedControls": 4,
+  "controls": [
+    {
+      "name": "clean readable page",
+      "blindCount": 0,
+      "verdict": "PASS",
+      "observation": {
+        "watchedEvents": 0,
+        "foreignIgnored": 0,
+        "domReads": 1,
+        "domUnreadable": 0,
+        "unresolvedIdentity": 0,
+        "unprovenPages": 0,
+        "unattributedRequests": 0,
+        "provenanceConflicts": 0
+      }
+    },
+    {
+      "name": "opaque beacon in watched interval plus readable page",
+      "blindCount": 1,
+      "verdict": "PASS",
+      "observation": {
+        "watchedEvents": 0,
+        "foreignIgnored": 0,
+        "domReads": 1,
+        "domUnreadable": 0,
+        "unresolvedIdentity": 0,
+        "unprovenPages": 0,
+        "unattributedRequests": 0,
+        "provenanceConflicts": 0
+      }
+    },
+    {
+      "name": "opaque beacon without any readable observation",
+      "blindCount": 1,
+      "verdict": "HOLD",
+      "observation": {
+        "watchedEvents": 0,
+        "foreignIgnored": 0,
+        "domReads": 0,
+        "domUnreadable": 1,
+        "unresolvedIdentity": 0,
+        "unprovenPages": 0,
+        "unattributedRequests": 0,
+        "provenanceConflicts": 0
+      }
+    },
+    {
+      "name": "notified provenance loss plus readable page",
+      "blindCount": 0,
+      "verdict": "HOLD",
+      "observation": {
+        "watchedEvents": 0,
+        "foreignIgnored": 0,
+        "domReads": 1,
+        "domUnreadable": 0,
+        "unresolvedIdentity": 0,
+        "unprovenPages": 1,
+        "unattributedRequests": 0,
+        "provenanceConflicts": 0
+      }
+    }
+  ],
+  "disposition": "Confirms existing P1 r4314310162: opaque-body uncertainty can coexist with watchdog PASS. No new finding credit claimed.",
+  "scope": "Actual pinned JourneyWatchdog and DocumentProvenance with deterministic Page/CDP/tap doubles. Opaque tap state supplied directly; actual Blob transport/CDP body unavailability frequency and received settlement were not executed. Unused finalizer bound dependency doubled. No historical/live causal attribution."
+}
