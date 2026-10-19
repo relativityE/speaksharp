@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, RETIRED_COMBINED_CONTROL } from '../helpers/micControls';
+import { applyHumanReflex } from '../live/helpers/rwtHumanReflex';
 
 vi.mock('@playwright/test', () => {
     const isLocator = (v: unknown): v is FakeLocator =>
@@ -111,6 +112,7 @@ interface FakeLocator {
     /** Playwright's locator union / index, as the helpers use them. */
     or(other: FakeLocator): FakeLocator;
     first(): FakeLocator;
+    elementHandle(): Promise<{ click(): Promise<void>; dispose(): Promise<void> } | null>;
 }
 
 /** Every testid the helper asked for, and every one it clicked — the two things that broke. */
@@ -142,6 +144,13 @@ let coldPressRecords = true;
  * terminal-outcome wait to hold.
  */
 let coldPressTiming: 'sync' | 'disabled-then-recording' = 'sync';
+let waitFailure: Error | null = null;
+let afterHandleCapture: (() => void) | null = null;
+let afterReadinessObservation: (() => void) | null = null;
+let simulateMissingHandleWait = false;
+let beforePinnedClick: ((element: Element) => void) | null = null;
+const locatorHandleBudgets: number[] = [];
+const waitTimeouts: number[] = [];
 
 const locatorFor = (selector: string): FakeLocator => ({
     __locator: true,
@@ -155,11 +164,26 @@ const locatorFor = (selector: string): FakeLocator => ({
     // which is what `.or(...).first()` means for these helpers.
     or: (other: FakeLocator) => locatorFor(`${selector}, ${other.selector}`),
     first: () => locatorFor(selector),
+    elementHandle: async () => {
+        locatorHandleBudgets.push(90_000);
+        if (simulateMissingHandleWait && !document.querySelector(selector)) {
+            await new Promise((resolve) => setTimeout(resolve, 90_000));
+        }
+        const original = document.querySelector(selector);
+        const callback = afterHandleCapture;
+        afterHandleCapture = null;
+        callback?.();
+        return original ? { click: async () => {
+            if (!original.isConnected) throw new Error('the original start control was detached');
+            if (original.hasAttribute('disabled')) throw new Error('the original start control is disabled');
+            await locatorFor(selector).click();
+        }, dispose: async () => undefined } : null;
+    },
     click: async () => {
         const el = document.querySelector(selector);
         if (!el) throw new Error(`click on a control that does not exist: ${selector}`);
+        if (!el.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))) return;
         clicked.push(selector);
-        el.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
         if (selector.includes(MIC_CONTROL_BY_STATUS['download-required']) && onDownloadClick) {
             // Acquisition completing re-renders the card into the next state's control, as in the app.
             renderState(onDownloadClick);
@@ -185,6 +209,52 @@ const page = {
     locator: (selector: string) => { asked.push(selector); return locatorFor(selector); },
     getByTestId: (id: string) => { asked.push(id); return locatorFor(`[data-testid="${id}"]`); },
     getByLabel: (re: RegExp) => locatorFor(`[aria-label-re="${String(re)}"]`),
+    waitForFunction: async (fn: (arg: unknown) => unknown, arg: unknown, options: { timeout: number }) => {
+        waitTimeouts.push(options.timeout);
+        if (waitFailure) throw waitFailure;
+        const deadline = Date.now() + options.timeout;
+        let observed = fn(arg);
+        while (!observed) {
+            if (Date.now() >= deadline) {
+                const error = new Error('page predicate deadline exceeded');
+                error.name = 'TimeoutError';
+                throw error;
+            }
+            await new Promise((r) => setTimeout(r, 2));
+            observed = fn(arg);
+        }
+        const beforeReturn = afterReadinessObservation;
+        afterReadinessObservation = null;
+        beforeReturn?.();
+        const original = observed instanceof Element ? observed : null;
+        const afterCapture = afterHandleCapture;
+        afterHandleCapture = null;
+        // The original implementation only captures at locator.elementHandle, after another lookup.
+        if (original) afterCapture?.();
+        else afterHandleCapture = afterCapture;
+        return {
+            asElement: () => original ? {
+                evaluate: async (fn: (element: Element) => unknown) => fn(original),
+                evaluateHandle: async (fn: (element: Element, arg: string) => unknown, arg: string) => {
+                    const state = fn(original, arg);
+                    return { evaluate: async (read: (value: unknown) => unknown) => read(state), dispose: async () => undefined };
+                },
+                click: async (options?: { timeout: number }) => {
+                const mutate = beforePinnedClick;
+                beforePinnedClick = null;
+                mutate?.(original);
+                const deadline = Date.now() + (options?.timeout ?? 90_000);
+                while (original.hasAttribute('disabled')) {
+                    if (Date.now() >= deadline) throw new Error('actionability timed out');
+                    await new Promise((resolve) => setTimeout(resolve, 2));
+                }
+                if (!original.isConnected) throw new Error('the original start control was detached');
+                if (original.hasAttribute('disabled')) throw new Error('the original start control is disabled');
+                await locatorFor(`[data-testid="${original.getAttribute('data-testid')}"]`).click();
+            } } : null,
+            dispose: async () => undefined,
+        };
+    },
 } as unknown as Parameters<typeof preparePrivateModelIfPrompted>[0];
 
 /** Render only what the product renders in `status`. Nothing else exists — as on a real page. */
@@ -205,6 +275,9 @@ function renderRecording() {
 beforeEach(() => {
     asked.length = 0; clicked.length = 0; onDownloadClick = 'ready'; coldPressRecords = true;
     coldPressTiming = 'sync';
+    waitFailure = null; afterHandleCapture = null; waitTimeouts.length = 0;
+    afterReadinessObservation = null; simulateMissingHandleWait = false; locatorHandleBudgets.length = 0;
+    beforePinnedClick = null;
     document.documentElement.removeAttribute('data-recording-state');
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 });
@@ -392,6 +465,303 @@ describe('startBenchmarkRecording never starts a second take', () => {
         await startBenchmarkRecording(page, 'cold-take');
         expect(clicked.length, 'exactly one press across setup AND start').toBe(pressesAfterSetup);
         expect(clicked).toHaveLength(1);
+    });
+});
+
+describe('#1593 case2 bounded model readiness before a product-switch Start', () => {
+    it('loading→ready waits for the actual enabled control and presses once', async () => {
+        renderState('loading');
+        const timer = setTimeout(() => renderState('ready'), 15);
+        try {
+            await startBenchmarkRecording(page, 'focus-points-session-switch-focus', 100);
+            expect(clicked).toEqual(['[data-testid="mic-start"]']);
+        } finally { clearTimeout(timer); }
+    });
+
+    it('a take that starts during model loading receives no second activation', async () => {
+        renderState('loading');
+        const timer = setTimeout(renderRecording, 15);
+        try {
+            await startBenchmarkRecording(page, 'loading-auto-start', 100);
+            expect(clicked).toEqual([]);
+        } finally { clearTimeout(timer); }
+    });
+
+    it('ready-but-disabled→recording during resume receives no second activation', async () => {
+        renderState('loading');
+        const ready = setTimeout(() => {
+            renderState('ready');
+            document.querySelector('button')!.setAttribute('disabled', '');
+        }, 10);
+        const running = setTimeout(renderRecording, 25);
+        try {
+            await startBenchmarkRecording(page, 'ready-resume-gap', 100);
+            expect(clicked).toEqual([]);
+        } finally { clearTimeout(ready); clearTimeout(running); }
+    });
+
+    it('persistent loading reaches a named bounded failure without any click', async () => {
+        renderState('loading');
+        await expect(startBenchmarkRecording(page, 'hung-loading', 20)).rejects.toThrow(/MODEL_READINESS_TIMEOUT.*20ms/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('lost observation is not mislabeled as a model timeout', async () => {
+        renderState('loading');
+        waitFailure = new Error('navigation context lost');
+        await expect(startBenchmarkRecording(page, 'lost-observer', 20)).rejects.toThrow(/MODEL_READINESS_OBSERVATION_FAILED/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('unreadable settled status stays unqualified', async () => {
+        renderState('loading');
+        const timer = setTimeout(() => document.documentElement.removeAttribute('data-model-status'), 10);
+        try {
+            await expect(startBenchmarkRecording(page, 'missing-model-status', 100)).rejects.toThrow(/MODEL_READINESS_OBSERVATION_FAILED/);
+            expect(clicked).toEqual([]);
+        } finally { clearTimeout(timer); }
+    });
+
+    it('a replacement Start is never borrowed after the observed node detaches', async () => {
+        renderState('ready');
+        afterHandleCapture = () => renderState('ready');
+        await expect(startBenchmarkRecording(page, 'detached-start')).rejects.toThrow(/original start control was detached/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('a requested longer model budget is capped at thirty seconds', async () => {
+        renderState('loading');
+        const timer = setTimeout(() => renderState('ready'), 10);
+        try {
+            await startBenchmarkRecording(page, 'bounded-budget', 999_999);
+            expect(waitTimeouts[0]).toBe(30_000);
+        } finally { clearTimeout(timer); }
+    });
+
+    it.each(['error', 'init-failed', 'idle', 'download-required'])('loading→%s is reported rather than silently retried', async (status) => {
+        renderState('loading');
+        const timer = setTimeout(() => renderState(status), 10);
+        try {
+            await expect(startBenchmarkRecording(page, 'terminal-model-state', 100)).rejects.toThrow(/MODEL_READINESS_FAILED/);
+            expect(clicked).toEqual([]);
+        } finally { clearTimeout(timer); }
+    });
+
+    it('waiting never bypasses explicit model-download consent', async () => {
+        const previous = process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED;
+        process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED = 'true';
+        renderState('loading');
+        const timer = setTimeout(() => renderState('download-required'), 10);
+        try {
+            await expect(startBenchmarkRecording(page, 'consent-boundary', 100)).rejects.toThrow(/MODEL_READINESS_FAILED/);
+            expect(clicked).toEqual([]);
+        } finally {
+            clearTimeout(timer);
+            if (previous === undefined) delete process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED;
+            else process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED = previous;
+        }
+    });
+});
+
+describe('#1667 review: pinned readiness action uses real human-reflex timing and bounded capture', () => {
+    // Exercise the actual wrapper against real class prototypes, rather than merely mocking its delay getter.
+    class ReflexLocator {
+        constructor(readonly base: FakeLocator) {}
+        count() { return this.base.count(); }
+        click() { return this.base.click(); }
+        elementHandle() { return this.base.elementHandle(); }
+    }
+    class ReflexKeyboard { async press() { /* not used by this helper */ } }
+    const reflexPage = {
+        ...page,
+        locator: (selector: string) => new ReflexLocator(locatorFor(selector)),
+        getByTestId: (id: string) => new ReflexLocator(locatorFor(`[data-testid="${id}"]`)),
+        keyboard: new ReflexKeyboard(),
+    } as unknown as typeof page;
+
+    it.each([500, 1000] as const)('actual applyHumanReflex(%i) delays the pinned Start exactly once', async (ms) => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, ms);
+        renderState('ready');
+        try {
+            const pending = startBenchmarkRecording(reflexPage, 'integrated-reflex');
+            await vi.advanceTimersByTimeAsync(ms - 1);
+            expect(clicked).toEqual([]);
+            await vi.advanceTimersByTimeAsync(1);
+            await pending;
+            expect(clicked).toEqual(['[data-testid="mic-start"]']);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('a replacement between readiness and the old locator lookup cannot become the pinned target', async () => {
+        renderState('ready');
+        afterReadinessObservation = () => renderState('ready');
+        await expect(startBenchmarkRecording(page, 'replace-before-capture')).rejects.toThrow(/original start control was detached/);
+        expect(clicked).toEqual([]);
+        expect(locatorHandleBudgets).toEqual([]);
+    });
+
+    it('removal before capture never invokes the 90s default locator wait', async () => {
+        vi.useFakeTimers();
+        renderState('ready');
+        simulateMissingHandleWait = true;
+        afterReadinessObservation = () => { document.body.innerHTML = ''; };
+        let settled = false;
+        const pending = startBenchmarkRecording(page, 'remove-before-capture').catch(() => { settled = true; });
+        try {
+            await vi.advanceTimersByTimeAsync(8_001);
+            expect(settled).toBe(true);
+            expect(locatorHandleBudgets).toEqual([]);
+            expect(clicked).toEqual([]);
+        } finally {
+            await vi.advanceTimersByTimeAsync(90_001);
+            await pending;
+            vi.useRealTimers();
+        }
+    });
+
+    it('identity remains pinned while the actual human-reflex delay is in progress', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        const outcome = startBenchmarkRecording(reflexPage, 'replace-during-reflex').then(() => null, (error: Error) => error);
+        setTimeout(() => renderState('ready'), 250);
+        try {
+            await vi.advanceTimersByTimeAsync(500);
+            expect((await outcome)?.message).toMatch(/original start control was detached/);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('auto-resume during the actual human-reflex delay receives no second activation', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        const pending = startBenchmarkRecording(reflexPage, 'resume-during-reflex');
+        setTimeout(renderRecording, 250);
+        try {
+            await vi.advanceTimersByTimeAsync(500);
+            await pending;
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('the same DOM node changing from Start to Retry during the reflex is never silently activated', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        const outcome = startBenchmarkRecording(reflexPage, 'changed-action-during-reflex').then(() => null, (error: Error) => error);
+        setTimeout(() => document.querySelector('button')!.setAttribute('data-testid', 'mic-retry'), 250);
+        try {
+            await vi.advanceTimersByTimeAsync(500);
+            expect((await outcome)?.message).toMatch(/changed identity before activation/);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('readiness and reflex time consume the same eight-second control budget', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        afterReadinessObservation = () => { vi.advanceTimersByTime(7_800); };
+        const outcome = startBenchmarkRecording(reflexPage, 'total-control-budget').then(() => null, (error: Error) => error);
+        try {
+            await vi.advanceTimersByTimeAsync(8_500);
+            expect((await outcome)?.message).toMatch(/Start control budget expired/);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('Start changing to disabled then Retry during actionability cannot activate the new action', async () => {
+        renderState('ready');
+        const productAction = vi.fn();
+        document.querySelector('button')!.addEventListener('click', productAction);
+        beforePinnedClick = (element) => {
+            element.setAttribute('disabled', '');
+            setTimeout(() => {
+                element.setAttribute('data-testid', 'mic-retry');
+                element.removeAttribute('disabled');
+            }, 10);
+        };
+        await expect(startBenchmarkRecording(page, 'changed-during-actionability')).rejects.toThrow(/identity.*activation/);
+        expect(clicked).toEqual([]);
+        expect(productAction).not.toHaveBeenCalled();
+        // A failed attempt must remove its guard rather than blocking a later deliberate user action.
+        const retry = document.querySelector('button')!;
+        expect(retry.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(true);
+        expect(productAction).toHaveBeenCalledOnce();
+    });
+
+    it('a valid native Start can change its own button state after activation without false rejection', async () => {
+        renderState('ready');
+        const button = document.querySelector('button')!;
+        const productAction = vi.fn(() => {
+            button.setAttribute('disabled', '');
+            button.setAttribute('data-testid', 'mic-retry');
+        });
+        button.addEventListener('click', productAction);
+        await startBenchmarkRecording(page, 'valid-activation-state-change');
+        expect(productAction).toHaveBeenCalledOnce();
+        expect(clicked).toEqual(['[data-testid="mic-start"]']);
+    });
+
+    it('an identity excursion during actionability stays invalid even if it returns to Start before click', async () => {
+        renderState('ready');
+        beforePinnedClick = (element) => {
+            element.setAttribute('disabled', '');
+            element.setAttribute('data-testid', 'mic-retry');
+            setTimeout(() => {
+                element.setAttribute('data-testid', 'mic-start');
+                element.removeAttribute('disabled');
+            }, 10);
+        };
+        await expect(startBenchmarkRecording(page, 'identity-excursion')).rejects.toThrow(/identity.*activation/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('an actionability timeout removes the guard without invoking product handlers', async () => {
+        vi.useFakeTimers();
+        renderState('ready');
+        beforePinnedClick = (element) => { element.setAttribute('disabled', ''); };
+        const outcome = startBenchmarkRecording(page, 'activation-timeout').then(() => null, (error: Error) => error);
+        try {
+            await vi.advanceTimersByTimeAsync(8_001);
+            expect((await outcome)?.message).toMatch(/actionability timed out/);
+            const button = document.querySelector('button')!;
+            button.removeAttribute('disabled');
+            expect(button.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(true);
+            expect(clicked).toEqual([]);
+        } finally { vi.useRealTimers(); }
+    });
+
+    it.each([false, true])('duplicate Start controls fail strictness even if the second is hidden=%s', async (hidden) => {
+        renderState('ready');
+        const duplicate = document.querySelector('button')!.cloneNode(true) as HTMLButtonElement;
+        duplicate.hidden = hidden;
+        document.body.append(duplicate);
+        await expect(startBenchmarkRecording(page, 'duplicate-at-readiness')).rejects.toThrow(/START_CONTROL_NOT_UNIQUE/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('a duplicate added during the actual reflex cannot produce a passing pinned Start', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        const outcome = startBenchmarkRecording(reflexPage, 'duplicate-during-reflex').then(() => null, (error: Error) => error);
+        setTimeout(() => document.body.append(document.querySelector('button')!.cloneNode(true)), 250);
+        try {
+            await vi.advanceTimersByTimeAsync(500);
+            expect((await outcome)?.message).toMatch(/identity.*activation/);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('a duplicate added after the final identity read is rejected at actual activation', async () => {
+        renderState('ready');
+        beforePinnedClick = (element) => { element.after(element.cloneNode(true)); };
+        await expect(startBenchmarkRecording(page, 'duplicate-at-activation')).rejects.toThrow(/identity.*activation/);
+        expect(clicked).toEqual([]);
     });
 });
 
