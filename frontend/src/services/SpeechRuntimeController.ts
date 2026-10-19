@@ -5676,6 +5676,19 @@ export class SpeechRuntimeController {
                                     preview: finalTranscript.slice(0, 80),
                                 });
                             }
+                            /**
+                             * #1593 (live RWT cases 2/3; CLI packet f804f396) — THE TAKE'S FINAL TRANSCRIPT IS SETTLED HERE.
+                             *
+                             * The final decode has returned and this take's final text is selected and published to
+                             * the working store, BEFORE completion and the Focus evaluation. `final_transcript` was
+                             * marked only when the finalizing latch released (useSessionStore), which on the normal
+                             * Stop path happens after `completeProgressForRecording` had already marked
+                             * `evaluation_complete` — so every Focus take emitted the chain reversed. Marked here,
+                             * once per take (`markCompletionStage` ignores the latch's later mark), only while this
+                             * stop still owns the shared surfaces. The Start-blocking latch, the Progress gate and
+                             * the evaluation itself are not moved; a hung or failed decode never reaches this line.
+                             */
+                            if (this.stopStillOwnsSharedState(stopAuthority, token)) markCompletionStage('final_transcript');
 
                             const supabase = getSupabaseClient();
                             const { data: { session } } = await supabase.auth.getSession();
