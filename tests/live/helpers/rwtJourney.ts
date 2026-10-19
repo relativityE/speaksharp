@@ -675,16 +675,22 @@ export class CommittedDocumentTracker {
     generation = 0;
     committedAt = Date.now();
     private pending: { url: string; at: number } | null = null;
+    private requestSeq = 0;
 
-    /** A new main-frame navigation request supersedes any earlier pending one. */
-    onRequest(): void { this.pending = null; }
+    /** A new main-frame navigation request supersedes any earlier pending one; returns its sequence number. */
+    onRequest(): number { this.pending = null; return ++this.requestSeq; }
 
-    onResponse(url: string, status: number, now = Date.now()): void {
+    /** `seq` (when given) binds the response to its request: a superseded navigation's late response changes nothing. */
+    onResponse(url: string, status: number, now = Date.now(), seq?: number): void {
+        if (seq !== undefined && seq !== this.requestSeq) return;
         // A redirect continues as another request; 204/205 never commit a document.
         this.pending = (status >= 300 && status < 400) || status === 204 || status === 205 ? null : { url: stripHash(url), at: now };
     }
 
-    onFailed(): void { this.pending = null; }
+    onFailed(seq?: number): void {
+        if (seq !== undefined && seq !== this.requestSeq) return;
+        this.pending = null;
+    }
 
     onCommitted(url: string): void {
         if (this.pending === null || stripHash(url) !== this.pending.url) return;
@@ -726,6 +732,33 @@ export class AnalyticsTap {
         try { this.documentPath = new URL(url).pathname; } catch { this.documentPath = null; }
     }
 
+    private readonly documentTrackers = new WeakMap<Page, CommittedDocumentTracker>();
+
+    /**
+     * The page's committed-document tracker, wired ONCE for the page's lifetime: its own navigation-request listener (the
+     * request's response — or null when it failed — and the response's own completion, which reports a failure after the
+     * response) and `framenavigated`. Never removed by detach or by attaching to another page.
+     */
+    private documentsOf(page: Page): CommittedDocumentTracker {
+        const existing = this.documentTrackers.get(page);
+        if (existing) return existing;
+        const documents = new CommittedDocumentTracker();
+        this.documentTrackers.set(page, documents);
+        page.on('request', (request: Request) => {
+            let main = false;
+            try { main = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { main = false; }
+            if (!main) return;
+            const seq = documents.onRequest();
+            void request.response().then((response: Response | null) => {
+                if (!response) { documents.onFailed(seq); return undefined; }
+                documents.onResponse(response.url(), response.status(), Date.now(), seq);
+                return response.finished().then((error) => { if (error) documents.onFailed(seq); });
+            }).catch(() => documents.onFailed(seq));
+        });
+        page.on('framenavigated', (frame: Frame) => { if (frame === page.mainFrame()) documents.onCommitted(frame.url()); });
+        return documents;
+    }
+
     attach(page: Page): void {
         // A repeated attach replaces the outcome listeners instead of stacking a second set.
         this.removeTransportListeners();
@@ -733,9 +766,11 @@ export class AnalyticsTap {
         this.transportOpen = true;
         const generation = ++this.transportGeneration;
         const live = () => this.transportOpen && this.transportGeneration === generation;
-        // #1593 (Sam, #1662 RETURN on f527a033 item 3; RETURNs on 76a0bf6e / 46ebed0f): which COMMITTED document of this page
-        // sent each event — a boot IS a document load (`CommittedDocumentTracker`).
-        const documents = new CommittedDocumentTracker();
+        // #1593 (Sam, #1662 RETURNs on f527a033 / 76a0bf6e / 46ebed0f / 814d2e25): which COMMITTED document of this page sent
+        // each event — a boot IS a document load. Tracked for the PAGE's lifetime (`documentsOf`), independently of the
+        // transport-outcome listeners below: re-attaching the tap to another page must never stop tracking this one while its
+        // sent-event capture continues.
+        const documents = this.documentsOf(page);
         const mainNavigation = (request: Request): boolean => {
             try { return request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { return false; }
         };
@@ -748,7 +783,6 @@ export class AnalyticsTap {
                 .catch(() => { if (live()) transport.outcome = 'unobservable'; });
         };
         const onFailed = (request: Request) => {
-            if (mainNavigation(request)) documents.onFailed(); // a failed navigation leaves no pending document
             const transport = this.transportByRequest.get(request);
             if (!transport || !live()) return;
             let text: string | null = null;
@@ -758,15 +792,8 @@ export class AnalyticsTap {
         page.on('requestfinished', onFinished);
         page.on('requestfailed', onFailed);
         this.listeners.push(['requestfinished', onFinished as never], ['requestfailed', onFailed as never]);
-        const onResponse = (response: Response) => {
-            if (mainNavigation(response.request())) documents.onResponse(response.url(), response.status());
-        };
-        const onFrameNavigated = (frame: Frame) => { if (frame === page.mainFrame()) documents.onCommitted(frame.url()); };
-        page.on('response', onResponse);
-        page.on('framenavigated', onFrameNavigated);
-        this.listeners.push(['response', onResponse as never], ['framenavigated', onFrameNavigated as never]);
         page.on('request', (request) => {
-            if (mainNavigation(request)) { documents.onRequest(); this.noteDocument(request.url()); return; }
+            if (mainNavigation(request)) { this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;

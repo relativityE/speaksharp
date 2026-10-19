@@ -9,7 +9,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { DOM_READ_TIMEOUT_MS, FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyWatchdog, STALL_MS, WATCHED_FIELDS, fatalSignalOf, stallOf, watchProfileFor, type DomState, type WatchProfile } from '../live/helpers/rwtWatchdog';
 import { COACHING_SETTLE_BOUND_MS } from '../live/helpers/rwtCoachingEvidence';
 import { deniedAfterPress } from '../live/helpers/rwtAdverse';
-import { CommittedDocumentTracker } from '../live/helpers/rwtJourney';
+import { AnalyticsTap, CommittedDocumentTracker } from '../live/helpers/rwtJourney';
+import { EventEmitter } from 'node:events';
 import { modelWorkBeforeRefusal } from '../live/helpers/rwtAbandonTakeover';
 
 const ev = (event: string, watch: Record<string, string> = {}) => ({ event, watch, at: Date.now() });
@@ -840,16 +841,19 @@ describe('#1662 RETURN on 76a0bf6e — committed-document boot identity; downloa
         expect(await w.tick(), 'document 1 still belongs to its own boot').toMatchObject({ kind: 'save_failed' });
     });
 
-    it('item 1: the tap derives the document from the CommittedDocumentTracker wired to main-frame request/response/failure/commit', () => {
+    it('item 1: the tap derives each event\'s document from its page\'s lifetime CommittedDocumentTracker', () => {
         const src = readFileSync('tests/live/helpers/rwtJourney.ts', 'utf8');
-        const block = src.slice(src.indexOf('const documents = new CommittedDocumentTracker();'), src.indexOf('let host = \'\';', src.indexOf('const documents = new CommittedDocumentTracker();')));
-        expect(block).toContain('documents.onResponse(response.url(), response.status())');
-        expect(block).toContain('if (mainNavigation(request)) documents.onFailed();');
-        expect(block).toContain('documents.onCommitted(frame.url())');
-        expect(block).toContain('documents.onRequest();');
-        // Registered with the tap's own listener set: removed on detach, never stacked by a repeated attach.
-        expect(block).toContain("this.listeners.push(['response', onResponse as never], ['framenavigated', onFrameNavigated as never]);");
-        expect(src).toContain("value: documents.generation, enumerable: false");
+        const start = src.indexOf('private documentsOf(page: Page): CommittedDocumentTracker {');
+        const wiring = src.slice(start, src.indexOf('    attach(page: Page): void {', start));
+        expect(wiring).toContain('const seq = documents.onRequest();');
+        expect(wiring).toContain("if (!response) { documents.onFailed(seq); return undefined; }");
+        expect(wiring).toContain('documents.onResponse(response.url(), response.status(), Date.now(), seq);');
+        expect(wiring).toContain('if (error) documents.onFailed(seq);');
+        expect(wiring).toContain('documents.onCommitted(frame.url())');
+        expect(src).toContain('const documents = this.documentsOf(page);');
+        expect(src).toContain('value: documents.generation, enumerable: false');
+        // Never part of the transport listener set that detach / re-attach removes.
+        expect(src).not.toMatch(/this\.listeners\.push\(\['response'/);
     });
 
     it('stall controls: genuine slow progress never trips; absent progress uses only the long bound; transitions restart the clock', async () => {
@@ -946,5 +950,59 @@ describe('#1662 RETURN on 46ebed0f — transfer-only download stall; failed-navi
         t.onCommitted('https://app.test/x');
         tap.events.push(stamp({ event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } }));
         expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+});
+
+describe('#1662 RETURN on 814d2e25 — document tracking lives for the page, not the transport attachment', () => {
+    const quiet = { log: () => undefined, label: 'case' };
+    class TabPage extends EventEmitter {
+        readonly frame = { name: 'main' };
+        mainFrame() { return this.frame; }
+        context() { return { close: async () => undefined }; }
+        async evaluate() { return null; }
+    }
+    const posthog = (event: string, boot: string, capturedAt: number, props: Record<string, string> = {}) => ({
+        url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
+        postDataBuffer: () => Buffer.from(JSON.stringify([{ event, timestamp: new Date(capturedAt).toISOString(), properties: { boot_id: boot, ...props } }])),
+        response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
+    });
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    it('Sam\'s control: A → attach B → reload A → A\'s new-boot fatal still trips', async () => {
+        const a = new TabPage();
+        const b = new TabPage();
+        // framenavigated passes the main frame object itself.
+        const commit = async (page: TabPage, url: string) => {
+            page.emit('request', { url: () => url, method: () => 'GET', isNavigationRequest: () => true, frame: () => page.frame, postDataBuffer: () => null,
+                response: () => Promise.resolve({ url: () => url, status: () => 200, finished: () => Promise.resolve(null) }), failure: () => null });
+            await flush();
+            Object.assign(page.frame, { url: () => url });
+            page.emit('framenavigated', page.frame);
+        };
+        const tap = new AnalyticsTap();
+        tap.attach(a as never);
+        const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
+        const t0 = Date.now();
+        a.emit('request', posthog('journey_step', 'boot-A1', t0));
+        expect(await w.tick()).toBeNull();
+        tap.attach(b as never); // the shared tap's transport moves to device B
+        w.setPage(b as never);
+        await commit(a, 'https://app.test/session'); // A reloads: a new document, a new boot
+        await flush();
+        a.emit('request', posthog('session_save_latency_measured', 'boot-A2', Date.now() + 5, { outcome: 'failed' }));
+        expect(await w.tick(), 'A\'s new boot is its new document\'s boot').toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('a superseded navigation\'s late response changes nothing; a failure reported after the response clears the latch', () => {
+        const t = new CommittedDocumentTracker();
+        const first = t.onRequest();
+        const second = t.onRequest();
+        t.onResponse('https://app.test/old', 200, 1, first); // late response of the superseded request
+        t.onCommitted('https://app.test/old');
+        expect(t.generation).toBe(0);
+        t.onResponse('https://app.test/new', 200, 2, second);
+        t.onFailed(second); // the body failed after the response
+        t.onCommitted('https://app.test/new');
+        expect(t.generation).toBe(0);
     });
 });
