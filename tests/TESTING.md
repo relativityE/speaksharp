@@ -11,8 +11,7 @@ Please refer to:
 1.  **Hierarchy**: Real Imp > E2E Config > TestRegistry > `vi.mock`.
 2.  **Stores**: Use Real Stores + Reset (avoid manual mocks).
 3.  **Governance**:
-    -   Business Logic: 85% Coverage
-    -   Hooks: 80% Coverage
+    -   Use the selected source coverage configuration and QUALITY acceptance contract; historical example percentages are not a new gate.
 
 ## Related Guides
 
