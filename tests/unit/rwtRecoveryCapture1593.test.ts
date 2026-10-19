@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
     type BindingPage, type BindingRequest, type FenceCaptures, type RecoveryDb, type RecoveryQuery,
-    SessionCreateBinding, readAuthority, readBaselineRows, readRecording, readSessionRows, recoveryFenceRow,
+    SessionCreateBinding, readAuthority, readBaselineRows, readRecording, readSessionRows, readSnapshot, recoveryFenceRow,
 } from '../live/helpers/rwtRecoveryCapture';
 import type { RecoveryRead, RecoveryRows, RecoverySession, RecoverySnapshot } from '../live/helpers/rwtRecoveryFence1593';
 
@@ -47,6 +47,8 @@ const rowsOf = (ids: string[]) => ids.map((id) => ({ id, user_id: U }));
 /** Serves `ids` page by page against the requested range, reporting `count` (default: the true total). */
 const pagedFrom = (ids: string[], count: (i: number) => number | null = () => ids.length) =>
     (call: Call, i: number): Result => ({ data: rowsOf(ids.slice(call.range![0], call.range![1] + 1)), error: null, count: count(i) });
+/** A copy of `row` with `keys` ABSENT (not null) — a field the read never observed. */
+const without = <T extends object>(row: T, ...keys: string[]) => Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)));
 const observedRows = (r: RecoveryRows<unknown>) => { if (r.state !== 'observed') throw new Error('unavailable'); return r; };
 
 describe('#1593 case10 complete account-scoped reads', () => {
@@ -103,12 +105,47 @@ describe('#1593 case10 complete account-scoped reads', () => {
         expect(observedRows(got.rows).complete).toBe(false);
     });
 
-    it('maps the fence fields, keeping a non-string identity unreadable rather than coerced', async () => {
-        const raw = { id: 7, user_id: U, status: 'active', lease_id: L1, recording_fenced_at: null, recording_fenced_reason: null, lease_released_at: null };
+    it('maps the fence fields, keeping a PRESENT null as null', async () => {
+        const raw = { id: 'a', user_id: U, status: 'active', lease_id: L1, recording_fenced_at: null, recording_fenced_reason: null, lease_released_at: null };
         const { db, calls } = fakeDb(() => ({ data: [raw], error: null, count: 1 }));
         const got = observedRows((await readSessionRows(db, U)).rows);
         expect(calls[0].columns).toBe('id,user_id,status,lease_id,recording_fenced_at,recording_fenced_reason,lease_released_at');
-        expect(got.value[0]).toEqual({ ...raw, id: '' });
+        expect(got).toEqual({ state: 'observed', complete: true, value: [raw] });
+    });
+
+    // Sam 1792434511 finding 1: an absent or malformed observation is never coerced into SQL NULL.
+    const full = { id: 'a', user_id: U, status: 'active', lease_id: L1, recording_fenced_at: null, recording_fenced_reason: null, lease_released_at: null };
+    it.each([
+        ['absent fence stamp', without(full, 'recording_fenced_at')],
+        ['absent release stamp', without(full, 'lease_released_at')],
+        ['malformed fence reason', { ...full, recording_fenced_reason: 5 }],
+        ['malformed status', { ...full, status: { s: 'active' } }],
+        ['non-string id', { ...full, id: 7 }],
+        ['null owner', { ...full, user_id: null }],
+    ])('a row with an %s makes the whole read unavailable', async (_name, raw) => {
+        const { db } = fakeDb(() => ({ data: [raw], error: null, count: 1 }));
+        expect((await readSessionRows(db, U)).rows).toEqual({ state: 'unavailable' });
+    });
+
+    it('a baseline identity row with an absent or malformed identity is unavailable', async () => {
+        for (const raw of [{ user_id: U }, { id: 'a', user_id: 9 }]) {
+            const { db } = fakeDb(() => ({ data: [raw], error: null, count: 1 }));
+            expect((await readBaselineRows(db, U)).rows).toEqual({ state: 'unavailable' });
+        }
+    });
+
+    it('Sam 1792434511 finding 2: a returned page is scanned for duplicates BEFORE count drift is classified', async () => {
+        const { db } = fakeDb((_call, i) => (i === 0 ? { data: rowsOf(['a', 'b']), error: null, count: 3 } : { data: rowsOf(['b', 'c']), error: null, count: 4 }));
+        const got = await readBaselineRows(db, U, 2);
+        expect(got.duplicateIdentity).toBe(true);
+        expect(got.rows.state === 'observed' ? got.rows.complete : false).toBe(false);
+    });
+
+    it('a duplicate survives a malformed row in the same read (the caller FAILs it first)', async () => {
+        const { db } = fakeDb(() => ({ data: [...rowsOf(['a', 'a']), { id: 'b' }], error: null, count: 3 }));
+        const got = await readBaselineRows(db, U);
+        expect(got.duplicateIdentity).toBe(true);
+        expect(got.rows).toEqual({ state: 'unavailable' });
     });
 });
 
@@ -124,17 +161,24 @@ describe('#1593 case10 lease authority read', () => {
         const held = fakeDb(() => ({ data: null, error: null }), () => ({ data: { user_id: U, lease_id: L2, state: 'recording' }, error: null }));
         expect(await readAuthority(held.db, U)).toEqual({ state: 'observed', value: { user_id: U, lease_id: L2, state: 'recording' } });
     });
+
+    it('a held lease with an absent or malformed field is unavailable, never an empty-string lease', async () => {
+        for (const data of [{ user_id: U, state: 'recording' }, { user_id: U, lease_id: 7, state: 'recording' }, { user_id: U, lease_id: L2 }, 'row']) {
+            const bad = fakeDb(() => ({ data: null, error: null }), () => ({ data, error: null }));
+            expect(await readAuthority(bad.db, U)).toEqual({ state: 'unavailable' });
+        }
+    });
 });
 
 /** A controllable request: the response settles only when the test says so. */
-function rpc(lease: string | null, opts: { url?: string; method?: string } = {}) {
+function rpc(lease: string | null, opts: { url?: string; method?: string; unparsable?: boolean } = {}) {
     let settle!: (r: { ok(): boolean; json(): Promise<unknown> } | null) => void;
     let fail!: (e: unknown) => void;
     const pending = new Promise<{ ok(): boolean; json(): Promise<unknown> } | null>((res, rej) => { settle = res; fail = rej; });
     const request: BindingRequest = {
         url: () => opts.url ?? RPC,
         method: () => opts.method ?? 'POST',
-        postDataJSON: () => ({ p_session_data: lease === null ? {} : { lease_id: lease } }),
+        postDataJSON: () => { if (opts.unparsable) throw new Error('not JSON'); return { p_session_data: lease === null ? {} : { lease_id: lease } }; },
         response: () => pending,
     };
     const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -240,10 +284,18 @@ describe('#1593 case10 passive take-identity binding', () => {
             expect(b.binding('A')).toEqual({ state: 'contradiction', reason });
         }
         const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
-        const one = rpc(null); page.emit(one.request); await one.created(created('left', L1));
-        const two = rpc(null); page.emit(two.request); await two.created(created('left', L2));
+        const one = rpc(L1); page.emit(one.request); await one.created(created('left', L1));
+        const two = rpc(L2); page.emit(two.request); await two.created(created('left', L2));
         expect(b.binding('A')).toEqual({ state: 'contradiction', reason: 'one_session_two_leases' });
     });
+
+    // Sam 1792434538: the request's own lease is required — response-only identity is never substituted.
+    it.each([['no lease_id in p_session_data', {}], ['an unparsable request body', { unparsable: true }]] as const)(
+        'a successful creation from a request with %s is unavailable (HOLD), never observed', async (_name, opts) => {
+            const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+            const r = rpc(null, opts); page.emit(r.request); await r.created(created('left', L1));
+            expect(b.binding('A')).toEqual({ state: 'unavailable', reason: 'creation_request_lease_unreadable' });
+        });
 
     it('binds across a replaced/returned page and detaches every page, including a closed one, without throwing', async () => {
         const first = fakePage(); const returned = fakePage();
@@ -336,6 +388,18 @@ describe('#1593 case10 evidence assembly before the oracle', () => {
         const c = captures(); delete c.beforeSuccessor;
         expect(run(c).status).toBe('HOLD');
         expect(run(captures(), bound({ state: 'unavailable', reason: 'no_creation_observed' }, B)).status).toBe('HOLD');
+    });
+
+    it('Sam 1792434511 reproducer: C\'s displaced row with its fence fields REMOVED, through the real reader and oracle, HOLDs — never PASS', async () => {
+        const stripped = without(fenced, 'recording_fenced_at', 'recording_fenced_reason');
+        const next = row('next', L2, { status: 'completed' });
+        const { db } = fakeDb(() => ({ data: [stripped, next], error: null, count: 2 }), () => ({ data: null, error: null }));
+        const after = await readSnapshot(db, 'run', U);
+        expect(after.snapshot.rows).toEqual({ state: 'unavailable' });
+        expect(run(captures(), bound(A, B), after).status).toBe('HOLD');
+        // the same reader with the fields PRESENT passes, so the HOLD is the missing observation, not the fixture
+        const { db: whole } = fakeDb(() => ({ data: [fenced, next], error: null, count: 2 }), () => ({ data: null, error: null }));
+        expect(run(captures(), bound(A, B), await readSnapshot(whole, 'run', U)).status).toBe('PASS');
     });
 
     it('carries only states and counts to the receipt, never an identity', () => {

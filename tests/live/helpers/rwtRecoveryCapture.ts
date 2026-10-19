@@ -30,12 +30,26 @@ export type RowsCapture<T> = { rows: RecoveryRows<T>; duplicateIdentity: boolean
 
 const SESSION_FIELDS = 'id,user_id,status,lease_id,recording_fenced_at,recording_fenced_reason,lease_released_at';
 const text = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-/** A non-string identity stays unreadable ('' — the oracle HOLDs it); a nullable field keeps null distinct from absent. */
-const identity = (r: Record<string, unknown>): RecoveryRowIdentity => ({ id: text(r.id) ?? '', user_id: text(r.user_id) ?? '' });
+/** A row that is not an observation of every selected field (Sam 1792434511 finding 1): never coerced into SQL NULL. */
+class MalformedRow extends Error {}
+const required = (r: Record<string, unknown>, key: string): string => {
+    const v = r[key];
+    if (typeof v !== 'string' || v === '') throw new MalformedRow(key);
+    return v;
+};
+/** A selected nullable column: a PRESENT null stays null; an absent key or a non-string value is not an observation. */
+const nullable = (r: Record<string, unknown>, key: string): string | null => {
+    if (!Object.prototype.hasOwnProperty.call(r, key)) throw new MalformedRow(key);
+    const v = r[key];
+    if (v === null) return null;
+    if (typeof v !== 'string') throw new MalformedRow(key);
+    return v;
+};
+const identity = (r: Record<string, unknown>): RecoveryRowIdentity => ({ id: required(r, 'id'), user_id: required(r, 'user_id') });
 const session = (r: Record<string, unknown>): RecoverySession => ({
     ...identity(r),
-    status: text(r.status), lease_id: text(r.lease_id), recording_fenced_at: text(r.recording_fenced_at),
-    recording_fenced_reason: text(r.recording_fenced_reason), lease_released_at: text(r.lease_released_at),
+    status: nullable(r, 'status'), lease_id: nullable(r, 'lease_id'), recording_fenced_at: nullable(r, 'recording_fenced_at'),
+    recording_fenced_reason: nullable(r, 'recording_fenced_reason'), lease_released_at: nullable(r, 'lease_released_at'),
 });
 
 async function readComplete<T extends RecoveryRowIdentity>(db: RecoveryDb, ownerId: string, columns: string,
@@ -43,6 +57,8 @@ async function readComplete<T extends RecoveryRowIdentity>(db: RecoveryDb, owner
     const out: T[] = [];
     const seen = new Set<string>();
     let duplicateIdentity = false;
+    let malformed = false;
+    let rowsRead = 0;
     let total: number | null = null;
     let complete = true;
     for (let from = 0; ; from += pageSize) {
@@ -51,20 +67,25 @@ async function readComplete<T extends RecoveryRowIdentity>(db: RecoveryDb, owner
             page = await db.from('sessions').select(columns, { count: 'exact' }).eq('user_id', ownerId)
                 .order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, from + pageSize - 1);
         } catch { complete = false; break; }
-        if (page.error || !Array.isArray(page.data) || typeof page.count !== 'number') { complete = false; break; }
+        if (page.error || !Array.isArray(page.data)) { complete = false; break; }
+        // Sam 1792434511 finding 2: every SUCCESSFULLY returned row is scanned for a duplicate identity before the page's
+        // count is classified — count drift or a missing count must not hide an observed duplicate as a HOLD.
+        rowsRead += page.data.length;
+        for (const raw of page.data) {
+            const r = (raw !== null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+            if (typeof r.id === 'string' && r.id !== '') {
+                if (seen.has(r.id)) duplicateIdentity = true;
+                seen.add(r.id);
+            }
+            try { out.push(map(r)); } catch (e) { if (!(e instanceof MalformedRow)) throw e; malformed = true; }
+        }
+        if (typeof page.count !== 'number') { complete = false; break; }
         if (total === null) total = page.count;
         else if (page.count !== total) { complete = false; break; } // the set changed while it was read
-        for (const raw of page.data) {
-            const row = map((raw ?? {}) as Record<string, unknown>);
-            if (row.id !== '') {
-                if (seen.has(row.id)) duplicateIdentity = true;
-                seen.add(row.id);
-            }
-            out.push(row);
-        }
-        if (page.data.length < pageSize || out.length >= total) break;
+        if (page.data.length < pageSize || rowsRead >= total) break;
     }
-    if (total === null) return { rows: { state: 'unavailable' }, duplicateIdentity };
+    // A row that is not a full observation makes the whole read unavailable (the oracle HOLDs); the duplicate fact survives.
+    if (total === null || malformed) return { rows: { state: 'unavailable' }, duplicateIdentity };
     // A repeated identity means the order moved under the pages: some row was skipped even if the count is filled.
     return { rows: { state: 'observed', complete: complete && !duplicateIdentity && out.length === total, value: out }, duplicateIdentity };
 }
@@ -79,8 +100,9 @@ export async function readAuthority(db: RecoveryDb, ownerId: string): Promise<Re
         const { data, error } = await db.from('active_recording_lease').select('user_id,lease_id,state').eq('user_id', ownerId).maybeSingle();
         if (error) return { state: 'unavailable' };
         if (data === null) return { state: 'observed', value: null }; // a SUCCESSFUL read with no row: absent
-        const r = (data ?? {}) as Record<string, unknown>;
-        return { state: 'observed', value: { user_id: text(r.user_id) ?? '', lease_id: text(r.lease_id) ?? '', state: text(r.state) ?? '' } };
+        const r = (typeof data === 'object' ? data : {}) as Record<string, unknown>;
+        // The same rule as the session rows: a held lease is observed only with every field present and readable.
+        return { state: 'observed', value: { user_id: required(r, 'user_id'), lease_id: required(r, 'lease_id'), state: required(r, 'state') } };
     } catch {
         return { state: 'unavailable' };
     }
@@ -115,9 +137,10 @@ const RPC_PATH = '/rest/v1/rpc/create_session_and_update_usage';
  */
 export class SessionCreateBinding {
     private phase: string | null = null;
-    private readonly records = new Map<string, { sessionId: string; userId: string; leaseId: string; requestLease: string | null }[]>();
+    private readonly records = new Map<string, { sessionId: string; userId: string; leaseId: string; requestLease: string }[]>();
     private readonly pending = new Map<string, number>();
     private readonly failures = new Map<string, number>();
+    private readonly unreadableRequests = new Map<string, number>();
     private readonly attached: [BindingPage, (r: BindingRequest) => void][] = [];
 
     constructor(private readonly supabaseOrigin: string, private readonly ownerId: () => string) {}
@@ -140,15 +163,19 @@ export class SessionCreateBinding {
         let url: URL;
         try { url = new URL(request.url()); } catch { return; }
         if (request.method() !== 'POST' || url.origin !== this.supabaseOrigin || url.pathname !== RPC_PATH) return;
-        let requestLease: string | null = null;
-        try {
-            const body = request.postDataJSON() as { p_session_data?: { lease_id?: unknown } } | null;
-            requestLease = text(body?.p_session_data?.lease_id);
-        } catch { requestLease = null; }
+        const requestLease = (() => {
+            try {
+                const body = request.postDataJSON() as { p_session_data?: { lease_id?: unknown } } | null;
+                return text(body?.p_session_data?.lease_id);
+            } catch { return null; }
+        })();
         const bump = (m: Map<string, number>, by: number) => m.set(phase, (m.get(phase) ?? 0) + by);
         bump(this.pending, 1);
         void request.response().then(async (response) => {
             if (!response || !response.ok()) { bump(this.failures, 1); return; }
+            // Sam 1792434538: the take is bound only against its OWN request lease — a request with no readable lease
+            // cannot be checked, so its creation is unavailable (HOLD); response-only identity is never substituted.
+            if (requestLease === null || requestLease === '') { bump(this.unreadableRequests, 1); return; }
             const body = await response.json().catch(() => undefined) as { new_session?: Record<string, unknown> | null } | undefined;
             if (body === undefined) { bump(this.failures, 1); return; }
             const created = body.new_session;
@@ -163,10 +190,11 @@ export class SessionCreateBinding {
     binding(phase: string): TakeBinding {
         if ((this.pending.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_unsettled' };
         if ((this.failures.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_exchange_failed' };
+        if ((this.unreadableRequests.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_request_lease_unreadable' };
         const list = this.records.get(phase) ?? [];
         if (list.some((r) => r.sessionId === '' || r.leaseId === '' || r.userId === '')) return { state: 'unavailable', reason: 'creation_identity_unreadable' };
         if (list.some((r) => r.userId !== this.ownerId())) return { state: 'contradiction', reason: 'creation_owner_mismatch' };
-        if (list.some((r) => r.requestLease !== null && r.requestLease !== r.leaseId)) return { state: 'contradiction', reason: 'creation_lease_mismatch' };
+        if (list.some((r) => r.requestLease !== r.leaseId)) return { state: 'contradiction', reason: 'creation_lease_mismatch' };
         const ids = new Set(list.map((r) => r.sessionId));
         if (ids.size === 0) return { state: 'unavailable', reason: 'no_creation_observed' };
         if (ids.size > 1) return { state: 'unavailable', reason: 'ambiguous_creations' };
@@ -177,7 +205,7 @@ export class SessionCreateBinding {
 
     /** Every identity observed, for `receipt.forbid` (never written to the receipt). */
     identities(): string[] {
-        return [...this.records.values()].flat().flatMap((r) => [r.sessionId, r.leaseId, r.requestLease ?? '']).filter((v) => v !== '');
+        return [...this.records.values()].flat().flatMap((r) => [r.sessionId, r.leaseId, r.requestLease]).filter((v) => v !== '');
     }
 }
 
