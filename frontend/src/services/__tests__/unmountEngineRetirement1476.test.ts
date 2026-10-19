@@ -464,6 +464,65 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(transitions, 'no stale TERMINATED/IDLE from the superseded retirement').toEqual([]);
     });
 
+    /**
+     * Codex P2 r4317105661 (#1668, Sam 1792438537): `transition()` awaits, so a hard reset or a successor Start can take the
+     * runtime BETWEEN the late retirement's TERMINATED and IDLE. Interleave exactly there and require that the stale
+     * retirement publishes nothing after it, and never calls back for a take it no longer owns.
+     */
+    const interleaveAfterLateTerminated = (successor: () => Promise<void>) => {
+        const ctl = controller as unknown as { transition: (state: string, ...rest: unknown[]) => Promise<void> };
+        const original = ctl.transition.bind(controller);
+        let armed = true;
+        const seen: string[] = [];
+        vi.spyOn(ctl, 'transition').mockImplementation(async (state: string, ...rest: unknown[]) => {
+            await original(state, ...rest);
+            seen.push(state);
+            if (state === 'TERMINATED' && armed) { armed = false; await successor(); }
+        });
+        return seen;
+    };
+
+    it('Codex P2 r4317105661: a hard reset + successor Start inside the late TERMINATED→IDLE window keeps the successor\'s state', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('initializing', onLateTerminal);
+        engine.initGate = new Promise<void>(() => undefined); // the successor parks in its own preparation
+        let successorState = '';
+        interleaveAfterLateTerminated(async () => {
+            await controller.hardResetAwaited('p2-successor');
+            void controller.startRecording(POLICY as never, []).catch(() => undefined);
+            await vi.waitFor(() => expect(['INITIATING', 'ENGINE_INITIALIZING', 'DOWNLOAD_REQUIRED']).toContain(controller.getState()));
+            successorState = controller.getState();
+        });
+        t.finishTermination();
+        await settle(60);
+        expect(successorState, 'the successor really started inside the window').not.toBe('');
+        expect(controller.getState(), 'the stale retirement never publishes IDLE over the successor').toBe(successorState);
+        expect(useSessionStore.getState().runtimeState).toBe(successorState);
+        expect(onLateTerminal, 'no lease callback for a take the retirement no longer owns').not.toHaveBeenCalled();
+    });
+
+    it('Codex P2 r4317105661: a successor that only ATTACHES a service in the window (same lifecycle version) is still respected', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        const ctl = controller as unknown as { serviceGeneration: number };
+        const seen = interleaveAfterLateTerminated(async () => { ctl.serviceGeneration += 1; });
+        t.finishTermination();
+        await settle(60);
+        expect(seen, 'the retirement stopped after TERMINATED').toEqual(['TERMINATED']);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+    });
+
+    it('Codex P2 r4317105661: with the owner UNCHANGED through the window, the late retirement still completes to IDLE', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        const seen = interleaveAfterLateTerminated(async () => { await settle(5); });
+        t.finishTermination();
+        await settle(60);
+        expect(seen.slice(seen.indexOf('TERMINATED')), 'the retirement still completes both transitions').toEqual(['TERMINATED', 'IDLE']);
+        expect(controller.getState()).toBe('IDLE');
+        expect(onLateTerminal).toHaveBeenCalledTimes(1);
+    });
+
     it('case4: the hook releases the take\'s lease on late proof — only while that take still owns it', async () => {
         const store = () => useSessionStore.getState();
         const retire = vi.spyOn(controller, 'retireEngineForUnmount');

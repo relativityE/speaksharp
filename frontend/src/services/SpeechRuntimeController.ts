@@ -5138,6 +5138,9 @@ export class SpeechRuntimeController {
         pushNativeRuntimeTrace('controller_unmount_retire_late_terminal', { state: this.state });
         this.setEngineReady(false);
         await this.transition('TERMINATED');
+        // Codex P2 r4317105661: transition() awaits, so a hard reset or a successor that attached a service in that window
+        // owns the runtime now — recheck this retirement's tuple before publishing anything else.
+        if (this.lifecycleVersion !== retirement.version || this.serviceGeneration !== retirement.generation || this.service !== null) return;
         await this.transition('IDLE');
         if (this.lifecycleVersion === retirement.version && this.getState() === 'IDLE' && !hasEngineNotConfirmedStopped()) onLateTerminal?.();
     }
