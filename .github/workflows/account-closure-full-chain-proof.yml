@@ -84,6 +84,8 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: account-closure-full-chain-17.6.1.155-${{ github.event.pull_request.head.sha }}
-          path: artifacts/account-closure-full-chain/*.json
+          path: |
+            artifacts/account-closure-full-chain/*.json
+            artifacts/account-recording-admission/*.json
           if-no-files-found: error
           retention-days: 1
