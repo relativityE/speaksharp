@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "identity": {
+    "engine": "private-v4",
+    "modelId": "onnx-community/distil-small.en",
+    "revision": null,
+    "assetDigest": "b5e113f824bd8db270210d4c90ac779d2914c705bc692a9376b7cb89dbde042e",
+    "runtime": "@huggingface/transformers@4.3.0",
+    "backend": "webgpu"
+  },
+  "adapterModule": "./scripts/model-evaluator/adapters/candidate-browser.ts",
+  "adapterOptions": { "candidateId": "v4:distil:q4" }
+}
