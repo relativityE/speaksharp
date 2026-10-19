@@ -32,10 +32,10 @@ confirm, token issuance, provider operation or destructive retry exists in recov
 Command:
 
 ```
-pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false --reporter=dot tests/unit/accountDeletionStatus.component.test.tsx frontend/src/pages/__tests__/AccountDeletionPage.component.test.tsx tests/unit/accountDeletionVerification.test.ts tests/unit/accountClosureRequest.test.ts
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false --reporter=dot tests/unit/accountDeletionStatus.component.test.tsx tests/unit/accountDeletionAttempts.test.ts frontend/src/pages/__tests__/AccountDeletionPage.component.test.tsx tests/unit/accountDeletionVerification.test.ts tests/unit/accountClosureRequest.test.ts
 ```
 
-75/75 PASS: 14 new status component controls, 37 retained UI/token controls,
+80/80 PASS: 16 new status component controls, 3 attempt-interleaving controls, 37 retained UI/token controls,
 24 existing request-handler controls. One new component control invokes the actual
 `handleClosureRequest` function with its inactive pending adapter and checks the
 `202` payload consumption and no-store response. Auth, transport and durable storage
@@ -45,6 +45,16 @@ The two principal new tests were also executed against the verbatim retained
 `530b3ff4` page via a test-only alias: both RED (missing reload hydration and rejected
 actual pending reply), with the remaining 12 new controls deliberately skipped.
 The retained source and temporary alias configuration are local ignored artifacts.
+An additional remount-during-confirmation control was RED on the initial increment
+`55722527`: status learned the committed request ID before the original HTTP reply,
+but late reply reconciliation discarded it. The successor preserves that identity
+both while the confirmation is in flight and when its reply settles unknown.
+Sam's adjacent late-refusal finding was reproduced in the exact attempt helper and
+two simultaneously mounted real pages: late `ready/refused` must not override the
+already observed durable pending intent. Both were RED before the correction; the
+genuine refusal control still permits a fresh explicit request when no pending was
+observed. The successor preserves the pending phase and its identity through both
+unknown and refused replies.
 
 Scoped ESLint passes. Full default `pnpm quality` passes (exit 0), including product
 contract, repository lint, frontend/live/evidence typechecks and eslint-disable guard.

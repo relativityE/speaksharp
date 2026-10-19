@@ -28,13 +28,20 @@ export const accountDeletionAttempts = {
   finish(ownerId: string, id: symbol, snapshot: Snapshot) {
     const attempt = attempts.get(ownerId);
     if (attempt?.id !== id || attempt.snapshot.phase !== 'pending') return;
-    attempts.set(ownerId, { id, snapshot });
+    const next: Snapshot = attempt.requestId && snapshot.phase === 'ready'
+      ? { phase: 'reconciliation', message: 'Your deletion request is pending. Do not request another link or retry confirmation.' }
+      : snapshot;
+    attempts.set(ownerId, { ...attempt, snapshot: next });
     listeners.forEach((listener) => listener());
   },
   observePending(ownerId: string, requestId: string): boolean {
     const attempt = attempts.get(ownerId);
     if (attempt?.requestId && attempt.requestId !== requestId) return false;
-    if (attempt?.snapshot.phase === 'completed' || attempt?.snapshot.phase === 'pending') return true;
+    if (attempt?.snapshot.phase === 'completed') return true;
+    if (attempt?.snapshot.phase === 'pending') {
+      attempts.set(ownerId, { ...attempt, requestId });
+      return true;
+    }
     attempts.set(ownerId, { id: attempt?.id ?? Symbol(), requestId, snapshot: {
       phase: 'reconciliation',
       message: 'Your deletion request is pending. Do not request another link or retry confirmation.',

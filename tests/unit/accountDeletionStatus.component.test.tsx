@@ -122,6 +122,45 @@ describe('#1643 owner-status recovery — real page, transport seams', () => {
     expect(mocks.invoke.mock.calls.filter(([, options]) => options.body.action === 'confirm')).toHaveLength(1);
   });
 
+  it('retains request identity observed on remount while the original confirmation reply is still pending', async () => {
+    let finish: (value: unknown) => void = () => {};
+    let statusReads = 0;
+    mocks.invoke.mockImplementation((_name, options) => {
+      if (options.body.action === 'confirm') return new Promise((resolve) => { finish = resolve; });
+      statusReads += 1;
+      return Promise.resolve(response(statusReads === 1 ? notPending : statusReads === 2 ? pending
+        : { ...pending, requestId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }));
+    });
+    const first = mount();
+    await confirm();
+    first.unmount();
+    mount();
+    await screen.findByText(/Outstanding checkout operations: 1/);
+    await act(async () => { finish({ data: null, error: new Error('late lost confirmation reply') }); });
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    await screen.findByText(/could not verify your account deletion status/);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(mocks.invoke.mock.calls.filter(([, options]) => options.body.action === 'confirm')).toHaveLength(1);
+  });
+
+  it('another mounted page observing pending dominates a late refusal and cannot reopen the email action', async () => {
+    let finish: (value: unknown) => void = () => {};
+    let statusReads = 0;
+    mocks.invoke.mockImplementation((_name, options) => options.body.action === 'confirm'
+      ? new Promise((resolve) => { finish = resolve; })
+      : Promise.resolve(response(++statusReads === 1 ? notPending : pending)));
+    mount();
+    await confirm();
+    mount();
+    await screen.findByText(/Outstanding checkout operations: 1/);
+    await act(async () => { finish(response({ outcome: 'refused', accountDeleted: false,
+      billingClosed: false, customerDeleted: false })); });
+    expect(screen.queryByRole('button', { name: 'Email me a verification link' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(mocks.invoke.mock.calls.filter(([, options]) => options.body.action === 'confirm')).toHaveLength(1);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['unavailable', null, new Error('503')],
     ['legacy destructive reply', { outcome: 'deleted', accountDeleted: true }, null],
