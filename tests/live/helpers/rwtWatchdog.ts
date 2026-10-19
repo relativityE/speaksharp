@@ -15,7 +15,7 @@
  * the CI log. Everything it prints or records is a closed enum, an integer or a boolean — never content or an id.
  */
 import type { BrowserContext, Page } from '@playwright/test';
-import type { AnalyticsTap, RwtReceipt, SentEvent } from './rwtJourney';
+import type { AnalyticsTap, DocumentRef, RwtReceipt, SentEvent } from './rwtJourney';
 import { COACHING_SETTLE_BOUND_MS } from './rwtCoachingEvidence';
 
 /** The ONLY properties the watchdog reads from an event: every one a governed closed enum (telemetryAllowlist). */
@@ -405,22 +405,48 @@ export class JourneyWatchdog {
         return !this.bootMatches(e);
     }
 
+    /**
+     * Sam, #1662 RETURN on b0dd763a: indexes of events whose document is still settling (a held commit whose response has
+     * not arrived). They are retained and re-judged once resolved — never judged against the predecessor document.
+     */
+    private readonly deferred: number[] = [];
+
+    private unresolved(e: SentEvent): boolean {
+        const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
+        return ref !== undefined && !ref.resolved;
+    }
+
+    /** Judge one event whose document identity is settled; returns its fatal signal, if any. */
+    private judge(e: SentEvent, now: number): WatchSignal | null {
+        if (!(e.event in WATCHED_FIELDS)) {
+            // Every event a watched page sends establishes its document's boot (never a watched signal itself).
+            if (this.watchedPages.has((e as { sourcePage?: unknown }).sourcePage)) this.bootMatches(e);
+            return null;
+        }
+        if (this.foreign(e)) { this.foreignIgnored += 1; return null; }
+        this.watchedSeen += 1;
+        this.lastEvent = { name: e.event, at: e.at };
+        const sourcePage = (e as { sourcePage?: unknown }).sourcePage;
+        const kind = fatalSignalOf(e, this.profileAt(e.capturedAt, sourcePage), this.forbiddenAt(e.capturedAt));
+        return kind ? { kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started } : null;
+    }
+
     /** Classify every queued event (synchronous); the first unexpected fatal one is returned. */
     private scanTelemetry(now: number): WatchSignal | null {
         const events = this.o.tap.events;
+        // Deferred events whose document has since resolved, in capture order.
+        for (let i = 0; i < this.deferred.length;) {
+            const e = events[this.deferred[i]];
+            if (this.unresolved(e)) { i += 1; continue; }
+            this.deferred.splice(i, 1);
+            const signal = this.judge(e, now);
+            if (signal) return signal;
+        }
         for (; this.cursor < events.length; this.cursor += 1) {
             const e = events[this.cursor];
-            if (!(e.event in WATCHED_FIELDS)) {
-                // Every event a watched page sends establishes its document's boot (never a watched signal itself).
-                if (this.watchedPages.has((e as { sourcePage?: unknown }).sourcePage)) this.bootMatches(e);
-                continue;
-            }
-            if (this.foreign(e)) { this.foreignIgnored += 1; continue; }
-            this.watchedSeen += 1;
-            this.lastEvent = { name: e.event, at: e.at };
-            const sourcePage = (e as { sourcePage?: unknown }).sourcePage;
-            const kind = fatalSignalOf(e, this.profileAt(e.capturedAt, sourcePage), this.forbiddenAt(e.capturedAt));
-            if (kind) { this.cursor += 1; return { kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started }; }
+            if (this.unresolved(e)) { this.deferred.push(this.cursor); continue; }
+            const signal = this.judge(e, now);
+            if (signal) { this.cursor += 1; return signal; }
         }
         return null;
     }
@@ -514,11 +540,15 @@ export class JourneyWatchdog {
             if (terminal) this.mark(terminal);
         }
         const s = this.signal;
-        const observation = { watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable };
+        const unresolvedIdentity = this.deferred.filter((i) => this.unresolved(this.o.tap.events[i])).length;
+        const observation = { watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable, unresolvedIdentity };
         if (s) {
             receipt.row('fail-early watchdog', 'FAIL',
                 `the journey was stopped early: ${s.kind}${s.event ? ` (${s.event})` : ''} after ${Math.round(s.elapsedMs / 1000)} s`,
                 { kind: s.kind, event: s.event ?? 'dom', elapsedMs: s.elapsedMs, ...s.fields, ...observation });
+        } else if (unresolvedIdentity > 0) {
+            // Sam, #1662 RETURN on b0dd763a: evidence whose document never settled is not a clean journey.
+            receipt.row('fail-early watchdog', 'HOLD', `${unresolvedIdentity} event(s) arrived while a navigation was still settling and never resolved to a document, so no clean run is claimed`, observation);
         } else if (this.domOk === 0 && this.watchedSeen === 0) {
             receipt.row('fail-early watchdog', 'HOLD', 'the journey was never observed (no readable page state and no watched telemetry), so no clean run is claimed', observation);
         } else {

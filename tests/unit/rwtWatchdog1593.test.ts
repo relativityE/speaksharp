@@ -851,7 +851,8 @@ describe('#1662 RETURN on 76a0bf6e — committed-document boot identity; downloa
         expect(wiring).toContain('if (error) documents.onFailed(seq);');
         expect(wiring).toContain('documents.onCommitted(frame.url())');
         expect(src).toContain('const documents = this.documentsOf(page);');
-        expect(src).toContain('value: documents.generation, enumerable: false');
+        expect(src).toContain("Object.defineProperty(this.events[i], 'sourceDocumentRef', { value: ref, enumerable: false });");
+        expect(src).toContain('const ref = documents.currentRef();');
         // Never part of the transport listener set that detach / re-attach removes.
         expect(src).not.toMatch(/this\.listeners\.push\(\['response'/);
     });
@@ -1120,5 +1121,117 @@ describe('#1662 RETURN on 006f896d — navigation response and commit in EITHER 
         await nav.respond();
         a.emit('request', posthog('session_save_latency_measured', 'boot-1', Date.now() + 5, { outcome: 'failed' }));
         expect(await w.tick(), 'the original document is still current').toMatchObject({ kind: 'save_failed' });
+    });
+});
+
+describe('#1662 RETURN on b0dd763a — events while a navigation settles keep an unresolved document, judged once it settles', () => {
+    const quiet = { log: () => undefined, label: 'case' };
+    class TabPage extends EventEmitter {
+        readonly frame: { url: () => string } = { url: () => 'about:blank' };
+        mainFrame() { return this.frame; }
+        context() { return { close: async () => undefined }; }
+        async evaluate() { return null; }
+    }
+    const posthog = (event: string, boot: string, capturedAt: number, props: Record<string, string> = {}) => ({
+        url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
+        postDataBuffer: () => Buffer.from(JSON.stringify([{ event, timestamp: new Date(capturedAt).toISOString(), properties: { boot_id: boot, ...props } }])),
+        response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
+    });
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    const navigate = (page: TabPage, url: string, status: number | null = 200) => {
+        let release!: () => void;
+        const responded = new Promise<void>((r) => { release = r; });
+        page.emit('request', { url: () => url, method: () => 'GET', isNavigationRequest: () => true, frame: () => page.frame, postDataBuffer: () => null,
+            response: () => responded.then(() => (status === null ? null : { url: () => url, status: () => status, finished: () => Promise.resolve(null) })),
+            failure: () => null });
+        const commit = () => { page.frame.url = () => url; page.emit('framenavigated', page.frame); };
+        return { commit, respond: async () => { release(); await flush(); } };
+    };
+    const saveFailed = (boot: string) => posthog('session_save_latency_measured', boot, Date.now() + 5, { outcome: 'failed' });
+    /** A watched page with an established boot, optionally after the tap moved to page B. */
+    const setup = async (viaB: boolean) => {
+        const a = new TabPage();
+        const tap = new AnalyticsTap();
+        tap.attach(a as never);
+        const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
+        a.emit('request', posthog('journey_step', 'boot-1', Date.now()));
+        expect(await w.tick()).toBeNull();
+        if (viaB) { const b = new TabPage(); tap.attach(b as never); w.setPage(b as never); }
+        return { a, tap, w };
+    };
+
+    for (const viaB of [false, true]) {
+        const path = viaB ? 'A → attach B → reload A' : 'single page';
+        for (const tickInside of [false, true]) {
+            it(`${path}: commit → new-boot fatal → response${tickInside ? ' (tick inside the unresolved window)' : ''} — trips`, async () => {
+                const { a, w } = await setup(viaB);
+                const nav = navigate(a, 'https://app.test/session');
+                nav.commit();
+                a.emit('request', saveFailed('boot-2'));
+                const inside = tickInside ? await w.tick() : null;
+                expect(inside, 'unresolved: retained, not judged').toBeNull();
+                await nav.respond();
+                expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+            });
+        }
+    }
+
+    it('fatal BEFORE the commit belongs to the original document and trips', async () => {
+        const { a, w } = await setup(false);
+        const nav = navigate(a, 'https://app.test/session');
+        a.emit('request', saveFailed('boot-1'));
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+        nav.commit();
+        await nav.respond();
+    });
+
+    it('fatal AFTER response and commit trips', async () => {
+        const { a, w } = await setup(true);
+        const nav = navigate(a, 'https://app.test/session');
+        nav.commit();
+        await nav.respond();
+        a.emit('request', saveFailed('boot-2'));
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('an old-boot late event inside the window resolves to the new document and is foreign; the new boot still trips', async () => {
+        const { a, w } = await setup(false);
+        const nav = navigate(a, 'https://app.test/session');
+        nav.commit();
+        a.emit('request', saveFailed('boot-1')); // the predecessor's late unload beacon
+        await nav.respond();
+        expect(await w.tick(), 'the old boot cannot claim the new document').toBeNull();
+        a.emit('request', saveFailed('boot-2'));
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('a navigation that FAILS after an early commit resolves the window to the original document; its boot still trips', async () => {
+        const { a, w } = await setup(false);
+        const nav = navigate(a, 'https://app.test/session', null);
+        nav.commit();
+        a.emit('request', saveFailed('boot-1'));
+        expect(await w.tick()).toBeNull();
+        await nav.respond();
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('a SUPERSEDED navigation resolves the window to the current document', () => {
+        const t = new CommittedDocumentTracker();
+        t.onRequest();
+        t.onCommitted('https://app.test/a');
+        const ref = t.currentRef();
+        expect(ref.resolved).toBe(false);
+        t.onRequest(); // a newer navigation drops the held commit
+        expect([ref.resolved, ref.generation]).toEqual([true, 0]);
+    });
+
+    it('evidence still unresolved when the journey ends is HOLD, never PASS', async () => {
+        const { a, w } = await setup(false);
+        const rows: { verdict: string; evidence?: Record<string, unknown> }[] = [];
+        const nav = navigate(a, 'https://app.test/session');
+        nav.commit();
+        a.emit('request', saveFailed('boot-2')); // its navigation never settles before finalization
+        await w.record({ row: (_s: string, verdict: string, _d: string, evidence?: Record<string, unknown>) => { rows.push({ verdict, evidence }); } } as never);
+        expect(rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unresolvedIdentity: 1 }) })]);
     });
 });

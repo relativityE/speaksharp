@@ -671,6 +671,13 @@ function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: stri
  * URL (a same-document route change) never advances the generation — so a failed navigation can never leave a latch that a
  * later same-document navigation consumes, hiding the original boot's events.
  */
+/** Which document an event belongs to. Unresolved while its navigation's response and commit have not both settled. */
+export interface DocumentRef {
+    resolved: boolean;
+    generation: number;
+    committedAt: number;
+}
+
 export class CommittedDocumentTracker {
     generation = 0;
     committedAt = Date.now();
@@ -681,13 +688,25 @@ export class CommittedDocumentTracker {
     /**
      * Sam, #1662 RETURN on 006f896d: `framenavigated` can arrive BEFORE the asynchronous response callback. A commit seen
      * while a navigation is in flight is held here, bound to that request, and completed by the same request's response.
+     * Sam, RETURN on b0dd763a: events captured while it is held carry its `ref`, which stays UNRESOLVED until the response
+     * settles it — never permanently stamped with the predecessor document.
      */
-    private earlyCommit: { url: string; at: number; seq: number } | null = null;
+    private earlyCommit: { url: string; at: number; seq: number; ref: DocumentRef } | null = null;
+    private settledRef: DocumentRef | null = null;
+
+    /** The document an event captured NOW belongs to (possibly unresolved). */
+    currentRef(): DocumentRef {
+        if (this.earlyCommit) return this.earlyCommit.ref;
+        if (!this.settledRef || this.settledRef.generation !== this.generation) {
+            this.settledRef = { resolved: true, generation: this.generation, committedAt: this.committedAt };
+        }
+        return this.settledRef;
+    }
 
     /** A new main-frame navigation request supersedes any earlier pending one; returns its sequence number. */
     onRequest(): number {
         this.pending = null;
-        this.earlyCommit = null;
+        this.dropEarlyCommit();
         this.inFlight = ++this.requestSeq;
         return this.inFlight;
     }
@@ -697,19 +716,24 @@ export class CommittedDocumentTracker {
         if (seq !== undefined && seq !== this.requestSeq) return;
         this.inFlight = null;
         const early = this.earlyCommit;
-        this.earlyCommit = null;
         // A redirect continues as another request; 204/205 never commit a document.
-        if ((status >= 300 && status < 400) || status === 204 || status === 205) { this.pending = null; return; }
+        if ((status >= 300 && status < 400) || status === 204 || status === 205) { this.pending = null; this.dropEarlyCommit(); return; }
         const responded = stripHash(url);
         // Commit already seen for THIS request and URL: the document began at the commit.
-        if (early && early.url === responded && (seq === undefined || early.seq === seq)) { this.advance(early.at); return; }
+        if (early && early.url === responded && (seq === undefined || early.seq === seq)) {
+            this.earlyCommit = null;
+            this.advance(early.at);
+            Object.assign(early.ref, { resolved: true, generation: this.generation, committedAt: this.committedAt });
+            return;
+        }
+        this.dropEarlyCommit();
         this.pending = { url: responded, at: now };
     }
 
     onFailed(seq?: number): void {
         if (seq !== undefined && seq !== this.requestSeq) return;
         this.pending = null;
-        this.earlyCommit = null;
+        this.dropEarlyCommit();
         this.inFlight = null;
     }
 
@@ -717,7 +741,16 @@ export class CommittedDocumentTracker {
         const committed = stripHash(url);
         if (this.pending !== null && committed === this.pending.url) { this.advance(this.pending.at); return; }
         // No response handled yet: hold the commit for the in-flight request (a later failure or newer request drops it).
-        if (this.inFlight !== null) this.earlyCommit = { url: committed, at: now, seq: this.inFlight };
+        if (this.inFlight !== null && this.earlyCommit === null) {
+            this.earlyCommit = { url: committed, at: now, seq: this.inFlight, ref: { resolved: false, generation: Number.NaN, committedAt: Number.NaN } };
+        }
+    }
+
+    /** The held commit was not this navigation's document: events captured meanwhile belong to the current document. */
+    private dropEarlyCommit(): void {
+        const early = this.earlyCommit;
+        this.earlyCommit = null;
+        if (early) Object.assign(early.ref, { resolved: true, generation: this.generation, committedAt: this.committedAt });
     }
 
     private advance(at: number): void {
@@ -873,8 +906,11 @@ export class AnalyticsTap {
             // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.
             for (let i = before; i < this.events.length; i += 1) {
                 Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
-                Object.defineProperty(this.events[i], 'sourceDocument', { value: documents.generation, enumerable: false });
-                Object.defineProperty(this.events[i], 'sourceDocumentAt', { value: documents.committedAt, enumerable: false });
+                // Sam, #1662 RETURN on b0dd763a: the document is read through its reference, which may still be settling.
+                const ref = documents.currentRef();
+                Object.defineProperty(this.events[i], 'sourceDocumentRef', { value: ref, enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocument', { get: () => (ref.resolved ? ref.generation : undefined), enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocumentAt', { get: () => (ref.resolved ? ref.committedAt : undefined), enumerable: false });
             }
             if (this.events.length > before) {
                 this.notePosthogRequest();
