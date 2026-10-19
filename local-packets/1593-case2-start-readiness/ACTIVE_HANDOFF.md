@@ -1,8 +1,8 @@
 # Case 2 bounded Start-readiness increment
 
-Completed local checkpoint: 2026-10-19 14:13 UTC. CLI Dev is the sole writer.
+Completed review correction checkpoint: 2026-10-19 14:28 UTC. CLI Dev is the sole writer.
 
-Branch: `cli-dev/1593-start-readiness-20261019`; base: `83029ebb67216b2690eeff59e4ec1730d5f6ffe8`. No commit or PR yet.
+Branch: `cli-dev/1593-start-readiness-20261019`; published PR #1667 at `a47402ff30ef65bbf6188303fb415e86f9a9351f` was RETURNED by Sam for bypassing human reflex and unbounded/re-resolved handle capture. Current local branch incorporates main `c9d46b2d4ffef7530cb0cccaa533b5818d200320` without conflicts, to qualify the correction on the new base. This was only a local branch update, not a PR merge or release.
 
 Sam's 13:54 lease and CLI's personal ACK authorize only `tests/live/helpers/benchmark-utils.ts` and `tests/unit/benchmarkHarnessControls.test.ts`, plus this isolated packet. App confirmed all-branch clearance at 13:53. No new dedicated test or shared Focus caller edits.
 
@@ -14,4 +14,6 @@ No live/model/provider/account/DB operation was run. This does not establish a l
 
 Completed validation: affected helper/rendered/switch suites 102/102 PASS; `pnpm quality` exit 0 (product contract, lint, frontend/live/evidence typechecks, eslint-disable guard); staged all-tracked path guard 3/3 PASS. Raw reports have been archived privately and normalized with hashes in `normalization.json`.
 
-No process is running at this checkpoint (focused session 66309, affected session 99948, quality session 19395 and path-guard session 21511 exited 0). Next: coherent commit/PR, then exact handoff to Sam. Next active Slack update by 14:19 UTC or publication sooner. No approval request is pending. Published PRs #1665 e875ed5e and #1666 f3a02d25 remain frozen under Sam's qualification/release ownership; their same-head Draft-to-Ready reviews were refreshed at 14:09 UTC without source changes or duplicate engineering CI. Case 3's exact next-file lease was requested but no next-increment writes have begun.
+Review correction baseline: 4 FAIL /48 PASS (`review-red.json`) against published source, with actual applyHumanReflex installation and a fake modeling Playwright's 90-second missing-element lookup. Correction captures the element directly from the bounded readiness predicate, retains its identity through an explicit active human-reflex delay, and budgets wait/delay/click together within eight seconds. Initial corrected helper + existing reflex suite 59/59 PASS (`review-green.json`); added during-delay identity/auto-resume and total-budget controls bring five affected suites to 116/116 PASS (`review-affected-green.json`). These controls ran before the local base update; the changed main paths are the disjoint case7 diagnostic/adapter/test/packet. The final 117/117 run executes on c9d46b2d, with one additional negative for the same node changing from Start to Retry during reflex. `pnpm quality` exit 0 on that final code; final staged all-tracked path guard 3/3 PASS. New JSON reports are normalized, private raw originals preserved.
+
+All test/quality processes exited (final affected session 99961, quality 42617, final path guard 74327: exit 0). No live/model/provider/account/deploy/PR-merge action was run. No approval request is pending. Case3 new-file checkpoint is held at local `d4495a936`; Sam selected route(a): no shared Focus integration before #1662 lands. Next: publish one corrected head, refresh exact-head Ready reviews, hand off to Sam by 14:31 UTC or earlier, then resume the isolated observer/tests. Sam's deployment/release HOLD remains in force.

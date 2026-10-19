@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { expect, Page, TestInfo } from '@playwright/test';
+import { activeHumanReflexMs } from './rwtHumanReflex';
 import {
     MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, MISSING_CONTROL_TIMEOUT_MS, micControlFor,
     SESSION_SHELL, SESSION_STATE_ATTR, TRANSCRIPT_CARD, TRANSCRIPT_LIVE_INDICATOR,
@@ -798,26 +799,35 @@ export async function startBenchmarkRecording(page: Page, label: string, modelRe
         throw new Error(`Benchmark start precondition failed for ${label}: model status '${String(status)}' has no actionable control\n${JSON.stringify(snapshot, null, 2)}`);
     }
     try {
-        const start = page.getByTestId(control);
         // Readiness can expose a briefly disabled Start while an earlier held intent resumes. Wait for EITHER the
-        // actual enabled button or its running take, then bind the click to this exact DOM node. A detached control
-        // must fail rather than allowing a locator to resolve to a later take's Start.
-        await page.waitForFunction(({ controlId, stopId }) => {
+        // actual enabled button or its running take. Return the button from that same observation: a later locator
+        // lookup can wait for, and accidentally acquire, a replacement belonging to a different take.
+        const controlDeadline = Date.now() + MISSING_CONTROL_TIMEOUT_MS;
+        const observed = await page.waitForFunction(({ controlId, stopId }) => {
             if (document.querySelector(`[data-testid="${stopId}"]`)) return true;
             const button = document.querySelector<HTMLButtonElement>(`[data-testid="${controlId}"]`);
-            return button !== null && button.disabled === false;
+            return button !== null && button.disabled === false ? button : false;
         }, { controlId: control, stopId: RECORDER_STOP }, { timeout: MISSING_CONTROL_TIMEOUT_MS });
-        if ((await page.getByTestId(RECORDER_STOP).count()) > 0) {
-            await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_BEFORE_START`);
-            return;
-        }
-        const target = await start.elementHandle();
         try {
+            const target = observed.asElement();
+            if (!target) {
+                await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_BEFORE_START`);
+                return;
+            }
+            // RWT's wrapper delays Locator/Keyboard actions, not ElementHandle actions. Preserve the exact configured
+            // reflex explicitly while retaining this node's identity through that delay; never re-resolve a locator.
+            const reflexMs = activeHumanReflexMs();
+            if (reflexMs > 0) await new Promise((resolve) => setTimeout(resolve, reflexMs));
             if ((await page.getByTestId(RECORDER_STOP).count()) > 0) return;
-            if (!target) throw new Error('the observed start control disappeared before activation');
-            await target.click({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+            const identity = await target.evaluate((element) => ({ connected: element.isConnected,
+                control: element.getAttribute('data-testid') }));
+            if (!identity.connected) throw new Error('the original start control was detached');
+            if (identity.control !== control) throw new Error('the observed start control changed identity before activation');
+            const remaining = controlDeadline - Date.now();
+            if (remaining <= 0) throw new Error('the Start control budget expired before activation');
+            await target.click({ timeout: remaining });
         } finally {
-            await target?.dispose().catch(() => undefined);
+            await observed.dispose().catch(() => undefined);
         }
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);

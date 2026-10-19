@@ -18,6 +18,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, RETIRED_COMBINED_CONTROL } from '../helpers/micControls';
+import { applyHumanReflex } from '../live/helpers/rwtHumanReflex';
 
 vi.mock('@playwright/test', () => {
     const isLocator = (v: unknown): v is FakeLocator =>
@@ -145,6 +146,9 @@ let coldPressRecords = true;
 let coldPressTiming: 'sync' | 'disabled-then-recording' = 'sync';
 let waitFailure: Error | null = null;
 let afterHandleCapture: (() => void) | null = null;
+let afterReadinessObservation: (() => void) | null = null;
+let simulateMissingHandleWait = false;
+const locatorHandleBudgets: number[] = [];
 const waitTimeouts: number[] = [];
 
 const locatorFor = (selector: string): FakeLocator => ({
@@ -160,6 +164,10 @@ const locatorFor = (selector: string): FakeLocator => ({
     or: (other: FakeLocator) => locatorFor(`${selector}, ${other.selector}`),
     first: () => locatorFor(selector),
     elementHandle: async () => {
+        locatorHandleBudgets.push(90_000);
+        if (simulateMissingHandleWait && !document.querySelector(selector)) {
+            await new Promise((resolve) => setTimeout(resolve, 90_000));
+        }
         const original = document.querySelector(selector);
         const callback = afterHandleCapture;
         afterHandleCapture = null;
@@ -204,14 +212,33 @@ const page = {
         waitTimeouts.push(options.timeout);
         if (waitFailure) throw waitFailure;
         const deadline = Date.now() + options.timeout;
-        while (!fn(arg)) {
+        let observed = fn(arg);
+        while (!observed) {
             if (Date.now() >= deadline) {
                 const error = new Error('page predicate deadline exceeded');
                 error.name = 'TimeoutError';
                 throw error;
             }
             await new Promise((r) => setTimeout(r, 2));
+            observed = fn(arg);
         }
+        const beforeReturn = afterReadinessObservation;
+        afterReadinessObservation = null;
+        beforeReturn?.();
+        const original = observed instanceof Element ? observed : null;
+        const afterCapture = afterHandleCapture;
+        afterHandleCapture = null;
+        // The original implementation only captures at locator.elementHandle, after another lookup.
+        if (original) afterCapture?.();
+        else afterHandleCapture = afterCapture;
+        return {
+            asElement: () => original ? { evaluate: async (fn: (element: Element) => unknown) => fn(original), click: async () => {
+                if (!original.isConnected) throw new Error('the original start control was detached');
+                if (original.hasAttribute('disabled')) throw new Error('the original start control is disabled');
+                await locatorFor(`[data-testid="${original.getAttribute('data-testid')}"]`).click();
+            } } : null,
+            dispose: async () => undefined,
+        };
     },
 } as unknown as Parameters<typeof preparePrivateModelIfPrompted>[0];
 
@@ -234,6 +261,7 @@ beforeEach(() => {
     asked.length = 0; clicked.length = 0; onDownloadClick = 'ready'; coldPressRecords = true;
     coldPressTiming = 'sync';
     waitFailure = null; afterHandleCapture = null; waitTimeouts.length = 0;
+    afterReadinessObservation = null; simulateMissingHandleWait = false; locatorHandleBudgets.length = 0;
     document.documentElement.removeAttribute('data-recording-state');
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 });
@@ -516,6 +544,117 @@ describe('#1593 case2 bounded model readiness before a product-switch Start', ()
             if (previous === undefined) delete process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED;
             else process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED = previous;
         }
+    });
+});
+
+describe('#1667 review: pinned readiness action uses real human-reflex timing and bounded capture', () => {
+    // Exercise the actual wrapper against real class prototypes, rather than merely mocking its delay getter.
+    class ReflexLocator {
+        constructor(readonly base: FakeLocator) {}
+        count() { return this.base.count(); }
+        click() { return this.base.click(); }
+        elementHandle() { return this.base.elementHandle(); }
+    }
+    class ReflexKeyboard { async press() { /* not used by this helper */ } }
+    const reflexPage = {
+        ...page,
+        locator: (selector: string) => new ReflexLocator(locatorFor(selector)),
+        getByTestId: (id: string) => new ReflexLocator(locatorFor(`[data-testid="${id}"]`)),
+        keyboard: new ReflexKeyboard(),
+    } as unknown as typeof page;
+
+    it.each([500, 1000] as const)('actual applyHumanReflex(%i) delays the pinned Start exactly once', async (ms) => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, ms);
+        renderState('ready');
+        try {
+            const pending = startBenchmarkRecording(reflexPage, 'integrated-reflex');
+            await vi.advanceTimersByTimeAsync(ms - 1);
+            expect(clicked).toEqual([]);
+            await vi.advanceTimersByTimeAsync(1);
+            await pending;
+            expect(clicked).toEqual(['[data-testid="mic-start"]']);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('a replacement between readiness and the old locator lookup cannot become the pinned target', async () => {
+        renderState('ready');
+        afterReadinessObservation = () => renderState('ready');
+        await expect(startBenchmarkRecording(page, 'replace-before-capture')).rejects.toThrow(/original start control was detached/);
+        expect(clicked).toEqual([]);
+        expect(locatorHandleBudgets).toEqual([]);
+    });
+
+    it('removal before capture never invokes the 90s default locator wait', async () => {
+        vi.useFakeTimers();
+        renderState('ready');
+        simulateMissingHandleWait = true;
+        afterReadinessObservation = () => { document.body.innerHTML = ''; };
+        let settled = false;
+        const pending = startBenchmarkRecording(page, 'remove-before-capture').catch(() => { settled = true; });
+        try {
+            await vi.advanceTimersByTimeAsync(8_001);
+            expect(settled).toBe(true);
+            expect(locatorHandleBudgets).toEqual([]);
+            expect(clicked).toEqual([]);
+        } finally {
+            await vi.advanceTimersByTimeAsync(90_001);
+            await pending;
+            vi.useRealTimers();
+        }
+    });
+
+    it('identity remains pinned while the actual human-reflex delay is in progress', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        const outcome = startBenchmarkRecording(reflexPage, 'replace-during-reflex').then(() => null, (error: Error) => error);
+        setTimeout(() => renderState('ready'), 250);
+        try {
+            await vi.advanceTimersByTimeAsync(500);
+            expect((await outcome)?.message).toMatch(/original start control was detached/);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('auto-resume during the actual human-reflex delay receives no second activation', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        const pending = startBenchmarkRecording(reflexPage, 'resume-during-reflex');
+        setTimeout(renderRecording, 250);
+        try {
+            await vi.advanceTimersByTimeAsync(500);
+            await pending;
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('the same DOM node changing from Start to Retry during the reflex is never silently activated', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        const outcome = startBenchmarkRecording(reflexPage, 'changed-action-during-reflex').then(() => null, (error: Error) => error);
+        setTimeout(() => document.querySelector('button')!.setAttribute('data-testid', 'mic-retry'), 250);
+        try {
+            await vi.advanceTimersByTimeAsync(500);
+            expect((await outcome)?.message).toMatch(/changed identity before activation/);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('readiness and reflex time consume the same eight-second control budget', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        afterReadinessObservation = () => { vi.advanceTimersByTime(7_800); };
+        const outcome = startBenchmarkRecording(reflexPage, 'total-control-budget').then(() => null, (error: Error) => error);
+        try {
+            await vi.advanceTimersByTimeAsync(8_500);
+            expect((await outcome)?.message).toMatch(/Start control budget expired/);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
     });
 });
 

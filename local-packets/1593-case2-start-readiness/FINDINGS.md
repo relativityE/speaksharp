@@ -12,7 +12,7 @@ Nine new controls against the original helper produced **9 FAIL / 35 PASS** (`ba
 
 Only an observed `loading` state receives a model-readiness wait, capped at 30 seconds. It ends when the model leaves loading or an already-resuming take exposes its Stop control. A running take receives no second activation. Ready can proceed; terminal statuses, missing observations and a bounded timeout remain explicit failures. The wait never presses Retry or Download to hide the observed failure or grant consent.
 
-The subsequent existing control budget remains separately bounded at eight seconds. That wait accepts either the actual enabled button or a running take. Activation is bound to the original DOM element: a detached node fails rather than letting a locator resolve to a new take's Start. Existing cold one-press download/auto-resume behavior, state-specific initial controls, and refusal-before-preparation contracts remain in the regression set.
+The subsequent existing control budget remains separately bounded at eight seconds. Its readiness predicate returns the actual enabled DOM element or the already-running sentinel. There is no separate locator re-resolution. The element remains pinned through the explicitly preserved active human-reflex delay (500/1000 ms in RWT); waiting, delay and activation share the eight-second budget. A detached node fails rather than resolving to a new take's Start. Existing cold one-press download/auto-resume behavior, state-specific initial controls, and refusal-before-preparation contracts remain in the regression set.
 
 ## Executed evidence
 
@@ -21,8 +21,14 @@ The subsequent existing control budget remains separately bounded at eight secon
 | `baseline-red.json` | 9 FAIL / 35 PASS | Original helper plus first nine regressions |
 | `focused-green.json` | 48 PASS | Corrected helper, all original controls and thirteen added controls |
 | `affected-green.json` | 102 PASS across four suites | Helper, switch isolation, actual rendered benchmark surfaces and MicCard rendered-state controls |
+| `review-red.json` | 4 FAIL / 48 PASS | Published a474 source: real reflex installation omitted by pinned click, borrowed replacement and modeled 90-second default locator capture |
+| `review-green.json` | 59 PASS across two suites | First correction: 52 helper controls plus seven existing actual reflex controls |
+| `review-affected-green.json` | 116 PASS across five suites | 55 helper controls, existing reflex/switch/rendered suites; identity through delay, auto-resume and total-budget negatives included |
+| `final-review-green.json` | 117 PASS across five suites on c9d46b2d | Final helper/control correction, including the same DOM node changing from Start to Retry during reflex; no silent activation |
 
-`pnpm quality` exited 0 after the final code checkpoint: product contract, lint, frontend/live/evidence type checks and the eslint-disable guard. The unchanged repository-wide machine-path guard passed 3/3 after staging all packet files. Fresh exact-head CI and independent review remain required.
+The initial `pnpm quality` and staged path guard passed on the initial implementation. Sam then returned two in-scope defects on a474: ElementHandle actions bypass the actual Locator/Keyboard human-reflex wrapper, and separate Locator.elementHandle lookup waits for attachment under the page default, potentially capturing a replacement. The installed Playwright client confirms that elementHandle delegates to waitForSelector(state='attached'), while waitForFunction returns the observed JSHandle. The new controls exercise actual applyHumanReflex class wrapping and model the default 90-second attachment wait; these are not claims of an executed Playwright browser run.
+
+The 116-control run preceded the disjoint main update to `c9d46b2d4ffef7530cb0cccaa533b5818d200320`; helper/test bytes were unchanged by that update. The final 117-control run executes on that base, adding a control for the same element changing action identity during reflex. The full new `pnpm quality` checkpoint exited 0 on that base with the final correction; the final staged all-tracked path guard passed 3/3. Fresh exact-head CI and independent review remain required.
 
 The tests call the actual helper with jsdom-backed Playwright-compatible page doubles. The related rendered suites mount actual product components. This is offline evidence; no new browser/live campaign, provider call, account mutation or model execution occurred. Test names and failure text are retained. JSON machine-path string prefixes are normalized before publication, with raw bytes and hashes retained separately.
 
