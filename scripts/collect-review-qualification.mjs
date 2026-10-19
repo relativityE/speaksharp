@@ -506,7 +506,7 @@ function normaliseRef(ref) {
  * refused every legitimately clean PR at merge. Two copies of an evidence query can disagree about what
  * the evidence is; one exported copy cannot.
  */
-export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{databaseId author{login} authorAssociation body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
+export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$number:Int!,$commentsBefore:String){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid headRefName headRepository{nameWithOwner} baseRefName baseRefOid baseRepository{nameWithOwner} timelineItems(last:20,itemTypes:[READY_FOR_REVIEW_EVENT]){nodes{... on ReadyForReviewEvent{createdAt}}} files(first:100){nodes{path} pageInfo{hasNextPage endCursor}} reviews(last:100){nodes{author{login} state commit{oid} body submittedAt} pageInfo{hasPreviousPage}} reviewThreads(first:100){nodes{isResolved comments(last:100){nodes{databaseId author{login} authorAssociation body commit{oid} originalCommit{oid} pullRequestReview{state commit{oid}}} pageInfo{hasPreviousPage}}} pageInfo{hasNextPage}} comments(last:100,before:$commentsBefore){nodes{id author{login} authorAssociation body createdAt} pageInfo{hasPreviousPage startCursor}}}}}`;
 
 /**
  * The conversation surface is load-bearing and long-lived PRs routinely exceed one GraphQL page.
@@ -515,11 +515,60 @@ export const PULL_REQUEST_REVIEW_QUERY = `query($owner:String!,$name:String!,$nu
  */
 export const ISSUE_COMMENT_PAGE_CAP = 10;
 
+/**
+ * #1671 — THE CHANGED-FILE SURFACE IS PAGINATED TOO. It decides the review scope (`changedFiles`), and a combined release
+ * candidate routinely exceeds one page of 100 paths, so `files(first:100)` alone made every such PR permanently
+ * `changed_files_incomplete`. Ten pages is a bounded 1,000-path read. Anything this read cannot prove complete — the cap,
+ * a failed or malformed page, a missing or repeating cursor, a duplicate or empty path, or the pull request's head, base
+ * or repositories changing between pages — leaves `hasNextPage` true, so the receipt still fails closed.
+ */
+export const CHANGED_FILE_PAGE_CAP = 10;
+
+export const PULL_REQUEST_FILES_PAGE_QUERY = `query($owner:String!,$name:String!,$number:Int!,$filesAfter:String!){repository(owner:$owner,name:$name){pullRequest(number:$number){headRefOid baseRefOid headRepository{nameWithOwner} baseRepository{nameWithOwner} files(first:100,after:$filesAfter){nodes{path} pageInfo{hasNextPage endCursor}}}}}`;
+
+const pageIdentity = (pr) => JSON.stringify([pr?.headRefOid ?? null, pr?.baseRefOid ?? null,
+  pr?.headRepository?.nameWithOwner ?? null, pr?.baseRepository?.nameWithOwner ?? null]);
+
+async function readAllChangedFiles({ pullRequest, request, pageCap }) {
+  const incomplete = (nodes) => ({ nodes, pageInfo: { hasNextPage: true } });
+  const first = pullRequest.files;
+  if (!first || !Array.isArray(first.nodes)) return incomplete([]);
+  const nodes = [];
+  const seenPaths = new Set();
+  const take = (pageNodes) => {
+    for (const node of pageNodes) {
+      const path = node?.path;
+      if (typeof path !== 'string' || path === '' || seenPaths.has(path)) return false;
+      seenPaths.add(path);
+      nodes.push({ path });
+    }
+    return true;
+  };
+  if (!take(first.nodes)) return incomplete(nodes);
+  const identity = pageIdentity(pullRequest);
+  const seenCursors = new Set();
+  let pageInfo = first.pageInfo ?? { hasNextPage: true };
+  let pagesRead = 1;
+  while (pageInfo.hasNextPage === true) {
+    const cursor = pageInfo.endCursor;
+    if (pagesRead >= pageCap || typeof cursor !== 'string' || cursor === '' || seenCursors.has(cursor)) return incomplete(nodes);
+    seenCursors.add(cursor);
+    let payload;
+    try { payload = await request(cursor); } catch { return incomplete(nodes); }
+    const next = payload?.data?.repository?.pullRequest;
+    if (payload?.errors?.length || !next || pageIdentity(next) !== identity) return incomplete(nodes);
+    if (!next.files || !Array.isArray(next.files.nodes) || !take(next.files.nodes)) return incomplete(nodes);
+    pageInfo = next.files.pageInfo ?? { hasNextPage: true };
+    pagesRead += 1;
+  }
+  return pageInfo.hasNextPage === false ? { nodes, pageInfo: { hasNextPage: false } } : incomplete(nodes);
+}
+
 function commentIdentity(comment) {
   return String(comment?.id ?? `${comment?.createdAt ?? ''}\u0000${comment?.author?.login ?? ''}\u0000${comment?.body ?? ''}`);
 }
 
-export async function readPullRequest({ repository, number, token, pageCap = ISSUE_COMMENT_PAGE_CAP }) {
+export async function readPullRequest({ repository, number, token, pageCap = ISSUE_COMMENT_PAGE_CAP, filesPageCap = CHANGED_FILE_PAGE_CAP }) {
   const [owner, name] = repository.split('/');
   const query = PULL_REQUEST_REVIEW_QUERY;
   const requestPage = (commentsBefore = null) => githubRequest('/graphql', token, {
@@ -564,6 +613,15 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
         || commentIdentity(a).localeCompare(commentIdentity(b))),
     pageInfo,
   };
+  pullRequest.files = await readAllChangedFiles({
+    pullRequest,
+    pageCap: filesPageCap,
+    request: (filesAfter) => githubRequest('/graphql', token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: PULL_REQUEST_FILES_PAGE_QUERY, variables: { owner, name, number, filesAfter } }),
+    }),
+  });
   // #1438 PM RETURN `5639978861` — the branch moves the Ready-trigger binding is checked against.
   pullRequest.headRefHistory = await readHeadRefHistory({ pullRequest, token });
   return pullRequest;
