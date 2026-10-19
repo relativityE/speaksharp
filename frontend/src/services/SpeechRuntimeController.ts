@@ -5100,10 +5100,18 @@ export class SpeechRuntimeController {
         this.activeTasks.clear();
         this.commandQueue = Promise.resolve();
         const svc = this.detachService();
+        // #1593 (Sam 1792445123): the destroy below is awaited for up to its bound, and a hard reset or a successor Start
+        // can take the runtime in that window. This retirement owns the runtime only while nothing replaced it since the
+        // detach; once superseded it publishes nothing, and its receipt speaks only for ITS OWN engine.
+        const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration };
+        const superseded = (): boolean => this.lifecycleVersion !== retirement.version
+            || this.serviceGeneration !== retirement.generation || this.service !== null;
+        const ownReceipt = (): 'terminal' | 'unconfirmed' => (svc
+            ? (svc.didConfirmTermination() ? 'terminal' : 'unconfirmed')
+            : (hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal'));
         if (svc) {
             this.stopWatchdog();
             this.stopHeartbeat();
-            const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration };
             const destroying = svc.destroy();
             const destroyed = await within(destroying);
             // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside), and a
@@ -5115,8 +5123,16 @@ export class SpeechRuntimeController {
                 return 'unconfirmed';
             }
         }
+        if (superseded()) {
+            pushNativeRuntimeTrace('controller_unmount_retire_superseded', { state: this.state, phase: 'after_destroy' });
+            return ownReceipt();
+        }
         this.setEngineReady(false);
         await this.transition('TERMINATED');
+        if (superseded()) {
+            pushNativeRuntimeTrace('controller_unmount_retire_superseded', { state: this.state, phase: 'after_terminated' });
+            return ownReceipt();
+        }
         await this.transition('IDLE');
         return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
     }

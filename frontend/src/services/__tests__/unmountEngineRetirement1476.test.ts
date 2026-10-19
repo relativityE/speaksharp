@@ -523,6 +523,124 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(onLateTerminal).toHaveBeenCalledTimes(1);
     });
 
+    /**
+     * Main-path ownership (Sam 1792445123, separate from #1668's late path): `retireEngineForUnmount` awaits the retired
+     * service's destroy() for up to its bound. A returning page can start successor B through the real controller in that
+     * window; when A's destroy then resolves, the retirement must not set engine readiness, TERMINATED or IDLE over B,
+     * and A's receipt speaks only for A's own engine.
+     */
+    const preparingRetiree = async () => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const before = engine.initCalls;
+        engine.initGate = new Promise<void>(() => undefined); // A parks in its own preparation
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(before), { timeout: 5_000 });
+        await settle();
+        let finishTermination!: () => void;
+        let failTermination!: (e: Error) => void;
+        engine.terminateGate = new Promise<void>((resolve, reject) => { finishTermination = resolve; failTermination = reject; });
+        const retiring = controller.retireEngineForUnmount(10_000); // A's destroy is HELD inside the bound
+        await settle();
+        const ctl = controller as unknown as { service: unknown; serviceGeneration: number };
+        expect(ctl.service, 'A was detached before its destroy').toBeNull();
+        return { retiring, generationAtRetire: ctl.serviceGeneration, finishTermination, failTermination };
+    };
+    /** Successor B through the real controller: a hard reset (as take-over/sign-out does), then a Start that attaches B. */
+    const resetThenStartSuccessor = async () => {
+        await controller.hardResetAwaited('main-path-successor');
+        await settle();
+        engine.terminateGate = null; // A's destroy already holds ITS gate; B has none of its own
+        engine.initGate = new Promise<void>(() => undefined); // B parks in its own preparation
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        const ctl = controller as unknown as { service: unknown; serviceGeneration: number };
+        // B is real only when the controller attached B's own service through its Start. While A's termination is still
+        // held, the destroy-before-create gate refuses B's engine and B fails VISIBLY: that state is B's, and it is what a
+        // stale retirement must not overwrite.
+        await vi.waitFor(() => expect(ctl.service, 'B attached its own service').not.toBeNull(), { timeout: 5_000 });
+        await settle(30);
+        return { state: controller.getState(), service: ctl.service, generation: ctl.serviceGeneration };
+    };
+    const recordTransitions = () => {
+        const seen: string[] = [];
+        const unsubscribe = useSessionStore.subscribe((s, prev) => { if (s.runtimeState !== prev.runtimeState) seen.push(s.runtimeState); });
+        return { seen, unsubscribe };
+    };
+
+    it('main path (Sam 1792445123): successor B (reset, then a real Start that attaches B) during A\'s held destroy keeps its runtime', async () => {
+        const a = await preparingRetiree();
+        const b = await resetThenStartSuccessor();
+        expect(b.service, 'precondition: B attached its own service in the window').not.toBeNull();
+        // The service object is a shared instance; ownership is the controller's attachment generation.
+        expect(b.generation, 'precondition: B\'s attachment is newer than A\'s retirement').toBeGreaterThan(a.generationAtRetire);
+        const t = recordTransitions();
+        a.finishTermination();
+        const outcome = await a.retiring;
+        await settle(30);
+        t.unsubscribe();
+        expect(t.seen, 'the stale retirement publishes nothing over B').toEqual([]);
+        expect(controller.getState()).toBe(b.state);
+        expect(useSessionStore.getState().runtimeState).toBe(b.state);
+        expect((controller as unknown as { service: unknown }).service, 'B keeps its service').toBe(b.service);
+        expect(outcome, 'A\'s own engine was proven off').toBe('terminal');
+    });
+
+    it('main path (characterization): WITHOUT a reset, a Start or warm-up during A\'s held destroy attaches no successor service', async () => {
+        const a = await preparingRetiree();
+        const ctl = controller as unknown as { service: unknown; serviceGeneration: number; lifecycleVersion: number };
+        const generation = ctl.serviceGeneration;
+        const version = ctl.lifecycleVersion;
+        const before = engine.initCalls;
+        await controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await controller.warmUp('private').catch(() => undefined);
+        await settle(30);
+        // The runtime still shows A's preparation, so the controller does not attach a second service in this window:
+        // same-lifecycle attachment is not reachable here, and the version/generation guard covers it regardless.
+        expect(ctl.service).toBeNull();
+        expect(ctl.serviceGeneration).toBe(generation);
+        expect(ctl.lifecycleVersion).toBe(version);
+        expect(engine.initCalls).toBe(before);
+        a.finishTermination();
+        await a.retiring;
+    });
+
+    it('main path (Sam 1792445123): a HARD RESET during A\'s held destroy is never followed by A\'s TERMINATED/IDLE', async () => {
+        const a = await preparingRetiree();
+        await controller.hardResetAwaited('main-path-successor');
+        await settle();
+        const afterReset = controller.getState();
+        const t = recordTransitions();
+        a.finishTermination();
+        await a.retiring;
+        await settle(30);
+        t.unsubscribe();
+        expect(t.seen, 'no stale TERMINATED/IDLE after the reset owns the runtime').toEqual([]);
+        expect(controller.getState()).toBe(afterReset);
+    });
+
+    it('main path (Sam 1792445123): with the owner UNCHANGED through A\'s held destroy, the retirement still completes', async () => {
+        const a = await preparingRetiree();
+        const t = recordTransitions();
+        a.finishTermination();
+        const outcome = await a.retiring;
+        await settle(30);
+        t.unsubscribe();
+        expect(t.seen.slice(t.seen.indexOf('TERMINATED')), 'TERMINATED then IDLE').toEqual(['TERMINATED', 'IDLE']);
+        expect(controller.getState()).toBe('IDLE');
+        expect(outcome).toBe('terminal');
+    });
+
+    it('main path (Sam 1792445123): a REJECTED held destroy stays unconfirmed even when a successor attached meanwhile', async () => {
+        const a = await preparingRetiree();
+        const b = await resetThenStartSuccessor();
+        a.failTermination(new Error('worker would not terminate'));
+        const outcome = await a.retiring;
+        await settle(30);
+        expect(outcome, 'a rejected termination is never proof').toBe('unconfirmed');
+        expect(controller.getState(), 'B is untouched either way').toBe(b.state);
+        expect((controller as unknown as { service: unknown }).service).toBe(b.service);
+    });
+
     it('case4: the hook releases the take\'s lease on late proof — only while that take still owns it', async () => {
         const store = () => useSessionStore.getState();
         const retire = vi.spyOn(controller, 'retireEngineForUnmount');
