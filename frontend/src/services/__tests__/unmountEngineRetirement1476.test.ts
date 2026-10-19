@@ -353,6 +353,59 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         await vi.waitFor(() => expect(svc.didConfirmTermination(), 'a preparing successor is not proven off by the earlier stop').toBe(false));
     });
 
+    describe('Sam (#1668 advisory): resetEphemeralState\'s delayed termination acts only for its own engine epoch', () => {
+        type Svc = { resetEphemeralState: () => void; didConfirmTermination: () => boolean; initializeStrategy: (m: string) => Promise<void> };
+        const recordingService = async (): Promise<Svc> => {
+            engine.modelCached = true;
+            await controller.startRecording(POLICY as never, []);
+            await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+            return (controller as unknown as { service: Svc }).service;
+        };
+
+        it('no successor: the late termination clears the entry and proves the engine off', async () => {
+            const svc = await recordingService();
+            let finish!: () => void;
+            engine.terminateGate = new Promise<void>((resolve) => { finish = resolve; });
+            svc.resetEphemeralState();
+            expect(controller.isEngineTerminal(), 'still terminating').toBe(false);
+            const epochBefore = (svc as unknown as { engineEpoch: number }).engineEpoch;
+            finish();
+            await settle();
+            expect((svc as unknown as { engineEpoch: number }).engineEpoch, 'no successor prepared').toBe(epochBefore);
+            expect(controller.isEngineTerminal(), 'entry cleared').toBe(true);
+            expect(svc.didConfirmTermination(), 'proof published').toBe(true);
+        });
+
+        it('a successor prepared meanwhile: the old engine\'s late success neither clears the live entry nor vouches for it', async () => {
+            const svc = await recordingService();
+            let finish!: () => void;
+            engine.terminateGate = new Promise<void>((resolve) => { finish = resolve; });
+            svc.resetEphemeralState();
+            engine.initGate = new Promise<void>(() => undefined);
+            void svc.initializeStrategy('private').catch(() => undefined); // the successor's epoch
+            await settle();
+            finish();
+            await settle();
+            expect(controller.isEngineTerminal(), 'the entry is not cleared on the successor\'s behalf').toBe(false);
+            expect(svc.didConfirmTermination()).toBe(false);
+        });
+
+        it('a successor prepared meanwhile and the old termination REJECTS: nothing is proven for the successor', async () => {
+            const svc = await recordingService();
+            let fail!: (e: Error) => void;
+            engine.terminateGate = new Promise<void>((_, reject) => { fail = reject; });
+            engine.terminateGate.catch(() => undefined);
+            svc.resetEphemeralState();
+            engine.initGate = new Promise<void>(() => undefined);
+            void svc.initializeStrategy('private').catch(() => undefined);
+            await settle();
+            fail(new Error('old worker would not terminate'));
+            await settle();
+            expect(svc.didConfirmTermination()).toBe(false);
+            expect(controller.isEngineTerminal()).toBe(false);
+        });
+    });
+
     it('case4: an IN-BOUND termination rejection of a preparing engine is not "terminal" either — the lease is kept', async () => {
         engine.downloadEnabled = false;
         await controller.warmUp('private');

@@ -450,6 +450,7 @@ export default class TranscriptionService {
       const newStrategy = STTStrategyFactory.create(strategy.mode, this.strategyCallbacks, this.policy);
       this.strategy = newStrategy;
       this.terminationConfirmed = false; // Sam (#1668): a new engine generation — an earlier stop proof never vouches for it
+      this.engineEpoch += 1;
       this.activeStrategyId = (newStrategy as unknown as { instanceId: string }).instanceId ?? Math.random().toString(36);
 
       // 2. Initialize
@@ -705,6 +706,7 @@ export default class TranscriptionService {
     // Sam (#1668): preparing an engine — a new instance OR the preserved one — is a new engine generation; an earlier
     // stop's proof never vouches for it until it is itself proven off.
     this.terminationConfirmed = false;
+    this.engineEpoch += 1;
 
     // 🏗️ 4. Strategy Lifecycle: Instantiate or Preserve
     if (!this.strategy) {
@@ -1142,6 +1144,7 @@ export default class TranscriptionService {
       // #1476: from here the engine may be running — it counts as live until a proven stop (a start that throws too).
       enginesNotConfirmedStopped.add(this);
       this.terminationConfirmed = false; // a new run: an earlier proof never vouches for this engine
+      this.engineEpoch += 1;
       await this.strategy.start(this.mic!, this.options.userWords ?? []);
 
       // 🛡️ Step 4: Strict Success Coupling
@@ -1454,6 +1457,12 @@ export default class TranscriptionService {
    * and when a run starts its engine.
    */
   private terminationConfirmed = false;
+  /**
+   * Sam (#1668 advisory): a monotonic engine epoch, advanced whenever an engine is prepared or started on this service. A
+   * delayed termination of an EARLIER engine may only publish its proof, or clear this service's live-engine entry, while
+   * no later engine has been prepared or started since — never on behalf of a successor.
+   */
+  private engineEpoch = 0;
 
   public didConfirmTermination(): boolean {
     return this.terminationConfirmed;
@@ -1771,12 +1780,14 @@ export default class TranscriptionService {
     // Clear strategy reference
     if (this.strategy) {
       this.strategyVersion++;
-      const terminatedGeneration = this.strategyVersion;
+      const terminatedEpoch = this.engineEpoch;
       void this.strategy.terminate().then(
         () => {
+          // Only for THIS engine: if a successor was prepared or started since, its live entry and its (absent) proof are
+          // its own — an earlier engine's late termination neither clears the entry nor vouches for it.
+          if (this.engineEpoch !== terminatedEpoch) return;
           enginesNotConfirmedStopped.delete(this);
-          // Proof only for THIS generation: a strategy created since (a successor preparing) is not vouched for.
-          if (this.strategyVersion === terminatedGeneration && this.strategy === null) this.terminationConfirmed = true;
+          this.terminationConfirmed = true;
         },
         (e) => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during reset'),
       );
