@@ -105,7 +105,7 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { productFillerCount } from './helpers/rwtFillerOracle';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
-import { coachingPromptBindingRow } from './helpers/rwtCoachingCollector';
+import { coachingPromptBindingRow, coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 
@@ -464,8 +464,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                 // The reason is read before its row is written; a read still pending at the bound is UNKNOWN, never `null`.
                 if (!(await settleCoachingReason(coaching.reasonRead))) coaching.reason = COACHING_REASON_UNKNOWN;
                 // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body.
-                await settleCoachingReason(generations.settle());
-                const take = persistedId ? takeExchangeEvidence(generations.forSession(persistedId)) : takeExchangeEvidence([]);
+                // #1474 (Codex r4305107827, Sam 6243698211): read through the tap's own bounded settle; a 5 s cap read early.
+                const take = takeExchangeEvidence(await generations.settledForSession(persistedId));
                 coachingTakeRequestId = take.diagnosticRequestId;
                 // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage the app handled gracefully is EXTERNAL —
                 // non-blocking, never PASS.
@@ -795,6 +795,10 @@ test.describe('RWT — Open Mic first session @live', () => {
         } finally {
             // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
             receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 })).observed;
+            // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary
+            // tap after a bounded settle of every sent exchange. Unanswered or unreadable stays HOLD — never a zero or the max.
+            await generations.settle();
+            coachingRequestBudgetRow(receipt, generations, { maximum: 4 });
             // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.
             sampler.stop();
             activeSampler = null;
@@ -881,7 +885,10 @@ test.describe('RWT — Open Mic first session @live', () => {
             accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
             receipt.write(testInfo, bindReadbackJourneys(tap.events, {
-                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'], repeatRecording: ['session_during', 'session_after_open_mic'],
+                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'],
+                // #1593 (Sam 15:51): the repeat take is deliberately interrupted by the next take (rapid-repeat stress), so it
+                // proves save + request + explicit supersession + no stale render — never a full render it cannot reach.
+                repeatRecording: ['session_during', 'session_interrupted_repeat'],
                 takes: {
                     first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,

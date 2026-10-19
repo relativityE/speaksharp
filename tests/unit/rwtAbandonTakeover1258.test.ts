@@ -130,7 +130,7 @@ describe('persistence vs idempotency — grouped controls (Codex P1 r4297070691,
         const two = [...baseline, ...cases['two completed'].rows];
         const saved = { shown: true, state: 'finalized_pending_save', claimsSavedTranscript: true, claimsUnsavedTranscript: false };
         expect(recoveryNoticeVerdict({ ...saved, priorTakeSaved: priorTakeSaved(baseline, two) }).status, 'truthful saved').toBe('PASS');
-        const unsaved = { shown: true, state: 'finalized_pending_save', ...classifyRecoveryClaim(RECOVERY_NOTICE_COPY.finalized_pending_save) };
+        const unsaved = { shown: true, state: 'active_interrupted', ...classifyRecoveryClaim(RECOVERY_NOTICE_COPY.interrupted) };
         expect(recoveryNoticeVerdict({ ...unsaved, priorTakeSaved: priorTakeSaved(baseline, two) }).status, 'false unsaved').toBe('FAIL');
         expect(recoveryNoticeVerdict({ ...saved, priorTakeSaved: priorTakeSaved(baseline, baseline) }).status, 'false saved').toBe('FAIL');
     });
@@ -214,17 +214,21 @@ describe('recoveryNoticeVerdict — the notice tells the truth about the left ta
     it('an unknown state → FAIL', () => {
         expect(recoveryNoticeVerdict({ ...notice, state: 'interrupted' }).status).toBe('FAIL');
     });
-    it('CLASSIFIER: every actual recovery wording is an unsaved claim, and none is a saved claim', () => {
+    it('CLASSIFIER: the interrupted wordings are unsaved claims; the finalized (unconfirmed) wording claims neither (#1474)', () => {
         for (const [state, text] of Object.entries(RECOVERY_NOTICE_COPY)) {
-            expect({ state, claim: classifyRecoveryClaim(text) }).toEqual({ state, claim: { claimsSavedTranscript: false, claimsUnsavedTranscript: true } });
+            const unsaved = state !== 'finalized_pending_save';
+            expect({ state, claim: classifyRecoveryClaim(text) }).toEqual({ state, claim: { claimsSavedTranscript: false, claimsUnsavedTranscript: unsaved } });
         }
         expect(classifyRecoveryClaim('Your transcript was saved.')).toEqual({ claimsSavedTranscript: true, claimsUnsavedTranscript: false });
         expect(classifyRecoveryClaim('')).toEqual({ claimsSavedTranscript: false, claimsUnsavedTranscript: false });
     });
-    it('WIRED (Sam 6219021013): the actual finalized_pending_save notice with a SAVED prior take → FAIL; with an unsaved one → PASS', () => {
+    it('WIRED (#1474, Sam 1792278508): the actual finalized_pending_save notice is truthful whether the server saved the take (response lost) or not (request lost)', () => {
         const pending = { shown: true, state: 'finalized_pending_save', ...classifyRecoveryClaim(RECOVERY_NOTICE_COPY.finalized_pending_save) };
-        expect(recoveryNoticeVerdict({ ...pending, priorTakeSaved: true }).status, 'false-unsaved').toBe('FAIL');
-        expect(recoveryNoticeVerdict({ ...pending, priorTakeSaved: false }).status, 'truthful-unsaved').toBe('PASS');
+        expect(recoveryNoticeVerdict({ ...pending, priorTakeSaved: true }).status, 'response-lost: server saved it').toBe('PASS');
+        expect(recoveryNoticeVerdict({ ...pending, priorTakeSaved: false }).status, 'request-lost: server holds nothing').toBe('PASS');
+        // The OLD definite wording is exactly the false claim a lost response produced, and the oracle still catches it.
+        const oldDefinite = classifyRecoveryClaim('Your last session finished but was not saved. Its measurements were kept on this device; no transcript was stored.');
+        expect(recoveryNoticeVerdict({ shown: true, state: 'finalized_pending_save', ...oldDefinite, priorTakeSaved: true }).status, 'old copy after a lost response').toBe('FAIL');
         const interrupted = { shown: true, state: 'active_interrupted', ...classifyRecoveryClaim(RECOVERY_NOTICE_COPY.interrupted) };
         expect(recoveryNoticeVerdict({ ...interrupted, priorTakeSaved: true }).status).toBe('FAIL');
         expect(recoveryNoticeVerdict({ ...interrupted, priorTakeSaved: false }).status).toBe('PASS');
@@ -283,6 +287,9 @@ describe('two tabs — refused truthfully, one engine after the take-over, both 
         expect(takeOverRowsVerdict([{ id: 'a', status: 'active' }, { id: 'b', status: 'completed' }], 'a', 'b').status).toBe('FAIL');
         expect(takeOverRowsVerdict(done, null, 'b').detail).toMatch(/no saved session was bound/);
         expect(takeOverRowsVerdict([{ id: 'a', status: 'failed' }, { id: 'b', status: 'completed' }], 'a', 'b').status).toBe('FAIL');
+    });
+    it('one completed row cannot stand in for two distinct takes', () => {
+        expect(takeOverRowsVerdict([{ id: 'a', status: 'completed' }], 'a', 'a').status).toBe('FAIL');
     });
     it('any Cloud STT request → FAIL', () => {
         expect(noCloudVerdict(0).status).toBe('PASS');

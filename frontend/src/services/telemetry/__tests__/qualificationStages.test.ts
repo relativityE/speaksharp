@@ -24,6 +24,9 @@ const stageNamed = (name: string): QualificationStage =>
 const row = (event: string, properties: Record<string, unknown> = {}): DecodedTelemetryRow =>
     ({ event, properties });
 
+/** The take the run declared for this binding (`QUALIFICATION_ATTEMPT_IDS`); only the interrupted repeat stage reads it. */
+const DECLARED = { expectedAttemptIds: ['attempt-1'] } as const;
+
 /** The three selectable candidates the down-selection compares. */
 const MODELS = ['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'] as const;
 let MODEL: string = MODELS[0];
@@ -31,6 +34,23 @@ let MODEL: string = MODELS[0];
 /** A complete, honest journey for one stage: every required family, every invariant satisfied. */
 const completeRows = (stage: QualificationStage, model: string = MODELS[0]): DecodedTelemetryRow[] => (
     MODEL = model, stage.requiredFamilies.flatMap((family): DecodedTelemetryRow | DecodedTelemetryRow[] => {
+    // #1593: the interrupted repeat take — the declared take saved, its request R open when the review's Repeat press
+    // and its accepted Start begin the successor B under its own attempt, and R explicitly superseded at the invalidation.
+    if (stage.stage === 'session_interrupted_repeat') {
+        const lc = (s: string, at: number, extra: Record<string, unknown> = {}) => ({ ...row(family, { stage: s, diagnostic_request_id: 'request-1',
+            origin_attempt_id: 'attempt-1', origin_boot_id: 'boot-1', producer_ts: at, ...extra }), bootId: 'boot-1' });
+        if (family === 'stage_latency') {
+            return ['recording_terminated', 'final_transcript', 'session_saved']
+                .map((name, i) => ({ ...row(family, { stage: name, attempt_id: 'attempt-1', producer_ts: 1_000 + i }), timestamp: 1_000 + i }));
+        }
+        if (family === 'ai_coaching_lifecycle') return [lc('requested', 1_600), lc('ended', 2_550, { end_reason: 'superseded_session' })];
+        if (family === 'journey_step') {
+            return { ...row(family, { step: 'option_selected', option_selected: 'practice_next', attempt_id: 'attempt-1', producer_ts: 2_400 }), bootId: 'boot-1' };
+        }
+        if (family === 'recording_intent') return row(family, { intent_kind: 'start', intent_outcome: 'accepted', attempt_id: 'attempt-2', producer_ts: 2_500 });
+        if (family === 'recording_state') return row(family, { to_state: 'RECORDING', attempt_id: 'attempt-2', producer_ts: 2_600 });
+        if (family === 'session_started') return row(family, { attempt_id: 'attempt-2', producer_ts: 2_700 });
+    }
     // #1258 (#1563): a received attempt and ITS outcome (same boot, same submit_seq, outcome after the attempt).
     if (family === 'feedback_submit') return [row(family, { outcome: 'attempted', submit_seq: 1, producer_ts: 1_000 }), row(family, { outcome: 'storage_ok', submit_seq: 1, producer_ts: 1_001 })];
     // #1258 (#1563): a received Practice-again press and the SAME press's arrival at its intended route.
@@ -54,7 +74,7 @@ const completeRows = (stage: QualificationStage, model: string = MODELS[0]): Dec
     }
     // #1421 P1 `3984043475`: a saved take and the one verified receipt that names it, from the same boot.
     if (family === 'session_saved') {
-        return { ...row(family, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1' }),
+        return { ...row(family, { attempt_id: 'attempt-1', attempt_seq: 1, candidate_id: MODEL, engine: 'private', runtime_version: 'r1', producer_ts: 1_500 }),
             journeyId: 'journey-1', bootId: 'boot-1' };
     }
     if (family === 'model_attribution_receipt') {
@@ -88,7 +108,7 @@ describe('#1421 P1 — every UI stage must be evidenced at readback', () => {
         // The case that must keep working. A table that refuses everything is not a gate, it is an
         // outage — and every HOLD below is only worth having if the honest path still passes.
         for (const stage of QUALIFICATION_STAGES) {
-            expect(evaluateQualificationStage(stage, completeRows(stage)), `${stage.stage} qualifies`)
+            expect(evaluateQualificationStage(stage, completeRows(stage), DECLARED), `${stage.stage} qualifies`)
                 .toEqual([]);
         }
     });
@@ -99,7 +119,7 @@ describe('#1421 P1 — every UI stage must be evidenced at readback', () => {
         for (const stage of QUALIFICATION_STAGES) {
             for (const family of stage.requiredFamilies) {
                 const rows = completeRows(stage).filter((r) => r.event !== family);
-                expect(evaluateQualificationStage(stage, rows), `${stage.stage} without ${family}`)
+                expect(evaluateQualificationStage(stage, rows, DECLARED), `${stage.stage} without ${family}`)
                     .toContain(`${stage.stage}: missing required family ${family}`);
             }
         }

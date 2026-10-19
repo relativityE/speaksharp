@@ -1027,6 +1027,14 @@ export class RwtReceipt {
             this.row('readback journey binding', 'HOLD', `no journey emitted the anchor for: ${plan.missingBindings.join(', ')}`,
                 { missingBindings: plan.missingBindings.join(','), reasons, sequence: plan.bindingSequence ?? '' });
         }
+        // #1593 (live run 2026-10-18, cases 4/8) — the finalizer requires `receipt content-free` on EVERY suite
+        // (`ALWAYS_AUTOMATED_ROWS`), documented as written here; only the suites with their own content scan wrote it, so every
+        // other suite's receipt failed finalization on a missing row whatever the journey did. For those, the leak guard below
+        // IS the content check: any registered value replaces this whole receipt with the redacted failure receipt (no rows),
+        // so this PASS can only ever be published when the guard found nothing. A suite's own row is never duplicated.
+        if (!this.rows.some((r) => r.step === 'receipt content-free')) {
+            this.row('receipt content-free', 'PASS', 'the leak guard found no registered value in the receipt, worksheet or log line');
+        }
         const journeyIds = runJourneyIds(plan);
         const dir = path.resolve('test-results', 'rwt');
         mkdirSync(dir, { recursive: true });
@@ -1395,6 +1403,18 @@ export interface PracticeAgainEvidence {
 }
 /** The save take's sub-steps, in order: mic ready → Start pressed → recording confirmed → Stop pressed → review shown. */
 export type PracticeSaveTakeStep = 'mic_ready' | 'start' | 'recording_started' | 'stop' | 'review';
+/**
+ * #1593 — the saved take's identity as the page reports it NOW (`data-session-persisted-id` / `data-session-persisted`).
+ * Read after the persistence wait; `saveTakeNewSession` is null while no id is reported.
+ */
+export async function savedTakeIdentity(
+    page: Pick<Page, 'evaluate'>, previousSessionId: string | null,
+): Promise<{ savedSessionId: string | null; saveTakePersisted: boolean; saveTakeNewSession: boolean | null }> {
+    const savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+    const saveTakePersisted = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted') === 'true');
+    return { savedSessionId, saveTakePersisted, saveTakeNewSession: savedSessionId !== null ? savedSessionId !== previousSessionId : null };
+}
+
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
@@ -1467,6 +1487,11 @@ export async function practiceAgainEvidence(
             .then(() => Date.now()).catch(() => null);
         ev.stopToSaveMs = stopClickedAt !== null && savedAt !== null ? savedAt - stopClickedAt : null;
         savedAtForGate = savedAt;
+        // #1593 (Sam case-1 diagnosis, run 39136771332): the identity read above is a snapshot taken when the review
+        // appeared — BEFORE persistence (`saveTakePersisted:false` there while the take saved 7.9 s later). Re-read it after
+        // the bounded persistence wait, so downstream readers (the two-take coaching read, product markers) bind the take
+        // that was actually saved, never a stale pre-save value.
+        Object.assign(ev, await savedTakeIdentity(page, sessionId));
     } catch {
         ev.reviewReached = false;
         ev.saveTakeFailedStep = step;
@@ -2105,8 +2130,8 @@ export async function focusCoachingRows(
     if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
     // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body. An
     // exchange still unread at the bound is simply absent, so nothing is proved from it.
-    if (request.generations) await settleCoachingReason(request.generations.settle());
-    const take = takeExchangeEvidence(request.generations?.forSession(sessionId) ?? []);
+    // #1474 (Codex r4305107827, Sam 6243698211): read through the tap's own bounded settle; a 5 s cap read early.
+    const take = takeExchangeEvidence(request.generations ? await request.generations.settledForSession(sessionId) : []);
     // #1258 R3b (run 38308997906 hung 24 min here): read each phrase from the review pair's own test id, bounded. The old
     // heading → div → <p> walk waited without limit when its structure did not resolve. A phrase that is absent reads as
     // '' and the row below FAILs; the rendered-vs-saved check is unchanged.

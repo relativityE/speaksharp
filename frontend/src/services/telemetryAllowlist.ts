@@ -116,6 +116,23 @@ export type FieldRule =
     | { kind: 'enum[]'; values: readonly string[]; maxLength: number };
 
 const enumOf = (values: readonly string[]): FieldRule => ({ kind: 'enum', values });
+
+/** #1593 — the coaching request lifecycle's closed vocabularies (practiceLoopTelemetry's producer types mirror them). */
+export const COACHING_LIFECYCLE_STAGES = Object.freeze([
+    // `response_received` only when a response actually arrived (an HTTP error response counts); `transport_failed` when
+    // the attempt got no response at all (Sam, #1657 review: a FunctionsFetchError is not a received response).
+    'requested', 'response_received', 'transport_failed', 'response_parsed', 'persisted', 'ready', 'rendered', 'ended',
+] as const);
+/**
+ * Why a lifecycle ended. `superseded_session`: the user moved to another session; `superseded_request`: a newer request
+ * for the same session replaced it; `unmounted`: the review left the page (a LOCAL abandonment — not a network abort);
+ * `retry_cancelled`: a scheduled automatic retry was cancelled; `timeout`: the invoke had not settled within the client
+ * allowance (it is not aborted, and a late answer is still reported); `completed`: the review was shown to the user.
+ */
+export const COACHING_LIFECYCLE_END_REASONS = Object.freeze([
+    'completed', 'superseded_session', 'superseded_request', 'unmounted', 'retry_cancelled', 'timeout',
+    'invalid_response', 'failed',
+] as const);
 const slug = (maxLength = 64): FieldRule => ({ kind: 'slug', maxLength });
 const uuid: FieldRule = { kind: 'uuid' };
 
@@ -656,6 +673,30 @@ export const EVENT_SCHEMAS = Object.freeze({
     },
     practice_loop_review_failed: {
         reason: enumOf(PRACTICE_LOOP_REVIEW_FAILURE_REASONS),
+    },
+    // #1593 (PO via Sam, case-1 diagnosis) — THE COACHING REQUEST LIFECYCLE, one event per stage, so a feedback report can
+    // reconstruct what the user's request did and what they saw: requested → response_received → response_parsed →
+    // persisted → ready → rendered, and exactly one terminal `ended` with a closed reason. `origin_*` is the journey/boot/
+    // recording attempt SNAPSHOTTED AT REQUEST START: the ambient envelope is read at push time, so a late callback for
+    // take A would otherwise carry take B's identity. The opaque diagnostic ids join this chain to the server's
+    // AI_COACHING_DIAGNOSTIC log and to feedback's coaching_diagnostic_ref. No session id, transcript, coaching text,
+    // email or token; an unsent or lost stage stays absent (unknown), never inferred.
+    ai_coaching_lifecycle: {
+        diagnostic_request_id: uuid,
+        diagnostic_attempt_id: uuid,
+        client_attempt: { kind: 'int', min: 1, max: 2 } as FieldRule,
+        stage: enumOf(COACHING_LIFECYCLE_STAGES),
+        end_reason: enumOf(COACHING_LIFECYCLE_END_REASONS),
+        parse_valid: { kind: 'bool' } as FieldRule,
+        // `ended: unmounted` only: the browser's wait was aborted on route exit. It never claims the server stopped.
+        client_aborted: { kind: 'bool' } as FieldRule,
+        elapsed_ms: { kind: 'int', min: 0, max: 600_000 } as FieldRule,
+        // Bounded tokens, not `uuid`: journeyIdentity mints a UUID, or `j-<base36>-<base36>` where crypto is absent
+        // (Sam, #1657 review) — a uuid rule silently dropped all three origin fields in that fallback.
+        origin_journey_id: slug(48),
+        origin_boot_id: slug(48),
+        origin_attempt_id: slug(48),
+        product: enumOf(['open_mic', 'focus_points', 'unknown']),
     },
     // #1258 — a content-free request/attempt record. The opaque ids join the server diagnostic to the feedback row;
     // transcripts, phrases, session UUIDs, provider error text and credentials stay out.

@@ -21,7 +21,7 @@ import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { CoachingGenerationTap } from './coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './coachingFeedbackAdapter';
-import { coachingPromptBindingRow } from './rwtCoachingCollector';
+import { coachingPromptBindingRow, coachingRequestBudgetRow } from './rwtCoachingCollector';
 import { coachingContract } from './rwtCoachingEvidence';
 import { coachingTelemetryVerdict, failureTelemetryBinding, takeExchangeEvidence } from './coachingExternal';
 import {
@@ -123,7 +123,11 @@ const parseClock = (text: string): number | null => {
 const SETUP_FIELD_READ_FAILED = '(setup field read failed)';
 const meetsExpectation = (expected: string, got: RailStatus | null): boolean => focusPointMeetsExpectation(expected, got);
 
-export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }) {
+/**
+ * @param coachingMaximum #1593 (Sam 1792317800 §6): the selected whole-scenario browser coaching-request maximum for THIS
+ *   suite — 7 for the full PO-corpus journey, 4 for the partial fixture. It bounds the `coaching request budget` row.
+ */
+export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }, coachingMaximum: number) {
     const preconditions = rwtPreconditionFailures();
     if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
     const run: RunTarget = await resolveRunTarget(JOURNEY);
@@ -777,6 +781,11 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     } finally {
         // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
         receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { coverage_evaluation: 1 })).observed;
+        // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count, from the same request-boundary tap after a
+        // bounded settle of every sent exchange, so the campaign's budget admission reads an actual count. An unanswered or
+        // unreadable exchange stays HOLD (never a zero or the planned maximum).
+        await generations.settle();
+        coachingRequestBudgetRow(receipt, generations, { maximum: coachingMaximum });
         const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
         const coverageSeen = tap.sent('coverage_evaluation').length > 0;
         const coverageReceivedBy = ['session_after_focus_points'] as const;
@@ -854,7 +863,9 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
         }
         receipt.write(testInfo,
             bindReadbackJourneys(tap.events, {
-                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'], repeatRecording: ['session_during', 'session_after_focus_points'],
+                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'],
+                // #1593 (Sam 15:51, same contract as Open Mic): the Focus repeat take is interrupted by the next take on purpose.
+                repeatRecording: ['session_during', 'session_interrupted_repeat'],
                 takes: {
                     first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,

@@ -83,11 +83,12 @@ export function returnStartVerdict(o: {
 }
 
 /**
- * #1258 (Sam 6218709582 / 6219021013) — the recovery notice's own wordings (SessionPage `session-recovery-message`). Every
- * one of them says the take was NOT saved, in two different phrasings, so the unsaved claim is read from all of them.
+ * #1258 (Sam 6218709582 / 6219021013) — the recovery notice's own wordings (SessionPage `session-recovery-message`). The two
+ * interrupted wordings say the take was NOT saved (no completion was ever sent, so that is known). #1474 (Sam 1792278508):
+ * the finalized wording claims neither — its save is unconfirmed — so it is truthful whatever the server holds.
  */
 export const RECOVERY_NOTICE_COPY = Object.freeze({
-    finalized_pending_save: 'Your last session finished but was not saved. Its measurements were kept on this device; no transcript was stored.',
+    finalized_pending_save: 'Your last session finished, but we couldn’t confirm it was saved. Its measurements were kept on this device.',
     interrupted_partial: 'Your last session was interrupted before it was saved. No transcript was saved, and only partial measurements were captured.',
     interrupted: 'Your last session was interrupted before it was saved. No transcript was saved.',
 });
@@ -103,6 +104,26 @@ export function classifyRecoveryClaim(text: string): { claimsSavedTranscript: bo
 export function newRowsSince(baseline: readonly RowFacts[], atReturn: readonly RowFacts[]): RowFacts[] {
     const before = new Set(baseline.map((r) => r.id));
     return atReturn.filter((r) => !before.has(r.id));
+}
+
+/** Include every saved left take in the whole-scenario per-take coaching budget. */
+export function completedTakeIds(rows: readonly RowFacts[]): string[] {
+    return rows.filter((row) => row.status === 'completed').map((row) => row.id);
+}
+
+/** Refresh after later server reads too: an abandoned take may finish saving after return. */
+export function addCompletedTakeIds(takes: string[], rows: readonly RowFacts[]): void {
+    for (const id of completedTakeIds(rows)) if (!takes.includes(id)) takes.push(id);
+}
+
+/** Finalization runs on successful, returned and thrown paths; unreadable identities are never verified. */
+export async function refreshCompletedTakeIds(takes: string[], baseline: readonly RowFacts[] | null,
+    readFinalRows: () => Promise<readonly RowFacts[]>): Promise<boolean> {
+    if (baseline === null) return false;
+    try {
+        addCompletedTakeIds(takes, newRowsSince(baseline, await readFinalRows()));
+        return true;
+    } catch { return false; }
 }
 
 /**
@@ -196,6 +217,7 @@ export function noCloudVerdict(cloudRequests: number): Verdict {
 /** After the take-over: the taking-over tab's take is completed, the displaced take was closed (saved), none is active. */
 export function takeOverRowsVerdict(rows: readonly RowFacts[], displacedId: string | null, takeOverId: string | null): Verdict {
     if (takeOverId === null) return { status: 'FAIL', detail: 'the taking-over tab bound no saved session' };
+    if (displacedId === takeOverId) return { status: 'FAIL', detail: 'the displaced and taking-over tabs bound the same saved session instead of distinct takes' };
     const own = rows.find((r) => r.id === takeOverId);
     if (own?.status !== 'completed') return { status: 'FAIL', detail: 'the taking-over tab\'s take is not completed' };
     const orphans = rows.filter((r) => r.status === 'active').length;

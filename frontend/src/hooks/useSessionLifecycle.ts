@@ -883,6 +883,20 @@ export const useSessionLifecycle = () => {
                         ? (['ready', 'idle'].includes(privateModelStatus) ? 'cached' : 'cold')
                         : 'not_applicable',
                 );
+                /**
+                 * #1593 (live RWT case 4; Browser PM navigation counterexamples) — A RETIRED START THIS MOUNT NO LONGER OWNS
+                 * IS A CANCELLATION, NOT A SETUP FAILURE. Leaving the page (or a newer Start) retires the pending intent with
+                 * `RECORDING_INTENT_RETIRED:*`. Only the Try-again cancel was recognised, so a navigation fell through to a
+                 * failure: `recording_start_failed`, an error status and `reset('start_failed')` — written into whatever
+                 * attempt owns the page by then — and a lease proof that could query a successor's lease. The departed
+                 * attempt now reports nothing and touches nothing; the unmount path owns its engine and lease. A retirement
+                 * of the CURRENT, still-mounted attempt, and every genuine setup error, keep the failure path unchanged.
+                 */
+                const cancelledRetirement = (failure: unknown): boolean => {
+                    const message = (failure as { message?: unknown } | null)?.message;
+                    return typeof message === 'string' && message.startsWith('RECORDING_INTENT_RETIRED:')
+                        && (isRetryCancelled(startAttempt.id) || startCancelled() || currentStartAttempt()?.id !== startAttempt.id);
+                };
                 try {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                     if (speechRuntimeController.getState() !== 'RECORDING') {
@@ -893,6 +907,8 @@ export const useSessionLifecycle = () => {
                     }
                     startLatency.settle('recording_started');
                 } catch (error) {
+                    // A cancellation settles no outcome and leaves the lease to the unmount/successor that owns it.
+                    if (cancelledRetirement(error)) throw error;
                     startLatency.settle('failed');
                     // #1476 Codex P1 on 56cc5ad3: a Start can fail after the engine reached RECORDING (e.g. the placeholder
                     // save rejects), and the start_failed reset does not await its destroy — release only on proof.
@@ -941,8 +957,9 @@ export const useSessionLifecycle = () => {
                 // #1258 C10 — the user chose `Try again`, which cancels this start with a confirmed release before ONE
                 // new start. Its retired intent is that deliberate cancel, not an engine failure: no failure telemetry,
                 // no error status, no reset (the cancel already tore the engine down and proved it off).
-                if (isRetryCancelled(startAttempt.id)
-                    && typeof err?.message === 'string' && err.message.startsWith('RECORDING_INTENT_RETIRED:')) {
+                // #1593: likewise a retirement this mount no longer owns (the page was left, or a newer attempt is current).
+                if (typeof err?.message === 'string' && err.message.startsWith('RECORDING_INTENT_RETIRED:')
+                    && (isRetryCancelled(startAttempt.id) || startCancelled() || currentStartAttempt()?.id !== startAttempt.id)) {
                     isProcessingRef.current = false;
                     return;
                 }

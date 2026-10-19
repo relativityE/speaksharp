@@ -717,7 +717,8 @@ export const SessionPage: React.FC = () => {
                 {!((displayStatus.type === 'ready' || displayStatus.type === 'idle') && !postSaveReady && !isListening) && (
                     <StatusNotificationBar
                         // #1047: the page owns the gap below the status bar, not the shared component.
-                        className="mb-[26px]"
+                        // #1474: 12px below md, where the fixed mobile bar leaves no room for the full prescription.
+                        className="mb-3 md:mb-[26px]"
                         status={displayStatus}
                         analyticsAction={postSaveReady && !startupWaiting ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
                         startupRetry={startupWaiting && startupSlow ? {
@@ -799,8 +800,11 @@ export const SessionPage: React.FC = () => {
                         data-recovery-state={recoveryDraft.recoveryState}
                     >
                         <span className="font-medium text-foreground/80" data-testid="session-recovery-message">
+                            {/* #1474 (Sam 1792278508): a finalized take's save is UNCONFIRMED (its answer may have been lost after the
+                                server committed), so no definite "not saved"/"no transcript was stored". An interrupted take sent no
+                                completion at all, so its "not saved" stays definite and true. */}
                             {recoveryDraft.recoveryState === 'finalized_pending_save'
-                                ? 'Your last session finished but was not saved. Its measurements were kept on this device; no transcript was stored.'
+                                ? 'Your last session finished, but we couldn’t confirm it was saved. Its measurements were kept on this device.'
                                 : (recoveryDraft.metrics?.totalWords ?? 0) > 0
                                     ? 'Your last session was interrupted before it was saved. No transcript was saved, and only partial measurements were captured.'
                                     : 'Your last session was interrupted before it was saved. No transcript was saved.'}
