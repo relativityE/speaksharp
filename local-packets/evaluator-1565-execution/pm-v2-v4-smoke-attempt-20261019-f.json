@@ -1,0 +1,367 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-19T01:49:28.807Z",
+  "lane": "model_only_corpus",
+  "productPath": "NOT_RUN",
+  "device": {
+    "version": 1,
+    "label": "local-browser-wasm-smoke",
+    "backend": "wasm",
+    "baseUrl": "http://127.0.0.1:5173"
+  },
+  "inputManifestSha256": {
+    "baseline": "f32e752f3d39713c72b5c26fd3c3497af008a68760d0190efe5efdafd391a7e4",
+    "candidate": "0c3722bc5b66f35a4acca3aadb4fa9a7ac7fdc091d7307098990c6393f05b46c",
+    "corpus": "2016a29dc6b0f2fd04e5e49e7e262a2a409bb3b68d32b9898751b0dbad9f68b8",
+    "device": "4e2e3d9002a63693e59c676542a03d687ab0236f9b26e8dffd480b50c865c088",
+    "policy": null
+  },
+  "inputFailures": [],
+  "adapterInitializeMs": {
+    "baseline": 21918.186825999997,
+    "candidate": 26882.933155999996
+  },
+  "modelAssetTransfer": {
+    "baseline": {
+      "requestCount": 7,
+      "failedRequests": 0,
+      "responseBodyBytes": 79041253,
+      "requestWindowMs": 3414.0280439999997,
+      "pageCacheDisabled": true
+    },
+    "candidate": {
+      "requestCount": 13,
+      "failedRequests": 0,
+      "responseBodyBytes": 23,
+      "requestWindowMs": 1270.0779829999992,
+      "pageCacheDisabled": true
+    }
+  },
+  "workerAcquisition": {
+    "baseline": null,
+    "candidate": {
+      "completeness": "partial",
+      "reasonCode": "requests_outside_scope",
+      "assetCount": 13,
+      "outOfScopeCount": 5,
+      "networkBytes": null,
+      "downloadMs": 2479,
+      "networkUsed": null,
+      "unobservableReason": "every matching response hid its size (cross-origin without Timing-Allow-Origin)",
+      "attemptToken": "acq-1-774535b8-4172-4b04-bccc-3fdce0b934e4",
+      "candidateId": "v4:base:q4"
+    }
+  },
+  "deviceEvidence": {
+    "baseline": null,
+    "candidate": null
+  },
+  "baseline": {
+    "manifest": {
+      "engine": "private-v2",
+      "modelId": "Xenova/whisper-base.en",
+      "revision": null,
+      "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+      "runtime": "@xenova/transformers@2.17.2",
+      "backend": "wasm"
+    },
+    "observed": {
+      "engine": "private-v2",
+      "modelId": "Xenova/whisper-base.en",
+      "revision": null,
+      "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+      "runtime": "@xenova/transformers@2.17.2",
+      "backend": "wasm"
+    },
+    "results": [
+      {
+        "clipId": "fixture-001",
+        "trial": 0,
+        "transcript": "The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+        "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+        "finalLatencyMs": 11228.434442999998,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": 2.1731314619153026,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 0,
+        "transcript": "meeting starts at 9. Please arrive early. Thank you very much.",
+        "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+        "finalLatencyMs": 18464.65996399999,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": 4.492208123103121,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 0,
+        "transcript": "So I'm I think I wish you a review of the plan today.",
+        "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+        "finalLatencyMs": 11134.992073000001,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": 3.9591082926222225,
+        "fillerDetection": {
+          "referenceCount": 3,
+          "detectedCount": 0,
+          "detectedByKey": {
+            "so": 1
+          }
+        }
+      },
+      {
+        "clipId": "fixture-001",
+        "trial": 1,
+        "transcript": "The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+        "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+        "finalLatencyMs": 11036.340909999999,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": 2.135954017249096,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 1,
+        "transcript": "meeting starts at 9. Please arrive early. Thank you very much.",
+        "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+        "finalLatencyMs": 11126.450222999993,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": 2.70691852276252,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 1,
+        "transcript": "So I'm I think I wish you a review of the plan today.",
+        "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+        "finalLatencyMs": 13647.457620000001,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": 4.852429376000001,
+        "fillerDetection": {
+          "referenceCount": 3,
+          "detectedCount": 0,
+          "detectedByKey": {
+            "so": 1
+          }
+        }
+      }
+    ]
+  },
+  "candidate": {
+    "manifest": {
+      "engine": "private-v4",
+      "modelId": "onnx-community/whisper-base.en",
+      "revision": null,
+      "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+      "runtime": "@huggingface/transformers@4.3.0",
+      "backend": "wasm"
+    },
+    "observed": {
+      "engine": "private-v4",
+      "modelId": "onnx-community/whisper-base.en",
+      "revision": null,
+      "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+      "runtime": "@huggingface/transformers@4.3.0",
+      "backend": "wasm"
+    },
+    "results": [
+      {
+        "clipId": "fixture-001",
+        "trial": 0,
+        "transcript": " The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+        "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+        "finalLatencyMs": 12222.524763999994,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": 2.3655259549781653,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 0,
+        "transcript": " meeting starts at 9. Please arrive early. Thank you very much.",
+        "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+        "finalLatencyMs": 11990.654607999997,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": 2.917168046224492,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 0,
+        "transcript": " So am I think I we should unreview the plan today.",
+        "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+        "finalLatencyMs": 11372.510446,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": 4.043559269688889,
+        "fillerDetection": {
+          "referenceCount": 3,
+          "detectedCount": 0,
+          "detectedByKey": {
+            "so": 1
+          }
+        }
+      },
+      {
+        "clipId": "fixture-001",
+        "trial": 1,
+        "transcript": " The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+        "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+        "finalLatencyMs": 12699.103945999988,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": 2.457762252010981,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 1,
+        "transcript": " meeting starts at 9. Please arrive early. Thank you very much.",
+        "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+        "finalLatencyMs": 18557.897934999986,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": 4.514891691147398,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 1,
+        "transcript": " So am I think I we should unreview the plan today.",
+        "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+        "finalLatencyMs": 15189.924327000015,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": 5.400861982933339,
+        "fillerDetection": {
+          "referenceCount": 3,
+          "detectedCount": 0,
+          "detectedByKey": {
+            "so": 1
+          }
+        }
+      }
+    ]
+  },
+  "comparison": {
+    "verdict": "HOLD",
+    "reasons": [
+      "missing_or_invalid_predeclared_policy"
+    ],
+    "baseline": {
+      "wer": 0.2,
+      "referenceWords": 80,
+      "substitutions": 4,
+      "deletions": 2,
+      "insertions": 10,
+      "scoredCount": 6,
+      "invalidCount": 0,
+      "invalidReasons": {}
+    },
+    "candidate": {
+      "wer": 0.1,
+      "referenceWords": 80,
+      "substitutions": 2,
+      "deletions": 2,
+      "insertions": 4,
+      "scoredCount": 6,
+      "invalidCount": 0,
+      "invalidReasons": {}
+    },
+    "slices": {
+      "clear": {
+        "baseline": {
+          "wer": 0.03225806451612903,
+          "referenceWords": 62,
+          "substitutions": 0,
+          "deletions": 2,
+          "insertions": 0,
+          "scoredCount": 4,
+          "invalidCount": 0,
+          "invalidReasons": {}
+        },
+        "candidate": {
+          "wer": 0.03225806451612903,
+          "referenceWords": 62,
+          "substitutions": 0,
+          "deletions": 2,
+          "insertions": 0,
+          "scoredCount": 4,
+          "invalidCount": 0,
+          "invalidReasons": {}
+        }
+      },
+      "filler": {
+        "baseline": {
+          "wer": 0.7777777777777778,
+          "referenceWords": 18,
+          "substitutions": 4,
+          "deletions": 0,
+          "insertions": 10,
+          "scoredCount": 2,
+          "invalidCount": 0,
+          "invalidReasons": {}
+        },
+        "candidate": {
+          "wer": 0.3333333333333333,
+          "referenceWords": 18,
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 4,
+          "scoredCount": 2,
+          "invalidCount": 0,
+          "invalidReasons": {}
+        }
+      }
+    },
+    "finalLatencyMs": {
+      "baseline": 11181.713258,
+      "candidate": 12460.814354999991
+    }
+  },
+  "acceptance": {
+    "verdict": "HOLD",
+    "reasons": [
+      "missing_or_invalid_predeclared_policy",
+      "product_path_and_required_metrics_not_run"
+    ]
+  },
+  "identityLimitations": [],
+  "unsupportedMetrics": [
+    "first_useful_partial",
+    "cold_model_load_isolated",
+    "persistent_cache_size",
+    "browser_worker_memory",
+    "product_start_stop_next_take",
+    "focus_keyword_coverage"
+  ]
+}

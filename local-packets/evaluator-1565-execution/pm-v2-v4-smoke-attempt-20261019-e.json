@@ -1,0 +1,381 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-19T01:46:39.751Z",
+  "lane": "model_only_corpus",
+  "productPath": "NOT_RUN",
+  "device": {
+    "version": 1,
+    "label": "local-browser-wasm-smoke",
+    "backend": "wasm",
+    "baseUrl": "http://127.0.0.1:5173"
+  },
+  "inputManifestSha256": {
+    "baseline": "f32e752f3d39713c72b5c26fd3c3497af008a68760d0190efe5efdafd391a7e4",
+    "candidate": "0c3722bc5b66f35a4acca3aadb4fa9a7ac7fdc091d7307098990c6393f05b46c",
+    "corpus": "2016a29dc6b0f2fd04e5e49e7e262a2a409bb3b68d32b9898751b0dbad9f68b8",
+    "device": "4e2e3d9002a63693e59c676542a03d687ab0236f9b26e8dffd480b50c865c088",
+    "policy": null
+  },
+  "inputFailures": [
+    "candidate_init:Error: page.evaluate: Error: no available backend found. ERR: [wasm] TypeError: Failed to fetch dynamically imported module: https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort-wasm-simd-threaded.asyncify.mjs\n    at TransformersJSV4Engine.handleWorkerMessage (http://127.0.0.1:5173/src/services/transcription/engines/TransformersJSV4Engine.ts:462:22)\n    at worker.onmessage (http://127.0.0.1:5173/src/services/transcription/engines/TransformersJSV4Engine.ts:367:45)"
+  ],
+  "adapterInitializeMs": {
+    "baseline": 16814.752826,
+    "candidate": 9526.436734000003
+  },
+  "modelAssetTransfer": {
+    "baseline": {
+      "requestCount": 7,
+      "failedRequests": 0,
+      "responseBodyBytes": 79041253,
+      "requestWindowMs": 2014.4831569999997,
+      "pageCacheDisabled": true
+    },
+    "candidate": {
+      "requestCount": 13,
+      "failedRequests": 0,
+      "responseBodyBytes": 23,
+      "requestWindowMs": 2259.6516410000004,
+      "pageCacheDisabled": true
+    }
+  },
+  "workerAcquisition": {
+    "baseline": null,
+    "candidate": null
+  },
+  "deviceEvidence": {
+    "baseline": null,
+    "candidate": null
+  },
+  "baseline": {
+    "manifest": {
+      "engine": "private-v2",
+      "modelId": "Xenova/whisper-base.en",
+      "revision": null,
+      "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+      "runtime": "@xenova/transformers@2.17.2",
+      "backend": "wasm"
+    },
+    "observed": {
+      "engine": "private-v2",
+      "modelId": "Xenova/whisper-base.en",
+      "revision": null,
+      "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+      "runtime": "@xenova/transformers@2.17.2",
+      "backend": "wasm"
+    },
+    "results": [
+      {
+        "clipId": "fixture-001",
+        "trial": 0,
+        "transcript": "The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+        "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+        "finalLatencyMs": 14942.168480999997,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": 2.8918810186885358,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 0,
+        "transcript": "meeting starts at 9. Please arrive early. Thank you very much.",
+        "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+        "finalLatencyMs": 10417.898307000003,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": 2.5345371911321966,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 0,
+        "transcript": "So I'm I think I wish you a review of the plan today.",
+        "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+        "finalLatencyMs": 13109.967121000001,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": 4.661321643022223,
+        "fillerDetection": {
+          "referenceCount": 3,
+          "detectedCount": 0,
+          "detectedByKey": {
+            "so": 1
+          }
+        }
+      },
+      {
+        "clipId": "fixture-001",
+        "trial": 1,
+        "transcript": "The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+        "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+        "finalLatencyMs": 14537.020550000001,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": 2.8134694003943346,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 1,
+        "transcript": "meeting starts at 9. Please arrive early. Thank you very much.",
+        "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+        "finalLatencyMs": 12033.731738999995,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": 2.9276481437825006,
+        "fillerDetection": {
+          "referenceCount": 0,
+          "detectedCount": 0,
+          "detectedByKey": {}
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 1,
+        "transcript": "So I'm I think I wish you a review of the plan today.",
+        "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+        "finalLatencyMs": 8196.179112999991,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": 2.9141970179555523,
+        "fillerDetection": {
+          "referenceCount": 3,
+          "detectedCount": 0,
+          "detectedByKey": {
+            "so": 1
+          }
+        }
+      }
+    ]
+  },
+  "candidate": {
+    "manifest": {
+      "engine": "private-v4",
+      "modelId": "onnx-community/whisper-base.en",
+      "revision": null,
+      "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+      "runtime": "@huggingface/transformers@4.3.0",
+      "backend": "wasm"
+    },
+    "observed": null,
+    "results": [
+      {
+        "clipId": "fixture-001",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-001",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      }
+    ]
+  },
+  "comparison": {
+    "verdict": "FAIL",
+    "reasons": [
+      "candidate_identity_mismatch_or_fallback",
+      "candidate_input_mismatch:fixture-001:0",
+      "candidate_decode_error:fixture-001:0",
+      "candidate_input_mismatch:fixture-002:0",
+      "candidate_decode_error:fixture-002:0",
+      "candidate_input_mismatch:fixture-003:0",
+      "candidate_decode_error:fixture-003:0",
+      "candidate_input_mismatch:fixture-001:1",
+      "candidate_decode_error:fixture-001:1",
+      "candidate_input_mismatch:fixture-002:1",
+      "candidate_decode_error:fixture-002:1",
+      "candidate_input_mismatch:fixture-003:1",
+      "candidate_decode_error:fixture-003:1",
+      "candidate_unscoreable:incomplete_corpus",
+      "unscoreable_slice:clear",
+      "unscoreable_slice:filler",
+      "missing_or_invalid_predeclared_policy",
+      "candidate_latency_unavailable:fixture-001:0",
+      "candidate_latency_unavailable:fixture-002:0",
+      "candidate_latency_unavailable:fixture-003:0",
+      "candidate_latency_unavailable:fixture-001:1",
+      "candidate_latency_unavailable:fixture-002:1",
+      "candidate_latency_unavailable:fixture-003:1"
+    ],
+    "baseline": {
+      "wer": 0.2,
+      "referenceWords": 80,
+      "substitutions": 4,
+      "deletions": 2,
+      "insertions": 10,
+      "scoredCount": 6,
+      "invalidCount": 0,
+      "invalidReasons": {}
+    },
+    "candidate": {
+      "wer": null,
+      "referenceWords": 0,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "scoredCount": 0,
+      "invalidCount": 6,
+      "invalidReasons": {
+        "empty_hypothesis": 6
+      },
+      "armInvalidReason": "incomplete_corpus"
+    },
+    "slices": {
+      "clear": {
+        "baseline": {
+          "wer": 0.03225806451612903,
+          "referenceWords": 62,
+          "substitutions": 0,
+          "deletions": 2,
+          "insertions": 0,
+          "scoredCount": 4,
+          "invalidCount": 0,
+          "invalidReasons": {}
+        },
+        "candidate": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 4,
+          "invalidReasons": {
+            "empty_hypothesis": 4
+          },
+          "armInvalidReason": "incomplete_corpus"
+        }
+      },
+      "filler": {
+        "baseline": {
+          "wer": 0.7777777777777778,
+          "referenceWords": 18,
+          "substitutions": 4,
+          "deletions": 0,
+          "insertions": 10,
+          "scoredCount": 2,
+          "invalidCount": 0,
+          "invalidReasons": {}
+        },
+        "candidate": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 2,
+          "invalidReasons": {
+            "empty_hypothesis": 2
+          },
+          "armInvalidReason": "incomplete_corpus"
+        }
+      }
+    },
+    "finalLatencyMs": {
+      "baseline": 12571.849429999998,
+      "candidate": null
+    }
+  },
+  "acceptance": {
+    "verdict": "FAIL",
+    "reasons": [
+      "candidate_identity_mismatch_or_fallback",
+      "candidate_input_mismatch:fixture-001:0",
+      "candidate_decode_error:fixture-001:0",
+      "candidate_input_mismatch:fixture-002:0",
+      "candidate_decode_error:fixture-002:0",
+      "candidate_input_mismatch:fixture-003:0",
+      "candidate_decode_error:fixture-003:0",
+      "candidate_input_mismatch:fixture-001:1",
+      "candidate_decode_error:fixture-001:1",
+      "candidate_input_mismatch:fixture-002:1",
+      "candidate_decode_error:fixture-002:1",
+      "candidate_input_mismatch:fixture-003:1",
+      "candidate_decode_error:fixture-003:1",
+      "candidate_unscoreable:incomplete_corpus",
+      "unscoreable_slice:clear",
+      "unscoreable_slice:filler",
+      "missing_or_invalid_predeclared_policy",
+      "candidate_latency_unavailable:fixture-001:0",
+      "candidate_latency_unavailable:fixture-002:0",
+      "candidate_latency_unavailable:fixture-003:0",
+      "candidate_latency_unavailable:fixture-001:1",
+      "candidate_latency_unavailable:fixture-002:1",
+      "candidate_latency_unavailable:fixture-003:1"
+    ]
+  },
+  "identityLimitations": [],
+  "unsupportedMetrics": [
+    "first_useful_partial",
+    "cold_model_load_isolated",
+    "persistent_cache_size",
+    "browser_worker_memory",
+    "product_start_stop_next_take",
+    "focus_keyword_coverage"
+  ]
+}

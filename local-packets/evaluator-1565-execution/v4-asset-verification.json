@@ -1,0 +1,44 @@
+[
+  {
+    "asset": "config.json",
+    "bytes": 2197,
+    "sha256": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+    "committedPinMatch": true
+  },
+  {
+    "asset": "generation_config.json",
+    "bytes": 1556,
+    "sha256": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+    "committedPinMatch": true
+  },
+  {
+    "asset": "preprocessor_config.json",
+    "bytes": 339,
+    "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+    "committedPinMatch": true
+  },
+  {
+    "asset": "tokenizer.json",
+    "bytes": 2405679,
+    "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+    "committedPinMatch": true
+  },
+  {
+    "asset": "tokenizer_config.json",
+    "bytes": 282662,
+    "sha256": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c",
+    "committedPinMatch": true
+  },
+  {
+    "asset": "onnx/encoder_model.onnx",
+    "bytes": 82468078,
+    "sha256": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+    "committedPinMatch": true
+  },
+  {
+    "asset": "onnx/decoder_model_merged_q4.onnx",
+    "bytes": 123600371,
+    "sha256": "7770ac574b71a704191ec52becac42b4a4126af26f54ed653f31c8f16af31f99",
+    "committedPinMatch": true
+  }
+]

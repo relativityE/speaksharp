@@ -1,0 +1,402 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-19T01:38:42.439Z",
+  "lane": "model_only_corpus",
+  "productPath": "NOT_RUN",
+  "device": {
+    "version": 1,
+    "label": "local-browser-wasm-smoke",
+    "backend": "wasm",
+    "baseUrl": "http://127.0.0.1:5173"
+  },
+  "inputManifestSha256": {
+    "baseline": "f32e752f3d39713c72b5c26fd3c3497af008a68760d0190efe5efdafd391a7e4",
+    "candidate": "0c3722bc5b66f35a4acca3aadb4fa9a7ac7fdc091d7307098990c6393f05b46c",
+    "corpus": "2016a29dc6b0f2fd04e5e49e7e262a2a409bb3b68d32b9898751b0dbad9f68b8",
+    "device": "4e2e3d9002a63693e59c676542a03d687ab0236f9b26e8dffd480b50c865c088",
+    "policy": null
+  },
+  "inputFailures": [
+    "baseline_init:Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:5173/private-dropin.html?privateWorkerEvidence=1\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:5173/private-dropin.html?privateWorkerEvidence=1\", waiting until \"load\"\u001b[22m\n",
+    "candidate_init:Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:5173/model-evaluator.local.html\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:5173/model-evaluator.local.html\", waiting until \"load\"\u001b[22m\n"
+  ],
+  "adapterInitializeMs": {
+    "baseline": 1472.9112369999998,
+    "candidate": 261.84195499999987
+  },
+  "modelAssetTransfer": {
+    "baseline": {
+      "requestCount": 0,
+      "failedRequests": 0,
+      "responseBodyBytes": 0,
+      "requestWindowMs": null,
+      "pageCacheDisabled": true
+    },
+    "candidate": {
+      "requestCount": 0,
+      "failedRequests": 0,
+      "responseBodyBytes": 0,
+      "requestWindowMs": null,
+      "pageCacheDisabled": true
+    }
+  },
+  "workerAcquisition": {
+    "baseline": null,
+    "candidate": null
+  },
+  "deviceEvidence": {
+    "baseline": null,
+    "candidate": null
+  },
+  "baseline": {
+    "manifest": {
+      "engine": "private-v2",
+      "modelId": "Xenova/whisper-base.en",
+      "revision": null,
+      "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+      "runtime": "@xenova/transformers@2.17.2",
+      "backend": "wasm"
+    },
+    "observed": null,
+    "results": [
+      {
+        "clipId": "fixture-001",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-001",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      }
+    ]
+  },
+  "candidate": {
+    "manifest": {
+      "engine": "private-v4",
+      "modelId": "onnx-community/whisper-base.en",
+      "revision": null,
+      "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+      "runtime": "@huggingface/transformers@4.3.0",
+      "backend": "wasm"
+    },
+    "observed": null,
+    "results": [
+      {
+        "clipId": "fixture-001",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-001",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed"
+      }
+    ]
+  },
+  "comparison": {
+    "verdict": "FAIL",
+    "reasons": [
+      "baseline_identity_mismatch_or_fallback",
+      "candidate_identity_mismatch_or_fallback",
+      "baseline_input_mismatch:fixture-001:0",
+      "baseline_decode_error:fixture-001:0",
+      "baseline_input_mismatch:fixture-002:0",
+      "baseline_decode_error:fixture-002:0",
+      "baseline_input_mismatch:fixture-003:0",
+      "baseline_decode_error:fixture-003:0",
+      "baseline_input_mismatch:fixture-001:1",
+      "baseline_decode_error:fixture-001:1",
+      "baseline_input_mismatch:fixture-002:1",
+      "baseline_decode_error:fixture-002:1",
+      "baseline_input_mismatch:fixture-003:1",
+      "baseline_decode_error:fixture-003:1",
+      "baseline_unscoreable:incomplete_corpus",
+      "candidate_input_mismatch:fixture-001:0",
+      "candidate_decode_error:fixture-001:0",
+      "candidate_input_mismatch:fixture-002:0",
+      "candidate_decode_error:fixture-002:0",
+      "candidate_input_mismatch:fixture-003:0",
+      "candidate_decode_error:fixture-003:0",
+      "candidate_input_mismatch:fixture-001:1",
+      "candidate_decode_error:fixture-001:1",
+      "candidate_input_mismatch:fixture-002:1",
+      "candidate_decode_error:fixture-002:1",
+      "candidate_input_mismatch:fixture-003:1",
+      "candidate_decode_error:fixture-003:1",
+      "candidate_unscoreable:incomplete_corpus",
+      "unscoreable_slice:clear",
+      "unscoreable_slice:filler",
+      "missing_or_invalid_predeclared_policy",
+      "baseline_latency_unavailable:fixture-001:0",
+      "baseline_latency_unavailable:fixture-002:0",
+      "baseline_latency_unavailable:fixture-003:0",
+      "baseline_latency_unavailable:fixture-001:1",
+      "baseline_latency_unavailable:fixture-002:1",
+      "baseline_latency_unavailable:fixture-003:1",
+      "candidate_latency_unavailable:fixture-001:0",
+      "candidate_latency_unavailable:fixture-002:0",
+      "candidate_latency_unavailable:fixture-003:0",
+      "candidate_latency_unavailable:fixture-001:1",
+      "candidate_latency_unavailable:fixture-002:1",
+      "candidate_latency_unavailable:fixture-003:1"
+    ],
+    "baseline": {
+      "wer": null,
+      "referenceWords": 0,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "scoredCount": 0,
+      "invalidCount": 6,
+      "invalidReasons": {
+        "empty_hypothesis": 6
+      },
+      "armInvalidReason": "incomplete_corpus"
+    },
+    "candidate": {
+      "wer": null,
+      "referenceWords": 0,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "scoredCount": 0,
+      "invalidCount": 6,
+      "invalidReasons": {
+        "empty_hypothesis": 6
+      },
+      "armInvalidReason": "incomplete_corpus"
+    },
+    "slices": {
+      "clear": {
+        "baseline": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 4,
+          "invalidReasons": {
+            "empty_hypothesis": 4
+          },
+          "armInvalidReason": "incomplete_corpus"
+        },
+        "candidate": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 4,
+          "invalidReasons": {
+            "empty_hypothesis": 4
+          },
+          "armInvalidReason": "incomplete_corpus"
+        }
+      },
+      "filler": {
+        "baseline": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 2,
+          "invalidReasons": {
+            "empty_hypothesis": 2
+          },
+          "armInvalidReason": "incomplete_corpus"
+        },
+        "candidate": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 2,
+          "invalidReasons": {
+            "empty_hypothesis": 2
+          },
+          "armInvalidReason": "incomplete_corpus"
+        }
+      }
+    },
+    "finalLatencyMs": {
+      "baseline": null,
+      "candidate": null
+    }
+  },
+  "acceptance": {
+    "verdict": "FAIL",
+    "reasons": [
+      "baseline_identity_mismatch_or_fallback",
+      "candidate_identity_mismatch_or_fallback",
+      "baseline_input_mismatch:fixture-001:0",
+      "baseline_decode_error:fixture-001:0",
+      "baseline_input_mismatch:fixture-002:0",
+      "baseline_decode_error:fixture-002:0",
+      "baseline_input_mismatch:fixture-003:0",
+      "baseline_decode_error:fixture-003:0",
+      "baseline_input_mismatch:fixture-001:1",
+      "baseline_decode_error:fixture-001:1",
+      "baseline_input_mismatch:fixture-002:1",
+      "baseline_decode_error:fixture-002:1",
+      "baseline_input_mismatch:fixture-003:1",
+      "baseline_decode_error:fixture-003:1",
+      "baseline_unscoreable:incomplete_corpus",
+      "candidate_input_mismatch:fixture-001:0",
+      "candidate_decode_error:fixture-001:0",
+      "candidate_input_mismatch:fixture-002:0",
+      "candidate_decode_error:fixture-002:0",
+      "candidate_input_mismatch:fixture-003:0",
+      "candidate_decode_error:fixture-003:0",
+      "candidate_input_mismatch:fixture-001:1",
+      "candidate_decode_error:fixture-001:1",
+      "candidate_input_mismatch:fixture-002:1",
+      "candidate_decode_error:fixture-002:1",
+      "candidate_input_mismatch:fixture-003:1",
+      "candidate_decode_error:fixture-003:1",
+      "candidate_unscoreable:incomplete_corpus",
+      "unscoreable_slice:clear",
+      "unscoreable_slice:filler",
+      "missing_or_invalid_predeclared_policy",
+      "baseline_latency_unavailable:fixture-001:0",
+      "baseline_latency_unavailable:fixture-002:0",
+      "baseline_latency_unavailable:fixture-003:0",
+      "baseline_latency_unavailable:fixture-001:1",
+      "baseline_latency_unavailable:fixture-002:1",
+      "baseline_latency_unavailable:fixture-003:1",
+      "candidate_latency_unavailable:fixture-001:0",
+      "candidate_latency_unavailable:fixture-002:0",
+      "candidate_latency_unavailable:fixture-003:0",
+      "candidate_latency_unavailable:fixture-001:1",
+      "candidate_latency_unavailable:fixture-002:1",
+      "candidate_latency_unavailable:fixture-003:1"
+    ]
+  },
+  "identityLimitations": [],
+  "unsupportedMetrics": [
+    "first_useful_partial",
+    "cold_model_load_isolated",
+    "persistent_cache_size",
+    "browser_worker_memory",
+    "product_start_stop_next_take",
+    "focus_keyword_coverage"
+  ]
+}
