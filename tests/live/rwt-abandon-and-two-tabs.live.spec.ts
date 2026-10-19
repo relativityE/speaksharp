@@ -28,12 +28,16 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { openProductsItem } from './helpers/productsMenu';
+import type { RecoveryRead } from './helpers/rwtRecoveryFence1593';
+import {
+    type FenceCaptures, type RecoveryDb, SessionCreateBinding, readBaselineRows, readRecording, readSnapshot, recoveryFenceRow,
+} from './helpers/rwtRecoveryCapture';
 import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
     addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, measureRealmClock, crossRealmBoundary, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
@@ -122,11 +126,21 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
     const takes: string[] = [];
     let claimed = false;
     let rowsBeforeFirst: RowFacts[] | null = null;
+    // #1593 case 10 (CLI's accepted oracle b6fab3a9 + receiving proposal 6272559858/6272635456): the displaced take is judged
+    // by complete account-scoped reads at A (first take recording), B (successor recording) and C (saved), with each take's
+    // identity bound passively from its own create_session_and_update_usage exchange (phase taken at REQUEST time).
+    const recoveryRunId = `${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}-${variant}`;
+    const recoveryDb = admin as unknown as RecoveryDb;
+    const creations = new SessionCreateBinding((() => { try { return new URL(SUPABASE_URL).origin; } catch { return ''; } })(), () => owner.uid);
+    creations.attach(page);
+    const fence: FenceCaptures = {};
     // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
     // (which Playwright runs after a timeout) run this same memoized closure exactly once.
     const finish = finalizer.once(async () => {
         // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
         const steps = new FinalizationSteps();
+        // Case 10: passive listeners end with the journey; raw identities never reach a receipt.
+        await steps.step('session binding detach', () => { creations.detach(); receipt.forbid(...creations.identities()); });
         // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
         // (bounded; page-independent, since a finalizer may run after its tabs closed).
         await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
@@ -140,9 +154,16 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         await openOpenMic(page);
         // The account's rows before the first take: the baseline the left take's persistence is read against.
         rowsBeforeFirst = await readRows(owner.uid);
+        // Case 10: the identity baseline before ANY possible Start, and phase A armed before it (cold setup may auto-start).
+        fence.beforeFirst = await readBaselineRows(recoveryDb, owner.uid);
+        creations.arm('A');
         await startFirstPrivateTake(page, `abandon-${variant}-1`);
         await page.waitForTimeout(MID_TAKE_MS);
         const during = await tabState(page);
+        // Case 10 A: the first take as it records — strict live-track read, complete rows and current authority.
+        const firstRead = await readSnapshot(recoveryDb, recoveryRunId, owner.uid);
+        fence.first = { recording: await readRecording(page), snapshot: firstRead.snapshot, duplicate: firstRead.duplicateIdentity };
+        creations.arm(null);
         const midTake = during.runtimeState === 'RECORDING' && during.liveTracks > 0;
         receipt.row('take is recording before leaving', midTake ? 'PASS' : 'HOLD', midTake
             ? 'a Private take was recording with a live microphone when the person left'
@@ -202,6 +223,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
             await rwtPageReady(returned);
             watch.setPage(returned);
             observe(returned, tap, generations, cloud);
+            creations.attach(returned);
             await installMicAcquisitionCounter(returned);
             await openOpenMic(returned);
         }
@@ -242,7 +264,10 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
 
         // The next take: the person presses Start, and presses again only if the product says why it refused.
         const rowsBeforeNext = await readRows(owner.uid);
+        // Case 10: the baseline before the successor's first possible Start, and phase B armed before that press.
+        fence.beforeSuccessor = await readBaselineRows(recoveryDb, owner.uid);
         await waitForPrivateEngineReady(returned, 600_000);
+        creations.arm('B');
         await returned.getByTestId('mic-start').click();
         const firstPressRecorded = await isRecording(returned, 30_000);
         let refusalCopyShown = false;
@@ -262,15 +287,21 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         receipt.row('return Start is truthful', start.status, start.detail, { firstPressRecorded, refusalCopyShown, secondPressRecorded });
         watch.setFaultPhase(false);
         if (start.status !== 'PASS') return;
+        // Case 10 B: the successor as it records, BEFORE Stop — the displaced take's fence must already hold.
+        const successorRead = await readSnapshot(recoveryDb, recoveryRunId, owner.uid);
+        fence.successor = { recording: await readRecording(returned), snapshot: successorRead.snapshot, duplicate: successorRead.duplicateIdentity };
+        creations.arm(null);
         await returned.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         await stopBenchmarkRecording(returned, `abandon-${variant}-2`, 180_000);
         await expect(returned.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 180_000 }).catch(() => undefined);
         const nextId = await persistedId(returned);
         if (nextId) takes.push(nextId);
-        const rowsAfter = await readRows(owner.uid);
-        const only = nextTakeOnlyItselfVerdict(rowsBeforeNext, rowsAfter, nextId);
-        receipt.row('next take saves only itself', only.status, only.detail,
-            { rowsBefore: rowsBeforeNext.length, rowsAfter: rowsAfter.length, activeAfter: rowsAfter.filter((r) => r.status === 'active').length });
+        // Case 10 C: the saved successor, the final rows and a successfully read absent authority; the displaced take must
+        // remain permanently fenced (CLI's oracle b6fab3a9, replacing the zero-active rule that rejected it).
+        const afterSave = await readSnapshot(recoveryDb, recoveryRunId, owner.uid);
+        const savedSessionId: RecoveryRead<string | null> = { state: 'observed', value: nextId };
+        const only = recoveryFenceRow(creations, fence, afterSave, savedSessionId, recoveryRunId, owner.uid);
+        receipt.row('next take saves only itself', only.status, only.detail, { ...only.evidence, rowsBefore: rowsBeforeNext.length });
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
