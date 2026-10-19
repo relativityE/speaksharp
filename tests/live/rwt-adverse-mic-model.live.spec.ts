@@ -29,7 +29,7 @@ import { selectBenchmarkMode, stopBenchmarkRecording } from './helpers/benchmark
 import { noCloudVerdict } from './helpers/rwtAbandonTakeover';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import {
-    ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict,
+    ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict, armModelStatusLog, readModelStatusLog, AttemptFaultCounter,
     deniedAfterPress, micDeniedVerdict, recoveredTakeVerdict,
 } from './helpers/rwtAdverse';
 
@@ -68,19 +68,15 @@ async function setSiteMicrophone(page: Page, browser: Browser, setting: 'denied'
 const micPermissionState = (page: Page) => page.evaluate(async () =>
     (await navigator.permissions.query({ name: 'microphone' as PermissionName })).state).catch(() => null);
 
-/** Every value the page publishes as its model status, in order (state names only). */
-async function armModelStatusLog(page: Page): Promise<void> {
-    await page.evaluate(() => {
-        const w = window as unknown as { __rwtModelStatuses__?: string[] };
-        const log: string[] = [];
-        w.__rwtModelStatuses__ = log;
-        const root = document.documentElement;
-        const push = () => { const s = root.getAttribute('data-model-status'); if (s !== null && log[log.length - 1] !== s) log.push(s); };
-        push();
-        new MutationObserver(push).observe(root, { attributes: true, attributeFilter: ['data-model-status'] });
-    });
-}
-const modelStatuses = (page: Page) => page.evaluate(() => (window as unknown as { __rwtModelStatuses__?: string[] }).__rwtModelStatuses__ ?? []);
+/**
+ * Sam's ACCEPT of PM 731eb5c0: the COMPLETE published model-status history (rwtAdverse `armModelStatusLog`), bound to the
+ * page's document by a token. `observed` false (no log in this document) is a lost observation, never "never ready".
+ */
+const modelStatusToken = `ms-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const modelStatuses = async (page: Page): Promise<{ observed: boolean; statuses: string[] }> => {
+    const log = await page.evaluate(readModelStatusLog).catch(() => ({ token: null, statuses: [] as string[] }));
+    return { observed: log.token === modelStatusToken, statuses: log.statuses };
+};
 const modelStatus = (page: Page) => page.locator('html').getAttribute('data-model-status');
 const sttMode = (page: Page) => page.locator('html').getAttribute('data-stt-mode');
 const failedState = (page: Page, timeout: number) => page.waitForFunction(
@@ -175,7 +171,7 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await selectBenchmarkMode(page, 'private');
-        await armModelStatusLog(page);
+        await page.evaluate(armModelStatusLog, modelStatusToken);
 
         if (variant === 'mic-denied') {
             await setSiteMicrophone(page, browser, 'denied');
@@ -227,44 +223,52 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
                 `${recovered.detail} (same account, fresh allowing browser; not Allow→Retry in the denied page)`,
                 { recoveryScope: 'same_account_fresh_browser' });
         } else {
-            const modelFailures = { afterFault: 0 };
-            let faultOn = false;
-            context.on('requestfailed', (r) => { if (faultOn && MODEL_PATH.test(r.url())) modelFailures.afterFault += 1; });
+            // Sam's ACCEPT of PM 731eb5c0: only this download attempt's model-WEIGHT failures while the fault is armed count,
+            // and the fault is armed BEFORE it is induced (a failure delivered during the awaited injection still counts).
+            const fault = new AttemptFaultCounter<object>();
+            context.on('request', (r) => fault.onRequest(r, r.url()));
+            context.on('requestfailed', (r) => fault.onFailed(r));
+            let injected = false;
             if (variant === 'download-fails') {
                 // Codex P1 r on f527a033: the phase opens BEFORE the fault is injected, so a failure the injection causes is
                 // always captured inside it (events are judged by their own capture time).
                 watch.setFaultPhase(true); // the injected model fault is expected only until the cause is removed
-                await context.route(MODEL_ASSETS, (route) => route.abort('failed'));
-                faultOn = true;
+                fault.armFault();
+                injected = await context.route(MODEL_ASSETS, (route) => route.abort('failed')).then(() => true, () => false);
+                fault.startAttempt();
                 await page.getByTestId('mic-download').click();
             } else {
                 let modelRequests = 0;
                 context.on('request', (r) => { if (MODEL_PATH.test(r.url())) modelRequests += 1; });
+                fault.startAttempt();
                 await page.getByTestId('mic-download').click();
                 await expect.poll(() => modelRequests, { timeout: 120_000 }).toBeGreaterThan(0).catch(() => undefined);
                 watch.setFaultPhase(true); // opened before going offline: the offline transition itself fails the download
-                await context.setOffline(true);
-                faultOn = true;
+                fault.armFault();
+                injected = await context.setOffline(true).then(() => true, () => false);
             }
             await failedState(page, 300_000);
+            const history = await modelStatuses(page);
             const failure = downloadFailureVerdict({
-                exercised: modelFailures.afterFault > 0,
-                statuses: await modelStatuses(page),
+                exercised: injected && fault.failures > 0,
+                observed: history.observed,
+                statuses: history.statuses,
                 finalStatus: await modelStatus(page),
                 retryOffered: await page.getByTestId('mic-retry').isVisible().catch(() => false),
                 mode: await sttMode(page),
             });
             receipt.row('model download failure is stated truthfully', failure.status, failure.detail,
-                { modelFailuresAfterFault: modelFailures.afterFault, finalStatus: await modelStatus(page), mode: await sttMode(page),
-                    ...(await tabState(page)) });
+                { faultInjected: injected, modelWeightFailuresAfterFault: fault.failures, statusesObserved: history.observed, statusChanges: history.statuses.length,
+                    finalStatus: await modelStatus(page), mode: await sttMode(page), ...(await tabState(page)) });
             // Remove the cause the way it ends for a person: the asset host answers again, or the network comes back.
             if (variant === 'download-fails') await context.unroute(MODEL_ASSETS);
             else await context.setOffline(false);
-            faultOn = false;
+            fault.disarm();
             watch.setFaultPhase(false);
             const recovered = await saveRecoveredTake(page, owner.uid, `adverse-${variant}`, takes);
+            const after = await modelStatuses(page);
             receipt.row('Retry downloads the model and a take saves', recovered.status, recovered.detail,
-                { sawReadyAfterRetry: (await modelStatuses(page)).includes('ready'), mode: await sttMode(page) });
+                { sawReadyAfterRetry: after.observed && after.statuses.includes('ready'), statusesObserved: after.observed, mode: await sttMode(page) });
         }
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');

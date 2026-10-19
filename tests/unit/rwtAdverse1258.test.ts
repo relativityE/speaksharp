@@ -86,8 +86,9 @@ describe('guards — the spec, the acceptance map and the product stay in step',
     });
 
     it('only the model assets or the network are altered, and each fault is removed before recovery', () => {
-        expect(spec).toContain("await context.route(MODEL_ASSETS, (route) => route.abort('failed'));");
-        expect(spec).toContain('await context.setOffline(true);');
+        // Sam's ACCEPT of PM 731eb5c0: each injection's own outcome is retained (it is awaited as `injected`).
+        expect(spec).toContain("injected = await context.route(MODEL_ASSETS, (route) => route.abort('failed')).then(() => true, () => false);");
+        expect(spec).toContain('injected = await context.setOffline(true).then(() => true, () => false);');
         expect(spec).toContain("if (variant === 'download-fails') await context.unroute(MODEL_ASSETS);");
         expect(spec).toContain('else await context.setOffline(false);');
         // #1593 (live case 12 + local probe): the denial is a real NotAllowedError (`=deny`), and allowing the microphone
