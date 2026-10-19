@@ -8,6 +8,8 @@
  * terminated, and whether the account's lease is released only once it is.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import React from 'react';
+import { act, render } from '@testing-library/react';
 import type { Result } from '../transcription/modes/types';
 
 type Store = typeof import('@/stores/useSessionStore').useSessionStore;
@@ -31,6 +33,18 @@ vi.mock('../../lib/supabaseClient', () => ({
         auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } }) },
     })),
 }));
+// Read-only account/query boundaries for the actual lifecycle hook + MicCard probe below.
+vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ session: null, user: null }) }));
+vi.mock('@/hooks/useProfile', () => ({ useProfile: () => ({ profile: null, isVerified: false }) }));
+vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn(), getQueriesData: () => [] }) }));
+vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: { can_start: true, subscription_status: 'free' } }) }));
+vi.mock('@/hooks/useStreak', () => ({ useStreak: () => ({ updateStreak: vi.fn() }) }));
+vi.mock('@/hooks/useUserFillerWords', () => ({ useUserFillerWords: () => ({ userFillerWords: [] }) }));
+vi.mock('@/providers/useTranscriptionContext', () => ({ useTranscriptionContext: () => ({ runtimeState: useSessionStore((s) => s.runtimeState) }) }));
+vi.mock('@/hooks/useSpeechRecognition', () => ({ useSpeechRecognition: () => ({
+    transcript: { transcript: '', partial: '', total_words: 0, duration: 0, accuracy: 100 }, chunks: [], fillerData: {},
+    isReady: false, modelLoadingProgress: null, mode: 'private', pauseMetrics: null, micLevel: 0, hasSpeechActivity: false,
+}) }));
 /** The account lease: held by this take; `release` is what another device waits on. */
 const lease = vi.hoisted(() => ({ release: vi.fn(async () => undefined) }));
 vi.mock('../recordingLease', () => ({
@@ -54,6 +68,7 @@ class ControlledEngine {
     public failInit: Error | null = null;
     /** False models a machine where the download never lands — preparation that cannot settle. */
     public downloadEnabled = true;
+    public initGate: Promise<void> | null = null;
 
     /** `PrivateSTT` wraps this engine and forwards option updates to it. */
     updateOptions() { /* no-op */ }
@@ -70,6 +85,7 @@ class ControlledEngine {
      */
     async init(): Promise<Result<void, Error>> {
         this.initCalls += 1;
+        if (this.initGate) await this.initGate;
         if (!this.modelCached) {
             if (this.downloadEnabled) this.modelCached = true;   // the one-time download lands
             return {
@@ -183,6 +199,108 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect((controller as unknown as { service: unknown }).service).toBeNull();
         expect(lease.release).toHaveBeenCalledTimes(1);
         expect(terminatedAtRelease, 'the preparing engine was terminated BEFORE the lease was released').toBeGreaterThan(terminatedBefore);
+    });
+
+    it.each(Array.from({ length: 5 }, (_, repeat) => (['initializing', 'download-required'] as const).map((phase) => ({ repeat, phase }))).flat())('case4 causal probe: $phase repetition $repeat publishes idle while its runtime still blocks Start', async ({ phase, repeat }) => {
+        engine.downloadEnabled = false;
+        // A real visit warms the page shell before its Start; retain that resolved infrastructure promise across return.
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        let finishInit: () => void = () => undefined;
+        if (phase === 'initializing') engine.initGate = new Promise<void>((resolve) => { finishInit = resolve; });
+        const started = controller.startRecording(POLICY as never, []);
+        void started.catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls), { timeout: 5_000 });
+        await settle();
+        let finishTermination!: () => void;
+        engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
+        const retiring = releaseTakeLeaseOnUnmount(false);
+        let unmountView: (() => void) | undefined;
+        try {
+            await vi.waitFor(() => expect(engine.terminateCalls).toBeGreaterThan(0));
+            await settle();
+            const beforeReturn = {
+                model: document.documentElement.getAttribute('data-model-status'),
+                controller: controller.getState(), runtime: useSessionStore.getState().runtimeState,
+                finalizing: useSessionStore.getState().isTranscriptFinalizing,
+                engineTerminal: controller.isEngineTerminal(),
+            };
+            // Returning mounts this warm-up path; it must not be mistaken for proof that retirement completed.
+            await controller.warmUp('private');
+            expect(document.documentElement.getAttribute('data-model-status')).toBe('idle');
+            expect(beforeReturn).toEqual({ model: 'idle', controller: phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED', runtime: phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED', finalizing: false, engineTerminal: true });
+            expect(['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED']).not.toContain(useSessionStore.getState().runtimeState);
+            const { useSessionLifecycle } = await import('@/hooks/useSessionLifecycle');
+            const { MicCard } = await import('@/components/session/MicCard');
+            const ReturnedCard = () => {
+                const lifecycle = useSessionLifecycle();
+                return React.createElement(MicCard, { onStart: () => undefined, privateModelStatus: lifecycle.privateModelStatus, disabled: lifecycle.isButtonDisabled });
+            };
+            const view = render(React.createElement(ReturnedCard));
+            unmountView = view.unmount;
+            expect(view.getByTestId('mic-card').getAttribute('data-model-status')).toBe('idle');
+            expect(view.getByTestId('mic-start').getAttribute('aria-label')).toBe('Start recording');
+            expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled).toBe(true);
+            expect(view.getByTestId('mic-status-row').textContent).toContain('Mic ready on this device');
+            if (repeat === 0) {
+                // The live caller waits two seconds after model idle before navigating back; this signature survives it.
+                await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2_100)); });
+            }
+            expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled).toBe(true);
+        } finally {
+            await act(async () => {
+                finishTermination();
+                finishInit();
+                await retiring;
+                await settle();
+            });
+        }
+        expect(controller.getState()).toBe('IDLE');
+        expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+        expect(controller.isEngineTerminal()).toBe(true);
+        expect((document.querySelector('[data-testid="mic-start"]') as HTMLButtonElement).disabled).toBe(false);
+        unmountView?.();
+    });
+
+    it.each(['initializing', 'download-required'] as const)('case4 causal timeout: %s remains blocked even AFTER late termination succeeds', async (phase) => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        let finishInit: () => void = () => undefined;
+        if (phase === 'initializing') engine.initGate = new Promise<void>((resolve) => { finishInit = resolve; });
+        const started = controller.startRecording(POLICY as never, []);
+        void started.catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+        let finishTermination!: () => void;
+        engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
+        // The production default is 10s. Scale only the explicit bound, not any lifecycle state or cleanup result.
+        expect(await controller.retireEngineForUnmount(100)).toBe('unconfirmed');
+        const stuckState = phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED';
+        expect(controller.getState()).toBe(stuckState);
+        finishTermination();
+        finishInit();
+        await settle(60);
+        expect(document.documentElement.getAttribute('data-model-status')).toBe('idle');
+        expect((controller as unknown as { service: unknown }).service).toBeNull();
+        expect(controller.getState(), 'late successful destruction has no continuation to finish retirement').toBe(stuckState);
+        expect(useSessionStore.getState().runtimeState).toBe(stuckState);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false);
+        await controller.warmUp('private');
+        expect(controller.getState(), 'cached infrastructure readiness plus no service makes return warmUp a no-op').toBe(stuckState);
+        const { useSessionLifecycle } = await import('@/hooks/useSessionLifecycle');
+        const { MicCard } = await import('@/components/session/MicCard');
+        const ReturnedCard = () => {
+            const lifecycle = useSessionLifecycle();
+            return React.createElement(MicCard, { onStart: () => undefined, privateModelStatus: lifecycle.privateModelStatus, disabled: lifecycle.isButtonDisabled });
+        };
+        const view = render(React.createElement(ReturnedCard));
+        expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled).toBe(true);
+        expect(view.getByTestId('mic-status-row').textContent).toContain('Mic ready on this device');
+        await act(async () => { await controller.hardResetAwaited('case4-probe-control'); });
+        expect(controller.getState()).toBe('IDLE');
+        expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled, 'a real lifecycle reset clears this reproduced gate').toBe(false);
+        view.unmount();
     });
 
     it('CASUALTY: a stop that REJECTS with the engine still live — the engine is destroyed, the Retry Save kept, and only then the lease released', async () => {
