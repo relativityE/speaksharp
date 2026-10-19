@@ -77,6 +77,19 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(screen.queryByRole('button')).not.toBeInTheDocument();
     });
 
+    it('#1254: renders the loader\'s comparison takeaway naming the previous COMPARABLE session, never "last session"', async () => {
+        // The string is what loadSessionProgress produces for s2 vs its persisted previous comparable s0 when an ineligible
+        // s1 sits between them (loadSessionProgress.test.ts '#1254'); this asserts the panel renders it verbatim.
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            takeaways: { ...VIEW.takeaways, whatWorked: 'Clearer than your previous comparable session' },
+        });
+        renderPanel(true);
+        const worked = await screen.findByTestId('progress-what-worked');
+        expect(worked).toHaveTextContent('Clearer than your previous comparable session');
+        expect(worked).not.toHaveTextContent(/last session/i);
+    });
+
     it('rounds only the clarity label while retaining the raw target and stored comparison outcome', async () => {
         const target = Object.freeze({ metric: 'clear_delivery', direction: 'maintain', targetValue: 98.78048780487805, units: 'points' });
         loadSessionProgress.mockResolvedValue({
