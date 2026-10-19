@@ -1,0 +1,70 @@
+{
+  "sourceHead": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+  "sourceSha256": {
+    "frontend/src/services/telemetry/completenessGate.ts": "d1199110a91b343cb315d9e691049ef6327356026fdf9ecf88071bcc77420a0f",
+    "backend/supabase/migrations/20260810120000_retention_purge_ai_suggestions.sql": "00fe3d3b5ed73fc7d0bd2aac6f37c71016f19e77c6757e606bc48ebeb51c72b7",
+    "tests/live/helpers/rwtCoachingConsistency.ts": "f84bd63f32f20b1898324c2c3beb0e5b10363cdba2af0292f44e38085dcf74dd"
+  },
+  "gateConflict": {
+    "declared": [
+      "session_during",
+      "session_interrupted_repeat",
+      "practice_again"
+    ],
+    "stageRequiresPracticeLoop": false,
+    "globalRequiresPracticeLoop": true,
+    "globalRequired": [
+      "telemetry_positive_control",
+      "account_identified",
+      "recording_intent",
+      "recording_state",
+      "session_started",
+      "session_saved",
+      "transcript_authority",
+      "practice_loop",
+      "journey_step",
+      "stage_latency"
+    ],
+    "result": "CONFIRMED_SOURCE_CONTRACT_CONFLICT",
+    "limit": "No predicate is relaxed here; other interrupted-repeat identity/lifecycle invariants still must qualify."
+  },
+  "retentionPairConflict": {
+    "before": [
+      {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "pair_present": true
+      },
+      {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "pair_present": true
+      }
+    ],
+    "after": [
+      {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "transcript_state": "expired",
+        "pair_present": false
+      },
+      {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "transcript_state": "available",
+        "pair_present": true
+      }
+    ],
+    "actualComparison": {
+      "status": "HOLD",
+      "detail": "two saved coaching pairs are needed to compare"
+    },
+    "result": "CONFIRMED_VALID_EXPIRY_CAN_CAUSE_PAIR_HOLD",
+    "limit": "Actual purge migration on a minimal synthetic PGlite table with explicit expiry input; not full retention selection, hosted state or proof of which historical pair was missing."
+  },
+  "controls": {
+    "interruptedStageVersusGlobalGate": "PASS",
+    "bothPairsBeforeExpiry": "PASS",
+    "actualExpiryTriggerPurgesDerivedPair": "PASS",
+    "postExpiryComparisonHolds": "PASS"
+  },
+  "liveRuns": 0,
+  "providerCalls": 0,
+  "hostedDbOperations": 0
+}

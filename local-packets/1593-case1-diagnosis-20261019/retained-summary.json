@@ -1,0 +1,261 @@
+{
+  "runId": 39215823020,
+  "jobId": 117939313670,
+  "head": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+  "attempt": 1,
+  "createdAt": "2026-10-19T07:24:52Z",
+  "updatedAt": "2026-10-19T07:37:07Z",
+  "workflowConclusion": "failure",
+  "diagnosticConclusionIsNotCaseVerdict": true,
+  "source": "https://github.com/relativityE/speaksharp/actions/runs/39215823020/job/117939313670",
+  "rows": [
+    {
+      "step": "session saved",
+      "verdict": "PASS",
+      "detail": "the take saved",
+      "evidence": {
+        "saveMs": 13001
+      }
+    },
+    {
+      "step": "saved exactly once",
+      "verdict": "PASS",
+      "detail": "one completed session exists for this take",
+      "evidence": {
+        "completedSessions": 1
+      }
+    },
+    {
+      "step": "coaching rendered",
+      "verdict": "PASS",
+      "detail": "exactly two coaching phrases rendered without any click",
+      "evidence": {
+        "reviewState": "ready",
+        "httpStatus": 200,
+        "failureReason": null,
+        "providerStatus": 200,
+        "takeExchangeUnique": true,
+        "externalOutcome": null,
+        "unavailableShown": null,
+        "savedTakeProven": null,
+        "accountCompletedSessions": null,
+        "thisTakeCompleted": null,
+        "retryEnabled": null,
+        "stopToCoachingMs": 26113
+      }
+    },
+    {
+      "step": "coaching visible = saved",
+      "verdict": "PASS",
+      "detail": "both visible phrases equal the saved coaching response",
+      "evidence": {
+        "wellMatchesSaved": true,
+        "nextMatchesSaved": true,
+        "savedResponsePresent": true,
+        "savedCoachingAbsent": false,
+        "visibleCoachingAbsent": null
+      }
+    },
+    {
+      "step": "Analytics Practice again opens the product",
+      "verdict": "PASS",
+      "detail": "Open Mic opened, ready to record",
+      "evidence": {
+        "sameSetPending": null,
+        "beforeLinkState": "linked",
+        "beforeLabel": "practice_again",
+        "afterRoute": null,
+        "afterLinkState": null,
+        "afterLabel": null,
+        "afterEnabled": null,
+        "diagnosticTimedOut": false
+      }
+    },
+    {
+      "step": "review Practice again starts after the gate clears",
+      "verdict": "PASS",
+      "detail": "the honest \"Finishing up\" wait kept the action fenced, the gate cleared, and recording began",
+      "evidence": {
+        "afterActionEnabledMs": 356,
+        "afterStartMs": 4412,
+        "holdSeen": true,
+        "enabledWhileHolding": false,
+        "stopToSaveMs": 2905,
+        "saveToGateClearMs": 362,
+        "pressToWarmupDoneMs": 3008,
+        "pressToRecordingMs": 4412,
+        "saveTakePersisted": true,
+        "saveTakeNewSession": true,
+        "refusalClass": null,
+        "runtimeState": null,
+        "sessionState": null,
+        "persisted": null,
+        "modelStatus": null,
+        "micStartPresent": null,
+        "micStartDisabled": null,
+        "recorderStopPresent": null,
+        "repeatActionPresent": null,
+        "repeatActionDisabled": null,
+        "controllerState": null,
+        "serviceState": null,
+        "startFailureReadTimedOut": null
+      }
+    },
+    {
+      "step": "repeated take stopped, microphone off",
+      "verdict": "PASS",
+      "detail": "the take stopped and every microphone track ended",
+      "evidence": {
+        "stopped": true,
+        "liveTracksAfterStop": 0
+      }
+    },
+    {
+      "step": "coaching differs between takes",
+      "verdict": "HOLD",
+      "detail": "two saved coaching pairs are needed to compare",
+      "evidence": {
+        "bothPairsSaved": false,
+        "evidenceDiffers": true
+      }
+    },
+    {
+      "step": "coaching prompt binding",
+      "verdict": "HOLD",
+      "detail": "the first take's evidence is unavailable",
+      "evidence": {
+        "configuredModel": "gemini-3.8-flash",
+        "reason": "saved_prompt_inputs_unavailable",
+        "take": "first"
+      }
+    },
+    {
+      "step": "coaching request budget",
+      "verdict": "PASS",
+      "detail": "the whole scenario sent at most 4 coaching request(s); the Edge reported at most 12 provider attempt(s) in all and at most 3 for any one request",
+      "evidence": {
+        "maximum": 4,
+        "browserRequests": 3,
+        "answered": 3,
+        "withDiagnostics": 3,
+        "malformedProviderAttempts": 0,
+        "providerAttemptsReported": 5,
+        "providerAttemptAllowance": 12,
+        "perRequestProviderAttemptCap": 3,
+        "maxProviderAttemptsForOneRequest": 2,
+        "maxRequestsForOneTake": 0,
+        "unansweredAtBound": 0,
+        "bodyPendingAtBound": 0,
+        "failedInBrowser": 0,
+        "inFlightAtEnd": 0
+      }
+    },
+    {
+      "step": "coaching telemetry sent",
+      "verdict": "PASS",
+      "detail": "review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)",
+      "evidence": {
+        "requested": 3,
+        "completed": 1,
+        "persisted": 1,
+        "rendered": 1,
+        "failed": 0,
+        "reviewRenderedStage": 1,
+        "boundFailureOutcome": "absent",
+        "blindBeacons": 0,
+        "firstTakeRequestCount": 1,
+        "firstTakeRequestProof": "PASS"
+      }
+    }
+  ],
+  "readbacks": [
+    {
+      "journeyAlias": "J1",
+      "stages": [
+        "session_during",
+        "session_after_open_mic",
+        "analytics_inventory"
+      ],
+      "verdict": "QUALIFIED",
+      "missing": [],
+      "reasons": []
+    },
+    {
+      "journeyAlias": "J2",
+      "stages": [
+        "session_during",
+        "session_interrupted_repeat",
+        "practice_again"
+      ],
+      "verdict": "HOLD",
+      "missing": [
+        "practice_loop"
+      ],
+      "reasons": [
+        "required event families never observed: practice_loop"
+      ]
+    },
+    {
+      "journeyAlias": "J2",
+      "stages": [
+        "session_during",
+        "session_interrupted_repeat",
+        "practice_again"
+      ],
+      "verdict": "HOLD",
+      "missing": [
+        "practice_loop"
+      ],
+      "reasons": [
+        "required event families never observed: practice_loop"
+      ]
+    },
+    {
+      "journeyAlias": "J2",
+      "stages": [
+        "session_during",
+        "session_interrupted_repeat",
+        "practice_again"
+      ],
+      "verdict": "HOLD",
+      "missing": [
+        "practice_loop"
+      ],
+      "reasons": [
+        "required event families never observed: practice_loop"
+      ]
+    },
+    {
+      "journeyAlias": "J3",
+      "stages": [
+        "share_feedback",
+        "session_pdf_export"
+      ],
+      "verdict": "QUALIFIED",
+      "missing": [],
+      "reasons": []
+    }
+  ],
+  "requestTimelineUtc": [
+    {
+      "ordinal": 1,
+      "sent": "07:27:22.519",
+      "response": "07:27:34.712",
+      "http": 200
+    },
+    {
+      "ordinal": 2,
+      "sent": "07:28:13.350",
+      "response": "07:28:44.317",
+      "http": 200
+    },
+    {
+      "ordinal": 3,
+      "sent": "07:28:21.699",
+      "response": "07:28:53.155",
+      "http": 200
+    }
+  ],
+  "successorStartUtc": "07:28:17.971",
+  "scope": "Allowlisted retained facts; UTC times on19Oct2026; no private content/identity copied"
+}
