@@ -1,0 +1,1237 @@
+{
+  "scope": "READ_ONLY_HISTORICAL_RECEIPT_JOIN",
+  "retrievedAt": "2026-10-19T06:23:32.395Z",
+  "source": "Authorized GitHub workflow metadata and decoded job logs; raw logs not republished",
+  "cases": [
+    {
+      "caseNumber": 3,
+      "runId": 39180659914,
+      "jobId": 117832503703,
+      "attempt": 1,
+      "head": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "workflow": ".github/workflows/rc-gates.yml",
+      "createdAt": "2026-10-19T00:24:49Z",
+      "updatedAt": "2026-10-19T00:37:53Z",
+      "workflowConclusion": "failure",
+      "workflowConclusionIsNotCaseVerdict": true,
+      "source": "https://github.com/relativityE/speaksharp/actions/runs/39180659914/job/117832503703",
+      "receipt": {
+        "suite": "focus-points-partial",
+        "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+        "meta": {
+          "humanReflexMs": 500,
+          "fixture": "focus_points_partial_tts",
+          "fixtureKind": "synthetic",
+          "fixtureSha256": "8a2bdb57440352e473b62e4a190077693d632da0856f3406cf4f33653c08722d",
+          "target": "deployed default (diagnostic)",
+          "webgpu": false,
+          "points": 4,
+          "canaryClaim": true,
+          "switchOutcome": "not_requested",
+          "requestedModel": "deployed default",
+          "observedModel": "whisper-base.en",
+          "observedEngine": "transformers-js",
+          "runtimeVersion": "NOT_AVAILABLE",
+          "finalTelemetryObserved": true
+        },
+        "rows": [
+          {
+            "step": "base_q4 primary",
+            "verdict": "HOLD",
+            "detail": "the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence"
+          },
+          {
+            "step": "session bears canary claim",
+            "verdict": "PASS",
+            "detail": "after the fresh sign-in the session carries the server-issued canary claim"
+          },
+          {
+            "step": "Products → Focus Points",
+            "verdict": "PASS",
+            "detail": "the setup opened"
+          },
+          {
+            "step": "no mic on navigation",
+            "verdict": "PASS",
+            "detail": "navigation opened no microphone",
+            "evidence": {
+              "acquisitions": 0
+            }
+          },
+          {
+            "step": "pace guide",
+            "verdict": "PASS",
+            "detail": "the default guide is 1 min per point",
+            "evidence": {
+              "paceSeconds": 60,
+              "paceShown": true
+            }
+          },
+          {
+            "step": "Head to session",
+            "verdict": "PASS",
+            "detail": "the session opened with the microphone still off",
+            "evidence": {
+              "acquisitions": 0
+            }
+          },
+          {
+            "step": "new-account entitlement",
+            "verdict": "PASS",
+            "detail": "the server let the new account start, with room for this journey",
+            "evidence": {
+              "canStart": true,
+              "trialActive": true,
+              "isPro": true
+            }
+          },
+          {
+            "step": "rail before speaking",
+            "verdict": "PASS",
+            "detail": "every point starts pending",
+            "evidence": {
+              "rows": 4
+            }
+          },
+          {
+            "step": "rail legend",
+            "verdict": "PASS",
+            "detail": "a visible legend explains every state"
+          },
+          {
+            "step": "pending points labelled",
+            "verdict": "PASS",
+            "detail": "each point starts pending with a visible \"Not heard yet\""
+          },
+          {
+            "step": "model identity",
+            "verdict": "PASS",
+            "detail": "the deployed default ran and identified itself (diagnostic; not base_q4 evidence)",
+            "evidence": {
+              "requested": "deployed default",
+              "engine": "transformers-js",
+              "modelId": "whisper-base.en",
+              "runtimeVersion": "NOT_AVAILABLE",
+              "resolvedDevice": "cpu",
+              "backend": "wasm",
+              "fallback": false,
+              "acquisitionMs": 10653,
+              "cpu_hardwareConcurrency": 4,
+              "cpu_crossOriginIsolated": true,
+              "cpu_requestedThreads": 2,
+              "cpu_configuredThreads": 2,
+              "cpu_workerReportedThreads": null
+            }
+          },
+          {
+            "step": "live marker changes",
+            "verdict": "PASS",
+            "detail": "every spoken point expected to be detected changed during speech, in speaking order",
+            "evidence": {
+              "changedDuringSpeech": 3,
+              "expected": 3,
+              "notLive": "",
+              "firstChangeSec": "covered@1,covered@7,partial@13,none"
+            }
+          },
+          {
+            "step": "next point marked",
+            "verdict": "PASS",
+            "detail": "the \"Still to cover\" marker advanced as points were detected",
+            "evidence": {
+              "nextSequence": "0>1>2>3"
+            }
+          },
+          {
+            "step": "marker timing vs audio",
+            "verdict": "FAIL",
+            "detail": "a marker changed before its point was spoken, more than 5 s after it or after the next point began, or for an unspoken point",
+            "evidence": {
+              "perPoint": "late@9.4(+3.2s),ok@15.7(2.5s),ok@21.5(0.9s),ok-unspoken",
+              "maxAfterPointSec": 5
+            }
+          },
+          {
+            "step": "no red before Stop",
+            "verdict": "PASS",
+            "detail": "no point shows the final red verdict while speaking",
+            "evidence": {
+              "redDuring": 0
+            }
+          },
+          {
+            "step": "session saved",
+            "verdict": "PASS",
+            "detail": "the take saved"
+          },
+          {
+            "step": "final point verdicts",
+            "verdict": "PASS",
+            "detail": "every point ended as the fixture expects",
+            "evidence": {
+              "final": "covered,covered,partial,missing",
+              "expected": "covered,covered,partial,missing"
+            }
+          },
+          {
+            "step": "not-detected explained",
+            "verdict": "PASS",
+            "detail": "every not-detected point carries its explanation (colour never alone)"
+          },
+          {
+            "step": "final rail colours and words",
+            "verdict": "PASS",
+            "detail": "green Detected, yellow Partly detected, red Not detected — each with its visible word",
+            "evidence": {
+              "rows": "covered,covered,partial,missed",
+              "matching": 4
+            }
+          },
+          {
+            "step": "coverage count",
+            "verdict": "PASS",
+            "detail": "3/4 detected",
+            "evidence": {
+              "covered": 3,
+              "total": 4,
+              "expected": 3
+            }
+          },
+          {
+            "step": "average per point",
+            "verdict": "PASS",
+            "detail": "average = elapsed ÷ detected",
+            "evidence": {
+              "averageSec": 10,
+              "elapsedSec": 26,
+              "expectedAverageSec": 9
+            }
+          },
+          {
+            "step": "persisted verdicts",
+            "verdict": "PASS",
+            "detail": "each point's saved verdict matches what the rail showed for that point",
+            "evidence": {
+              "rows": 4,
+              "mismatchedPoints": "",
+              "briefs": 1,
+              "shown": 3,
+              "budgetSec": 120,
+              "durationSec": 29
+            }
+          },
+          {
+            "step": "Focus coaching rendered",
+            "verdict": "FAIL",
+            "detail": "coaching did not render (state=error, http=502, reason=provider_http_4xx, provider_status=429); the cause is not proved external",
+            "evidence": {
+              "reviewState": "error",
+              "httpStatus": 502,
+              "failureReason": "provider_http_4xx",
+              "providerStatus": 429,
+              "externalOutcome": null,
+              "savedTakeProven": true,
+              "accountCompletedSessions": 1,
+              "thisTakeCompleted": true,
+              "unavailableShown": true,
+              "retryEnabled": true,
+              "takeExchangeUnique": true
+            }
+          },
+          {
+            "step": "Focus coaching request marked focus_points",
+            "verdict": "PASS",
+            "detail": "the request asked for coaching about this take's chosen points",
+            "evidence": {
+              "requestProduct": "focus_points"
+            }
+          },
+          {
+            "step": "Focus coaching request bound to this take",
+            "verdict": "PASS",
+            "detail": "the coaching request named this saved take",
+            "evidence": {
+              "requestBoundToSession": true
+            }
+          },
+          {
+            "step": "Products menu opened in the session",
+            "verdict": "PASS",
+            "detail": "the header Products menu opened and closed on the session page"
+          },
+          {
+            "step": "Focus Back from Progress and reload keep the saved session",
+            "verdict": "PASS",
+            "detail": "Progress → Back and a reload restored the same saved Focus session read-only, with its saved transcript, verdicts and review, and requested nothing",
+            "evidence": {
+              "left": true,
+              "restoredAfterBack": true,
+              "liveTracksAfterBack": 0,
+              "restoredAfterReload": true,
+              "sameSession": true,
+              "idleShown": false,
+              "liveTracks": 0,
+              "transcriptMatches": true,
+              "reviewAfterBack": "try_again",
+              "reviewAfterReload": "try_again",
+              "verdictsUnchanged": true,
+              "coachingRequestsBefore": 1,
+              "coachingRequestsAfter": 1
+            }
+          },
+          {
+            "step": "analytics detail shows both AI suggestions",
+            "verdict": "HOLD",
+            "detail": "no saved coaching response to look for"
+          },
+          {
+            "step": "Analytics action",
+            "verdict": "PASS",
+            "detail": "the on-screen Analytics action opened Analytics and it lists this session"
+          },
+          {
+            "step": "analytics session detail",
+            "verdict": "PASS",
+            "detail": "the session opened from its own control with the saved transcript (digest equal)"
+          },
+          {
+            "step": "reopen after reload",
+            "verdict": "PASS",
+            "detail": "after a hard reload the detail still shows the saved transcript"
+          },
+          {
+            "step": "Analytics generates no coaching",
+            "verdict": "PASS",
+            "detail": "opening and reloading Analytics requested no new review",
+            "evidence": {
+              "coachingRequestsBefore": 1,
+              "coachingRequestsAfter": 1
+            }
+          },
+          {
+            "step": "analytics point detail",
+            "verdict": "HOLD",
+            "detail": "no saved coaching, so the saved review shows no point evidence to read"
+          },
+          {
+            "step": "saved exactly once",
+            "verdict": "PASS",
+            "detail": "exactly one completed session, and it is the take the page bound",
+            "evidence": {
+              "completedSessions": 1,
+              "queryError": null
+            }
+          },
+          {
+            "step": "Analytics Practice again opens the product",
+            "verdict": "PASS",
+            "detail": "the same Focus set opened, every point pending",
+            "evidence": {
+              "sameSetPending": true,
+              "beforeLinkState": "direct",
+              "beforeLabel": "practice_again",
+              "afterRoute": null,
+              "afterLinkState": null,
+              "afterLabel": null,
+              "afterEnabled": null,
+              "diagnosticTimedOut": false
+            }
+          },
+          {
+            "step": "review Practice again starts after the gate clears",
+            "verdict": "PASS",
+            "detail": "the honest \"Finishing up\" wait kept the action fenced, the gate cleared, and recording began",
+            "evidence": {
+              "afterActionEnabledMs": 859,
+              "afterStartMs": 6454,
+              "holdSeen": true,
+              "enabledWhileHolding": false,
+              "stopToSaveMs": 3802,
+              "saveToGateClearMs": 867,
+              "pressToWarmupDoneMs": 5206,
+              "pressToRecordingMs": 6454,
+              "saveTakePersisted": true,
+              "saveTakeNewSession": true,
+              "refusalClass": null,
+              "runtimeState": null,
+              "sessionState": null,
+              "persisted": null,
+              "modelStatus": null,
+              "micStartPresent": null,
+              "micStartDisabled": null,
+              "recorderStopPresent": null,
+              "repeatActionPresent": null,
+              "repeatActionDisabled": null,
+              "controllerState": null,
+              "serviceState": null,
+              "startFailureReadTimedOut": null
+            }
+          },
+          {
+            "step": "repeated take stopped, microphone off",
+            "verdict": "PASS",
+            "detail": "the take stopped and every microphone track ended",
+            "evidence": {
+              "stopped": true,
+              "liveTracksAfterStop": 0
+            }
+          },
+          {
+            "step": "saved product marker",
+            "verdict": "PASS",
+            "detail": "every session this journey saved carries product focus_points",
+            "evidence": {
+              "checked": 2,
+              "found": 2,
+              "matched": 2,
+              "expected": "focus_points"
+            }
+          },
+          {
+            "step": "next Start",
+            "verdict": "PASS",
+            "detail": "the next take started without \"Finishing up\"",
+            "evidence": {
+              "nextStartMs": 2410,
+              "holdSeen": false,
+              "refusalClass": null,
+              "runtimeState": null,
+              "sessionState": null,
+              "persisted": null,
+              "modelStatus": null,
+              "micStartPresent": null,
+              "micStartDisabled": null,
+              "recorderStopPresent": null,
+              "repeatActionPresent": null,
+              "repeatActionDisabled": null,
+              "controllerState": null,
+              "serviceState": null,
+              "startFailureReadTimedOut": null
+            }
+          },
+          {
+            "step": "next take stopped, microphone off",
+            "verdict": "PASS",
+            "detail": "the take stopped and every microphone track ended",
+            "evidence": {
+              "stopped": true,
+              "liveTracksAfterStop": 0
+            }
+          },
+          {
+            "step": "coaching prompt binding",
+            "verdict": "HOLD",
+            "detail": "the first take's evidence is unavailable",
+            "evidence": {
+              "configuredModel": "gemini-3.8-flash",
+              "reason": "no_successful_generation_observed",
+              "take": "first"
+            }
+          },
+          {
+            "step": "coaching request budget",
+            "verdict": "HOLD",
+            "detail": "a sent coaching request was still unanswered when the bounded wait ended, so provider invocations are unproven",
+            "evidence": {
+              "maximum": 4,
+              "browserRequests": 3,
+              "answered": 2,
+              "withDiagnostics": 2,
+              "malformedProviderAttempts": 0,
+              "providerAttemptsReported": 6,
+              "providerAttemptAllowance": 12,
+              "perRequestProviderAttemptCap": 3,
+              "maxProviderAttemptsForOneRequest": 3,
+              "maxRequestsForOneTake": 0,
+              "unansweredAtBound": 1,
+              "bodyPendingAtBound": 0,
+              "failedInBrowser": 0,
+              "inFlightAtEnd": 0,
+              "exchangeTimeline": "answered|502|1792369607754|1792369610220|2461|f2f16cf5a2a68cf175c40546f614603504857679ec6e2bb92a40d7e8df4ff815|2cd6cf68795d200740d3dd3df0dbfd9821c74de3bb01b2c95ec945f8395465d9|1;answered|502|1792369641282|1792369645080|3795|458c3548c6d93e04e5475eb2e87da60510253c778c622a19f4a2d1883baa5471|ea0245b0838f54f6197556b17977c9d6286504a906611ed02f595fc458c39619|1;unanswered|-|1792369653748|1792369713748|60001|11ab2ea7e6e7d60a13ace0e0989348688b51fd9b0d6bed428c1c967da05dbaed|e95a03ec187ce91464a1144bd041e2a763800cb7904b695a9a61e6e71bf7e124|1",
+              "inFlightTimeline": ""
+            }
+          },
+          {
+            "step": "telemetry decodable",
+            "verdict": "PASS",
+            "detail": "every analytics body decoded",
+            "evidence": {
+              "events": 373,
+              "undecodable": 0,
+              "blindBeacons": 0
+            }
+          },
+          {
+            "step": "signup-stage telemetry (user class)",
+            "verdict": "PASS",
+            "detail": "pre-claim signup events were sent as ordinary user traffic (sent, not yet received)",
+            "evidence": {
+              "userEvents": 10,
+              "userJourneys": 5
+            }
+          },
+          {
+            "step": "signup-stage telemetry received",
+            "verdict": "HOLD",
+            "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+          },
+          {
+            "step": "journey telemetry (canary class)",
+            "verdict": "PASS",
+            "detail": "post-claim journey events were sent as canary",
+            "evidence": {
+              "canaryEvents": 345,
+              "canaryJourneys": 6,
+              "otherClasses": ""
+            }
+          },
+          {
+            "step": "journey telemetry received",
+            "verdict": "HOLD",
+            "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+          },
+          {
+            "step": "coverage_evaluation sent",
+            "verdict": "PASS",
+            "detail": "the coverage evaluation left the page (sent, not yet received)",
+            "evidence": {
+              "sent": 3,
+              "blindBeacons": 0,
+              "receivedByStages": "session_after_focus_points",
+              "blindSinceStep": 0
+            }
+          },
+          {
+            "step": "Focus coaching telemetry sent",
+            "verdict": "FAIL",
+            "detail": "the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)",
+            "evidence": {
+              "reviewRequested": 2,
+              "reviewRendered": 0,
+              "productsMenuOpened": 2,
+              "savedReviewRevisited": 1,
+              "boundFailureOutcome": "bound",
+              "blindBeacons": 0,
+              "firstTakeRequestCount": 1,
+              "firstTakeRequestProof": "PASS"
+            }
+          },
+          {
+            "step": "revisit is not a generation",
+            "verdict": "PASS",
+            "detail": "one generated review for the take; the Analytics revisits added none",
+            "evidence": {
+              "reviewRequested": 1,
+              "blindBeacons": 0
+            }
+          },
+          {
+            "step": "inventory events sent",
+            "verdict": "PASS",
+            "detail": "products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)",
+            "evidence": {
+              "reviewRequested": 2,
+              "reviewRendered": 0,
+              "productsMenuOpened": 2,
+              "savedReviewRevisited": 1,
+              "blindBeacons": 0,
+              "receivedByStages": "analytics_inventory",
+              "blindSinceStep": 0
+            }
+          },
+          {
+            "step": "Practice again press → arrival (sent)",
+            "verdict": "PASS",
+            "detail": "every Practice-again press arrived at its intended route (same boot and action_seq)",
+            "evidence": {
+              "presses": 1,
+              "arrived": 1,
+              "mismatched": 0,
+              "missing": 0,
+              "linkedFailed": 0,
+              "first": "none",
+              "receivedByStages": "practice_again",
+              "blindSinceStep": 0
+            }
+          },
+          {
+            "step": "receipt content-free",
+            "verdict": "PASS",
+            "detail": "no point text, topic or credential in the receipt"
+          },
+          {
+            "step": "model download vs setup timing",
+            "verdict": "PASS",
+            "detail": "the cold first-use model download and engine setup were measured separately by the app",
+            "evidence": {
+              "evidenceClass": "browser_sent",
+              "acquisitions": 5,
+              "cacheResult": "miss",
+              "completeness": "complete",
+              "downloadMs": 1411,
+              "initMs": 5071,
+              "totalMs": 6482
+            }
+          },
+          {
+            "step": "run-owned cleanup",
+            "verdict": "PASS",
+            "detail": "the run-owned account was deleted and zero residue was verified before this receipt was written"
+          }
+        ],
+        "summary": {
+          "pass": 45,
+          "fail": 3,
+          "hold": 7,
+          "human": 0
+        },
+        "acceptance": "FAIL",
+        "external": [],
+        "successfulCoachingOutstanding": false,
+        "automatedRowsAllPass": false,
+        "nonGating": [
+          {
+            "step": "base_q4 primary",
+            "verdict": "HOLD",
+            "reason": "PO 2026-09-28: v4 base_q4 activation is sequenced after RWT; the pre-v4 RWT may pass without it"
+          },
+          {
+            "step": "signup-stage telemetry received",
+            "verdict": "HOLD",
+            "reason": "PO 2026-09-28: pre-claim user-class traffic is report-only and never qualifies"
+          }
+        ],
+        "humanObservations": [],
+        "readback": {
+          "journeys": [
+            {
+              "journeyId": "be9b6a6c-0426-4adb-bb37-56a8ea120244",
+              "stages": [
+                "session_during",
+                "session_after_focus_points",
+                "analytics_inventory"
+              ],
+              "firstDownload": true,
+              "attemptIds": [
+                "e64427d1-5e24-49ab-99b7-5dbdd6bf156f"
+              ]
+            },
+            {
+              "journeyId": "d8a71e1a-bc35-40e4-9e8f-752d0c071d28",
+              "stages": [
+                "session_during",
+                "session_interrupted_repeat",
+                "practice_again"
+              ],
+              "attemptIds": [
+                "08db5d72-302d-478c-95db-3f7055b55b89"
+              ]
+            }
+          ],
+          "reportedJourneyIds": [
+            "651a7083-236a-4643-9a65-32e7392e2c2f",
+            "3796ae66-8db6-4662-8b71-7167ea876109",
+            "c3e6cd72-5bfa-4a8b-b3bf-86b7d64573a7",
+            "cddfbff1-3109-4f13-896a-cfe3563ad0b5"
+          ],
+          "missingBindings": [],
+          "trafficType": "canary",
+          "trafficTypes": [
+            "user",
+            "canary"
+          ],
+          "userStageJourneyIds": [
+            "c22fa8ff-609f-4afd-ae8f-21194973444d",
+            "97573d3e-e1c9-4a78-94ab-f2eec06eb284",
+            "717a4df9-7ae9-4670-9010-c86cb54ae4ac",
+            "1b1f48f8-3f80-4608-aff3-9144613a5542",
+            "f0e06832-6f80-47b9-9ea4-ea1d433be14d"
+          ]
+        },
+        "testStatus": "failed"
+      },
+      "logProof": {
+        "receiptRecordPresent": true,
+        "receiptReleaseMatchesHead": true
+      }
+    },
+    {
+      "caseNumber": 4,
+      "runId": 39179780974,
+      "jobId": 117829875427,
+      "attempt": 1,
+      "head": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "workflow": ".github/workflows/rc-gates.yml",
+      "createdAt": "2026-10-19T00:13:10Z",
+      "updatedAt": "2026-10-19T00:16:26Z",
+      "workflowConclusion": "failure",
+      "workflowConclusionIsNotCaseVerdict": true,
+      "source": "https://github.com/relativityE/speaksharp/actions/runs/39179780974/job/117829875427",
+      "receipt": {
+        "suite": "pending-start-navigation",
+        "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+        "meta": {
+          "humanReflexMs": 500
+        },
+        "rows": [
+          {
+            "step": "run-owned signup",
+            "verdict": "PASS",
+            "detail": "fresh disposable account and profile verified"
+          },
+          {
+            "step": "canary claim in fresh login",
+            "verdict": "PASS",
+            "detail": "fresh sign-in carries the run-owned server-issued canary claim"
+          },
+          {
+            "step": "cold Start is pending",
+            "verdict": "PASS",
+            "detail": "the cold private model is waiting for the person’s Start action",
+            "evidence": {
+              "priorSessions": 0
+            }
+          },
+          {
+            "step": "Start transition observed",
+            "verdict": "PASS",
+            "detail": "the user-triggered Start left the cold waiting state before navigation"
+          },
+          {
+            "step": "abandoned Start settles after leaving",
+            "verdict": "PASS",
+            "detail": "the pending model/start operation reached a terminal state after navigation"
+          },
+          {
+            "step": "leaving pending Start releases microphone",
+            "verdict": "PASS",
+            "detail": "after leaving Open Mic, no recorder, live microphone track, or later acquisition remained",
+            "evidence": {
+              "recorderVisible": false,
+              "liveTracks": 0,
+              "acquisitionsAtLeave": 1,
+              "acquisitionsAfterLeave": 1
+            }
+          },
+          {
+            "step": "leaving pending Start creates no session",
+            "verdict": "PASS",
+            "detail": "abandonment left the account session identities unchanged",
+            "evidence": {
+              "priorSessions": 0,
+              "sessionsAfterLeave": 0
+            }
+          },
+          {
+            "step": "return to Open Mic exposes truthful Start state",
+            "verdict": "FAIL",
+            "detail": "return did not expose an enabled Start/retry action consistent with model state idle",
+            "evidence": {
+              "modelStatus": "idle",
+              "expectedControl": "mic-start",
+              "shellState": "before",
+              "startPresent": true,
+              "startVisible": true,
+              "startEnabled": false,
+              "startAriaLabel": "Start recording",
+              "downloadPresent": false,
+              "downloadVisible": false,
+              "downloadEnabled": false,
+              "downloadAriaLabel": null,
+              "retryPresent": false,
+              "retryVisible": false,
+              "retryEnabled": false,
+              "retryAriaLabel": null
+            }
+          },
+          {
+            "step": "return does not resume abandoned recording",
+            "verdict": "PASS",
+            "detail": "return left the recorder stopped, mic evidence unchanged and saved session identities unchanged",
+            "evidence": {
+              "recorderVisible": false,
+              "liveTracks": 0,
+              "acquisitions": 1,
+              "priorSessions": 0,
+              "sessionsAfterReturn": 0,
+              "sessionIdentityUnchanged": true
+            }
+          },
+          {
+            "step": "coaching request budget",
+            "verdict": "PASS",
+            "detail": "the whole scenario sent at most 0 coaching request(s); the Edge reported at most 0 provider attempt(s) in all and at most 3 for any one request",
+            "evidence": {
+              "maximum": 0,
+              "browserRequests": 0,
+              "answered": 0,
+              "withDiagnostics": 0,
+              "malformedProviderAttempts": 0,
+              "providerAttemptsReported": 0,
+              "providerAttemptAllowance": 0,
+              "perRequestProviderAttemptCap": 3,
+              "maxProviderAttemptsForOneRequest": 0,
+              "maxRequestsForOneTake": 0,
+              "unansweredAtBound": 0,
+              "bodyPendingAtBound": 0,
+              "failedInBrowser": 0,
+              "inFlightAtEnd": 0,
+              "exchangeTimeline": "",
+              "inFlightTimeline": ""
+            }
+          },
+          {
+            "step": "run-owned cleanup",
+            "verdict": "PASS",
+            "detail": "the run-owned account was deleted and residue checks passed"
+          },
+          {
+            "step": "telemetry decodable",
+            "verdict": "PASS",
+            "detail": "every analytics body decoded",
+            "evidence": {
+              "events": 56,
+              "undecodable": 0,
+              "blindBeacons": 0
+            }
+          },
+          {
+            "step": "signup-stage telemetry (user class)",
+            "verdict": "PASS",
+            "detail": "pre-claim signup events were sent as ordinary user traffic (sent, not yet received)",
+            "evidence": {
+              "userEvents": 5,
+              "userJourneys": 2
+            }
+          },
+          {
+            "step": "signup-stage telemetry received",
+            "verdict": "HOLD",
+            "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+          },
+          {
+            "step": "receipt content-free",
+            "verdict": "PASS",
+            "detail": "the leak guard found no registered value in the receipt, worksheet or log line"
+          }
+        ],
+        "summary": {
+          "pass": 13,
+          "fail": 1,
+          "hold": 1,
+          "human": 0
+        },
+        "acceptance": "FAIL",
+        "external": [],
+        "successfulCoachingOutstanding": false,
+        "automatedRowsAllPass": false,
+        "nonGating": [
+          {
+            "step": "signup-stage telemetry received",
+            "verdict": "HOLD",
+            "reason": "PO 2026-09-28: pre-claim user-class traffic is report-only and never qualifies"
+          }
+        ],
+        "humanObservations": [],
+        "readback": {
+          "journeys": [],
+          "reportedJourneyIds": [
+            "c34f5f85-9a60-4b80-a8c3-0b1a73145338",
+            "42639bf8-cc94-48dc-bb54-763d28cbf4d8"
+          ],
+          "missingBindings": [],
+          "trafficType": "canary",
+          "trafficTypes": [
+            "user",
+            "canary"
+          ],
+          "userStageJourneyIds": []
+        },
+        "testStatus": "failed"
+      },
+      "logProof": {
+        "receiptRecordPresent": true,
+        "receiptReleaseMatchesHead": true
+      }
+    },
+    {
+      "caseNumber": 9,
+      "runId": 39179788446,
+      "jobId": 117829896871,
+      "attempt": 1,
+      "head": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "workflow": ".github/workflows/rc-gates.yml",
+      "createdAt": "2026-10-19T00:13:15Z",
+      "updatedAt": "2026-10-19T00:17:24Z",
+      "workflowConclusion": "failure",
+      "workflowConclusionIsNotCaseVerdict": true,
+      "source": "https://github.com/relativityE/speaksharp/actions/runs/39179788446/job/117829896871",
+      "receipt": {
+        "suite": "abandon-and-two-tabs-navigate-away",
+        "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+        "meta": {
+          "humanReflexMs": 500
+        },
+        "rows": [
+          {
+            "step": "run-owned signup",
+            "verdict": "PASS",
+            "detail": "fresh disposable account and profile verified"
+          },
+          {
+            "step": "canary claim in fresh login",
+            "verdict": "PASS",
+            "detail": "fresh sign-in carries the run-owned server-issued canary claim"
+          },
+          {
+            "step": "take is recording before leaving",
+            "verdict": "PASS",
+            "detail": "a Private take was recording with a live microphone when the person left",
+            "evidence": {
+              "runtimeState": "RECORDING",
+              "recorderVisible": true,
+              "liveTracks": 1
+            }
+          },
+          {
+            "step": "leave prompt answered Leave",
+            "verdict": "PASS",
+            "detail": "the product asked once before leaving the live recording; Leave reached the chosen page",
+            "evidence": {
+              "prompts": 1,
+              "unexpectedDialogs": 0,
+              "stopFailedAlerts": 0,
+              "arrived": true
+            }
+          },
+          {
+            "step": "leaving mid-recording releases the microphone",
+            "verdict": "PASS",
+            "detail": "after leaving: nothing records and every microphone track has ended",
+            "evidence": {
+              "runtimeState": "READY",
+              "recorderVisible": false,
+              "liveTracks": 0
+            }
+          },
+          {
+            "step": "scenario execution",
+            "verdict": "FAIL",
+            "detail": "TimeoutError"
+          },
+          {
+            "step": "no Cloud STT request",
+            "verdict": "PASS",
+            "detail": "no Cloud STT request was made from any tab",
+            "evidence": {
+              "cloudRequests": 0
+            }
+          },
+          {
+            "step": "coaching request budget",
+            "verdict": "PASS",
+            "detail": "the whole scenario sent at most 2 coaching request(s); the Edge reported at most 6 provider attempt(s) in all and at most 3 for any one request",
+            "evidence": {
+              "maximum": 2,
+              "browserRequests": 0,
+              "answered": 0,
+              "withDiagnostics": 0,
+              "malformedProviderAttempts": 0,
+              "providerAttemptsReported": 0,
+              "providerAttemptAllowance": 6,
+              "perRequestProviderAttemptCap": 3,
+              "maxProviderAttemptsForOneRequest": 0,
+              "maxRequestsForOneTake": 0,
+              "unansweredAtBound": 0,
+              "bodyPendingAtBound": 0,
+              "failedInBrowser": 0,
+              "inFlightAtEnd": 0,
+              "exchangeTimeline": "",
+              "inFlightTimeline": ""
+            }
+          },
+          {
+            "step": "run-owned cleanup",
+            "verdict": "PASS",
+            "detail": "the run-owned account was deleted and residue checks passed"
+          },
+          {
+            "step": "telemetry decodable",
+            "verdict": "PASS",
+            "detail": "every analytics body decoded",
+            "evidence": {
+              "events": 58,
+              "undecodable": 0,
+              "blindBeacons": 0
+            }
+          },
+          {
+            "step": "signup-stage telemetry (user class)",
+            "verdict": "PASS",
+            "detail": "pre-claim signup events were sent as ordinary user traffic (sent, not yet received)",
+            "evidence": {
+              "userEvents": 9,
+              "userJourneys": 4
+            }
+          },
+          {
+            "step": "signup-stage telemetry received",
+            "verdict": "HOLD",
+            "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+          },
+          {
+            "step": "receipt content-free",
+            "verdict": "PASS",
+            "detail": "the leak guard found no registered value in the receipt, worksheet or log line"
+          }
+        ],
+        "summary": {
+          "pass": 11,
+          "fail": 1,
+          "hold": 1,
+          "human": 0
+        },
+        "acceptance": "FAIL",
+        "external": [],
+        "successfulCoachingOutstanding": false,
+        "automatedRowsAllPass": false,
+        "nonGating": [
+          {
+            "step": "signup-stage telemetry received",
+            "verdict": "HOLD",
+            "reason": "PO 2026-09-28: pre-claim user-class traffic is report-only and never qualifies"
+          }
+        ],
+        "humanObservations": [],
+        "readback": {
+          "journeys": [],
+          "reportedJourneyIds": [
+            "144429fa-ce29-4a0c-9208-18d2a3384cc5",
+            "1779452d-ccc8-4530-b6b4-dc074699a416",
+            "2ca944fb-080c-47e1-b1bd-9b4cb99dc753"
+          ],
+          "missingBindings": [],
+          "trafficType": "canary",
+          "trafficTypes": [
+            "user",
+            "canary"
+          ],
+          "userStageJourneyIds": []
+        },
+        "testStatus": "failed"
+      },
+      "logProof": {
+        "receiptRecordPresent": true,
+        "receiptReleaseMatchesHead": true
+      },
+      "errorExcerpt": [
+        "2026-10-19T00:15:18.1141332Z     TimeoutError: locator.apply: Timeout 20000ms exceeded.",
+        "2026-10-19T00:15:18.1141953Z     Call log:",
+        "2026-10-19T00:15:18.1142777Z       - waiting for getByTestId('nav-products-button')",
+        "2026-10-19T00:15:18.1144848Z         - locator resolved to <button type=\"button\" id=\"radix-:r0:\" data-state=\"closed\" aria-current=\"page\" aria-haspopup=\"menu\" aria-label=\"Products\" aria-expanded=\"false\" class=\"nav-item nav-item--active\" data-testid=\"nav-products-button\">…</button>",
+        "2026-10-19T00:15:18.1146597Z       - attempting click action",
+        "2026-10-19T00:15:18.1148081Z         2 × waiting for element to be visible, enabled and stable",
+        "2026-10-19T00:15:18.1148894Z           - element is visible, enabled and stable",
+        "2026-10-19T00:15:18.1149554Z           - scrolling into view if needed",
+        "2026-10-19T00:15:18.1150050Z           - done scrolling",
+        "2026-10-19T00:15:18.1153607Z           - <form data-testid=\"objective-setup-form\" class=\"rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-6 sm:p-8 \">…</form> from <div role=\"dialog\" tabindex=\"-1\" id=\"radix-:r8:\" data-state=\"open\" aria-labelledby=\"radix-:r9:\" aria-describedby=\"radix-:ra:\" data-testid=\"objective-setup-dialog\" class=\"fixed left-[50%] top-[50%] z-50 grid w-full translate-x-[-50%] translate-y-[-50%] gap-4 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[sta…>…</div> subtree intercepts pointer events",
+        "2026-10-19T00:15:18.1156099Z         - retrying click action",
+        "2026-10-19T00:15:18.1156607Z         - waiting 20ms",
+        "2026-10-19T00:15:18.1157206Z         2 × waiting for element to be visible, enabled and stable",
+        "2026-10-19T00:15:18.1158055Z           - element is visible, enabled and stable",
+        "2026-10-19T00:15:18.1158615Z           - scrolling into view if needed",
+        "2026-10-19T00:15:18.1159134Z           - done scrolling",
+        "2026-10-19T00:15:18.1162425Z           - <form data-testid=\"objective-setup-form\" class=\"rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-6 sm:p-8 \">…</form> from <div role=\"dialog\" tabindex=\"-1\" id=\"radix-:r8:\" data-state=\"open\" aria-labelledby=\"radix-:r9:\" aria-describedby=\"radix-:ra:\" data-testid=\"objective-setup-dialog\" class=\"fixed left-[50%] top-[50%] z-50 grid w-full translate-x-[-50%] translate-y-[-50%] gap-4 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[sta…>…</div> subtree intercepts pointer events",
+        "2026-10-19T00:15:18.1164835Z         - retrying click action",
+        "2026-10-19T00:15:18.1165236Z           - waiting 100ms",
+        "2026-10-19T00:15:18.1165772Z         39 × waiting for element to be visible, enabled and stable",
+        "2026-10-19T00:15:18.1166442Z            - element is visible, enabled and stable",
+        "2026-10-19T00:15:18.1167181Z            - scrolling into view if needed",
+        "2026-10-19T00:15:18.1168179Z            - done scrolling",
+        "2026-10-19T00:15:18.1171914Z            - <form data-testid=\"objective-setup-form\" class=\"rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-6 sm:p-8 \">…</form> from <div role=\"dialog\" tabindex=\"-1\" id=\"radix-:r8:\" data-state=\"open\" aria-labelledby=\"radix-:r9:\" aria-describedby=\"radix-:ra:\" data-testid=\"objective-setup-dialog\" class=\"fixed left-[50%] top-[50%] z-50 grid w-full translate-x-[-50%] translate-y-[-50%] gap-4 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[sta…>…</div> subtree intercepts pointer events"
+      ]
+    },
+    {
+      "caseNumber": 11,
+      "runId": 39179796291,
+      "jobId": 117829919835,
+      "attempt": 1,
+      "head": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "workflow": ".github/workflows/rc-gates.yml",
+      "createdAt": "2026-10-19T00:13:21Z",
+      "updatedAt": "2026-10-19T00:17:38Z",
+      "workflowConclusion": "failure",
+      "workflowConclusionIsNotCaseVerdict": true,
+      "source": "https://github.com/relativityE/speaksharp/actions/runs/39179796291/job/117829919835",
+      "receipt": {
+        "suite": "abandon-and-two-tabs-take-over",
+        "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+        "meta": {
+          "humanReflexMs": 500
+        },
+        "rows": [
+          {
+            "step": "run-owned signup",
+            "verdict": "PASS",
+            "detail": "fresh disposable account and profile verified"
+          },
+          {
+            "step": "canary claim in fresh login",
+            "verdict": "PASS",
+            "detail": "fresh sign-in carries the run-owned server-issued canary claim"
+          },
+          {
+            "step": "same-browser tab is refused",
+            "verdict": "PASS",
+            "detail": "the second tab was refused truthfully with no engine or microphone, and the first kept recording",
+            "evidence": {
+              "refusalCopyShown": true,
+              "tabBRuntimeState": "READY",
+              "tabBRecorderVisible": false,
+              "tabBLiveTracks": 0,
+              "tabARuntimeState": "RECORDING",
+              "tabARecorderVisible": true,
+              "tabALiveTracks": 1
+            }
+          },
+          {
+            "step": "scenario execution",
+            "verdict": "FAIL",
+            "detail": "Error"
+          },
+          {
+            "step": "no Cloud STT request",
+            "verdict": "PASS",
+            "detail": "no Cloud STT request was made from any tab",
+            "evidence": {
+              "cloudRequests": 0
+            }
+          },
+          {
+            "step": "coaching request budget",
+            "verdict": "PASS",
+            "detail": "the whole scenario sent at most 2 coaching request(s); the Edge reported at most 6 provider attempt(s) in all and at most 3 for any one request",
+            "evidence": {
+              "maximum": 2,
+              "browserRequests": 0,
+              "answered": 0,
+              "withDiagnostics": 0,
+              "malformedProviderAttempts": 0,
+              "providerAttemptsReported": 0,
+              "providerAttemptAllowance": 6,
+              "perRequestProviderAttemptCap": 3,
+              "maxProviderAttemptsForOneRequest": 0,
+              "maxRequestsForOneTake": 0,
+              "unansweredAtBound": 0,
+              "bodyPendingAtBound": 0,
+              "failedInBrowser": 0,
+              "inFlightAtEnd": 0,
+              "exchangeTimeline": "",
+              "inFlightTimeline": ""
+            }
+          },
+          {
+            "step": "run-owned cleanup",
+            "verdict": "PASS",
+            "detail": "the run-owned account was deleted and residue checks passed"
+          },
+          {
+            "step": "telemetry decodable",
+            "verdict": "PASS",
+            "detail": "every analytics body decoded",
+            "evidence": {
+              "events": 85,
+              "undecodable": 0,
+              "blindBeacons": 0
+            }
+          },
+          {
+            "step": "signup-stage telemetry (user class)",
+            "verdict": "PASS",
+            "detail": "pre-claim signup events were sent as ordinary user traffic (sent, not yet received)",
+            "evidence": {
+              "userEvents": 10,
+              "userJourneys": 5
+            }
+          },
+          {
+            "step": "signup-stage telemetry received",
+            "verdict": "HOLD",
+            "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+          },
+          {
+            "step": "receipt content-free",
+            "verdict": "PASS",
+            "detail": "the leak guard found no registered value in the receipt, worksheet or log line"
+          }
+        ],
+        "summary": {
+          "pass": 9,
+          "fail": 1,
+          "hold": 1,
+          "human": 0
+        },
+        "acceptance": "FAIL",
+        "external": [],
+        "successfulCoachingOutstanding": false,
+        "automatedRowsAllPass": false,
+        "nonGating": [
+          {
+            "step": "signup-stage telemetry received",
+            "verdict": "HOLD",
+            "reason": "PO 2026-09-28: pre-claim user-class traffic is report-only and never qualifies"
+          }
+        ],
+        "humanObservations": [],
+        "readback": {
+          "journeys": [],
+          "reportedJourneyIds": [
+            "bb160478-1f76-4d5c-9c4c-9cc1db4eada3",
+            "f7097839-c1a7-435a-8375-04f75fd2c7da",
+            "9bfe826c-c4b7-4f70-b9e4-6bd2606c225e",
+            "b653adf1-9acd-4ad8-8615-20053fb9bd28",
+            "7f25d10b-9f98-4722-a7b4-fd5e1ec5b932"
+          ],
+          "missingBindings": [],
+          "trafficType": "canary",
+          "trafficTypes": [
+            "user",
+            "canary"
+          ],
+          "userStageJourneyIds": []
+        },
+        "testStatus": "failed"
+      },
+      "logProof": {
+        "receiptRecordPresent": true,
+        "receiptReleaseMatchesHead": true
+      },
+      "errorExcerpt": [
+        "2026-10-19T00:15:32.3493536Z     Error: status must leave download-required after the CTA click (got download-required)",
+        "2026-10-19T00:15:32.3493837Z ",
+        "2026-10-19T00:15:32.3494238Z     expect(received).not.toBe(expected) // Object.is equality",
+        "2026-10-19T00:15:32.3494582Z ",
+        "2026-10-19T00:15:32.3494773Z     Expected: not \"download-required\"",
+        "2026-10-19T00:15:32.3494965Z ",
+        "2026-10-19T00:15:32.3495055Z     Call Log:",
+        "2026-10-19T00:15:32.3495346Z     - Timeout 30000ms exceeded while waiting on the predicate",
+        "2026-10-19T00:15:32.3495568Z ",
+        "2026-10-19T00:15:32.3495711Z        at live/helpers/benchmark-utils.ts:619",
+        "2026-10-19T00:15:32.3495910Z ",
+        "2026-10-19T00:15:32.3496227Z       617 |         expect(status, `status must leave download-required after the CTA click (got ${String(status)})`)",
+        "2026-10-19T00:15:32.3496698Z       618 |             .not.toBe('download-required');",
+        "2026-10-19T00:15:32.3497071Z     > 619 |     }).toPass({ timeout: 30_000, intervals: [250, 500, 1_000] });",
+        "2026-10-19T00:15:32.3497594Z           |        ^",
+        "2026-10-19T00:15:32.3497816Z       620 |",
+        "2026-10-19T00:15:32.3498286Z       621 |     const afterClick = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));",
+        "2026-10-19T00:15:32.3498936Z       622 |     await logBenchmarkPhase(page, `SETUP_MODEL_STATE_AFTER_CTA_${String(afterClick).toUpperCase()}`);",
+        "2026-10-19T00:15:32.3499647Z         at preparePrivateModelIfPrompted (/home/runner/work/speaksharp/speaksharp/tests/live/helpers/benchmark-utils.ts:619:8)",
+        "2026-10-19T00:15:32.3500343Z         at /home/runner/work/speaksharp/speaksharp/tests/live/rwt-abandon-and-two-tabs.live.spec.ts:300:28",
+        "2026-10-19T00:15:32.3500676Z ",
+        "2026-10-19T00:15:32.3501041Z     attachment #1: error-context (text/markdown) ───────────────────────────────────────────────────",
+        "2026-10-19T00:15:32.3501462Z     # Page snapshot suppressed",
+        "2026-10-19T00:15:32.3501696Z     "
+      ]
+    }
+  ]
+}

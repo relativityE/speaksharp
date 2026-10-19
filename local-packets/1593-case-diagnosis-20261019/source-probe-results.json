@@ -1,0 +1,67 @@
+{
+  "executedHead": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+  "sourceHashes": {
+    "tests/live/helpers/rwtFocusPointsJourney.ts": "967671a47981c8e71457f14ff7bbb165368c36fbe0c23991523d2223bc52d679",
+    "tests/fixtures/rwt/rwt-fixtures.manifest.json": "e0e9e1586872e4c67ec95b61cbc6bc084bf3ed4a0e502e72fb0b95df0673a9ef",
+    "frontend/src/hooks/useSessionLifecycle.ts": "fff25e5b7a88b5a6ed78f72cc1875aa6101c5aac2fd3ef81115ac7160aa4bdd2",
+    "frontend/src/components/session/MicCard.tsx": "b54fa1f5a6d791295a6acffe12ce3f38798b6302b0a7e846cc9f6b1b363ac823",
+    "tests/live/rwt-abandon-and-two-tabs.live.spec.ts": "14459299bb0c89d1b4cfd389f2073dc3837a52ed7580cc6b6df889f43accb1a7"
+  },
+  "case3": {
+    "originalOracleResult": [
+      "late@9.4(+3.2s)",
+      "ok@15.7(2.5s)",
+      "ok@21.5(0.9s)",
+      "ok-unspoken"
+    ],
+    "firstDeadlineSeconds": 9.02,
+    "firstObservedSeconds": 9.4,
+    "counterexample": "A transition at8.90 and one at9.10 can both first be observed at9.40; identical retained receipt, different actual deadline outcomes. The receipt proves late observation, not uniquely late product emission.",
+    "pollWaitMs": 500,
+    "firstPreviousObservationTimeRetained": false,
+    "noLiveReproductionClaimed": true
+  },
+  "case4": {
+    "actualCardRender": {
+      "transitional": {
+        "modelStatus": "idle",
+        "ariaLabel": "Start recording",
+        "disabled": true,
+        "control": "mic-start"
+      },
+      "finalizing": {
+        "modelStatus": "idle",
+        "ariaLabel": "Start recording",
+        "disabled": true,
+        "control": "mic-start"
+      },
+      "clear": {
+        "modelStatus": "idle",
+        "ariaLabel": "Start recording",
+        "disabled": false,
+        "control": "mic-start"
+      }
+    },
+    "conclusion": "Plain disabled Start with model idle does not uniquely distinguish runtime-transition versus transcript-finalization gate. It cannot name the historical blocker."
+  },
+  "case9": {
+    "executedSourceHasFocusThenProductsReturnWithoutClosingSetup": true,
+    "retainedLogProvesDialogIntercept": true,
+    "newBrowserExecution": false
+  },
+  "case11": {
+    "modelPreparationAwaitPrecedesLeaseRefusalObservation": true,
+    "harnessContractConflict": true,
+    "historicalLeaseRefusalIndependentlyObserved": false
+  },
+  "controls": {
+    "markerOracleReplay": "PASS",
+    "renderedGateAliasing": "PASS",
+    "clearGateNegative": "PASS",
+    "harnessOrderChecks": "PASS"
+  },
+  "modelRuns": 0,
+  "liveRuns": 0,
+  "providerCalls": 0,
+  "accountOperations": 0
+}
