@@ -1,0 +1,217 @@
+{
+  "successor_head": "9ce170db5113d45980908ee4bea334b48eb019a6",
+  "parent_production_head": "77780845ce2ff9550f0920eb2f1eb37fe2ff01a9",
+  "test_fixture_head": "9ce170db5113d45980908ee4bea334b48eb019a6",
+  "green": {
+    "passed": 33,
+    "failed": 0,
+    "assertions": [
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released CASUALTY: unmount at the START of preparation (no engine yet) \u2014 the Start never becomes a recording and no engine is ever created",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released CASUALTY: unmount while an engine is MID-PREPARATION \u2014 it is terminated before the lease is released, and the model landing starts nothing",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'initializing' repetition +0 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'download-required' repetition +0 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'initializing' repetition 1 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'download-required' repetition 1 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'initializing' repetition 2 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'download-required' repetition 2 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'initializing' repetition 3 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'download-required' repetition 3 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'initializing' repetition 4 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 causal probe: 'download-required' repetition 4 publishes idle while its runtime still blocks Start",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 (CLI 0ae7573b): initializing \u2014 a retirement that timed out then SUCCEEDED completes; Start re-enables",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 (CLI 0ae7573b): download-required \u2014 a retirement that timed out then SUCCEEDED completes; Start re-enables",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 (Sam RETURN on 77780845): initializing \u2014 the engine's ACTUAL late termination rejection, caught inside destroy(), completes nothing",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 (Sam RETURN on 77780845): download-required \u2014 the engine's ACTUAL late termination rejection, caught inside destroy(), completes nothing",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4: an IN-BOUND termination rejection of a preparing engine is not \"terminal\" either \u2014 the lease is kept",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4: a destroy() that later REJECTS never claims cleanup \u2014 runtime stays blocked, no late completion",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4: a termination that is STILL hung completes nothing",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4: a SUPERSEDED retirement (hard reset since) never completes over its successor",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4: the hook releases the take's lease on late proof \u2014 only while that take still owns it",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released CASUALTY: a stop that REJECTS with the engine still live \u2014 the engine is destroyed, the Retry Save kept, and only then the lease released",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released CASUALTY (PM pre-push RETURN 2): stop AND destroy both REJECT \u2014 the lease is KEPT and unconfirmed is reported, never \"done\"",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released CASUALTY: termination that cannot be confirmed KEEPS the lease and says so \u2014 never reported as cleaned up",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released isEngineTerminal (Codex P1 on c4fd77b2): false while a real engine records, true once it is torn down",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released PM RETURN (real service): FAILED \u2192 destroy() with strategy.terminate() HELD past a poll \u2014 the early FSM TERMINATED is NOT \"engine off\"",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released PM RETURN (real service): a termination that REJECTS stays unconfirmed \u2014 the unmount keeps the lease and says so",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released PM RETURN (real service): an ORDINARY Stop proves the engine off",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released PM RETURN (real service) CONTROL: failed engine STOP \u2192 the failure path's destroy terminates successfully \u2192 PROVEN off; Retry Save untouched",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released PM RETURN (real service): failed engine STOP, then termination REJECTS \u2014 never \"off\"; the lease must be kept",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released PM RETURN (real service): failed engine STOP, then termination HANGS \u2014 unconfirmed within the bound",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released confirmEngineShutdown's OWN bounded destroy: an attached, unconfirmed engine whose termination hangs is unconfirmed, never \"proven\"",
+        "status": "passed",
+        "failure": []
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released CONTROL: an idle page releases at once, touching no engine",
+        "status": "passed",
+        "failure": []
+      }
+    ]
+  },
+  "parent_targeted": {
+    "failed": 3,
+    "passed": 0,
+    "skipped": 30,
+    "assertions": [
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 (Sam RETURN on 77780845): initializing \u2014 the engine's ACTUAL late termination rejection, caught inside destroy(), completes nothing",
+        "status": "failed",
+        "failure": [
+          "AssertionError: no affirmative termination: Start stays blocked: expected 'IDLE' to be 'ENGINE_INITIALIZING' // Object.is equality"
+        ]
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4 (Sam RETURN on 77780845): download-required \u2014 the engine's ACTUAL late termination rejection, caught inside destroy(), completes nothing",
+        "status": "failed",
+        "failure": [
+          "AssertionError: no affirmative termination: Start stays blocked: expected 'IDLE' to be 'DOWNLOAD_REQUIRED' // Object.is equality"
+        ]
+      },
+      {
+        "name": "#1476 \u2014 unmount retires the engine before the account lease is released case4: an IN-BOUND termination rejection of a preparing engine is not \"terminal\" either \u2014 the lease is kept",
+        "status": "failed",
+        "failure": [
+          "AssertionError: expected 'terminal' to be 'unconfirmed' // Object.is equality"
+        ]
+      }
+    ]
+  },
+  "hashes": {
+    "77780845ce2ff9550f0920eb2f1eb37fe2ff01a9": {
+      "frontend/src/services/SpeechRuntimeController.ts": "c2918e6f0db8c005c84a3e51560c855cd32a307775fc171b8c7a00731b534986",
+      "frontend/src/services/transcription/TranscriptionService.ts": "30908722bba980f8c75a107e760efa6ba47e1bda2be12de0a271884b298a65df",
+      "frontend/src/services/__tests__/unmountEngineRetirement1476.test.ts": "41fa5bb878b07342b1f3aa2a11b36b92a6c7520a9541d96e23da8f2d78e94211"
+    },
+    "9ce170db5113d45980908ee4bea334b48eb019a6": {
+      "frontend/src/services/SpeechRuntimeController.ts": "5e0f5206cdd3d4dba919d189deb241b209eba1e1297dc5707db7100dcd709227",
+      "frontend/src/services/transcription/TranscriptionService.ts": "3ab4a86d0e791eb3e104db2785a98426f8d8f0e3c5c660fe7782faf6d003e0cc",
+      "frontend/src/services/__tests__/unmountEngineRetirement1476.test.ts": "514ce761af2923df0e75711955527f9cbfaf4dc5d2a74e87897ae0060139135d"
+    }
+  },
+  "scope": "Independent execution of existing actual controller/service/hook test fixture in isolated source mirror with controlled engine and mocked account lease/storage. Parent run replaces only two production files with byte-verified777 source while retaining9ce tests. No live mic/model/provider/account operation. Initial mirror-loader setup errors were repaired before tests executed; only verified source runs counted. Path-normalized public report preserves assertion names/status/first-line failures; raw runner reports remain private."
+}

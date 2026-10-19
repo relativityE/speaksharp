@@ -1,0 +1,184 @@
+{
+  "observedAtUtc": "2026-10-19T16:11:04.186Z",
+  "heads": {
+    "rwt": "c8dc89f06a2ac7d58706c4cb02a80e0dd0ebbab3",
+    "start": "71934293c1079aafc8ebf1f6d4373f66d5482c06",
+    "marker": "50d0e20a8c3edba3b04869474f7bb23fff858c19"
+  },
+  "hashes": {
+    "c8dc89f06a2ac7d58706c4cb02a80e0dd0ebbab3:tests/live/helpers/rwtAbandonTakeover.ts": "23f97799195c03b66577434563337dd005ab762b1ad1d429f8ab90acc1f1b003",
+    "c8dc89f06a2ac7d58706c4cb02a80e0dd0ebbab3:tests/live/rwt-abandon-and-two-tabs.live.spec.ts": "1613c5c90aab4a79acbf252c4e888545a1ecbfb1c8de5eb0d98b4a65e51c9df6",
+    "c8dc89f06a2ac7d58706c4cb02a80e0dd0ebbab3:tests/live/helpers/rwtAdverse.ts": "99b7d40cfa18c78ffe78cc6601ff3e0c0b076315660e94efb277dd157cf6dbe1",
+    "c8dc89f06a2ac7d58706c4cb02a80e0dd0ebbab3:tests/live/helpers/rwtJourney.ts": "ee48cc27cf68b52b9637c917586b6f0df79f9264148a268fc4f77ef2420d9794",
+    "c8dc89f06a2ac7d58706c4cb02a80e0dd0ebbab3:tests/live/helpers/rwtDocumentIdentity.ts": "00919377b57f0fe5b551d981f0962876577264cca73fef87a5cdb004047f85a8",
+    "c8dc89f06a2ac7d58706c4cb02a80e0dd0ebbab3:tests/live/helpers/rwtWatchdog.ts": "1297fb8c917c6a53121f42ad8b05e0fe369dfc5536fd712c797a0327461bb622",
+    "71934293c1079aafc8ebf1f6d4373f66d5482c06:tests/live/helpers/benchmark-utils.ts": "0a0ade45a4a3e2154d98c4e38e12613feef523eb1b54fc117c5d8c30203dd9be",
+    "71934293c1079aafc8ebf1f6d4373f66d5482c06:tests/helpers/micControls.ts": "6fb2e8bc1871f690302cc6f998d6461ae56ecd26a6b6fef11d0bd55f8c9895f4",
+    "50d0e20a8c3edba3b04869474f7bb23fff858c19:tests/live/helpers/rwtMarkerTimeline.ts": "f3ef500acc6df7b0be87cee9c6594f3411ff1021b3340249a71e83073db44d90"
+  },
+  "groupedControls": 21,
+  "controls": [
+    {
+      "name": "clean full window",
+      "verdict": "PASS",
+      "aHistory": [
+        "RECORDING"
+      ],
+      "bHistory": [
+        "download-required"
+      ]
+    },
+    {
+      "name": "A stops/resumes within one observer delivery",
+      "verdict": "FAIL",
+      "aHistory": [
+        "RECORDING",
+        "STOPPING",
+        "RECORDING"
+      ],
+      "bHistory": [
+        "download-required"
+      ]
+    },
+    {
+      "name": "B model loading then cold again",
+      "verdict": "FAIL",
+      "aHistory": [
+        "RECORDING"
+      ],
+      "bHistory": [
+        "download-required",
+        "loading",
+        "download-required"
+      ]
+    },
+    {
+      "name": "B transient microphone acquisition",
+      "verdict": "FAIL",
+      "aHistory": [
+        "RECORDING"
+      ],
+      "bHistory": [
+        "download-required"
+      ]
+    },
+    {
+      "name": "A live track stops",
+      "verdict": "FAIL",
+      "aHistory": [
+        "RECORDING"
+      ],
+      "bHistory": [
+        "download-required"
+      ]
+    },
+    {
+      "name": "B document token lost",
+      "verdict": "HOLD",
+      "aHistory": [
+        "RECORDING"
+      ],
+      "bHistory": []
+    },
+    {
+      "name": "invalid A opening state retained",
+      "verdict": "FAIL"
+    },
+    {
+      "name": "bounded receiving gap: B activity after B close while awaiting A close",
+      "verdict": "PASS",
+      "actualBPostCloseAcquisitions": 1,
+      "actualBPostCloseRuntime": "RECORDING",
+      "scope": "Actual collector→verdict plus source-order schedule; counterexample to observation-through-second-gesture guarantee, not historical/live product cause or whole-run PASS."
+    },
+    {
+      "name": "honest adverse failure",
+      "history": [
+        "loading",
+        "error"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "name": "same-delivery ready then error",
+      "history": [
+        "loading",
+        "ready",
+        "error"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "name": "lost adverse document log",
+      "verdict": "HOLD"
+    },
+    {
+      "name": "actual attempt counter: pre-attempt/unrelated excluded, during awaited injection counts, config valid, post-disarm excluded",
+      "failures": 2,
+      "scope": "Fresh-context one-page one-press asset scope accepted by Sam; not general concurrent cross-page cause proof."
+    },
+    {
+      "name": "actual settleQueuedTelemetry → actual watchdog terminal verdict",
+      "elapsedMs": 600,
+      "bFatalPresent": false,
+      "settled": "flushed",
+      "verdict": "PASS"
+    },
+    {
+      "name": "actual settleEveryPage → actual watchdog terminal verdict",
+      "elapsedMs": 2000,
+      "bFatalPresent": true,
+      "settled": "flushed",
+      "verdict": "FAIL"
+    },
+    {
+      "name": "settlement closed page",
+      "elapsedMs": 500,
+      "result": "flushed"
+    },
+    {
+      "name": "settlement never page",
+      "elapsedMs": 5000,
+      "result": "quiet"
+    },
+    {
+      "name": "actual Start helper clean",
+      "productActivations": 1,
+      "rejected": false,
+      "scope": "Actual extracted function + actual selector mapping + jsdom native click and Page/ElementHandle doubles; no Playwright actionability/browser-frequency claim."
+    },
+    {
+      "name": "actual Start helper duplicate-ready",
+      "productActivations": 0,
+      "rejected": true,
+      "scope": "Actual extracted function + actual selector mapping + jsdom native click and Page/ElementHandle doubles; no Playwright actionability/browser-frequency claim."
+    },
+    {
+      "name": "actual Start helper duplicate-click",
+      "productActivations": 0,
+      "rejected": true,
+      "scope": "Actual extracted function + actual selector mapping + jsdom native click and Page/ElementHandle doubles; no Playwright actionability/browser-frequency claim."
+    },
+    {
+      "name": "actual Start helper identity-click",
+      "productActivations": 0,
+      "rejected": true,
+      "scope": "Actual extracted function + actual selector mapping + jsdom native click and Page/ElementHandle doubles; no Playwright actionability/browser-frequency claim."
+    },
+    {
+      "name": "marker callback interval crosses9.02s deadline; audio onset not proved",
+      "change": {
+        "point": 0,
+        "from": "pending",
+        "to": "covered",
+        "earliestMs": 0,
+        "observedMs": 9400
+      },
+      "audioOnsetVerified": false,
+      "renderedObservations": 1,
+      "committedCharacters": null,
+      "scope": "Actual observer with deterministic clock and DOM mutation; interval cannot decide pre/post deadline; caller still unwired."
+    }
+  ],
+  "scope": "Actual pinned modules/classes or explicitly extracted source with stated controlled seams. No live/historical cause or whole-campaign PASS inferred. No provider/network/account operation."
+}
