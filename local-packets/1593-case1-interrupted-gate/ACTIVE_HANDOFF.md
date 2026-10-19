@@ -1,6 +1,6 @@
 # CLI case 1 interrupted-repeat gate handoff
 
-Checkpoint: 2026-10-19 13:44 UTC. CLI Dev, Lane B; Sam owns coordination/release.
+Checkpoint: 2026-10-19 13:59 UTC. CLI Dev, Lane B; Sam owns coordination/release.
 
 Branch: `cli-dev/1593-interrupted-repeat-gate-20261019`.
 Worktree: `/private/tmp/speaksharp-cli-case1-gate-20261019`.
@@ -21,6 +21,10 @@ The corrected two-path lease is:
 - `frontend/src/services/telemetry/completenessGate.ts`
 - `frontend/src/services/telemetry/__tests__/stageAwareRequiredFamilies1532.test.ts`
 - this local evidence packet only
+
+Extension: App all-branch clearance at 13:53 (1792417967.354129), Sam's approval at
+13:54 (1792418074.962129), and CLI's personal ACK (1792418143.965589) add
+`tests/unit/rwtReadbackBinding1532.test.ts` for the directly affected J2 contract.
 
 Case 7 is already published/frozen for review in PR #1665 at exact head
 `7e920bd69354048e96e470c6e469d21ffc2d1c3a`, separate clean worktree
@@ -54,6 +58,27 @@ attempt-scoped singleton delivery and received readback invocation are unchanged
   wrong-attempt singleton HOLD, and strict mixed full-review/unknown declarations.
 - Required full `pnpm quality` passed: product contract, full lint,
   frontend/live/evidence TypeScript, eslint-disable guard. `git diff --check` passed.
+
+## Returned J2 test contract, corrected
+
+Codex P1 r4314564418 found an existing consumer test still demanding the old full
+spine. Reproduced 1 FAIL /32 PASS (`j2-contract-red.json`). That assertion now
+retains every recording family except the intended interrupted practice-loop
+prerequisite; adding full after-review or an unknown stage still requires the
+entire original spine. All existing missing/duplicate per-attempt receipt and
+workflow binding assertions are retained.
+
+The historical During + interrupted-repeat + Practice-again tuple now executes
+through actual completeness, stage and attempt-scoped delivery gates, including
+missing model/arrival HOLD and wrong-route FAIL. Corrected combined suites and
+the repository path guard: 160/160 PASS (`j2-contract-green.json`). Source gate
+logic is unchanged. Prior full-quality provenance is retained; fresh exact-head
+CI is required for this test-only successor.
+
+Published JSON evidence uses portable path aliases, with numeric timings/counts,
+assertions and failure text outside path fragments preserved. Raw byte originals
+are retained privately outside Git. `normalization.json` holds raw/normalized
+hashes; the unmodified no-local-machine-paths guard is included in verification.
 
 This corrects a readback gate, not the historical missing saved pair's cause.
 Expiry/persistence attribution, two-pair completeness, useful coaching, physical

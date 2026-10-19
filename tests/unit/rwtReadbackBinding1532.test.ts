@@ -360,8 +360,11 @@ describe('repeat recording in the post-reload journey (P1 r4124290575)', () => {
         ];
         const judge = (rows: ReturnType<typeof j2>) => evaluateAttemptScopedDelivery(rows, exactlyOnceFamiliesForStages(J2), ['a2']);
 
-        it('the full recording spine is required of J2', () => {
-            expect([...requiredFamiliesForStages(J2)]).toEqual([...REQUIRED_EVENT_FAMILIES]);
+        it('J2 retains the recording spine except the deliberately interrupted practice-loop prerequisite', () => {
+            expect([...requiredFamiliesForStages(J2)]).toEqual(REQUIRED_EVENT_FAMILIES.filter((family) => family !== 'practice_loop'));
+            for (const stage of ['session_after_open_mic', 'session_after_focus_points', 'not_a_stage']) {
+                expect([...requiredFamiliesForStages([...J2, stage])]).toEqual([...REQUIRED_EVENT_FAMILIES]);
+            }
         });
 
         it('CONTROL (the false HOLD the PM found): a complete real J2 with three starts QUALIFIES when judged per attempt', () => {

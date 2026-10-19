@@ -28,5 +28,18 @@
     "checks": ["product contract", "full lint", "frontend TypeScript", "live TypeScript", "evidence TypeScript", "eslint-disable guard"]
   },
   "diffCheckExitCode": 0,
+  "returnedJ2Contract": {
+    "finding": "https://github.com/relativityE/speaksharp/pull/1666#discussion_r4314564418",
+    "baseline": { "failed": 1, "passed": 32, "report": "j2-contract-red.json" },
+    "corrected": { "passed": 160, "failed": 0, "report": "j2-contract-green.json" },
+    "expandedLease": "tests/unit/rwtReadbackBinding1532.test.ts cleared by App, approved by Sam, personally ACKed by CLI",
+    "historicalThreeStageIntegratedRegression": true,
+    "changedTestLintExitCode": 0,
+    "allTrackedEvidencePathGuardPassed": 3,
+    "sourceGateLogicChanged": false,
+    "fullQualityRerunAfterTestOnlyCorrection": false,
+    "freshExactHeadCiRequired": true
+  },
+  "evidenceNormalization": { "manifest": "normalization.json", "rawOriginals": "retained privately outside Git", "countsTimingsAssertionsPreserved": true },
   "limits": ["offline synthetic received rows, not a fresh live qualification", "historical missing-row expiry/persistence cause remains unknown", "two-pair oracle unchanged", "stage invariants and singleton delivery unchanged", "no human/device observations executed", "fresh exact-head CI and independent review remain required"]
 }

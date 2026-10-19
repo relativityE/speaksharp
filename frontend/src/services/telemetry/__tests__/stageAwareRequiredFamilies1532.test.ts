@@ -97,10 +97,30 @@ describe('#1593 case1 interrupted repeat does not require a completed practice l
     it.each([
         ['session_interrupted_repeat'],
         ['session_interrupted_repeat', 'session_during'],
+        ['session_during', 'session_interrupted_repeat', 'practice_again'],
         ['session_interrupted_repeat', 'analytics_inventory', 'session_pdf_export', 'share_feedback'],
     ])('only practice_loop leaves the base spine for the known interrupted declaration %j', (...declared) => {
         expect([...requiredFamiliesForStages(declared)]).toEqual(REQUIRED_EVENT_FAMILIES.filter((f) => f !== 'practice_loop'));
         expect(exactlyOnceFamiliesForStages(declared)).toEqual(exactlyOnceFamiliesForStages(['session_during']));
+    });
+
+    it('the historical During + interrupted-repeat + Practice-again tuple qualifies only with all three stages proved', () => {
+        const declared = ['session_during', 'session_interrupted_repeat', 'practice_again'];
+        const identity = { candidate_id: 'private-v2-base', engine: 'private', runtime_version: 'fixture-runtime' };
+        const rows = [
+            ...received(),
+            row('private_model_acquisition_start', -3, { ...identity, expected_candidate_id: 'private-v2-base' }),
+            row('private_model_acquisition_success', -2, { ...identity, acquired_candidate_id: 'private-v2-base' }),
+            row('transcript_stability', 2), row('mic_observability', 2),
+            row('saved_review_practice_action', -2, { action: 'open_session', action_seq: 1, intended_route: 'session', link_state: 'direct' }),
+            row('saved_review_practice_arrived', -1, { action_seq: 1, route_class: 'session' }),
+        ];
+        expect(judge(rows, declared)).toMatchObject({ verdict: 'QUALIFIED', reasons: [], delivery: { verdict: 'QUALIFIED' } });
+        expect(judge(rows.filter((r) => r.event !== 'private_model_acquisition_success'), declared).verdict).toBe('HOLD');
+        expect(judge(rows.filter((r) => r.event !== 'saved_review_practice_arrived'), declared).verdict).toBe('HOLD');
+        const wrongRoute = rows.map((r) => r.event === 'saved_review_practice_arrived'
+            ? { ...r, properties: { ...r.properties, route_class: 'other' } } : r);
+        expect(judge(wrongRoute, declared).verdict).toBe('FAIL');
     });
 
     it.each([
