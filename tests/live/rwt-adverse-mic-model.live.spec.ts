@@ -142,6 +142,9 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
     const finish = finalizer.once(async () => {
         // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
         const steps = new FinalizationSteps();
+        // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+        // (bounded; page-independent, since a finalizer may run after its tabs closed).
+        await steps.step('telemetry settle', () => tap.settleQueuedTelemetry((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
         await steps.step('recovery browser close', () => recoveryBrowser?.close());
         await steps.step('offline restore', () => context.setOffline(false));

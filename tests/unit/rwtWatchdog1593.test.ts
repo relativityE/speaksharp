@@ -1156,6 +1156,34 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
         expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
     });
 
+    /** A Blob `sendBeacon`: the browser exposes no body to Playwright (or to CDP). */
+    const blindBeacon = (page: CdpTab) => page.emit('request', { url: () => 'https://us.i.posthog.com/e/?beacon=1', method: () => 'POST', isNavigationRequest: () => false,
+        frame: () => ({}), postDataBuffer: () => null, response: () => Promise.resolve({ status: () => 200 }), failure: () => null });
+
+    it('Codex P1 r4314310162: a watched page\'s blind beacon in the window HOLDs the verdict — its signals are unknown', async () => {
+        const { b, w } = await setup();
+        b.send('L1', [saved('boot-1', b.wallMs())]);
+        expect(await w.tick()).toBeNull();
+        blindBeacon(b.page);
+        expect(await recordRows(w)).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ blindBeacons: 1 }) })]);
+    });
+
+    it('Codex P1 r4314310162: an UNWATCHED page\'s blind beacon changes nothing; a decoded fatal still FAILs over a blind one', async () => {
+        const { b, w } = await setup();
+        b.send('L1', [saved('boot-1', b.wallMs())]);
+        const other = new Browser();
+        await trackDocuments(other.page as never, other.cdp as never);
+        const tap = (w as unknown as { o: { tap: AnalyticsTap } }).o.tap;
+        tap.attach(other.page as never);
+        tap.attach(b.page as never);
+        blindBeacon(other.page);
+        expect(await recordRows(w)).toEqual([expect.objectContaining({ verdict: 'PASS', evidence: expect.objectContaining({ blindBeacons: 0 }) })]);
+        const failing = await setup();
+        blindBeacon(failing.b.page);
+        failing.b.send('L1', [saveFailed('boot-1', failing.b.wallMs())]);
+        expect(await recordRows(failing.w)).toEqual([expect.objectContaining({ verdict: 'FAIL' })]);
+    });
+
     it('a request the browser never reports stays unattributed through the drain and record (HOLD)', async () => {
         const { b, w } = await setup();
         b.send('L1', [step('boot-1', b.wallMs())], { order: 'pw-only' });
@@ -1241,5 +1269,25 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
             const record = closure.indexOf("steps.step('watchdog', () => watch.record(receipt))");
             expect({ file: f, waitBeforeRecord: wait > -1 && wait < record }).toEqual({ file: f, waitBeforeRecord: true });
         }
+    });
+
+    it('Codex P2 r4313846488: EVERY watchdog verdict in every RWT finalizer comes after a bounded telemetry wait', () => {
+        const files = [
+            ...readdirSync('tests/live').filter((f) => /^rwt-.*\.live\.spec\.ts$/.test(f)).map((f) => `tests/live/${f}`),
+            'tests/live/helpers/rwtFocusPointsJourney.ts',
+        ];
+        const RECORD = "steps.step('watchdog', () => watch.record(receipt))";
+        let records = 0;
+        for (const f of files) {
+            const src = readFileSync(f, 'utf8');
+            for (let at = src.indexOf(RECORD); at !== -1; at = src.indexOf(RECORD, at + 1)) {
+                records += 1;
+                // The step immediately before the verdict (within its own finalizer) must be a telemetry wait.
+                const before = src.slice(src.lastIndexOf('finalizer.once(async () => {', at), at);
+                const steps = [...before.matchAll(/steps\.step\('([^']+)'/g)].map((m) => m[1]);
+                expect({ file: f, previous: steps[steps.length - 1] }).toEqual({ file: f, previous: expect.stringMatching(/^telemetry (observed|settle)$/) });
+            }
+        }
+        expect(records, 'every finalizer that records a watchdog verdict was checked').toBe(10);
     });
 });

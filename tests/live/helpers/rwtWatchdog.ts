@@ -590,9 +590,12 @@ export class JourneyWatchdog {
         const unprovenPages = provenance.filter((p) => !p.proven).length;
         const unattributedRequests = provenance.reduce((n, p) => n + p.unattributed, 0);
         const provenanceConflicts = provenance.reduce((n, p) => n + p.conflicts, 0);
+        // Codex P1 r4314310162: a Blob beacon's body is exposed to neither Playwright nor CDP, so a watched page's blind beacon
+        // in this window may carry a fatal signal nobody can read. Without received evidence settling it, no clean verdict.
+        const blindBeacons = (this.o.tap.blindSent ?? []).filter((b) => this.watchedPages.has(b.page) && b.at >= this.started).length;
         const observation = {
             watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable,
-            unresolvedIdentity, unprovenPages, unattributedRequests, provenanceConflicts,
+            unresolvedIdentity, unprovenPages, unattributedRequests, provenanceConflicts, blindBeacons,
         };
         if (s) {
             receipt.row('fail-early watchdog', 'FAIL',
@@ -603,6 +606,8 @@ export class JourneyWatchdog {
             receipt.row('fail-early watchdog', 'HOLD', `${unresolvedIdentity} event(s) arrived while a navigation was still settling and never resolved to a document, so no clean run is claimed`, observation);
         } else if (unprovenPages > 0 || unattributedRequests > 0 || provenanceConflicts > 0) {
             receipt.row('fail-early watchdog', 'HOLD', `document provenance is incomplete (${unprovenPages} unproven or lost page source(s), ${unattributedRequests} unattributed request(s), ${provenanceConflicts} conflicting pairing(s)), so no clean run is claimed`, observation);
+        } else if (blindBeacons > 0) {
+            receipt.row('fail-early watchdog', 'HOLD', `${blindBeacons} beacon(s) from a watched page carried a body the browser does not expose, so their signals are unknown and no clean run is claimed`, observation);
         } else if (this.domOk === 0 && this.watchedSeen === 0) {
             receipt.row('fail-early watchdog', 'HOLD', 'the journey was never observed (no readable page state and no watched telemetry), so no clean run is claimed', observation);
         } else {

@@ -222,6 +222,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
             const steps = new FinalizationSteps();
+            // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+            // (bounded; page-independent, since a finalizer may run after its tabs closed).
+            await steps.step('telemetry settle', () => tap.settleQueuedTelemetry((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
             await steps.step('watchdog', () => watch.record(receipt));
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
             // The WHOLE scenario, after feedback and navigation: at most one request per saved take (two in all).
@@ -293,6 +296,9 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
             const steps = new FinalizationSteps();
+            // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+            // (bounded; page-independent, since a finalizer may run after its tabs closed).
+            await steps.step('telemetry settle', () => tap.settleQueuedTelemetry((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
             await steps.step('watchdog', () => watch.record(receipt));
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
             // No session links no take, so the whole scenario must send no coaching request at all.

@@ -689,6 +689,8 @@ export class AnalyticsTap {
     blindBeacons = 0;
     /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
     readonly blindAt: number[] = [];
+    /** Codex P1 r4314310162: each blind beacon with the page that sent it (memory-only), so a watchdog can HOLD on its own pages' unknowns. */
+    readonly blindSent: { at: number; page: Page }[] = [];
     /** The latest main-frame document load (ms) and its path: every boot after it is the page the person is on now. */
     documentAt = 0;
     documentPath: string | null = null;
@@ -739,7 +741,7 @@ export class AnalyticsTap {
             const body = request.postDataBuffer();
             // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
             if (request.method() === 'POST' && (!body || body.length === 0)) {
-                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest();
+                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.blindSent.push({ at: Date.now(), page }); this.notePosthogRequest();
                 this.track(request, { batches: [], names: [], blind: true, outcome: 'pending' });
                 return;
             }
