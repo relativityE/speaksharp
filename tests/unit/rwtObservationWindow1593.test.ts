@@ -28,7 +28,7 @@ describe('in-page observation window (case 11)', () => {
     it('a clean window: no transitions, no stopped track, no acquisition, same token', () => {
         page();
         expect(open()).toBe(true);
-        expect(closeObservationWindow()).toMatchObject({ token: 'w-1', runtimeTransitions: [], tracksStoppedSinceOpen: 0, micAcquisitionsSinceOpen: 0, runtimeNow: 'RECORDING', liveTracks: 1 });
+        expect(closeObservationWindow()).toMatchObject({ token: 'w-1', runtimeTransitions: ['RECORDING'], modelTransitions: ['ready'], tracksStoppedSinceOpen: 0, micAcquisitionsSinceOpen: 0, liveTracksAtOpen: 1, runtimeNow: 'RECORDING', liveTracks: 1 });
     });
 
     it('c8e5 #1: A stops and resumes between any two reads — both transitions are captured, even undelivered at close', () => {
@@ -36,7 +36,7 @@ describe('in-page observation window (case 11)', () => {
         open();
         root.setAttribute('data-runtime-state', 'STOPPING');
         root.setAttribute('data-runtime-state', 'RECORDING'); // same delivery, never a sampled endpoint
-        expect(closeObservationWindow().runtimeTransitions).toEqual(['STOPPING', 'RECORDING']);
+        expect(closeObservationWindow().runtimeTransitions).toEqual(['RECORDING', 'STOPPING', 'RECORDING']);
     });
 
     it('c8e5 #1: a track stopped and a new one acquired (stop/resume through the microphone) is captured', () => {
@@ -64,7 +64,7 @@ describe('in-page observation window (case 11)', () => {
         root.setAttribute('data-model-status', 'download-required');
         (w.__rwtMicAcquisitionLog__ as unknown[]).push({ id: 0, outcome: 'granted' }); // acquired and already released
         const closed = closeObservationWindow();
-        expect(closed.modelTransitions).toEqual(['loading', 'download-required']);
+        expect(closed.modelTransitions).toEqual(['download-required', 'loading', 'download-required']);
         expect(closed.micAcquisitionsSinceOpen).toBe(1);
         expect(closed.modelNow).toBe('download-required');
     });
@@ -74,6 +74,13 @@ describe('in-page observation window (case 11)', () => {
         open();
         delete w.__rwtObservationWindow__; // a new document's realm: the opened window does not exist there
         expect(closeObservationWindow()).toMatchObject({ token: null, micAcquisitionsSinceOpen: null });
+    });
+
+    it('04920bce opening state: an A already STOPPING (with a live track) at open is the FIRST recorded value', () => {
+        page({ runtime: 'STOPPING' });
+        open();
+        root.setAttribute('data-runtime-state', 'RECORDING');
+        expect(closeObservationWindow()).toMatchObject({ runtimeTransitions: ['STOPPING', 'RECORDING'], liveTracksAtOpen: 1 });
     });
 
     it('an unavailable acquisition counter is reported as unknown, never zero', () => {

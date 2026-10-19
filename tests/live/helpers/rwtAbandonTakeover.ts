@@ -240,6 +240,7 @@ export function secondTabBlockedVerdict(o: { refusalCopyShown: boolean; tabB: Ta
 export type ObservationClose = {
     /** The token given at open, read from THIS document — null when the document has no open window (replaced or never opened). */
     token: string | null;
+    /** Sam RETURN on 04920bce (opening state): the value at OPEN first, then every published value after it. */
     runtimeTransitions: string[];
     runtimeNow: string | null;
     modelTransitions: string[];
@@ -248,6 +249,8 @@ export type ObservationClose = {
     micAcquisitionsSinceOpen: number | null;
     /** Tracks live at open that were stopped or ended since. */
     tracksStoppedSinceOpen: number;
+    /** Audio tracks live when the window OPENED. */
+    liveTracksAtOpen: number;
     liveTracks: number;
     recorderVisible: boolean;
 };
@@ -258,8 +261,10 @@ export function openObservationWindow(arg: { token: string; recorderTestId: stri
     const root = document.documentElement;
     const streams = (w.__rwtMicStreams__ as { getAudioTracks: () => Track[] }[] | undefined) ?? [];
     const log = w.__rwtMicAcquisitionLog__ as unknown[] | undefined;
-    const runtime: string[] = [];
-    const model: string[] = [];
+    // Sam RETURN on 04920bce: the opening state is evidence too — an A already STOPPING, or a B model already loading,
+    // when observation opens must not disappear because only later values were retained.
+    const runtime: string[] = [root.getAttribute('data-runtime-state') ?? 'absent'];
+    const model: string[] = [root.getAttribute('data-model-status') ?? 'absent'];
     const stopped = new Set<Track>();
     const openTracks = streams.flatMap((s) => s.getAudioTracks()).filter((t) => t.readyState === 'live');
     for (const track of openTracks) {
@@ -278,7 +283,7 @@ export function openObservationWindow(arg: { token: string; recorderTestId: stri
     const observer = new MutationObserver(record);
     observer.observe(root, { attributes: true, attributeFilter: ['data-runtime-state', 'data-model-status'], attributeOldValue: true });
     w.__rwtObservationWindow__ = {
-        token: arg.token, recorderTestId: arg.recorderTestId, runtime, model, stopped, openTracks, observer, record,
+        token: arg.token, recorderTestId: arg.recorderTestId, runtime, model, stopped, openTracks, observer, record, liveTracksAtOpen: openTracks.length,
         acquisitionsAtOpen: log ? log.length : null,
     };
     return true;
@@ -290,7 +295,7 @@ export function closeObservationWindow(): ObservationClose {
     const root = document.documentElement;
     const win = w.__rwtObservationWindow__ as {
         token: string; recorderTestId: string; runtime: string[]; model: string[]; stopped: Set<Track>; openTracks: Track[];
-        observer: MutationObserver; record: (r: MutationRecord[]) => void; acquisitionsAtOpen: number | null;
+        observer: MutationObserver; record: (r: MutationRecord[]) => void; acquisitionsAtOpen: number | null; liveTracksAtOpen: number;
     } | undefined;
     const streams = (w.__rwtMicStreams__ as { getAudioTracks: () => Track[] }[] | undefined) ?? [];
     const liveTracks = streams.flatMap((s) => s.getAudioTracks()).filter((t) => t.readyState === 'live').length;
@@ -298,7 +303,7 @@ export function closeObservationWindow(): ObservationClose {
         runtimeNow: root.getAttribute('data-runtime-state'), modelNow: root.getAttribute('data-model-status'), liveTracks,
         recorderVisible: win ? document.querySelector(`[data-testid="${win.recorderTestId}"]`) !== null : false,
     };
-    if (!win) return { token: null, runtimeTransitions: [], modelTransitions: [], micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, ...base };
+    if (!win) return { token: null, runtimeTransitions: [], modelTransitions: [], micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, ...base };
     win.record(win.observer.takeRecords());
     win.observer.disconnect();
     for (const track of win.openTracks) if (track.readyState !== 'live') win.stopped.add(track);
@@ -307,7 +312,7 @@ export function closeObservationWindow(): ObservationClose {
     return {
         token: win.token, runtimeTransitions: win.runtime.slice(), modelTransitions: win.model.slice(),
         micAcquisitionsSinceOpen: win.acquisitionsAtOpen === null || !log ? null : log.length - win.acquisitionsAtOpen,
-        tracksStoppedSinceOpen: win.stopped.size, ...base,
+        tracksStoppedSinceOpen: win.stopped.size, liveTracksAtOpen: win.liveTracksAtOpen, ...base,
     };
 }
 
@@ -340,13 +345,15 @@ export function leaseRefusalWindowVerdict(w: LeaseRefusalWindow): Verdict {
     if (modelWorkBeforeRefusal({ cold: w.cold, modelRequests: w.modelRequests, statusHistory: w.b.modelTransitions, statusAtRefusal: w.b.modelNow })) {
         return { status: 'FAIL', detail: 'model preparation happened while the account lease was refusing the device' };
     }
-    if (w.b.micAcquisitionsSinceOpen > 0) return { status: 'FAIL', detail: 'the refused device asked for the microphone during the refusal' };
+    if (w.b.micAcquisitionsSinceOpen > 0 || w.b.liveTracksAtOpen > 0) return { status: 'FAIL', detail: 'the refused device asked for the microphone during the refusal' };
+    if (w.b.runtimeTransitions.some((s) => s === 'RECORDING')) return { status: 'FAIL', detail: 'the refused tab started recording or opened the microphone' };
     if (recordingNow({ runtimeState: w.b.runtimeNow, recorderVisible: w.b.recorderVisible, liveTracks: w.b.liveTracks })) {
         return { status: 'FAIL', detail: 'the refused tab started recording or opened the microphone' };
     }
     // A re-publishing RECORDING is not an interruption; any other published state is.
+    // The opening value is the first entry, so A must already be RECORDING with a live track when the window opens.
     const interrupted = w.a.runtimeTransitions.some((s) => s !== 'RECORDING') || w.a.tracksStoppedSinceOpen > 0 || w.a.micAcquisitionsSinceOpen > 0;
-    if (interrupted || w.a.runtimeNow !== 'RECORDING' || w.a.liveTracks === 0) {
+    if (interrupted || w.a.runtimeTransitions.length === 0 || w.a.liveTracksAtOpen === 0 || w.a.runtimeNow !== 'RECORDING' || w.a.liveTracks === 0) {
         return { status: 'FAIL', detail: 'the first tab did not record continuously while the second was refused' };
     }
     return { status: 'PASS', detail: 'refused truthfully across the whole window: no model work, no microphone on the refused device, and the first tab recorded without interruption' };

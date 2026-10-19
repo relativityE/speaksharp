@@ -411,7 +411,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             await deviceB.waitForTimeout(2_000);
             const closedB = await deviceB.evaluate(closeObservationWindow).catch(() => null);
             const closedA = await tabA.evaluate(closeObservationWindow).catch(() => null);
-            const lost: ObservationClose = { token: null, runtimeTransitions: [], runtimeNow: null, modelTransitions: [], modelNow: null, micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracks: 0, recorderVisible: false };
+            const lost: ObservationClose = { token: null, runtimeTransitions: [], runtimeNow: null, modelTransitions: [], modelNow: null, micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false };
             const observedWindow = openedA && openedB && closedA?.token === `${windowToken}-a` && closedB?.token === `${windowToken}-b`;
             const refusal = leaseRefusalWindowVerdict({
                 observed: observedWindow, refusalCopyShown: refusedInTime, cold: coldB, modelRequests: modelRequestsB, b: closedB ?? lost, a: closedA ?? lost,

@@ -405,8 +405,8 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
 });
 
 describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (Sam 13:13 ACCEPT of PM 9fc69b51; RETURN on c8e5d59f)', () => {
-    const recA: ObservationClose = { token: 'w-a', runtimeTransitions: [], runtimeNow: 'RECORDING', modelTransitions: [], modelNow: 'ready', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracks: 1, recorderVisible: true };
-    const refusedB: ObservationClose = { token: 'w-b', runtimeTransitions: [], runtimeNow: 'READY', modelTransitions: [], modelNow: 'download-required', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracks: 0, recorderVisible: false };
+    const recA: ObservationClose = { token: 'w-a', runtimeTransitions: ['RECORDING'], runtimeNow: 'RECORDING', modelTransitions: ['ready'], modelNow: 'ready', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 1, liveTracks: 1, recorderVisible: true };
+    const refusedB: ObservationClose = { token: 'w-b', runtimeTransitions: ['READY'], runtimeNow: 'READY', modelTransitions: ['download-required'], modelNow: 'download-required', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false };
     const clean: LeaseRefusalWindow = { observed: true, refusalCopyShown: true, cold: true, modelRequests: 0, a: recA, b: refusedB };
     /** The row as it stood at a81fbb97: endpoint snapshots taken after the refusal, before the hold. */
     const endpointRow = (w: LeaseRefusalWindow) => (
@@ -417,11 +417,11 @@ describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (S
 
     it('a clean cold refusal with A recording without interruption PASSes', () => {
         expect(leaseRefusalWindowVerdict(clean).status).toBe('PASS');
-        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, runtimeTransitions: ['RECORDING'] } }).status, 'RECORDING re-published is not an interruption').toBe('PASS');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, runtimeTransitions: ['RECORDING', 'RECORDING'] } }).status, 'RECORDING re-published is not an interruption').toBe('PASS');
     });
 
     it('PM counterexample 1: model work DURING the hold FAILs; the endpoint row passed it', () => {
-        const w = { ...clean, modelRequests: 1, b: { ...refusedB, modelTransitions: ['loading', 'download-required'] } };
+        const w = { ...clean, modelRequests: 1, b: { ...refusedB, modelTransitions: ['download-required', 'loading', 'download-required'] } };
         expect(endpointRow(w), 'the frozen pre-hold snapshot saw nothing').toBe('PASS');
         expect(leaseRefusalWindowVerdict(w)).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('model preparation') });
     });
@@ -433,11 +433,20 @@ describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (S
     });
 
     it('PM counterexample 3 / c8e5 #1: A stops and resumes (a transition, a stopped track, or a re-acquisition) FAILs; the endpoint row passed it', () => {
-        for (const a of [{ ...recA, runtimeTransitions: ['STOPPING', 'RECORDING'] }, { ...recA, tracksStoppedSinceOpen: 1 }, { ...recA, micAcquisitionsSinceOpen: 1 }]) {
+        for (const a of [{ ...recA, runtimeTransitions: ['RECORDING', 'STOPPING', 'RECORDING'] }, { ...recA, tracksStoppedSinceOpen: 1 }, { ...recA, micAcquisitionsSinceOpen: 1 }]) {
             const w = { ...clean, a };
             expect(endpointRow(w)).toBe('PASS');
             expect(leaseRefusalWindowVerdict(w)).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('continuously') });
         }
+    });
+
+    it('04920bce opening state: A already STOPPING (or trackless) when the window opens, or B already loading / holding a track, FAILs', () => {
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, runtimeTransitions: ['STOPPING', 'RECORDING'] } }).status, 'A was not recording at open').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, liveTracksAtOpen: 0 } }).status, 'A had no live track at open').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, runtimeTransitions: [] } }).status, 'no opening state is no continuity').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, modelTransitions: ['loading', 'download-required'] } }).status, 'B already loading at open').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, liveTracksAtOpen: 1, liveTracks: 0 } }).status, 'B held a track at open').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, runtimeTransitions: ['READY', 'RECORDING', 'READY'] } }).status, 'B recorded mid-window').toBe('FAIL');
     });
 
     it('c8e5 #3: a lost observation is HOLD, never zero activity — a replaced document (no window), a missing counter, or a failed open', () => {
