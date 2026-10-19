@@ -805,7 +805,9 @@ export async function startBenchmarkRecording(page: Page, label: string, modelRe
         const controlDeadline = Date.now() + MISSING_CONTROL_TIMEOUT_MS;
         const observed = await page.waitForFunction(({ controlId, stopId }) => {
             if (document.querySelector(`[data-testid="${stopId}"]`)) return true;
-            const button = document.querySelector<HTMLButtonElement>(`[data-testid="${controlId}"]`);
+            const buttons = document.querySelectorAll<HTMLButtonElement>(`[data-testid="${controlId}"]`);
+            if (buttons.length > 1) throw new Error(`START_CONTROL_NOT_UNIQUE count=${buttons.length}`);
+            const button = buttons.item(0);
             return button !== null && button.disabled === false ? button : false;
         }, { controlId: control, stopId: RECORDER_STOP }, { timeout: MISSING_CONTROL_TIMEOUT_MS });
         try {
@@ -839,6 +841,7 @@ export async function startBenchmarkRecording(page: Page, label: string, modelRe
                     changed(observer.takeRecords());
                     if (state.rejected || !element.isConnected || element.disabled
                         || element.getAttribute('data-testid') !== expected
+                        || document.querySelectorAll(`[data-testid="${expected}"]`).length !== 1
                         || !(event.target instanceof Node) || !element.contains(event.target)) {
                         state.rejected = true;
                         event.preventDefault();

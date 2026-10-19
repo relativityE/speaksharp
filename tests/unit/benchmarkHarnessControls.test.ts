@@ -734,6 +734,35 @@ describe('#1667 review: pinned readiness action uses real human-reflex timing an
             expect(clicked).toEqual([]);
         } finally { vi.useRealTimers(); }
     });
+
+    it.each([false, true])('duplicate Start controls fail strictness even if the second is hidden=%s', async (hidden) => {
+        renderState('ready');
+        const duplicate = document.querySelector('button')!.cloneNode(true) as HTMLButtonElement;
+        duplicate.hidden = hidden;
+        document.body.append(duplicate);
+        await expect(startBenchmarkRecording(page, 'duplicate-at-readiness')).rejects.toThrow(/START_CONTROL_NOT_UNIQUE/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('a duplicate added during the actual reflex cannot produce a passing pinned Start', async () => {
+        vi.useFakeTimers();
+        const release = applyHumanReflex(reflexPage, 500);
+        renderState('ready');
+        const outcome = startBenchmarkRecording(reflexPage, 'duplicate-during-reflex').then(() => null, (error: Error) => error);
+        setTimeout(() => document.body.append(document.querySelector('button')!.cloneNode(true)), 250);
+        try {
+            await vi.advanceTimersByTimeAsync(500);
+            expect((await outcome)?.message).toMatch(/identity.*activation/);
+            expect(clicked).toEqual([]);
+        } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('a duplicate added after the final identity read is rejected at actual activation', async () => {
+        renderState('ready');
+        beforePinnedClick = (element) => { element.after(element.cloneNode(true)); };
+        await expect(startBenchmarkRecording(page, 'duplicate-at-activation')).rejects.toThrow(/identity.*activation/);
+        expect(clicked).toEqual([]);
+    });
 });
 
 /**
