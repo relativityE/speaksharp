@@ -1,0 +1,149 @@
+{
+  "schema": "pm-statistical-control-spec-v1",
+  "status": "SPECIFICATION_NOT_COMPARATOR_TEST_RESULT",
+  "implementationOwner": "CLI Dev",
+  "cases": [
+    {
+      "id": "speech_empty_success",
+      "input": {
+        "sourceKind": "speech",
+        "referenceWords": 3,
+        "decode": "success",
+        "hypothesisWords": 0
+      },
+      "expected": {
+        "deletions": 3,
+        "referenceWords": 3,
+        "lexicalWer": 1,
+        "reliability": "FAIL"
+      }
+    },
+    {
+      "id": "silence_empty",
+      "input": {
+        "sourceKind": "silence",
+        "referenceWords": 0,
+        "decode": "success",
+        "hypothesisWords": 0,
+        "durationSeconds": 10
+      },
+      "expected": {
+        "lexicalWer": null,
+        "hallucinatedTokens": 0,
+        "retain": true
+      }
+    },
+    {
+      "id": "silence_hallucination",
+      "input": {
+        "sourceKind": "silence",
+        "referenceWords": 0,
+        "decode": "success",
+        "hypothesisWords": 1,
+        "durationSeconds": 10
+      },
+      "expected": {
+        "lexicalWer": null,
+        "hallucinatedTokens": 1,
+        "qualification": "FAIL"
+      }
+    },
+    {
+      "id": "filler_only_speech",
+      "input": {
+        "sourceKind": "speech",
+        "trackAReferenceWords": 0,
+        "rawReferenceFillers": 3
+      },
+      "expected": {
+        "notSilence": true,
+        "lexicalWer": null,
+        "requireContextualFillerScore": true
+      }
+    },
+    {
+      "id": "invalid_zero_denominator_replicate",
+      "input": {
+        "bootstrapPooledReferenceWords": 0
+      },
+      "expected": {
+        "retainInvalidReplicate": true,
+        "interval": "HOLD",
+        "redraw": false,
+        "drop": false,
+        "epsilon": false,
+        "coerceZero": false
+      }
+    },
+    {
+      "id": "required_zero_reference_slice",
+      "input": {
+        "requiredLexicalSlice": true,
+        "totalTrackAReferenceWords": 0
+      },
+      "expected": {
+        "lexicalInterval": null,
+        "qualifiedLexicalCoverage": false,
+        "retainSeparateMetrics": true
+      }
+    },
+    {
+      "id": "sparse_clusters",
+      "input": {
+        "independentApplicableBlocks": 1
+      },
+      "expected": {
+        "interval": null,
+        "qualification": "HOLD"
+      }
+    },
+    {
+      "id": "same_omission_both_arms",
+      "input": {
+        "frozenExpectedRows": 6,
+        "baselineObservedRows": 5,
+        "candidateObservedRows": 5
+      },
+      "expected": {
+        "integrity": "FAIL",
+        "shrinkExpectedToObserved": false
+      }
+    },
+    {
+      "id": "timeout_not_silence",
+      "input": {
+        "sourceKind": "silence",
+        "decode": "timeout",
+        "transcript": null
+      },
+      "expected": {
+        "execution": "FAIL",
+        "successfulEmpty": false
+      }
+    },
+    {
+      "id": "silence_duration_missing",
+      "input": {
+        "sourceKind": "silence",
+        "durationSeconds": null
+      },
+      "expected": {
+        "tokensPerMinute": null,
+        "qualification": "HOLD"
+      }
+    },
+    {
+      "id": "zero_baseline_latency",
+      "input": {
+        "baselineLatency": 0,
+        "candidateLatency": 1
+      },
+      "expected": {
+        "relativeRatio": null,
+        "qualification": "HOLD",
+        "epsilon": false
+      }
+    }
+  ]
+}
+

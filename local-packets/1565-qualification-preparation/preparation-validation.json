@@ -1,0 +1,14 @@
+{
+  "manifestRows": 600,
+  "uniqueSpeakers": 73,
+  "referenceWordsWhitespace": 10756,
+  "literalUmUhReferenceTokens": 0,
+  "referenceMarkerCandidatesNotHumanLabels": 107,
+  "acousticAnnotationsCompleted": 0,
+  "supplementalReservationsNotRecordings": 240,
+  "developmentControlSpecifications": 24,
+  "blankAssessorRows": 48,
+  "headStable": true,
+  "modelRuns": 0,
+  "downloads": 0
+}

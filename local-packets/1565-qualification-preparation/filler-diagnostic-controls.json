@@ -1,0 +1,64 @@
+{
+  "status": "ACTUAL_EXISTING_DETECTOR_AND_NORMALIZER_CONTROLS_PASS",
+  "retainedDiagnostic": "e57cd8e6630a146a56fe8f4181cd72789e09a023",
+  "checks": 10,
+  "observations": [
+    {
+      "id": "script_reference",
+      "coachable": 3,
+      "perKey": {
+        "um": 2,
+        "uh": 1,
+        "so": 1
+      }
+    },
+    {
+      "id": "retained_v2_raw_final",
+      "coachable": 0,
+      "perKey": {
+        "so": 1
+      }
+    },
+    {
+      "id": "retained_v4_raw_final",
+      "coachable": 0,
+      "perKey": {
+        "so": 1
+      }
+    },
+    {
+      "id": "true_fillers",
+      "coachable": 3,
+      "perKey": {
+        "um": 1,
+        "uh": 1,
+        "ah": 1
+      }
+    },
+    {
+      "id": "lexical_marker_candidate_not_coachable",
+      "coachable": 0,
+      "perKey": {
+        "like": 1
+      }
+    },
+    {
+      "id": "substring_negative",
+      "coachable": 0,
+      "perKey": {}
+    },
+    {
+      "id": "empty_success_text_control",
+      "coachable": 0,
+      "perKey": {}
+    }
+  ],
+  "customSoOptIn": 1,
+  "historicalNormV1PreservesUm": true,
+  "probeCorrection": "Initial probe used historical normalizeTranscript; corrected to the actual official Track-A core after inspecting benchmarkScore/wordErrorRate. No product source was changed.",
+  "normalizedReferenceWords": 9,
+  "normalizedReferenceContainsUmUh": false,
+  "newInference": false,
+  "acousticReferenceVerified": false,
+  "conclusion": "Raw final text already lacks coachable um/uh; Track-A normalization alone does not explain the zero count. TTS/acoustic versus recognition cause unresolved."
+}

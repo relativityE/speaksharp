@@ -1,0 +1,36 @@
+{
+  "fixtureId": "fixture-003",
+  "audioSha256": "095b7fe19672a33b90fa7e696f37b96c0acfa0a2e9862758b851e24662d10150",
+  "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+  "origin": "synthetic macOS Samantha script",
+  "referenceScriptFillerSpans": [
+    {
+      "tokenIndex0": 1,
+      "key": "um",
+      "acousticStartSeconds": null,
+      "acousticEndSeconds": null
+    },
+    {
+      "tokenIndex0": 4,
+      "key": "uh",
+      "acousticStartSeconds": null,
+      "acousticEndSeconds": null
+    },
+    {
+      "tokenIndex0": 7,
+      "key": "um",
+      "acousticStartSeconds": null,
+      "acousticEndSeconds": null
+    }
+  ],
+  "scriptCoachableCount": 3,
+  "acousticRealizationVerified": false,
+  "humanAnnotator": null,
+  "discourseMarker": {
+    "tokenIndex0": 0,
+    "key": "so",
+    "defaultCoachable": false,
+    "contextLabel": null
+  },
+  "status": "SCRIPT_ANNOTATED_ACOUSTIC_TRUTH_PENDING"
+}
