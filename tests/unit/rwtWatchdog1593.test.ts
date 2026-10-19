@@ -106,7 +106,9 @@ describe('stallOf — a transitional state that never ends, or a settled page wh
     });
 
     it('not a dead Start: a download in progress, no control on the page, an enabled control, or a recording', () => {
-        expect(stallOf(dom({ runtimeState: 'IDLE', modelStatus: 'loading', controlEnabled: false }), 10 * STALL_MS.START_DEAD)).toBeNull();
+        // A download in progress is never a dead Start (its own bound is `download_stuck`, tested below).
+        expect(stallOf(dom({ runtimeState: 'IDLE', modelStatus: 'loading', controlEnabled: false }), 10 * STALL_MS.START_DEAD)).not.toBe('start_dead');
+        expect(stallOf(dom({ runtimeState: 'IDLE', modelStatus: 'loading', controlEnabled: false, progress: 5 }), 120_000)).toBeNull();
         expect(stallOf(dom({ runtimeState: 'IDLE', control: null, controlEnabled: null }), 10 * STALL_MS.START_DEAD)).toBeNull();
         expect(stallOf(dom({ runtimeState: 'TERMINATED' }), 10 * STALL_MS.START_DEAD)).toBeNull();
         expect(stallOf(dom({ runtimeState: 'RECORDING', control: null, controlEnabled: null }), 60 * 60_000)).toBeNull();
@@ -753,5 +755,38 @@ describe('#1662 RETURN on f527a033 — one owned deletion, bounded closes, boot 
         expect(await w.tick()).toBeNull();
         h.tap.events.push(sentBy(deviceB, { ...leaseFailed(), at: Date.now() + 1 })); // B's OWN take fails with a lease code
         expect(await w.tick()).toMatchObject({ kind: 'recording_failed', fields: { failure_code: 'lease_not_held' } });
+    });
+});
+
+describe('#1662 Codex on 76a0bf6e — a hung download is bounded; device closes are reported', () => {
+    const loading = (progress: number | null): DomState => ({ runtimeState: 'DOWNLOAD_REQUIRED', modelStatus: 'loading', control: 'mic-download', controlEnabled: false, progress });
+
+    it('P2: a download whose readable percentage stops moving is a stall; a slow one that advances is not', async () => {
+        expect(stallOf(loading(42), STALL_MS.DOWNLOAD_NO_PROGRESS + 1)).toBe('download_stuck');
+        expect(stallOf(loading(42), STALL_MS.DOWNLOAD_NO_PROGRESS)).toBeNull();
+        expect(stallOf(loading(null), STALL_MS.DOWNLOAD_NO_PROGRESS + 1), 'no readable percentage: only the long bound').toBeNull();
+        expect(stallOf(loading(null), STALL_MS.DOWNLOAD_UNREADABLE + 1)).toBe('download_stuck');
+        expect(STALL_MS.DOWNLOAD_UNREADABLE, 'never shorter than the 900 s cold wait').toBeGreaterThan(900_000);
+        // Through the watchdog: a moving percentage restarts the clock; a frozen one trips.
+        let pct = 10;
+        const page = { context: () => ({ close: async () => undefined }), evaluate: async () => loading(pct) };
+        const w = new JourneyWatchdog({ page: page as never, tap: { events: [] } as never, profile: {}, label: 'case', log: () => undefined });
+        const t0 = Date.now();
+        expect(await w.tick(t0)).toBeNull();
+        pct = 11;
+        expect(await w.tick(t0 + STALL_MS.DOWNLOAD_NO_PROGRESS), 'progress moved').toBeNull();
+        expect(await w.tick(t0 + 2 * STALL_MS.DOWNLOAD_NO_PROGRESS + 1)).toMatchObject({ kind: 'download_stuck', fields: { progress: 11 } });
+    });
+
+    it('P2: the two-device closes run before the report seals the finalization', () => {
+        const src = readFileSync('tests/live/rwt-abandon-and-two-tabs.live.spec.ts', 'utf8');
+        const fn = src.slice(src.indexOf('async function finishJourney('), src.indexOf('async function abandonAndReturn('));
+        expect(fn.indexOf('if (beforeReport) await beforeReport();')).toBeGreaterThan(-1);
+        expect(fn.indexOf('if (beforeReport) await beforeReport();')).toBeLessThan(fn.indexOf('steps.report(receipt);'));
+        const at = src.lastIndexOf('const finish = finalizer.once(');
+        const closure = src.slice(at, src.indexOf('\n        });', at));
+        expect(closure.indexOf("steps.step('other device close'")).toBeGreaterThan(closure.indexOf('await finishJourney('));
+        expect(closure.indexOf("steps.step('other device close'")).toBeLessThan(closure.lastIndexOf('});'));
+        expect(closure).toMatch(/await finishJourney\([^)]*steps, async \(\) => \{/);
     });
 });

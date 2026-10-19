@@ -85,7 +85,7 @@ const finalizer = new JourneyFinalizer();
 
 async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
     owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null,
-    steps: FinalizationSteps): Promise<void> {
+    steps: FinalizationSteps, beforeReport?: () => Promise<void>): Promise<void> {
     await steps.step('no cloud row', () => {
         const cloudVerdict = noCloudVerdict(cloud.requests);
         receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
@@ -102,6 +102,8 @@ async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: Analy
             () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })));
     }
     await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
+    // Codex P2 on 76a0bf6e: work that must be reported (closing extra devices) runs before the report seals the steps.
+    if (beforeReport) await beforeReport();
     steps.report(receipt);
     receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
 }
@@ -303,11 +305,13 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
             const steps = new FinalizationSteps();
             await steps.step('watchdog', () => watch.record(receipt));
-            await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps);
             // Sam, #1662 RETURN on f527a033 (item 2): each close is its own bounded, isolated step — a hung first close can
-            // neither block the drain nor skip the second close.
-            await steps.step('same-browser tab close', () => sameBrowserTab?.close());
-            await steps.step('other device close', () => otherDevice?.close());
+            // neither block the drain nor skip the second close. Codex P2 on 76a0bf6e: they run after the coaching settle
+            // and cleanup but BEFORE the report, so a failed or timed-out close is in the receipt.
+            await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps, async () => {
+                await steps.step('same-browser tab close', () => sameBrowserTab?.close());
+                await steps.step('other device close', () => otherDevice?.close());
+            });
         });
         try {
             await suppressPageSnapshot(testInfo);

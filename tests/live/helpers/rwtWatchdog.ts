@@ -30,7 +30,7 @@ export const WATCHED_FIELDS: Readonly<Record<string, readonly string[]>> = Objec
 });
 
 export type FatalKind = 'recording_failed' | 'save_failed' | 'start_failed' | 'start_refused' | 'model_failed' | 'recording_while_forbidden';
-export type StallKind = 'start_stuck' | 'engine_init_stuck' | 'stop_stuck' | 'start_dead';
+export type StallKind = 'start_stuck' | 'engine_init_stuck' | 'stop_stuck' | 'start_dead' | 'download_stuck';
 
 export interface WatchProfile {
     /** `recording_state` → FAILED/FAILED_VISIBLE with one of these codes is part of the scenario. */
@@ -102,6 +102,12 @@ export const STALL_MS = Object.freeze({
     ENGINE_INITIALIZING: 960_000,
     STOPPING: 240_000,
     START_DEAD: 180_000,
+    /**
+     * Codex P2 on 76a0bf6e: a model download whose READABLE percentage has not moved. A slow but live download advances it;
+     * a hung request never does. Without a readable percentage the bound stays above the 900 s cold-model wait.
+     */
+    DOWNLOAD_NO_PROGRESS: 180_000,
+    DOWNLOAD_UNREADABLE: 960_000,
 });
 
 /** A DOM read that has not answered within this bound is counted as unreadable; it never blocks the telemetry scan. */
@@ -147,6 +153,8 @@ export interface DomState {
     /** The rendered primary control (`mic-start` / `mic-download` / `mic-retry`), if any, and whether it is enabled. */
     readonly control: string | null;
     readonly controlEnabled: boolean | null;
+    /** The download percentage the record control shows while the model loads (`mic-progress`), if any. */
+    readonly progress?: number | null;
 }
 
 const SETTLED = new Set(['IDLE', 'READY', 'DOWNLOAD_REQUIRED', 'TERMINATED', 'FAILED_VISIBLE']);
@@ -161,11 +169,13 @@ export function stallOf(dom: DomState, heldMs: number): StallKind | null {
     if (dom.runtimeState === 'STOPPING' && heldMs > STALL_MS.STOPPING) return 'stop_stuck';
     if (SETTLED.has(dom.runtimeState ?? '') && dom.control !== null && dom.controlEnabled === false
         && dom.modelStatus !== 'loading' && heldMs > STALL_MS.START_DEAD) return 'start_dead';
+    if (dom.modelStatus === 'loading'
+        && heldMs > (typeof dom.progress === 'number' ? STALL_MS.DOWNLOAD_NO_PROGRESS : STALL_MS.DOWNLOAD_UNREADABLE)) return 'download_stuck';
     return null;
 }
 
 /** A closed key naming the condition a stall is timed against, so a change in any part restarts the clock. */
-const conditionKey = (dom: DomState) => `${dom.runtimeState}|${dom.modelStatus}|${dom.control}|${dom.controlEnabled}`;
+const conditionKey = (dom: DomState) => `${dom.runtimeState}|${dom.modelStatus}|${dom.control}|${dom.controlEnabled}|${dom.progress ?? '-'}`;
 
 async function readDom(page: Page): Promise<DomState | null> {
     return page.evaluate(() => {
@@ -173,11 +183,13 @@ async function readDom(page: Page): Promise<DomState | null> {
         const control = ['mic-start', 'mic-download', 'mic-retry']
             .map((id) => document.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement | null)
             .find((el) => el !== null && el.offsetParent !== null) ?? null;
+        const pct = Number.parseInt(document.querySelector('[data-testid="mic-progress"]')?.textContent ?? '', 10);
         return {
             runtimeState: root.getAttribute('data-runtime-state'),
             modelStatus: root.getAttribute('data-model-status'),
             control: control?.getAttribute('data-testid') ?? null,
             controlEnabled: control ? !control.disabled && control.getAttribute('aria-disabled') !== 'true' : null,
+            progress: Number.isFinite(pct) ? pct : null,
         };
     }).catch(() => null);
 }
@@ -431,6 +443,7 @@ export class JourneyWatchdog {
                 stall = { kind, event: null, elapsedMs: now - this.started, fields: {
                     runtimeState: dom.runtimeState ?? 'unreadable', modelStatus: dom.modelStatus ?? 'unreadable',
                     control: dom.control ?? 'none', controlEnabled: dom.controlEnabled ?? false, heldMs: now - this.heldSince,
+                    progress: dom.progress ?? -1,
                 } };
             }
         })().finally(() => { this.domRead = null; });
