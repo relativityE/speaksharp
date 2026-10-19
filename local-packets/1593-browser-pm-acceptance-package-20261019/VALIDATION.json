@@ -1,0 +1,57 @@
+{
+  "contract_count": 11,
+  "form_count": 6,
+  "results_and_observers_unexecuted": true,
+  "machine_path_scan": "PASS",
+  "files": [
+    {
+      "name": "RERUN_CONTRACTS.json",
+      "sha256": "c98fe65dff63388d42a0c7281fdd68971829b82e4cbd1c5e43434634aa2a3f59"
+    },
+    {
+      "name": "clock-results.json",
+      "sha256": "2f3f0373f5938c73988402534369653eb54ee51e15b75795e0964221c350a294"
+    },
+    {
+      "name": "build-contracts.py",
+      "sha256": "ca4985a59706c7496f74cd6d9a69f92881b3feb1b89a29a64e42c3e86d9a11f7"
+    },
+    {
+      "name": "probe-blind.mjs",
+      "sha256": "c86ec73bec4c2c31228184d40fe3d547f5c2056ea5a8b4f0e514db9760d58ce1"
+    },
+    {
+      "name": "01_EXACT_HEAD_REVIEW.md",
+      "sha256": "196dc21a7a7b20abdf0024cf4b1c729fc034303a1dd65b514855eee938b56b1a"
+    },
+    {
+      "name": "clock-probe.mjs",
+      "sha256": "e20359a50ea5e86abb22c0c68bd29e558061bb2e4d3306522b52df4a0bdb488a"
+    },
+    {
+      "name": "04_OBSERVER_HANDOFF.md",
+      "sha256": "c7cbb6c006bb32348c86f21baffbfa1f4a2390f1442e1f2ca75ede602349299e"
+    },
+    {
+      "name": "HUMAN_DEVICE_FORMS.json",
+      "sha256": "b71f546069071c04690fd781936d66215269e09759d402a1b0e66aa1f909193f"
+    },
+    {
+      "name": "OBSERVER_FORMS.md",
+      "sha256": "66447ea81e7fbc0682696d19cf041e8c96f509a9c839623ddd54dbd53300e3ae"
+    },
+    {
+      "name": "03_TARGETED_RERUN_CONTRACTS.md",
+      "sha256": "f74320c0ca25a85369589c818452ee77b1e5c4ca6dfdbb8b7b68ecddc3821f27"
+    },
+    {
+      "name": "02_REMAINING_ACCEPTANCE.md",
+      "sha256": "7c3a0983997ad9620b931065db6b874ea96ee9e061d0d2331ed877e5e2f4c14c"
+    },
+    {
+      "name": "blind-results.json",
+      "sha256": "b177e0538415e231155e4e964179d6de562520517848c1bab9339c24adadf94e"
+    }
+  ],
+  "scope": "Prepared contract/form structure, unexecuted result fields and package-local machine-path scan; not repository-wide CI or live acceptance."
+}
