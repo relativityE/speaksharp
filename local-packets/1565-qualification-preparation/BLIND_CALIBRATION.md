@@ -44,3 +44,9 @@ If calibration fails, clarify ambiguous anchors using development examples, vers
 
 No model output is released for held-out rating until numeric policy and custodian split are locked. Actual useful Open Mic/full Focus/partial Focus needs its own served review and observer; model-only transcripts cannot supply that rating by implication.
 
+## Calibration is separate from power
+
+Identical baseline outputs test zero-delta logic and rating consistency. Known degraded outputs test sensitivity to specified faults. Neither estimates the probability that a real v4/v2 comparison will satisfy a noninferiority margin. A/A repeats estimate baseline/runtime repeatability only; they do not supply candidate-minus-baseline speaker variance or correlation. Preregister external/pilot assumptions or an explicitly assumption-only sensitivity grid, effect, margin, alpha family, weighting and dependent unit; report power NOT ESTABLISHED until that analysis is justified. Do not relabel an all-tie bootstrap's zero-width interval as precision evidence.
+
+All-success ratings/control detections still need uncertainty. With independent Bernoulli items, use the exact one-sided lower bound alpha_cell^(1/n), not a bootstrap interval[1,1]. Multiple variants/ratings from one source remain clustered. If the independence/common-probability assumptions are not defensible, retain the finite-panel count and HOLD its population claim pending a suitable method. No new model run is needed to correct these declarations.
+

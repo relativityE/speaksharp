@@ -1,8 +1,28 @@
 {
-  "schema": "pm-statistical-control-spec-v1",
+  "schema": "pm-statistical-control-spec-v2",
   "status": "SPECIFICATION_NOT_COMPARATOR_TEST_RESULT",
   "implementationOwner": "CLI Dev",
   "cases": [
+    {
+      "id": "all_success_not_population_one",
+      "input": { "independentBernoulliUnits": 20, "successes": 20, "alphaCell": 0.05 },
+      "expected": { "exactOneSidedLower": 0.8608916593317348, "bootstrapOneOneQualifies": false }
+    },
+    {
+      "id": "twenty_boots_not_confident_population_p95",
+      "input": { "independentSameCellSessions": 20, "targetPopulationQuantile": 0.95, "alphaCell": 0.05 },
+      "expected": { "maximumBoundCoverage": 0.6415140775914581, "finite95pctConfidenceUpperBoundAvailable": false, "qualification": "HOLD" }
+    },
+    {
+      "id": "family_adjusted_setup_tail",
+      "input": { "illustrativeKNotFrozen": 40, "alphaFamily": 0.05, "targetPopulationQuantile": 0.95 },
+      "expected": { "minimumIndependentSessions": 131, "balancedScheduledPairsPerDevicePerCacheCell": 132, "guaranteedBudgetPass": false }
+    },
+    {
+      "id": "identical_tie_is_calibration_not_power",
+      "input": { "identicalPairedOutputs": true, "bootstrapDelta": 0, "candidateDifferenceVarianceMeasured": false },
+      "expected": { "comparatorTieControl": "PASS", "empiricalPowerEstablished": false, "qualificationByTieAlone": false }
+    },
     {
       "id": "speech_empty_success",
       "input": {

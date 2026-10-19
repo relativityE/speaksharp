@@ -2,12 +2,13 @@
 
 **Preparation delivered; model and whole-release acceptance not established.** No model inference, asset/data download, provider call, live campaign, account operation, merge or migration performed.
 
-Start with [the single decision packet](DECISION_PACKET.md): proposed relative and absolute quality/performance limits, device cells, statistical/multiplicity/adequacy rules, explicit zero-reference handling, full execution order and only genuinely missing authority. Numeric proposals are UNAPPROVED and are not an added v2 MVP gate.
+Start with [the single decision packet, revision2](DECISION_PACKET.md): proposed relative and absolute quality/performance limits, device cells, statistical/multiplicity/adequacy rules, explicit zero-reference handling, full execution order and only genuinely missing authority. Numeric proposals are UNAPPROVED and are not an added v2 MVP gate. Revision2 corrects ed919f52's all-success bounds, population-p95/sample-size claim and calibration-versus-power distinction, and joins Sam's already-reconciled run-set2 outcomes. No accepted corpus or detector work is repeated.
 
 - [Freeze and required-slice readiness](FREEZE_AND_SLICES.md), [all600 digest-linked reference rows](reference-annotation-ledger.json), [240 reserved admission slots—not recordings](supplemental-admission-reservations.json).
 - [Blind rubric/calibration preparation](BLIND_CALIBRATION.md), [24 development control specifications](calibration-control-register.json), [48 blank assessor rows](blind-rating-worksheet.csv).
 - [Actual existing-detector/normalizer controls](filler-diagnostic-controls.json), [executable source](diagnose_filler_counts.ts), [script spans/acoustic limitation](diagnostic-reference-annotation.json).
 - [Zero-reference and other statistical negative-control specification](statistical-control-contract.json). This is NOT a second comparator or a claim those integration controls have executed.
+- [Statistical planning arithmetic](statistical-planning-arithmetic.json), [calculation source](calculate_statistical_planning.py): exact boundary examples and assumed-variance sensitivity only. No empirical power established. Twenty setup sessions cannot qualify population p95 at95% confidence; the corrected plan freezes sample size per device/cache cell from the actual family count before execution.
 - [Existing15-case, #1318 privacy/readiness, nine #1261 caller rows and six human/device procedures](RWT_READINESS_RECONCILIATION.md). Accepted fixes stay accepted; later diagnostics are not relabelled NOT RUN.
 - [Preparation validation](preparation-validation.json), [reproducible metadata/worksheet generator](generate_preparation.py).
 
@@ -19,4 +20,6 @@ Executed locally on actual source HEAD31ab9a5f507b2ee91cd648065f4ef491884a49af, 
 - Active-work evidence checkpoint: https://speaksharp.slack.com/archives/C0C9RE8KNHG/p1792388771881339 .
 
 Remaining work has exact homes: CLI integrated single evaluator and latest Research export; actual audio/annotations/custodian/device/rater evidence; Sam/PO one frozen policy decision; App release/product execution; physical observers. Source preparation does not silently authorize any protected operation. All old failed Slack attempts remain unexecuted; successful new posts do not retrospectively deliver them.
+
+Revision2 retains the600-row ledger,240 reservations,24 control specifications,48 blank ratings and executed detector receipt unchanged. The arithmetic calculation executed without model/data acquisition. The RWT sidecar now credits dated3PASS/2INCOMPLETE/9FAIL/1held results, merged#1663 source progress with targeted acceptance open, and the complete one-press Start procedure. Caller/human procedures remain preparation, not observations.
 

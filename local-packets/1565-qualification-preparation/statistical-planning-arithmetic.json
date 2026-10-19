@@ -1,0 +1,99 @@
+{
+  "status": "ASSUMPTION_ONLY_PLANNING_NOT_EMPIRICAL_POWER",
+  "modelRuns": 0,
+  "observedCandidateVariance": null,
+  "empiricalPowerEstablished": false,
+  "formulas": {
+    "allSuccessLower": "alpha_cell**(1/n)",
+    "zeroEventUpper": "1-alpha_cell**(1/n)",
+    "populationP95UpperOrderRank": "smallest k with BinomialCDF(k-1,n,.95)>=1-alpha_cell",
+    "maximumCoverage": "1-.95**n",
+    "sampleSizeApproximation": "ceil(((z(1-alpha_cell)+z(.8))*sigma_delta/margin)**2)"
+  },
+  "examples": [
+    {
+      "illustrativeKNotFrozen": 1,
+      "alphaCell": 0.05,
+      "allSuccess20LowerBound": 0.8608916593317348,
+      "zeroEvents20UpperBound": 0.13910834066826516,
+      "minimumIndependentSessionsFor95pctMaximumBound": 59,
+      "balancedBootPairsPerDevicePerCacheCell": 60,
+      "maximumBoundCoverageAt20Sessions": 0.6415140775914581,
+      "maximumBoundCoverageAtMinimum": 0.9515054747505769,
+      "maximumBoundCoverageOneSessionBelow": 0.9489531313163967,
+      "minimumAllSuccessUnitsForLowerBound90pct": 29
+    },
+    {
+      "illustrativeKNotFrozen": 40,
+      "alphaCell": 0.00125,
+      "allSuccess20LowerBound": 0.7158886890101028,
+      "zeroEvents20UpperBound": 0.28411131098989717,
+      "minimumIndependentSessionsFor95pctMaximumBound": 131,
+      "balancedBootPairsPerDevicePerCacheCell": 132,
+      "maximumBoundCoverageAt20Sessions": 0.6415140775914581,
+      "maximumBoundCoverageAtMinimum": 0.9987927636799465,
+      "maximumBoundCoverageOneSessionBelow": 0.9987292249262595,
+      "minimumAllSuccessUnitsForLowerBound90pct": 64
+    }
+  ],
+  "illustrativeSensitivityK": 40,
+  "sensitivityGrid": [
+    {
+      "assumedIndependentPairedBlockSD": 0.01,
+      "margin": 0.005,
+      "approximateRequiredBlocks": 60
+    },
+    {
+      "assumedIndependentPairedBlockSD": 0.02,
+      "margin": 0.005,
+      "approximateRequiredBlocks": 240
+    },
+    {
+      "assumedIndependentPairedBlockSD": 0.05,
+      "margin": 0.005,
+      "approximateRequiredBlocks": 1494
+    },
+    {
+      "assumedIndependentPairedBlockSD": 0.01,
+      "margin": 0.01,
+      "approximateRequiredBlocks": 15
+    },
+    {
+      "assumedIndependentPairedBlockSD": 0.02,
+      "margin": 0.01,
+      "approximateRequiredBlocks": 60
+    },
+    {
+      "assumedIndependentPairedBlockSD": 0.05,
+      "margin": 0.01,
+      "approximateRequiredBlocks": 374
+    },
+    {
+      "assumedIndependentPairedBlockSD": 0.01,
+      "margin": 0.02,
+      "approximateRequiredBlocks": 4
+    },
+    {
+      "assumedIndependentPairedBlockSD": 0.02,
+      "margin": 0.02,
+      "approximateRequiredBlocks": 15
+    },
+    {
+      "assumedIndependentPairedBlockSD": 0.05,
+      "margin": 0.02,
+      "approximateRequiredBlocks": 94
+    }
+  ],
+  "limits": [
+    "K=40 is illustrative, not a frozen family count.",
+    "Independent common-probability Bernoulli units required for exact binomial examples.",
+    "Distribution-free order-statistic bound assumes independent same-cell sessions; ties conservative.",
+    "Variance grid is assumed, not measured. It ignores unequal ratio weights and dependent/overlapping slices.",
+    "Minimum tail sample size does not guarantee passing a budget or valid paired-ratio bootstrap coverage.",
+    "No comparator, actual rating, model inference or empirical power measurement executed."
+  ],
+  "arithmeticChecks": {
+    "boundaryMinimalityAndComplement": "PASS",
+    "exampleFamilies": 2
+  }
+}
