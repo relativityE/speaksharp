@@ -1110,6 +1110,21 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
         expect(await w.tick(), 'sent by the then-current L1: not replaced').toMatchObject({ kind: 'save_failed' });
     });
 
+    it('45c5: a browser clock-pair change while a body is fetched cannot move the document start — the new-boot fatal trips', async () => {
+        const { b, w } = await setup();
+        const start = b.wallMs();
+        b.commit('L2');
+        let release!: (v: unknown) => void;
+        b.cdp.postData = () => new Promise((r) => { release = r; });
+        const sent = b.send('L2', [saveFailed('boot-2', start + 3)], { inline: false });
+        // Another request reports a monotonic/wall pairing 20 ms later before the body arrives.
+        b.cdp.emit('Network.requestWillBeSent', { requestId: 'other', loaderId: 'L2', timestamp: 6_000, wallTime: 6_000 + (Date.now() - 500) / 1000 - 5_000 + 0.02,
+            request: { url: 'https://app.test/other.js', method: 'GET' } });
+        release({ postData: sent.body.toString('base64'), base64Encoded: true });
+        await flush();
+        expect(await w.tick(), 'the request-time mapping is the one that counts').toMatchObject({ kind: 'save_failed' });
+    });
+
     it('a81f #2: a capture in the same millisecond as the document\'s fractional start is uncertain — never foreign', async () => {
         const { b, w } = await setup();
         b.toHalfMillisecond();

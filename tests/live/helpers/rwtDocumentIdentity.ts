@@ -62,7 +62,8 @@ const keyOf = (url: string, body: Buffer): string => `${url}\n${createHash('sha2
 const unresolvedRef = (ambiguous: boolean): DocumentRef =>
     ({ resolved: false, ambiguous, replaced: false, generation: Number.NaN, committedAt: Number.NaN });
 
-export interface BrowserRecord { loaderId: string; known: boolean; replaced: boolean }
+/** Who sent a request, frozen when the browser reported it — including the browser's monotonic→wall mapping then (ms). */
+export interface BrowserRecord { loaderId: string; known: boolean; replaced: boolean; offsetMs: number | null }
 
 export class DocumentProvenance {
     /** A CDP source was given for the page. */
@@ -78,7 +79,7 @@ export class DocumentProvenance {
     private mainFrameId: string | null = null;
     private current: string | null = null;
     private readonly loaders = new Map<string, { generation: number; initMono: number | null }>();
-    /** Browser wall-clock ms minus monotonic ms, from the latest request record. */
+    /** Browser wall-clock ms minus monotonic ms, from the latest request record (frozen into each record when reported). */
     private offsetMs: number | null = null;
     private readonly records = new Map<string, BrowserRecord[]>();
     private readonly refs = new Map<string, DocumentRef[]>();
@@ -139,7 +140,9 @@ export class DocumentProvenance {
      */
     classify(loaderId: string): BrowserRecord {
         const known = loaderId !== '' && this.loaders.has(loaderId);
-        return { loaderId, known, replaced: known && loaderId !== this.current };
+        // Sam, #1662 RETURN on 45c57909: the clock mapping is frozen with the origin, so a pairing that changes while
+        // the body is fetched cannot move the document's start under an already-reported request.
+        return { loaderId, known, replaced: known && loaderId !== this.current, offsetMs: this.offsetMs };
     }
 
     /** The browser's record of a PostHog request, classified when the browser reported it. */
@@ -171,7 +174,7 @@ export class DocumentProvenance {
 
     private settle(ref: DocumentRef, record: BrowserRecord): void {
         const loader = record.known ? this.loaders.get(record.loaderId) : undefined;
-        const start = loader?.initMono != null && this.offsetMs !== null ? loader.initMono + this.offsetMs : null;
+        const start = loader?.initMono != null && record.offsetMs !== null ? loader.initMono + record.offsetMs : null;
         if (!loader || start === null) { ref.ambiguous = true; return; }
         Object.assign(ref, { resolved: true, ambiguous: false, replaced: record.replaced, generation: loader.generation, committedAt: start });
     }
