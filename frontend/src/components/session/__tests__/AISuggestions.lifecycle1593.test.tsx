@@ -43,7 +43,18 @@ const deferred = <T,>() => {
     return { promise, resolve };
 };
 
+/**
+ * #1593 — a ROUTE EXIT leaves the page the review was mounted on; an unmount alone (a new take on /session) is not one.
+ * The global test setup replaces `window.location` with a plain writable object, so the path is set directly.
+ */
+const setPath = (pathname: string) => { (window.location as unknown as { pathname: string }).pathname = pathname; };
+const exitRoute = (view: { unmount: () => void }) => {
+    setPath('/analytics');
+    view.unmount();
+};
+
 beforeEach(() => {
+    setPath('/session');
     vi.clearAllMocks();
     invoke.mockReset();
     vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke } } as unknown as ReturnType<typeof getSupabaseClient>);
@@ -132,7 +143,7 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
         const view = render(<AISuggestions transcript="hello" canReview sessionId="s-leave" />);
         await waitFor(() => expect(lifecycle().some((e) => e.stage === 'requested')).toBe(true));
         const [id] = requestIds();
-        view.unmount();
+        exitRoute(view);
         await waitFor(() => expect(stagesOf(id)).toContain('ended:unmounted'));
         await act(async () => { answer.resolve({ data: { suggestions: VALID_A }, error: null }); await Promise.resolve(); });
         await waitFor(() => expect(stagesOf(id)).toContain('response_received'));
@@ -145,7 +156,7 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
         const view = render(<AISuggestions transcript="hello" canReview sessionId="s-retry" retryBackoffMs={50} />);
         await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-retry-scheduled', 'true'));
         const [id] = requestIds();
-        view.unmount();
+        exitRoute(view);
         await waitFor(() => expect(stagesOf(id)).toContain('ended:unmounted'));
         await new Promise((r) => setTimeout(r, 120));
         expect(invoke).toHaveBeenCalledTimes(1);
@@ -184,7 +195,7 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
         await waitFor(() => expect(signal).toBeDefined());
         const [id] = requestIds();
         expect(signal!.aborted).toBe(false);
-        view.unmount();
+        exitRoute(view);
         await waitFor(() => expect(signal!.aborted).toBe(true));
         const ended = forRequest(id).filter((e) => e.stage === 'ended');
         expect(ended.map((e) => [e.end_reason, e.client_aborted])).toEqual([['unmounted', true]]);
@@ -204,7 +215,7 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
         const [id] = requestIds();
         await act(async () => { vi.advanceTimersByTime(61_000); });
         expect(stagesOf(id)).toEqual(['requested', 'ended:timeout']);
-        view.unmount();
+        exitRoute(view);
         await act(async () => { vi.advanceTimersByTime(10); });
         expect(signal!.aborted).toBe(true);
         expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual(['ended:timeout']);
@@ -216,7 +227,7 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
         const view = render(<AISuggestions transcript="hello" canReview sessionId="s-route-retry" retryBackoffMs={40} />);
         await waitFor(() => expect(screen.getByTestId('ai-suggestions-card')).toHaveAttribute('data-retry-scheduled', 'true'));
         const [id] = requestIds();
-        view.unmount();
+        exitRoute(view);
         await new Promise((r) => setTimeout(r, 100));
         expect(invoke).toHaveBeenCalledTimes(1);
         expect(forRequest(id).filter((e) => e.stage === 'ended').map((e) => [e.end_reason, e.client_aborted])).toEqual([['unmounted', false]]);
@@ -282,7 +293,7 @@ describe('ai_coaching_lifecycle — one observable chain per request (#1593)', (
         view.rerender(<AISuggestions transcript="take b" canReview sessionId="take-b" />);
         await waitFor(() => expect(signalB).toBeDefined());
         const idB = requestIds().find((id) => id !== idA);
-        view.unmount();
+        exitRoute(view);
         await waitFor(() => expect(signalB!.aborted).toBe(true));
         expect(signalA!.aborted).toBe(false);
         expect(forRequest(idA).filter((e) => e.stage === 'ended').map((e) => [e.end_reason, e.client_aborted])).toEqual([['superseded_session', undefined]]);
@@ -340,5 +351,121 @@ describe('origin fields accept the identity formats journeyIdentity actually min
         for (const bad of ['has space', 'x?y=1', 'a'.repeat(49)]) {
             expect(projectEventProps('ai_coaching_lifecycle', { stage: 'requested', origin_attempt_id: bad }).dropped).toContain('origin_attempt_id');
         }
+    });
+});
+
+describe('#1593 (live RWT case 1, run 39166041750) — an in-page unmount is NOT a route exit', () => {
+    it('Practice again replaces the review on /session: the in-flight request is NOT aborted and ends superseded_session', async () => {
+        let signal: AbortSignal | undefined;
+        const answer = deferred<unknown>();
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return answer.promise; });
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        view.unmount(); // the recording state replaces the after-state review — same page
+        await waitFor(() => expect(stagesOf(id)).toContain('ended:superseded_session'));
+        expect(signal!.aborted, 'the accepted request is left to finish and persist').toBe(false);
+        expect(forRequest(id).find((e) => e.stage === 'ended')).not.toHaveProperty('client_aborted');
+        // Its answer arriving later is a transport fact only: no ready/render, no second terminal.
+        await act(async () => { answer.resolve({ data: { suggestions: VALID_A }, error: null }); await Promise.resolve(); });
+        await waitFor(() => expect(stagesOf(id)).toContain('response_received'));
+        expect(stagesOf(id)).not.toContain('ready');
+        expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual(['ended:superseded_session']);
+    });
+
+    it('CONTROL: the same unmount after LEAVING the page still aborts (ended unmounted, client_aborted)', async () => {
+        let signal: AbortSignal | undefined;
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return new Promise(() => {}); });
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        exitRoute(view);
+        await waitFor(() => expect(signal!.aborted).toBe(true));
+        expect(forRequest(id).filter((e) => e.stage === 'ended').map((e) => [e.end_reason, e.client_aborted])).toEqual([['unmounted', true]]);
+    });
+});
+
+/**
+ * #1593 — Sam's RETURN on 7b76c257, from the Browser PM's executed counterexamples. The route was sampled at the deferred
+ * tick, so whatever the URL did between the teardown and that tick decided the outcome. Each sequence below changes the
+ * URL in exactly that window; the outcome must follow the route AT TEARDOWN.
+ */
+describe('#1593 RETURN — the route is read at the teardown boundary, not at the deferred tick', () => {
+    it('FAIL1: exit, then an immediate return before the deferred tick — the live request is still aborted (unmounted)', async () => {
+        let signal: AbortSignal | undefined;
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return new Promise(() => {}); });
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        setPath('/analytics');
+        view.unmount();
+        setPath('/session'); // back before the deferred callback runs
+        await waitFor(() => expect(signal!.aborted).toBe(true));
+        expect(forRequest(id).filter((e) => e.stage === 'ended').map((e) => [e.end_reason, e.client_aborted])).toEqual([['unmounted', true]]);
+    });
+
+    it('FAIL2: Practice again unmounts the review on /session, then an immediate exit — the superseded take is NOT aborted', async () => {
+        let signal: AbortSignal | undefined;
+        const answer = deferred<unknown>();
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return answer.promise; });
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        view.unmount(); // the recording state replaces the review — same page
+        setPath('/analytics'); // the person leaves before the deferred callback runs
+        await waitFor(() => expect(stagesOf(id)).toContain('ended:superseded_session'));
+        expect(signal!.aborted, 'the superseded take keeps its accepted request').toBe(false);
+        expect(forRequest(id).find((e) => e.stage === 'ended')).not.toHaveProperty('client_aborted');
+        expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual(['ended:superseded_session']);
+    });
+
+    /*
+     * Browser PM settlement-order controls on 889d7b21: the answer (or error) arriving AFTER the teardown but BEFORE the
+     * deferred tick ended the lifecycle `unmounted` even on a same-page repeat, and the once-only terminal kept that
+     * reason. The teardown's classification now decides it, whenever the settlement lands.
+     */
+    const settleBeforeTick = async (outcome: 'success' | 'error', leaveFirst: boolean) => {
+        const answer = deferred<unknown>();
+        invoke.mockImplementationOnce(() => answer.promise);
+        const view = render(<AISuggestions transcript="take a" canReview sessionId="take-a" />);
+        await waitFor(() => expect(requestIds()).toHaveLength(1));
+        const [id] = requestIds();
+        if (leaveFirst) setPath('/analytics');
+        view.unmount();
+        // Settle in the microtask window: before the deferred (setTimeout 0) cleanup runs.
+        answer.resolve(outcome === 'success'
+            ? { data: { suggestions: VALID_A }, error: null }
+            : { data: null, error: { name: 'FunctionsFetchError', message: 'network' } });
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+        return stagesOf(id).filter((s) => s.startsWith('ended:'));
+    };
+
+    it('SETTLEMENT ORDER: a success before the tick on a same-page repeat ends superseded_session, once', async () => {
+        expect(await settleBeforeTick('success', false)).toEqual(['ended:superseded_session']);
+    });
+
+    it('SETTLEMENT ORDER: an error before the tick on a same-page repeat ends superseded_session, once', async () => {
+        expect(await settleBeforeTick('error', false)).toEqual(['ended:superseded_session']);
+    });
+
+    it('SETTLEMENT ORDER: a success before the tick after a route exit ends unmounted, once', async () => {
+        expect(await settleBeforeTick('success', true)).toEqual(['ended:unmounted']);
+    });
+
+    it('SETTLEMENT ORDER: an error before the tick after a route exit ends unmounted, once', async () => {
+        expect(await settleBeforeTick('error', true)).toEqual(['ended:unmounted']);
+    });
+
+    it('STRICTMODE replay still never ends or aborts the automatic request, whatever the URL does afterwards', async () => {
+        let signal: AbortSignal | undefined;
+        invoke.mockImplementationOnce((_name: string, options: { signal?: AbortSignal }) => { signal = options.signal; return new Promise(() => {}); });
+        render(<React.StrictMode><AISuggestions transcript="take a" canReview sessionId="take-a" /></React.StrictMode>);
+        await waitFor(() => expect(signal).toBeDefined());
+        const [id] = requestIds();
+        setPath('/analytics');
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+        expect(signal!.aborted).toBe(false);
+        expect(stagesOf(id).filter((s) => s.startsWith('ended:'))).toEqual([]);
     });
 });

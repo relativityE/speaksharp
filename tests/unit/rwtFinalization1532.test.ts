@@ -152,7 +152,7 @@ describe('the suites follow the v12 order and bind each inventory event to the j
         // The PDF is reached the way the person reaches it after the reload: the detail's own Back to Dashboard control.
         const pdf = om.slice(at(om, 'const downloadPdf = async'));
         expect(at(pdf, "getByRole('link', { name: 'Back to Dashboard' })")).toBeLessThan(at(pdf, 'download-pdf-btn-${persistedId}'));
-        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\], repeatRecording: \['session_during', 'session_after_open_mic'\],[\s\S]{0,400}feedback: true, pdfExport: true,/);
+        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\],[\s\S]{0,300}repeatRecording: \['session_during', 'session_interrupted_repeat'\],[\s\S]{0,400}feedback: true, pdfExport: true,/);
     });
 
     it('analyticsThroughActions runs afterReload only after the detail opened and its reload was checked', () => {

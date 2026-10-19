@@ -330,6 +330,13 @@ interface CoachingLifecycle {
    */
   abort: AbortController | null;
   clientAborted: boolean;
+  /**
+   * #1593 (Browser PM settlement-order controls on 889d7b21) — HOW THIS LIFECYCLE WAS RETIRED, decided once at the
+   * review's teardown: `unmounted` when the person left the page, `superseded_session` when the review was replaced on
+   * the same page. Every path that ends a lifecycle because nothing is mounted reads it, so a response or an error that
+   * settles before the deferred tick ends with the same reason the tick would have chosen. Null while mounted.
+   */
+  retiredAs: 'unmounted' | 'superseded_session' | null;
 }
 const lifecycleStage = (
   lc: CoachingLifecycle, stage: CoachingLifecycleStage, extra: { endReason?: CoachingLifecycleEndReason; parseValid?: boolean } = {},
@@ -548,8 +555,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    * transition genuinely is a new lifecycle.
    */
   const mountedRef = useRef(true);
+  // #1593 — the page this review was mounted on. Only leaving it is a route exit (see the unmount effect below).
+  const mountedPathRef = useRef(typeof window === 'undefined' ? '' : window.location.pathname);
   useEffect(() => {
     mountedRef.current = true;
+    // StrictMode's replay mounts again: a teardown classification from the replayed cleanup no longer applies.
+    if (lifecycleRef.current) lifecycleRef.current.retiredAs = null;
     return () => {
       mountedRef.current = false;
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -572,8 +583,25 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   useEffect(() => () => {
     const lc = lifecycleRef.current;
     if (!lc) return;
+    // #1593 (Sam RETURN on 7b76c257, Browser PM counterexamples): the route is read HERE, at the teardown boundary, not at
+    // the deferred tick. Sampling it later could not preserve event order: an exit followed by an immediate return looked
+    // like an in-page unmount (the live request was never aborted), and a Practice-again unmount followed by an immediate
+    // exit looked like a route exit (the superseded take was aborted). Whatever happens to the URL after this teardown
+    // belongs to the next lifecycle, not this one.
+    const leftRoute = typeof window === 'undefined' || window.location.pathname !== mountedPathRef.current;
+    // The mount effect's cleanup ran first, so an unmount reads `mountedRef` false here; a session change leaves it true.
+    if (!mountedRef.current) lc.retiredAs = leftRoute ? 'unmounted' : 'superseded_session';
     setTimeout(() => {
-      if (!mountedRef.current) {
+      // #1593 (live RWT case 1, run 39166041750): an UNMOUNT is not a route exit. Practice again replaces the after-state
+      // review with the recording state on the SAME page, which unmounts this component — and aborting there cancelled the
+      // interrupted take's accepted request (Edge `request_cancelled`, its coaching never persisted), the opposite of the PO
+      // rule. Only leaving the page this review was mounted on aborts. Any teardown that keeps the person on that page —
+      // Practice again, or a loading/error/profile boundary re-rendering it — ends this lifecycle `superseded_session`
+      // without an abort: the accepted request may settle (the PO's superseded-A policy), and its late answer is discarded
+      // here because nothing is mounted to show it.
+      if (!mountedRef.current && !leftRoute) {
+        endLifecycle(lc, 'superseded_session');
+      } else if (!mountedRef.current) {
         // Route exit: cancel the browser's wait for this request (supported abort propagation). Nothing new starts:
         // the retry timer was cleared by the mount cleanup, and `isCurrentRequest` is false from here on.
         // Codex r4307758219: the ABORT is not gated on `ended` — a request the watchdog already reported as `timeout` is
@@ -609,10 +637,10 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     const lifecycle: CoachingLifecycle = {
       requestId: diagnosticRequestId, attemptId: null, clientAttempt: null, origin: snapshotCoachingOrigin(),
       startedAt: performance.now(), sessionId: requestSessionId, product: product ?? 'unknown',
-      ended: false, waitingRetry: false, watchdog: null, abort: null, clientAborted: false,
+      ended: false, waitingRetry: false, watchdog: null, abort: null, clientAborted: false, retiredAs: null,
     };
     lifecycleRef.current = lifecycle;
-    const notCurrentReason = (): CoachingLifecycleEndReason => (!mountedRef.current ? 'unmounted'
+    const notCurrentReason = (): CoachingLifecycleEndReason => (!mountedRef.current ? (lifecycle.retiredAs ?? 'unmounted')
       : activeSessionRef.current !== requestSessionId ? 'superseded_session' : 'superseded_request');
 
     /**
@@ -635,7 +663,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       lifecycle.clientAttempt = attempt;
       lifecycle.waitingRetry = false;
       // A route exit before this attempt starts sends nothing new.
-      if (!mountedRef.current) { endLifecycle(lifecycle, 'unmounted'); return; }
+      if (!mountedRef.current) { endLifecycle(lifecycle, lifecycle.retiredAs ?? 'unmounted'); return; }
       lifecycle.abort = typeof AbortController === 'undefined' ? null : new AbortController();
       lifecycleStage(lifecycle, 'requested');
       // Not an abort: if the invoke has not settled within the client allowance the lifecycle ends `timeout`, and a late

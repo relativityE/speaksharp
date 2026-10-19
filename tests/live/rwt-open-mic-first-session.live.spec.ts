@@ -885,7 +885,10 @@ test.describe('RWT — Open Mic first session @live', () => {
             accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
                 () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
             receipt.write(testInfo, bindReadbackJourneys(tap.events, {
-                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'], repeatRecording: ['session_during', 'session_after_open_mic'],
+                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'],
+                // #1593 (Sam 15:51): the repeat take is deliberately interrupted by the next take (rapid-repeat stress), so it
+                // proves save + request + explicit supersession + no stale render — never a full render it cannot reach.
+                repeatRecording: ['session_during', 'session_interrupted_repeat'],
                 takes: {
                     first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
                     repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,

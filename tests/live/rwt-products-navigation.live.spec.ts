@@ -40,6 +40,7 @@ import { RWT_BROWSER_IDENTITY_ARGS } from './helpers/rwtBrowserIdentity';
 import { openProductsItem, type ProductsMenuItem } from './helpers/productsMenu';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
+import { knownSessionCount, navigationWritesVerdict } from './helpers/rwtNavigationCounts';
 
 const SUITE = 'returning-user-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -116,8 +117,8 @@ test.describe('RWT — returning user and Products navigation @live', () => {
 
             // ── State verification (read-only): the intended account, with a profile and its history ─────
             let uid = '';
-            let sessionsBefore = 0;
-            let completedBefore = 0;
+            let sessionsBefore: number | null = null;
+            let completedBefore: number | null = null;
             await test.step('the existing account is state-verified (read-only)', async () => {
                 uid = (await readUid(page)) ?? '';
                 const { data: user, error } = await admin!.auth.admin.getUserById(uid);
@@ -128,8 +129,12 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 const { count: all, error: sErr } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
                 const { count: done, error: dErr } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid).eq('status', 'completed');
                 if (sErr || dErr) throw new Error('session count failed (fail closed)');
-                sessionsBefore = all ?? 0;
-                completedBefore = done ?? 0;
+                if (!knownSessionCount(all) || !knownSessionCount(done)) {
+                    receipt.row('returning account state', 'HOLD', 'session counts are unavailable or invalid; account history is unverified');
+                    throw new Error('HOLD returning account state: session counts are unverified');
+                }
+                sessionsBefore = all;
+                completedBefore = done;
                 receipt.row('returning account state', sameAccount && profile ? 'PASS' : 'FAIL',
                     sameAccount ? (profile ? 'the signed-in account is the intended existing account, with a profile' : 'the existing account has no profile') : 'the session is not the intended account',
                     { priorCompletedSessions: completedBefore });
@@ -161,7 +166,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 const clicked = await page.getByTestId('nav-analytics-link').first().click({ timeout: 20_000 }).then(() => true).catch(() => false);
                 const arrived = clicked && await page.waitForURL(/\/analytics/, { timeout: 30_000 }).then(() => true).catch(() => false);
                 if (!arrived) { receipt.row('returning history', 'FAIL', 'the Analytics control did not open Analytics'); return; }
-                if (completedBefore === 0) { receipt.row('returning history', 'HOLD', 'this account has no completed sessions to show'); return; }
+                if (completedBefore === null || completedBefore === 0) { receipt.row('returning history', 'HOLD', 'this account has no verified completed sessions to show'); return; }
                 const listed = await page.locator('[data-testid^="open-session-detail-"]').first()
                     .waitFor({ state: 'visible', timeout: 45_000 }).then(() => page.locator('[data-testid^="open-session-detail-"]').count()).catch(() => 0);
                 receipt.row('returning history', listed > 0 ? 'PASS' : 'FAIL',
@@ -186,15 +191,15 @@ test.describe('RWT — returning user and Products navigation @live', () => {
 
             // A returning user must have history to return to; without it the history half of this proof is missing,
             // and the run ends visibly HOLD/red rather than green (PM r4 review). Other rows above are still recorded.
-            const historyUnproven = completedBefore === 0;
+            const historyUnproven = completedBefore === null || completedBefore === 0;
 
             // ── Nothing opened the microphone; navigation wrote nothing ──────────────────────────────────
             const mic = (await micAcquisitions(page)).length;
             receipt.row('no mic on navigation', mic === 0 ? 'PASS' : 'FAIL', mic === 0 ? 'no step opened the microphone' : 'navigation opened the microphone', { acquisitions: mic });
             const { count: after, error } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
             if (error) throw new Error(`session count failed (fail closed): ${error.code ?? 'unknown'}`);
-            receipt.row('navigation writes nothing', (after ?? 0) === sessionsBefore ? 'PASS' : 'FAIL',
-                'navigation alone created no session', { sessionsBefore, sessionsAfter: after ?? null });
+            const writes = navigationWritesVerdict(sessionsBefore, after);
+            receipt.row('navigation writes nothing', writes.status, writes.detail, { sessionsBefore, sessionsAfter: after });
 
             // #1258 R9 (run 38312345563): the journey takes seconds; wait (bounded) until its navigation telemetry is
             // observed leaving the page before signing out, or the queued events are lost when the page goes.
