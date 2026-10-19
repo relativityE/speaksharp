@@ -462,7 +462,9 @@ describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (S
         const closeB = spec.indexOf('await deviceB.evaluate(closeObservationWindow)');
         const closeA = spec.indexOf('await tabA.evaluate(closeObservationWindow)');
         const verdict = spec.indexOf('leaseRefusalWindowVerdict({');
-        const takeover = spec.indexOf('watch.setStartRefusedAllowed(false);');
+        // The take-over's own revocation (the return retry earlier in the file has its own).
+        const takeover = spec.indexOf("watch.setStartRefusedAllowed(false);\n            await deviceB.locator(");
+        expect(takeover).toBeGreaterThan(-1);
         expect(Math.max(openA, openB)).toBeLessThan(press);
         expect(Math.min(openA, openB)).toBeGreaterThan(-1);
         expect(Math.min(closeA, closeB)).toBeGreaterThan(press);

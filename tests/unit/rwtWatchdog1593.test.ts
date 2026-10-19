@@ -1290,4 +1290,83 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
         }
         expect(records, 'every finalizer that records a watchdog verdict was checked').toBe(10);
     });
+
+    it('Sam 845401a5 #2: every changed finalizer settles EVERY attached page, not the first flush', () => {
+        for (const f of ['rwt-abandon-and-two-tabs', 'rwt-adverse-mic-model', 'rwt-feedback-association-boundaries', 'rwt-save-retry-recovery', 'rwt-pending-start-navigation']) {
+            const src = readFileSync(`tests/live/${f}.live.spec.ts`, 'utf8');
+            expect({ f, perPage: src.includes("steps.step('telemetry settle', () => tap.settleEveryPage("), anyPage: src.includes("steps.step('telemetry settle', () => tap.settleQueuedTelemetry(") })
+                .toEqual({ f, perPage: true, anyPage: false });
+        }
+    });
+
+    describe('Sam 845401a5 #2: the per-page settle waits for each watched page\'s own flush (deterministic two-page schedule)', () => {
+        class Tab extends EventEmitter {
+            closed = false;
+            readonly frame = {};
+            mainFrame() { return this.frame; }
+            isClosed() { return this.closed; }
+        }
+        const posthog = (event: string, props: Record<string, string> = {}) => ({
+            url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
+            postDataBuffer: () => Buffer.from(JSON.stringify([{ event, timestamp: new Date().toISOString(), properties: { boot_id: 'b', ...props } }])),
+            response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
+        });
+        /** A fake clock: `wait` advances it and fires each scheduled send once its time comes. */
+        const schedule = (sends: { at: number; run: () => void }[]) => {
+            let t = 0;
+            const due = [...sends].sort((a, b) => a.at - b.at);
+            return {
+                now: () => t,
+                wait: async (ms: number) => { t += ms; while (due.length && due[0].at <= t) due.shift()!.run(); },
+            };
+        };
+        const twoPages = () => {
+            const tap = new AnalyticsTap();
+            const a = new Tab();
+            const b = new Tab();
+            tap.attach(b as never);
+            tap.attach(a as never);
+            return { tap, a, b };
+        };
+        const fatalOnB = (tap: AnalyticsTap) => tap.events.some((e) => e.event === 'session_save_latency_measured');
+
+        it('A\'s benign flush at +100 ms must not end the wait while B\'s queued fatal arrives at +1.5 s', async () => {
+            const { tap, a, b } = twoPages();
+            const clock = schedule([
+                { at: 100, run: () => a.emit('request', posthog('journey_step')) },
+                { at: 1_500, run: () => b.emit('request', posthog('session_save_latency_measured', { outcome: 'failed' })) },
+            ]);
+            expect(await tap.settleEveryPage(clock.wait, { now: clock.now })).toBe('flushed');
+            expect(fatalOnB(tap), 'B\'s fatal is in the tap before the verdict').toBe(true);
+            // The inherited any-page settle returns on A's flush, before B's fatal exists (the reviewed gap).
+            const again = twoPages();
+            const clock2 = schedule([
+                { at: 100, run: () => again.a.emit('request', posthog('journey_step')) },
+                { at: 1_500, run: () => again.b.emit('request', posthog('session_save_latency_measured', { outcome: 'failed' })) },
+            ]);
+            expect(await again.tap.settleQueuedTelemetry(clock2.wait, { now: clock2.now })).toBe('flushed');
+            expect(fatalOnB(again.tap)).toBe(false);
+        });
+
+        it('a closed page is not waited on; a page that never flushes ends at the bound as quiet', async () => {
+            const { tap, a, b } = twoPages();
+            b.closed = true;
+            const clock = schedule([{ at: 100, run: () => a.emit('request', posthog('journey_step')) }]);
+            expect(await tap.settleEveryPage(clock.wait, { now: clock.now })).toBe('flushed');
+            const silent = twoPages();
+            const quiet = schedule([{ at: 100, run: () => silent.a.emit('request', posthog('journey_step')) }]);
+            expect(await silent.tap.settleEveryPage(quiet.wait, { now: quiet.now, quietMs: 5_000 })).toBe('quiet');
+            expect(quiet.now(), 'bounded').toBeLessThanOrEqual(5_100);
+        });
+    });
+
+    it('Codex P2 r4314462589: the return retry is strict — the refusal allowance and fault phase end BEFORE the second press', () => {
+        const src = readFileSync('tests/live/rwt-abandon-and-two-tabs.live.spec.ts', 'utf8');
+        const branch = src.slice(src.indexOf('if (refusalCopyShown) {'), src.indexOf('secondPressRecorded = await isRecording(returned, 60_000);'));
+        const click = branch.indexOf("await returned.getByTestId('mic-start').click();");
+        expect(branch.indexOf('watch.setStartRefusedAllowed(false);')).toBeGreaterThan(-1);
+        expect(branch.indexOf('watch.setStartRefusedAllowed(false);')).toBeLessThan(click);
+        expect(branch.indexOf('watch.setFaultPhase(false);')).toBeGreaterThan(-1);
+        expect(branch.indexOf('watch.setFaultPhase(false);')).toBeLessThan(click);
+    });
 });

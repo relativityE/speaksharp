@@ -92,7 +92,7 @@ test('leaving during a cold Start does not leave a recording or session behind @
         const steps = new FinalizationSteps();
         // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
         // (bounded; page-independent, since a finalizer may run after its tabs closed).
-        await steps.step('telemetry settle', () => tap.settleQueuedTelemetry((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+        await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
         await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
         // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.

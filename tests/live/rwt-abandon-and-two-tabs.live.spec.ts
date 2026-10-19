@@ -129,7 +129,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         const steps = new FinalizationSteps();
         // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
         // (bounded; page-independent, since a finalizer may run after its tabs closed).
-        await steps.step('telemetry settle', () => tap.settleQueuedTelemetry((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+        await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
         await steps.step('watchdog', () => watch.record(receipt));
         await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps);
     });
@@ -250,6 +250,10 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         if (!firstPressRecorded) {
             refusalCopyShown = await refusalShown(returned);
             if (refusalCopyShown) {
+                // Codex P2 r4314462589: the expected first refusal is spent — the explicit retry is strict, as on the two-device
+                // take-over: a refusal or an allowed lease failure of THIS press trips the watchdog at once.
+                watch.setStartRefusedAllowed(false);
+                watch.setFaultPhase(false);
                 await returned.getByTestId('mic-start').click();
                 secondPressRecorded = await isRecording(returned, 60_000);
             }
@@ -312,7 +316,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const steps = new FinalizationSteps();
             // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
             // (bounded; page-independent, since a finalizer may run after its tabs closed).
-            await steps.step('telemetry settle', () => tap.settleQueuedTelemetry((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
             await steps.step('watchdog', () => watch.record(receipt));
             // Sam, #1662 RETURN on f527a033 (item 2): each close is its own bounded, isolated step — a hung first close can
             // neither block the drain nor skip the second close. Codex P2 on 76a0bf6e: they run after the coaching settle

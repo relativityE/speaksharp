@@ -703,6 +703,7 @@ export class AnalyticsTap {
     attach(page: Page): void {
         // A repeated attach replaces the outcome listeners instead of stacking a second set.
         this.removeTransportListeners();
+        this.attachedPages.add(page);
         this.attachedTo = page;
         this.transportOpen = true;
         const generation = ++this.transportGeneration;
@@ -741,7 +742,7 @@ export class AnalyticsTap {
             const body = request.postDataBuffer();
             // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
             if (request.method() === 'POST' && (!body || body.length === 0)) {
-                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.blindSent.push({ at: Date.now(), page }); this.notePosthogRequest();
+                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.blindSent.push({ at: Date.now(), page }); this.notePosthogRequest(Date.now(), page);
                 this.track(request, { batches: [], names: [], blind: true, outcome: 'pending' });
                 return;
             }
@@ -797,7 +798,7 @@ export class AnalyticsTap {
                 Object.defineProperty(this.events[i], 'sourceDocumentAt', { get: () => (ref.resolved ? ref.committedAt : undefined), enumerable: false });
             }
             if (this.events.length > before) {
-                this.notePosthogRequest();
+                this.notePosthogRequest(Date.now(), page);
                 this.track(request, { batches: [batch], names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
             }
         });
@@ -898,7 +899,14 @@ export class AnalyticsTap {
 
     /** #1258 F3: when the page last sent a PostHog request (decoded or blind), so `settleQueuedTelemetry` sees a flush. */
     lastPosthogRequestAt = 0;
-    notePosthogRequest(at = Date.now()): void { this.lastPosthogRequestAt = at; }
+    /** Sam, #1662 review of 845401a5: when EACH attached page last sent an event-carrying PostHog request. */
+    private readonly lastPosthogRequestAtByPage = new Map<object, number>();
+    /** Every page the tap was attached to (memory-only), so a settle can wait for each one's own flush. */
+    private readonly attachedPages = new Set<Pick<Page, 'isClosed'>>();
+    notePosthogRequest(at = Date.now(), page?: object): void {
+        this.lastPosthogRequestAt = at;
+        if (page) this.lastPosthogRequestAtByPage.set(page, at);
+    }
 
     /**
      * #1258 F3 (run 38104864048, PostHog readback 6108757201): PostHog batches events for ~3 s, so right after a reload
@@ -923,6 +931,30 @@ export class AnalyticsTap {
             await wait(pollMs);
         }
         return 'quiet';
+    }
+
+    /**
+     * Sam, #1662 review of 845401a5 (Codex P2 r4313846488 follow-up): the settle before a watchdog verdict waits for EVERY
+     * attached, still-open page's own flush — one page's benign batch must not end the wait while another page's fatal is
+     * still queued. Returns `flushed` once each such page sent a request after the settle began (plus a grace for sibling
+     * batches), else `quiet` at the bound. A closed page cannot flush any more and is not waited on. Never throws.
+     */
+    async settleEveryPage(
+        wait: (ms: number) => Promise<unknown>,
+        opts: { quietMs?: number; graceMs?: number; pollMs?: number; now?: () => number } = {},
+    ): Promise<'flushed' | 'quiet'> {
+        const { quietMs = 5_000, graceMs = 500, pollMs = 100, now = Date.now } = opts;
+        const started = now();
+        const closed = (p: Pick<Page, 'isClosed'>) => { try { return p.isClosed(); } catch { return true; } };
+        const pending = () => [...this.attachedPages].filter((p) => !closed(p) && (this.lastPosthogRequestAtByPage.get(p) ?? Number.NEGATIVE_INFINITY) <= started);
+        while (now() - started < quietMs) {
+            if (pending().length === 0) {
+                await wait(graceMs);
+                return 'flushed';
+            }
+            await wait(pollMs);
+        }
+        return pending().length === 0 ? 'flushed' : 'quiet';
     }
 
     /**
