@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DOM_READ_TIMEOUT_MS, FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyWatchdog, STALL_MS, WATCHED_FIELDS, fatalSignalOf, stallOf, watchProfileFor, type DomState, type WatchProfile } from '../live/helpers/rwtWatchdog';
 import { COACHING_SETTLE_BOUND_MS } from '../live/helpers/rwtCoachingEvidence';
 import { deniedAfterPress } from '../live/helpers/rwtAdverse';
+import { CommittedDocumentTracker } from '../live/helpers/rwtJourney';
 import { modelWorkBeforeRefusal } from '../live/helpers/rwtAbandonTakeover';
 
 const ev = (event: string, watch: Record<string, string> = {}) => ({ event, watch, at: Date.now() });
@@ -839,12 +840,16 @@ describe('#1662 RETURN on 76a0bf6e — committed-document boot identity; downloa
         expect(await w.tick(), 'document 1 still belongs to its own boot').toMatchObject({ kind: 'save_failed' });
     });
 
-    it('item 1: the tap advances the document only on a responded-and-committed main-frame navigation', () => {
+    it('item 1: the tap derives the document from the CommittedDocumentTracker wired to main-frame request/response/failure/commit', () => {
         const src = readFileSync('tests/live/helpers/rwtJourney.ts', 'utf8');
-        const block = src.slice(src.indexOf('let documentGen = 0;'), src.indexOf("page.on('request', (request) => {", src.indexOf('let documentGen = 0;')));
-        expect(block).toMatch(/page\.on\('response'[\s\S]*isNavigationRequest\(\)[\s\S]*respondedAt = Date\.now\(\)/);
-        expect(block).toMatch(/page\.on\('framenavigated'[\s\S]*respondedAt === null\) return;[\s\S]*documentGen \+= 1;/);
-        expect(src).not.toMatch(/if \(mainDocument\) \{ documentGen \+= 1;/);
+        const block = src.slice(src.indexOf('const documents = new CommittedDocumentTracker();'), src.indexOf('let host = \'\';', src.indexOf('const documents = new CommittedDocumentTracker();')));
+        expect(block).toContain('documents.onResponse(response.url(), response.status())');
+        expect(block).toContain('if (mainNavigation(request)) documents.onFailed();');
+        expect(block).toContain('documents.onCommitted(frame.url())');
+        expect(block).toContain('documents.onRequest();');
+        // Registered with the tap's own listener set: removed on detach, never stacked by a repeated attach.
+        expect(block).toContain("this.listeners.push(['response', onResponse as never], ['framenavigated', onFrameNavigated as never]);");
+        expect(src).toContain("value: documents.generation, enumerable: false");
     });
 
     it('stall controls: genuine slow progress never trips; absent progress uses only the long bound; transitions restart the clock', async () => {
@@ -872,5 +877,74 @@ describe('#1662 RETURN on 76a0bf6e — committed-document boot identity; downloa
         expect(await w.tick(t2)).toBeNull();
         expect(await w.tick(t2 + STALL_MS.DOWNLOAD_NO_PROGRESS), 'exactly at the bound').toBeNull();
         expect(await w.tick(t2 + STALL_MS.DOWNLOAD_NO_PROGRESS + 1)).toMatchObject({ kind: 'download_stuck', fields: { progress: 30 } });
+    });
+});
+
+describe('#1662 RETURN on 46ebed0f — transfer-only download stall; failed-navigation latch', () => {
+    const quiet = { log: () => undefined, label: 'case' };
+    const dom = (o: Partial<DomState>): DomState => ({ runtimeState: 'DOWNLOAD_REQUIRED', modelStatus: 'loading', control: 'mic-download', controlEnabled: false, progress: 40, ...o });
+
+    it('item 1: engine initialization (loading, bar left at 100 %) keeps its 960 s budget — never the 180 s transfer rule', () => {
+        const init = dom({ runtimeState: 'ENGINE_INITIALIZING', progress: 100 });
+        expect(stallOf(init, STALL_MS.DOWNLOAD_NO_PROGRESS + 1), 'Sam\'s control: 180 001 ms of initialization').toBeNull();
+        expect(stallOf(init, STALL_MS.ENGINE_INITIALIZING), 'at the initialization budget').toBeNull();
+        expect(stallOf(init, STALL_MS.ENGINE_INITIALIZING + 1), 'past the initialization budget').toBe('engine_init_stuck');
+        // Initializing with no readable bar is the same phase.
+        expect(stallOf(dom({ runtimeState: 'ENGINE_INITIALIZING', progress: null }), STALL_MS.DOWNLOAD_UNREADABLE - 1)).toBeNull();
+    });
+
+    it('item 1: a completed transfer (100 %) still loading outside ENGINE_INITIALIZING is initialization, below and above budget', () => {
+        expect(stallOf(dom({ progress: 100 }), STALL_MS.DOWNLOAD_NO_PROGRESS + 1)).toBeNull();
+        expect(stallOf(dom({ progress: 100 }), STALL_MS.ENGINE_INITIALIZING)).toBeNull();
+        expect(stallOf(dom({ progress: 100 }), STALL_MS.ENGINE_INITIALIZING + 1)).toBe('engine_init_stuck');
+    });
+
+    it('item 1: a TRANSFER whose readable percentage is frozen is still bounded at 180 s', () => {
+        expect(stallOf(dom({ progress: 99 }), STALL_MS.DOWNLOAD_NO_PROGRESS)).toBeNull();
+        expect(stallOf(dom({ progress: 99 }), STALL_MS.DOWNLOAD_NO_PROGRESS + 1)).toBe('download_stuck');
+        expect(stallOf(dom({ progress: null }), STALL_MS.DOWNLOAD_UNREADABLE + 1)).toBe('download_stuck');
+    });
+
+    it('item 2: Sam\'s sequence — a failed navigation, then a same-document navigation, never advances the document', () => {
+        const t = new CommittedDocumentTracker();
+        t.onRequest();
+        t.onResponse('https://app.test/session', 200, 1_000);
+        t.onFailed(); // the navigation fails after its response; the original document stays current
+        t.onCommitted('https://app.test/session'); // a later same-document navigation (route change) to the same URL
+        expect(t.generation).toBe(0);
+        t.onCommitted('https://app.test/analytics');
+        expect(t.generation).toBe(0);
+    });
+
+    it('item 2: only the responded URL commits a document; a superseded, redirected or no-content response never does', () => {
+        const t = new CommittedDocumentTracker();
+        t.onRequest(); t.onResponse('https://app.test/a', 200, 10);
+        t.onCommitted('https://app.test/other'); // a same-document change before the real commit
+        expect(t.generation).toBe(0);
+        t.onCommitted('https://app.test/a#top'); // the responded document commits (hash ignored)
+        expect([t.generation, t.committedAt]).toEqual([1, 10]);
+        t.onCommitted('https://app.test/a'); // a later same-document change to the same URL: no latch left
+        expect(t.generation).toBe(1);
+        t.onRequest(); t.onResponse('https://app.test/b', 200, 20);
+        t.onRequest(); // superseded by a newer navigation before committing
+        t.onCommitted('https://app.test/b');
+        expect(t.generation).toBe(1);
+        t.onResponse('https://app.test/c', 302, 30); t.onCommitted('https://app.test/c');
+        t.onResponse('https://app.test/d', 204, 40); t.onCommitted('https://app.test/d');
+        expect(t.generation, 'redirect / 204 never commit').toBe(1);
+    });
+
+    it('item 2: end to end — after a failed navigation and a same-document route change, the original boot\'s fatal still trips', async () => {
+        const t = new CommittedDocumentTracker();
+        const page = { context: () => ({ close: async () => undefined }), evaluate: async () => null };
+        const tap = { events: [] as object[] };
+        const w = new JourneyWatchdog({ ...quiet, page: page as never, tap: tap as never, profile: {} });
+        const stamp = (e: object) => sentBy(page, e, { boot: 'boot-A', document: t.generation, documentAt: 0 });
+        tap.events.push(stamp({ event: 'journey_step', at: Date.now() }));
+        expect(await w.tick()).toBeNull();
+        t.onRequest(); t.onResponse('https://app.test/x', 200); t.onFailed();
+        t.onCommitted('https://app.test/x');
+        tap.events.push(stamp({ event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } }));
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
     });
 });

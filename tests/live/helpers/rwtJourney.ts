@@ -18,7 +18,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
-import { expect, type Locator, type Page, type Request, type TestInfo } from '@playwright/test';
+import { expect, type Frame, type Locator, type Page, type Request, type Response, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
@@ -664,6 +664,38 @@ function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: stri
 }
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
+/**
+ * #1593 (Sam, #1662 RETURN on 76a0bf6e item 2) — WHICH COMMITTED DOCUMENT IS CURRENT, from the main frame's navigation events.
+ * A navigation is "pending" only from the response of the request that will become the document until that same URL commits:
+ * a failed navigation, a newer navigation request, a redirect or a no-content response clears it, and a commit of any other
+ * URL (a same-document route change) never advances the generation — so a failed navigation can never leave a latch that a
+ * later same-document navigation consumes, hiding the original boot's events.
+ */
+export class CommittedDocumentTracker {
+    generation = 0;
+    committedAt = Date.now();
+    private pending: { url: string; at: number } | null = null;
+
+    /** A new main-frame navigation request supersedes any earlier pending one. */
+    onRequest(): void { this.pending = null; }
+
+    onResponse(url: string, status: number, now = Date.now()): void {
+        // A redirect continues as another request; 204/205 never commit a document.
+        this.pending = (status >= 300 && status < 400) || status === 204 || status === 205 ? null : { url: stripHash(url), at: now };
+    }
+
+    onFailed(): void { this.pending = null; }
+
+    onCommitted(url: string): void {
+        if (this.pending === null || stripHash(url) !== this.pending.url) return;
+        this.generation += 1;
+        this.committedAt = this.pending.at;
+        this.pending = null;
+    }
+}
+
+const stripHash = (url: string): string => { const i = url.indexOf('#'); return i === -1 ? url : url.slice(0, i); };
+
 export class AnalyticsTap {
     /** #1258 smoke item 2: every event-carrying PostHog request and its outcome, in send order (retries are new entries). */
     readonly transports: BatchTransport[] = [];
@@ -701,6 +733,12 @@ export class AnalyticsTap {
         this.transportOpen = true;
         const generation = ++this.transportGeneration;
         const live = () => this.transportOpen && this.transportGeneration === generation;
+        // #1593 (Sam, #1662 RETURN on f527a033 item 3; RETURNs on 76a0bf6e / 46ebed0f): which COMMITTED document of this page
+        // sent each event — a boot IS a document load (`CommittedDocumentTracker`).
+        const documents = new CommittedDocumentTracker();
+        const mainNavigation = (request: Request): boolean => {
+            try { return request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { return false; }
+        };
         // Smoke item 2: the outcome is read from the SAME request object the batch was decoded from.
         const onFinished = (request: Request) => {
             const transport = this.transportByRequest.get(request);
@@ -710,6 +748,7 @@ export class AnalyticsTap {
                 .catch(() => { if (live()) transport.outcome = 'unobservable'; });
         };
         const onFailed = (request: Request) => {
+            if (mainNavigation(request)) documents.onFailed(); // a failed navigation leaves no pending document
             const transport = this.transportByRequest.get(request);
             if (!transport || !live()) return;
             let text: string | null = null;
@@ -719,29 +758,15 @@ export class AnalyticsTap {
         page.on('requestfinished', onFinished);
         page.on('requestfailed', onFailed);
         this.listeners.push(['requestfinished', onFinished as never], ['requestfailed', onFailed as never]);
-        // #1593 (Sam, #1662 RETURN on f527a033 item 3; RETURN on 76a0bf6e item 1): which COMMITTED document of this page sent
-        // each event — a boot IS a document load. The generation advances only when a main-frame navigation that received its
-        // response then commits (`framenavigated`): an aborted navigation leaves the original document current, and a
-        // same-document route change (no navigation request) is not a new document. `documentAt` is that response's time —
-        // nothing the new document captures can precede it.
-        let documentGen = 0;
-        let documentAt = Date.now();
-        let respondedAt: number | null = null;
-        page.on('response', (response) => {
-            let mainDocument = false;
-            try { mainDocument = response.request().isNavigationRequest() && response.frame() === page.mainFrame(); } catch { mainDocument = false; }
-            if (mainDocument) respondedAt = Date.now();
-        });
-        page.on('framenavigated', (frame) => {
-            if (frame !== page.mainFrame() || respondedAt === null) return;
-            documentGen += 1;
-            documentAt = respondedAt;
-            respondedAt = null;
-        });
+        const onResponse = (response: Response) => {
+            if (mainNavigation(response.request())) documents.onResponse(response.url(), response.status());
+        };
+        const onFrameNavigated = (frame: Frame) => { if (frame === page.mainFrame()) documents.onCommitted(frame.url()); };
+        page.on('response', onResponse);
+        page.on('framenavigated', onFrameNavigated);
+        this.listeners.push(['response', onResponse as never], ['framenavigated', onFrameNavigated as never]);
         page.on('request', (request) => {
-            let mainDocument = false;
-            try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
-            if (mainDocument) { this.noteDocument(request.url()); return; }
+            if (mainNavigation(request)) { documents.onRequest(); this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
@@ -794,8 +819,8 @@ export class AnalyticsTap {
             // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.
             for (let i = before; i < this.events.length; i += 1) {
                 Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
-                Object.defineProperty(this.events[i], 'sourceDocument', { value: documentGen, enumerable: false });
-                Object.defineProperty(this.events[i], 'sourceDocumentAt', { value: documentAt, enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocument', { value: documents.generation, enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocumentAt', { value: documents.committedAt, enumerable: false });
             }
             if (this.events.length > before) {
                 this.notePosthogRequest();

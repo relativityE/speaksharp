@@ -169,8 +169,14 @@ export function stallOf(dom: DomState, heldMs: number): StallKind | null {
     if (dom.runtimeState === 'STOPPING' && heldMs > STALL_MS.STOPPING) return 'stop_stuck';
     if (SETTLED.has(dom.runtimeState ?? '') && dom.control !== null && dom.controlEnabled === false
         && dom.modelStatus !== 'loading' && heldMs > STALL_MS.START_DEAD) return 'start_dead';
-    if (dom.modelStatus === 'loading'
-        && heldMs > (typeof dom.progress === 'number' ? STALL_MS.DOWNLOAD_NO_PROGRESS : STALL_MS.DOWNLOAD_UNREADABLE)) return 'download_stuck';
+    if (dom.modelStatus === 'loading') {
+        // Sam, #1662 RETURN on 46ebed0f (item 1): the 180 s no-progress rule is for the TRANSFER only. Engine initialization
+        // also publishes `loading` (with the bar left at 100 %), and keeps its own 960 s budget.
+        if (dom.runtimeState === 'ENGINE_INITIALIZING') return null; // `engine_init_stuck` above owns this phase
+        const initializing = typeof dom.progress === 'number' && dom.progress >= 100;
+        if (initializing) return heldMs > STALL_MS.ENGINE_INITIALIZING ? 'engine_init_stuck' : null;
+        if (heldMs > (typeof dom.progress === 'number' ? STALL_MS.DOWNLOAD_NO_PROGRESS : STALL_MS.DOWNLOAD_UNREADABLE)) return 'download_stuck';
+    }
     return null;
 }
 
