@@ -744,10 +744,13 @@ export async function expectBenchmarkRecordingStarted(page: Page, label: string)
  * resolve at all. Resolving the control from `MIC_CONTROL_BY_STATUS` keeps the harness and the product
  * on one definition rather than a hand-copied id.
  *
- * A control that is absent is a harness/product MISMATCH, not slow work, so it fails in seconds
- * instead of consuming the model budget.
+ * A known loading state gets its own bounded readiness wait. Once actionable, an absent control is
+ * a harness/product mismatch and uses the separate short control budget.
  */
-export async function startBenchmarkRecording(page: Page, label: string): Promise<void> {
+export async function startBenchmarkRecording(page: Page, label: string, modelReadinessTimeoutMs = 30_000): Promise<void> {
+    if (!Number.isFinite(modelReadinessTimeoutMs) || modelReadinessTimeoutMs <= 0) {
+        throw new Error('INVALID_SETUP model readiness budget must be finite and positive');
+    }
     // #1416 — THE TAKE MAY ALREADY BE RUNNING, BECAUSE SETUP STARTED IT.
     //
     // `preparePrivateModelIfPrompted` presses the cold control, and since #1415/#1416 that single
@@ -762,7 +765,33 @@ export async function startBenchmarkRecording(page: Page, label: string): Promis
         await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_FROM_SETUP`);
         return;
     }
-    const status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+    let status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+    if (status === 'loading') {
+        // #1593 case2: loading deliberately disables Start. A product switch may still be warming the model, so one
+        // snapshot cannot prove a missing control. Bound this wait; never press Retry/Download to hide its terminal.
+        const budget = Math.min(modelReadinessTimeoutMs, 30_000);
+        await logBenchmarkPhase(page, `${label.toUpperCase()}_MODEL_READINESS_WAIT_START`);
+        try {
+            await page.waitForFunction((stopId) => document.querySelector(`[data-testid="${stopId}"]`) !== null
+                || document.documentElement.getAttribute('data-model-status') !== 'loading', RECORDER_STOP, { timeout: budget });
+        } catch (error) {
+            const timeout = error !== null && typeof error === 'object' && 'name' in error && error.name === 'TimeoutError';
+            const reason = timeout ? 'MODEL_READINESS_TIMEOUT' : 'MODEL_READINESS_OBSERVATION_FAILED';
+            const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-${reason.toLowerCase()}`);
+            throw new Error(`Benchmark start precondition failed for ${label}: ${reason} after at most ${budget}ms\n${JSON.stringify(snapshot, null, 2)}`);
+        }
+        if ((await page.getByTestId(RECORDER_STOP).count()) > 0) {
+            await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_DURING_MODEL_WAIT`);
+            return;
+        }
+        status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+        if (status !== 'ready') {
+            const reason = status === null ? 'MODEL_READINESS_OBSERVATION_FAILED' : 'MODEL_READINESS_FAILED';
+            const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-model-not-ready`);
+            throw new Error(`Benchmark start precondition failed for ${label}: ${reason} terminal status '${String(status)}'\n${JSON.stringify(snapshot, null, 2)}`);
+        }
+        await logBenchmarkPhase(page, `${label.toUpperCase()}_MODEL_READINESS_READY`);
+    }
     const control = micControlFor(status);
     if (control === null) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-no-actionable-control`);
@@ -770,8 +799,26 @@ export async function startBenchmarkRecording(page: Page, label: string): Promis
     }
     try {
         const start = page.getByTestId(control);
-        await expect(start, `${label}: start control (${control})`).toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
-        await start.click();
+        // Readiness can expose a briefly disabled Start while an earlier held intent resumes. Wait for EITHER the
+        // actual enabled button or its running take, then bind the click to this exact DOM node. A detached control
+        // must fail rather than allowing a locator to resolve to a later take's Start.
+        await page.waitForFunction(({ controlId, stopId }) => {
+            if (document.querySelector(`[data-testid="${stopId}"]`)) return true;
+            const button = document.querySelector<HTMLButtonElement>(`[data-testid="${controlId}"]`);
+            return button !== null && button.disabled === false;
+        }, { controlId: control, stopId: RECORDER_STOP }, { timeout: MISSING_CONTROL_TIMEOUT_MS });
+        if ((await page.getByTestId(RECORDER_STOP).count()) > 0) {
+            await logBenchmarkPhase(page, `${label.toUpperCase()}_TAKE_ALREADY_RUNNING_BEFORE_START`);
+            return;
+        }
+        const target = await start.elementHandle();
+        try {
+            if ((await page.getByTestId(RECORDER_STOP).count()) > 0) return;
+            if (!target) throw new Error('the observed start control disappeared before activation');
+            await target.click({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+        } finally {
+            await target?.dispose().catch(() => undefined);
+        }
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);
         throw new Error(`Benchmark start precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);

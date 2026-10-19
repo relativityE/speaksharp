@@ -111,6 +111,7 @@ interface FakeLocator {
     /** Playwright's locator union / index, as the helpers use them. */
     or(other: FakeLocator): FakeLocator;
     first(): FakeLocator;
+    elementHandle(): Promise<{ click(): Promise<void>; dispose(): Promise<void> } | null>;
 }
 
 /** Every testid the helper asked for, and every one it clicked — the two things that broke. */
@@ -142,6 +143,9 @@ let coldPressRecords = true;
  * terminal-outcome wait to hold.
  */
 let coldPressTiming: 'sync' | 'disabled-then-recording' = 'sync';
+let waitFailure: Error | null = null;
+let afterHandleCapture: (() => void) | null = null;
+const waitTimeouts: number[] = [];
 
 const locatorFor = (selector: string): FakeLocator => ({
     __locator: true,
@@ -155,6 +159,17 @@ const locatorFor = (selector: string): FakeLocator => ({
     // which is what `.or(...).first()` means for these helpers.
     or: (other: FakeLocator) => locatorFor(`${selector}, ${other.selector}`),
     first: () => locatorFor(selector),
+    elementHandle: async () => {
+        const original = document.querySelector(selector);
+        const callback = afterHandleCapture;
+        afterHandleCapture = null;
+        callback?.();
+        return original ? { click: async () => {
+            if (!original.isConnected) throw new Error('the original start control was detached');
+            if (original.hasAttribute('disabled')) throw new Error('the original start control is disabled');
+            await locatorFor(selector).click();
+        }, dispose: async () => undefined } : null;
+    },
     click: async () => {
         const el = document.querySelector(selector);
         if (!el) throw new Error(`click on a control that does not exist: ${selector}`);
@@ -185,6 +200,19 @@ const page = {
     locator: (selector: string) => { asked.push(selector); return locatorFor(selector); },
     getByTestId: (id: string) => { asked.push(id); return locatorFor(`[data-testid="${id}"]`); },
     getByLabel: (re: RegExp) => locatorFor(`[aria-label-re="${String(re)}"]`),
+    waitForFunction: async (fn: (arg: unknown) => unknown, arg: unknown, options: { timeout: number }) => {
+        waitTimeouts.push(options.timeout);
+        if (waitFailure) throw waitFailure;
+        const deadline = Date.now() + options.timeout;
+        while (!fn(arg)) {
+            if (Date.now() >= deadline) {
+                const error = new Error('page predicate deadline exceeded');
+                error.name = 'TimeoutError';
+                throw error;
+            }
+            await new Promise((r) => setTimeout(r, 2));
+        }
+    },
 } as unknown as Parameters<typeof preparePrivateModelIfPrompted>[0];
 
 /** Render only what the product renders in `status`. Nothing else exists — as on a real page. */
@@ -205,6 +233,7 @@ function renderRecording() {
 beforeEach(() => {
     asked.length = 0; clicked.length = 0; onDownloadClick = 'ready'; coldPressRecords = true;
     coldPressTiming = 'sync';
+    waitFailure = null; afterHandleCapture = null; waitTimeouts.length = 0;
     document.documentElement.removeAttribute('data-recording-state');
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 });
@@ -392,6 +421,101 @@ describe('startBenchmarkRecording never starts a second take', () => {
         await startBenchmarkRecording(page, 'cold-take');
         expect(clicked.length, 'exactly one press across setup AND start').toBe(pressesAfterSetup);
         expect(clicked).toHaveLength(1);
+    });
+});
+
+describe('#1593 case2 bounded model readiness before a product-switch Start', () => {
+    it('loading→ready waits for the actual enabled control and presses once', async () => {
+        renderState('loading');
+        const timer = setTimeout(() => renderState('ready'), 15);
+        try {
+            await startBenchmarkRecording(page, 'focus-points-session-switch-focus', 100);
+            expect(clicked).toEqual(['[data-testid="mic-start"]']);
+        } finally { clearTimeout(timer); }
+    });
+
+    it('a take that starts during model loading receives no second activation', async () => {
+        renderState('loading');
+        const timer = setTimeout(renderRecording, 15);
+        try {
+            await startBenchmarkRecording(page, 'loading-auto-start', 100);
+            expect(clicked).toEqual([]);
+        } finally { clearTimeout(timer); }
+    });
+
+    it('ready-but-disabled→recording during resume receives no second activation', async () => {
+        renderState('loading');
+        const ready = setTimeout(() => {
+            renderState('ready');
+            document.querySelector('button')!.setAttribute('disabled', '');
+        }, 10);
+        const running = setTimeout(renderRecording, 25);
+        try {
+            await startBenchmarkRecording(page, 'ready-resume-gap', 100);
+            expect(clicked).toEqual([]);
+        } finally { clearTimeout(ready); clearTimeout(running); }
+    });
+
+    it('persistent loading reaches a named bounded failure without any click', async () => {
+        renderState('loading');
+        await expect(startBenchmarkRecording(page, 'hung-loading', 20)).rejects.toThrow(/MODEL_READINESS_TIMEOUT.*20ms/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('lost observation is not mislabeled as a model timeout', async () => {
+        renderState('loading');
+        waitFailure = new Error('navigation context lost');
+        await expect(startBenchmarkRecording(page, 'lost-observer', 20)).rejects.toThrow(/MODEL_READINESS_OBSERVATION_FAILED/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('unreadable settled status stays unqualified', async () => {
+        renderState('loading');
+        const timer = setTimeout(() => document.documentElement.removeAttribute('data-model-status'), 10);
+        try {
+            await expect(startBenchmarkRecording(page, 'missing-model-status', 100)).rejects.toThrow(/MODEL_READINESS_OBSERVATION_FAILED/);
+            expect(clicked).toEqual([]);
+        } finally { clearTimeout(timer); }
+    });
+
+    it('a replacement Start is never borrowed after the observed node detaches', async () => {
+        renderState('ready');
+        afterHandleCapture = () => renderState('ready');
+        await expect(startBenchmarkRecording(page, 'detached-start')).rejects.toThrow(/original start control was detached/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('a requested longer model budget is capped at thirty seconds', async () => {
+        renderState('loading');
+        const timer = setTimeout(() => renderState('ready'), 10);
+        try {
+            await startBenchmarkRecording(page, 'bounded-budget', 999_999);
+            expect(waitTimeouts[0]).toBe(30_000);
+        } finally { clearTimeout(timer); }
+    });
+
+    it.each(['error', 'init-failed', 'idle', 'download-required'])('loading→%s is reported rather than silently retried', async (status) => {
+        renderState('loading');
+        const timer = setTimeout(() => renderState(status), 10);
+        try {
+            await expect(startBenchmarkRecording(page, 'terminal-model-state', 100)).rejects.toThrow(/MODEL_READINESS_FAILED/);
+            expect(clicked).toEqual([]);
+        } finally { clearTimeout(timer); }
+    });
+
+    it('waiting never bypasses explicit model-download consent', async () => {
+        const previous = process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED;
+        process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED = 'true';
+        renderState('loading');
+        const timer = setTimeout(() => renderState('download-required'), 10);
+        try {
+            await expect(startBenchmarkRecording(page, 'consent-boundary', 100)).rejects.toThrow(/MODEL_READINESS_FAILED/);
+            expect(clicked).toEqual([]);
+        } finally {
+            clearTimeout(timer);
+            if (previous === undefined) delete process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED;
+            else process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED = previous;
+        }
     });
 });
 

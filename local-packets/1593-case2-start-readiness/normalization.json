@@ -1,0 +1,33 @@
+{
+  "scope": "machine-path substitutions in retained evidence only",
+  "invariants": [
+    "object keys and array lengths preserved",
+    "all numeric counts/times and booleans/null preserved",
+    "strings changed only by documented path aliases",
+    "raw pre-normalization bytes retained outside Git"
+  ],
+  "aliases": [
+    "<repo>",
+    "<dependencies>",
+    "<temporary>",
+    "<home>"
+  ],
+  "files": {
+    "affected-green.json": {
+      "rawSha256": "79deddb85a12ae2dd9db3ca37e7fd7a0c4183b31b4b2accf6eb5a57ca4fec9a4",
+      "normalizedSha256": "1be1a33813226c22a647304a40cbcd6ad40e0fd5aecd3d38af20e67891c489da",
+      "rawArchiveBasename": "79deddb85a12ae2dd9db3ca37e7fd7a0c4183b31b4b2accf6eb5a57ca4fec9a4-affected-green.json"
+    },
+    "baseline-red.json": {
+      "rawSha256": "5e35f32b38c0edfc23468b6b0cabe7d86f30e6654f6c50713b62457c55eca936",
+      "normalizedSha256": "390cc7ef9176debe3334d3ec513f1024db13f3e47eebab017e6a5081b98eca17",
+      "rawArchiveBasename": "5e35f32b38c0edfc23468b6b0cabe7d86f30e6654f6c50713b62457c55eca936-baseline-red.json"
+    },
+    "focused-green.json": {
+      "rawSha256": "d9cfc76c57fe3b05f215c0663920b827528477e79a6896fa9cfb00de5feb60f6",
+      "normalizedSha256": "a3a9eca9034e6f1d8195be93e215ac311a764e95f60d4a5f867a17542bf29ba4",
+      "rawArchiveBasename": "d9cfc76c57fe3b05f215c0663920b827528477e79a6896fa9cfb00de5feb60f6-focused-green.json"
+    }
+  },
+  "lastNormalizedUtc": "2026-10-19T14:11:03.245Z"
+}
