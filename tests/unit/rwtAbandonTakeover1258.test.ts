@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
     BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, STOP_FAILED_ALERT_COPY, type TabState,
     TWO_TAB_SUITE, RECOVERY_NOTICE_COPY, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
-    secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict, leaseRefusalWindowVerdict, modelWorkBeforeRefusal, type LeaseRefusalWindow,
 } from '../live/helpers/rwtAbandonTakeover';
 import {
     ABANDON_CLOSE_TAB_SUITE, ABANDON_NAVIGATE_SUITE, finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance,
@@ -350,11 +350,12 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(device, 'no download-only helper on device B').not.toContain('preparePrivateModelIfPrompted(deviceB');
         // Sam, #1662 RETURN: the first press is refused within a bounded window and BEFORE any model work.
         expect(device).toContain('const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 })');
-        // Sam, #1662 RETURN (item 10): judged on the model-work HISTORY from before the first press, not a final snapshot.
-        expect(device).toContain('const modelWorkFirst = modelWorkBeforeRefusal({');
+        // Sam, #1662 RETURN (item 10) + case-11 window: judged on the model-work HISTORY from before the first press through
+        // the whole refused window (leaseRefusalWindowVerdict applies modelWorkBeforeRefusal to it), not a frozen snapshot.
+        expect(device).toContain('const refusal = leaseRefusalWindowVerdict({');
         expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);'), 'history observed before the first press').toBeGreaterThan(-1);
         expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);')).toBeLessThan(device.indexOf("await deviceB.getByTestId('mic-download').click();"));
-        expect(device, 'a refusal after model work is never a PASS').toContain('const leaseRefusal = refusedInTime && !modelWorkFirst;');
+        expect(spec, 'a refusal after model work is never a PASS: the row is the whole-window verdict').toContain("receipt.row('another device is refused by the account lease', refusal.status, refusal.detail");
         expect(device, 'no 900 s wait for the first refusal').not.toMatch(/refusalShownB\.waitFor\(\{ timeout: coldB \? 900_000/);
         const takeOver = spec.slice(spec.indexOf("// The person's explicit second press is the take-over"));
         expect(takeOver, 'the take-over presses the control the refused page renders').toContain(`await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();`);
@@ -400,5 +401,69 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(saveRow).toBeGreaterThan(spec.indexOf('const leftTakeSaved = priorTakeSaved('));
         expect(saveRow).toBeLessThan(spec.indexOf('const rowsBeforeNext = await readRows(owner.uid);'));
         expect(spec.slice(spec.indexOf('const leftTakeSaved = priorTakeSaved('), saveRow)).toContain("if (variant === 'navigate-away') {");
+    });
+});
+
+describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (Sam 13:13 ACCEPT of PM 9fc69b51)', () => {
+    const rec: TabState = { runtimeState: 'RECORDING', recorderVisible: true, liveTracks: 1 };
+    const idle: TabState = { runtimeState: 'READY', recorderVisible: false, liveTracks: 0 };
+    const clean: LeaseRefusalWindow = {
+        observed: true, refusalCopyShown: true, cold: true, modelRequests: 0, statusHistory: [], statusAtEnd: 'download-required',
+        micAcquisitionsB: 0, samplesA: [rec, rec, rec, rec, rec], endB: idle,
+    };
+    /** The row as it stood: endpoint snapshots taken after the refusal, before the hold. */
+    const endpointRow = (w: LeaseRefusalWindow, atRefusal: { modelRequests: number; statusHistory: string[]; status: string }) => (
+        modelWorkBeforeRefusal({ cold: w.cold, modelRequests: atRefusal.modelRequests, statusHistory: atRefusal.statusHistory, statusAtRefusal: atRefusal.status })
+            ? 'FAIL' : secondTabBlockedVerdict({ refusalCopyShown: w.refusalCopyShown, tabB: w.endB, tabA: w.samplesA[w.samplesA.length - 1] }).status);
+    const snapshotAtRefusal = { modelRequests: 0, statusHistory: [] as string[], status: 'download-required' };
+
+    it('a clean cold refusal with A recording throughout PASSes', () => {
+        expect(leaseRefusalWindowVerdict(clean).status).toBe('PASS');
+    });
+
+    it('PM counterexample 1: model work DURING the hold (a request, loading → download-required) FAILs; the endpoint row passed it', () => {
+        const w = { ...clean, modelRequests: 1, statusHistory: ['loading', 'download-required'] };
+        expect(endpointRow(w, snapshotAtRefusal), 'the frozen pre-hold snapshot saw nothing').toBe('PASS');
+        expect(leaseRefusalWindowVerdict(w)).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('model preparation') });
+    });
+
+    it('PM counterexample 2: a transient B microphone acquisition that ended before the endpoint FAILs; the endpoint row passed it', () => {
+        const w = { ...clean, micAcquisitionsB: 1 };
+        expect(endpointRow(w, snapshotAtRefusal)).toBe('PASS');
+        expect(leaseRefusalWindowVerdict(w)).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('microphone') });
+    });
+
+    it('PM counterexample 3: A stops and resumes between endpoints FAILs; the endpoint row passed it', () => {
+        const w = { ...clean, samplesA: [rec, rec, idle, rec, rec] };
+        expect(endpointRow(w, snapshotAtRefusal)).toBe('PASS');
+        expect(leaseRefusalWindowVerdict(w)).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('stopped recording') });
+    });
+
+    it('a lost observation is HOLD, never zero activity: unreadable reads / B left its page, or A not sampled across the hold', () => {
+        expect(leaseRefusalWindowVerdict({ ...clean, observed: false }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, samplesA: [rec] }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, samplesA: [] }).status).toBe('HOLD');
+    });
+
+    it('retained controls: no refusal copy, B recording, A never recording, and model status left non-cold all FAIL', () => {
+        expect(leaseRefusalWindowVerdict({ ...clean, refusalCopyShown: false }).status).toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, endB: rec }).status).toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, samplesA: [idle, idle] }).status).toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, statusAtEnd: 'ready' }).status).toBe('FAIL');
+    });
+
+    it('the spec reads the whole window: A sampled across the hold, B history read just before the take-over press', () => {
+        const spec = readFileSync(path.join(ROOT, 'tests/live/rwt-abandon-and-two-tabs.live.spec.ts'), 'utf8');
+        const refusalSeen = spec.indexOf('await refusalShownB.waitFor({ timeout: 30_000 })');
+        const verdict = spec.indexOf('leaseRefusalWindowVerdict({');
+        const takeover = spec.indexOf('watch.setStartRefusedAllowed(false);');
+        expect(refusalSeen).toBeGreaterThan(-1);
+        expect(verdict).toBeGreaterThan(refusalSeen);
+        expect(takeover).toBeGreaterThan(verdict);
+        const refusedWindow = spec.slice(refusalSeen, verdict);
+        expect(refusedWindow).toContain('await tabStateOrNull(tabA)');
+        expect(refusedWindow).toContain('const micAfterB = await micCountB();');
+        expect(refusedWindow).toContain('deviceB.url() === urlBeforeB');
+        expect(spec.slice(spec.indexOf('const micBeforeB = await micCountB();'), refusalSeen)).toContain("getByTestId('mic-download').click()");
     });
 });

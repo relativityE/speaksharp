@@ -15,6 +15,22 @@ export async function tabState(page: Page): Promise<TabState> {
     };
 }
 
+/**
+ * #1593 case 11 (Sam's 13:13 ACCEPT of PM 9fc69b51): the same reads, but an unreadable read is `null` — never a default
+ * that looks like "not recording" or "no live track". Observation windows count a null as a lost observation.
+ */
+export async function tabStateOrNull(page: Page): Promise<TabState | null> {
+    try {
+        return {
+            runtimeState: await page.locator('html').getAttribute('data-runtime-state'),
+            recorderVisible: (await page.getByTestId(RECORDER_BAR).count()) > 0,
+            liveTracks: await liveMicTracks(page),
+        };
+    } catch {
+        return null;
+    }
+}
+
 /** Receipt evidence is flat scalars: one tab's state under a prefix. */
 export const flatTabState = (prefix: string, s: TabState) => ({
     [`${prefix}RuntimeState`]: s.runtimeState, [`${prefix}RecorderVisible`]: s.recorderVisible, [`${prefix}LiveTracks`]: s.liveTracks,

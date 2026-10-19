@@ -20,7 +20,7 @@ import {
     AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, rwtLaunchArgs,
     suppressPageSnapshot, telemetryClassRows,
 } from './helpers/rwtJourney';
-import { flatTabState, isRecording, observeCloudStt, persistedId, tabState } from './helpers/rwtPageState';
+import { flatTabState, isRecording, observeCloudStt, persistedId, tabState, tabStateOrNull } from './helpers/rwtPageState';
 import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAccount';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
@@ -31,9 +31,9 @@ import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
-    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
+    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, type TabState, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, installModelStatusHistory, modelWorkBeforeRefusal, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -382,6 +382,11 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             let modelRequestsB = 0;
             otherDevice.on('request', (r) => { if (/\/models\//.test(r.url())) modelRequestsB += 1; });
             await deviceB.evaluate(installModelStatusHistory);
+            // Case 11 window (Sam's 13:13 ACCEPT of PM 9fc69b51): B's microphone acquisitions and its document are read at
+            // the window's start; an unreadable counter is a lost observation, never zero.
+            const micCountB = (): Promise<number | null> => deviceB.evaluate(() => (window as unknown as { __rwtMicAcquisitionLog__?: unknown[] }).__rwtMicAcquisitionLog__?.length ?? null).catch(() => null);
+            const micBeforeB = await micCountB();
+            const urlBeforeB = deviceB.url();
             if (coldB) {
                 await deviceB.getByTestId('mic-download').click();
             } else {
@@ -395,19 +400,33 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();
             const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
             const modelRequestsBeforeRefusal = modelRequestsB;
-            const statusHistoryB = await deviceB.evaluate(() => ((window as unknown as { __rwtModelStatusHistory__?: string[] }).__rwtModelStatusHistory__ ?? []).slice());
-            const modelStatusAtRefusal = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status'));
-            const modelWorkFirst = modelWorkBeforeRefusal({
-                cold: coldB, modelRequests: modelRequestsBeforeRefusal, statusHistory: statusHistoryB, statusAtRefusal: modelStatusAtRefusal,
+            // The WHOLE refused window, through the last observation immediately before the take-over press: A sampled across
+            // the hold the person waits (not two identical endpoints), then B's complete model and microphone history.
+            const samplesA: TabState[] = [];
+            let observedWindow = micBeforeB !== null;
+            for (let i = 0; i < 5; i += 1) {
+                const a = await tabStateOrNull(tabA);
+                if (a === null) observedWindow = false;
+                else samplesA.push(a);
+                if (i < 4) await deviceB.waitForTimeout(500);
+            }
+            const statusHistoryB = await deviceB.evaluate(() => (window as unknown as { __rwtModelStatusHistory__?: string[] }).__rwtModelStatusHistory__?.slice() ?? null).catch(() => null);
+            const modelStatusAtEnd = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status')).catch(() => null);
+            const micAfterB = await micCountB();
+            const endB = await tabStateOrNull(deviceB);
+            observedWindow = observedWindow && statusHistoryB !== null && micAfterB !== null && endB !== null && !deviceB.isClosed() && deviceB.url() === urlBeforeB;
+            const micAcquisitionsInWindow = micAfterB !== null && micBeforeB !== null ? micAfterB - micBeforeB : 0;
+            const refusal = leaseRefusalWindowVerdict({
+                observed: observedWindow, refusalCopyShown: refusedInTime, cold: coldB, modelRequests: modelRequestsB,
+                statusHistory: statusHistoryB ?? [], statusAtEnd: modelStatusAtEnd, micAcquisitionsB: micAcquisitionsInWindow, samplesA,
+                endB: endB ?? { runtimeState: null, recorderVisible: false, liveTracks: 0 },
             });
-            const leaseRefusal = refusedInTime && !modelWorkFirst;
-            await deviceB.waitForTimeout(2_000);
-            const [refusedB, stillA2] = [await tabState(deviceB), await tabState(tabA)];
-            const lease = secondTabBlockedVerdict({ refusalCopyShown: leaseRefusal, tabB: refusedB, tabA: stillA2 });
-            receipt.row('another device is refused by the account lease', lease.status,
-                modelWorkFirst ? 'model preparation began before the account lease refused the press' : lease.detail,
-                { refusalCopyShown: refusedInTime, coldB, modelWorkBeforeRefusal: modelWorkFirst, modelRequestsBeforeRefusal, statusChangesBeforeRefusal: statusHistoryB.length,
-                    ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
+            const lastA = samplesA[samplesA.length - 1] ?? { runtimeState: null, recorderVisible: false, liveTracks: 0 };
+            receipt.row('another device is refused by the account lease', refusal.status, refusal.detail, {
+                refusalCopyShown: refusedInTime, coldB, observedWindow, modelRequestsBeforeRefusal, modelRequestsInWindow: modelRequestsB,
+                statusChangesInWindow: statusHistoryB?.length ?? -1, micAcquisitionsInWindow, samplesA: samplesA.length,
+                ...flatTabState('deviceB', endB ?? { runtimeState: null, recorderVisible: false, liveTracks: 0 }), ...flatTabState('tabA', lastA),
+            });
 
             // The person's explicit second press is the take-over — on whichever primary control the refused page renders
             // (still the cold `mic-download` when the lease refused before any download).

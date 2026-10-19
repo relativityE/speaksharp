@@ -228,6 +228,44 @@ export function secondTabBlockedVerdict(o: { refusalCopyShown: boolean; tabB: Ta
     return { status: 'PASS', detail: 'the second tab was refused truthfully with no engine or microphone, and the first kept recording' };
 }
 
+/**
+ * #1593 case 11 (Sam's 13:13 ACCEPT of PM 9fc69b51, ACCEPTANCE.md): the lease refusal is judged over its WHOLE window —
+ * from before the first press through the last refused-state observation immediately before the explicit take-over
+ * press — never from snapshots frozen before the hold. Model work, any B microphone acquisition, or A not recording at
+ * ANY sampled moment of that window fails it; a lost observation (an unreadable read, B navigated or replaced, too few A
+ * samples to cover the hold) is HOLD, never zero activity. The take-over window is judged separately (takeOverVerdict).
+ */
+export type LeaseRefusalWindow = {
+    /** Every read in the window succeeded and B stayed on the same document. */
+    observed: boolean;
+    refusalCopyShown: boolean;
+    cold: boolean;
+    /** Model-asset requests on B over the whole window. */
+    modelRequests: number;
+    /** Every published model status on B over the whole window, and the status at its end. */
+    statusHistory: readonly string[];
+    statusAtEnd: string | null;
+    /** Microphone acquisitions B started during the window (any outcome). */
+    micAcquisitionsB: number;
+    /** A, sampled from the refusal through the end of the window. */
+    samplesA: readonly TabState[];
+    /** B at the end of the window. */
+    endB: TabState;
+};
+
+export function leaseRefusalWindowVerdict(w: LeaseRefusalWindow): Verdict {
+    if (!w.observed) return { status: 'HOLD', detail: 'the refused window was not observed completely (an unreadable read, or the device left its page), so no refusal is claimed' };
+    if (!w.refusalCopyShown) return { status: 'FAIL', detail: 'the second tab was not told why it could not record' };
+    if (modelWorkBeforeRefusal({ cold: w.cold, modelRequests: w.modelRequests, statusHistory: w.statusHistory, statusAtRefusal: w.statusAtEnd })) {
+        return { status: 'FAIL', detail: 'model preparation happened while the account lease was refusing the device' };
+    }
+    if (w.micAcquisitionsB > 0) return { status: 'FAIL', detail: 'the refused device asked for the microphone during the refusal' };
+    if (recordingNow(w.endB)) return { status: 'FAIL', detail: 'the refused tab started recording or opened the microphone' };
+    if (w.samplesA.length < 2) return { status: 'HOLD', detail: 'the first tab was not sampled across the refused hold, so its continuity is unproven' };
+    if (w.samplesA.some((a) => !recordingNow(a) || a.liveTracks === 0)) return { status: 'FAIL', detail: 'the first tab stopped recording at some point while the second was refused' };
+    return { status: 'PASS', detail: 'refused truthfully across the whole window: no model work, no microphone on the refused device, and the first tab recorded throughout' };
+}
+
 /** The explicit take-over moves the ONE engine: B records, A stops, lets go of its microphone and says why. */
 export function takeOverVerdict(o: { tabA: TabState; tabB: TabState; displacedCopyShown: boolean }): Verdict {
     if (!recordingNow(o.tabB) || o.tabB.liveTracks === 0) return { status: 'FAIL', detail: 'the take-over did not start recording in the second tab' };
