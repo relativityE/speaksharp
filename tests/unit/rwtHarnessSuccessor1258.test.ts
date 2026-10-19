@@ -381,8 +381,13 @@ describe('R8/R9 — wait boundedly for the OBSERVED events before leaving the pa
         expect(wait).toBeLessThan(share.indexOf("from('user_issue_reports')"));
         const nav = read('tests/live/rwt-products-navigation.live.spec.ts');
         expect(nav.indexOf('signOutThroughProduct(page as never)'), 'the sign-out call is present').toBeGreaterThan(-1);
-        expect(nav.indexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeLessThan(nav.indexOf('signOutThroughProduct(page as never)'));
-        expect(nav.lastIndexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeLessThan(nav.indexOf("receipt.row('journey_step sent'"));
+        // The journey body waits before signing out; the finalization (registered before the body) waits before counting.
+        const navBody = nav.slice(nav.indexOf('        try {', nav.indexOf('const finish = finalizer.once(')));
+        expect(navBody.indexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeGreaterThan(-1);
+        expect(navBody.indexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeLessThan(navBody.indexOf('signOutThroughProduct(page as never)'));
+        const navFinal = nav.slice(nav.indexOf('const finish = finalizer.once('), nav.indexOf('steps.report(receipt);'));
+        expect(navFinal.indexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeGreaterThan(-1);
+        expect(navFinal.indexOf("tap.awaitObserved(page, { journey_step: 1 })")).toBeLessThan(navFinal.indexOf("receipt.row('journey_step sent'"));
         const openMic = read('tests/live/rwt-open-mic-first-session.live.spec.ts');
         expect(openMic.indexOf("tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 })")).toBeLessThan(openMic.indexOf("receipt.row('telemetry sent'"));
         const focus = read('tests/live/helpers/rwtFocusPointsJourney.ts');

@@ -22,6 +22,7 @@ import { expect, type Locator, type Page, type Request, type TestInfo } from '@p
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
+import { documentTrackerOf } from './rwtDocumentIdentity';
 import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
     UNAVAILABLE_HEADLINE,
@@ -43,6 +44,7 @@ import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 import { readFeedbackUiState, readPracticeActionState, type PracticeActionState } from './rwtStepDiagnostics';
 import { activeHumanReflexMs } from './rwtHumanReflex';
 import { resolveProductsTrigger } from './productsMenu';
+import { WATCHED_FIELDS } from './rwtWatchdog';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -461,16 +463,30 @@ export async function installMicAcquisitionCounter(page: Page): Promise<void> {
     await page.addInitScript(() => {
         const marks: number[] = [];
         const streams: MediaStream[] = [];
-        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[] };
+        // #1593 (Sam, #1662 RETURN): the acquisition boundary's own REJECTIONS, by closed DOMException name only — the
+        // product learns "blocked" from a NotAllowedError here, so a denial case must observe one, not a permission query.
+        // Sam, #1662 RETURN on f527a033 (item 5): each audio acquisition gets its ID at INVOCATION, and its own settlement
+        // is recorded against that ID — an older pending acquisition rejecting later can never be read as this press's.
+        const log: { id: number; outcome: string }[] = [];
+        const NAMES = ['NotAllowedError', 'NotFoundError', 'NotReadableError', 'AbortError', 'SecurityError', 'OverconstrainedError', 'TypeError'];
+        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[]; __rwtMicAcquisitionLog__?: { id: number; outcome: string }[] };
         w.__rwtMicAcquisitions__ = marks;
+        w.__rwtMicAcquisitionLog__ = log;
         w.__rwtMicStreams__ = streams; // references only, to read track readyState; never audio data
         const media = navigator.mediaDevices;
         if (!media?.getUserMedia) return;
         const original = media.getUserMedia.bind(media);
         media.getUserMedia = (constraints?: MediaStreamConstraints) => {
             const audio = Boolean(constraints && (constraints as { audio?: unknown }).audio);
-            if (audio) marks.push(Date.now());
-            return original(constraints).then((stream) => { if (audio) streams.push(stream); return stream; });
+            const entry = audio ? { id: log.length, outcome: 'pending' } : null;
+            if (entry) { marks.push(Date.now()); log.push(entry); }
+            return original(constraints).then((stream) => { if (entry) { streams.push(stream); entry.outcome = 'granted'; } return stream; }, (error: unknown) => {
+                if (entry) {
+                    const name = (error as { name?: unknown } | null)?.name;
+                    entry.outcome = typeof name === 'string' && NAMES.includes(name) ? name : 'other';
+                }
+                throw error;
+            });
         };
     });
 }
@@ -480,6 +496,12 @@ export async function liveMicTracks(page: Page): Promise<number> {
     return page.evaluate(() => ((window as unknown as { __rwtMicStreams__?: MediaStream[] }).__rwtMicStreams__ ?? [])
         .flatMap((stream) => stream.getAudioTracks())
         .filter((track) => track.readyState === 'live').length);
+}
+
+/** Every audio acquisition the page started, by invocation ID, with its own closed outcome (`pending`, `granted` or a DOMException name). */
+export async function micAcquisitionLog(page: Page): Promise<{ id: number; outcome: string }[]> {
+    return page.evaluate(() => ((window as unknown as { __rwtMicAcquisitionLog__?: { id: number; outcome: string }[] }).__rwtMicAcquisitionLog__ ?? [])
+        .map((a) => ({ id: a.id, outcome: a.outcome }))).catch(() => []);
 }
 
 export async function micAcquisitions(page: Page): Promise<number[]> {
@@ -529,6 +551,8 @@ export interface SentEvent {
     acquisition?: AcquisitionTiming;
     /** #1258: closed enum / integer fields of the outcome events (OUTCOME_FIELDS only) — never content. */
     fields?: Readonly<Record<string, string | number | boolean>>;
+    /** #1593 fail-early: the watched lifecycle events' closed enums (`WATCHED_FIELDS`). Memory only, never in a receipt. */
+    watch?: Readonly<Record<string, string>>;
 }
 
 /** #1258 (#1563): the ONLY properties kept from these events, so a press can be paired with its arrival and a feedback
@@ -547,6 +571,12 @@ function outcomeFields(event: string, props: Record<string, unknown>): SentEvent
         const v = props[key];
         if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') kept[key] = v;
     }
+    return kept;
+}
+
+function watchedFields(event: string, props: Record<string, unknown>): Record<string, string> {
+    const kept: Record<string, string> = {};
+    for (const key of WATCHED_FIELDS[event] ?? []) if (typeof props[key] === 'string') kept[key] = props[key] as string;
     return kept;
 }
 
@@ -635,6 +665,9 @@ function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: stri
 }
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
+// #1593 (Sam, #1662 RETURN on 2cab5b0c): document identity is proven by the browser — see rwtDocumentIdentity.ts.
+export { DocumentProvenance, trackDocuments, type DocumentRef } from './rwtDocumentIdentity';
+
 export class AnalyticsTap {
     /** #1258 smoke item 2: every event-carrying PostHog request and its outcome, in send order (retries are new entries). */
     readonly transports: BatchTransport[] = [];
@@ -656,6 +689,8 @@ export class AnalyticsTap {
     blindBeacons = 0;
     /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
     readonly blindAt: number[] = [];
+    /** Codex P1 r4314310162: each blind beacon with the page that sent it (memory-only), so a watchdog can HOLD on its own pages' unknowns. */
+    readonly blindSent: { at: number; page: Page }[] = [];
     /** The latest main-frame document load (ms) and its path: every boot after it is the page the person is on now. */
     documentAt = 0;
     documentPath: string | null = null;
@@ -668,10 +703,19 @@ export class AnalyticsTap {
     attach(page: Page): void {
         // A repeated attach replaces the outcome listeners instead of stacking a second set.
         this.removeTransportListeners();
+        this.attachedPages.add(page);
         this.attachedTo = page;
         this.transportOpen = true;
         const generation = ++this.transportGeneration;
         const live = () => this.transportOpen && this.transportGeneration === generation;
+        // #1593 (Sam, #1662 RETURNs on f527a033 / 76a0bf6e / 46ebed0f / 814d2e25 / 2cab5b0c / 65dd8b8f): which document of
+        // this page sent each event — a boot IS a document load — from the browser's own record of each request
+        // (`documentTrackerOf`, rwtDocumentIdentity.ts), for the PAGE's lifetime and independently of the transport-outcome
+        // listeners below: re-attaching the tap to another page must never stop tracking this one.
+        const documents = documentTrackerOf(page);
+        const mainNavigation = (request: Request): boolean => {
+            try { return request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { return false; }
+        };
         // Smoke item 2: the outcome is read from the SAME request object the batch was decoded from.
         const onFinished = (request: Request) => {
             const transport = this.transportByRequest.get(request);
@@ -691,16 +735,14 @@ export class AnalyticsTap {
         page.on('requestfailed', onFailed);
         this.listeners.push(['requestfinished', onFinished as never], ['requestfailed', onFailed as never]);
         page.on('request', (request) => {
-            let mainDocument = false;
-            try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
-            if (mainDocument) { this.noteDocument(request.url()); return; }
+            if (mainNavigation(request)) { this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
             const body = request.postDataBuffer();
             // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
             if (request.method() === 'POST' && (!body || body.length === 0)) {
-                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest();
+                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.blindSent.push({ at: Date.now(), page }); this.notePosthogRequest(Date.now(), page);
                 this.track(request, { batches: [], names: [], blind: true, outcome: 'pending' });
                 return;
             }
@@ -733,6 +775,7 @@ export class AnalyticsTap {
                     journeyStep: text('step'),
                     toRoute: text('to_route'),
                     ...(OUTCOME_FIELDS[record.event] ? { fields: outcomeFields(record.event, props) } : {}),
+                    ...(WATCHED_FIELDS[record.event] ? { watch: watchedFields(record.event, props) } : {}),
                     ...(record.event === 'private_model_acquisition_success' ? { acquisition: {
                         cacheResult: text('cache_result'), completeness: text('measurement_completeness'),
                         downloadMs: typeof props.download_ms === 'number' ? props.download_ms : null,
@@ -741,8 +784,21 @@ export class AnalyticsTap {
                     } } : {}),
                 });
             }
+            // #1593 (Sam, #1662 RETURN): which page SENT each event, so a watchdog can refuse evidence from pages it does not
+            // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.
+            // Sam, #1662 RETURNs on b0dd763a / 65dd8b8f: the document is the loader the BROWSER says sent this request,
+            // read through a reference that settles when that record is joined (never the harness's clock or arrival order).
+            // Every bodied PostHog POST joins its record (flag and other non-event posts too, so none is left waiting).
+            const ref = body && body.length > 0 && request.method() === 'POST' ? documents.refFor(request.url(), body) : null;
+            for (let i = before; i < this.events.length; i += 1) {
+                Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
+                if (!ref) continue;
+                Object.defineProperty(this.events[i], 'sourceDocumentRef', { value: ref, enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocument', { get: () => (ref.resolved ? ref.generation : undefined), enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocumentAt', { get: () => (ref.resolved ? ref.committedAt : undefined), enumerable: false });
+            }
             if (this.events.length > before) {
-                this.notePosthogRequest();
+                this.notePosthogRequest(Date.now(), page);
                 this.track(request, { batches: [batch], names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
             }
         });
@@ -843,7 +899,14 @@ export class AnalyticsTap {
 
     /** #1258 F3: when the page last sent a PostHog request (decoded or blind), so `settleQueuedTelemetry` sees a flush. */
     lastPosthogRequestAt = 0;
-    notePosthogRequest(at = Date.now()): void { this.lastPosthogRequestAt = at; }
+    /** Sam, #1662 review of 845401a5: when EACH attached page last sent an event-carrying PostHog request. */
+    private readonly lastPosthogRequestAtByPage = new Map<object, number>();
+    /** Every page the tap was attached to (memory-only), so a settle can wait for each one's own flush. */
+    private readonly attachedPages = new Set<Pick<Page, 'isClosed'>>();
+    notePosthogRequest(at = Date.now(), page?: object): void {
+        this.lastPosthogRequestAt = at;
+        if (page) this.lastPosthogRequestAtByPage.set(page, at);
+    }
 
     /**
      * #1258 F3 (run 38104864048, PostHog readback 6108757201): PostHog batches events for ~3 s, so right after a reload
@@ -868,6 +931,30 @@ export class AnalyticsTap {
             await wait(pollMs);
         }
         return 'quiet';
+    }
+
+    /**
+     * Sam, #1662 review of 845401a5 (Codex P2 r4313846488 follow-up): the settle before a watchdog verdict waits for EVERY
+     * attached, still-open page's own flush — one page's benign batch must not end the wait while another page's fatal is
+     * still queued. Returns `flushed` once each such page sent a request after the settle began (plus a grace for sibling
+     * batches), else `quiet` at the bound. A closed page cannot flush any more and is not waited on. Never throws.
+     */
+    async settleEveryPage(
+        wait: (ms: number) => Promise<unknown>,
+        opts: { quietMs?: number; graceMs?: number; pollMs?: number; now?: () => number } = {},
+    ): Promise<'flushed' | 'quiet'> {
+        const { quietMs = 5_000, graceMs = 500, pollMs = 100, now = Date.now } = opts;
+        const started = now();
+        const closed = (p: Pick<Page, 'isClosed'>) => { try { return p.isClosed(); } catch { return true; } };
+        const pending = () => [...this.attachedPages].filter((p) => !closed(p) && (this.lastPosthogRequestAtByPage.get(p) ?? Number.NEGATIVE_INFINITY) <= started);
+        while (now() - started < quietMs) {
+            if (pending().length === 0) {
+                await wait(graceMs);
+                return 'flushed';
+            }
+            await wait(pollMs);
+        }
+        return pending().length === 0 ? 'flushed' : 'quiet';
     }
 
     /**
@@ -1010,7 +1097,12 @@ export class RwtReceipt {
         this.haltedAt = step;
     }
 
+    /** #1593 (Sam, #1662 RETURN on f527a033 item 1): once written, the receipt is sealed — a late row can never change it. */
+    private sealed = false;
+
     row(step: string, verdict: Verdict, detail: string, evidence?: ReceiptRow['evidence']): void {
+        // A late FAIL still fails the test; it never edits the receipt already published.
+        if (this.sealed) { if (verdict === 'FAIL') expect.soft(verdict, `${step} (after the receipt was written): ${detail}`).toBe('PASS'); return; }
         const recorded = rowAfterHalt({ step, verdict, detail, evidence }, this.haltedAt);
         this.rows.push(recorded);
         if (recorded.verdict === 'FAIL') expect.soft(recorded.verdict, `${step}: ${recorded.detail}`).toBe('PASS');
@@ -1068,6 +1160,7 @@ export class RwtReceipt {
             forbidden: this.forbidden, testStatus: body.testStatus,
         });
         writeFileSync(path.join(dir, `${this.suite}.receipt.json`), out.receiptText);
+        this.sealed = true;
         const worksheetPath = path.join(dir, `${this.suite}.human-worksheet.md`);
         if (out.worksheetText === null) rmSync(worksheetPath, { force: true });
         else writeFileSync(worksheetPath, out.worksheetText);

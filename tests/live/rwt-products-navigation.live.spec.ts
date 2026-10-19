@@ -35,6 +35,7 @@ import {
     telemetryClassRows,
     signOutThroughProduct,
 } from './helpers/rwtJourney';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { RWT_BROWSER_IDENTITY_ARGS } from './helpers/rwtBrowserIdentity';
 import { openProductsItem, type ProductsMenuItem } from './helpers/productsMenu';
@@ -67,7 +68,16 @@ const readUid = async (page: Page) => extractUidFromAuthStorage(await page.evalu
     () => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })),
 ));
 
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
+
 test.describe('RWT — returning user and Products navigation @live', () => {
+    // #1593 (Sam, #1662 RETURN control 1): the journey's ONE owned finalization (rows and receipt) — the same memoized run
+    // the body's finally starts, so a test timeout still writes the receipt. This journey writes nothing, so nothing to delete.
+    test.afterEach(async () => {
+        await finalizer.drain();
+    });
+
     test('an existing user signs in and moves between Open Mic and Focus Points without opening the microphone', async ({ page }, testInfo) => {
         test.setTimeout(300_000);
         // This test writes nothing, so the disposable-account write acknowledgement does not apply to it.
@@ -79,6 +89,8 @@ test.describe('RWT — returning user and Products navigation @live', () => {
         receipt.meta.account = process.env.RWT_RETURNING_EMAIL ? 'authorized factory disposable' : 'maintained FREE_TEST account';
         const tap = new AnalyticsTap();
         tap.attach(page);
+        // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
         const entitlement = new EntitlementTap();
         entitlement.attach(page);
         // #1593 (CLI Dev 2026-10-18): case 15's budget maximum is 0, so the campaign needs an OBSERVED zero, not an absent
@@ -88,6 +100,30 @@ test.describe('RWT — returning user and Products navigation @live', () => {
         await installMicAcquisitionCounter(page);
         await suppressPageSnapshot(testInfo);
 
+        const finish = finalizer.once(async () => {
+            // Sam, #1662 RETURN: every step is bounded and isolated, so the receipt always runs.
+            const steps = new FinalizationSteps();
+            await steps.step('telemetry observed', () => tap.awaitObserved(page, { journey_step: 1 }));
+            // Codex P2 r4316425029: an event-specific wait returns at once when its events were decoded after the FIRST take,
+            // so a lifecycle failure from the LAST take may still be queued — settle every attached page's own flush first.
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+            await steps.step('watchdog', () => watch.record(receipt));
+            await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+            await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
+            let userJourneys: string[] = [];
+            await steps.step('telemetry rows', () => {
+                receipt.row('journey_step sent', tap.sent('journey_step').length > 0 ? 'PASS' : 'HOLD',
+                    'journey_step left the page (sent, not yet received)', { sent: tap.sent('journey_step').length });
+                // A maintained account is never given the canary claim, so its telemetry is not readback-eligible here.
+                ({ userJourneys } = telemetryClassRows(receipt, tap, false, false)); // qualifies no journey (#1532)
+            });
+            await steps.step('receipt content check', () => {
+                const leaks = receiptContentLeaks(receipt, [RETURNING_EMAIL, RETURNING_PASSWORD, SERVICE_ROLE].filter(Boolean));
+                receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', 'no credential or email in the receipt');
+            });
+            steps.report(receipt);
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes(), userJourneys);
+        });
         try {
             if (!RETURNING_EMAIL || !RETURNING_PASSWORD) {
                 receipt.row('returning-user sign-in', 'HOLD',
@@ -216,16 +252,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 { path: signOutPath ?? 'none', sessionCleared });
             if (historyUnproven) throw new Error('HOLD returning history: the returning-user account has no saved session, so returning history is unproven');
         } finally {
-            await tap.awaitObserved(page, { journey_step: 1 });
-            await generations.settle();
-            coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
-            receipt.row('journey_step sent', tap.sent('journey_step').length > 0 ? 'PASS' : 'HOLD',
-                'journey_step left the page (sent, not yet received)', { sent: tap.sent('journey_step').length });
-            // A maintained account is never given the canary claim, so its telemetry is not readback-eligible here.
-            const { userJourneys } = telemetryClassRows(receipt, tap, false, false); // qualifies no journey (#1532)
-            const leaks = receiptContentLeaks(receipt, [RETURNING_EMAIL, RETURNING_PASSWORD, SERVICE_ROLE].filter(Boolean));
-            receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', 'no credential or email in the receipt');
-            receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes(), userJourneys);
+            await finish();
         }
     });
 });

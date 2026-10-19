@@ -15,24 +15,30 @@ import type { BrowserContext, Dialog, Page, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { routeVercelBypass } from './helpers/deployedLiveTest';
-import { applyRwtIdentity, rwtIdentityFor } from './helpers/rwtBrowserIdentity';
+import { applyRwtIdentity, rwtIdentityFor, rwtPageReady } from './helpers/rwtBrowserIdentity';
 import {
     AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, rwtLaunchArgs,
     suppressPageSnapshot, telemetryClassRows,
 } from './helpers/rwtJourney';
 import { flatTabState, isRecording, observeCloudStt, persistedId, tabState } from './helpers/rwtPageState';
+import { RECORDER_BAR } from '../helpers/micControls';
 import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAccount';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { openProductsItem } from './helpers/productsMenu';
+import type { RecoveryRead } from './helpers/rwtRecoveryFence1593';
+import {
+    type FenceCaptures, type RecoveryDb, SessionCreateBinding, readBaselineRows, readRecording, readSnapshot, recoveryFenceRow,
+} from './helpers/rwtRecoveryCapture';
 import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
-    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
+    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, measureRealmClock, crossRealmBoundary, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -79,35 +85,68 @@ async function startFirstPrivateTake(page: Page, label: string): Promise<void> {
     }
 }
 
-async function finish(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
-    owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null): Promise<void> {
-    const cloudVerdict = noCloudVerdict(cloud.requests);
-    receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
-    await generations.settle();
-    const sessionIdsVerified = await refreshCompletedTakeIds(takes, takeBaseline, () => readRows(owner.uid));
-    coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes, sessionIdsVerified });
-    if (owner.uid) {
-        try {
-            await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-            receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-        } catch {
-            receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-        }
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
+
+async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
+    owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null,
+    steps: FinalizationSteps, beforeReport?: () => Promise<void>): Promise<void> {
+    await steps.step('no cloud row', () => {
+        const cloudVerdict = noCloudVerdict(cloud.requests);
+        receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
+    });
+    await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+    await steps.step('coaching budget', async () => {
+        const sessionIdsVerified = await refreshCompletedTakeIds(takes, takeBaseline, () => readRows(owner.uid));
+        coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes, sessionIdsVerified });
+    });
+    // A signup that died before its uid was read is still found by its created email.
+    if (owner.uid || owner.email) {
+        // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
+        await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
+            () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })));
     }
-    telemetryClassRows(receipt, tap, claimed, false);
+    await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
+    // Codex P2 on 76a0bf6e: work that must be reported (closing extra devices) runs before the report seals the steps.
+    if (beforeReport) await beforeReport();
+    steps.report(receipt);
     receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
 }
 
 async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: AbandonVariant): Promise<void> {
+    const suite = `${ABANDON_SUITE}-${variant}`;
     const receipt = new RwtReceipt(`${ABANDON_SUITE}-${variant}`);
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     const cloud = { requests: 0 };
     observe(page, tap, generations, cloud);
     const owner: RunOwner = { email: '', uid: '' };
+    // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     const takes: string[] = [];
     let claimed = false;
     let rowsBeforeFirst: RowFacts[] | null = null;
+    // #1593 case 10 (CLI's accepted oracle b6fab3a9 + receiving proposal 6272559858/6272635456): the displaced take is judged
+    // by complete account-scoped reads at A (first take recording), B (successor recording) and C (saved), with each take's
+    // identity bound passively from its own create_session_and_update_usage exchange (phase taken at REQUEST time).
+    const recoveryRunId = `${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}-${variant}`;
+    const recoveryDb = admin as unknown as RecoveryDb;
+    const creations = new SessionCreateBinding((() => { try { return new URL(SUPABASE_URL).origin; } catch { return ''; } })(), () => owner.uid);
+    creations.attach(page);
+    const fence: FenceCaptures = {};
+    // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+    // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+    const finish = finalizer.once(async () => {
+        // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+        const steps = new FinalizationSteps();
+        // Case 10: passive listeners end with the journey; raw identities never reach a receipt.
+        await steps.step('session binding detach', () => { creations.detach(); receipt.forbid(...creations.identities()); });
+        // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+        // (bounded; page-independent, since a finalizer may run after its tabs closed).
+        await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+        await steps.step('watchdog', () => watch.record(receipt));
+        await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps);
+    });
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `abandon-${variant}`, admin, SERVICE_ROLE);
@@ -115,9 +154,16 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         await openOpenMic(page);
         // The account's rows before the first take: the baseline the left take's persistence is read against.
         rowsBeforeFirst = await readRows(owner.uid);
+        // Case 10: the identity baseline before ANY possible Start, and phase A armed before it (cold setup may auto-start).
+        fence.beforeFirst = await readBaselineRows(recoveryDb, owner.uid);
+        creations.arm('A');
         await startFirstPrivateTake(page, `abandon-${variant}-1`);
         await page.waitForTimeout(MID_TAKE_MS);
         const during = await tabState(page);
+        // Case 10 A: the first take as it records — strict live-track read, complete rows and current authority.
+        const firstRead = await readSnapshot(recoveryDb, recoveryRunId, owner.uid);
+        fence.first = { recording: await readRecording(page), snapshot: firstRead.snapshot, duplicate: firstRead.duplicateIdentity };
+        creations.arm(null);
         const midTake = during.runtimeState === 'RECORDING' && during.liveTracks > 0;
         receipt.row('take is recording before leaving', midTake ? 'PASS' : 'HOLD', midTake
             ? 'a Private take was recording with a live microphone when the person left'
@@ -125,6 +171,9 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         if (!midTake) return;
 
         let returned = page;
+        // #1593 (Sam, #1662 RETURN control 3): the left take's lease and the truthful return refusal are expected from the
+        // leave until the return Start has been judged; the next take is strict.
+        watch.setFaultPhase(true);
         if (variant === 'navigate-away') {
             // #1258 run 38876623812: the product asks before leaving a live recording. Unanswered, Playwright dismisses it
             // (the person's Cancel) and the page rightly stays; a person leaving answers Leave. Only the first exact leave
@@ -146,6 +195,14 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
             const afterLeaving = await tabState(page);
             const left = releasedVerdict(afterLeaving, 'after leaving');
             receipt.row('leaving mid-recording releases the microphone', left.status, left.detail, { ...afterLeaving });
+            // #1593 (live case 9, run 39167895568): Focus Points opens its setup as a MODAL over the header, which
+            // intercepted the Products click for 20 s. A person closes it before using Products again — exactly as the
+            // pending-start and returning-user journeys do — so the return below is reachable.
+            const setupOpen = await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+            if (setupOpen) {
+                await page.keyboard.press('Escape');
+                await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0, { timeout: 10_000 });
+            }
             await openProductsItem(page, 'open-mic');
             await page.waitForURL(/\/session/, { timeout: 45_000 });
         } else {
@@ -162,7 +219,11 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
                 ? 'the tab closed, ending its document and every microphone track it held'
                 : 'the tab did not close after the person chose Leave', { leavePrompt, tabClosed });
             returned = await context.newPage();
+            // #1593: its identity and proven document tracking are in place before its first navigation.
+            await rwtPageReady(returned);
+            watch.setPage(returned);
             observe(returned, tap, generations, cloud);
+            creations.attach(returned);
             await installMicAcquisitionCounter(returned);
             await openOpenMic(returned);
         }
@@ -203,7 +264,10 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
 
         // The next take: the person presses Start, and presses again only if the product says why it refused.
         const rowsBeforeNext = await readRows(owner.uid);
+        // Case 10: the baseline before the successor's first possible Start, and phase B armed before that press.
+        fence.beforeSuccessor = await readBaselineRows(recoveryDb, owner.uid);
         await waitForPrivateEngineReady(returned, 600_000);
+        creations.arm('B');
         await returned.getByTestId('mic-start').click();
         const firstPressRecorded = await isRecording(returned, 30_000);
         let refusalCopyShown = false;
@@ -211,31 +275,46 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         if (!firstPressRecorded) {
             refusalCopyShown = await refusalShown(returned);
             if (refusalCopyShown) {
+                // Codex P2 r4314462589: the expected first refusal is spent — the explicit retry is strict, as on the two-device
+                // take-over: a refusal or an allowed lease failure of THIS press trips the watchdog at once.
+                watch.setStartRefusedAllowed(false);
+                watch.setFaultPhase(false);
                 await returned.getByTestId('mic-start').click();
                 secondPressRecorded = await isRecording(returned, 60_000);
             }
         }
         const start = returnStartVerdict({ firstPressRecorded, refusalCopyShown, secondPressRecorded });
         receipt.row('return Start is truthful', start.status, start.detail, { firstPressRecorded, refusalCopyShown, secondPressRecorded });
+        watch.setFaultPhase(false);
         if (start.status !== 'PASS') return;
+        // Case 10 B: the successor as it records, BEFORE Stop — the displaced take's fence must already hold.
+        const successorRead = await readSnapshot(recoveryDb, recoveryRunId, owner.uid);
+        fence.successor = { recording: await readRecording(returned), snapshot: successorRead.snapshot, duplicate: successorRead.duplicateIdentity };
+        creations.arm(null);
         await returned.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         await stopBenchmarkRecording(returned, `abandon-${variant}-2`, 180_000);
         await expect(returned.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 180_000 }).catch(() => undefined);
         const nextId = await persistedId(returned);
         if (nextId) takes.push(nextId);
-        const rowsAfter = await readRows(owner.uid);
-        const only = nextTakeOnlyItselfVerdict(rowsBeforeNext, rowsAfter, nextId);
-        receipt.row('next take saves only itself', only.status, only.detail,
-            { rowsBefore: rowsBeforeNext.length, rowsAfter: rowsAfter.length, activeAfter: rowsAfter.filter((r) => r.status === 'active').length });
+        // Case 10 C: the saved successor, the final rows and a successfully read absent authority; the displaced take must
+        // remain permanently fenced (CLI's oracle b6fab3a9, replacing the zero-active rule that rejected it).
+        const afterSave = await readSnapshot(recoveryDb, recoveryRunId, owner.uid);
+        const savedSessionId: RecoveryRead<string | null> = { state: 'observed', value: nextId };
+        const only = recoveryFenceRow(creations, fence, afterSave, savedSessionId, recoveryRunId, owner.uid);
+        receipt.row('next take saves only itself', only.status, only.detail, { ...only.evidence, rowsBefore: rowsBeforeNext.length });
     } catch (error) {
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
-        await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
+        await finish();
     }
 }
 
 test.describe('RWT — leaving a recording, and two tabs @live', () => {
+    test.afterEach(async () => {
+        await finalizer.drain();
+    });
+
     test('navigate away mid-recording, return, and the next take saves only itself', async ({ page }, testInfo) => {
         test.setTimeout(1_800_000);
         await abandonAndReturn(page, testInfo, 'navigate-away');
@@ -259,6 +338,25 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         let rowsBeforeFirst: RowFacts[] | null = null;
         let sameBrowserTab: Page | null = null;
         let otherDevice: BrowserContext | null = null;
+        // #1593 fail early, across both places: tab A's context and the other device are closed together on a trip.
+        const watch = armWatchdog({ page: tabA, tap, profile: watchProfileFor(TWO_TAB_SUITE), label: TWO_TAB_SUITE, contexts: () => [otherDevice] });
+        // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+        // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+        const finish = finalizer.once(async () => {
+            // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+            const steps = new FinalizationSteps();
+            // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+            // (bounded; page-independent, since a finalizer may run after its tabs closed).
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+            await steps.step('watchdog', () => watch.record(receipt));
+            // Sam, #1662 RETURN on f527a033 (item 2): each close is its own bounded, isolated step — a hung first close can
+            // neither block the drain nor skip the second close. Codex P2 on 76a0bf6e: they run after the coaching settle
+            // and cleanup but BEFORE the report, so a failed or timed-out close is in the receipt.
+            await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps, async () => {
+                await steps.step('same-browser tab close', () => sameBrowserTab?.close());
+                await steps.step('other device close', () => otherDevice?.close());
+            });
+        });
         try {
             await suppressPageSnapshot(testInfo);
             claimed = await prepareRunOwnedAccount(tabA, receipt, owner, 'two-tab', admin, SERVICE_ROLE);
@@ -270,8 +368,14 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
 
             // (1) SAME BROWSER (PM 6207105255): a second tab of this context meets this browser's own tab lock before any
             // server lease is involved. It must be refused truthfully and start no engine; A keeps recording.
+            // #1593: from the second tab on, lease refusals and the displaced take are this journey's expected faults; the
+            // take-over press itself is strict (setStartRefusedAllowed(false) below).
+            watch.setFaultPhase(true);
             sameBrowserTab = await tabA.context().newPage();
+            await rwtPageReady(sameBrowserTab);
             observe(sameBrowserTab, tap, generations, cloud);
+            // Codex P1 r4309261415: the long waits of this phase run on the second tab, so its DOM is what can stall.
+            watch.setPage(sameBrowserTab);
             await installMicAcquisitionCounter(sameBrowserTab);
             await openOpenMic(sameBrowserTab);
             await waitForPrivateEngineReady(sameBrowserTab, 600_000);
@@ -282,6 +386,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const local = secondTabBlockedVerdict({ refusalCopyShown: localRefusal, tabB: refusedLocal, tabA: stillA });
             receipt.row('same-browser tab is refused', local.status, local.detail,
                 { refusalCopyShown: localRefusal, ...flatTabState('tabB', refusedLocal), ...flatTabState('tabA', stillA) });
+            watch.setPage(tabA);
             await sameBrowserTab.close();
             sameBrowserTab = null;
 
@@ -290,6 +395,11 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             otherDevice = await browser.newContext({ baseURL, permissions: ['microphone'] });
             await routeVercelBypass(otherDevice, baseURL);
             const deviceB = await otherDevice.newPage();
+            // From here every long wait (sign-in, the cold press, the refusal, the take-over recording) runs on device B.
+            watch.setPage(deviceB);
+            // Sam, #1662 RETURN on f527a033 (item 7): the lease failure codes this phase expects are tab A's displacement only;
+            // device B's own recording stays strict throughout the take-over (its expected first-press refusal is a refusal).
+            watch.scopeFailureAllowance([tabA]);
             await applyRwtIdentity(otherDevice, deviceB, await rwtIdentityFor(browser));
             observe(deviceB, tap, generations, cloud);
             await installMicAcquisitionCounter(deviceB);
@@ -297,27 +407,83 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             await owner.signInOn(deviceB);
             await openOpenMic(deviceB);
             await selectBenchmarkMode(deviceB, 'private');
-            const setupB = await preparePrivateModelIfPrompted(deviceB, 900_000);
-            if (!setupB.recordingAlreadyStarted) {
+            // #1593 (live case 11, run 39167899488): a fresh device has no model, and since #1415 the cold control is ONE
+            // activation — consent, download AND start ("Download & start recording" = `onStart`). Under A's lease that
+            // press is a Start the lease decides, so it is the person's first press here; the download-only setup helper
+            // (which requires the status to leave `download-required`) asserted a control the product no longer has.
+            const coldB = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status')) === 'download-required';
+            // Sam, #1662 RETURN (lease-before-model): observe model work from BEFORE the first press through the refusal —
+            // every model-asset request on device B, and every published model status (a final snapshot cannot prove no
+            // prior work: loading → download-required would look clean).
+            let modelRequestsB = 0;
+            otherDevice.on('request', (r) => { if (/\/models\//.test(r.url())) modelRequestsB += 1; });
+            await deviceB.evaluate(installModelStatusHistory);
+            // Case 11 window (Sam's 13:13 ACCEPT of PM 9fc69b51; RETURN on c8e5d59f): ONE continuous observation window in
+            // each page, opened before the first press — A's runtime transitions and track continuity, B's model, microphone
+            // and runtime history — closed by one synchronous read just before the take-over press. Bound to each page's
+            // document by its token: a replaced document has no window, which is a lost observation, never zero activity.
+            const windowToken = `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            const openedA = await tabA.evaluate(openObservationWindow, { token: `${windowToken}-a`, recorderTestId: RECORDER_BAR }).catch(() => false);
+            const openedB = await deviceB.evaluate(openObservationWindow, { token: `${windowToken}-b`, recorderTestId: RECORDER_BAR }).catch(() => false);
+            if (coldB) {
+                await deviceB.getByTestId('mic-download').click();
+            } else {
                 await waitForPrivateEngineReady(deviceB, 600_000);
                 await deviceB.getByTestId('mic-start').click();
             }
-            const leaseRefusal = await deviceB.getByText(BLOCKED_COPY).first().waitFor({ timeout: 15_000 }).then(() => true).catch(() => false);
+            // Sam, #1662 RETURN (lease-before-model): the lease decides BEFORE any engine or model work — the start handler
+            // acquires it first (useSessionLifecycle acquireTakeLease). So the first press must be refused within a bounded
+            // window, and on a cold device the model must still be `download-required` when it is: a refusal that only
+            // arrives after model preparation began is a FAIL, never a slow PASS. Model work belongs to the take-over press.
+            const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();
+            const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
+            const modelRequestsBeforeRefusal = modelRequestsB;
+            // The hold the person waits. Sam (16:15 tail RETURN): both windows stay open THROUGH the take-over gesture — B marks
+            // the end of its refusal window at the click itself, in its own realm; A is cut at B's gesture time — so nothing
+            // between the last read and the gesture goes unobserved, and the take-over's own activity is never counted.
             await deviceB.waitForTimeout(2_000);
-            const [refusedB, stillA2] = [await tabState(deviceB), await tabState(tabA)];
-            const lease = secondTabBlockedVerdict({ refusalCopyShown: leaseRefusal, tabB: refusedB, tabA: stillA2 });
-            receipt.row('another device is refused by the account lease', lease.status, lease.detail,
-                { refusalCopyShown: leaseRefusal, ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
+            const gestureArmed = await deviceB.evaluate(armTakeoverGesture, {}).catch(() => false);
+            const modelRequestsBeforeGesture = modelRequestsB; // the take-over legitimately downloads the model afterwards
 
-            // The person's explicit second press is the take-over.
-            await deviceB.getByTestId('mic-start').click();
-            await isRecording(deviceB, 60_000);
+            // The person's explicit second press is the take-over — on whichever primary control the refused page renders
+            // (still the cold `mic-download` when the lease refused before any download).
+            // Codex P2 r4309303711: the expected refusal is spent — a refusal of THIS press trips the watchdog at once, and a
+            // take-over that never records ends the scenario here instead of carrying on through the later waits.
+            watch.setStartRefusedAllowed(false);
+            await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();
+            const closedB = await deviceB.evaluate(closeObservationWindow, {}).catch(() => null);
+            const gestureAt = closedB?.gestureAt ?? null;
+            // B's gesture is in B's clock: map it into A's with MEASURED offsets and their actual uncertainty.
+            const [clockA, clockB] = [await measureRealmClock(tabA), await measureRealmClock(deviceB)];
+            const boundaryA = gestureAt !== null && clockA && clockB ? crossRealmBoundary(gestureAt, clockA, clockB) : null;
+            const closedA = await tabA.evaluate(closeObservationWindow, boundaryA ?? {}).catch(() => null);
+            const lost: ObservationClose = {
+                token: null, boundary: 'none', boundaryUncertain: false, gestureAt: null, runtimeTransitions: [], runtimeNow: null, modelTransitions: [], modelNow: null,
+                micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false,
+            };
+            const observedWindow = openedA && openedB && gestureArmed && boundaryA !== null && closedA?.token === `${windowToken}-a` && closedB?.token === `${windowToken}-b`;
+            const refusal = leaseRefusalWindowVerdict({
+                observed: observedWindow, refusalCopyShown: refusedInTime, cold: coldB, modelRequests: modelRequestsBeforeGesture, b: closedB ?? lost, a: closedA ?? lost,
+            });
+            receipt.row('another device is refused by the account lease', refusal.status, refusal.detail, {
+                refusalCopyShown: refusedInTime, coldB, observedWindow, gestureMarked: gestureAt !== null, boundaryUncertainA: (closedA ?? lost).boundaryUncertain,
+                clockMarginMs: boundaryA?.marginMs ?? -1,
+                modelRequestsBeforeRefusal, modelRequestsBeforeGesture,
+                modelTransitionsB: (closedB ?? lost).modelTransitions.length, micAcquisitionsB: (closedB ?? lost).micAcquisitionsSinceOpen ?? -1,
+                runtimeTransitionsA: (closedA ?? lost).runtimeTransitions.length, tracksStoppedA: (closedA ?? lost).tracksStoppedSinceOpen,
+                micAcquisitionsA: (closedA ?? lost).micAcquisitionsSinceOpen ?? -1,
+                deviceBRuntimeAtGesture: (closedB ?? lost).runtimeNow, tabARuntimeAtGesture: (closedA ?? lost).runtimeNow,
+            });
+            if (!(await isRecording(deviceB, coldB ? 900_000 : 60_000))) throw new Error('the explicit take-over press did not start a recording');
             const displacedCopyShown = await tabA.getByText(DISPLACED_COPY).waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
             await expect.poll(async () => (await tabState(tabA)).liveTracks, { timeout: 20_000 }).toBe(0).catch(() => undefined);
             const [displacedA, takingB] = [await tabState(tabA), await tabState(deviceB)];
             const moved = takeOverVerdict({ tabA: displacedA, tabB: takingB, displacedCopyShown });
             receipt.row('take-over moves the one engine', moved.status, moved.detail,
                 { displacedCopyShown, ...flatTabState('tabA', displacedA), ...flatTabState('deviceB', takingB) });
+            // Codex P2 r4309443360: the displaced take's lease codes were the expected faults; from here device B's own
+            // recording and save are strict — B failing with a lease code is never excused.
+            watch.setFaultPhase(false);
 
             await deviceB.waitForTimeout(6_000);
             await stopBenchmarkRecording(deviceB, 'two-tab-b', 180_000);
@@ -334,9 +500,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
-            await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
-            await sameBrowserTab?.close().catch(() => undefined);
-            await otherDevice?.close().catch(() => undefined);
+            await finish();
         }
     });
 });
