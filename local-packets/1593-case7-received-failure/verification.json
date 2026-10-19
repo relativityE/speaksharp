@@ -59,6 +59,17 @@
     "fullQualityRerun": false,
     "freshExactHeadCiAndReviewRequired": true
   },
+  "evidencePortability": {
+    "ciFailure": "no-local-machine-paths guard only, caused by raw failure stack paths",
+    "normalizedReports": 6,
+    "manifest": "normalization.json",
+    "rawOriginals": "preserved privately outside Git",
+    "substitutionTokens": ["<repo>", "<dependencies>", "<temporary>", "<home>"],
+    "countsTimesAssertionsPreserved": true,
+    "repositoryGuardPassed": 3,
+    "sourceChanged": false,
+    "freshExactHeadCiRequired": true
+  },
   "limits": [
     "Offline controls with synthetic received events and stored-report doubles; not a live telemetry ingestion run",
     "Receipt assurance PASS does not change coaching FAIL or EXTERNAL/INCOMPLETE",

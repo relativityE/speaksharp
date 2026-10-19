@@ -1,6 +1,6 @@
 # CLI case 7 active handoff
 
-Checkpoint: 2026-10-19 13:36 UTC. Owner: CLI Dev, Lane B. Sam owns coordination.
+Checkpoint: 2026-10-19 13:58 UTC. Owner: CLI Dev, Lane B. Sam owns coordination.
 
 Branch: `cli-dev/1593-received-failure-chain-20261019`.
 Base: `83029ebb67216b2690eeff59e4ec1730d5f6ffe8` (new main from #1664).
@@ -80,7 +80,19 @@ after the cap fix (before the final large-integer test row was added). Full loca
 quality's provenance above remains unchanged; fresh CI/review of the successor is
 required, and no global-quality rerun is fabricated.
 
-Next: publish the bounded-count successor to #1665, then obtain Sam's exact-head
+## Evidence portability correction
+
+Sam source-accepted `2f10a057` at 13:39; PM independently ran 32 bounded controls.
+Its CI then failed only the repository's no-local-machine-paths guard: raw failure
+stacks included the author's dependency/home paths. Six published JSON reports
+now replace environment prefixes with `<repo>`, `<dependencies>`, `<temporary>`
+and `<home>`. Counts, timings, assertions, object keys/array lengths and failure
+text outside those path fragments are preserved. Raw byte originals remain in a
+private archive outside Git; `normalization.json` records raw/normalized hashes.
+The unchanged repository guard over all tracked textual evidence passes 3/3.
+No product, adapter, validator or test assertion changed in this packaging fix.
+
+Next: publish the packaging-only successor to #1665, then obtain Sam's exact-head
 disposition. Implementation and local verification are complete; CI, independent
 review, serial landing and any authorized final-release live proof remain open.
 Sam's 12:37:54 receipt confirms App's
