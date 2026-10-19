@@ -1,0 +1,30 @@
+{
+  "issue": 1643,
+  "branch": "cli-dev/1643-recording-admission-20261019",
+  "base": "d77ef78f04f998d098b0c5a97fce1908198cee95",
+  "increment": "Serialize new recording-lease admission with durable pending intent; preserve already-admitted completion",
+  "migration": "20261019055102_account_pending_recording_admission_1643.sql",
+  "causal_reproduction": "Two actual PostgreSQL clients: the old pending and acquire functions commit across each other's open transactions. The successor waits on the same profile-first account transaction in both race orders.",
+  "fix": [
+    "Wrap the unchanged original acquire implementation with profile then account-billing lock, before recording lock; reject pending/closing attempts including same-ID/forced acquisitions",
+    "Guard old clients' new implicit lease identities without changing accepted-lease heartbeats",
+    "Revoke direct client lease DML and private-helper execution; preserve authenticated owner SELECT and public RPC contract",
+    "Keep heartbeat, Stop/release and complete_session_v2 unchanged"
+  ],
+  "executed": [
+    "node --test tests/db/account-recording-admission-realpg.mjs tests/db/account-closure-pending-realpg.mjs: 17/17 PASS",
+    "New harness retains actual old-source crossing and successor blocking, both clients' exits/stdout/stderr, and exact SQL/harness hashes",
+    "Actual admitted placeholder then pending then heartbeat/Stop/complete_session_v2/idempotent replay PASS",
+    "Forced and same-ID reacquisition, legacy implicit Start, unauthenticated and missing-profile callers, helper/table ACLs, rollback recovery and unrelated-account isolation controls PASS",
+    "Scoped ESLint PASS; full default pnpm quality PASS exit 0; full Supabase replay driver --plan PASS, executed=false"
+  ],
+  "evidence": "native-receipts.json",
+  "limits": [
+    "Local native PostgreSQL over selected production pending/recording/retention chains; Auth schema and usage adapter are fixture seams",
+    "Full disposable Supabase replay is wired but not executed locally; exact-head CI/review remain required",
+    "This is lease admission, not complete per-work admission/settlement, coaching/portal/background/executor/teardown integration or customer-exit acceptance",
+    "Missing-row save-only recovery identity, accepted-work settlement/executor and deployed caller cutover remain separate parent requirements",
+    "No hosted database/provider/account activity, migration apply, merge, deploy or deletion occurred"
+  ],
+  "release_route": "Publish immutable successor for Sam review; leave active #1658 unchanged. App retains selected serial landing and must reconcile final main/migration order before a separately authorized apply. This migration depends on #1658 pending schema and does not grant destructive authority."
+}

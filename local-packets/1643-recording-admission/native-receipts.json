@@ -1,0 +1,80 @@
+{
+  "createdAt": "2026-10-19T05:55:06.042Z",
+  "boundary": "selected production pending/recording/retention SQL; local native PostgreSQL; usage adapter stub",
+  "sourceSha256": {
+    "backend/supabase/migrations/20261019055102_account_pending_recording_admission_1643.sql": "e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4",
+    "tests/db/account-recording-admission-realpg.mjs": "8e3be0498dc40d9ca59dd714a3c581ed5eb4e5eb974becfa75a2dce0287a7043",
+    "backend/supabase/migrations/20260801000000_sessions_transcript_state.sql": "26ce24aa2d81d2cb4a1ff8fb6cee716485262b395f59354dd2528ae28356aba5",
+    "backend/supabase/migrations/20260803000000_transcript_retention_newest_two.sql": "23212b6a2f182d27584737462155989bb4ac5226727d7585041573ada4d12feb",
+    "backend/supabase/migrations/20260731120000_session_progress_evaluations.sql": "c5ebe8354c9b949045229d668197ebfe875c56204703382191a90a378fe9672f",
+    "backend/supabase/migrations/20260804000000_transcript_retention_converge_on_save.sql": "f5fec625a626f00d93efd51e06d333dbb3b71f514f200df05716d0227dcf3710",
+    "backend/supabase/migrations/20260805000000_transcript_retention_preflight.sql": "4af2eec87fd344b13215ef3bec056f9f0f5f52ce1f909df2673f084f92fe547a",
+    "backend/supabase/migrations/20260819120000_complete_session_v2_atomic_retention_1314.sql": "da6392389dc74ab1d7cf06ca9326a089d565eff497745473ab61379d7dd5c41e",
+    "backend/supabase/migrations/20260908120000_transcript_retention_newest_one.sql": "784e7f67be64017f9fd73871107d7e0735db97010bf6e36c08ce16f4376ff412",
+    "backend/supabase/migrations/20260607040000_active_recording_lease.sql": "422880e3f25dadd7eaa595d275233e2c7620686dd8f09ee8294a012069abb399",
+    "backend/supabase/migrations/20260923120000_one_active_engine_per_account_1476.sql": "94c92e280285816287de54e48e6ec393b16fe0fe54126b7ca5a3b964015b3e5f",
+    "backend/supabase/migrations/20260926190000_session_product_marker_1258.sql": "b576f0d888fde0217911f9022c2dad4710e2314a6cb963344c6cfa8e11da101f"
+  },
+  "races": [
+    {
+      "source": "prior",
+      "winner": "pending",
+      "observedBlock": false,
+      "holder": {
+        "code": 0,
+        "stdout": "{\"phase\": \"pending\", \"requestId\": \"8bebd3a7-3201-488e-b99b-b04268dd28af\", \"checkoutPending\": 0, \"destructiveEnabled\": false}\n",
+        "stderr": ""
+      },
+      "waiter": {
+        "code": 0,
+        "stdout": "b7010000-0000-4000-8000-000000000001\n{\"acquired\": true, \"took_over\": false}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "source": "prior",
+      "winner": "admission",
+      "observedBlock": false,
+      "holder": {
+        "code": 0,
+        "stdout": "b7010000-0000-4000-8000-000000000002\n{\"acquired\": true, \"took_over\": false}\n",
+        "stderr": ""
+      },
+      "waiter": {
+        "code": 0,
+        "stdout": "{\"phase\": \"pending\", \"requestId\": \"49b43da4-b702-430e-8c8b-6f4a90171088\", \"checkoutPending\": 0, \"destructiveEnabled\": false}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "source": "successor",
+      "winner": "pending",
+      "observedBlock": true,
+      "holder": {
+        "code": 0,
+        "stdout": "{\"phase\": \"pending\", \"requestId\": \"72807306-55be-45d3-8eca-b10b7c0376b9\", \"checkoutPending\": 0, \"destructiveEnabled\": false}\n",
+        "stderr": ""
+      },
+      "waiter": {
+        "code": 0,
+        "stdout": "b7010000-0000-4000-8000-000000000001\n{\"reason\": \"account_closure_pending\", \"acquired\": false}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "source": "successor",
+      "winner": "admission",
+      "observedBlock": true,
+      "holder": {
+        "code": 0,
+        "stdout": "b7010000-0000-4000-8000-000000000002\n{\"acquired\": true, \"took_over\": false}\n",
+        "stderr": ""
+      },
+      "waiter": {
+        "code": 0,
+        "stdout": "{\"phase\": \"pending\", \"requestId\": \"bc7d3e3b-13a6-4c0f-a311-1cc62be36648\", \"checkoutPending\": 0, \"destructiveEnabled\": false}\n",
+        "stderr": ""
+      }
+    }
+  ]
+}
