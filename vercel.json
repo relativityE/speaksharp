@@ -5,6 +5,13 @@
     "framework": "vite",
     "installCommand": "pnpm install --frozen-lockfile",
     "ignoreCommand": "node scripts/vercel-ignore-build.mjs",
+    "git": {
+        "deploymentEnabled": {
+            "**": false,
+            "main": true,
+            "preview/**": true
+        }
+    },
     "rewrites": [
         {
             "source": "/api/(.*)",
