@@ -666,7 +666,7 @@ function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: stri
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
 // #1593 (Sam, #1662 RETURN on 2cab5b0c): document identity is proven by the browser — see rwtDocumentIdentity.ts.
-export { CommittedDocumentTracker, trackDocuments, type DocumentRef } from './rwtDocumentIdentity';
+export { DocumentProvenance, trackDocuments, type DocumentRef } from './rwtDocumentIdentity';
 
 export class AnalyticsTap {
     /** #1258 smoke item 2: every event-carrying PostHog request and its outcome, in send order (retries are new entries). */
@@ -705,10 +705,10 @@ export class AnalyticsTap {
         this.transportOpen = true;
         const generation = ++this.transportGeneration;
         const live = () => this.transportOpen && this.transportGeneration === generation;
-        // #1593 (Sam, #1662 RETURNs on f527a033 / 76a0bf6e / 46ebed0f / 814d2e25 / 2cab5b0c): which COMMITTED document of this
-        // page sent each event — a boot IS a document load. Tracked for the PAGE's lifetime and proven by the browser's own
-        // commits (`documentTrackerOf`), independently of the transport-outcome listeners below: re-attaching the tap to
-        // another page must never stop tracking this one while its sent-event capture continues.
+        // #1593 (Sam, #1662 RETURNs on f527a033 / 76a0bf6e / 46ebed0f / 814d2e25 / 2cab5b0c / 65dd8b8f): which document of
+        // this page sent each event — a boot IS a document load — from the browser's own record of each request
+        // (`documentTrackerOf`, rwtDocumentIdentity.ts), for the PAGE's lifetime and independently of the transport-outcome
+        // listeners below: re-attaching the tap to another page must never stop tracking this one.
         const documents = documentTrackerOf(page);
         const mainNavigation = (request: Request): boolean => {
             try { return request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { return false; }
@@ -783,10 +783,13 @@ export class AnalyticsTap {
             }
             // #1593 (Sam, #1662 RETURN): which page SENT each event, so a watchdog can refuse evidence from pages it does not
             // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.
+            // Sam, #1662 RETURNs on b0dd763a / 65dd8b8f: the document is the loader the BROWSER says sent this request,
+            // read through a reference that settles when that record is joined (never the harness's clock or arrival order).
+            // Every bodied PostHog POST joins its record (flag and other non-event posts too, so none is left waiting).
+            const ref = body && body.length > 0 && request.method() === 'POST' ? documents.refFor(request.url(), body) : null;
             for (let i = before; i < this.events.length; i += 1) {
                 Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
-                // Sam, #1662 RETURN on b0dd763a: the document is read through its reference, which may still be settling.
-                const ref = documents.currentRef();
+                if (!ref) continue;
                 Object.defineProperty(this.events[i], 'sourceDocumentRef', { value: ref, enumerable: false });
                 Object.defineProperty(this.events[i], 'sourceDocument', { get: () => (ref.resolved ? ref.generation : undefined), enumerable: false });
                 Object.defineProperty(this.events[i], 'sourceDocumentAt', { get: () => (ref.resolved ? ref.committedAt : undefined), enumerable: false });

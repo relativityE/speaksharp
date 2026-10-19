@@ -1,121 +1,227 @@
 /**
- * #1593 (Sam, #1662 RETURN on 2cab5b0c) — WHICH COMMITTED DOCUMENT OF A PAGE SENT EACH EVENT.
+ * #1593 (Sam, #1662 RETURNs on 2cab5b0c / 65dd8b8f) — WHICH DOCUMENT OF A PAGE SENT EACH EVENT, and from when that
+ * document existed, both stated by the browser on the page's own CDP session.
  *
- * Playwright's `framenavigated` fires for a new document AND for every same-document change (pushState, hash, a route
- * notification to the same URL), so inferring commits from it — matched against navigation responses by URL — can never
- * prove which document is current: a superseded or failed navigation cannot prove the predecessor, and URL equality cannot
- * prove a new document. Document ownership comes from the browser instead. Chromium's DevTools `Page.frameNavigated` fires
- * for a main-frame CROSS-DOCUMENT commit only (`Page.navigatedWithinDocument` reports the same-document kind, so it is never
- * a boundary). The live RWT harness is Chromium-only and already keeps a page-lifetime CDP session (`applyRwtIdentity`).
+ * Neither navigation timing nor the harness's clock can establish an event's document: Playwright's `framenavigated` fires
+ * for same-document changes too, URL equality proves nothing, and a host callback's arrival time is not the browser's
+ * capture boundary. Chromium states it directly (verified locally on Playwright's Chromium):
+ * - `Network.requestWillBeSent` carries the `loaderId` of the document that sent the request — page fetches, a request
+ *   after a same-document hash change and the `pagehide` beacon each carry their own document's loader;
+ * - `Page.frameNavigated` carries the main frame's committed `loaderId`, after the replaced document's beacon on the session;
+ * - `Page.lifecycleEvent` `init` marks the new document's start on the browser's monotonic clock, and every
+ *   `requestWillBeSent` pairs that clock with wall time — so the document's start is known on the SAME clock the page's own
+ *   event timestamps use. The replaced document's `pagehide` capture fell before it; the new document's first capture after.
  *
- * Anything that cannot be proven makes the PAGE uncertain — page-level state, held whether or not an event has arrived —
- * until the next proven commit: a main-frame commit seen while the CDP source is not live yet (or on a page that has none),
- * and a back/forward-cache restore (an earlier document returns). Events captured while uncertain keep an unresolved,
- * ambiguous reference that never resolves: the watchdog judges a known boot's event as that boot's own evidence (fail
- * closed) and holds an unknown boot's (HOLD, never PASS).
+ * Each decoded PostHog request is joined to the browser's record of it by exact URL and body bytes, a CANDIDATE match:
+ * exactly one record and one decoded request for a key settle it; a second record or request for the same key at any time
+ * makes the key a conflict (HOLD), never a first-come pairing. A settled request belongs to its loader's document, whose
+ * start (`committedAt`, browser wall clock) still gates each event's boot binding — so an earlier boot's queued events
+ * flushed by a later document can neither claim its boot slot nor suppress its fatal. A request the browser sent from a
+ * document the page had already left is `replaced`: proven old-document evidence, excluded by the watchdog. Both facts come
+ * from one CDP session, which delivers the target's Network and Page events in the order the browser emitted them.
  *
- * Residual, stated rather than claimed away: an event's document is the one current when the harness observes the event's
- * request. The request and the commit come from the same browser connection in the order the browser emitted them; nothing
- * here reorders them by timestamp.
+ * Everything else stays unattributed and the page cannot finish clean: no CDP source, a refused enable, a lost or crashed
+ * session, a body the browser would not expose, a loader the page never committed or whose start is unknown, or a worker's
+ * request (empty loader). Only the FIRST session given for a page is its authority; a later one is ignored.
  */
-import type { Frame, Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import type { CDPSession, Page } from '@playwright/test';
 
-/** Which document an event belongs to; `ambiguous` (and never resolved) when the page's document could not be proven. */
+/** Which document an event belongs to. `replaced`: proven to come from a document the page had already left. */
 export interface DocumentRef {
     resolved: boolean;
     ambiguous: boolean;
+    replaced: boolean;
     generation: number;
+    /** The document's start on the browser's wall clock (ms): no event captured before it can bind its boot. */
     committedAt: number;
 }
 
-/** The CDP `Page.frameNavigated` parameters the tracker reads. */
-export interface FrameNavigatedEvent {
-    frame: { id: string; parentId?: string };
-    type?: string;
+/** The part of a Playwright `CDPSession` the provenance source needs. */
+export type DocumentCdpSession = Pick<CDPSession, 'on' | 'send'>;
+
+interface CdpRequestWillBeSent {
+    requestId: string;
+    loaderId: string;
+    timestamp: number;
+    wallTime: number;
+    request: { url: string; method: string; hasPostData?: boolean; postDataEntries?: { bytes?: string }[] };
 }
+interface CdpFrameNavigated { frame: { id: string; parentId?: string; loaderId: string } }
+interface CdpLifecycleEvent { frameId: string; loaderId: string; name: string; timestamp: number }
 
-/** The part of a Playwright `CDPSession` the tracker needs. */
-export interface DocumentCdpSession {
-    on(event: 'Page.frameNavigated', listener: (event: FrameNavigatedEvent) => void): unknown;
-    send(method: 'Page.enable'): Promise<unknown>;
-}
+const POSTHOG_HOST = /posthog\.com$/i;
 
-export class CommittedDocumentTracker {
-    generation = 0;
-    committedAt = Date.now();
-    /** Whether a supported commit source (CDP) is live for this page; until then every main-frame commit is unproven. */
-    proven = false;
-    private uncertainRef: DocumentRef | null = null;
-    private settledRef: DocumentRef | null = null;
+export const isPosthogPost = (url: string, method: string): boolean => {
+    if (method !== 'POST') return false;
+    try { return POSTHOG_HOST.test(new URL(url).host); } catch { return false; }
+};
 
-    /** The document an event captured NOW belongs to — the page-level ambiguous reference while the page is uncertain. */
-    currentRef(): DocumentRef {
-        if (this.uncertainRef) return this.uncertainRef;
-        if (!this.settledRef || this.settledRef.generation !== this.generation) {
-            this.settledRef = { resolved: true, ambiguous: false, generation: this.generation, committedAt: this.committedAt };
+const keyOf = (url: string, body: Buffer): string => `${url}\n${createHash('sha256').update(body).digest('hex')}`;
+
+const unresolvedRef = (ambiguous: boolean): DocumentRef =>
+    ({ resolved: false, ambiguous, replaced: false, generation: Number.NaN, committedAt: Number.NaN });
+
+interface BrowserRecord { loaderId: string; replaced: boolean }
+
+export class DocumentProvenance {
+    /** A CDP source was given for the page. */
+    attached = false;
+    /** The source answered every enable and the frame tree: requests from now on carry provenance. */
+    live = false;
+    /** The source was lost (detached or crashed while the page was open). */
+    lost = false;
+    /** The page closed normally: its source ended with it. */
+    ended = false;
+    /** Keys with more than one browser record or decoded request: no pairing is proven. */
+    conflicts = 0;
+    private mainFrameId: string | null = null;
+    private current: string | null = null;
+    private readonly loaders = new Map<string, { generation: number; initMono: number | null }>();
+    /** Browser wall-clock ms minus monotonic ms, from the latest request record. */
+    private offsetMs: number | null = null;
+    private readonly records = new Map<string, BrowserRecord[]>();
+    private readonly refs = new Map<string, DocumentRef[]>();
+    private readonly conflicted = new Set<string>();
+
+    /** Whether everything this page sent can be attributed: a live source that was never lost. */
+    get proven(): boolean {
+        return this.live && !this.lost;
+    }
+
+    /** Decoded requests whose document is not proven (waiting, conflicted, or never joinable). */
+    get unattributed(): number {
+        let n = 0;
+        for (const refs of this.refs.values()) for (const ref of refs) if (!ref.resolved) n += 1;
+        return n + this.detachedRefs;
+    }
+
+    private detachedRefs = 0;
+
+    /** The reference for one decoded page request; it settles when the browser's own record of the request is joined. */
+    refFor(url: string, body: Buffer): DocumentRef {
+        if (!this.attached || this.lost || this.ended) { this.detachedRefs += 1; return unresolvedRef(true); }
+        const key = keyOf(url, body);
+        const ref = unresolvedRef(false);
+        this.refs.set(key, [...(this.refs.get(key) ?? []), ref]);
+        this.join(key);
+        return ref;
+    }
+
+    setMainFrame(frameId: string): void {
+        this.mainFrameId = frameId;
+    }
+
+    /** The main frame's committed document. */
+    onCommitted(loaderId: string, frameId?: string): void {
+        if (frameId && this.mainFrameId && frameId !== this.mainFrameId) return;
+        if (!this.loaders.has(loaderId)) this.loaders.set(loaderId, { generation: this.loaders.size, initMono: null });
+        this.current = loaderId;
+    }
+
+    /** `Page.lifecycleEvent` `init` of the main frame: the document's start on the browser's monotonic clock (seconds). */
+    onInit(loaderId: string, frameId: string, monotonicS: number): void {
+        if (this.mainFrameId && frameId !== this.mainFrameId) return;
+        const known = this.loaders.get(loaderId);
+        if (known) known.initMono = monotonicS * 1000;
+        else this.loaders.set(loaderId, { generation: this.loaders.size, initMono: monotonicS * 1000 });
+    }
+
+    /** Any request record: pairs the browser's monotonic clock with its wall clock. */
+    onClock(monotonicS: number, wallS: number): void {
+        this.offsetMs = wallS * 1000 - monotonicS * 1000;
+    }
+
+    /** The browser's record of a PostHog request: which loader sent it, judged against the page's current document NOW. */
+    onRequest(url: string, body: Buffer, loaderId: string): void {
+        if (this.lost) return;
+        const key = keyOf(url, body);
+        const replaced = loaderId !== '' && this.loaders.has(loaderId) && loaderId !== this.current;
+        this.records.set(key, [...(this.records.get(key) ?? []), { loaderId, replaced }]);
+        this.join(key);
+    }
+
+    /** The source is gone. A closed page ends it normally; otherwise provenance is lost. Unjoined requests stay unattributed. */
+    onSourceGone(pageClosed: boolean): void {
+        if (pageClosed) this.ended = true;
+        else this.lost = true;
+        for (const refs of this.refs.values()) for (const ref of refs) if (!ref.resolved) ref.ambiguous = true;
+    }
+
+    private join(key: string): void {
+        const refs = this.refs.get(key) ?? [];
+        const records = this.records.get(key) ?? [];
+        if (refs.length > 1 || records.length > 1) {
+            // A candidate match is not a proven pairing: every request for this key loses its document, now and later.
+            if (!this.conflicted.has(key)) { this.conflicted.add(key); this.conflicts += 1; }
+            for (const ref of refs) Object.assign(ref, unresolvedRef(true));
+            return;
         }
-        return this.settledRef;
+        if (refs.length === 1 && records.length === 1) this.settle(refs[0], records[0]);
     }
 
-    /** Whether the page's current document is unproven. */
-    get uncertain(): boolean {
-        return this.uncertainRef !== null;
-    }
-
-    /** A proven cross-document commit of the main frame: a new document, and the page is certain again. */
-    onDocumentCommitted(now = Date.now()): void {
-        this.generation += 1;
-        this.committedAt = now;
-        this.uncertainRef = null;
-    }
-
-    /** A main-frame commit whose document cannot be proven: the page is uncertain until the next proven commit. */
-    onUnprovenCommit(): void {
-        if (!this.uncertainRef) this.uncertainRef = { resolved: false, ambiguous: true, generation: Number.NaN, committedAt: Number.NaN };
-    }
-
-    /** Playwright's `framenavigated` for the main frame: proves nothing, so it only matters while no CDP source is live. */
-    onFrameNavigated(): void {
-        if (!this.proven) this.onUnprovenCommit();
-    }
-
-    /** CDP `Page.frameNavigated`: a main-frame cross-document commit (a back/forward-cache restore is not a new document). */
-    onCdpFrameNavigated(event: FrameNavigatedEvent, now = Date.now()): void {
-        if (event.frame.parentId) return;
-        if (event.type === 'BackForwardCacheRestore') this.onUnprovenCommit();
-        else this.onDocumentCommitted(now);
+    private settle(ref: DocumentRef, record: BrowserRecord): void {
+        const loader = record.loaderId === '' ? undefined : this.loaders.get(record.loaderId);
+        const start = loader?.initMono != null && this.offsetMs !== null ? loader.initMono + this.offsetMs : null;
+        if (!loader || start === null) { ref.ambiguous = true; return; }
+        Object.assign(ref, { resolved: true, ambiguous: false, replaced: record.replaced, generation: loader.generation, committedAt: start });
     }
 }
 
-const trackers = new WeakMap<object, { tracker: CommittedDocumentTracker; ready: Promise<void>; cdp: boolean }>();
+const sources = new WeakMap<object, DocumentProvenance>();
 
-function listenForCommits(page: Page, tracker: CommittedDocumentTracker): void {
-    page.on('framenavigated', (frame: Frame) => { if (frame === page.mainFrame()) tracker.onFrameNavigated(); });
-}
+const bodyOf = (entries: { bytes?: string }[] | undefined): Buffer =>
+    Buffer.concat((entries ?? []).map((e) => Buffer.from(e.bytes ?? '', 'base64')));
 
 /**
- * Proven document tracking for a page, for the page's lifetime: CDP commits plus the Playwright fallback above. Idempotent;
- * resolves once the CDP source is live. Callers await it BEFORE the page's first navigation (the RWT fixture does, through
- * `applyRwtIdentity`); a commit before that leaves the page uncertain, never silently on its previous document.
+ * Proven document provenance for a page, for the page's lifetime, from its CDP session. Idempotent; resolves once the
+ * source is live. Callers await it BEFORE the page's first navigation (the RWT fixture does, through `applyRwtIdentity`).
  */
-export function trackDocuments(page: Page, cdp: DocumentCdpSession): Promise<void> {
-    const existing = trackers.get(page);
-    if (existing?.cdp) return existing.ready;
-    const tracker = existing?.tracker ?? new CommittedDocumentTracker();
-    if (!existing) listenForCommits(page, tracker);
-    // A CDP commit is authoritative whenever it arrives, even before `Page.enable` has answered.
-    cdp.on('Page.frameNavigated', (event) => tracker.onCdpFrameNavigated(event));
-    const ready = cdp.send('Page.enable').then(() => { tracker.proven = true; }, () => { /* no CDP source: stays unproven */ });
-    trackers.set(page, { tracker, ready, cdp: true });
-    return ready;
+export async function trackDocuments(page: Page, cdp: DocumentCdpSession): Promise<void> {
+    const provenance = documentTrackerOf(page);
+    if (provenance.attached) return;
+    provenance.attached = true;
+    const closed = () => { try { return page.isClosed(); } catch { return false; } };
+    cdp.on('Page.frameNavigated', ((e: CdpFrameNavigated) => { if (!e.frame.parentId) provenance.onCommitted(e.frame.loaderId, e.frame.id); }) as never);
+    cdp.on('Page.lifecycleEvent', ((e: CdpLifecycleEvent) => { if (e.name === 'init') provenance.onInit(e.loaderId, e.frameId, e.timestamp); }) as never);
+    cdp.on('Network.requestWillBeSent', ((e: CdpRequestWillBeSent) => {
+        provenance.onClock(e.timestamp, e.wallTime);
+        if (!isPosthogPost(e.request.url, e.request.method)) return;
+        const inline = bodyOf(e.request.postDataEntries);
+        if (inline.length > 0) { provenance.onRequest(e.request.url, inline, e.loaderId); return; }
+        if (!e.request.hasPostData) return;
+        // A body the browser did not inline is fetched; a failed fetch leaves the decoded request unattributed (HOLD).
+        void cdp.send('Network.getRequestPostData', { requestId: e.requestId }).then((r) => {
+            const { postData, base64Encoded } = r as { postData?: string; base64Encoded?: boolean };
+            if (postData) provenance.onRequest(e.request.url, Buffer.from(postData, base64Encoded ? 'base64' : 'utf8'), e.loaderId);
+        }, () => undefined);
+    }) as never);
+    cdp.on('Inspector.detached', (() => provenance.onSourceGone(closed())) as never);
+    cdp.on('Inspector.targetCrashed', (() => provenance.onSourceGone(false)) as never);
+    page.on('crash', () => provenance.onSourceGone(false));
+    try {
+        await cdp.send('Inspector.enable');
+        await cdp.send('Page.enable');
+        await cdp.send('Page.setLifecycleEventsEnabled', { enabled: true });
+        await cdp.send('Network.enable');
+        const tree = await cdp.send('Page.getFrameTree') as { frameTree?: { frame?: { id?: string; loaderId?: string } } };
+        const frame = tree.frameTree?.frame;
+        if (frame?.id) provenance.setMainFrame(frame.id);
+        if (frame?.loaderId && !provenance.lost) provenance.onCommitted(frame.loaderId);
+        provenance.live = !provenance.lost && Boolean(frame?.loaderId);
+    } catch {
+        provenance.live = false;
+    }
 }
 
-/** The page's tracker. A page with no CDP source still gets one, whose every main-frame commit leaves it uncertain. */
-export function documentTrackerOf(page: Page): CommittedDocumentTracker {
-    const existing = trackers.get(page);
-    if (existing) return existing.tracker;
-    const tracker = new CommittedDocumentTracker();
-    listenForCommits(page, tracker);
-    trackers.set(page, { tracker, ready: Promise.resolve(), cdp: false });
-    return tracker;
+/** The page's provenance source. A page with no CDP source gets one whose every request stays unattributed. */
+export function documentTrackerOf(page: Page): DocumentProvenance {
+    let provenance = sources.get(page);
+    if (!provenance) { provenance = new DocumentProvenance(); sources.set(page, provenance); }
+    return provenance;
+}
+
+/** The page's provenance source if the harness ever tracked the page (never creates one). */
+export function documentTrackerIfAny(page: unknown): DocumentProvenance | undefined {
+    return typeof page === 'object' && page !== null ? sources.get(page) : undefined;
 }

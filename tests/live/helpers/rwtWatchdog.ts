@@ -16,6 +16,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test';
 import type { AnalyticsTap, DocumentRef, RwtReceipt, SentEvent } from './rwtJourney';
+import { documentTrackerIfAny } from './rwtDocumentIdentity';
 import { COACHING_SETTLE_BOUND_MS } from './rwtCoachingEvidence';
 
 /** The ONLY properties the watchdog reads from an event: every one a governed closed enum (telemetryAllowlist). */
@@ -138,7 +139,12 @@ export function fatalSignalOf(e: Pick<SentEvent, 'event' | 'watch'>, profile: Wa
         case 'recording_intent':
             // Codex P2 r4309261417: a usage-limit, stale-client or lock/lease refusal returns before any start measurement,
             // so the intent's own closed outcome is the only signal that the press was refused.
-            return f.intent_outcome?.startsWith('blocked_') && !profile.allowStartRefused ? 'start_refused' : null;
+            if (profile.allowStartRefused) return null;
+            if (f.intent_outcome?.startsWith('blocked_')) return 'start_refused';
+            // Codex P2 r4311284400: a Start pressed while the previous take is still finalizing is dropped — nothing starts
+            // and no start measurement follows — so it is a refused Start. A Start suppressed because another Start is
+            // already in flight is not: that in-flight Start is the take, and its own outcome is watched.
+            return f.intent_kind === 'start' && f.intent_outcome === 'suppressed_finalizing' ? 'start_refused' : null;
         case 'private_model_acquisition_failure':
             return profile.allowModelFailure ? null : 'model_failed';
         default:
@@ -381,7 +387,9 @@ export class JourneyWatchdog {
         const source = e as SentEvent & { sourcePage?: object; sourceDocument?: number; sourceDocumentAt?: number };
         if (!source.sourcePage || !e.bootId) return false;
         const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
-        // An abandoned (ambiguous) window: a known boot's event is that boot's own evidence; an unknown boot binds nothing.
+        // Sam, #1662 RETURN on 65dd8b8f: proven to come from a document the page had already left — excluded, binds nothing.
+        if (ref?.resolved && ref.replaced) return false;
+        // Unknown provenance: a known boot's event is that boot's own evidence; an unknown boot binds nothing.
         if (ref?.ambiguous && !ref.resolved) return this.bootDocument.has(e.bootId);
         if (source.sourceDocument === undefined) return false;
         let pageId = this.pageIds.get(source.sourcePage);
@@ -551,7 +559,17 @@ export class JourneyWatchdog {
         }
         const s = this.signal;
         const unresolvedIdentity = this.deferred.filter((i) => this.unresolved(this.o.tap.events[i])).length;
-        const observation = { watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable, unresolvedIdentity };
+        // Sam, #1662 RETURN on 65dd8b8f: a watched page whose document provenance was never proven, or was lost, cannot finish
+        // clean even when none of its events is queued — what it sent cannot be attributed.
+        // A conflicting candidate pairing or a request never joined to the browser's record also blocks a clean finish.
+        const provenance = [...this.watchedPages].map((page) => documentTrackerIfAny(page)).filter((p) => p !== undefined);
+        const unprovenPages = provenance.filter((p) => !p.proven).length;
+        const unattributedRequests = provenance.reduce((n, p) => n + p.unattributed, 0);
+        const provenanceConflicts = provenance.reduce((n, p) => n + p.conflicts, 0);
+        const observation = {
+            watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable,
+            unresolvedIdentity, unprovenPages, unattributedRequests, provenanceConflicts,
+        };
         if (s) {
             receipt.row('fail-early watchdog', 'FAIL',
                 `the journey was stopped early: ${s.kind}${s.event ? ` (${s.event})` : ''} after ${Math.round(s.elapsedMs / 1000)} s`,
@@ -559,6 +577,8 @@ export class JourneyWatchdog {
         } else if (unresolvedIdentity > 0) {
             // Sam, #1662 RETURN on b0dd763a: evidence whose document never settled is not a clean journey.
             receipt.row('fail-early watchdog', 'HOLD', `${unresolvedIdentity} event(s) arrived while a navigation was still settling and never resolved to a document, so no clean run is claimed`, observation);
+        } else if (unprovenPages > 0 || unattributedRequests > 0 || provenanceConflicts > 0) {
+            receipt.row('fail-early watchdog', 'HOLD', `document provenance is incomplete (${unprovenPages} unproven or lost page source(s), ${unattributedRequests} unattributed request(s), ${provenanceConflicts} conflicting pairing(s)), so no clean run is claimed`, observation);
         } else if (this.domOk === 0 && this.watchedSeen === 0) {
             receipt.row('fail-early watchdog', 'HOLD', 'the journey was never observed (no readable page state and no watched telemetry), so no clean run is claimed', observation);
         } else {
