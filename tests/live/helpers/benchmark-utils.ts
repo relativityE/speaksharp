@@ -823,9 +823,46 @@ export async function startBenchmarkRecording(page: Page, label: string, modelRe
                 control: element.getAttribute('data-testid') }));
             if (!identity.connected) throw new Error('the original start control was detached');
             if (identity.control !== control) throw new Error('the observed start control changed identity before activation');
-            const remaining = controlDeadline - Date.now();
-            if (remaining <= 0) throw new Error('the Start control budget expired before activation');
-            await target.click({ timeout: remaining });
+            // Native click may wait for actionability. Keep an event-time guard so that this same DOM button cannot
+            // become Retry/Download during that wait and receive the old Start intent. Invalid attempts are blocked
+            // before product click handlers and reported as failures; the guard never substitutes a synthetic click.
+            const activation = await target.evaluateHandle((element, expected) => {
+                if (!(element instanceof HTMLButtonElement)) throw new Error('the observed mic control is not a button');
+                const state = { accepted: false, rejected: false, cleanup: (): void => undefined };
+                const changed = (records: MutationRecord[]) => {
+                    if (records.some((record) => record.attributeName === 'disabled'
+                        ? record.oldValue !== null || element.disabled
+                        : record.oldValue !== expected || element.getAttribute('data-testid') !== expected)) state.rejected = true;
+                };
+                const observer = new MutationObserver(changed);
+                const guard = (event: Event) => {
+                    changed(observer.takeRecords());
+                    if (state.rejected || !element.isConnected || element.disabled
+                        || element.getAttribute('data-testid') !== expected
+                        || !(event.target instanceof Node) || !element.contains(event.target)) {
+                        state.rejected = true;
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        return;
+                    }
+                    state.accepted = true;
+                    state.cleanup();
+                };
+                state.cleanup = () => { observer.disconnect(); document.removeEventListener('click', guard, true); };
+                observer.observe(element, { attributes: true, attributeOldValue: true, attributeFilter: ['data-testid', 'disabled'] });
+                document.addEventListener('click', guard, true);
+                return state;
+            }, control);
+            try {
+                const remaining = controlDeadline - Date.now();
+                if (remaining <= 0) throw new Error('the Start control budget expired before activation');
+                await target.click({ timeout: remaining });
+                const result = await activation.evaluate((state) => ({ accepted: state.accepted, rejected: state.rejected }));
+                if (!result.accepted || result.rejected) throw new Error('the Start identity changed or was lost during activation');
+            } finally {
+                await activation.evaluate((state) => state.cleanup()).catch(() => undefined);
+                await activation.dispose().catch(() => undefined);
+            }
         } finally {
             await observed.dispose().catch(() => undefined);
         }

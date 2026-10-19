@@ -47,7 +47,22 @@
       "rawSha256": "48960d918c1e12aae41fc5b2f7f56158235e010da7285bdab760d2c6e6e61b25",
       "normalizedSha256": "84f8ae880bcc8fdc015c92ad3d8a7bc3319c08580369712f314c8b8b94f04620",
       "rawArchiveBasename": "48960d918c1e12aae41fc5b2f7f56158235e010da7285bdab760d2c6e6e61b25-final-review-green.json"
+    },
+    "activation-final-green.json": {
+      "rawSha256": "9e860e36a50ca3f3d19af8fa263158d75563cf193f0ac42bd8a7e82832a2695b",
+      "normalizedSha256": "c248ff218df070c6d0a1ce3ce2ad71d97989fc4776e72208c682233bc5add604",
+      "rawArchiveBasename": "9e860e36a50ca3f3d19af8fa263158d75563cf193f0ac42bd8a7e82832a2695b-activation-final-green.json"
+    },
+    "activation-green.json": {
+      "rawSha256": "fe7224aa68d2c78acfe7815b62b89576337850df016fc21e9f38f39d9d31e1ee",
+      "normalizedSha256": "38f3afa9e50daed4a38c02de4ea835a80c34ddfeb0e9eacfed8ecc4d487a166c",
+      "rawArchiveBasename": "fe7224aa68d2c78acfe7815b62b89576337850df016fc21e9f38f39d9d31e1ee-activation-green.json"
+    },
+    "activation-red.json": {
+      "rawSha256": "0355f716c26529f9ce1b7ad99250508fc2c47e9cc9d244b1999f266e8e4ac9b3",
+      "normalizedSha256": "354d67363ecbaf6dfb42e8220170a212b6690e636b1ff7e2ef78bd03e9b7aba7",
+      "rawArchiveBasename": "0355f716c26529f9ce1b7ad99250508fc2c47e9cc9d244b1999f266e8e4ac9b3-activation-red.json"
     }
   },
-  "lastNormalizedUtc": "2026-10-19T14:27:36.470Z"
+  "lastNormalizedUtc": "2026-10-19T14:37:55.251Z"
 }

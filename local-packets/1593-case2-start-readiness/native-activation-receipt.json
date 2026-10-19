@@ -1,0 +1,18 @@
+{
+  "scope": "local headless Chromium, fixture DOM only; no production/model/provider/account operation",
+  "command": "node --test /private/tmp/cli-case2-native-activation-probe-20261019.mjs",
+  "retainedScript": "native-activation-probe.mjs",
+  "baselineSourceCommit": "5e69a9d801bf35135b746cf99d1f6080fa0ecfa0",
+  "correctedSource": "actual startBenchmarkRecording extracted from this checkpoint's helper with TypeScript AST",
+  "correctedHelperGitBlob": "5b66ec8c9808d193ccd0fed6d7d701c631895a46",
+  "diagnosticStubs": ["logBenchmarkPhase", "collectBenchmarkPreconditionSnapshot"],
+  "actualDependencies": ["installed Playwright Chromium", "current micControls", "current applyHumanReflex"],
+  "schedule": "instrument actual ElementHandle.click at entry; disable pinned Start, then enable same node as Retry after 50ms; invoke actual native click/actionability",
+  "observedBaselineProductActivations": ["mic-retry"],
+  "observedCorrectedProductActivations": [],
+  "correctedResult": "rejected with identity-during-activation failure",
+  "nativeReflexControlsMs": [500, 1000],
+  "nativeReflexResults": "each meets its configured delay lower bound and produces exactly one mic-start activation",
+  "nodeTestResult": {"passed": 1, "failed": 0, "durationMs": 4284.029625},
+  "completedUtc": "2026-10-19T14:41:06Z"
+}

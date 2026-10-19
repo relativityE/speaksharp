@@ -148,6 +148,7 @@ let waitFailure: Error | null = null;
 let afterHandleCapture: (() => void) | null = null;
 let afterReadinessObservation: (() => void) | null = null;
 let simulateMissingHandleWait = false;
+let beforePinnedClick: ((element: Element) => void) | null = null;
 const locatorHandleBudgets: number[] = [];
 const waitTimeouts: number[] = [];
 
@@ -181,8 +182,8 @@ const locatorFor = (selector: string): FakeLocator => ({
     click: async () => {
         const el = document.querySelector(selector);
         if (!el) throw new Error(`click on a control that does not exist: ${selector}`);
+        if (!el.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))) return;
         clicked.push(selector);
-        el.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
         if (selector.includes(MIC_CONTROL_BY_STATUS['download-required']) && onDownloadClick) {
             // Acquisition completing re-renders the card into the next state's control, as in the app.
             renderState(onDownloadClick);
@@ -232,7 +233,21 @@ const page = {
         if (original) afterCapture?.();
         else afterHandleCapture = afterCapture;
         return {
-            asElement: () => original ? { evaluate: async (fn: (element: Element) => unknown) => fn(original), click: async () => {
+            asElement: () => original ? {
+                evaluate: async (fn: (element: Element) => unknown) => fn(original),
+                evaluateHandle: async (fn: (element: Element, arg: string) => unknown, arg: string) => {
+                    const state = fn(original, arg);
+                    return { evaluate: async (read: (value: unknown) => unknown) => read(state), dispose: async () => undefined };
+                },
+                click: async (options?: { timeout: number }) => {
+                const mutate = beforePinnedClick;
+                beforePinnedClick = null;
+                mutate?.(original);
+                const deadline = Date.now() + (options?.timeout ?? 90_000);
+                while (original.hasAttribute('disabled')) {
+                    if (Date.now() >= deadline) throw new Error('actionability timed out');
+                    await new Promise((resolve) => setTimeout(resolve, 2));
+                }
                 if (!original.isConnected) throw new Error('the original start control was detached');
                 if (original.hasAttribute('disabled')) throw new Error('the original start control is disabled');
                 await locatorFor(`[data-testid="${original.getAttribute('data-testid')}"]`).click();
@@ -262,6 +277,7 @@ beforeEach(() => {
     coldPressTiming = 'sync';
     waitFailure = null; afterHandleCapture = null; waitTimeouts.length = 0;
     afterReadinessObservation = null; simulateMissingHandleWait = false; locatorHandleBudgets.length = 0;
+    beforePinnedClick = null;
     document.documentElement.removeAttribute('data-recording-state');
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 });
@@ -655,6 +671,68 @@ describe('#1667 review: pinned readiness action uses real human-reflex timing an
             expect((await outcome)?.message).toMatch(/Start control budget expired/);
             expect(clicked).toEqual([]);
         } finally { release(); vi.useRealTimers(); }
+    });
+
+    it('Start changing to disabled then Retry during actionability cannot activate the new action', async () => {
+        renderState('ready');
+        const productAction = vi.fn();
+        document.querySelector('button')!.addEventListener('click', productAction);
+        beforePinnedClick = (element) => {
+            element.setAttribute('disabled', '');
+            setTimeout(() => {
+                element.setAttribute('data-testid', 'mic-retry');
+                element.removeAttribute('disabled');
+            }, 10);
+        };
+        await expect(startBenchmarkRecording(page, 'changed-during-actionability')).rejects.toThrow(/identity.*activation/);
+        expect(clicked).toEqual([]);
+        expect(productAction).not.toHaveBeenCalled();
+        // A failed attempt must remove its guard rather than blocking a later deliberate user action.
+        const retry = document.querySelector('button')!;
+        expect(retry.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(true);
+        expect(productAction).toHaveBeenCalledOnce();
+    });
+
+    it('a valid native Start can change its own button state after activation without false rejection', async () => {
+        renderState('ready');
+        const button = document.querySelector('button')!;
+        const productAction = vi.fn(() => {
+            button.setAttribute('disabled', '');
+            button.setAttribute('data-testid', 'mic-retry');
+        });
+        button.addEventListener('click', productAction);
+        await startBenchmarkRecording(page, 'valid-activation-state-change');
+        expect(productAction).toHaveBeenCalledOnce();
+        expect(clicked).toEqual(['[data-testid="mic-start"]']);
+    });
+
+    it('an identity excursion during actionability stays invalid even if it returns to Start before click', async () => {
+        renderState('ready');
+        beforePinnedClick = (element) => {
+            element.setAttribute('disabled', '');
+            element.setAttribute('data-testid', 'mic-retry');
+            setTimeout(() => {
+                element.setAttribute('data-testid', 'mic-start');
+                element.removeAttribute('disabled');
+            }, 10);
+        };
+        await expect(startBenchmarkRecording(page, 'identity-excursion')).rejects.toThrow(/identity.*activation/);
+        expect(clicked).toEqual([]);
+    });
+
+    it('an actionability timeout removes the guard without invoking product handlers', async () => {
+        vi.useFakeTimers();
+        renderState('ready');
+        beforePinnedClick = (element) => { element.setAttribute('disabled', ''); };
+        const outcome = startBenchmarkRecording(page, 'activation-timeout').then(() => null, (error: Error) => error);
+        try {
+            await vi.advanceTimersByTimeAsync(8_001);
+            expect((await outcome)?.message).toMatch(/actionability timed out/);
+            const button = document.querySelector('button')!;
+            button.removeAttribute('disabled');
+            expect(button.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(true);
+            expect(clicked).toEqual([]);
+        } finally { vi.useRealTimers(); }
     });
 });
 
