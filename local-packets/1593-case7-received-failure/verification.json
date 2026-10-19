@@ -1,0 +1,56 @@
+{
+  "scope": "1593 case7 answered-failure received diagnostic assurance",
+  "base": "83029ebb67216b2690eeff59e4ec1730d5f6ffe8",
+  "originalBase": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+  "branch": "cli-dev/1593-received-failure-chain-20261019",
+  "localVerificationCompletedUtc": "2026-10-19T13:24:48Z",
+  "baseline": {
+    "source": "unchanged base, initial 33-test regression file",
+    "passed": 6,
+    "failed": 27,
+    "decisiveFailure": "answered failures carry no expectedOutcome/five-field settlement binding",
+    "report": "baseline-red.json"
+  },
+  "intermediate": {
+    "passed": 92,
+    "failed": 24,
+    "explanation": "New test fixtures initially passed validator diagnostic counters to the closed finalizer schema and did not construct two separately bound failure reports; corrected without changing the existing workflow, finalizer or binding-order logic.",
+    "report": "first-integration-attempt.json"
+  },
+  "focused": {
+    "passed": 274,
+    "failed": 0,
+    "testFiles": [
+      "tests/unit/rwtReceivedFailureChain1593.test.ts",
+      "tests/unit/coachingFeedbackAdapter1258.test.ts",
+      "tests/unit/rwtCoachingReadback1258.test.ts",
+      "tests/unit/rwtCoachingExternal1258.test.ts"
+    ],
+    "command": "node scripts/host-interlock.mjs hold local -- pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false --reporter=default --reporter=json --outputFile.json=local-packets/1593-case7-received-failure/focused-green.json tests/unit/rwtReceivedFailureChain1593.test.ts tests/unit/coachingFeedbackAdapter1258.test.ts tests/unit/rwtCoachingReadback1258.test.ts tests/unit/rwtCoachingExternal1258.test.ts",
+    "report": "focused-green.json"
+  },
+  "quality": {
+    "command": "pnpm quality",
+    "base": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+    "exitCode": 0,
+    "checks": ["product-contract", "full lint", "frontend TypeScript", "live TypeScript", "evidence TypeScript", "eslint-disable guard"]
+  },
+  "postRebase": {
+    "base": "83029ebb67216b2690eeff59e4ec1730d5f6ffe8",
+    "case7SourceAndTestChangedDuringRebase": false,
+    "interveningMainScope": ["frontend/src/services/SpeechRuntimeController.ts", "frontend/src/services/__tests__/SpeechRuntimeController.test.ts"],
+    "passed": 428,
+    "failed": 0,
+    "scope": "the same four focused suites plus all 154 merged SpeechRuntimeController controls",
+    "report": "rebased-green.json",
+    "fullQualityRerun": false,
+    "freshExactHeadCiRequired": true
+  },
+  "limits": [
+    "Offline controls with synthetic received events and stored-report doubles; not a live telemetry ingestion run",
+    "Receipt assurance PASS does not change coaching FAIL or EXTERNAL/INCOMPLETE",
+    "Exact server failure reason is not part of the existing five-field readback binding",
+    "Unanswered client-network/model identity remains unqualified",
+    "Independent review, exact-head CI, merge/deploy and final-release live acceptance remain separate"
+  ]
+}
