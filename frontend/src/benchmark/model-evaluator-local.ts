@@ -19,7 +19,7 @@ type HarnessState = {
 declare global {
   interface Window {
     __MODEL_EVALUATOR__?: {
-      initialize: (candidateId: ArmId) => Promise<HarnessState>;
+      initialize: (candidateId: ArmId, backend: 'wasm' | 'webgpu') => Promise<HarnessState>;
       decodePcmBase64: (value: string) => Promise<{ transcript: string; inputSha256: string }>;
       dispose: () => Promise<void>;
       state: HarnessState;
@@ -47,16 +47,23 @@ async function dispose(): Promise<void> {
   state.workerAcquisition = null;
 }
 
-async function initialize(candidateId: ArmId): Promise<HarnessState> {
+async function initialize(candidateId: ArmId, backend: 'wasm' | 'webgpu'): Promise<HarnessState> {
   if (!(['v4:base:q4', 'v4:distil:q4', 'moonshine:streaming-medium'] as string[]).includes(candidateId)) {
     throw new Error(`unsupported model evaluator candidate: ${candidateId}`);
+  }
+  if ((backend !== 'wasm' && backend !== 'webgpu') ||
+      (candidateId === 'moonshine:streaming-medium' && backend !== 'wasm')) {
+    throw new Error('unsupported model evaluator backend');
   }
   if (engine) await dispose();
   const candidate = CANDIDATES[candidateId as CandidateId];
   if (candidate.engine === 'transformers-js-v4') {
     const v4Variant = candidateId === 'v4:distil:q4' ? 'distil_q4' : 'base_q4';
-    const options: TranscriptionModeOptions & { v4Variant: typeof v4Variant; evaluatorCandidateId: ArmId } = {
-      v4Variant, evaluatorCandidateId: candidateId, onTranscriptUpdate: () => {}, onReady: () => {},
+    const options: TranscriptionModeOptions & {
+      v4Variant: typeof v4Variant; evaluatorCandidateId: ArmId; evaluatorBackend: typeof backend;
+    } = {
+      v4Variant, evaluatorCandidateId: candidateId, evaluatorBackend: backend,
+      onTranscriptUpdate: () => {}, onReady: () => {},
     };
     engine = new TransformersJSV4Engine(options);
   } else {

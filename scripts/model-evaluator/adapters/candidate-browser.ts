@@ -43,7 +43,7 @@ type BrowserRuntime = {
 declare global {
   interface Window {
     __MODEL_EVALUATOR__?: {
-      initialize: (id: CandidateId) => Promise<BrowserRuntime>;
+      initialize: (id: CandidateId, backend: 'wasm' | 'webgpu') => Promise<BrowserRuntime>;
       decodePcmBase64: (base64: string) => Promise<{ transcript: string; inputSha256: string }>;
       dispose: () => Promise<void>;
     };
@@ -55,6 +55,11 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
   const candidateId = context.options.candidateId as CandidateId | undefined;
   if (!candidateId || !['v4:base:q4', 'v4:distil:q4', 'moonshine:streaming-medium'].includes(candidateId)) {
     throw new Error('candidate-browser needs a registered candidateId adapter option');
+  }
+  const backend = context.expected.backend;
+  if ((backend !== 'wasm' && backend !== 'webgpu') ||
+      (candidateId === 'moonshine:streaming-medium' && backend !== 'wasm')) {
+    throw new Error('candidate-browser needs a supported declared backend');
   }
   let browser: Browser | null = null;
   let page: Page | null = null;
@@ -107,7 +112,8 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
           throw new Error('real WebGPU adapter unavailable or differs from device manifest');
         }
       }
-      const state = await page.evaluate((id) => window.__MODEL_EVALUATOR__!.initialize(id), candidateId) as BrowserRuntime;
+      const state = await page.evaluate(({ id, backend }) => window.__MODEL_EVALUATOR__!.initialize(id, backend),
+        { id: candidateId, backend } as const) as BrowserRuntime;
       acquisition = state.workerAcquisition ?? null;
       if (acquisition && candidateId !== 'moonshine:streaming-medium' &&
           (acquisition as { candidateId?: string }).candidateId !== candidateId) {

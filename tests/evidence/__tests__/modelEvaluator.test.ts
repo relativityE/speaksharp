@@ -26,6 +26,30 @@ function arm(textFor: (id: string) => string | null, latency = 50): ModelArm {
 }
 
 describe('#1565 paired model evaluator', () => {
+  it('keeps pooled and slice decisions invariant when clip IDs have colon-delimited prefixes', () => {
+    const compare = (names: string[], margin: number) => {
+      const corpus = clips.map((clip, index) => ({
+        ...clip, id: names[index], reference: 'alpha bravo charlie delta', slices: ['all'],
+      }));
+      const makeArm = (candidate: boolean): ModelArm => ({
+        manifest: identity, observed: identity,
+        results: corpus.flatMap((clip, index) => [0, 1].map((trial) => ({
+          clipId: clip.id, trial, inputSha256: clip.sha256, finalLatencyMs: 50,
+          transcript: candidate
+            ? (index === 1 ? 'alpha bravo wrong wrong' : clip.reference)
+            : (index !== 1 ? 'wrong wrong wrong wrong' : clip.reference),
+        }))),
+      });
+      return compareModelArms(corpus, makeArm(false), makeArm(true), {
+        ...policy, maxPooledWerIncrease: margin, maxSliceWerIncrease: margin,
+      });
+    };
+    // Only identifiers change: same speakers, references, trials, hypotheses and paired errors.
+    const control = compare(['first', 'second', 'third'], 0.0625);
+    expect(control).toMatchObject({ verdict: 'PASS', reasons: [] });
+    expect(compare(['a', 'a:b', 'third'], 0.0625)).toEqual(control);
+  });
+
   it('passes an identical paired corpus when every required slice has enough independent clusters', () => {
     const comparable = clips.map((clip) => ({ ...clip, slices: ['all'] }));
     const baseline = arm((id) => clips.find((clip) => clip.id === id)!.reference);

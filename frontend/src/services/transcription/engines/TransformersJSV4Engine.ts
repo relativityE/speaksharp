@@ -176,7 +176,12 @@ export class TransformersJSV4Engine extends STTEngine {
         try {
             const useWorker = this.shouldUseWorker();
             const evaluatorCandidateId = (this.options as { evaluatorCandidateId?: string })?.evaluatorCandidateId;
+            const evaluatorBackend = evaluatorCandidateId
+                ? (this.options as { evaluatorBackend?: string })?.evaluatorBackend : undefined;
             if (evaluatorCandidateId) {
+                if (evaluatorBackend !== undefined && evaluatorBackend !== 'wasm' && evaluatorBackend !== 'webgpu') {
+                    throw new Error('unsupported evaluator backend');
+                }
                 const selected = effectiveCandidate({
                     candidate: evaluatorCandidateId,
                     acknowledgeNotProductionReady: true,
@@ -190,7 +195,7 @@ export class TransformersJSV4Engine extends STTEngine {
                 if (!useWorker) throw new Error('evaluator v4 candidate requires the worker path');
             }
             if (useWorker) {
-                await this.initWorker(isMock, v4Model);
+                await this.initWorker(isMock, v4Model, evaluatorBackend);
                 options.onModelLoadProgress?.(100);
                 this.updateHeartbeat();
                 options.onReady?.();

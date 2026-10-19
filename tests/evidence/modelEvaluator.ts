@@ -94,6 +94,7 @@ function median(values: number[]): number | null {
 /** Deterministic cluster bootstrap; the paired arms receive the same sampled clusters. */
 function upperPairedWerDelta(
   clips: readonly CorpusClip[], baseScores: readonly CorpusScore[], nextScores: readonly CorpusScore[],
+  trials: number,
 ): number | null {
   const clusters = [...new Set(clips.map((clip) => clip.clusterId))];
   if (clusters.length < 3) return null;
@@ -103,8 +104,11 @@ function upperPairedWerDelta(
   const nextRows = byId(nextScores);
   if (baseRows.size !== baseScores.length || nextRows.size !== nextScores.length) return null;
   const clusterRows = clusters.map((cluster) => {
-    const ids = clips.filter((clip) => clip.clusterId === cluster).map((clip) => clip.id);
-    const matching = (rows: typeof baseRows) => [...rows].filter(([key]) => ids.some((id) => key.startsWith(`${id}:`)))
+    // Enumerate exact sample keys from the frozen corpus × trials. Prefix matching assigns a:b:0
+    // to both clip a and clip a:b, duplicating that row across independent speaker clusters.
+    const ids = new Set(clips.filter((clip) => clip.clusterId === cluster)
+      .flatMap((clip) => Array.from({ length: trials }, (_, trial) => `${clip.id}:${trial}`)));
+    const matching = (rows: typeof baseRows) => [...rows].filter(([key]) => ids.has(key))
       .map(([, row]) => row);
     return { base: matching(baseRows), next: matching(nextRows) };
   });
@@ -197,7 +201,7 @@ export function compareModelArms(
     if (validPolicy(policy)) {
       const bound = upperPairedWerDelta(clips.filter((clip) => clip.slices.includes(slice)),
         base.scores.filter((score) => sliceIds.includes(score.utteranceId)),
-        next.scores.filter((score) => sliceIds.includes(score.utteranceId)));
+        next.scores.filter((score) => sliceIds.includes(score.utteranceId)), trials);
       if (bound === null || new Set(clips.filter((clip) => clip.slices.includes(slice)).map((clip) => clip.clusterId)).size < policy.minClusters) {
         hold.push(`insufficient_slice_clusters:${slice}`);
       } else if (bound > policy.maxSliceWerIncrease) hold.push(`slice_margin_not_proven:${slice}`);
@@ -206,7 +210,7 @@ export function compareModelArms(
   if (base.aggregate.wer !== null && next.aggregate.wer !== null && validPolicy(policy) &&
       next.aggregate.wer - base.aggregate.wer > policy.maxPooledWerIncrease) fail.push('pooled_wer_regression');
   if (validPolicy(policy)) {
-    const bound = upperPairedWerDelta(clips, base.scores, next.scores);
+    const bound = upperPairedWerDelta(clips, base.scores, next.scores, trials);
     if (bound === null || new Set(clips.map((clip) => clip.clusterId)).size < policy.minClusters) {
       hold.push('insufficient_corpus_clusters');
     } else if (bound > policy.maxPooledWerIncrease) hold.push('pooled_margin_not_proven');
