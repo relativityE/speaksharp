@@ -132,6 +132,17 @@ describe('#1593 case7 answered-failure chain, adapter through finalization', () 
         expect(finalize(await chain())).toMatchObject({ finalAcceptance: 'INCOMPLETE', chain: { verdict: 'HOLD' } });
     });
 
+    it('the supported upper boundary of three provider attempts still qualifies', async () => {
+        const exchange = failure();
+        Object.assign(exchange.diagnostics!, { provider_attempts: 3, retry_count: 2 });
+        const row = await chain({ exchange });
+        const expected = binding(row);
+        if (!validExpectation(expected)) throw new Error('adapter did not emit a valid received binding');
+        const result = evaluateCoachingDiagnosticReceipt([receivedFailure({ providerAttempts: 3 }), receivedFeedback()], expected, RELEASE, sha);
+        expect(result.verdict).toBe('PASS');
+        expect(finalize(row, result).chain?.verdict).toBe('PASS');
+    });
+
     it('received failure-chain PASS leaves a proved provider outage EXTERNAL and acceptance INCOMPLETE', async () => {
         const row = await chain({ exchange: failure('provider_timeout', null) });
         const expected = binding(row);
@@ -165,6 +176,8 @@ describe('#1593 case7 answered-failure chain, adapter through finalization', () 
         ['negative provider attempts', [receivedFailure({ providerAttempts: -1 }), receivedFeedback()], 'FAIL', 'provenance_incoherent'],
         ['fractional provider attempts', [receivedFailure({ providerAttempts: 1.5 }), receivedFeedback()], 'FAIL', 'provenance_incoherent'],
         ['string provider attempts', [receivedFailure({ providerAttempts: '1' }), receivedFeedback()], 'FAIL', 'provenance_incoherent'],
+        ['provider attempts above the producer maximum', [receivedFailure({ providerAttempts: 4 }), receivedFeedback()], 'FAIL', 'provenance_incoherent'],
+        ['large impossible provider attempts', [receivedFailure({ providerAttempts: Number.MAX_SAFE_INTEGER }), receivedFeedback()], 'FAIL', 'provenance_incoherent'],
         ['provider call with unknown source', [receivedFailure({ source: 'unknown' }), receivedFeedback()], 'FAIL', 'provenance_incoherent'],
         ['failure claims cache', [receivedFailure({ source: 'cache' }), receivedFeedback()], 'FAIL', 'provenance_incoherent'],
     ] as const)('%s cannot falsely settle PASS', async (_label, rows, verdict, reason) => {

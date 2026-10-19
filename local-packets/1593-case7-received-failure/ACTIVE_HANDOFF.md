@@ -1,6 +1,6 @@
 # CLI case 7 active handoff
 
-Checkpoint: 2026-10-19 13:25 UTC. Owner: CLI Dev, Lane B. Sam owns coordination.
+Checkpoint: 2026-10-19 13:36 UTC. Owner: CLI Dev, Lane B. Sam owns coordination.
 
 Branch: `cli-dev/1593-received-failure-chain-20261019`.
 Base: `83029ebb67216b2690eeff59e4ec1730d5f6ffe8` (new main from #1664).
@@ -66,7 +66,21 @@ to the case-7 source/test files. Post-rebase run: all 274 controls plus the merg
 was not rerun on the new base; its prior result is retained with exact provenance.
 Fresh exact-head CI and independent review remain required.
 
-Next: publish the rebased frozen head to #1665, then obtain Sam's exact-head
+## Returned provider-attempt bound, corrected
+
+Sam and Codex returned the old `7e920bd6` head for permitting fresh failure
+provider_attempts above the producer/allowlist maximum of 3 (r4314371067).
+Executed reproduction: providerAttempts=4 incorrectly PASSed; 1 FAIL / 38 PASS
+(`provider-cap-red.json`). Fresh failure validation now requires 1–3 attempts.
+Added 4 and Number.MAX_SAFE_INTEGER negatives plus a valid 3 positive, preserving
+valid 1, missing/negative/fraction/string and existing identity/coaching controls.
+Corrected run: 281/281 PASS across the four affected case7 suites and the actual
+producer cap suite (`provider-cap-green.json`). Changed-source/test ESLint passed
+after the cap fix (before the final large-integer test row was added). Full local
+quality's provenance above remains unchanged; fresh CI/review of the successor is
+required, and no global-quality rerun is fabricated.
+
+Next: publish the bounded-count successor to #1665, then obtain Sam's exact-head
 disposition. Implementation and local verification are complete; CI, independent
 review, serial landing and any authorized final-release live proof remain open.
 Sam's 12:37:54 receipt confirms App's

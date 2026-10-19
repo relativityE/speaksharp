@@ -169,7 +169,8 @@ export function evaluateCoachingDiagnosticReceipt(
             // A fresh failed provider leg may never answer, time out after 2xx headers, return an error, or produce an
             // invalid 2xx body / fail persistence. A refusal before the provider has no provider status or attempts.
             // This is the closed union of answered failure shapes; readback does not prove the exact server reason.
-            const fresh = t.source === 'fresh' && attempts !== null && attempts >= 1
+            // Governed provider_attempts is 0–3 (practiceLoopTelemetry MAX_REPORTED_PROVIDER_ATTEMPTS and allowlist).
+            const fresh = t.source === 'fresh' && attempts !== null && attempts >= 1 && attempts <= 3
                 && typeof endpoint === 'number' && endpoint >= 500 && endpoint < 600
                 && (provider === null || is2xx(provider) || isError(provider));
             const refusal = t.source === 'unknown' && attempts === 0 && provider === null;
