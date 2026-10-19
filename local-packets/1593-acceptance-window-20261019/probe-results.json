@@ -1,0 +1,77 @@
+{
+  "observedAtUtc": "2026-10-19T13:06:30.028Z",
+  "sourceHead": "a81fbb97850749596f6fbfba006895fc56c65b26",
+  "hashes": {
+    "tests/live/helpers/rwtAbandonTakeover.ts": "24ffa6cde9eab833d7b21393419871e61566540880922377304608f7768d68f0",
+    "tests/live/rwt-abandon-and-two-tabs.live.spec.ts": "4a8c0de7497a5ac73595fb2b438a57f553da687eec85e3a1ab6f682c1e6d79ff"
+  },
+  "controls": [
+    {
+      "name": "clean cold refusal with A live",
+      "expected": "PASS",
+      "actual": "PASS",
+      "assertion": "PASS"
+    },
+    {
+      "name": "model request before refusal rejects",
+      "expected": "FAIL",
+      "actual": "FAIL",
+      "assertion": "PASS"
+    },
+    {
+      "name": "transient model work retained before refusal rejects",
+      "expected": "FAIL",
+      "actual": "FAIL",
+      "assertion": "PASS"
+    },
+    {
+      "name": "live microphone on B at endpoint rejects",
+      "expected": "FAIL",
+      "actual": "FAIL",
+      "assertion": "PASS"
+    },
+    {
+      "name": "A stopped at endpoint rejects",
+      "expected": "FAIL",
+      "actual": "FAIL",
+      "assertion": "PASS"
+    },
+    {
+      "name": "missing refusal rejects",
+      "expected": "FAIL",
+      "actual": "FAIL",
+      "assertion": "PASS"
+    },
+    {
+      "name": "forbidden model work during post-refusal hold escapes frozen snapshots",
+      "expected": "PASS",
+      "actual": "PASS",
+      "assertion": "PASS",
+      "interpretation": "Confirmed oracle counterexample: model activity after the snapshot but before takeover is not consumed by this row. Not a claim that the product does it."
+    },
+    {
+      "name": "transient B microphone acquisition ending before endpoint escapes endpoint predicate",
+      "expected": "PASS",
+      "actual": "PASS",
+      "assertion": "PASS",
+      "interpretation": "Actual predicate consumes current liveTracks/runtime/visibility, not any-acquisition history. No historical product acquisition is asserted."
+    },
+    {
+      "name": "transient A interruption ending before endpoint escapes endpoint predicate",
+      "expected": "PASS",
+      "actual": "PASS",
+      "assertion": "PASS",
+      "interpretation": "Current endpoint state alone does not establish A remained recording for the entire refusal window."
+    },
+    {
+      "name": "case9 source wiring: Escape and modal absence before return Products; saved-once and microphone assertions retained",
+      "assertion": "PASS",
+      "interpretation": "Source inspection only; no rendered-app or live acceptance claimed."
+    }
+  ],
+  "assertions": 10,
+  "newLiveRuns": 0,
+  "providerCalls": 0,
+  "accountOperations": 0,
+  "disposition": "Case9 bounded source correction credited; case11 full-window evidence remains open. This strengthens Sam existing acceptance gap, not a new historical cause."
+}

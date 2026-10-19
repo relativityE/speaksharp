@@ -1,0 +1,220 @@
+{
+  "prepared_at_utc": "2026-10-19T13:08:16.010082+00:00",
+  "preparation_only": true,
+  "operational_permission_granted": false,
+  "existing_human_row_count": 6,
+  "records": [
+    {
+      "status": "PREPARED_NOT_EXECUTED",
+      "observer": null,
+      "observed_at_utc": null,
+      "physical_device": {
+        "model": null,
+        "os": null,
+        "browser": null,
+        "viewport": null,
+        "orientation": null
+      },
+      "served_sha": null,
+      "route_config_reference": null,
+      "authorization_reference": null,
+      "private_take_request_binding_reference": null,
+      "actual_result": null,
+      "private_evidence_reference": null,
+      "cleanup_or_retention_disposition": null,
+      "id": "H1",
+      "related_cases": [
+        1,
+        7
+      ],
+      "procedure": "Real natural Open Mic take; save; inspect source-supported 1+1 advice; repeat on the same action; reopen exact saved review.",
+      "must_observe": [
+        "Advice is supported, specific and usable; observer explains why.",
+        "A/B take and stored-feedback binding before lawful content removal; do not infer server persistence from current-view counters.",
+        "Older-take feedback remains attached to its actual take/request."
+      ],
+      "not_proven_by": [
+        "TTS/scripted score",
+        "provider HTTP200 alone",
+        "current-view counters",
+        "prepared worksheet"
+      ]
+    },
+    {
+      "status": "PREPARED_NOT_EXECUTED",
+      "observer": null,
+      "observed_at_utc": null,
+      "physical_device": {
+        "model": null,
+        "os": null,
+        "browser": null,
+        "viewport": null,
+        "orientation": null
+      },
+      "served_sha": null,
+      "route_config_reference": null,
+      "authorization_reference": null,
+      "private_take_request_binding_reference": null,
+      "actual_result": null,
+      "private_evidence_reference": null,
+      "cleanup_or_retention_disposition": null,
+      "id": "H2",
+      "related_cases": [
+        2
+      ],
+      "procedure": "Real full Focus take covering the declared points; inspect coverage and advice; exercise Edit/New Set/Back/reload and repeat under the selected approved scope.",
+      "must_observe": [
+        "Full useful Focus and all declared point-specific advice.",
+        "Stop/final transcript/evaluation/save ordering on selected served release.",
+        "Every attempted coaching request has an accounted terminal outcome and permitted budget."
+      ],
+      "not_proven_by": [
+        "Partial Focus only",
+        "Stop-order source acceptance",
+        "aggregate provider attempts"
+      ]
+    },
+    {
+      "status": "PREPARED_NOT_EXECUTED",
+      "observer": null,
+      "observed_at_utc": null,
+      "physical_device": {
+        "model": null,
+        "os": null,
+        "browser": null,
+        "viewport": null,
+        "orientation": null
+      },
+      "served_sha": null,
+      "route_config_reference": null,
+      "authorization_reference": null,
+      "private_take_request_binding_reference": null,
+      "actual_result": null,
+      "private_evidence_reference": null,
+      "cleanup_or_retention_disposition": null,
+      "id": "H3",
+      "related_cases": [
+        3
+      ],
+      "procedure": "Real partial Focus take with an intended subset fixed before speaking; deliberately omit another point.",
+      "must_observe": [
+        "Honest partial coverage and usable next action; unspoken point remains unmarked.",
+        "Bind provisional/committed transcript and actual marker mutation to the same take/audio clock.",
+        "Preserve original deadline; late polling observation cannot identify historical mutation time."
+      ],
+      "not_proven_by": [
+        "All-covered fixture",
+        "final coverage alone",
+        "poll timestamp treated as mutation time"
+      ]
+    },
+    {
+      "status": "PREPARED_NOT_EXECUTED",
+      "observer": null,
+      "observed_at_utc": null,
+      "physical_device": {
+        "model": null,
+        "os": null,
+        "browser": null,
+        "viewport": null,
+        "orientation": null
+      },
+      "served_sha": null,
+      "route_config_reference": null,
+      "authorization_reference": null,
+      "private_take_request_binding_reference": null,
+      "actual_result": null,
+      "private_evidence_reference": null,
+      "cleanup_or_retention_disposition": null,
+      "id": "H4",
+      "related_cases": [
+        1,
+        2,
+        3
+      ],
+      "procedure": "Real speaker uses natural filler hesitations and lexical negatives; compare appropriately permitted annotations with live and saved displayed counts.",
+      "must_observe": [
+        "Observed filler/non-filler examples with human rationale in approved private evidence.",
+        "Correct default-tier visible availability; truthful unavailable state when unsupported."
+      ],
+      "not_proven_by": [
+        "Normalized WER",
+        "synthetic three-word audio",
+        "zero-filler diagnostic alone"
+      ]
+    },
+    {
+      "status": "PREPARED_NOT_EXECUTED",
+      "observer": null,
+      "observed_at_utc": null,
+      "physical_device": {
+        "model": null,
+        "os": null,
+        "browser": null,
+        "viewport": null,
+        "orientation": null
+      },
+      "served_sha": null,
+      "route_config_reference": null,
+      "authorization_reference": null,
+      "private_take_request_binding_reference": null,
+      "actual_result": null,
+      "private_evidence_reference": null,
+      "cleanup_or_retention_disposition": null,
+      "id": "H5",
+      "related_cases": [
+        12
+      ],
+      "procedure": "Physical device, legitimate native prompt context: deny, observe truthful refusal and no recording, then use actual browser settings/Allow and follow the approved recovery flow.",
+      "must_observe": [
+        "Native permission action and actual app acquisition outcome bound to the press.",
+        "No hidden live track or automatic resume; truthful controls; recovered take when authorized.",
+        "State whether recovery is the original denied page or a fresh browser. The automated same-account/fresh-browser result does not prove original-page Allow\u2192Retry.",
+        "Private authorized residue/cleanup disposition remains separate from denial/recovery acceptance."
+      ],
+      "not_proven_by": [
+        "Playwright permission mocks",
+        "fake-UI =deny alone",
+        "permission query alone",
+        "historical account ownership alone"
+      ]
+    },
+    {
+      "status": "PREPARED_NOT_EXECUTED",
+      "observer": null,
+      "observed_at_utc": null,
+      "physical_device": {
+        "model": null,
+        "os": null,
+        "browser": null,
+        "viewport": null,
+        "orientation": null
+      },
+      "served_sha": null,
+      "route_config_reference": null,
+      "authorization_reference": null,
+      "private_take_request_binding_reference": null,
+      "actual_result": null,
+      "private_evidence_reference": null,
+      "cleanup_or_retention_disposition": null,
+      "id": "H6",
+      "related_cases": [
+        13,
+        14,
+        15
+      ],
+      "procedure": "Physical supported phone: approved Stop/save/visible Practice Loop/reopen and scrolling/touch acceptance. Keep returning-user read-only navigation as a separately bound no-write observation; no recording is permitted in that read-only case.",
+      "must_observe": [
+        "Actual readable/tappable essential actions on the named phone/viewport/orientation.",
+        "For separately authorized model-fault observations: exact asset/attempt and injected fault, truthful failure/Retry, no false readiness or Cloud fallback, then authorized recovery.",
+        "Returning-user case15: approved existing fixture, authenticated eligibility/completed history, baseline/final no-write counts, zero model/mic/coaching activity. Phone Stop/save must not be used as evidence of read-only no writes."
+      ],
+      "not_proven_by": [
+        "Desktop screenshot geometry",
+        "DOM height alone",
+        "canary fixture history as authenticated eligibility",
+        "generic requestfailed count as exact weight/fault binding"
+      ]
+    }
+  ]
+}
