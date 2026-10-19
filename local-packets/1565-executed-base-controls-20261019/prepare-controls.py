@@ -45,6 +45,6 @@ pins={}
 for p in ['tests/evidence/fixtures/model-evaluator/baseline-v2-smoke.json','tests/evidence/fixtures/model-evaluator/candidate-v4-base-q4-4.3.0.json','tests/evidence/fixtures/model-evaluator/device-local-wasm.json']:
  b=subprocess.check_output(['git','show',SOURCE+':'+p]);pins[p]={'sha256':sha(b),'manifest':json.loads(b)}
 write('target-pins.json',{'source':SOURCE,'realTargets':pins,'executedTarget':'offline-control/no-model; no actual v2/v4 inference in this run','missing':'download-response hashes, immutable revisions, supported devices and full audio admission remain unverified'})
-manifest={str(p.relative_to(HERE)):sha(p.read_bytes()) for p in HERE.rglob('*') if p.is_file() and p.name not in ['INPUT_HASHES.json']}
+manifest={str(p.relative_to(HERE)):sha(p.read_bytes()) for p in HERE.rglob('*') if p.is_file() and (p.parent==HERE/'inputs' or p.name in ['frozen-controls.json','target-pins.json'])}
 write('INPUT_HASHES.json',manifest)
 print(json.dumps({'textSTTControls':len(stt),'coachingControls':len(coaching),'targets':'v2 BASE / v4 BASE q4 WASM','audio':'generated 20ms zeros; no speech-quality evidence'}))

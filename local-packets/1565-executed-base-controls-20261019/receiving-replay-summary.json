@@ -1,0 +1,18 @@
+{
+  "source": "6185f14cd05b2aa985aa539e8221282c2237e200",
+  "exit": 0,
+  "existingTests": {
+    "passed": 71,
+    "failed": 0
+  },
+  "apiObservationGroups": 105,
+  "apiProbeErrors": 0,
+  "cliReports": "1 HOLD +3 FAIL; no model inference",
+  "preflightsRejected": 4,
+  "lifecycleTrace": "both logical arms alive for12 decode calls",
+  "wrapper": "4 real reports +16 rejected negative mutations",
+  "frozenInputsMatched": true,
+  "liveOrModelQualification": "NOT_RUN / HOLD",
+  "replayCommand": "node scripts/host-interlock.mjs hold local -- python local-packets/1565-executed-base-controls-20261019/run-receiving-bundle.py artifacts/pm-1565-receiving-replay-20261019",
+  "executionLogSha256": "153589f9baba17c96c380aa81998fdce0ca05109d75b002b9c937cc372c87006"
+}
