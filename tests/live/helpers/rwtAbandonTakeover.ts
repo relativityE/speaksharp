@@ -229,134 +229,216 @@ export function secondTabBlockedVerdict(o: { refusalCopyShown: boolean; tabB: Ta
 }
 
 /**
- * #1593 case 11 (Sam RETURN on c8e5d59f) — ONE OBSERVATION WINDOW PER PAGE, opened inside the page before the first press
- * and closed by one synchronous read immediately before the take-over press. While open it records every published
- * runtime-state and model-status value (MutationObserver with old values; the close drains undelivered records with
- * takeRecords), every microphone track live at open that is stopped or ends, and the page's acquisition count at open. The
- * window lives in the page's own JS realm, so a replaced document (same URL or not) has no window — its close returns
- * `token: null`, a lost observation. Self-contained: both run in the page via `page.evaluate`, and the unit tests drive the
- * same functions in jsdom.
+ * #1593 case 11 (Sam RETURNs on c8e5d59f / 04920bce / the 16:15 pre-gesture tail) — ONE OBSERVATION WINDOW PER PAGE, opened
+ * inside the page before the first press and kept open THROUGH the explicit take-over gesture. While open it records, with
+ * in-page times, every published runtime-state and model-status value (MutationObserver with old values; reads drain
+ * undelivered records with takeRecords) starting with the value at open, every microphone track live at open that is
+ * stopped or ends, and the page's acquisitions. The refusal window ends at the take-over gesture itself:
+ * - on B, `armTakeoverGesture` installs a capture-phase listener in B's own realm that, at the trusted take-over click,
+ *   marks the exact index of each history — so B's refusal portion is cut by the event, not by a later read;
+ * - on A, each entry is split at B's gesture time; an entry within TAKEOVER_BOUNDARY_MARGIN_MS of it is uncertain (HOLD).
+ * Post-take-over activity (B recording, A displaced) is therefore never absorbed into the refusal window, and there is no
+ * unobserved tail between the reads and the gesture. The window lives in the page's own JS realm, so a replaced document
+ * has none — `token: null`, a lost observation. Self-contained page functions; the unit tests drive them in jsdom.
  */
 export type ObservationClose = {
     /** The token given at open, read from THIS document — null when the document has no open window (replaced or never opened). */
     token: string | null;
-    /** Sam RETURN on 04920bce (opening state): the value at OPEN first, then every published value after it. */
+    /** How the refusal portion was cut: at B's take-over gesture, at a time boundary (A), or not at all (whole window). */
+    boundary: 'gesture' | 'time' | 'none';
+    /** An entry fell within the margin of a time boundary: which side it belongs to is unknown. */
+    boundaryUncertain: boolean;
+    /** When B's take-over gesture was marked (in-page wall clock, ms); null when no gesture was marked. */
+    gestureAt: number | null;
+    /** The value at OPEN first, then every published value up to the boundary. */
     runtimeTransitions: string[];
+    /** The last runtime value inside the portion (the current value when not cut). */
     runtimeNow: string | null;
     modelTransitions: string[];
     modelNow: string | null;
-    /** Audio acquisitions started since open; null when the page's counter is unavailable. */
+    /** Audio acquisitions started inside the portion; null when the page's counter is unavailable. */
     micAcquisitionsSinceOpen: number | null;
-    /** Tracks live at open that were stopped or ended since. */
+    /** Tracks live at open that were stopped or ended inside the portion. */
     tracksStoppedSinceOpen: number;
     /** Audio tracks live when the window OPENED. */
     liveTracksAtOpen: number;
+    /** Current live tracks and recorder (meaningful only for an uncut window). */
     liveTracks: number;
     recorderVisible: boolean;
 };
+
+/**
+ * Sam (16:15 tail RETURN): the A-side split at B's gesture. Observer delivery runs at the end of the mutating task (sub-ms
+ * to a few ms), while A's displacement by a take-over needs a server round trip, so an A entry within 50 ms of the gesture
+ * is genuinely ambiguous — HOLD — and anything earlier belongs to the refusal window.
+ */
+export const TAKEOVER_BOUNDARY_MARGIN_MS = 50;
 
 export function openObservationWindow(arg: { token: string; recorderTestId: string }): boolean {
     type Track = { readyState: string; stop: () => void; addEventListener: (t: string, f: () => void) => void };
     const w = window as unknown as Record<string, unknown>;
     const root = document.documentElement;
+    const openedAt = Date.now();
     const streams = (w.__rwtMicStreams__ as { getAudioTracks: () => Track[] }[] | undefined) ?? [];
     const log = w.__rwtMicAcquisitionLog__ as unknown[] | undefined;
-    // Sam RETURN on 04920bce: the opening state is evidence too — an A already STOPPING, or a B model already loading,
-    // when observation opens must not disappear because only later values were retained.
+    // Sam RETURN on 04920bce: the opening state is evidence too.
     const runtime: string[] = [root.getAttribute('data-runtime-state') ?? 'absent'];
+    const runtimeAt: number[] = [openedAt];
     const model: string[] = [root.getAttribute('data-model-status') ?? 'absent'];
-    const stopped = new Set<Track>();
+    const modelAt: number[] = [openedAt];
+    const stopped = new Map<Track, number>();
     const openTracks = streams.flatMap((s) => s.getAudioTracks()).filter((t) => t.readyState === 'live');
     for (const track of openTracks) {
         const stop = track.stop.bind(track);
-        track.stop = () => { stopped.add(track); stop(); };
-        track.addEventListener('ended', () => { stopped.add(track); });
+        track.stop = () => { if (!stopped.has(track)) stopped.set(track, Date.now()); stop(); };
+        track.addEventListener('ended', () => { if (!stopped.has(track)) stopped.set(track, Date.now()); });
     }
     const record = (records: MutationRecord[]): void => {
+        const at = Date.now();
         records.forEach((r, i) => {
             const name = r.attributeName ?? '';
             const next = records.slice(i + 1).find((x) => x.attributeName === name);
             const after = next ? next.oldValue : root.getAttribute(name);
-            (name === 'data-runtime-state' ? runtime : model).push(after ?? 'absent');
+            if (name === 'data-runtime-state') { runtime.push(after ?? 'absent'); runtimeAt.push(at); } else { model.push(after ?? 'absent'); modelAt.push(at); }
         });
     };
     const observer = new MutationObserver(record);
     observer.observe(root, { attributes: true, attributeFilter: ['data-runtime-state', 'data-model-status'], attributeOldValue: true });
     w.__rwtObservationWindow__ = {
-        token: arg.token, recorderTestId: arg.recorderTestId, runtime, model, stopped, openTracks, observer, record, liveTracksAtOpen: openTracks.length,
-        acquisitionsAtOpen: log ? log.length : null,
+        token: arg.token, recorderTestId: arg.recorderTestId, openedAt, runtime, runtimeAt, model, modelAt, stopped, openTracks, observer, record,
+        liveTracksAtOpen: openTracks.length, acquisitionsAtOpen: log ? log.length : null, gesture: null,
     };
     return true;
 }
 
-export function closeObservationWindow(): ObservationClose {
+/**
+ * On B, immediately before the take-over press: the FIRST trusted click from now on marks the end of the refusal window at
+ * that event, in B's own realm (pending observer records drained first). `acceptUntrusted` exists only for jsdom tests.
+ */
+export function armTakeoverGesture(arg: { acceptUntrusted?: boolean } = {}): boolean {
+    const w = window as unknown as Record<string, unknown>;
+    const win = w.__rwtObservationWindow__ as {
+        runtime: string[]; model: string[]; stopped: Map<unknown, number>; openTracks: { readyState: string }[]; observer: MutationObserver;
+        record: (r: MutationRecord[]) => void; gesture: unknown;
+    } | undefined;
+    if (!win) return false;
+    const onClick = (event: Event): void => {
+        if (win.gesture || (!event.isTrusted && !arg.acceptUntrusted)) return;
+        win.record(win.observer.takeRecords());
+        const at = Date.now();
+        for (const track of win.openTracks) if (track.readyState !== 'live' && !win.stopped.has(track)) win.stopped.set(track, at);
+        const log = w.__rwtMicAcquisitionLog__ as unknown[] | undefined;
+        win.gesture = { at, runtime: win.runtime.length, model: win.model.length, acquisitions: log ? log.length : null };
+        document.removeEventListener('click', onClick, true);
+    };
+    document.addEventListener('click', onClick, true);
+    return true;
+}
+
+export function closeObservationWindow(arg: { until?: number; marginMs?: number } = {}): ObservationClose {
     type Track = { readyState: string };
     const w = window as unknown as Record<string, unknown>;
     const root = document.documentElement;
     const win = w.__rwtObservationWindow__ as {
-        token: string; recorderTestId: string; runtime: string[]; model: string[]; stopped: Set<Track>; openTracks: Track[];
-        observer: MutationObserver; record: (r: MutationRecord[]) => void; acquisitionsAtOpen: number | null; liveTracksAtOpen: number;
+        token: string; recorderTestId: string; openedAt: number; runtime: string[]; runtimeAt: number[]; model: string[]; modelAt: number[];
+        stopped: Map<Track, number>; openTracks: Track[]; observer: MutationObserver; record: (r: MutationRecord[]) => void;
+        acquisitionsAtOpen: number | null; liveTracksAtOpen: number;
+        gesture: { at: number; runtime: number; model: number; acquisitions: number | null } | null;
     } | undefined;
     const streams = (w.__rwtMicStreams__ as { getAudioTracks: () => Track[] }[] | undefined) ?? [];
     const liveTracks = streams.flatMap((s) => s.getAudioTracks()).filter((t) => t.readyState === 'live').length;
-    const base = {
-        runtimeNow: root.getAttribute('data-runtime-state'), modelNow: root.getAttribute('data-model-status'), liveTracks,
-        recorderVisible: win ? document.querySelector(`[data-testid="${win.recorderTestId}"]`) !== null : false,
-    };
-    if (!win) return { token: null, runtimeTransitions: [], modelTransitions: [], micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, ...base };
+    const recorderVisible = win ? document.querySelector(`[data-testid="${win.recorderTestId}"]`) !== null : false;
+    if (!win) {
+        return { token: null, boundary: 'none', boundaryUncertain: false, gestureAt: null, runtimeTransitions: [], runtimeNow: root.getAttribute('data-runtime-state'),
+            modelTransitions: [], modelNow: root.getAttribute('data-model-status'), micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks, recorderVisible };
+    }
     win.record(win.observer.takeRecords());
     win.observer.disconnect();
-    for (const track of win.openTracks) if (track.readyState !== 'live') win.stopped.add(track);
+    const now = Date.now();
+    for (const track of win.openTracks) if (track.readyState !== 'live' && !win.stopped.has(track)) win.stopped.set(track, now);
     const log = w.__rwtMicAcquisitionLog__ as unknown[] | undefined;
+    const marks = (w.__rwtMicAcquisitions__ as number[] | undefined) ?? null;
     delete w.__rwtObservationWindow__;
+    const last = (xs: string[]) => (xs.length ? xs[xs.length - 1] : null);
+    const unknownCounter = win.acquisitionsAtOpen === null || !log;
+    if (win.gesture) {
+        const g = win.gesture;
+        const runtime = win.runtime.slice(0, g.runtime);
+        const model = win.model.slice(0, g.model);
+        return {
+            token: win.token, boundary: 'gesture', boundaryUncertain: false, gestureAt: g.at, runtimeTransitions: runtime, runtimeNow: last(runtime),
+            modelTransitions: model, modelNow: last(model),
+            micAcquisitionsSinceOpen: unknownCounter || g.acquisitions === null ? null : g.acquisitions - (win.acquisitionsAtOpen as number),
+            tracksStoppedSinceOpen: [...win.stopped.values()].filter((t) => t <= g.at).length, liveTracksAtOpen: win.liveTracksAtOpen, liveTracks, recorderVisible,
+        };
+    }
+    if (arg.until !== undefined) {
+        const until = arg.until;
+        const margin = arg.marginMs ?? 0;
+        let uncertain = false;
+        const side = (t: number): 'before' | 'after' => {
+            if (Math.abs(t - until) < margin) uncertain = true;
+            return t < until - margin ? 'before' : 'after';
+        };
+        const runtime = win.runtime.filter((_v, i) => i === 0 || side(win.runtimeAt[i]) === 'before');
+        const model = win.model.filter((_v, i) => i === 0 || side(win.modelAt[i]) === 'before');
+        const stoppedBefore = [...win.stopped.values()].filter((t) => side(t) === 'before').length;
+        // Acquisition times: the counter's own marks since open (no marks = unknown).
+        const acquisitions = marks === null ? null : marks.filter((t) => t >= win.openedAt && side(t) === 'before').length;
+        return {
+            token: win.token, boundary: 'time', boundaryUncertain: uncertain, gestureAt: null, runtimeTransitions: runtime, runtimeNow: last(runtime),
+            modelTransitions: model, modelNow: last(model), micAcquisitionsSinceOpen: unknownCounter ? null : acquisitions,
+            tracksStoppedSinceOpen: stoppedBefore, liveTracksAtOpen: win.liveTracksAtOpen, liveTracks, recorderVisible,
+        };
+    }
     return {
-        token: win.token, runtimeTransitions: win.runtime.slice(), modelTransitions: win.model.slice(),
-        micAcquisitionsSinceOpen: win.acquisitionsAtOpen === null || !log ? null : log.length - win.acquisitionsAtOpen,
-        tracksStoppedSinceOpen: win.stopped.size, liveTracksAtOpen: win.liveTracksAtOpen, ...base,
+        token: win.token, boundary: 'none', boundaryUncertain: false, gestureAt: null, runtimeTransitions: win.runtime.slice(), runtimeNow: root.getAttribute('data-runtime-state'),
+        modelTransitions: win.model.slice(), modelNow: root.getAttribute('data-model-status'),
+        micAcquisitionsSinceOpen: unknownCounter ? null : log.length - (win.acquisitionsAtOpen as number),
+        tracksStoppedSinceOpen: win.stopped.size, liveTracksAtOpen: win.liveTracksAtOpen, liveTracks, recorderVisible,
     };
 }
 
 /**
- * #1593 case 11 (Sam's 13:13 ACCEPT of PM 9fc69b51; RETURN on c8e5d59f): the lease refusal is judged over its WHOLE window —
- * from before the first press through one closing observation immediately before the explicit take-over press — from
- * each page's own continuous observation, never from sampled or frozen snapshots. Model work, any B microphone
- * acquisition, B recording, or ANY interruption of A (a runtime transition, a track stopped or ended, a re-acquisition, or
- * A not recording at the close) fails it. A lost observation — a window missing from a page's current document, an
- * unavailable counter — is HOLD, never zero activity. The take-over window is judged separately (takeOverVerdict).
+ * #1593 case 11 (Sam's 13:13 ACCEPT of PM 9fc69b51; RETURNs on c8e5d59f / 04920bce / the 16:15 tail): the lease refusal is
+ * judged over its WHOLE window — from the opening state before the first press up to the explicit take-over gesture —
+ * from each page's own continuous observation cut at that gesture (B: the event itself; A: B's gesture time). Model work,
+ * any B microphone acquisition or track, B recording, or ANY interruption of A before the gesture fails it. A lost
+ * observation (no window in the current document, an unavailable counter, no marked gesture) or an A entry at the
+ * boundary is HOLD, never zero activity. The take-over itself is judged separately (takeOverVerdict).
  */
 export type LeaseRefusalWindow = {
-    /** Both windows opened and closed in the SAME documents, with their counters available. */
+    /** Both windows opened and closed in the SAME documents and the take-over gesture was armed. */
     observed: boolean;
     refusalCopyShown: boolean;
     cold: boolean;
-    /** Model-asset requests on B over the whole window (network level). */
+    /** Model-asset requests on B up to the take-over press (network level). */
     modelRequests: number;
-    /** B's closing observation. */
+    /** B's window, cut at its own take-over gesture. */
     b: ObservationClose;
-    /** A's closing observation. */
+    /** A's window, cut at B's gesture time. */
     a: ObservationClose;
 };
 
 export function leaseRefusalWindowVerdict(w: LeaseRefusalWindow): Verdict {
-    if (!w.observed || w.a.token === null || w.b.token === null || w.a.micAcquisitionsSinceOpen === null || w.b.micAcquisitionsSinceOpen === null) {
-        return { status: 'HOLD', detail: 'the refused window was not observed continuously in the same documents, so no refusal is claimed' };
+    if (!w.observed || w.a.token === null || w.b.token === null || w.a.micAcquisitionsSinceOpen === null || w.b.micAcquisitionsSinceOpen === null
+        || w.b.boundary !== 'gesture' || w.a.boundary !== 'time') {
+        return { status: 'HOLD', detail: 'the refused window was not observed continuously up to the take-over gesture in the same documents, so no refusal is claimed' };
     }
+    if (w.a.boundaryUncertain) return { status: 'HOLD', detail: 'the first tab changed at the take-over boundary, so which window it belongs to is unknown' };
     if (!w.refusalCopyShown) return { status: 'FAIL', detail: 'the second tab was not told why it could not record' };
     if (modelWorkBeforeRefusal({ cold: w.cold, modelRequests: w.modelRequests, statusHistory: w.b.modelTransitions, statusAtRefusal: w.b.modelNow })) {
         return { status: 'FAIL', detail: 'model preparation happened while the account lease was refusing the device' };
     }
     if (w.b.micAcquisitionsSinceOpen > 0 || w.b.liveTracksAtOpen > 0) return { status: 'FAIL', detail: 'the refused device asked for the microphone during the refusal' };
     if (w.b.runtimeTransitions.some((s) => s === 'RECORDING')) return { status: 'FAIL', detail: 'the refused tab started recording or opened the microphone' };
-    if (recordingNow({ runtimeState: w.b.runtimeNow, recorderVisible: w.b.recorderVisible, liveTracks: w.b.liveTracks })) {
-        return { status: 'FAIL', detail: 'the refused tab started recording or opened the microphone' };
-    }
-    // A re-publishing RECORDING is not an interruption; any other published state is.
-    // The opening value is the first entry, so A must already be RECORDING with a live track when the window opens.
+    // A re-publishing RECORDING is not an interruption; any other value before the gesture is. The opening value is the
+    // first entry, so A must already be RECORDING with a live track when the window opens.
     const interrupted = w.a.runtimeTransitions.some((s) => s !== 'RECORDING') || w.a.tracksStoppedSinceOpen > 0 || w.a.micAcquisitionsSinceOpen > 0;
-    if (interrupted || w.a.runtimeTransitions.length === 0 || w.a.liveTracksAtOpen === 0 || w.a.runtimeNow !== 'RECORDING' || w.a.liveTracks === 0) {
+    if (interrupted || w.a.runtimeTransitions.length === 0 || w.a.liveTracksAtOpen === 0) {
         return { status: 'FAIL', detail: 'the first tab did not record continuously while the second was refused' };
     }
-    return { status: 'PASS', detail: 'refused truthfully across the whole window: no model work, no microphone on the refused device, and the first tab recorded without interruption' };
+    return { status: 'PASS', detail: 'refused truthfully up to the take-over gesture: no model work, no microphone on the refused device, and the first tab recorded without interruption' };
 }
 
 /** The explicit take-over moves the ONE engine: B records, A stops, lets go of its microphone and says why. */

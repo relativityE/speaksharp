@@ -34,7 +34,7 @@ import {
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, TAKEOVER_BOUNDARY_MARGIN_MS, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -407,23 +407,12 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();
             const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
             const modelRequestsBeforeRefusal = modelRequestsB;
-            // The hold the person waits, then the closing observation of both pages, immediately before the take-over press.
+            // The hold the person waits. Sam (16:15 tail RETURN): both windows stay open THROUGH the take-over gesture — B marks
+            // the end of its refusal window at the click itself, in its own realm; A is cut at B's gesture time — so nothing
+            // between the last read and the gesture goes unobserved, and the take-over's own activity is never counted.
             await deviceB.waitForTimeout(2_000);
-            const closedB = await deviceB.evaluate(closeObservationWindow).catch(() => null);
-            const closedA = await tabA.evaluate(closeObservationWindow).catch(() => null);
-            const lost: ObservationClose = { token: null, runtimeTransitions: [], runtimeNow: null, modelTransitions: [], modelNow: null, micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false };
-            const observedWindow = openedA && openedB && closedA?.token === `${windowToken}-a` && closedB?.token === `${windowToken}-b`;
-            const refusal = leaseRefusalWindowVerdict({
-                observed: observedWindow, refusalCopyShown: refusedInTime, cold: coldB, modelRequests: modelRequestsB, b: closedB ?? lost, a: closedA ?? lost,
-            });
-            receipt.row('another device is refused by the account lease', refusal.status, refusal.detail, {
-                refusalCopyShown: refusedInTime, coldB, observedWindow, modelRequestsBeforeRefusal, modelRequestsInWindow: modelRequestsB,
-                modelTransitionsB: (closedB ?? lost).modelTransitions.length, micAcquisitionsB: (closedB ?? lost).micAcquisitionsSinceOpen ?? -1,
-                runtimeTransitionsA: (closedA ?? lost).runtimeTransitions.length, tracksStoppedA: (closedA ?? lost).tracksStoppedSinceOpen,
-                micAcquisitionsA: (closedA ?? lost).micAcquisitionsSinceOpen ?? -1,
-                deviceBRuntimeState: (closedB ?? lost).runtimeNow, deviceBLiveTracks: (closedB ?? lost).liveTracks,
-                tabARuntimeState: (closedA ?? lost).runtimeNow, tabALiveTracks: (closedA ?? lost).liveTracks,
-            });
+            const gestureArmed = await deviceB.evaluate(armTakeoverGesture, {}).catch(() => false);
+            const modelRequestsBeforeGesture = modelRequestsB; // the take-over legitimately downloads the model afterwards
 
             // The person's explicit second press is the take-over — on whichever primary control the refused page renders
             // (still the cold `mic-download` when the lease refused before any download).
@@ -431,6 +420,25 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // take-over that never records ends the scenario here instead of carrying on through the later waits.
             watch.setStartRefusedAllowed(false);
             await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();
+            const closedB = await deviceB.evaluate(closeObservationWindow, {}).catch(() => null);
+            const gestureAt = closedB?.gestureAt ?? null;
+            const closedA = await tabA.evaluate(closeObservationWindow, gestureAt === null ? {} : { until: gestureAt, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS }).catch(() => null);
+            const lost: ObservationClose = {
+                token: null, boundary: 'none', boundaryUncertain: false, gestureAt: null, runtimeTransitions: [], runtimeNow: null, modelTransitions: [], modelNow: null,
+                micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false,
+            };
+            const observedWindow = openedA && openedB && gestureArmed && closedA?.token === `${windowToken}-a` && closedB?.token === `${windowToken}-b`;
+            const refusal = leaseRefusalWindowVerdict({
+                observed: observedWindow, refusalCopyShown: refusedInTime, cold: coldB, modelRequests: modelRequestsBeforeGesture, b: closedB ?? lost, a: closedA ?? lost,
+            });
+            receipt.row('another device is refused by the account lease', refusal.status, refusal.detail, {
+                refusalCopyShown: refusedInTime, coldB, observedWindow, gestureMarked: gestureAt !== null, boundaryUncertainA: (closedA ?? lost).boundaryUncertain,
+                modelRequestsBeforeRefusal, modelRequestsBeforeGesture,
+                modelTransitionsB: (closedB ?? lost).modelTransitions.length, micAcquisitionsB: (closedB ?? lost).micAcquisitionsSinceOpen ?? -1,
+                runtimeTransitionsA: (closedA ?? lost).runtimeTransitions.length, tracksStoppedA: (closedA ?? lost).tracksStoppedSinceOpen,
+                micAcquisitionsA: (closedA ?? lost).micAcquisitionsSinceOpen ?? -1,
+                deviceBRuntimeAtGesture: (closedB ?? lost).runtimeNow, tabARuntimeAtGesture: (closedA ?? lost).runtimeNow,
+            });
             if (!(await isRecording(deviceB, coldB ? 900_000 : 60_000))) throw new Error('the explicit take-over press did not start a recording');
             const displacedCopyShown = await tabA.getByText(DISPLACED_COPY).waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
             await expect.poll(async () => (await tabState(tabA)).liveTracks, { timeout: 20_000 }).toBe(0).catch(() => undefined);

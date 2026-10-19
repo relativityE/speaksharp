@@ -405,15 +405,16 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
 });
 
 describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (Sam 13:13 ACCEPT of PM 9fc69b51; RETURN on c8e5d59f)', () => {
-    const recA: ObservationClose = { token: 'w-a', runtimeTransitions: ['RECORDING'], runtimeNow: 'RECORDING', modelTransitions: ['ready'], modelNow: 'ready', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 1, liveTracks: 1, recorderVisible: true };
-    const refusedB: ObservationClose = { token: 'w-b', runtimeTransitions: ['READY'], runtimeNow: 'READY', modelTransitions: ['download-required'], modelNow: 'download-required', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false };
+    // After the take-over (the windows are read then): A displaced and B recording NOW — the cut portions are what count.
+    const recA: ObservationClose = { token: 'w-a', boundary: 'time', boundaryUncertain: false, gestureAt: null, runtimeTransitions: ['RECORDING'], runtimeNow: 'RECORDING', modelTransitions: ['ready'], modelNow: 'ready', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 1, liveTracks: 0, recorderVisible: false };
+    const refusedB: ObservationClose = { token: 'w-b', boundary: 'gesture', boundaryUncertain: false, gestureAt: 1_000, runtimeTransitions: ['READY'], runtimeNow: 'READY', modelTransitions: ['download-required'], modelNow: 'download-required', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 1, recorderVisible: true };
     const clean: LeaseRefusalWindow = { observed: true, refusalCopyShown: true, cold: true, modelRequests: 0, a: recA, b: refusedB };
-    /** The row as it stood at a81fbb97: endpoint snapshots taken after the refusal, before the hold. */
+    /** The row as it stood at a81fbb97: endpoint snapshots taken after the refusal, before the hold — both looked clean then. */
     const endpointRow = (w: LeaseRefusalWindow) => (
         modelWorkBeforeRefusal({ cold: w.cold, modelRequests: 0, statusHistory: [], statusAtRefusal: 'download-required' })
             ? 'FAIL' : secondTabBlockedVerdict({ refusalCopyShown: w.refusalCopyShown,
-                tabB: { runtimeState: w.b.runtimeNow, recorderVisible: w.b.recorderVisible, liveTracks: w.b.liveTracks },
-                tabA: { runtimeState: w.a.runtimeNow, recorderVisible: w.a.recorderVisible, liveTracks: w.a.liveTracks } }).status);
+                tabB: { runtimeState: 'READY', recorderVisible: false, liveTracks: 0 },
+                tabA: { runtimeState: 'RECORDING', recorderVisible: true, liveTracks: 1 } }).status);
 
     it('a clean cold refusal with A recording without interruption PASSes', () => {
         expect(leaseRefusalWindowVerdict(clean).status).toBe('PASS');
@@ -456,11 +457,20 @@ describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (S
         expect(leaseRefusalWindowVerdict({ ...clean, observed: false }).status).toBe('HOLD');
     });
 
-    it('retained controls: no refusal copy, B recording, A not recording at close, model status left non-cold all FAIL', () => {
+    it('retained controls: no refusal copy, B recording before the gesture, model status left non-cold all FAIL', () => {
         expect(leaseRefusalWindowVerdict({ ...clean, refusalCopyShown: false }).status).toBe('FAIL');
-        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, runtimeNow: 'RECORDING', liveTracks: 1 } }).status).toBe('FAIL');
-        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, runtimeNow: 'READY', liveTracks: 0 } }).status).toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, runtimeTransitions: ['READY', 'RECORDING'] } }).status).toBe('FAIL');
         expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, modelNow: 'ready' } }).status).toBe('FAIL');
+    });
+
+    it('16:15 tail RETURN: the post-gesture take-over (A displaced, B recording NOW) is never the refusal window\'s — it PASSes', () => {
+        expect(leaseRefusalWindowVerdict(clean).status).toBe('PASS');
+    });
+
+    it('16:15 tail RETURN: no marked gesture, an uncut window, or an A change at the boundary is HOLD', () => {
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, boundary: 'none', gestureAt: null } }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, boundary: 'none' } }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, boundaryUncertain: true } }).status).toBe('HOLD');
     });
 
     it('the spec opens both windows before the first press and closes them just before the take-over press', () => {
@@ -468,17 +478,22 @@ describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (S
         const openA = spec.indexOf('await tabA.evaluate(openObservationWindow');
         const openB = spec.indexOf('await deviceB.evaluate(openObservationWindow');
         const press = spec.indexOf("await deviceB.getByTestId('mic-download').click();");
-        const closeB = spec.indexOf('await deviceB.evaluate(closeObservationWindow)');
-        const closeA = spec.indexOf('await tabA.evaluate(closeObservationWindow)');
+        const arm = spec.indexOf('await deviceB.evaluate(armTakeoverGesture');
+        // The take-over's own click (the return retry earlier in the file has its own revocation).
+        const takeover = spec.indexOf("await deviceB.locator('[data-testid=\"mic-start\"], [data-testid=\"mic-download\"]').first().click();");
+        const closeB = spec.indexOf('await deviceB.evaluate(closeObservationWindow');
+        const closeA = spec.indexOf('await tabA.evaluate(closeObservationWindow');
         const verdict = spec.indexOf('leaseRefusalWindowVerdict({');
-        // The take-over's own revocation (the return retry earlier in the file has its own).
-        const takeover = spec.indexOf("watch.setStartRefusedAllowed(false);\n            await deviceB.locator(");
-        expect(takeover).toBeGreaterThan(-1);
+        expect(Math.min(openA, openB, arm, takeover)).toBeGreaterThan(-1);
         expect(Math.max(openA, openB)).toBeLessThan(press);
-        expect(Math.min(openA, openB)).toBeGreaterThan(-1);
-        expect(Math.min(closeA, closeB)).toBeGreaterThan(press);
-        expect(Math.max(closeA, closeB)).toBeLessThan(verdict);
-        expect(verdict).toBeLessThan(takeover);
+        // 16:15 tail: the windows stay open THROUGH the gesture — armed before it, read only after it, cut at it.
+        expect(arm).toBeGreaterThan(press);
+        expect(arm).toBeLessThan(takeover);
+        expect(Math.min(closeA, closeB)).toBeGreaterThan(takeover);
+        expect(closeB).toBeLessThan(closeA);
+        expect(spec.slice(closeA, verdict)).toContain('until: gestureAt, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS');
+        expect(verdict).toBeGreaterThan(closeA);
+        expect(spec.slice(arm, takeover)).toContain('const modelRequestsBeforeGesture = modelRequestsB;');
         expect(spec).not.toContain('tabStateOrNull');
     });
 });

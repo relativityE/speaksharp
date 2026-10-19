@@ -3,8 +3,8 @@
  * #1593 case 11 (Sam RETURN on c8e5d59f) — the in-page observation window, driven through jsdom's real MutationObserver and
  * fake microphone tracks: interruptions between any two reads, activity after a read, and a replaced document.
  */
-import { afterEach, describe, expect, it } from 'vitest';
-import { closeObservationWindow, openObservationWindow } from '../live/helpers/rwtAbandonTakeover';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TAKEOVER_BOUNDARY_MARGIN_MS, armTakeoverGesture, closeObservationWindow, leaseRefusalWindowVerdict, openObservationWindow, type ObservationClose } from '../live/helpers/rwtAbandonTakeover';
 
 class FakeTrack extends EventTarget {
     readyState = 'live';
@@ -22,7 +22,7 @@ const page = (o: { runtime?: string; model?: string; tracks?: FakeTrack[] } = {}
 };
 const open = (token = 'w-1') => openObservationWindow({ token, recorderTestId: 'recorder-bar' });
 
-afterEach(() => { delete w.__rwtObservationWindow__; delete w.__rwtMicStreams__; delete w.__rwtMicAcquisitionLog__; });
+afterEach(() => { vi.useRealTimers(); delete w.__rwtObservationWindow__; delete w.__rwtMicStreams__; delete w.__rwtMicAcquisitionLog__; delete w.__rwtMicAcquisitions__; });
 
 describe('in-page observation window (case 11)', () => {
     it('a clean window: no transitions, no stopped track, no acquisition, same token', () => {
@@ -88,5 +88,80 @@ describe('in-page observation window (case 11)', () => {
         delete w.__rwtMicAcquisitionLog__;
         open();
         expect(closeObservationWindow().micAcquisitionsSinceOpen).toBeNull();
+    });
+});
+
+describe('16:15 tail RETURN — the refusal window ends at the take-over GESTURE (B: the event; A: B\'s gesture time)', () => {
+    const clickB = () => document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    it('PM 6271723435 tail: B changes after the old reads but BEFORE the gesture are counted; the take-over\'s own changes are not', () => {
+        page({ runtime: 'READY', model: 'download-required', tracks: [] });
+        open('w-b');
+        armTakeoverGesture({ acceptUntrusted: true });
+        root.setAttribute('data-model-status', 'loading'); // the tail the old sequence never observed
+        (w.__rwtMicAcquisitionLog__ as unknown[]).push({ id: 0, outcome: 'granted' });
+        clickB();
+        root.setAttribute('data-runtime-state', 'RECORDING'); // the take-over itself: after the gesture
+        (w.__rwtMicAcquisitionLog__ as unknown[]).push({ id: 1, outcome: 'granted' });
+        const b = closeObservationWindow();
+        expect(b).toMatchObject({ boundary: 'gesture', modelTransitions: ['download-required', 'loading'], micAcquisitionsSinceOpen: 1, runtimeTransitions: ['READY'] });
+        expect(b.gestureAt).not.toBeNull();
+    });
+
+    it('a clean tail: nothing before the gesture, take-over activity after it — B\'s portion is clean', () => {
+        page({ runtime: 'READY', model: 'download-required', tracks: [] });
+        open('w-b');
+        armTakeoverGesture({ acceptUntrusted: true });
+        clickB();
+        root.setAttribute('data-model-status', 'loading');
+        root.setAttribute('data-runtime-state', 'RECORDING');
+        expect(closeObservationWindow()).toMatchObject({ boundary: 'gesture', modelTransitions: ['download-required'], runtimeTransitions: ['READY'], micAcquisitionsSinceOpen: 0 });
+    });
+
+    it('only the FIRST trusted click marks the gesture; an untrusted click does not (production arming)', () => {
+        page({ runtime: 'READY', model: 'download-required', tracks: [] });
+        open('w-b');
+        armTakeoverGesture();
+        clickB(); // jsdom events are untrusted
+        expect(closeObservationWindow()).toMatchObject({ boundary: 'none', gestureAt: null });
+    });
+
+    /** A changes at `gestureOffset` from B's gesture; the observer delivers at the end of that task, as in a browser. */
+    const aAt = async (gestureOffset: number, change: () => void) => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(10_000);
+        page();
+        open('w-a');
+        vi.setSystemTime(10_000 + 1_000 + gestureOffset);
+        change();
+        await Promise.resolve();
+        vi.setSystemTime(10_000 + 2_000);
+        return closeObservationWindow({ until: 10_000 + 1_000, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS });
+    };
+
+    it('A interrupted just BEFORE the gesture (beyond the margin) is in the refusal window', async () => {
+        const a = await aAt(-200, () => { root.setAttribute('data-runtime-state', 'STOPPING'); root.setAttribute('data-runtime-state', 'RECORDING'); });
+        expect(a).toMatchObject({ boundary: 'time', boundaryUncertain: false, runtimeTransitions: ['RECORDING', 'STOPPING', 'RECORDING'] });
+    });
+
+    it('A displaced AFTER the gesture (the legitimate take-over) is excluded; a track stopped then is excluded too', async () => {
+        const [track] = page();
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(20_000);
+        open('w-a');
+        vi.setSystemTime(21_500);
+        root.setAttribute('data-runtime-state', 'READY');
+        track.stop();
+        await Promise.resolve();
+        const a = closeObservationWindow({ until: 21_000, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS });
+        expect(a).toMatchObject({ boundary: 'time', boundaryUncertain: false, runtimeTransitions: ['RECORDING'], tracksStoppedSinceOpen: 0 });
+    });
+
+    it('an A change within the margin of the gesture is uncertain (HOLD), never assigned to either window', async () => {
+        const a = await aAt(TAKEOVER_BOUNDARY_MARGIN_MS / 2, () => root.setAttribute('data-runtime-state', 'STOPPING'));
+        expect(a.boundaryUncertain).toBe(true);
+        const b: ObservationClose = { token: 'w-b', boundary: 'gesture', boundaryUncertain: false, gestureAt: 11_000, runtimeTransitions: ['READY'], runtimeNow: 'READY',
+            modelTransitions: ['download-required'], modelNow: 'download-required', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false };
+        expect(leaseRefusalWindowVerdict({ observed: true, refusalCopyShown: true, cold: true, modelRequests: 0, a, b }).status).toBe('HOLD');
     });
 });
