@@ -671,9 +671,14 @@ function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: stri
  * URL (a same-document route change) never advances the generation — so a failed navigation can never leave a latch that a
  * later same-document navigation consumes, hiding the original boot's events.
  */
-/** Which document an event belongs to. Unresolved while its navigation's response and commit have not both settled. */
+/**
+ * Which document an event belongs to. Unresolved while its navigation's response and commit have not both settled;
+ * `ambiguous` when that navigation was abandoned (superseded, failed, redirected, no-content, or never matched) before its
+ * identity could be established — never silently assigned to the predecessor document.
+ */
 export interface DocumentRef {
     resolved: boolean;
+    ambiguous: boolean;
     generation: number;
     committedAt: number;
 }
@@ -686,19 +691,21 @@ export class CommittedDocumentTracker {
     /** The navigation request whose response has not been handled yet. */
     private inFlight: number | null = null;
     /**
-     * Sam, #1662 RETURN on 006f896d: `framenavigated` can arrive BEFORE the asynchronous response callback. A commit seen
-     * while a navigation is in flight is held here, bound to that request, and completed by the same request's response.
-     * Sam, RETURN on b0dd763a: events captured while it is held carry its `ref`, which stays UNRESOLVED until the response
-     * settles it — never permanently stamped with the predecessor document.
+     * Sam, #1662 RETURNs on 006f896d / b0dd763a / 06fe109b: commits seen while a navigation is in flight are held IN ORDER,
+     * each with its own reference for the events captured after it. Only a supported identity resolves them: the response
+     * (or, after the response, the commit) whose URL matches one held commit. Commits before it were same-document changes
+     * on the current document; the matching commit and those after it belong to the new document. Anything else leaves
+     * them ambiguous — fail closed.
      */
-    private earlyCommit: { url: string; at: number; seq: number; ref: DocumentRef } | null = null;
+    private held: { url: string; at: number; seq: number; ref: DocumentRef }[] = [];
     private settledRef: DocumentRef | null = null;
 
     /** The document an event captured NOW belongs to (possibly unresolved). */
     currentRef(): DocumentRef {
-        if (this.earlyCommit) return this.earlyCommit.ref;
+        const last = this.held[this.held.length - 1];
+        if (last) return last.ref;
         if (!this.settledRef || this.settledRef.generation !== this.generation) {
-            this.settledRef = { resolved: true, generation: this.generation, committedAt: this.committedAt };
+            this.settledRef = { resolved: true, ambiguous: false, generation: this.generation, committedAt: this.committedAt };
         }
         return this.settledRef;
     }
@@ -706,7 +713,7 @@ export class CommittedDocumentTracker {
     /** A new main-frame navigation request supersedes any earlier pending one; returns its sequence number. */
     onRequest(): number {
         this.pending = null;
-        this.dropEarlyCommit();
+        this.abandonHeld();
         this.inFlight = ++this.requestSeq;
         return this.inFlight;
     }
@@ -715,42 +722,56 @@ export class CommittedDocumentTracker {
     onResponse(url: string, status: number, now = Date.now(), seq?: number): void {
         if (seq !== undefined && seq !== this.requestSeq) return;
         this.inFlight = null;
-        const early = this.earlyCommit;
         // A redirect continues as another request; 204/205 never commit a document.
-        if ((status >= 300 && status < 400) || status === 204 || status === 205) { this.pending = null; this.dropEarlyCommit(); return; }
+        if ((status >= 300 && status < 400) || status === 204 || status === 205) { this.pending = null; this.abandonHeld(); return; }
         const responded = stripHash(url);
-        // Commit already seen for THIS request and URL: the document began at the commit.
-        if (early && early.url === responded && (seq === undefined || early.seq === seq)) {
-            this.earlyCommit = null;
-            this.advance(early.at);
-            Object.assign(early.ref, { resolved: true, generation: this.generation, committedAt: this.committedAt });
-            return;
-        }
-        this.dropEarlyCommit();
+        const match = this.held.findIndex((c) => c.url === responded && (seq === undefined || c.seq === seq));
+        if (match !== -1) { this.commitHeldAt(match); return; }
+        // Not committed yet: the matching commit may still come (held commits so far stay held until it does).
         this.pending = { url: responded, at: now };
     }
 
     onFailed(seq?: number): void {
         if (seq !== undefined && seq !== this.requestSeq) return;
         this.pending = null;
-        this.dropEarlyCommit();
+        this.abandonHeld();
         this.inFlight = null;
     }
 
     onCommitted(url: string, now = Date.now()): void {
         const committed = stripHash(url);
-        if (this.pending !== null && committed === this.pending.url) { this.advance(this.pending.at); return; }
-        // No response handled yet: hold the commit for the in-flight request (a later failure or newer request drops it).
-        if (this.inFlight !== null && this.earlyCommit === null) {
-            this.earlyCommit = { url: committed, at: now, seq: this.inFlight, ref: { resolved: false, generation: Number.NaN, committedAt: Number.NaN } };
+        if (this.pending !== null && committed === this.pending.url) {
+            // The responded document commits: earlier held commits were same-document changes on the current document.
+            const at = this.pending.at;
+            this.resolveHeld(this.held, this.generation, this.committedAt);
+            this.held = [];
+            this.advance(at);
+            return;
+        }
+        // While a navigation's response is outstanding (or responded but not yet committed), hold every commit in order.
+        if (this.inFlight !== null || this.pending !== null) {
+            this.held.push({ url: committed, at: now, seq: this.inFlight ?? this.requestSeq, ref: { resolved: false, ambiguous: false, generation: Number.NaN, committedAt: Number.NaN } });
         }
     }
 
-    /** The held commit was not this navigation's document: events captured meanwhile belong to the current document. */
-    private dropEarlyCommit(): void {
-        const early = this.earlyCommit;
-        this.earlyCommit = null;
-        if (early) Object.assign(early.ref, { resolved: true, generation: this.generation, committedAt: this.committedAt });
+    /** Held commit `index` is the navigation's document: earlier ones stay on the current document; it and later ones move. */
+    private commitHeldAt(index: number): void {
+        const before = this.held.slice(0, index);
+        const from = this.held.slice(index);
+        this.resolveHeld(before, this.generation, this.committedAt);
+        this.advance(from[0].at);
+        this.resolveHeld(from, this.generation, this.committedAt);
+        this.held = [];
+    }
+
+    private resolveHeld(commits: { ref: DocumentRef }[], generation: number, committedAt: number): void {
+        for (const c of commits) Object.assign(c.ref, { resolved: true, ambiguous: false, generation, committedAt });
+    }
+
+    /** The navigation was abandoned before its identity was established: its windows stay unresolved, marked ambiguous. */
+    private abandonHeld(): void {
+        for (const c of this.held) c.ref.ambiguous = true;
+        this.held = [];
     }
 
     private advance(at: number): void {

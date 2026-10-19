@@ -1215,14 +1215,14 @@ describe('#1662 RETURN on b0dd763a — events while a navigation settles keep an
         expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
     });
 
-    it('a SUPERSEDED navigation resolves the window to the current document', () => {
+    it('a SUPERSEDED navigation leaves its window AMBIGUOUS — never assigned to the predecessor (06fe RETURN)', () => {
         const t = new CommittedDocumentTracker();
         t.onRequest();
         t.onCommitted('https://app.test/a');
         const ref = t.currentRef();
         expect(ref.resolved).toBe(false);
-        t.onRequest(); // a newer navigation drops the held commit
-        expect([ref.resolved, ref.generation]).toEqual([true, 0]);
+        t.onRequest(); // a newer navigation abandons the held commit
+        expect([ref.resolved, ref.ambiguous]).toEqual([false, true]);
     });
 
     it('evidence still unresolved when the journey ends is HOLD, never PASS', async () => {
@@ -1233,5 +1233,142 @@ describe('#1662 RETURN on b0dd763a — events while a navigation settles keep an
         a.emit('request', saveFailed('boot-2')); // its navigation never settles before finalization
         await w.record({ row: (_s: string, verdict: string, _d: string, evidence?: Record<string, unknown>) => { rows.push({ verdict, evidence }); } } as never);
         expect(rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unresolvedIdentity: 1 }) })]);
+    });
+});
+
+describe('#1662 RETURN on 06fe109b — ambiguity is never proof of predecessor identity (fail closed)', () => {
+    const quiet = { log: () => undefined, label: 'case' };
+    class TabPage extends EventEmitter {
+        readonly frame: { url: () => string } = { url: () => 'about:blank' };
+        mainFrame() { return this.frame; }
+        context() { return { close: async () => undefined }; }
+        async evaluate() { return null; }
+    }
+    const posthog = (event: string, boot: string, capturedAt: number, props: Record<string, string> = {}) => ({
+        url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
+        postDataBuffer: () => Buffer.from(JSON.stringify([{ event, timestamp: new Date(capturedAt).toISOString(), properties: { boot_id: boot, ...props } }])),
+        response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
+    });
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    const navigate = (page: TabPage, url: string, status: number | null = 200) => {
+        let release!: () => void;
+        const responded = new Promise<void>((r) => { release = r; });
+        page.emit('request', { url: () => url, method: () => 'GET', isNavigationRequest: () => true, frame: () => page.frame, postDataBuffer: () => null,
+            response: () => responded.then(() => (status === null ? null : { url: () => url, status: () => status, finished: () => Promise.resolve(null) })),
+            failure: () => null });
+        const commit = (at = url) => { page.frame.url = () => at; page.emit('framenavigated', page.frame); };
+        return { commit, respond: async () => { release(); await flush(); } };
+    };
+    const saveFailed = (boot: string, dt = 5) => posthog('session_save_latency_measured', boot, Date.now() + dt, { outcome: 'failed' });
+    const setup = async (viaB: boolean) => {
+        const a = new TabPage();
+        const tap = new AnalyticsTap();
+        tap.attach(a as never);
+        const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
+        a.emit('request', posthog('journey_step', 'boot-1', Date.now()));
+        expect(await w.tick()).toBeNull();
+        if (viaB) { const b = new TabPage(); tap.attach(b as never); w.setPage(b as never); }
+        return { a, w };
+    };
+    const recordRows = async (w: JourneyWatchdog) => {
+        const rows: { verdict: string; evidence?: Record<string, unknown> }[] = [];
+        await w.record({ row: (_s: string, verdict: string, _d: string, evidence?: Record<string, unknown>) => { rows.push({ verdict, evidence }); } } as never);
+        return rows;
+    };
+
+    for (const viaB of [false, true]) {
+        const path = viaB ? 'A → attach B → reload A' : 'single page';
+        it(`${path} — Sam #1: commit → new-boot fatal → newer navigation → stale response → abort: HOLD, never PASS`, async () => {
+            const { a, w } = await setup(viaB);
+            const nav1 = navigate(a, 'https://app.test/one');
+            nav1.commit();
+            a.emit('request', saveFailed('boot-2'));
+            expect(await w.tick(), 'unresolved, retained').toBeNull();
+            const nav2 = navigate(a, 'https://app.test/two', null); // a newer navigation, which then aborts
+            await nav1.respond(); // the stale response of the superseded navigation changes nothing
+            await nav2.respond();
+            expect(await w.tick(), 'still not resolvable to either document').toBeNull();
+            const rows = await recordRows(w);
+            expect(rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unresolvedIdentity: 1 }) })]);
+        });
+
+        for (const tickInside of [false, true]) {
+            it(`${path} — Sam #2: same-document route event before the real commit${tickInside ? ' (tick inside)' : ''}: the new boot's fatal trips`, async () => {
+                const { a, w } = await setup(viaB);
+                const nav = navigate(a, 'https://app.test/session');
+                nav.commit('https://app.test/route-change'); // a same-document route event while the response is pending
+                a.emit('request', posthog('journey_step', 'boot-1', Date.now() + 1)); // the old boot, still current
+                nav.commit(); // the real commit
+                a.emit('request', saveFailed('boot-2'));
+                const inside = tickInside ? await w.tick() : null;
+                expect(inside).toBeNull();
+                await nav.respond();
+                expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+            });
+        }
+    }
+
+    it('route event AFTER the real commit belongs to the new document; its fatal trips', async () => {
+        const { a, w } = await setup(false);
+        const nav = navigate(a, 'https://app.test/session');
+        nav.commit();
+        await nav.respond();
+        nav.commit('https://app.test/session#step-2'); // a same-document change on the new document; nothing in flight
+        a.emit('request', saveFailed('boot-2'));
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    for (const [label, status] of [['abort', null], ['redirect', 302], ['204', 204], ['205', 205]] as const) {
+        it(`${label} after an early commit: an UNKNOWN boot stays unresolved (HOLD); a KNOWN boot's fatal still fails closed`, async () => {
+            const { a, w } = await setup(false);
+            const nav = navigate(a, 'https://app.test/session', status);
+            nav.commit();
+            a.emit('request', saveFailed('boot-2'));
+            await nav.respond();
+            expect(await w.tick(), 'unknown boot: no binding from ambiguity').toBeNull();
+            const silent = await recordRows(w);
+            expect(silent, 'the unknown boot\'s evidence keeps the row from passing').toEqual([expect.objectContaining({ verdict: 'HOLD' })]);
+            // After the window, the current document is the original one: its known boot's fatal trips.
+            const second = await setup(false);
+            const nav2 = navigate(second.a, 'https://app.test/session', status);
+            nav2.commit();
+            await nav2.respond();
+            second.a.emit('request', saveFailed('boot-1', 6));
+            expect(await second.w.tick()).toMatchObject({ kind: 'save_failed' });
+        });
+    }
+
+    it('known boot inside an abandoned window is judged as its own evidence (fail closed)', async () => {
+        const { a, w } = await setup(false);
+        const nav = navigate(a, 'https://app.test/session', null);
+        nav.commit();
+        a.emit('request', saveFailed('boot-1'));
+        await nav.respond();
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('a new navigation after an earlier ACTUAL commit keeps that commit; one after a never-committed navigation holds nothing', async () => {
+        const { a, w } = await setup(false);
+        const nav1 = navigate(a, 'https://app.test/one');
+        nav1.commit();
+        await nav1.respond(); // nav1 resolved: boot-2 belongs to document 1
+        a.emit('request', posthog('journey_step', 'boot-2', Date.now() + 1));
+        expect(await w.tick()).toBeNull();
+        const nav2 = navigate(a, 'https://app.test/two', null); // never commits; aborts
+        a.emit('request', saveFailed('boot-2', 3)); // document 1 is still current: no commit is held
+        await nav2.respond();
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+});
+
+describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict is sealed', () => {
+    it('Open Mic, Focus and Products wait for their final telemetry BEFORE recording the watchdog row', () => {
+        for (const f of ['tests/live/rwt-open-mic-first-session.live.spec.ts', 'tests/live/helpers/rwtFocusPointsJourney.ts', 'tests/live/rwt-products-navigation.live.spec.ts']) {
+            const src = readFileSync(f, 'utf8');
+            const closure = src.slice(src.indexOf('finalizer.once(async () => {'));
+            const wait = closure.indexOf("steps.step('telemetry observed'");
+            const record = closure.indexOf("steps.step('watchdog', () => watch.record(receipt))");
+            expect({ file: f, waitBeforeRecord: wait > -1 && wait < record }).toEqual({ file: f, waitBeforeRecord: true });
+        }
     });
 });

@@ -103,8 +103,8 @@ test.describe('RWT — returning user and Products navigation @live', () => {
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the receipt always runs.
             const steps = new FinalizationSteps();
-            await steps.step('watchdog', () => watch.record(receipt));
             await steps.step('telemetry observed', () => tap.awaitObserved(page, { journey_step: 1 }));
+            await steps.step('watchdog', () => watch.record(receipt));
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
             await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
             let userJourneys: string[] = [];

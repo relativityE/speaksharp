@@ -283,10 +283,10 @@ test.describe('RWT — Open Mic first session @live', () => {
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
             const steps = new FinalizationSteps();
-            await steps.step('watchdog', () => watch.record(receipt));
             // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
             const observed = await steps.step('telemetry observed', () => tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 }));
             receipt.meta.finalTelemetryObserved = observed?.observed ?? false;
+            await steps.step('watchdog', () => watch.record(receipt));
             // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary
             // tap after a bounded settle of every sent exchange. Unanswered or unreadable stays HOLD — never a zero or the max.
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);

@@ -379,7 +379,11 @@ export class JourneyWatchdog {
      */
     private bootMatches(e: SentEvent): boolean {
         const source = e as SentEvent & { sourcePage?: object; sourceDocument?: number; sourceDocumentAt?: number };
-        if (!source.sourcePage || !e.bootId || source.sourceDocument === undefined) return false;
+        if (!source.sourcePage || !e.bootId) return false;
+        const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
+        // An abandoned (ambiguous) window: a known boot's event is that boot's own evidence; an unknown boot binds nothing.
+        if (ref?.ambiguous && !ref.resolved) return this.bootDocument.has(e.bootId);
+        if (source.sourceDocument === undefined) return false;
         let pageId = this.pageIds.get(source.sourcePage);
         if (pageId === undefined) { pageId = this.nextPageId++; this.pageIds.set(source.sourcePage, pageId); }
         const document = `${pageId}:${source.sourceDocument}`;
@@ -411,9 +415,15 @@ export class JourneyWatchdog {
      */
     private readonly deferred: number[] = [];
 
+    /**
+     * Still unresolved: the event's navigation has not settled, or was abandoned (ambiguous) and the event's boot is not
+     * yet known. An ambiguous event from a boot already bound to a document IS judged — as that boot's own evidence,
+     * which can only fail closed (Sam, #1662 RETURN on 06fe109b: ambiguity is never proof of predecessor identity).
+     */
     private unresolved(e: SentEvent): boolean {
         const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
-        return ref !== undefined && !ref.resolved;
+        if (ref === undefined || ref.resolved) return false;
+        return !(ref.ambiguous && e.bootId !== undefined && this.bootDocument.has(e.bootId));
     }
 
     /** Judge one event whose document identity is settled; returns its fatal signal, if any. */

@@ -209,10 +209,10 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     const finish = finalizer.once(async () => {
         // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
         const steps = new FinalizationSteps();
-        await steps.step('watchdog', () => watch.record(receipt));
         // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
         const observed = await steps.step('telemetry observed', () => tap.awaitObserved(page, { coverage_evaluation: 1 }));
         receipt.meta.finalTelemetryObserved = observed?.observed ?? false;
+        await steps.step('watchdog', () => watch.record(receipt));
         // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count, from the same request-boundary tap after a
         // bounded settle of every sent exchange, so the campaign's budget admission reads an actual count. An unanswered or
         // unreadable exchange stays HOLD (never a zero or the planned maximum).
