@@ -921,7 +921,7 @@ describe('#1662 RETURN on 46ebed0f — transfer-only download stall', () => {
  * Sam, #1662 RETURNs on 2cab5b0c / 65dd8b8f — an event's document is the loader the BROWSER says sent its request, and the
  * document's start is the browser's own `init` on the browser's clock. The fake below is a page's Playwright events plus its
  * page-lifetime CDP session: a commit emits `init` + `Page.frameNavigated`; a PostHog send emits the Playwright request and
- * the CDP `Network.requestWillBeSent` (each order, or one side only). The browser's wall clock runs 50 ms BEHIND the host's,
+ * the CDP `Network.requestWillBeSent` (each order, or one side only). The browser's wall clock runs 500 ms BEHIND the host's,
  * so any boundary taken from a host callback misclassifies a valid early capture (Sam's 65dd schedule 1).
  */
 describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request provenance; incomplete provenance never PASSes', () => {
@@ -943,21 +943,23 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
         async evaluate() { return null; }
     }
     type Sent = { event: string; boot: string; at: number; props?: Record<string, string> };
-    /** One browser: its monotonic clock (s), its wall clock 50 ms behind the host, one page and that page's CDP session. */
+    /** One browser: its monotonic clock (s), its wall clock 500 ms behind the host, one page and that page's CDP session. */
     class Browser {
         readonly page = new CdpTab();
         readonly cdp = new FakeCdp();
         private mono = 5_000;
-        private readonly offsetS = (Date.now() - 50) / 1000 - 5_000;
+        private readonly offsetS = (Date.now() - 500) / 1000 - 5_000;
         private seq = 0;
         wallMs(): number { return (this.mono + this.offsetS) * 1000; }
+        /** Moves the clock so the next instant is exactly half-way through a wall-clock millisecond (N + 0.5 ms). */
+        toHalfMillisecond(): void { const w = this.wallMs(); this.advance(Math.floor(w) + 1.5 - w); }
         advance(ms: number): void { this.mono += ms / 1000; }
         /** A cross-document commit: `init` on the browser clock, then the commit; Playwright reports it too. */
         commit(loaderId: string, frameId = 'main'): void {
             this.cdp.emit('Page.lifecycleEvent', { frameId, loaderId, name: 'init', timestamp: this.mono });
             this.cdp.emit('Page.frameNavigated', { frame: frameId === 'main' ? { id: 'main', loaderId } : { id: frameId, parentId: 'main', loaderId } });
             this.page.emit('framenavigated', this.page.frame);
-            this.advance(1);
+            this.advance(50); // the new document's code runs well after its start
         }
         /** A same-document change: Playwright only (CDP reports it as navigatedWithinDocument, never a boundary). */
         sameDocument(url: string): void { this.page.frame.url = () => url; this.page.emit('framenavigated', this.page.frame); }
@@ -1015,8 +1017,10 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
         for (const order of ['pw-first', 'cdp-first'] as const) {
             it(`${path} — 65dd #1 (${order}): a new-boot fatal captured just after the browser's init, before any host callback time, trips`, async () => {
                 const { b, w } = await setup({ viaB });
+                const start = b.wallMs();
                 b.commit('L2');
-                b.send('L2', [saveFailed('boot-2', b.wallMs() + 1)], { order });
+                // 3 ms after the browser's start (outside the boundary), and before any host-callback time.
+                b.send('L2', [saveFailed('boot-2', start + 3)], { order });
                 expect(await w.tick(), 'the browser clock, not the host callback, bounds the document').toMatchObject({ kind: 'save_failed' });
             });
         }
@@ -1093,6 +1097,48 @@ describe('#1662 RETURNs on 2cab5b0c / 65dd8b8f — browser-stated request proven
         await flush();
         expect(await refused.w.tick()).toBeNull();
         expect(await recordRows(refused.w)).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unattributedRequests: 1 }) })]);
+    });
+
+    it('a81f #1: a body fetched AFTER the next commit keeps the origin the browser reported — the current fatal trips', async () => {
+        const { b, w } = await setup();
+        let release!: (v: unknown) => void;
+        b.cdp.postData = () => new Promise((r) => { release = r; });
+        const sent = b.send('L1', [saveFailed('boot-1', b.wallMs())], { inline: false }); // L1 is current when it is sent
+        b.commit('L2'); // the next document commits while the bytes are being fetched
+        release({ postData: sent.body.toString('base64'), base64Encoded: true });
+        await flush();
+        expect(await w.tick(), 'sent by the then-current L1: not replaced').toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('a81f #2: a capture in the same millisecond as the document\'s fractional start is uncertain — never foreign', async () => {
+        const { b, w } = await setup();
+        b.toHalfMillisecond();
+        const start = b.wallMs(); // N + 0.5
+        b.commit('L2');
+        b.send('L2', [saveFailed('boot-2', Math.floor(start))]); // a legitimate capture stamped N
+        expect(await w.tick(), 'an unknown boot at the boundary binds nothing').toBeNull();
+        const rows = await recordRows(w);
+        expect(rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ foreignIgnored: 0, unresolvedIdentity: 1 }) })]);
+    });
+
+    it('a81f #2: a KNOWN boot at the boundary is judged as its own evidence (fail closed)', async () => {
+        const { b, w } = await setup();
+        b.toHalfMillisecond();
+        const start = b.wallMs();
+        b.commit('L2');
+        b.send('L2', [saveFailed('boot-1', Math.floor(start))]);
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('a81f #2: only a capture CLEARLY before the start is proven old (excluded); the new boot still trips', async () => {
+        const { b, w } = await setup();
+        const before = b.wallMs();
+        b.advance(10);
+        b.commit('L2');
+        b.send('L2', [saveFailed('boot-1', before)]); // 10 ms before L2 began: an earlier document's queued event
+        expect(await w.tick()).toBeNull();
+        b.send('L2', [saveFailed('boot-2', b.wallMs())]);
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
     });
 
     it('a request the browser never reports stays unattributed through the drain and record (HOLD)', async () => {

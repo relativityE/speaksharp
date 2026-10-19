@@ -62,7 +62,7 @@ const keyOf = (url: string, body: Buffer): string => `${url}\n${createHash('sha2
 const unresolvedRef = (ambiguous: boolean): DocumentRef =>
     ({ resolved: false, ambiguous, replaced: false, generation: Number.NaN, committedAt: Number.NaN });
 
-interface BrowserRecord { loaderId: string; replaced: boolean }
+export interface BrowserRecord { loaderId: string; known: boolean; replaced: boolean }
 
 export class DocumentProvenance {
     /** A CDP source was given for the page. */
@@ -132,12 +132,21 @@ export class DocumentProvenance {
         this.offsetMs = wallS * 1000 - monotonicS * 1000;
     }
 
-    /** The browser's record of a PostHog request: which loader sent it, judged against the page's current document NOW. */
-    onRequest(url: string, body: Buffer, loaderId: string): void {
+    /**
+     * Who sent a request, frozen at the moment the browser REPORTED it: its loader, and whether the page had already left
+     * that document then. Sam, #1662 RETURN on a81fbb97: a body fetched later attaches to this record unchanged — a
+     * commit that happens while the bytes are fetched never reinterprets the request's origin.
+     */
+    classify(loaderId: string): BrowserRecord {
+        const known = loaderId !== '' && this.loaders.has(loaderId);
+        return { loaderId, known, replaced: known && loaderId !== this.current };
+    }
+
+    /** The browser's record of a PostHog request, classified when the browser reported it. */
+    onRecord(url: string, body: Buffer, record: BrowserRecord): void {
         if (this.lost) return;
         const key = keyOf(url, body);
-        const replaced = loaderId !== '' && this.loaders.has(loaderId) && loaderId !== this.current;
-        this.records.set(key, [...(this.records.get(key) ?? []), { loaderId, replaced }]);
+        this.records.set(key, [...(this.records.get(key) ?? []), record]);
         this.join(key);
     }
 
@@ -161,7 +170,7 @@ export class DocumentProvenance {
     }
 
     private settle(ref: DocumentRef, record: BrowserRecord): void {
-        const loader = record.loaderId === '' ? undefined : this.loaders.get(record.loaderId);
+        const loader = record.known ? this.loaders.get(record.loaderId) : undefined;
         const start = loader?.initMono != null && this.offsetMs !== null ? loader.initMono + this.offsetMs : null;
         if (!loader || start === null) { ref.ambiguous = true; return; }
         Object.assign(ref, { resolved: true, ambiguous: false, replaced: record.replaced, generation: loader.generation, committedAt: start });
@@ -187,13 +196,14 @@ export async function trackDocuments(page: Page, cdp: DocumentCdpSession): Promi
     cdp.on('Network.requestWillBeSent', ((e: CdpRequestWillBeSent) => {
         provenance.onClock(e.timestamp, e.wallTime);
         if (!isPosthogPost(e.request.url, e.request.method)) return;
+        const record = provenance.classify(e.loaderId);
         const inline = bodyOf(e.request.postDataEntries);
-        if (inline.length > 0) { provenance.onRequest(e.request.url, inline, e.loaderId); return; }
+        if (inline.length > 0) { provenance.onRecord(e.request.url, inline, record); return; }
         if (!e.request.hasPostData) return;
         // A body the browser did not inline is fetched; a failed fetch leaves the decoded request unattributed (HOLD).
         void cdp.send('Network.getRequestPostData', { requestId: e.requestId }).then((r) => {
             const { postData, base64Encoded } = r as { postData?: string; base64Encoded?: boolean };
-            if (postData) provenance.onRequest(e.request.url, Buffer.from(postData, base64Encoded ? 'base64' : 'utf8'), e.loaderId);
+            if (postData) provenance.onRecord(e.request.url, Buffer.from(postData, base64Encoded ? 'base64' : 'utf8'), record);
         }, () => undefined);
     }) as never);
     cdp.on('Inspector.detached', (() => provenance.onSourceGone(closed())) as never);

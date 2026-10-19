@@ -98,6 +98,13 @@ export const watchProfileFor = (suite: string): WatchProfile => WATCH_PROFILES[s
  * 180 s. A state that outlives its bound is stuck by any journey's own standard. Shorter holds are reported by the
  * heartbeat (`heldS`) as diagnostics, never as a FAIL.
  */
+/**
+ * Sam, #1662 RETURN on a81fbb97: the uncertainty around a document's browser-stated start. A page's capture timestamp is
+ * truncated to the millisecond (up to 1 ms early) and the start is converted from the browser's monotonic clock through a
+ * request's wall-time pairing (allowance 1 ms). A capture within this distance of the start has no proven side.
+ */
+export const CAPTURE_BOUNDARY_UNCERTAINTY_MS = 2;
+
 export const STALL_MS = Object.freeze({
     INITIATING: 120_000,
     ENGINE_INITIALIZING: 960_000,
@@ -389,6 +396,9 @@ export class JourneyWatchdog {
         const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
         // Sam, #1662 RETURN on 65dd8b8f: proven to come from a document the page had already left — excluded, binds nothing.
         if (ref?.resolved && ref.replaced) return false;
+        // Sam, #1662 RETURN on a81fbb97: at the document-start boundary ownership is uncertain — a known boot's event is
+        // its own evidence (fail closed); an unknown boot binds nothing and stays unresolved. Never proven foreign.
+        if (this.atDocumentBoundary(e)) return this.bootDocument.has(e.bootId);
         // Unknown provenance: a known boot's event is that boot's own evidence; an unknown boot binds nothing.
         if (ref?.ambiguous && !ref.resolved) return this.bootDocument.has(e.bootId);
         if (source.sourceDocument === undefined) return false;
@@ -430,8 +440,22 @@ export class JourneyWatchdog {
      */
     private unresolved(e: SentEvent): boolean {
         const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
-        if (ref === undefined || ref.resolved) return false;
-        return !(ref.ambiguous && e.bootId !== undefined && this.bootDocument.has(e.bootId));
+        if (ref === undefined) return false;
+        if (ref.resolved && !this.atDocumentBoundary(e)) return false;
+        // Unknown provenance, or a capture at its document's start boundary: judged only as a known boot's own evidence.
+        const uncertain = ref.ambiguous || ref.resolved;
+        return !(uncertain && e.bootId !== undefined && this.bootDocument.has(e.bootId));
+    }
+
+    /**
+     * Sam, #1662 RETURN on a81fbb97: whether an event's capture time is too close to its document's browser start to say
+     * which side it fell on. Capture timestamps are whole milliseconds and the start is fractional, derived through the
+     * browser's monotonic/wall pairing; within CAPTURE_BOUNDARY_UNCERTAINTY_MS either way, precision cannot prove an owner.
+     */
+    private atDocumentBoundary(e: SentEvent): boolean {
+        const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
+        if (!ref?.resolved || e.capturedAt === undefined || !Number.isFinite(ref.committedAt)) return false;
+        return Math.abs(e.capturedAt - ref.committedAt) < CAPTURE_BOUNDARY_UNCERTAINTY_MS;
     }
 
     /** Judge one event whose document identity is settled; returns its fatal signal, if any. */
