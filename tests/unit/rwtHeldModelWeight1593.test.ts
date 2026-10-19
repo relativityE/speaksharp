@@ -69,10 +69,10 @@ describe('case14 exact fault reason and joined disposal', () => {
     it('a matching failure event cannot qualify an abort command that rejects', async () => {
         const gate = deferred();
         const { fault, handled, abort } = await fixture(undefined, gate.promise);
-        const injection = expect(fault.inject(1_000)).rejects.toThrow(/abort_failed/);
+        const injection = fault.inject(1_000).then(() => null, (error: unknown) => error);
         await vi.waitFor(() => expect(abort).toHaveBeenCalled());
         gate.reject(new Error('Target page, context or browser has been closed'));
-        await injection;
+        expect(await injection).toMatchObject({ message: 'model_fault_abort_failed' });
         expect(fault.evidence().exercised).toBe(false);
         await fault.dispose(); await handled;
     });
