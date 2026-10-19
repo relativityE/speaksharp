@@ -1006,3 +1006,119 @@ describe('#1662 RETURN on 814d2e25 — document tracking lives for the page, not
         expect(t.generation).toBe(0);
     });
 });
+
+describe('#1662 RETURN on 006f896d — navigation response and commit in EITHER order', () => {
+    const quiet = { log: () => undefined, label: 'case' };
+    class TabPage extends EventEmitter {
+        readonly frame: { url: () => string } = { url: () => 'about:blank' };
+        mainFrame() { return this.frame; }
+        context() { return { close: async () => undefined }; }
+        async evaluate() { return null; }
+    }
+    const posthog = (event: string, boot: string, capturedAt: number, props: Record<string, string> = {}) => ({
+        url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
+        postDataBuffer: () => Buffer.from(JSON.stringify([{ event, timestamp: new Date(capturedAt).toISOString(), properties: { boot_id: boot, ...props } }])),
+        response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
+    });
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    /** A main-frame navigation whose response the test releases explicitly — so the commit can be emitted FIRST. */
+    const navigate = (page: TabPage, url: string, status: number | null = 200) => {
+        let release!: () => void;
+        const responded = new Promise<void>((r) => { release = r; });
+        page.emit('request', { url: () => url, method: () => 'GET', isNavigationRequest: () => true, frame: () => page.frame, postDataBuffer: () => null,
+            response: () => responded.then(() => (status === null ? null : { url: () => url, status: () => status, finished: () => Promise.resolve(null) })),
+            failure: () => null });
+        const commit = () => { page.frame.url = () => url; page.emit('framenavigated', page.frame); };
+        return { commit, respond: async () => { release(); await flush(); } };
+    };
+
+    it('tracker: commit BEFORE response completes the same request\'s document (at the commit time)', () => {
+        const t = new CommittedDocumentTracker();
+        const seq = t.onRequest();
+        t.onCommitted('https://app.test/s', 500);
+        expect(t.generation).toBe(0);
+        t.onResponse('https://app.test/s', 200, 900, seq);
+        expect([t.generation, t.committedAt]).toEqual([1, 500]);
+    });
+
+    it('tracker: response BEFORE commit still completes it (at the response time)', () => {
+        const t = new CommittedDocumentTracker();
+        const seq = t.onRequest();
+        t.onResponse('https://app.test/s', 200, 400, seq);
+        t.onCommitted('https://app.test/s', 600);
+        expect([t.generation, t.committedAt]).toEqual([1, 400]);
+    });
+
+    it('tracker: an early commit is dropped by a newer request, a failure, a redirect/204, or a different URL', () => {
+        const t = new CommittedDocumentTracker();
+        const first = t.onRequest();
+        t.onCommitted('https://app.test/a');
+        t.onRequest(); // superseded before its response
+        t.onResponse('https://app.test/a', 200, 1, first);
+        expect(t.generation).toBe(0);
+        const failed = t.onRequest();
+        t.onCommitted('https://app.test/b');
+        t.onFailed(failed);
+        expect(t.generation).toBe(0);
+        const redirected = t.onRequest();
+        t.onCommitted('https://app.test/c');
+        t.onResponse('https://app.test/c', 302, 3, redirected);
+        const noContent = t.onRequest();
+        t.onCommitted('https://app.test/d');
+        t.onResponse('https://app.test/d', 204, 4, noContent);
+        expect(t.generation).toBe(0);
+        const routeChange = t.onRequest();
+        t.onCommitted('https://app.test/route-change'); // a same-document change while the navigation is in flight
+        t.onResponse('https://app.test/e', 200, 5, routeChange);
+        expect(t.generation, 'the in-flight navigation has not committed yet').toBe(0);
+        t.onCommitted('https://app.test/e');
+        expect(t.generation).toBe(1);
+        t.onCommitted('https://app.test/e'); // no in-flight request: a later same-document change never holds a commit
+        expect(t.generation).toBe(1);
+    });
+
+    for (const order of ['commit-first', 'response-first'] as const) {
+        it(`tap, single-page reload (${order}): the new boot's fatal trips`, async () => {
+            const a = new TabPage();
+            const tap = new AnalyticsTap();
+            tap.attach(a as never);
+            const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
+            a.emit('request', posthog('journey_step', 'boot-1', Date.now()));
+            expect(await w.tick()).toBeNull();
+            const nav = navigate(a, 'https://app.test/session');
+            if (order === 'commit-first') { nav.commit(); await nav.respond(); } else { await nav.respond(); nav.commit(); }
+            a.emit('request', posthog('session_save_latency_measured', 'boot-2', Date.now() + 5, { outcome: 'failed' }));
+            expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+        });
+
+        it(`tap, A → attach B → reload A (${order}): A's new-boot fatal trips`, async () => {
+            const a = new TabPage();
+            const b = new TabPage();
+            const tap = new AnalyticsTap();
+            tap.attach(a as never);
+            const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
+            a.emit('request', posthog('journey_step', 'boot-A1', Date.now()));
+            expect(await w.tick()).toBeNull();
+            tap.attach(b as never);
+            w.setPage(b as never);
+            const nav = navigate(a, 'https://app.test/session');
+            if (order === 'commit-first') { nav.commit(); await nav.respond(); } else { await nav.respond(); nav.commit(); }
+            a.emit('request', posthog('session_save_latency_measured', 'boot-A2', Date.now() + 5, { outcome: 'failed' }));
+            expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+        });
+    }
+
+    it('tap: a navigation that fails after an early commit keeps the original document; its boot\'s fatal still trips', async () => {
+        const a = new TabPage();
+        const tap = new AnalyticsTap();
+        tap.attach(a as never);
+        const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
+        a.emit('request', posthog('journey_step', 'boot-1', Date.now()));
+        expect(await w.tick()).toBeNull();
+        const nav = navigate(a, 'https://app.test/session', null); // the response never arrives (failed navigation)
+        nav.commit(); // a same-document commit while it was in flight
+        await nav.respond();
+        a.emit('request', posthog('session_save_latency_measured', 'boot-1', Date.now() + 5, { outcome: 'failed' }));
+        expect(await w.tick(), 'the original document is still current').toMatchObject({ kind: 'save_failed' });
+    });
+});

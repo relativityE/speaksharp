@@ -676,26 +676,53 @@ export class CommittedDocumentTracker {
     committedAt = Date.now();
     private pending: { url: string; at: number } | null = null;
     private requestSeq = 0;
+    /** The navigation request whose response has not been handled yet. */
+    private inFlight: number | null = null;
+    /**
+     * Sam, #1662 RETURN on 006f896d: `framenavigated` can arrive BEFORE the asynchronous response callback. A commit seen
+     * while a navigation is in flight is held here, bound to that request, and completed by the same request's response.
+     */
+    private earlyCommit: { url: string; at: number; seq: number } | null = null;
 
     /** A new main-frame navigation request supersedes any earlier pending one; returns its sequence number. */
-    onRequest(): number { this.pending = null; return ++this.requestSeq; }
+    onRequest(): number {
+        this.pending = null;
+        this.earlyCommit = null;
+        this.inFlight = ++this.requestSeq;
+        return this.inFlight;
+    }
 
     /** `seq` (when given) binds the response to its request: a superseded navigation's late response changes nothing. */
     onResponse(url: string, status: number, now = Date.now(), seq?: number): void {
         if (seq !== undefined && seq !== this.requestSeq) return;
+        this.inFlight = null;
+        const early = this.earlyCommit;
+        this.earlyCommit = null;
         // A redirect continues as another request; 204/205 never commit a document.
-        this.pending = (status >= 300 && status < 400) || status === 204 || status === 205 ? null : { url: stripHash(url), at: now };
+        if ((status >= 300 && status < 400) || status === 204 || status === 205) { this.pending = null; return; }
+        const responded = stripHash(url);
+        // Commit already seen for THIS request and URL: the document began at the commit.
+        if (early && early.url === responded && (seq === undefined || early.seq === seq)) { this.advance(early.at); return; }
+        this.pending = { url: responded, at: now };
     }
 
     onFailed(seq?: number): void {
         if (seq !== undefined && seq !== this.requestSeq) return;
         this.pending = null;
+        this.earlyCommit = null;
+        this.inFlight = null;
     }
 
-    onCommitted(url: string): void {
-        if (this.pending === null || stripHash(url) !== this.pending.url) return;
+    onCommitted(url: string, now = Date.now()): void {
+        const committed = stripHash(url);
+        if (this.pending !== null && committed === this.pending.url) { this.advance(this.pending.at); return; }
+        // No response handled yet: hold the commit for the in-flight request (a later failure or newer request drops it).
+        if (this.inFlight !== null) this.earlyCommit = { url: committed, at: now, seq: this.inFlight };
+    }
+
+    private advance(at: number): void {
         this.generation += 1;
-        this.committedAt = this.pending.at;
+        this.committedAt = at;
         this.pending = null;
     }
 }
