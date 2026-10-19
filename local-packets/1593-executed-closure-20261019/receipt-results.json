@@ -1,0 +1,299 @@
+{
+  "head": "c8dc89f06a2ac7d58706c4cb02a80e0dd0ebbab3",
+  "observedAtUtc": "2026-10-19T16:09:19.229Z",
+  "hashes": {
+    "tests/live/helpers/rwtAcceptance.ts": "55ec33faa7c26896e778c592b68fbcf6faf2f26906e5cd16c9518d9a66e15231",
+    "frontend/src/services/telemetry/coachingDiagnosticReceipt.ts": "a6ec6a78c97d229b11d499ea29237ac7144ac7bec6de8b16ec0df0381376c3a9",
+    "tests/live/helpers/rwtSaveRetry.ts": "03184964bb7a4c73556a661f5d8dc25405a772b001b6edfa11209eb749922b36",
+    "tests/live/helpers/rwtAbandonTakeover.ts": "23f97799195c03b66577434563337dd005ab762b1ad1d429f8ab90acc1f1b003",
+    "tests/live/helpers/rwtAdverse.ts": "99b7d40cfa18c78ffe78cc6601ff3e0c0b076315660e94efb277dd157cf6dbe1"
+  },
+  "controlCount": 34,
+  "controls": [
+    {
+      "case": 1,
+      "kind": "actual_receipt_current_validator",
+      "errors": [
+        "receipt is missing the required product row \"saved review is the first block\"",
+        "receipt is missing the required product row \"\"From this session\" evidence\"",
+        "receipt is missing the required product row \"one practice action\""
+      ],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 2,
+      "kind": "actual_receipt_current_validator",
+      "errors": [
+        "receipt is missing the required human observation focus_coaching_covers_points",
+        "receipt is missing the required product row \"Focus coaching length\"",
+        "receipt is missing the required product row \"Focus coaching distinct\"",
+        "receipt is missing the required product row \"Focus coaching makes no omission claim\"",
+        "receipt is missing the required product row \"Focus coaching provenance\"",
+        "receipt is missing the required product row \"Focus coaching within the character ceiling\"",
+        "receipt is missing the required product row \"Focus coaching refers to an open point\"",
+        "receipt is missing the required product row \"Focus coaching visible = saved\"",
+        "receipt is missing the required product row \"Focus coaching server receipt\"",
+        "receipt is missing the required product row \"saved review is the first block\"",
+        "receipt is missing the required product row \"\"From this session\" evidence\"",
+        "receipt is missing the required product row \"one practice action\"",
+        "receipt is missing the required product row \"Focus New Set\"",
+        "receipt is missing the required product row \"Focus Edit\"",
+        "receipt is missing the required product row \"take after switching products is clean\""
+      ],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 3,
+      "kind": "actual_receipt_current_validator",
+      "errors": [
+        "receipt is missing the required human observation focus_coaching_covers_points",
+        "receipt is missing the required product row \"Focus coaching length\"",
+        "receipt is missing the required product row \"Focus coaching distinct\"",
+        "receipt is missing the required product row \"Focus coaching makes no omission claim\"",
+        "receipt is missing the required product row \"Focus coaching provenance\"",
+        "receipt is missing the required product row \"Focus coaching within the character ceiling\"",
+        "receipt is missing the required product row \"Focus coaching refers to an open point\"",
+        "receipt is missing the required product row \"Focus coaching visible = saved\"",
+        "receipt is missing the required product row \"Focus coaching server receipt\"",
+        "receipt is missing the required product row \"saved review is the first block\"",
+        "receipt is missing the required product row \"\"From this session\" evidence\"",
+        "receipt is missing the required product row \"one practice action\""
+      ],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 4,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 5,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "PASS"
+    },
+    {
+      "case": 6,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "PASS"
+    },
+    {
+      "case": 7,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "INCOMPLETE"
+    },
+    {
+      "case": 8,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "INCOMPLETE"
+    },
+    {
+      "case": 9,
+      "kind": "actual_receipt_current_validator",
+      "errors": [
+        "receipt is missing the required product row \"return does not resume the abandoned take\"",
+        "receipt is missing the required product row \"recovery notice is truthful\"",
+        "receipt is missing the required product row \"return Start is truthful\"",
+        "receipt is missing the required product row \"next take saves only itself\"",
+        "receipt is missing the required product row \"leaving saved the left take\""
+      ],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 10,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 11,
+      "kind": "actual_receipt_current_validator",
+      "errors": [
+        "receipt is missing the required product row \"another device is refused by the account lease\"",
+        "receipt is missing the required product row \"take-over moves the one engine\"",
+        "receipt is missing the required product row \"both takes saved, none left active\""
+      ],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 12,
+      "kind": "actual_missing_receipt",
+      "disposition": "HOLD",
+      "reason": "No RWT_RECEIPT in actual original job log; no substitute invented"
+    },
+    {
+      "case": 13,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 14,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "FAIL"
+    },
+    {
+      "case": 15,
+      "kind": "actual_receipt_current_validator",
+      "errors": [],
+      "acceptance": "INCOMPLETE"
+    },
+    {
+      "name": "actual case8 receipt + actual worksheet + actual received artifact",
+      "status": "final",
+      "acceptance": "PASS",
+      "errors": []
+    },
+    {
+      "name": "wrong worksheet release",
+      "status": "binding_error",
+      "acceptance": "INCOMPLETE",
+      "errors": [
+        "deployed SHA mismatch: worksheet 0000000000000000000000000000000000000000 vs receipt ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4"
+      ]
+    },
+    {
+      "name": "wrong received release",
+      "status": "binding_error",
+      "acceptance": "INCOMPLETE",
+      "errors": [
+        "readback verdicts are for a different release"
+      ]
+    },
+    {
+      "name": "wrong received journey",
+      "status": "binding_error",
+      "acceptance": "INCOMPLETE",
+      "errors": [
+        "readback verdicts do not match the receipt's bound journeys and stages"
+      ]
+    },
+    {
+      "name": "missing received terminal",
+      "status": "final",
+      "acceptance": "INCOMPLETE",
+      "errors": []
+    },
+    {
+      "name": "wrong worksheet journey",
+      "status": "binding_error",
+      "acceptance": "INCOMPLETE",
+      "errors": [
+        "journey id mismatch between worksheet and receipt"
+      ]
+    },
+    {
+      "name": "wrong run metadata is outside existing parser binding schema",
+      "acceptance": "PASS",
+      "errors": [],
+      "scope": "Does not assert a defect: suite/release/journey parser does not authenticate workflow run. Verify artifact run/attempt metadata separately."
+    },
+    {
+      "case": 1,
+      "name": "actual receipt with blank human observations",
+      "acceptance": "FAIL",
+      "errors": [
+        "receipt is missing the required product row \"saved review is the first block\"",
+        "receipt is missing the required product row \"\"From this session\" evidence\"",
+        "receipt is missing the required product row \"one practice action\"",
+        "observation open_mic_coaching_relevant has no PASS/FAIL result",
+        "observation open_mic_uh_detected has no PASS/FAIL result"
+      ]
+    },
+    {
+      "case": 2,
+      "name": "actual receipt with blank human observations",
+      "acceptance": "FAIL",
+      "errors": [
+        "receipt is missing the required human observation focus_coaching_covers_points",
+        "receipt is missing the required product row \"Focus coaching length\"",
+        "receipt is missing the required product row \"Focus coaching distinct\"",
+        "receipt is missing the required product row \"Focus coaching makes no omission claim\"",
+        "receipt is missing the required product row \"Focus coaching provenance\"",
+        "receipt is missing the required product row \"Focus coaching within the character ceiling\"",
+        "receipt is missing the required product row \"Focus coaching refers to an open point\"",
+        "receipt is missing the required product row \"Focus coaching visible = saved\"",
+        "receipt is missing the required product row \"Focus coaching server receipt\"",
+        "receipt is missing the required product row \"saved review is the first block\"",
+        "receipt is missing the required product row \"\"From this session\" evidence\"",
+        "receipt is missing the required product row \"one practice action\"",
+        "receipt is missing the required product row \"Focus New Set\"",
+        "receipt is missing the required product row \"Focus Edit\"",
+        "receipt is missing the required product row \"take after switching products is clean\""
+      ]
+    },
+    {
+      "case": 3,
+      "name": "actual receipt with blank human observations",
+      "acceptance": "FAIL",
+      "errors": [
+        "receipt is missing the required human observation focus_coaching_covers_points",
+        "receipt is missing the required product row \"Focus coaching length\"",
+        "receipt is missing the required product row \"Focus coaching distinct\"",
+        "receipt is missing the required product row \"Focus coaching makes no omission claim\"",
+        "receipt is missing the required product row \"Focus coaching provenance\"",
+        "receipt is missing the required product row \"Focus coaching within the character ceiling\"",
+        "receipt is missing the required product row \"Focus coaching refers to an open point\"",
+        "receipt is missing the required product row \"Focus coaching visible = saved\"",
+        "receipt is missing the required product row \"Focus coaching server receipt\"",
+        "receipt is missing the required product row \"saved review is the first block\"",
+        "receipt is missing the required product row \"\"From this session\" evidence\"",
+        "receipt is missing the required product row \"one practice action\""
+      ]
+    },
+    {
+      "case": 15,
+      "name": "actual receipt with blank human observations",
+      "acceptance": "INCOMPLETE",
+      "errors": [
+        "observation real_microphone_permission_prompt has no PASS/FAIL result",
+        "observation mobile_stop_confirmation_visible has no PASS/FAIL result"
+      ]
+    },
+    {
+      "case": 15,
+      "name": "synthetic desktop label cannot establish physical evidence",
+      "acceptance": "INCOMPLETE",
+      "errors": [],
+      "scope": "Parser verifies signed cells/bindings, not physical truth; actual access HOLD remains. Do not treat an accepted signature as phone verification."
+    },
+    {
+      "name": "wrong fault request object cannot exercise actual adverse predicate",
+      "verdict": "HOLD"
+    },
+    {
+      "name": "matching current-attempt config fault is valid in accepted fresh-context scope",
+      "verdict": "PASS"
+    },
+    {
+      "name": "missing adverse observation history",
+      "verdict": "HOLD"
+    },
+    {
+      "name": "wrong successor take rejected by actual row oracle",
+      "verdict": "FAIL"
+    },
+    {
+      "name": "current row-count oracle has no fence/authority input",
+      "verdict": "PASS",
+      "scope": "Existing assigned case10 gap: a PASS here cannot establish permanent fence or authority exclusion. New approved CLI oracle/caller capture must supply those facts; no competing validator built."
+    },
+    {
+      "name": "current oracle still rejects legitimate recoverable-row shape despite supplied synthetic fence annotation",
+      "verdict": "FAIL",
+      "scope": "Known case10 mismatch retained, not newly discovered or historical fencing proof."
+    },
+    {
+      "name": "negative control: desktop-labelled signatures plus synthetic eligibility pass parser, not physical truth",
+      "acceptance": "PASS",
+      "errors": [],
+      "scope": "Synthetic mutated actual receipt, never an actual case15 result. Existing parser cannot authenticate device reality; original actual access remains HOLD and all real human observations blank."
+    }
+  ],
+  "scope": "Actual pinned existing receipt parser/finalizer on actual log receipts and actual downloaded case8 archive; labelled negative mutations. No live closure or invented human observation. Case8 historical PASS is independently recomputed."
+}
