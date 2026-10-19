@@ -1,0 +1,31 @@
+{
+  "prepared_at_utc": "2026-10-19T16:17Z",
+  "machine_path_scan": "PASS",
+  "source_groups": 21,
+  "receipt_groups": 34,
+  "refreshed_2bd_groups": [
+    21,
+    34
+  ],
+  "distinct_count_not_doubled": true,
+  "actual_engine_green": 33,
+  "targeted_parent_red": 3,
+  "running_package_processes": 0,
+  "files": {
+    "03_EXECUTED_SEAMS.md": "a25b7201665f0d61b2c6f105363db1be480d27d61b97d22d4e1b4fea03944ddd",
+    "receipt-results-2bd050cd.json": "dd6ee057275649b79ca2e42adba7146ac9a6b56fa658d80ff8b8298c60a55464",
+    "receipt-results.json": "24cf1b4ac89e45f0a54fa86091218438691286bf144a14ce4262b623ddbf63d2",
+    "prepare-retained-inputs.py": "24d51acd78c13014f477c197ba5a978847b0531cb95fffb3522258eff10327f2",
+    "01_EXECUTABLE_BATCH.md": "a086ffeeb9d3b5b7714345927e0a9583d709c8acb6b7c313d6124f4506cc7154",
+    "probe-receipts.mjs": "519c822e0354d8e9ebb425af427fdde35a733a216d9b0cd2d0c16d481a5e8fa2",
+    "seam-results.json": "550256f23e02756cb205d62125a6307141d6ff317572c275f22b8914211741fa",
+    "seam-results-2bd050cd.json": "a58c6a5dd7c7da6323383ace872ca366ddfd03b19585f350704b03e7aaebcef3",
+    "02_ACTUAL_CASE_DECISIONS.md": "425fc8899ce0d7526f375fde4dbd2303003379c094f7a9d566fafcf838cf611a",
+    "engine-results.json": "42e93c534b55ae95019bce782a6230d94fa6d99e4c1514a2fa323c76d4300c37",
+    "05_EXECUTABLE_CLOSURE_HANDOFF.md": "ae3440c0f76a8b97f1575f643d19f5e3ced30bc010e447e1e23ed2a45e3b78b4",
+    "retained-decisions.json": "b313e3575880684566c5768d2edad5946731c2d3c8b2d83c9ad325f8829a5dbd",
+    "prepare-engine-mirror.py": "3fc78c849fb22239b639979c6d370fe856697b1b783c309c88fdda95fc821b2c",
+    "probe-seams.mjs": "37848da69c71f1ccbdd23927f296d5e35c420c1834714ee26797fcad536c8962",
+    "04_RECEIPT_EXECUTION.md": "2f796a190c23d04ea0ac58c0a9f0c503d7a6e348aaa276897be12a652c740680"
+  }
+}
