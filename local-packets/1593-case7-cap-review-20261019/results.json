@@ -1,0 +1,184 @@
+{
+  "observedAtUtc": "2026-10-19T13:39:48.525Z",
+  "head": "2f10a0578aee4281e44d446f979d3af86327dc8d",
+  "parent": "7e920bd69354048e96e470c6e469d21ffc2d1c3a",
+  "hashes": {
+    "2f10a0578aee4281e44d446f979d3af86327dc8d:frontend/src/services/telemetry/coachingDiagnosticReceipt.ts": "5e66c28ac0aad9f644e7a8b0ed3f15c951d01c9a3cba6d7d34ace680d99643fe",
+    "7e920bd69354048e96e470c6e469d21ffc2d1c3a:frontend/src/services/telemetry/coachingDiagnosticReceipt.ts": "f6b1206ea99406e1b60db04873ed5c1edb496631c8002ffbd0f375b80af14337",
+    "2f10a0578aee4281e44d446f979d3af86327dc8d:tests/unit/rwtReceivedFailureChain1593.test.ts": "22f8e1a0114b32f74d3b1b6c85dc9f5294e20f1478bbe432dc84859916ac963f",
+    "2f10a0578aee4281e44d446f979d3af86327dc8d:tests/live/helpers/coachingFeedbackAdapter.ts": "f640a696787809a65622872649333da3f6ef563b9612a0b0a483eaca4405e68f",
+    "2f10a0578aee4281e44d446f979d3af86327dc8d:tests/live/helpers/feedbackDiagnosticContract.ts": "fcaaef3d08a74c498911551082165bd4aa65fa658aacd776a326a47a615f57e7",
+    "2f10a0578aee4281e44d446f979d3af86327dc8d:tests/live/helpers/rwtAcceptance.ts": "55ec33faa7c26896e778c592b68fbcf6faf2f26906e5cd16c9518d9a66e15231",
+    "2f10a0578aee4281e44d446f979d3af86327dc8d:tests/live/helpers/rwtSaveRetry.ts": "03184964bb7a4c73556a661f5d8dc25405a772b001b6edfa11209eb749922b36",
+    "2f10a0578aee4281e44d446f979d3af86327dc8d:tests/live/helpers/rwtAbandonTakeover.ts": "145821e641ab1f7a7e3b28f0169ff89c90549cdd55980c1fcd3835f6a17efeb0",
+    "2f10a0578aee4281e44d446f979d3af86327dc8d:tests/live/helpers/rwtAdverse.ts": "db0b16c8ea42ced2aafb47005cb56e35f8fe544fceff81f36d40a27e2d63e184"
+  },
+  "groupedControls": 32,
+  "controls": [
+    {
+      "name": "returned parent accepts impossible four attempts",
+      "expected": "PASS",
+      "actual": "PASS"
+    },
+    {
+      "name": "fresh failure accepts governed attempts 1",
+      "expected": "PASS",
+      "actual": "PASS"
+    },
+    {
+      "name": "fresh failure accepts governed attempts 2",
+      "expected": "PASS",
+      "actual": "PASS"
+    },
+    {
+      "name": "fresh failure accepts governed attempts 3",
+      "expected": "PASS",
+      "actual": "PASS"
+    },
+    {
+      "name": "fresh failure rejects zero attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects negative attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects fractional attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects four attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects max-safe attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects infinity attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects NaN attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects string attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects null attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "fresh failure rejects missing attempts",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "wrong attempt fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "wrong product fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "wrong configured model fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "missing positive failure release fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "wrong release fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "unknown source with provider call fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "cache cannot claim failure provider provenance",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "pre-provider refusal zero attempts remains coherent",
+      "expected": "PASS",
+      "actual": "PASS"
+    },
+    {
+      "name": "malformed endpoint fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "missing terminal diagnostic holds",
+      "expected": "HOLD",
+      "actual": "HOLD"
+    },
+    {
+      "name": "missing stored feedback holds",
+      "expected": "HOLD",
+      "actual": "HOLD"
+    },
+    {
+      "name": "duplicate terminal diagnostic fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "wrong feedback link fails",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "matching assurance can settle its own chain",
+      "expected": "PASS",
+      "actual": "PASS"
+    },
+    {
+      "name": "settled assurance preserves coaching FAIL",
+      "expected": "FAIL",
+      "actual": "FAIL"
+    },
+    {
+      "name": "settled assurance preserves EXTERNAL incomplete",
+      "expected": "INCOMPLETE",
+      "actual": "INCOMPLETE"
+    },
+    {
+      "name": "EXTERNAL successful coaching remains outstanding",
+      "expected": true,
+      "actual": true
+    },
+    {
+      "name": "generic journey evidence alone cannot settle failure chain",
+      "expected": "HOLD",
+      "actual": "HOLD"
+    }
+  ],
+  "scope": "Actual adapter, received validator and unchanged finalizer with synthetic stored/received observations; fixture builders reused, assertions executed independently. Not CLI full quality/281-test suite, live telemetry ingestion or Production acceptance.",
+  "disposition": "Bounded attempt-ceiling correction and failure-outcome preservation pass. Fresh exact-head CI/reviews and Sam whole-source/release decision remain separate.",
+  "newLiveRuns": 0,
+  "providerCalls": 0,
+  "accountOperations": 0
+}
