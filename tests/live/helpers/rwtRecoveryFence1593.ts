@@ -34,7 +34,7 @@ export type RecoveryFenceVerdict = { status: 'PASS' | 'FAIL' | 'HOLD'; detail: s
 class EvidenceDisposition extends Error {
     constructor(readonly verdict: RecoveryFenceVerdict) { super(verdict.detail); }
 }
-const stop = (status: 'FAIL' | 'HOLD', detail: string): never => { throw new EvidenceDisposition({ status, detail }); };
+function stop(status: 'FAIL' | 'HOLD', detail: string): never { throw new EvidenceDisposition({ status, detail }); }
 const identified = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 const timestamp = (v: unknown): v is string => identified(v) && Number.isFinite(Date.parse(v));
 
@@ -62,6 +62,7 @@ function sessionRows(snapshot: RecoverySnapshot, owner: string): readonly Recove
             if (row[field] !== null && !identified(row[field])) stop('HOLD', 'required session field unselected or unreadable');
         }
         if (row.status === null) stop('HOLD', 'session status unreadable');
+        if (!['active', 'completed', 'failed'].includes(row.status)) stop('FAIL', 'unknown session status cannot establish a closed row');
     }
     return result;
 }

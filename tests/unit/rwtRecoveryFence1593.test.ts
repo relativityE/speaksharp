@@ -95,6 +95,12 @@ describe('#1593 case10 strict bound recovery fence', () => {
             for (const s of [e.first.snapshot, e.successor.snapshot]) selected(s).push(row('historical', 'historic', { status: 'completed' }));
             selected(e.afterSave).push(row('historical', 'historic'));
         }],
+        ['an unknown baseline-row status is not treated as closed', e => {
+            e.beforeFirst.rows = complete([{ id: 'historical', user_id: U }]);
+            e.beforeSuccessor.rows = complete([{ id: 'historical', user_id: U }, { id: 'left', user_id: U }]);
+            for (const s of [e.first.snapshot, e.successor.snapshot]) selected(s).push(row('historical', 'historic', { status: 'completed' }));
+            selected(e.afterSave).push(row('historical', 'historic', { status: 'unknown-terminal' }));
+        }],
         ['unfenced active old row', e => { for (const s of [e.successor.snapshot, e.afterSave]) selected(s)[0] = row('left', L1); }],
         ['save-only is not displaced', e => { for (const s of [e.successor.snapshot, e.afterSave]) selected(s)[0].recording_fenced_reason = 'save_only'; }],
         ['absent fence at B', e => { selected(e.successor.snapshot)[0].recording_fenced_at = null; }],
