@@ -97,7 +97,8 @@ describe('JourneyWatchdog — trips once, closes the journey\'s contexts, and re
         const closed: string[] = [];
         const logs: string[] = [];
         const ctx = (name: string) => ({ close: async () => { closed.push(name); } });
-        const page = { context: () => ctx('main'), evaluate: async () => domState };
+        const mainContext = ctx('main'); // one context object, as a real page returns
+        const page = { context: () => mainContext, evaluate: async () => domState };
         const tap = { events: [] as { event: string; at: number; watch?: Record<string, string> }[] };
         const rows: { step: string; verdict: string; detail: string; evidence?: unknown }[] = [];
         const receipt = { row: (step: string, verdict: string, detail: string, evidence?: unknown) => { rows.push({ step, verdict, detail, evidence }); } };
@@ -118,6 +119,25 @@ describe('JourneyWatchdog — trips once, closes the journey\'s contexts, and re
         // Tripped once: a later tick does not re-trip or close again.
         await w.tick();
         expect(h.closed).toHaveLength(2);
+    });
+
+    it('Codex P2 r4309303716: after the DOM view moves to another page, a trip still closes the starting context', async () => {
+        const h = harness({ runtimeState: 'RECORDING', modelStatus: 'ready', control: null, controlEnabled: null });
+        const w = new JourneyWatchdog({ page: h.page as never, tap: h.tap as never, profile: {}, label: 'case', log: () => undefined });
+        w.setPage({ context: () => h.ctx('deviceB'), evaluate: async () => null } as never);
+        h.tap.events.push({ event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } });
+        await w.tick();
+        expect(h.closed.sort()).toEqual(['deviceB', 'main']);
+    });
+
+    it('Codex P2 r4309303711: a phase can withdraw the suite\'s refusal allowance, so a second refusal trips', async () => {
+        const h = harness(null);
+        const w = new JourneyWatchdog({ page: h.page as never, tap: h.tap as never, profile: { allowStartRefused: true }, label: 'case', log: () => undefined });
+        h.tap.events.push({ event: 'session_start_latency_measured', at: Date.now(), watch: { outcome: 'refused' } });
+        expect(await w.tick(), 'the expected first refusal').toBeNull();
+        w.setStartRefusedAllowed(false);
+        h.tap.events.push({ event: 'recording_intent', at: Date.now(), watch: { intent_kind: 'start', intent_outcome: 'blocked_lock_held' } });
+        expect(await w.tick()).toMatchObject({ kind: 'start_refused', event: 'recording_intent' });
     });
 
     it('a dead Start trips only after it has held past the bound, timed from when the condition began', async () => {

@@ -207,7 +207,11 @@ export class JourneyWatchdog {
     private busy = false;
 
     private readonly o: ArmOptions;
-    constructor(options: ArmOptions) { this.o = { ...options }; }
+    /** Codex P2 r4309303716: the journey's starting context stays in the close set after the DOM view moves elsewhere. */
+    private readonly initialContext: BrowserContext;
+    /** Codex P2 r4309303711: a phase may withdraw the suite's refusal allowance (null = the profile's own). */
+    private refusalAllowed: boolean | null = null;
+    constructor(options: ArmOptions) { this.o = { ...options }; this.initialContext = options.page.context(); }
 
     arm(): this {
         const log = this.o.log ?? ((line: string) => console.log(line));
@@ -220,6 +224,12 @@ export class JourneyWatchdog {
 
     /** The journey moved to another page (a closed tab reopened): read its DOM from now on. */
     setPage(page: Page): void { this.o.page = page; }
+
+    /**
+     * Narrow the refusal allowance for one phase: after a scenario's EXPECTED refusal, the explicit take-over press must not
+     * be refused again — a second refusal then trips instead of waiting out the recording timeout.
+     */
+    setStartRefusedAllowed(allowed: boolean): void { this.refusalAllowed = allowed; }
 
     /** Around a step whose truthful outcome is no recording (a denied microphone): a RECORDING transition then trips. */
     setForbidRecording(on: boolean): void { this.forbidRecording = on; }
@@ -252,7 +262,8 @@ export class JourneyWatchdog {
                 const e = events[this.cursor];
                 if (!(e.event in WATCHED_FIELDS)) continue;
                 this.lastEvent = { name: e.event, at: e.at };
-                const kind = fatalSignalOf(e, this.o.profile, this.forbidRecording);
+                const profile = this.refusalAllowed === null ? this.o.profile : { ...this.o.profile, allowStartRefused: this.refusalAllowed };
+                const kind = fatalSignalOf(e, profile, this.forbidRecording);
                 if (kind) return await this.trip({ kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started });
             }
             const dom = await readDom(this.o.page);
@@ -277,7 +288,9 @@ export class JourneyWatchdog {
         this.stop();
         (this.o.log ?? ((line: string) => console.log(line)))(`RWT_FAIL_EARLY ${JSON.stringify({ label: this.o.label, ...signal })}`);
         // Close every context the journey drives: each pending Playwright wait on them rejects now, not at its timeout.
-        const contexts = new Set<BrowserContext>([this.o.page.context(), ...(this.o.contexts?.() ?? []).filter((c): c is BrowserContext => c !== null)]);
+        const contexts = new Set<BrowserContext>([
+            this.initialContext, this.o.page.context(), ...(this.o.contexts?.() ?? []).filter((c): c is BrowserContext => c !== null),
+        ]);
         await Promise.all([...contexts].map((c) => c.close().catch(() => undefined)));
         return signal;
     }

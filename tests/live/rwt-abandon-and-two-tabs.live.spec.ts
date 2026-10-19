@@ -353,8 +353,11 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
 
             // The person's explicit second press is the take-over — on whichever primary control the refused page renders
             // (still the cold `mic-download` when the lease refused before any download).
+            // Codex P2 r4309303711: the expected refusal is spent — a refusal of THIS press trips the watchdog at once, and a
+            // take-over that never records ends the scenario here instead of carrying on through the later waits.
+            watch.setStartRefusedAllowed(false);
             await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();
-            await isRecording(deviceB, coldB ? 900_000 : 60_000);
+            if (!(await isRecording(deviceB, coldB ? 900_000 : 60_000))) throw new Error('the explicit take-over press did not start a recording');
             const displacedCopyShown = await tabA.getByText(DISPLACED_COPY).waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
             await expect.poll(async () => (await tabState(tabA)).liveTracks, { timeout: 20_000 }).toBe(0).catch(() => undefined);
             const [displacedA, takingB] = [await tabState(tabA), await tabState(deviceB)];

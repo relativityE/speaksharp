@@ -352,7 +352,10 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(device, 'a dead cold press is never a refusal').toContain('const leaseRefusal = coldPressAnswered');
         const takeOver = spec.slice(spec.indexOf("// The person's explicit second press is the take-over"));
         expect(takeOver, 'the take-over presses the control the refused page renders').toContain(`await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();`);
-        expect(takeOver, 'a cold take-over gets the model budget').toContain('await isRecording(deviceB, coldB ? 900_000 : 60_000);');
+        expect(takeOver, 'a cold take-over gets the model budget, and a take-over that never records ends the scenario')
+            .toContain("if (!(await isRecording(deviceB, coldB ? 900_000 : 60_000))) throw new Error('the explicit take-over press did not start a recording');");
+        expect(takeOver.indexOf('watch.setStartRefusedAllowed(false);'), 'the expected refusal is spent before the take-over press')
+            .toBeLessThan(takeOver.indexOf("await deviceB.locator('[data-testid=\"mic-start\"], [data-testid=\"mic-download\"]').first().click();"));
     });
 
     it('#1593 case 9: navigate away closes the Focus Points setup modal before using Products again', () => {
