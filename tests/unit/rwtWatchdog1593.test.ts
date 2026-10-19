@@ -6,14 +6,30 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { DOM_READ_TIMEOUT_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, JourneyWatchdog, STALL_MS, WATCHED_FIELDS, fatalSignalOf, stallOf, type DomState, type WatchProfile } from '../live/helpers/rwtWatchdog';
+import { DOM_READ_TIMEOUT_MS, FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyWatchdog, STALL_MS, WATCHED_FIELDS, fatalSignalOf, stallOf, watchProfileFor, type DomState, type WatchProfile } from '../live/helpers/rwtWatchdog';
 import { COACHING_SETTLE_BOUND_MS } from '../live/helpers/rwtCoachingEvidence';
 import { deniedAfterPress } from '../live/helpers/rwtAdverse';
 import { modelWorkBeforeRefusal } from '../live/helpers/rwtAbandonTakeover';
 
 const ev = (event: string, watch: Record<string, string> = {}) => ({ event, watch, at: Date.now() });
-/** A decoded event as the tap stamps it: `sourcePage` (non-enumerable, memory-only) is the page that SENT it. */
-const sentBy = <T extends object>(page: unknown, e: T): T => Object.defineProperty(e, 'sourcePage', { value: page, enumerable: false });
+/**
+ * A decoded event as the tap stamps it: `sourcePage` / `sourceDocument` (non-enumerable, memory-only) are the page and the
+ * document load that SENT it; `bootId` is the envelope's boot. Each fake page gets its own default boot on document 0.
+ */
+const bootOfPage = new WeakMap<object, string>();
+const defaultBoot = (page: unknown): string => {
+    const key = page as object;
+    if (!bootOfPage.has(key)) bootOfPage.set(key, `boot-${Math.random().toString(36).slice(2, 10)}`);
+    return bootOfPage.get(key)!;
+};
+const sentBy = <T extends object>(page: unknown, e: T, o: { boot?: string; document?: number; noCaptureTime?: boolean } = {}): T & { bootId: string } => {
+    const at = (e as { at?: number; capturedAt?: number });
+    const stamped = Object.assign(e, { bootId: o.boot ?? (e as { bootId?: string }).bootId ?? defaultBoot(page) },
+        o.noCaptureTime || at.capturedAt !== undefined || at.at === undefined ? {} : { capturedAt: at.at });
+    Object.defineProperty(stamped, 'sourcePage', { value: page, enumerable: false });
+    Object.defineProperty(stamped, 'sourceDocument', { value: o.document ?? 0, enumerable: false });
+    return stamped;
+};
 const NONE: WatchProfile = {};
 
 describe('fatalSignalOf — an unexpected failure, refusal or forbidden recording is fatal; the scenario\'s own is not', () => {
@@ -457,11 +473,17 @@ describe('#1662 RETURN on b128cdf9 — page binding, event-time phases, invalida
         expect(h.rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ domReads: 0, domUnreadable: 2 }) })]);
     });
 
-    it('item 9: only a NotAllowedError recorded after THIS press qualifies the denial', () => {
-        expect(deniedAfterPress(['NotAllowedError'], 1), 'an earlier rejection on the page').toBe(false);
-        expect(deniedAfterPress(['NotAllowedError', 'NotReadableError'], 1), 'this press failed for another reason').toBe(false);
-        expect(deniedAfterPress(['NotSupportedError', 'NotAllowedError'], 1)).toBe(true);
-        expect(deniedAfterPress([], 0)).toBe(false);
+    it('item 9 (+ item 5 on f527a033): only THIS press\'s own acquisition, refused with NotAllowedError, qualifies', () => {
+        const log = (...outcomes: string[]) => outcomes.map((outcome, id) => ({ id, outcome }));
+        expect(deniedAfterPress(log('NotAllowedError'), 1), 'an earlier rejection on the page').toBe(false);
+        expect(deniedAfterPress(log('granted', 'NotReadableError'), 1), 'this press failed for another reason').toBe(false);
+        expect(deniedAfterPress(log('granted', 'NotAllowedError'), 1)).toBe(true);
+        expect(deniedAfterPress([], 0), 'no acquisition at all').toBe(false);
+        // Sam's control: an OLD pending acquisition (id 0) settles NotAllowedError after the press, while this press's own
+        // acquisition (id 1) rejects NotReadableError — settlement order cannot qualify it.
+        expect(deniedAfterPress([{ id: 0, outcome: 'NotAllowedError' }, { id: 1, outcome: 'NotReadableError' }], 1)).toBe(false);
+        // A later retry's denial cannot qualify a press whose own acquisition failed otherwise.
+        expect(deniedAfterPress(log('NotReadableError', 'NotAllowedError'), 0)).toBe(false);
     });
 
     it('item 10: on a cold device, any model work before the lease refusal — even a status that returned — is a FAIL', () => {
@@ -544,5 +566,192 @@ describe('#1662 Codex on f527a033 — each fault phase brackets exactly its inje
         const src = read('tests/live/rwt-save-retry-recovery.live.spec.ts');
         const retry = src.indexOf("await page.getByTestId('session-retry-save').click();");
         expect(src.lastIndexOf('watch.setFaultPhase(false);', retry)).toBeGreaterThan(src.lastIndexOf('watch.setFaultPhase(true);', retry));
+    });
+});
+
+/**
+ * Sam's consolidated RETURN on f527a033 (01:41). Each control reproduces a gap at f527a033 and must hold on the successor.
+ */
+describe('#1662 RETURN on f527a033 — one owned deletion, bounded closes, boot identity, event-time prohibition, scoped allowances', () => {
+    const fakes = (domState: () => Promise<DomState | null> = async () => null) => {
+        const closed: string[] = [];
+        const page = { context: () => ({ close: async () => { closed.push('main'); } }), evaluate: domState };
+        const tap = { events: [] as object[] };
+        const rows: { step: string; verdict: string; evidence?: unknown }[] = [];
+        const receipt = { rows, row: (step: string, verdict: string, _detail: string, evidence?: unknown) => { rows.push({ step, verdict, evidence }); } };
+        return { closed, page, tap, rows, receipt };
+    };
+    const quiet = { log: () => undefined, label: 'case' };
+    const deferred = () => { let resolve!: () => void; const promise = new Promise<void>((r) => { resolve = r; }); return { promise, resolve }; };
+
+    it('item 1: a timed-out proof never starts a second deletion; the ONE deletion\'s own settlement decides', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = fakes();
+            let deletions = 0;
+            const gate = deferred();
+            const cleanup = new OwnedCleanup(async () => { deletions += 1; await gate.promise; return 'uid'; });
+            const steps = new FinalizationSteps();
+            // The retention proof deletes through the cleanup, which outlives the proof's bound.
+            const done = finalizeOwnedCleanup(steps, h.receipt as never, cleanup, async () => { await cleanup.run(); });
+            await vi.advanceTimersByTimeAsync(FINALIZE_CLEANUP_MS);
+            gate.resolve(); // the SAME deletion completes during the settlement's grace
+            expect(await done).toBe('deleted');
+            expect(deletions, 'one deletion, never a second').toBe(1);
+            steps.report(h.receipt as never);
+            expect(h.rows.map((r) => [r.step, r.verdict])).toEqual([['run-owned cleanup', 'PASS'], ['journey finalization', 'HOLD']]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('item 1: a deletion that completed while its retention readback stalled is NOT deleted again; the readback is a HOLD, not a FAIL', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = fakes();
+            let deletions = 0;
+            const cleanup = new OwnedCleanup(async () => { deletions += 1; return 'uid'; });
+            const steps = new FinalizationSteps();
+            const done = finalizeOwnedCleanup(steps, h.receipt as never, cleanup, async () => {
+                await cleanup.run();
+                await new Promise<void>(() => { /* the retention readback never answers */ });
+            });
+            await vi.advanceTimersByTimeAsync(FINALIZE_CLEANUP_MS);
+            expect(await done).toBe('deleted');
+            expect(deletions).toBe(1);
+            steps.report(h.receipt as never);
+            expect(h.rows.find((r) => r.step === 'journey finalization')).toMatchObject({ verdict: 'HOLD', evidence: { 'run-owned cleanup proof': 'timeout' } });
+            expect(h.rows.find((r) => r.step === 'run-owned cleanup')?.verdict).toBe('PASS');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('item 1: a deletion that never settles is a FAIL with residue unproven', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = fakes();
+            const cleanup = new OwnedCleanup(() => new Promise<string>(() => { /* hangs */ }));
+            const steps = new FinalizationSteps();
+            const done = finalizeOwnedCleanup(steps, h.receipt as never, cleanup);
+            await vi.advanceTimersByTimeAsync(FINALIZE_CLEANUP_MS);
+            expect(await done).toBe('pending');
+            steps.report(h.receipt as never);
+            expect(h.rows.map((r) => [r.step, r.verdict])).toEqual([['run-owned cleanup', 'FAIL'], ['journey finalization', 'FAIL']]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('item 1: a step that outlives its bound cannot write a row or flip state afterwards, nor after the report seals', async () => {
+        vi.useFakeTimers();
+        try {
+            const h = fakes();
+            const steps = new FinalizationSteps();
+            const late = deferred();
+            let accountDeleted = false;
+            const step = steps.step('run-owned cleanup proof', async (alive) => {
+                await late.promise;
+                aliveReceipt(h.receipt as never, alive).row('feedback retention', 'PASS', 'late');
+                if (alive()) accountDeleted = true;
+            }, 1_000);
+            await vi.advanceTimersByTimeAsync(1_000);
+            await step;
+            late.resolve();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(h.rows).toEqual([]);
+            expect(accountDeleted).toBe(false);
+
+            const sealed = new FinalizationSteps();
+            let after = true;
+            const pending = deferred();
+            const running = sealed.step('telemetry rows', async (alive) => { await pending.promise; after = alive(); });
+            sealed.report(h.receipt as never); // the receipt is about to be written
+            pending.resolve();
+            await running;
+            expect(after, 'sealed: no mutation after the report').toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('item 2: the two-device finalizer closes each device in its own bounded step', () => {
+        const src = readFileSync('tests/live/rwt-abandon-and-two-tabs.live.spec.ts', 'utf8');
+        const at = src.lastIndexOf('const finish = finalizer.once(');
+        const closure = src.slice(at, src.indexOf('\n        });', at));
+        expect(closure).toContain("await steps.step('same-browser tab close', () => sameBrowserTab?.close());");
+        expect(closure).toContain("await steps.step('other device close', () => otherDevice?.close());");
+        expect(closure).not.toMatch(/await (sameBrowserTab|otherDevice)\?\.close\(\)/);
+    });
+
+    it('item 3: on a watched page at this release, a boot that is not that document\'s boot is foreign', async () => {
+        const h = fakes();
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: 'a'.repeat(40) });
+        const failed = () => ({ event: 'session_save_latency_measured', at: Date.now(), releaseSha: 'a'.repeat(40), watch: { outcome: 'failed' } });
+        h.tap.events.push(sentBy(h.page, { event: 'journey_step', at: Date.now() }, { boot: 'boot-A', document: 0 }));
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: 'a'.repeat(40), watch: { outcome: 'saved' } }, { boot: 'boot-A', document: 0 }));
+        expect(await w.tick()).toBeNull();
+        h.tap.events.push(sentBy(h.page, failed(), { boot: 'boot-X', document: 0 })); // a foreign boot on the same document
+        h.tap.events.push(sentBy(h.page, failed(), { boot: 'boot-A', document: 1 })); // boot A cannot speak for the next load
+        const missing = sentBy(h.page, failed(), { boot: 'boot-A', document: 0 });
+        delete (missing as { bootId?: string }).bootId;
+        h.tap.events.push(missing); // no boot identity at all
+        expect(await w.tick(), 'foreign boots never trip').toBeNull();
+        expect(h.closed).toEqual([]);
+        h.tap.events.push(sentBy(h.page, failed(), { boot: 'boot-B', document: 1 })); // the page's next load, its own boot
+        expect(await w.tick(), 'the next document\'s own boot is this journey').toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('item 4: a RECORDING captured while forbidden but scanned after the prohibition cleared still trips', async () => {
+        const h = fakes();
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {} });
+        w.setForbidRecording(true);
+        const during = Date.now();
+        await new Promise((r) => setTimeout(r, 2));
+        w.setForbidRecording(false);
+        h.tap.events.push(sentBy(h.page, { event: 'recording_state', at: during, watch: { to_state: 'RECORDING' } }));
+        expect(await w.tick()).toMatchObject({ kind: 'recording_while_forbidden' });
+        const h2 = fakes();
+        const w2 = new JourneyWatchdog({ ...quiet, page: h2.page as never, tap: h2.tap as never, profile: {} });
+        w2.setForbidRecording(true);
+        w2.setForbidRecording(false);
+        h2.tap.events.push(sentBy(h2.page, { event: 'recording_state', at: Date.now() + 5, watch: { to_state: 'RECORDING' } }));
+        expect(await w2.tick(), 'a recording after the step is allowed').toBeNull();
+    });
+
+    it('item 4: an event without a capture time earns no phase allowance', async () => {
+        const h = fakes();
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: { allowSaveFailed: true } });
+        w.setFaultPhase(true);
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } }, { noCaptureTime: true }));
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('item 4: a fatal event that arrives during record()\'s final DOM drain is judged before the row', async () => {
+        const read = deferred();
+        const h = fakes(async () => { await read.promise; return { runtimeState: 'READY', modelStatus: 'ready', control: 'mic-start', controlEnabled: true }; });
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {} });
+        void w.tick(); // a DOM read is in flight
+        const recording = w.record(h.receipt as never);
+        h.tap.events.push(sentBy(h.page, { event: 'recording_state', at: Date.now(), watch: { to_state: 'FAILED', failure_code: 'engine_error' } }));
+        read.resolve();
+        await recording;
+        expect(h.rows.map((r) => r.verdict)).toEqual(['FAIL']);
+        expect(h.closed, 'finalization records the signal without closing the pages it still reads').toEqual([]);
+    });
+
+    it('item 7: the displacement allowance excuses only tab A; device B\'s own lease failure trips, its first refusal does not', async () => {
+        const h = fakes();
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: watchProfileFor('abandon-and-two-tabs-take-over') });
+        const deviceB = { context: () => ({ close: async () => undefined }), evaluate: async () => null };
+        w.setFaultPhase(true);
+        w.setPage(deviceB as never);
+        w.scopeFailureAllowance([h.page]);
+        const leaseFailed = () => ({ event: 'recording_state', at: Date.now(), watch: { to_state: 'FAILED', failure_code: 'lease_not_held' } });
+        h.tap.events.push(sentBy(h.page, leaseFailed())); // tab A displaced: expected
+        h.tap.events.push(sentBy(deviceB, { event: 'session_start_latency_measured', at: Date.now(), watch: { outcome: 'refused' } })); // B's first press
+        expect(await w.tick()).toBeNull();
+        h.tap.events.push(sentBy(deviceB, { ...leaseFailed(), at: Date.now() + 1 })); // B's OWN take fails with a lease code
+        expect(await w.tick()).toMatchObject({ kind: 'recording_failed', fields: { failure_code: 'lease_not_held' } });
     });
 });

@@ -22,11 +22,12 @@ export const MODEL_FAILED_STATES = ['error', 'init-failed'] as const;
  * can read "denied" while a fake-media flag still grants a live track (live case 12), or "prompt" while acquisition is denied.
  */
 /**
- * Sam, #1662 RETURN (case 12, press-bound denial): only an acquisition refusal recorded AFTER this press qualifies — an
- * earlier rejection on the page cannot qualify a later Start that failed for another reason.
+ * Sam, #1662 RETURN (case 12, press-bound denial; item 5 on f527a033): the case is exercised only when THIS press's own
+ * acquisition — the first one INVOKED after the press — was refused with NotAllowedError. An older acquisition that rejects
+ * later, or a later retry, cannot qualify a press whose own acquisition failed for another reason.
  */
-export function deniedAfterPress(rejections: readonly string[], rejectionsBeforePress: number): boolean {
-    return rejections.slice(rejectionsBeforePress).includes('NotAllowedError');
+export function deniedAfterPress(log: readonly { id: number; outcome: string }[], acquisitionsBeforePress: number): boolean {
+    return log.find((a) => a.id >= acquisitionsBeforePress)?.outcome === 'NotAllowedError';
 }
 
 export function micDeniedVerdict(o: { deniedAtAcquisition: boolean; blockedCopyShown: boolean; tab: TabState }): Verdict {

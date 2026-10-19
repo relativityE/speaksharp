@@ -216,7 +216,8 @@ export interface ArmOptions {
 /** The journey's tripwire. `stop()` disarms it; `signal` is the first unexpected signal, if any. */
 export class JourneyWatchdog {
     signal: WatchSignal | null = null;
-    private forbidRecording = false;
+    /** Sam, #1662 RETURN on f527a033 (item 4): the prohibition, like the fault phase, is judged at each event's capture time. */
+    private readonly forbidIntervals: { from: number; to: number }[] = [];
     private cursor = 0;
     private readonly started = Date.now();
     private lastKey = '';
@@ -244,6 +245,20 @@ export class JourneyWatchdog {
     private refusalRevokedAt: number | null = null;
     /** Sam, #1662 RETURN (b128 control 1): only events SENT by a page this journey watches are its evidence. */
     private readonly watchedPages = new Set<unknown>();
+    /**
+     * Sam, #1662 RETURN on f527a033 (item 7): from `from`, the suite's FAILURE allowances apply only to events sent by these
+     * pages (the displaced tab); every other page — the device taking over — stays strict.
+     */
+    private failureScope: { from: number; pages: Set<unknown> } | null = null;
+    /**
+     * Sam, #1662 RETURN on f527a033 (item 3): a boot IS one document load of one page. Each boot id is bound to the first
+     * (watched page, document) that sent it and each document to its first boot; any other pairing is a foreign boot, even
+     * on a watched page at this release.
+     */
+    private readonly bootDocument = new Map<string, string>();
+    private readonly documentBoot = new Map<string, string>();
+    private readonly pageIds = new WeakMap<object, number>();
+    private nextPageId = 0;
     /** Bumped by setPage: a DOM read started for the previous page can never judge the new one (b128 control 5). */
     private pageGeneration = 0;
 
@@ -294,8 +309,16 @@ export class JourneyWatchdog {
         if (!open && last && last.to === Infinity) last.to = now;
     }
 
-    /** Around a step whose truthful outcome is no recording (a denied microphone): a RECORDING transition then trips. */
-    setForbidRecording(on: boolean): void { this.forbidRecording = on; }
+    /** Around a step whose truthful outcome is no recording (a denied microphone): a RECORDING captured then trips. */
+    setForbidRecording(on: boolean): void {
+        const now = Date.now();
+        const last = this.forbidIntervals[this.forbidIntervals.length - 1];
+        if (on && (!last || last.to !== Infinity)) this.forbidIntervals.push({ from: now, to: Infinity });
+        if (!on && last && last.to === Infinity) last.to = now;
+    }
+
+    /** From now, the suite's failure allowances excuse only events sent by `pages`; every other page is strict. */
+    scopeFailureAllowance(pages: readonly unknown[]): void { this.failureScope = { from: Date.now(), pages: new Set(pages) }; }
 
     stop(): void {
         this.stopped = true;
@@ -305,18 +328,51 @@ export class JourneyWatchdog {
         this.timer = null; this.beat = null;
     }
 
-    /** The profile that applied when an event was CAPTURED: the suite's allowances inside a fault interval, else strict. */
-    private profileAt(captured: number): WatchProfile {
+    /**
+     * The profile that applied when an event was CAPTURED: the suite's allowances inside a fault interval, else strict.
+     * An event without a capture time never earns an allowance (item 4): it is judged strictly.
+     */
+    private profileAt(captured: number | undefined, sourcePage: unknown): WatchProfile {
+        if (captured === undefined) return {};
         const inFault = this.faultIntervals.some((i) => captured >= i.from && captured <= i.to);
-        const base: WatchProfile = inFault ? this.o.profile : {};
-        return this.refusalRevokedAt !== null && captured >= this.refusalRevokedAt ? { ...base, allowStartRefused: false } : base;
+        let profile: WatchProfile = inFault ? this.o.profile : {};
+        if (this.refusalRevokedAt !== null && captured >= this.refusalRevokedAt) profile = { ...profile, allowStartRefused: false };
+        if (this.failureScope && captured >= this.failureScope.from && !this.failureScope.pages.has(sourcePage)) {
+            profile = { ...profile, allowFailureCodes: [], allowSaveFailed: false };
+        }
+        return profile;
     }
 
-    /** True when an event is not this journey's evidence: not sent by a watched page, another release, or pre-arming. */
+    /** Whether recording was forbidden when the event was captured; without a capture time, whether it is forbidden now. */
+    private forbiddenAt(captured: number | undefined): boolean {
+        if (captured === undefined) {
+            const last = this.forbidIntervals[this.forbidIntervals.length - 1];
+            return last !== undefined && last.to === Infinity;
+        }
+        return this.forbidIntervals.some((i) => captured >= i.from && captured <= i.to);
+    }
+
+    /**
+     * True when an event is not this journey's evidence: not sent by a watched page, another release, captured before
+     * arming, or from a boot that is not the boot of the (page, document) that sent it.
+     */
     private foreign(e: SentEvent): boolean {
-        if (!this.watchedPages.has((e as { sourcePage?: unknown }).sourcePage)) return true;
+        const source = e as SentEvent & { sourcePage?: object; sourceDocument?: number };
+        if (!source.sourcePage || !this.watchedPages.has(source.sourcePage)) return true;
         if (this.o.releaseSha && e.releaseSha && e.releaseSha !== this.o.releaseSha) return true;
-        return (e.capturedAt ?? e.at) < this.started - 1_000;
+        if ((e.capturedAt ?? e.at) < this.started - 1_000) return true;
+        if (!e.bootId || source.sourceDocument === undefined) return true;
+        let pageId = this.pageIds.get(source.sourcePage);
+        if (pageId === undefined) { pageId = this.nextPageId++; this.pageIds.set(source.sourcePage, pageId); }
+        const document = `${pageId}:${source.sourceDocument}`;
+        const boundDocument = this.bootDocument.get(e.bootId);
+        const boundBoot = this.documentBoot.get(document);
+        if (boundDocument === undefined && boundBoot === undefined) {
+            this.bootDocument.set(e.bootId, document);
+            this.documentBoot.set(document, e.bootId);
+            return false;
+        }
+        return boundDocument !== document || boundBoot !== e.bootId;
     }
 
     /** Classify every queued event (synchronous); the first unexpected fatal one is returned. */
@@ -328,7 +384,8 @@ export class JourneyWatchdog {
             if (this.foreign(e)) { this.foreignIgnored += 1; continue; }
             this.watchedSeen += 1;
             this.lastEvent = { name: e.event, at: e.at };
-            const kind = fatalSignalOf(e, this.profileAt(e.capturedAt ?? e.at), this.forbidRecording);
+            const sourcePage = (e as { sourcePage?: unknown }).sourcePage;
+            const kind = fatalSignalOf(e, this.profileAt(e.capturedAt, sourcePage), this.forbiddenAt(e.capturedAt));
             if (kind) { this.cursor += 1; return { kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started }; }
         }
         return null;
@@ -382,10 +439,15 @@ export class JourneyWatchdog {
         return null;
     }
 
-    private async trip(signal: WatchSignal): Promise<WatchSignal> {
+    /** Record the first unexpected signal and disarm; the journey is FAILed by it. */
+    private mark(signal: WatchSignal): void {
         this.signal = signal;
         this.stop();
         (this.o.log ?? ((line: string) => console.log(line)))(`RWT_FAIL_EARLY ${JSON.stringify({ label: this.o.label, ...signal })}`);
+    }
+
+    private async trip(signal: WatchSignal): Promise<WatchSignal> {
+        this.mark(signal);
         // Close every context the journey drives: each pending Playwright wait on them rejects now, not at its timeout.
         const contexts = new Set<BrowserContext>([
             this.initialContext, this.o.page.context(), ...(this.o.contexts?.() ?? []).filter((c): c is BrowserContext => c !== null),
@@ -402,12 +464,20 @@ export class JourneyWatchdog {
     async record(receipt: RwtReceipt): Promise<void> {
         // Codex P2 r4309443352 / Sam b128 control 4: drain every queued event before fencing — a fatal event queued just
         // before finalization must FAIL the journey, not slip past a PASS.
-        if (!this.signal && !this.stopped) {
+        // At finalization the signal is recorded without closing contexts: the journey is already ending, and the bounded
+        // finalization steps that follow still read its pages.
+        if (!this.signal) {
             const late = this.scanTelemetry(Date.now());
-            if (late) await this.trip(late);
+            if (late) this.mark(late);
         }
         this.stop();
         if (this.domRead) await Promise.race([this.domRead, new Promise((r) => setTimeout(r, DOM_READ_TIMEOUT_MS))]);
+        // Sam, #1662 RETURN on f527a033 (item 4): the terminal window closes AFTER the drain — an event that arrived while
+        // the last DOM read was draining still judges this journey before its row is written.
+        if (!this.signal) {
+            const terminal = this.scanTelemetry(Date.now());
+            if (terminal) this.mark(terminal);
+        }
         const s = this.signal;
         const observation = { watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable };
         if (s) {
@@ -486,14 +556,22 @@ export type StepOutcome = 'ok' | 'timeout' | 'error';
  */
 export class FinalizationSteps {
     private readonly outcomes = new Map<string, { outcome: StepOutcome; critical: boolean }>();
+    private sealed = false;
 
-    async step<T>(name: string, run: () => Promise<T> | T, ms = FINALIZE_STEP_MS, o: { critical?: boolean } = {}): Promise<T | undefined> {
+    /**
+     * `run` receives `alive()`: true until this step timed out or the finalization was sealed. A step that outlives its
+     * bound keeps running (a promise cannot be cancelled), so every shared mutation it makes must be guarded by `alive()`
+     * (Sam, #1662 RETURN on f527a033 item 1: no late `accountDeleted` flip, no row after the receipt).
+     */
+    async step<T>(name: string, run: (alive: () => boolean) => Promise<T> | T, ms = FINALIZE_STEP_MS, o: { critical?: boolean } = {}): Promise<T | undefined> {
         const timedOut = Symbol('timeout');
+        let expired = false;
+        const alive = () => !expired && !this.sealed;
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const timeout = new Promise<typeof timedOut>((resolve) => { timer = setTimeout(() => resolve(timedOut), ms); });
+        const timeout = new Promise<typeof timedOut>((resolve) => { timer = setTimeout(() => { expired = true; resolve(timedOut); }, ms); });
         let outcome: StepOutcome = 'ok';
         try {
-            const value = await Promise.race([Promise.resolve().then(run), timeout]);
+            const value = await Promise.race([Promise.resolve().then(() => run(alive)), timeout]);
             if (value === timedOut) { outcome = 'timeout'; return undefined; }
             return value as T;
         } catch {
@@ -505,18 +583,95 @@ export class FinalizationSteps {
         }
     }
 
+    /** Record an outcome decided outside a step (the deletion's own settlement). */
+    note(name: string, outcome: StepOutcome, o: { critical?: boolean } = {}): void {
+        this.outcomes.set(name, { outcome, critical: o.critical === true });
+    }
+
+    /** The receipt is about to be written: every step still running is fenced from here on. */
+    seal(): void { this.sealed = true; }
+
     /** Every step that did not complete, with its closed outcome. */
     incomplete(): Record<string, StepOutcome> {
         return Object.fromEntries([...this.outcomes].filter(([, v]) => v.outcome !== 'ok').map(([k, v]) => [k, v.outcome]));
     }
 
+    /** Writes the finalization row (if any step did not complete) and seals: later step mutations are fenced. */
     report(receipt: RwtReceipt): void {
+        this.seal();
         const incomplete = this.incomplete();
         const names = Object.keys(incomplete);
         if (names.length === 0) return;
         const critical = names.some((n) => this.outcomes.get(n)?.critical);
         receipt.row('journey finalization', critical ? 'FAIL' : 'HOLD', critical
-            ? 'run-owned cleanup did not complete within its bound, so residue is unproven; the receipt was still written'
+            ? 'the run-owned deletion did not settle as deleted, so residue is unproven; the receipt was still written'
             : `${names.length} finalization step(s) did not complete within their bound; cleanup and the receipt still ran`, incomplete);
     }
+}
+
+/** A guarded view of the receipt for a bounded step: rows are recorded only while the step is alive. */
+export function aliveReceipt(receipt: RwtReceipt, alive: () => boolean): RwtReceipt {
+    return new Proxy(receipt, {
+        get(target, prop, receiver) {
+            if (prop === 'row') return (...args: Parameters<RwtReceipt['row']>) => { if (alive()) target.row(...args); };
+            return Reflect.get(target, prop, receiver);
+        },
+    });
+}
+
+export type CleanupSettlement = 'not_started' | 'pending' | 'deleted' | 'failed';
+/** After the first attempt's bound has passed, how much longer the settlement read waits for that SAME deletion. */
+export const CLEANUP_SETTLE_GRACE_MS = 10_000;
+
+/**
+ * Sam, #1662 RETURN on f527a033 (item 1) — ONE OWNED DELETION per journey. A timed-out cleanup step keeps its deletion
+ * running, so a fallback that starts another overlapped it, and a deletion that completed while its retention readback
+ * stalled was deleted again. Every caller (the retention proof, the settlement) goes through `run()`, which starts the
+ * deletion at most once and returns that same promise; `settle()` reads the one deletion's own outcome, separately from
+ * any readback, and starts it only if nothing ever did.
+ */
+export class OwnedCleanup<T = unknown> {
+    private deletion: Promise<T> | null = null;
+    private state: CleanupSettlement = 'not_started';
+    constructor(private readonly remove: () => Promise<T>) {}
+
+    get settlement(): CleanupSettlement { return this.state; }
+
+    run(): Promise<T> {
+        if (!this.deletion) {
+            this.state = 'pending';
+            this.deletion = Promise.resolve().then(this.remove).then(
+                (value) => { this.state = 'deleted'; return value; },
+                (error: unknown) => { this.state = 'failed'; throw error; },
+            );
+        }
+        return this.deletion;
+    }
+
+    async settle(ms: number): Promise<CleanupSettlement> {
+        const deletion = this.run().catch(() => undefined);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([deletion, new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); })]);
+        if (timer) clearTimeout(timer);
+        return this.state;
+    }
+}
+
+/**
+ * The journey's run-owned cleanup, exactly once: an optional retention proof (which deletes through the same
+ * `OwnedCleanup`), then the deletion's OWN settlement — never a second delete. A stalled readback is a HOLD of its proof
+ * step; only a deletion that did not settle as deleted is the critical FAIL. Writes the `run-owned cleanup` row unless the
+ * proof already did. Returns the settlement.
+ */
+export async function finalizeOwnedCleanup<T>(steps: FinalizationSteps, receipt: RwtReceipt, cleanup: OwnedCleanup<T>,
+    proof?: (alive: () => boolean) => Promise<unknown>): Promise<CleanupSettlement> {
+    if (proof) await steps.step('run-owned cleanup proof', proof, FINALIZE_CLEANUP_MS);
+    const settlement = await cleanup.settle(cleanup.settlement === 'not_started' ? FINALIZE_CLEANUP_MS : CLEANUP_SETTLE_GRACE_MS);
+    steps.note('run-owned cleanup', settlement === 'deleted' ? 'ok' : settlement === 'failed' ? 'error' : 'timeout', { critical: true });
+    if (!receipt.rows.some((r) => r.step === 'run-owned cleanup')) {
+        if (settlement === 'deleted') receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+        else if (settlement === 'failed') receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+        else receipt.row('run-owned cleanup', 'FAIL', 'the run-owned account deletion did not settle within its bound, so residue is unproven');
+    }
+    return settlement;
 }

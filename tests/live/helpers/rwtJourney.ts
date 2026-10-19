@@ -464,22 +464,25 @@ export async function installMicAcquisitionCounter(page: Page): Promise<void> {
         const streams: MediaStream[] = [];
         // #1593 (Sam, #1662 RETURN): the acquisition boundary's own REJECTIONS, by closed DOMException name only — the
         // product learns "blocked" from a NotAllowedError here, so a denial case must observe one, not a permission query.
-        const rejections: string[] = [];
+        // Sam, #1662 RETURN on f527a033 (item 5): each audio acquisition gets its ID at INVOCATION, and its own settlement
+        // is recorded against that ID — an older pending acquisition rejecting later can never be read as this press's.
+        const log: { id: number; outcome: string }[] = [];
         const NAMES = ['NotAllowedError', 'NotFoundError', 'NotReadableError', 'AbortError', 'SecurityError', 'OverconstrainedError', 'TypeError'];
-        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[]; __rwtMicRejections__?: string[] };
+        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[]; __rwtMicAcquisitionLog__?: { id: number; outcome: string }[] };
         w.__rwtMicAcquisitions__ = marks;
-        w.__rwtMicRejections__ = rejections;
+        w.__rwtMicAcquisitionLog__ = log;
         w.__rwtMicStreams__ = streams; // references only, to read track readyState; never audio data
         const media = navigator.mediaDevices;
         if (!media?.getUserMedia) return;
         const original = media.getUserMedia.bind(media);
         media.getUserMedia = (constraints?: MediaStreamConstraints) => {
             const audio = Boolean(constraints && (constraints as { audio?: unknown }).audio);
-            if (audio) marks.push(Date.now());
-            return original(constraints).then((stream) => { if (audio) streams.push(stream); return stream; }, (error: unknown) => {
-                if (audio) {
+            const entry = audio ? { id: log.length, outcome: 'pending' } : null;
+            if (entry) { marks.push(Date.now()); log.push(entry); }
+            return original(constraints).then((stream) => { if (entry) { streams.push(stream); entry.outcome = 'granted'; } return stream; }, (error: unknown) => {
+                if (entry) {
                     const name = (error as { name?: unknown } | null)?.name;
-                    rejections.push(typeof name === 'string' && NAMES.includes(name) ? name : 'other');
+                    entry.outcome = typeof name === 'string' && NAMES.includes(name) ? name : 'other';
                 }
                 throw error;
             });
@@ -494,9 +497,10 @@ export async function liveMicTracks(page: Page): Promise<number> {
         .filter((track) => track.readyState === 'live').length);
 }
 
-/** The closed DOMException names of the page's rejected microphone acquisitions, in order. */
-export async function micRejections(page: Page): Promise<string[]> {
-    return page.evaluate(() => ((window as unknown as { __rwtMicRejections__?: string[] }).__rwtMicRejections__ ?? []).slice()).catch(() => []);
+/** Every audio acquisition the page started, by invocation ID, with its own closed outcome (`pending`, `granted` or a DOMException name). */
+export async function micAcquisitionLog(page: Page): Promise<{ id: number; outcome: string }[]> {
+    return page.evaluate(() => ((window as unknown as { __rwtMicAcquisitionLog__?: { id: number; outcome: string }[] }).__rwtMicAcquisitionLog__ ?? [])
+        .map((a) => ({ id: a.id, outcome: a.outcome }))).catch(() => []);
 }
 
 export async function micAcquisitions(page: Page): Promise<number[]> {
@@ -715,10 +719,13 @@ export class AnalyticsTap {
         page.on('requestfinished', onFinished);
         page.on('requestfailed', onFailed);
         this.listeners.push(['requestfinished', onFinished as never], ['requestfailed', onFailed as never]);
+        // #1593 (Sam, #1662 RETURN on f527a033 item 3): which document of this page sent each event — a boot IS a document
+        // load, so the watchdog binds each boot id to exactly one (page, document) and refuses a foreign boot on a watched page.
+        let documentGen = 0;
         page.on('request', (request) => {
             let mainDocument = false;
             try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
-            if (mainDocument) { this.noteDocument(request.url()); return; }
+            if (mainDocument) { documentGen += 1; this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
@@ -769,7 +776,10 @@ export class AnalyticsTap {
             }
             // #1593 (Sam, #1662 RETURN): which page SENT each event, so a watchdog can refuse evidence from pages it does not
             // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.
-            for (let i = before; i < this.events.length; i += 1) Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
+            for (let i = before; i < this.events.length; i += 1) {
+                Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocument', { value: documentGen, enumerable: false });
+            }
             if (this.events.length > before) {
                 this.notePosthogRequest();
                 this.track(request, { batches: [batch], names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
@@ -1039,7 +1049,12 @@ export class RwtReceipt {
         this.haltedAt = step;
     }
 
+    /** #1593 (Sam, #1662 RETURN on f527a033 item 1): once written, the receipt is sealed — a late row can never change it. */
+    private sealed = false;
+
     row(step: string, verdict: Verdict, detail: string, evidence?: ReceiptRow['evidence']): void {
+        // A late FAIL still fails the test; it never edits the receipt already published.
+        if (this.sealed) { if (verdict === 'FAIL') expect.soft(verdict, `${step} (after the receipt was written): ${detail}`).toBe('PASS'); return; }
         const recorded = rowAfterHalt({ step, verdict, detail, evidence }, this.haltedAt);
         this.rows.push(recorded);
         if (recorded.verdict === 'FAIL') expect.soft(recorded.verdict, `${step}: ${recorded.detail}`).toBe('PASS');
@@ -1097,6 +1112,7 @@ export class RwtReceipt {
             forbidden: this.forbidden, testStatus: body.testStatus,
         });
         writeFileSync(path.join(dir, `${this.suite}.receipt.json`), out.receiptText);
+        this.sealed = true;
         const worksheetPath = path.join(dir, `${this.suite}.human-worksheet.md`);
         if (out.worksheetText === null) rmSync(worksheetPath, { force: true });
         else writeFileSync(worksheetPath, out.worksheetText);

@@ -17,7 +17,7 @@ import {
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
-import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { CoachingGenerationTap } from './coachingGenerationTap';
@@ -279,36 +279,18 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
             acquisitionTimingRow(receipt, tap, tap.journeyIds());
         });
-        const deleteOwned = () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-        if ((owner.uid || owner.email) && fixtureKey === 'focus_points_tts') {
-            // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
-            // On success the owner is cleared so the fallback below does not repeat the deletion.
-            await steps.step('run-owned cleanup', async () => {
-                const deleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId, deleteOwned);
-                if (deleted) { owner.uid = ''; owner.email = ''; }
-            }, FINALIZE_CLEANUP_MS, { critical: true });
-        } else if ((owner.uid || owner.email) && fixtureKey === 'focus_points_partial_tts') {
-            // #1532 Codex P1 r4126745141: the partial run's receipt carries its own cleanup verdict. Cleanup runs HERE,
-            // before write(); a failure is a FAIL row (the test still ends failed) and never skips the receipt. Only a
-            // verified deletion clears the owner.
-            await steps.step('run-owned cleanup', async () => {
-                const cleaned = await recordRunOwnedCleanup((step, verdict, detail, evidence) => receipt.row(step, verdict, detail, evidence), deleteOwned);
-                if (cleaned) { owner.uid = ''; owner.email = ''; }
-            }, FINALIZE_CLEANUP_MS, { critical: true });
-        }
-        // No feedback report (the body ended before Share Feedback) or a failed first attempt: the account is still deleted,
-        // here and only here — no spec-level cleanup remains.
+        // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. The full run's retention proof and the partial run's own
+        // cleanup verdict (#1532 Codex P1 r4126745141) both delete through it; the deletion's own settlement then decides —
+        // a stalled readback never deletes again, and a body that ended early still has its account deleted, here only.
         if (owner.uid || owner.email) {
-            await steps.step('run-owned cleanup fallback', async () => {
-                try {
-                    await deleteOwned();
-                    owner.uid = '';
-                    owner.email = '';
-                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-                } catch {
-                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-                }
-            }, FINALIZE_CLEANUP_MS, { critical: true });
+            const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+            const report = feedbackReportId;
+            const proof = fixtureKey === 'focus_points_tts' && report
+                ? (alive: () => boolean) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
+                : fixtureKey === 'focus_points_partial_tts'
+                    ? (alive: () => boolean) => recordRunOwnedCleanup((step, verdict, detail, evidence) => { if (alive()) receipt.row(step, verdict, detail, evidence); }, () => cleanup.run())
+                    : undefined;
+            if (await finalizeOwnedCleanup(steps, receipt, cleanup, proof) === 'deleted') { owner.uid = ''; owner.email = ''; }
         }
         // Last, so it covers every row above, including cleanup.
         await steps.step('receipt content check', () => {

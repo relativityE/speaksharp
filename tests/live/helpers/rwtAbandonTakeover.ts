@@ -200,6 +200,26 @@ export function modelWorkBeforeRefusal(o: { cold: boolean; modelRequests: number
     return o.cold && (o.modelRequests > 0 || o.statusHistory.some((s) => s !== 'download-required') || o.statusAtRefusal !== 'download-required');
 }
 
+/**
+ * Sam, #1662 RETURN on f527a033 (item 6): every published model-status TRANSITION, in order. One MutationObserver callback
+ * can carry several records, so reading the current attribute once per batch loses `loading → download-required`. Each
+ * record's `oldValue` is the value BEFORE it, so the value after record i is record i+1's `oldValue` (the current value
+ * after the last). Self-contained: it runs in the page (`page.evaluate(installModelStatusHistory)`), and the unit test drives
+ * the same function through a real MutationObserver.
+ */
+export function installModelStatusHistory(): void {
+    const w = window as unknown as { __rwtModelStatusHistory__?: string[] };
+    const history: string[] = [];
+    w.__rwtModelStatusHistory__ = history;
+    const root = document.documentElement;
+    new MutationObserver((records) => {
+        records.forEach((_record, i) => {
+            const after = i + 1 < records.length ? records[i + 1].oldValue : root.getAttribute('data-model-status');
+            history.push(after ?? 'absent');
+        });
+    }).observe(root, { attributes: true, attributeFilter: ['data-model-status'], attributeOldValue: true });
+}
+
 /** Two tabs: the second tab is refused truthfully, starts no engine, and the first tab keeps recording. */
 export function secondTabBlockedVerdict(o: { refusalCopyShown: boolean; tabB: TabState; tabA: TabState }): Verdict {
     if (!o.refusalCopyShown) return { status: 'FAIL', detail: 'the second tab was not told why it could not record' };

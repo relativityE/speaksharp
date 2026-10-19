@@ -20,7 +20,7 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
-import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 
 const SUITE = 'pending-start-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -96,15 +96,9 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
         // A signup that died before its uid was read is still found by its created email.
         if ((uid || email) && !accountDeleted) {
-            await steps.step('run-owned cleanup', async () => {
-                try {
-                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                    accountDeleted = true;
-                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-                } catch {
-                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-                }
-            }, FINALIZE_CLEANUP_MS, { critical: true });
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
+            accountDeleted = (await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })))) === 'deleted';
         }
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);

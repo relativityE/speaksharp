@@ -40,7 +40,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
-import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { characterCeilingVerdict, fillerAdviceVerdict, readTwoTakesCoaching, takesDifferVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
 import { MODEL_COMPARISON_AUTH_KEY } from './helpers/practiceLoopJourney';
@@ -185,7 +185,6 @@ test.describe('RWT — Open Mic first session @live', () => {
     let createdEmail = '';
     let capturedUid = '';
     let feedbackReportId: string | null = null;
-    let accountDeletedInTest = false;
 
     test.afterEach(async () => {
         // #1593 (Sam, #1662 RETURN control 1): the journey's ONE owned finalization (rows, account cleanup, receipt) — the
@@ -203,7 +202,6 @@ test.describe('RWT — Open Mic first session @live', () => {
         createdEmail = '';
         capturedUid = '';
         feedbackReportId = null;
-        accountDeletedInTest = false;
     });
 
     test('a new person completes a first Open Mic session end to end', async ({ page, browser }, testInfo) => {
@@ -381,23 +379,15 @@ test.describe('RWT — Open Mic first session @live', () => {
             // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product policy
             // (user_issue_reports.user_id is SET NULL on account deletion), so retention is proven only after the account is
             // deleted (#1532 Codex P1 r4105978630).
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
+            // the deletion's own settlement then decides the row — a stalled readback never deletes again, and with no report
+            // (the body ended before Share Feedback) the account is still deleted, here and only here.
             if (capturedUid || createdEmail) {
-                await steps.step('run-owned cleanup', async () => {
-                    accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
-                        () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-                }, FINALIZE_CLEANUP_MS, { critical: true });
-            }
-            // No feedback report (the body ended before Share Feedback): the account is still deleted, here and only here.
-            if ((capturedUid || createdEmail) && !accountDeletedInTest) {
-                await steps.step('run-owned cleanup fallback', async () => {
-                    try {
-                        await cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                        accountDeletedInTest = true;
-                        receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-                    } catch {
-                        receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-                    }
-                }, FINALIZE_CLEANUP_MS, { critical: true });
+                const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+                const report = feedbackReportId;
+                await finalizeOwnedCleanup(steps, receipt, cleanup, report
+                    ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
+                    : undefined);
             }
             // Last, so it covers every row above, including cleanup.
             await steps.step('receipt content check', () => {

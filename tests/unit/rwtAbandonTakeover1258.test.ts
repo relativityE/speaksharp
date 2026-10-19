@@ -352,7 +352,8 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(device).toContain('const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 })');
         // Sam, #1662 RETURN (item 10): judged on the model-work HISTORY from before the first press, not a final snapshot.
         expect(device).toContain('const modelWorkFirst = modelWorkBeforeRefusal({');
-        expect(device.indexOf('__rwtModelStatusHistory__'), 'history observed before the first press').toBeLessThan(device.indexOf("await deviceB.getByTestId('mic-download').click();"));
+        expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);'), 'history observed before the first press').toBeGreaterThan(-1);
+        expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);')).toBeLessThan(device.indexOf("await deviceB.getByTestId('mic-download').click();"));
         expect(device, 'a refusal after model work is never a PASS').toContain('const leaseRefusal = refusedInTime && !modelWorkFirst;');
         expect(device, 'no 900 s wait for the first refusal').not.toMatch(/refusalShownB\.waitFor\(\{ timeout: coldB \? 900_000/);
         const takeOver = spec.slice(spec.indexOf("// The person's explicit second press is the take-over"));

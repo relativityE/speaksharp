@@ -16,7 +16,7 @@ import { applyRwtIdentity, rwtIdentityFor } from './helpers/rwtBrowserIdentity';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
-    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, micRejections, rwtLaunchArgs,
+    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, micAcquisitionLog, rwtLaunchArgs,
     suppressPageSnapshot, telemetryClassRows,
 } from './helpers/rwtJourney';
 import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAccount';
@@ -27,7 +27,7 @@ import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode, stopBenchmarkRecording } from './helpers/benchmark-utils';
 import { noCloudVerdict } from './helpers/rwtAbandonTakeover';
-import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import {
     ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict,
     deniedAfterPress, micDeniedVerdict, recoveredTakeVerdict,
@@ -154,14 +154,9 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
         await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 1, oneRequestPerSession: takes }));
         // A signup that died before its uid was read is still found by its created email.
         if (owner.uid || owner.email) {
-            await steps.step('run-owned cleanup', async () => {
-                try {
-                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-                } catch {
-                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-                }
-            }, FINALIZE_CLEANUP_MS, { critical: true });
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
+            await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })));
         }
         await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
         steps.report(receipt);
@@ -191,15 +186,15 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
             watch.setFaultPhase(true);
             // Sam, #1662 RETURN: only THIS press's acquisition outcome counts — an earlier rejection on the page cannot
             // qualify a later Start that failed for another reason.
-            const rejectionsBeforePress = (await micRejections(page)).length;
+            const acquisitionsBeforePress = (await micAcquisitionLog(page)).length;
             await control.click();
             // The model downloads first on a fresh account; the blocked microphone is met at the recording boundary.
             const blockedCopyShown = await page.getByText(MIC_BLOCKED_COPY).first().waitFor({ timeout: 900_000 }).then(() => true).catch(() => false);
             await page.waitForTimeout(2_000);
             const state = await tabState(page);
-            const allRejections = await micRejections(page);
-            const deniedAtAcquisition = deniedAfterPress(allRejections, rejectionsBeforePress);
-            const rejections = allRejections.slice(rejectionsBeforePress);
+            const acquisitions = await micAcquisitionLog(page);
+            const deniedAtAcquisition = deniedAfterPress(acquisitions, acquisitionsBeforePress);
+            const rejections = acquisitions.filter((a) => a.id >= acquisitionsBeforePress && a.outcome !== 'granted' && a.outcome !== 'pending');
             const denied = micDeniedVerdict({ deniedAtAcquisition, blockedCopyShown, tab: state });
             receipt.row('blocked microphone is stated truthfully', denied.status, denied.detail,
                 { deniedAtAcquisition, acquisitionRejections: rejections.length, permissionQuery, blockedCopyShown, ...state, mode: await sttMode(page) });
