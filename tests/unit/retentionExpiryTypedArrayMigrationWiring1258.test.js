@@ -32,6 +32,7 @@ const CLOSURE = '20261013180000'; // later disabled deletion schema; never apply
 const DRAIN = '20261016090000'; // later drain prerequisite; excluded from this target
 const ENFORCEMENT = '20261016180000'; // later guarded-runtime prerequisite; also excluded
 const REJECTION_RECOVERY = '20261017200000'; // later checkout-rejection recovery; excluded from this target
+const HEARTBEAT_CAP = '20261019010000'; // later #1593 heartbeat cap; excluded from this target
 const GATE = `postflight_${VERSION}`;
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
@@ -65,7 +66,7 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'e'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version)).toEqual([CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, HEARTBEAT_CAP, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -91,6 +92,7 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
         ` ${DRAIN} |                | x`,
         ` ${ENFORCEMENT} |                | x`,
         ` ${REJECTION_RECOVERY} |                | x`,
+        ` ${HEARTBEAT_CAP} |                | x`,
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while 20261013120000 is still pending — named, not hidden', () => {
@@ -99,7 +101,7 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
 
     it('EXECUTABLE once 20261013120000 is applied: target-only; applied activation stays and deletion remains pending', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY], excludedVersions: [CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, HEARTBEAT_CAP], excludedVersions: [CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, HEARTBEAT_CAP] });
         const root = mkdtempSync(join(tmpdir(), 'exact-typed-expiry-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -110,11 +112,12 @@ describe('#1258 P0 typed-expiry follow-up is wired into the exact allowlisted ap
             expect(isolated.some((f) => f.startsWith(DRAIN)), 'the later drain prerequisite is excluded').toBe(false);
             expect(isolated.some((f) => f.startsWith(ENFORCEMENT)), 'the later enforcement prerequisite is excluded').toBe(false);
             expect(isolated.some((f) => f.startsWith(REJECTION_RECOVERY)), 'the later checkout-rejection recovery is excluded').toBe(false);
+            expect(isolated.some((f) => f.startsWith(HEARTBEAT_CAP)), 'the later #1593 heartbeat cap is excluded').toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, HEARTBEAT_CAP]);
     });
 
     it('refuses a ledger that omits the later deletion schema rather than silently hiding it', () => {

@@ -203,6 +203,14 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1593 (live RWT case 12): heartbeat_session keeps a take open at the 600 s cap (billing still capped) so the
+        // device's own completion saves it. Function replacement only (no schema change); separately authorized exact apply.
+        version: '20261019010000',
+        file: '20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql',
+        sha256: 'df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -636,6 +644,8 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261016090000', targetFile: '20261016090000_account_closure_drain_persistence' }),
     Object.freeze({ id: 'postflight_20261016180000', targetFile: '20261016180000_account_closure_drain_enforcement' }),
     Object.freeze({ id: 'postflight_20261017200000', targetFile: '20261017200000_checkout_rejection_recovery' }),
+    // #1593 heartbeat cap: complete_session_v2 identity (md5 of pg_get_functiondef) + ACL, read-only.
+    Object.freeze({ id: 'postflight_20261019010000', targetFile: '20261019010000_heartbeat_session_cap_keeps_take_open_1593' }),
 ]);
 
 /**

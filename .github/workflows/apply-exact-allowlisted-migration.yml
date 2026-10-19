@@ -32,6 +32,7 @@ on:
           - '20261016090000'
           - '20261016180000'
           - '20261017200000'
+          - '20261019010000'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
@@ -168,7 +169,7 @@ jobs:
         # ONE resolution serves both. Stage B originally resolved the pooler a second time, which the
         # SEC-002 contract rejects: two resolutions can drift, leaving this proof attesting to parameters
         # the postflight never uses.
-        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') || contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') || contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') || contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') || contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') || contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') || contains(steps.contract.outputs.target_file, '20261016180000_account_closure_drain_enforcement') || contains(steps.contract.outputs.target_file, '20261017200000_checkout_rejection_recovery') }}
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') || contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') || contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') || contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') || contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') || contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') || contains(steps.contract.outputs.target_file, '20261016180000_account_closure_drain_enforcement') || contains(steps.contract.outputs.target_file, '20261017200000_checkout_rejection_recovery') || contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
@@ -329,6 +330,26 @@ jobs:
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
           unset DB_URL
           bash scripts/postflight-gate-20261013140000.sh before
+
+      - name: Preflight 20261019010000 heartbeat cap credentials and BEFORE function identity (before the irreversible apply)
+        # Production must hold exactly the complete_session_v2 that 20260908120000 defines; anything else is refused here.
+        # Read-only catalog SELECTs through the pooler proven reachable above (SEC-002).
+        if: ${{ contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::20261019010000 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20261019010000.sh before
 
       - name: Preflight account closure baseline and absent schema (read-only)
         if: ${{ contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') }}
@@ -744,6 +765,34 @@ jobs:
           unset DB_URL
           node scripts/checkout-rejection-gate.mjs after
 
+      - name: Enforce reviewed 20261019010000 heartbeat cap definition (function identity + ACL)
+        id: postflight_20261019010000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20261019010000.sh after
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "20261019010000 postflight passed: the reviewed heartbeat cap definition is deployed"
+
+      - name: Require 20261019010000 heartbeat cap postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_20261019010000.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::20261019010000 applied but its postflight outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "20261019010000 postflight enforced: success"
+
       - name: Require unambiguous exact-operation success
         id: terminal
         if: always()
@@ -765,7 +814,8 @@ jobs:
             "postflight_20261013180000=${{ steps.postflight_20261013180000.outcome }}" \
             "postflight_20261016090000=${{ steps.postflight_20261016090000.outcome }}" \
             "postflight_20261016180000=${{ steps.postflight_20261016180000.outcome }}" \
-            "postflight_20261017200000=${{ steps.postflight_20261017200000.outcome }}"
+            "postflight_20261017200000=${{ steps.postflight_20261017200000.outcome }}" \
+            "postflight_20261019010000=${{ steps.postflight_20261019010000.outcome }}"
 
       - name: Publish sanitized result
         if: always()
