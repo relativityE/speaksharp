@@ -1,0 +1,82 @@
+{
+  "passed": 15,
+  "failed": 0,
+  "results": [
+    {
+      "name": "historical accepted named fixture 1254-received-on-main",
+      "passed": true,
+      "expectedRejection": false
+    },
+    {
+      "name": "historical accepted named fixture 1254-current-main-negative",
+      "passed": true,
+      "expectedRejection": false
+    },
+    {
+      "name": "historical accepted named fixture 1472-client-rpc-received-on-main",
+      "passed": true,
+      "expectedRejection": false
+    },
+    {
+      "name": "historical accepted named fixture 1472-new-client-old-rpc-negative",
+      "passed": true,
+      "expectedRejection": false
+    },
+    {
+      "name": "unrelated failure rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "missing test rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "extra test rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "pending test rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "wrong exit rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "false total rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "runtime error rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "duplicate test rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "stale report rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "missing report rejected",
+      "passed": true,
+      "expectedRejection": true
+    },
+    {
+      "name": "fresh report accepted",
+      "passed": true,
+      "expectedRejection": false
+    }
+  ],
+  "scope": "Gate controls only; original production control batches not rerun."
+}

@@ -1,0 +1,1124 @@
+[
+  {
+    "name": "current-main-surface-controls",
+    "scope": "Current c9; React/jsdom doubles, not actual viewport/human/live",
+    "exit": 0,
+    "total": 136,
+    "passed": 136,
+    "failed": 0,
+    "rawSha256": "2b59b34d41b4a5483ff808e1a760410ca2aef60c8c798b3cf91d83e72ec215a6",
+    "files": [
+      {
+        "path": "frontend/src/contracts/__tests__/nextActionSignal.test.ts",
+        "assertions": [
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof accepts a well-formed enum/numeric signal",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof REJECTS an unknown key (a prose field cannot be smuggled in)",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof REJECTS a free-form string in an enum field",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof REJECTS a non-numeric value",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof REJECTS a non-finite value",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof REJECTS missing required fields",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof REJECTS non-objects, arrays, and null",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof REJECTS an unknown template version (forces an explicit contract bump)",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 next-action contract \u2014 fail-closed, prose-proof every reason+action code renders non-empty copy at render time (no stored prose needed)",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "frontend/src/components/analytics/__tests__/SavedPracticeLoopReview.linkedRepeat.test.tsx",
+        "assertions": [
+          {
+            "name": "#1548 \u2014 the saved review names the target actually measured by its linked repeat accepts the saved target, then qualifies the reloaded completed/moved result without crediting unrelated AI advice",
+            "status": "passed"
+          },
+          {
+            "name": "#1548 \u2014 the saved review names the target actually measured by its linked repeat accepts the saved target, then qualifies the reloaded completed/did_not_move result without crediting unrelated AI advice",
+            "status": "passed"
+          },
+          {
+            "name": "#1548 \u2014 the saved review names the target actually measured by its linked repeat accepts the saved target, then qualifies the reloaded not_comparable/not_comparable result without crediting unrelated AI advice",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P1 r4273670998 \u2014 acceptance time is the PRESS, not the end of the network calls a slow pending-attempt readback and attempt create do not move acceptedAtIso past the press",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P2 r4275718056 (PM 6178959404) \u2014 a reused attempt of unproved identity is accepted at THIS press another device, 30 s after the failed press \u2192 acceptance is the retry press, never the failed press nor the server time",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P2 r4275718056 (PM 6178959404) \u2014 a reused attempt of unproved identity is accepted at THIS press a server clock behind the browser \u2192 acceptance is the retry press, never the failed press nor the server time",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P2 r4275718056 (PM 6178959404) \u2014 a reused attempt of unproved identity is accepted at THIS press a server clock ahead of the browser \u2192 acceptance is the retry press, never the failed press nor the server time",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P2 r4275718056 (PM 6178959404) \u2014 a reused attempt of unproved identity is accepted at THIS press an unknown server time \u2192 acceptance is the retry press, never the failed press nor the server time",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P2 r4275718056 (PM 6178959404) \u2014 a reused attempt of unproved identity is accepted at THIS press a malformed server time \u2192 acceptance is the retry press, never the failed press nor the server time",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P2 r4275718056 (PM 6178959404) \u2014 a reused attempt of unproved identity is accepted at THIS press no server time at all \u2192 acceptance is the retry press, never the failed press nor the server time",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P2 r4275718056 (PM 6178959404) \u2014 a reused attempt of unproved identity is accepted at THIS press exact association \u2014 the create answered with its id \u2014 keeps that create's own press",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 Codex P2 r4275718056 (PM 6178959404) \u2014 a reused attempt of unproved identity is accepted at THIS press nothing is written on this device for a create whose answer has not arrived (no marker to borrow later)",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: pending progress + an immediate click navigates nowhere; once eligible, ONE linked attempt/handoff then the same set opens",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CONTROL: a terminal insufficient answer opens the product directly (no attempt)",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CONTROL: a terminal ineligible answer opens the product directly (no attempt)",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: a progress read that returns an error view shows its error and a retry \u2014 never a guessed, unlinked navigation",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: a progress read that is not available yet shows its error and a retry \u2014 never a guessed, unlinked navigation",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: a progress read that rejects shows its error and a retry \u2014 never a guessed, unlinked navigation",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY (PM cycle 2): eligible WITHOUT a recommendation fails closed \u2014 error + retry, never a direct open",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: marked Focus + failed results read never launches practice; the retry re-reads and restores the linked repeat exactly once",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: a brief-only read failure shows the saved results, never launches practice, and a re-read restores ONE linked repeat on the same set",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: a PENDING previous repeat blocks the action \u2014 no accept, navigation or attempt; after reconciliation ONE linked repeat",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: a failed review read + a direct progress answer re-reads instead of opening the generic chooser; the re-read restores the same set",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CONTROL: a READABLE legacy (unmarked) session with a direct progress answer still opens the product chooser",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat CASUALTY: a repeated click while linking starts ONE attempt and ONE navigation",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) Progress UNAVAILABLE (no next-action recommendation): enabled \"Try again\", the press only re-checks \u2014 recorded, no navigation",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) CONTROL (expected, not a failure): a short INELIGIBLE take opens Open Mic directly \u2014 open_session, intended route session, no linked attempt",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) linked attempt succeeds: accept_linked, then outcome ok with the same action_seq, then the session opens",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) linked attempt server_failed: the outcome is recorded, the page stays, nothing navigates",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) linked attempt readback_blocked: the outcome is recorded, the page stays, nothing navigates",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) linked attempt threw: the outcome is recorded, the page stays, nothing navigates",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) linked attempt handoff_failed_abandoned: the outcome is recorded, the page stays, nothing navigates",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) linked attempt handoff_failed_unclosed: the outcome is recorded, the page stays, nothing navigates",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 P1 \u2014 the saved review never skips a valid linked repeat #1258 RWT 36955422629 hypothesis: the press is recorded with the branch it took (real hook) a PENDING progress read disables the action: the state is observed (enabled=false, progress_pending), then enabled",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "frontend/src/components/landing/__tests__/Landing.test.tsx",
+        "assertions": [
+          {
+            "name": "Landing Page Components renders BenefitsSection without crashing",
+            "status": "passed"
+          },
+          {
+            "name": "Landing Page Components renders CTASection without crashing",
+            "status": "passed"
+          },
+          {
+            "name": "Landing Page Components renders FeaturesSection without crashing",
+            "status": "passed"
+          },
+          {
+            "name": "Landing Page Components renders HeroSection without crashing",
+            "status": "passed"
+          },
+          {
+            "name": "Landing Page Components renders HeroStatsDashboard without crashing",
+            "status": "passed"
+          },
+          {
+            "name": "Landing Page Components renders LandingFooter without crashing",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "frontend/src/components/landing/__tests__/LandingG12.contract.test.tsx",
+        "assertions": [
+          {
+            "name": "#1475 G12 Rev 2 \u2014 hero states the tagline, hero line and a real Start your session link to signup \u2014 and no badge (G17 L1)",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 hero G17 L1: ONE terms line beside the CTA pairs \"Free for 30 days\" with \"$10/month\", the price in the money role",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 hero is a single column: no grid cell reserved where the sample dashboard used to sit",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 removals and honesty removes the sample-feedback CTA and anchor, the stats dashboard, Benefits, the trial strip and Most popular",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 removals and honesty ruling C default: advertises no transcript-retention count (\"Last run only\" omitted)",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 removals and honesty payments enabled=false: G17 L1 \u2014 terms only in the hero line and the pricing block; closing band has neither",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 removals and honesty payments enabled=true: G17 L1 \u2014 terms only in the hero line and the pricing block; closing band has neither",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 removals and honesty payments enabled=false: G17 L2 \u2014 \"no card\" appears nowhere on the route",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 removals and honesty payments enabled=true: G17 L2 \u2014 \"no card\" appears nowhere on the route",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 products and the Practice Loop keeps Open Mic and Focus Points; each entry control's visible label is its accessible name",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 products and the Practice Loop ruling A1 default: product entries keep the account-access routing that preserves the product intent",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 products and the Practice Loop presents \"Private, and built to repeat\" with Never uploaded and the ink Practice Loop",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 signup decision points, routing and telemetry payments enabled=false: no signup unit claims the trial without the price; the closing unit claims neither",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 signup decision points, routing and telemetry payments enabled=true: no signup unit claims the trial without the price; the closing unit claims neither",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 signup decision points, routing and telemetry payments enabled=false: G17 L5 \u2014 ONE trial-CTA label across the route",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 signup decision points, routing and telemetry payments enabled=true: G17 L5 \u2014 ONE trial-CTA label across the route",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 signup decision points, routing and telemetry emits the governed views for hero, closing band and trial card, and never the retired preview click",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 signup decision points, routing and telemetry hero and closing clicks keep their conversion sources",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) G17 L4: the landing pricing copy \u2014 heading Pricing, the one-product sub-line, card labels \u2014 with no badge",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) payments enabled=false: G17 equal borders \u2014 both cards 1px neutral-border, no signature border",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) payments enabled=true: G17 equal borders \u2014 both cards 1px neutral-border, no signature border",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) payments enabled=false: G17 equal marks \u2014 every list mark in both cards is the one neutral mark",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) payments enabled=true: G17 equal marks \u2014 every list mark in both cards is the one neutral mark",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) payments DISABLED (G17 L3): price shown; the trial CTA is the ONLY control; the paid slot is a plain line; zero paid events",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) payments ENABLED: the paid control is a signup link, not a checkout button, and its view is governed",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) payments enabled=false: the two factual chips, and a payment chip only when there is a payment",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) payments enabled=true: the two factual chips, and a payment chip only when there is a payment",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 pricing (both payment states) CASUALTY: the removed continuation sentence cannot reappear in the disabled state",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 shell preserved (ruling A1 default) renders exactly one footer and no second page header",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 shell preserved (ruling A1 default) renders the BrowserWarning when the browser lacks a required capability",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 shell preserved (ruling A1 default) P2 CASUALTY: the unsupported-browser branch still starts at h1 and skips no level",
+            "status": "passed"
+          },
+          {
+            "name": "#1475 G12 Rev 2 \u2014 shell preserved (ruling A1 default) P2 CASUALTY: the browser warning contributes no heading at all, and stays announced",
+            "status": "passed"
+          },
+          {
+            "name": "#1487 P1 casualty \u2014 the signed-out paid CTA reaches signup and makes no Stripe request lands on signup carrying /pricing as the post-auth return destination",
+            "status": "passed"
+          },
+          {
+            "name": "#1487 P1 casualty \u2014 the signed-out paid CTA reaches signup and makes no Stripe request makes no Stripe request and emits no checkout_started while signed out",
+            "status": "passed"
+          },
+          {
+            "name": "#1487 P1 casualty \u2014 the signed-out paid CTA reaches signup and makes no Stripe request still attributes the click to pricing_pro_card",
+            "status": "passed"
+          },
+          {
+            "name": "#1487 P2 casualty \u2014 signed-out landing heading hierarchy has exactly one h1 and it is the first heading",
+            "status": "passed"
+          },
+          {
+            "name": "#1487 P2 casualty \u2014 signed-out landing heading hierarchy skips no heading level anywhere on the page",
+            "status": "passed"
+          },
+          {
+            "name": "#1487 P2 casualty \u2014 signed-out landing heading hierarchy gives the Products section a level-two heading before its product h3s",
+            "status": "passed"
+          },
+          {
+            "name": "#1487 P2 casualty \u2014 signed-out landing heading hierarchy keeps that heading out of the visual design while leaving it in the accessibility tree",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "frontend/src/components/practice/__tests__/AuthenticatedHome.test.tsx",
+        "assertions": [
+          {
+            "name": "AuthenticatedHome \u2014 the page asks one question and offers two answers asks \"what would you like to do?\" and offers exactly two answers",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 the page asks one question and offers two answers carries NO marketing copy \u2014 no tagline, no peach hero, no bullet pitch",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 the page asks one question and offers two answers each card is eyebrow \u00b7 title \u00b7 ONE sentence \u00b7 CTA",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 the page asks one question and offers two answers routes each choice to its own handler",
+            "status": "passed"
+          },
+          {
+            "name": "H-1 / H-2 \u2014 the two products are peers CASUALTY H-1: both CTAs carry the identical signature treatment, and no outlined button exists",
+            "status": "passed"
+          },
+          {
+            "name": "H-1 / H-2 \u2014 the two products are peers CASUALTY H-2: the cards differ in exactly two colours \u2014 the top rule and the eyebrow",
+            "status": "passed"
+          },
+          {
+            "name": "H-1 / H-2 \u2014 the two products are peers CASUALTY H-5: yellow is spent only on the CTAs \u2014 two card CTAs plus the resume CTA",
+            "status": "passed"
+          },
+          {
+            "name": "H-3 \u2014 slot C promises no data CASUALTY: the WHAT TO EXPECT row, its tiles and its captions are gone",
+            "status": "passed"
+          },
+          {
+            "name": "H-3 \u2014 slot C promises no data CASUALTY: no number and no placeholder anywhere in the cards",
+            "status": "passed"
+          },
+          {
+            "name": "H-3 \u2014 slot C promises no data Focus Points is activated \u2014 no \"SOON\" pill",
+            "status": "passed"
+          },
+          {
+            "name": "H-4 \u2014 the resume band is slot B renders above the cards, full width, on the flat ink ground",
+            "status": "passed"
+          },
+          {
+            "name": "H-4 \u2014 the resume band is slot B quotes the fix VERBATIM from the last review \u2014 the same sentence the session page showed",
+            "status": "passed"
+          },
+          {
+            "name": "H-4 \u2014 the resume band is slot B CASUALTY: with no contract-valid review, the band falls back to the run and never apologises",
+            "status": "passed"
+          },
+          {
+            "name": "H-4 \u2014 the resume band is slot B states the run it can describe, and offers the review plus progress",
+            "status": "passed"
+          },
+          {
+            "name": "H-4 \u2014 the resume band is slot B CASUALTY: it never announces that a review is unavailable",
+            "status": "passed"
+          },
+          {
+            "name": "H-4 \u2014 the resume band is slot B CASUALTY: absent from the DOM on a first session \u2014 not empty, not disabled",
+            "status": "passed"
+          },
+          {
+            "name": "H-4 \u2014 the resume band is slot B CASUALTY: absent while the read is in flight and after it failed \u2014 neither knows if anything can be resumed",
+            "status": "passed"
+          },
+          {
+            "name": "H-4 \u2014 the resume band is slot B a session that cannot describe itself still gets a band, with no meta line and no dash",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 evidence, never fabrication streakLabel: shows text only at count>=2, otherwise null",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 evidence, never fabrication streak chip: rendered for an active >=2-day streak, hidden for every other state",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 evidence, never fabrication streak chip: when shown, exact visual contract \u2014 fill, 1px border, text, waveform colors",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 evidence, never fabrication last session: composed from persisted columns only; a null duration never becomes 0:00",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 evidence, never fabrication loading / failed / empty / present are four distinct renderings",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 evidence, never fabrication a FAILED read gets its own honest region and never masquerades as \"no sessions\"",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 evidence, never fabrication while the read is in flight, nothing claims an absence",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 accessibility decorative graphics are hidden from assistive tech",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 accessibility a session that cannot describe itself shows no dash at all once the band owns the action",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 accessibility the states the band does not cover keep the corner control, each saying what it knows",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 the layout rules actually exist in practice.css the card grid is single-column by default and splits only at a wide breakpoint",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 the layout rules actually exist in practice.css CTAs bottom-align via margin-top:auto on the shared class",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 the layout rules actually exist in practice.css the surface clears the FIXED header from the shared --header-height token, not a magic number",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 the layout rules actually exist in practice.css CASUALTY: the flood-era rules are gone, not merely unused",
+            "status": "passed"
+          },
+          {
+            "name": "AuthenticatedHome \u2014 the layout rules actually exist in practice.css the practice palette holds no colour values of its own",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "frontend/src/components/practice/__tests__/lastSessionFix.test.ts",
+        "assertions": [
+          {
+            "name": "readLastSessionFix returns the fix verbatim from a contract-valid review object",
+            "status": "passed"
+          },
+          {
+            "name": "readLastSessionFix accepts the same payload as a JSON string (legacy text column or a double-encoded write)",
+            "status": "passed"
+          },
+          {
+            "name": "readLastSessionFix trims surrounding whitespace but preserves the sentence",
+            "status": "passed"
+          },
+          {
+            "name": "readLastSessionFix CASUALTY: a partial write is not a review \u2014 one blank half yields null",
+            "status": "passed"
+          },
+          {
+            "name": "readLastSessionFix CASUALTY: an unknown contract version is rejected \u2014 same literal the Edge parser requires",
+            "status": "passed"
+          },
+          {
+            "name": "readLastSessionFix CASUALTY: an unexpected key set is rejected, so a legacy or extended payload cannot leak through",
+            "status": "passed"
+          },
+          {
+            "name": "readLastSessionFix CASUALTY: non-string halves are rejected rather than stringified into a lesson",
+            "status": "passed"
+          },
+          {
+            "name": "readLastSessionFix CASUALTY: nothing, an array, or unparseable text yields null \u2014 never \"undefined\" as copy",
+            "status": "passed"
+          },
+          {
+            "name": "readSavedReview (#1258 \u2014 the Analytics detail shows the whole saved review) returns both halves, trimmed, from a contract-valid review",
+            "status": "passed"
+          },
+          {
+            "name": "readSavedReview (#1258 \u2014 the Analytics detail shows the whole saved review) fails closed exactly like the fix reader: partial, extra-key, wrong-version and non-object values are null",
+            "status": "passed"
+          },
+          {
+            "name": "#1538 \u2014 the saved-review readers accept exactly gemini_coaching_v1 and gemini_coaching_focus_v1 reads a Focus-provenance pair like a v1 pair",
+            "status": "passed"
+          },
+          {
+            "name": "#1538 \u2014 the saved-review readers accept exactly gemini_coaching_v1 and gemini_coaching_focus_v1 rejects any other version and any extra key",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "frontend/src/components/review/__tests__/PracticeLoopReviewPair.test.tsx",
+        "assertions": [
+          {
+            "name": "PracticeLoopReviewPair (#1258 G20 \u2014 one component, both places) two headed sections, the next run prominent, evidence under \"From this session\", and the action inside it",
+            "status": "passed"
+          },
+          {
+            "name": "PracticeLoopReviewPair (#1258 G20 \u2014 one component, both places) #1474 (Sam 6242062148): the prescription, its evidence and its action come BEFORE \"What went well\" in DOM order",
+            "status": "passed"
+          },
+          {
+            "name": "PracticeLoopReviewPair (#1258 G20 \u2014 one component, both places) no evidence and no action render neither",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "currentized-documentation-controls",
+    "scope": "Final14-path isolated receiving docs; no shared canonical edits",
+    "exit": 0,
+    "total": 56,
+    "passed": 56,
+    "failed": 0,
+    "rawSha256": "1448157eab0756088afca67582a0690927fcbd052eebc2a9cbd19f678c10a2d2",
+    "files": [
+      {
+        "path": "tests/config/documentationContract.test.ts",
+        "assertions": [
+          {
+            "name": "documentation contract \u2014 product_release/ README \u00a72 declares exactly the approved 14 canonical documents",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ every pre-foundation root Markdown source is mapped in the ledger",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ every substantive source has its own ledger subsection",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ every H2 heading of every substantive source is covered in its ledger subsection (or allowlisted with a reason)",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ every H3 heading is covered directly, or under its ACTUAL nearest-preceding H2 parent",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ H3 coverage uses the ACTUAL parent H2, not any covered H2 (negative regression)",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ every \u00a73 table row carries exactly one valid content disposition (last cell)",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ every \u00a72 file-level row uses a valid content disposition and a valid source-file state",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ SUPERSEDED is not used as a content disposition anywhere in the ledger tables",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ the canonical map carries PROGRESS_AND_NEXT_ACTION.md and NOT the retired COACHING_SCORE.md (#1045)",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ PROGRESS_AND_NEXT_ACTION.md prohibits absolute scores, grades and cross-user comparison (#1045)",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ the 10 metadata fields appear within the document header (first 25 lines), not merely anywhere",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ relative links in the governed docs resolve",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ each retained-evidence file has an exact off-root destination",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ #1037 evidence classes remain truthful and non-comparable in the canonical index",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ the resolved #1033 attribution gap is not preserved as an open/unmerged claim",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ volatile git SHAs appear only in RELEASE_STATUS (README + ledger carry only pinned provenance)",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ closeout arithmetic proves exactly 14 root files",
+            "status": "passed"
+          },
+          {
+            "name": "documentation contract \u2014 product_release/ closeout is real: the active product_release root contains exactly the canonical 14",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality both SSOTs carry a currency block",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality they agree on the baseline and the deployed release",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality the baseline SHA appears in the prose of BOTH files",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality the recorded baseline is a REAL, RECENT ancestor of the MAINLINE",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality the block agrees with the CURRENT-baseline table row a reader actually consults",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality states its own limit, rather than implying it verifies more than it can",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality every #1304 task state is one of the allowed values \u2014 never both merged and unstarted",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality the merged #1304 tasks are recorded as merged",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality retention is off the critical path, and is NOT the stated release blocker",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality records the STT chain actually executing, including the ORT requalification",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality every parallel MVP lane has a recorded state, so none silently idles",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality every DATED evidence report outside the archive carries a historical banner",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality no historical evidence report titles itself \"Current\"",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality keeps permanent STT model evidence outside the disposable archive",
+            "status": "passed"
+          },
+          {
+            "name": "#1258 currency guard \u2014 release status and roadmap must not contradict reality a fallback is defined by dependability, not by second-best WER",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "tests/config/documentationLedger.test.ts",
+        "assertions": [
+          {
+            "name": "#1367 retained documentation audit is labelled as historical pre-consolidation evidence, not current authority",
+            "status": "passed"
+          },
+          {
+            "name": "#1367 retained documentation audit is outside the canonical product_release root",
+            "status": "passed"
+          },
+          {
+            "name": "#1367 retained documentation audit retains the denominator-backed universal-score finding",
+            "status": "passed"
+          },
+          {
+            "name": "#1367 retained documentation audit retains the stale-pin-count correction without promoting it to current truth",
+            "status": "passed"
+          },
+          {
+            "name": "#1367 reconciled product claims keeps audio transcription, transcript persistence and later text processing distinct",
+            "status": "passed"
+          },
+          {
+            "name": "#1367 reconciled product claims does not describe Personal Progress as unbuilt in the canonical set",
+            "status": "passed"
+          },
+          {
+            "name": "#1367 reconciled product claims carries the unvalidated-economics limitation into the product requirements",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "tests/deps/docs-integrity.test.js",
+        "assertions": [
+          {
+            "name": "product_release documentation integrity every relative Markdown link in active docs resolves to a real repo path",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity no active doc describes the completion toast / PostSaveToast / \"Next: Analytics\" overlay as current",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity no active doc asserts #1006 is shipped/deployed/activated (it is DRAFT)",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity no active doc asserts Cloud is unavailable without the Free / existing-paid-Pro distinction",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity Cloud-exception classifier: paid-Pro-only is rejected; Free-limited + existing-retain is accepted",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity no active doc references the deleted \"BACKLOG re-assessment addendum\"",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity no active doc claims billing fail-closed depends on the Stripe key being absent or key-class alone",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity no active doc contradicts the billing-switch / v4-OFF posture (block-normalized scan)",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity billing/v4 guard REJECTS the canonical stale statements (FAIL fixtures)",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity billing/v4 guard ALLOWS legitimate switch/validation statements (PASS fixtures)",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity billing/v4 guard flags the exact pre-fix runbook & roadmap statements",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity no active doc presents a live-money charge as a required proof/gate/launch-blocker",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity live-money policy guard REJECTS \"live charge is required proof\" statements (FAIL fixtures)",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity live-money policy guard ALLOWS the one consistent policy (PASS fixtures)",
+            "status": "passed"
+          },
+          {
+            "name": "product_release documentation integrity the active docs set is non-trivial (guard against an empty scan)",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "1472-current-ee9c9c42-controls",
+    "scope": "Current main with exact six Analytics receiver paths; two changed from preparedb6; real PGlite synthetic schema, not hosted",
+    "exit": 0,
+    "total": 64,
+    "passed": 64,
+    "failed": 0,
+    "rawSha256": "1ac30dcf189dd566a730e89c92cf9450eaadda9b3318f05efbfb73c4d661c2b6",
+    "files": [
+      {
+        "path": "tests/db/analytics-summary-rpc.integration.test.ts",
+        "assertions": [
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 1. overall filler-rate statistics agree between the RPC and calculateOverallStats",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 2. top filler words + trend parity (>=2 eligible \u2192 a trend), between the RPC and the client",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 3. the minimum-two-measurements trend gate: ONE eligible session yields NO trend on both sides",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4. only OBSERVED evidence enters the rate: {um:6} + {} + NULL \u2192 6.0/min from ONE contributor, RPC and client agree",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4b. an all-zero map, an empty map and a malformed map are all excluded; with no observed row the rate is absent, never 0.0",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4c. chart: an observed take plots its rate; {} and an all-zero map plot an omitted point (null), RPC and client agree",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4e. chart boundary (Sam 1792314330): observed counts with ZERO duration plot an omitted point on both sides, not 0.00",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4f. chart boundary, NULL duration (Sam 1792315940): observed counts with NO duration plot an omitted point on both sides",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4g. DOCUMENTED RESIDUAL (not corrected here): mixed history \u2014 a zero-duration observed row still adds its fillers to the average numerator on BOTH sides",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4d. non-filler outputs, top filler words and trend windows are unchanged by the observed-rate gate",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 5. three or more metrics-only sessions remain available (retention regression)",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 authorization preserved by the redefined function 6a. rejects a wrong identity and an unauthenticated caller",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 authorization preserved by the redefined function 6b. EXECUTE ACL: authenticated + service_role granted; anon + PUBLIC revoked",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "frontend/src/lib/__tests__/analyticsEvidenceValidity.test.ts",
+        "assertions": [
+          {
+            "name": "#1045 aggregate evidence validity does NOT drag Clear Delivery to 0% with sessions that were never scorable",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity reports Clear Delivery as unknown \u2014 not 0% \u2014 when NO session is scorable",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity reports pace as unknown rather than 0 WPM when nothing was transcribed",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity reports pause rhythm as unknown when no session recorded pause metrics",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity #1306: a NOT-MEASURED (null) filler session is excluded \u2014 absence is never praised as 0.0/min",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity #1472 increment 3: an empty map ({}) is NOT a measured zero \u2014 excluded from the rate, never a flattering 0.0/min",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity #1306/#1472: a MALFORMED filler map and an empty {} are both excluded (null); an observed count is a real rate",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity reports a filler rate from GENUINE filler evidence even when the word count was not persisted",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity exposes exact seconds so a short average is not rounded into a false zero",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 aggregate evidence validity returns unknown for every aggregate when there is no history at all",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 honest duration formatting never reports a real recording as \"0 mins\"",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 honest duration formatting formats ordinary durations normally",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 honest duration formatting distinguishes a true zero from missing evidence",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 no judgment without evidence clarity refuses to label a missing value",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 no judgment without evidence pause rhythm refuses to label a missing value",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 no judgment without evidence fillers refuses to label a missing value",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 no judgment without evidence pace refuses to label a missing value",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 no judgment without evidence still judges real values, including a genuine zero",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 metric validity predicate rejects only the values we cannot stand behind",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 metric validity predicate rejects a blank string \u2014 Number(\"\") is 0, which would be a fabricated zero",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness rejects missing and empty snapshots",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness rejects malformed snapshots",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness ACCEPTS a structurally valid measured zero \u2014 that is a real finding, not missing data",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness accepts a structurally valid non-zero snapshot",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness does not let an empty snapshot become a pause rate in the aggregate",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness does count a structurally valid measured zero as evidence",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 missing evidence never becomes coaching does not prescribe a pace/filler/pause/clarity action for a wordless session",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 missing evidence never becomes coaching never names a driver whose evidence is unavailable",
+            "status": "passed"
+          },
+          {
+            "name": "#1045 missing evidence never becomes coaching still coaches normally when the evidence is there",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "frontend/src/lib/__tests__/analyticsUtils.test.ts",
+        "assertions": [
+          {
+            "name": "analyticsUtils calculateOverallStats should calculate overall stats correctly",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils calculateOverallStats aggregates Pause Rhythm (pauses/min) from short + long pauses, and is UNKNOWN without pause data",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils calculateOverallStats aggregates Clear Delivery (clarity) from clarity_score and ignores the unrelated STT accuracy field",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils calculateOverallStats uses aggregate words over aggregate time so short sessions do not distort average WPM",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils calculateFillerWordTrends normalizes filler word trends by speaking time across TWO nonempty windows",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils #1306 UNAVAILABLE/INVALID filler data is excluded \u2014 never a fabricated zero does NOT improve (dilute) the filler-rate average",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils #1306 UNAVAILABLE/INVALID filler data is excluded \u2014 never a fabricated zero does NOT enter the trend denominator (an unavailable row leaves a single eligible point \u2192 no trend)",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils #1306: customer STT accuracy is REMOVED (no function, no field) exposes no calculateAccuracyData export \u2014 the customer accuracy series is gone, not stubbed",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils #1306: customer STT accuracy is REMOVED (no function, no field) the analytics summary contract carries no customer accuracyData field",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils calculateTopFillerWords correctly aggregates filler words and returns sorted results",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils calculateTopFillerWords ignores \"total\" keyword",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils calculateTopFillerWords handles empty session history",
+            "status": "passed"
+          },
+          {
+            "name": "analyticsUtils calculateTopFillerWords handles sessions with no filler words",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 metric-presence provenance \u2014 a metric is included iff its OWN value is persisted overall rates (WPM, filler rate, clarity) equal the measured-only result \u2014 the unmeasured row is excluded",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 metric-presence provenance \u2014 a metric is included iff its OWN value is persisted total practice TIME stays all-session (the one metric that includes an unmeasured row duration)",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 metric-presence provenance \u2014 a metric is included iff its OWN value is persisted top fillers, filler trends and chart points exclude an unmeasured (null filler) row",
+            "status": "passed"
+          },
+          {
+            "name": "#1306 metric-presence provenance \u2014 a metric is included iff its OWN value is persisted #1472 increment 3: an empty-map ({}) filler row is EXCLUDED from the rate (not a measured zero)",
+            "status": "passed"
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification an EXPIRED row with words but NO persisted filler counts toward WPM only \u2014 never the filler rate",
+            "status": "passed"
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification an EXPIRED row with fillers but NO persisted words counts toward the filler rate only \u2014 never WPM",
+            "status": "passed"
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification reports NO filler trend from a SINGLE eligible measurement (>=2 gate)",
+            "status": "passed"
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification DOES report a filler trend once there are TWO eligible measurements (>=2 gate)",
+            "status": "passed"
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification DOES report a filler trend once there are >=2 eligible measurements",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  }
+]

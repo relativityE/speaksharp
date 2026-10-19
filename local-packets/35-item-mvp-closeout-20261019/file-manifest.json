@@ -1,0 +1,112 @@
+[
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/01_PREPARED_MVP_RECEIVING.md",
+    "bytes": 10870,
+    "sha256": "b1e9ba1aedc98548c4420c467b75dbfe88553f11e061ab56c67d18385c0e179a"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/02_ACCOUNT_AND_CONTINUITY_DELIVERIES.md",
+    "bytes": 9319,
+    "sha256": "b39b8002f9b7b3c5ee4edca21d0d9d69a2a09667b7ab3d0bdfab26f2be103b8c"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/03_PM_RECOMMENDATION_AND_SLO_DISPOSITIONS.md",
+    "bytes": 9910,
+    "sha256": "f073018a7d5dedd34696dac4a4797379ebe105dcb35e1837380f69182149bcc8"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/04_COMBINED_HUMAN_ACCEPTANCE_PATH.md",
+    "bytes": 8191,
+    "sha256": "a007f803bca4de3e969292a9cc5ca5325dbbd036fe0f7f468eb97f5fe6f14f09"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/05_COMPLETE_35_ITEM_REGISTER.md",
+    "bytes": 16185,
+    "sha256": "90e739981e745184f785422f7958659bee51fb7c6bac3e5f5514b1a1f27446e8"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/1318-currentized-receiving.patch",
+    "bytes": 56730,
+    "sha256": "c9b30987d403d8cd9de5d77c9c876438b31a9399aa9aa02425c5f6915c960cbd"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/35-item-register.json",
+    "bytes": 37293,
+    "sha256": "63d462e67f4def1484152d5f4587ebe0f9aed36f95701e7d5f1c8f5c5f95ceef"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/README.md",
+    "bytes": 8404,
+    "sha256": "89f5d0b841657f1ea945608705d9010566ca50908f15691705b85a2918b78262"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/additional-executed-controls.json",
+    "bytes": 58932,
+    "sha256": "19136ed36eeb6b3b2c2abe470cb23b45645d1a7403cf8d87a27d15b43cb3a1c0"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/current-receiver-provenance.json",
+    "bytes": 1990,
+    "sha256": "b24002d0c07a5b85b314fcf9994cc8d5ccdd83f39fd27b3dc39a974fc0d2507d"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/documentation-control-correction.json",
+    "bytes": 622,
+    "sha256": "64698d356b396d2a50011a1a4f47ef22d3094fe207963e69c48698cdf0071bb7"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/documentation-receiving.json",
+    "bytes": 3880,
+    "sha256": "f4c33c9b9d6e1ecd506484a8a31e6edd979e97eedd98740c28d9478608726da8"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/execute-prepared-controls.py",
+    "bytes": 4497,
+    "sha256": "3a2d536bae1e0631ce681a69efabd486d0375754e751aefec370a0efb45d2288"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/executed-controls.json",
+    "bytes": 47773,
+    "sha256": "fbc9da859707eda9dbb68d8c07a638c98fd6689d6c8a813d5c313e683f9830e7"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/expected-control-assertions.json",
+    "bytes": 27835,
+    "sha256": "e2c839a38c271b067901010416a024ca97f19e3ea5fce901c8736955e5245e30"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/initial-control-attempt.json",
+    "bytes": 786,
+    "sha256": "c170d34afb91452609119de349fd3efe225d7a61c029cd61528cb00315c974e0"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/prepare-documentation-correction.py",
+    "bytes": 11031,
+    "sha256": "4451b4b1a141f7023f388d11b7e15d33217e6334958a77c6243f955a77977e31"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/prepare-isolated-trees.py",
+    "bytes": 2727,
+    "sha256": "6b84ba025b599804d3dedd9d09d074f28fa0badbad481a8f2e780c0344fe09ce"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/prepared-main-blobs.json",
+    "bytes": 6923,
+    "sha256": "c4591c7ee320ea41a022cd9d6d3cccbbb8f3f1be855f437250c0ccc6391b2a66"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/report-gate-controls.json",
+    "bytes": 1897,
+    "sha256": "d461bf1df672144e0dd1fbd08f80f6d599ae72f4b41e54388f355ee57c95e582"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/report_gate.py",
+    "bytes": 1994,
+    "sha256": "99b35297dc9e8b661420717534b24fe3f2abae38d78d330701636f17f255ba29"
+  },
+  {
+    "path": "local-packets/35-item-mvp-closeout-20261019/verify-report-gate.py",
+    "bytes": 2849,
+    "sha256": "f4e62bf3780ca6bf1f8b28d942ad96c207871a5120535b81c702a040535d164d"
+  }
+]

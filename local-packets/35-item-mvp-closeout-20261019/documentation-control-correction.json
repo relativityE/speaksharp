@@ -1,0 +1,11 @@
+{
+  "scope": "Expanded14-path receiving draft first attempt",
+  "total": 56,
+  "passed": 55,
+  "failed": 1,
+  "rawSha256": "d788f867098fce020e8164d08f51a3cae2d3f75725bcf346848cd04e5d74b968",
+  "finding": "Replacing the obsolete model-phase paragraph also removed its still-binding fallback dependability criterion. Existing guard caught the loss; restored the criterion without changing tests or policy. Final result reported separately.",
+  "failedAssertions": [
+    "#1258 currency guard \u2014 release status and roadmap must not contradict reality a fallback is defined by dependability, not by second-best WER"
+  ]
+}

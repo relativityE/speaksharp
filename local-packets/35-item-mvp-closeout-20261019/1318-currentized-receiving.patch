@@ -1,0 +1,345 @@
+--- a/product_release/ARCHITECTURE.md
++++ b/product_release/ARCHITECTURE.md
+@@ -1,3 +1,9 @@
++## Account-exit policy boundary
++
++Routine deletion is account-scoped, as confirmed in [#1643 policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298). Page navigation or email issuance is not destructive confirmation. Verified explicit confirmation records durable pending intent for that account, prevents new admission, and allows already accepted saves, coaching and billing work to finish and reconcile. Unknown outcomes remain pending: neither elapsed timeout nor an accepted request establishes settlement or deletion. Only verified DB/storage/Auth final state supports a deleted result. Other users continue normally; routine deletion requires no global shutdown.
++
++Cancellation is distinct: preserve account/login/history and verified remaining access while stopping renewal under the actual provider outcome. Cancellation alone schedules no deletion. Existing runtime generation/configuration and operational guards remain implementation prerequisites until a reviewed replacement is integrated; this policy does not remove them or invent global worker termination. The bounded legacy direct-checkout cutover still needs its own reconciliation. Backend staging or202 pending is not a completed customer journey, and source preparation authorizes no account/provider operation.
++
+ **Status:** Authoritative (SSOT for system structure, boundaries, persistence & retention, and authority ADRs)
+ **Owner:** Engineering (relativityE)
+ **Last Reviewed:** 2026-09-15
+@@ -11,8 +17,10 @@
+ 
+ <!-- pm-currentization:2026-09-15 -->
+ > [!IMPORTANT]
+-> **Currentized 15 Sep 2026.** The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. The remaining owners are #1471/#1476 for durable progress/reconciliation, #1473 for automatic review and structured failure handling, #1472 for filler-evidence completeness, #1304/#1390 for comparable **v2/v4** authority, with #1263 Moonshine deferred until after RWT or MVP, and #1474 for the full G10 presentation. Newest-one retention remains the approved target, not a claim of Production activation; #1452 must close before activation. Historical newest-two migrations remain immutable provenance.
++> The architecture remains one canonical Production surface and one engine per take. #1416, #1463, and #1466 shipped bounded navigation/feedback, progress-debt, and Practice Loop placement foundations. Closed #1471/#1476 retain durable-progress implementation provenance; closed #1473 retains automatic-review consolidation provenance. Remaining deployed journey acceptance belongs to #1258/#1593, filler-evidence completeness to #1472, full G10 presentation to #1474, and existing copy/comparison acceptance to #1254. Newest-one retention is the approved policy. Closed #1452 records its dated correction/activation disposition; it is not an outstanding activation prerequisite or proof that all retention journeys passed. Read current runtime/application evidence in `RELEASE_STATUS.md`. Historical newest-two migrations remain immutable provenance.
+ <!-- /pm-currentization:2026-09-15 -->
++
++**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+ 
+ # SpeakSharp Architecture (v1)
+ 
+@@ -156,7 +164,7 @@
+ ## 15. Current limitations & open ADRs
+ 
+ - **Commercial integration in progress** — the canonical trial, paid, expiry, checkout, webhook, and activation seam is implemented and qualified through #1282 after its required database prerequisite. This document does not duplicate that implementation; `ENTITLEMENTS_AND_BILLING.md` owns the durable contract.
+-- **Retention and deletion — correction required.** The approved policy retains only the newest transcript. The deployed `newest_two_v1` behavior is noncompliant and must be replaced by `newest_one_v1`; every older transcript expires while session history, metrics, and the structured next action remain. User-facing deletion behavior, account-erasure SLA/ownership, cleanup of unfinished delivery rows, and retention of non-transcript records remain unresolved. The current schema also leaves a deletion-order dependency (`session_delivery_measurements.user_id` does not cascade). Dev may author and qualify the corrective migration; Production application still requires separate Product Owner authorization.
++- **Retention and deletion are separate contracts.** The approved `newest_one_v1` policy expires every older eligible transcript while session history, metrics, and the structured next action remain. #1452's closed disposition records the dated retention correction; current deployed policy and applicable journey proof must be read from `RELEASE_STATUS.md`. Account-exit acceptance remains with #1643, including existing billing settlement, Auth uncertainty, storage/FK cleanup and verified residue. Historical schema casualties are provenance, not an instruction to recreate a migration or proof that the current schema still has the same defect. Production application and destructive customer proof require their separate exact authorization.
+ - **Durable telemetry/alert outbox + provenance registry** — DRAFT design only (#1006), **NOT shipped / NOT activated**. The persistence-vs-observability invariants above stand unchanged; do not cite the outbox as current behavior.
+ - **Private STT device verification** — every supported browser/device requires Private setup, record, finalize, save, and reopen proof before it is marketed as supported (→ `STT.md`).
+ 
+--- a/product_release/PROGRESS_AND_NEXT_ACTION.md
++++ b/product_release/PROGRESS_AND_NEXT_ACTION.md
+@@ -2,7 +2,7 @@
+ **Owner:** Product Owner (relativityE)
+ 
+ **Last Reviewed:** 2026-09-15
+-**Last Verified:** 2026-09-15 — ownership now routes to #1471/#1476 progress integrity, #1473 automatic review, #1474 presentation, and #1472 filler completeness.
++**Last Verified:** 2026-09-15 — historical review date; closed implementation/consolidation provenance and retained acceptance are distinguished below.
+ **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
+ **Class:** Product requirement / decision.
+ **Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the two-suggestion Session review, selection of one next practice action, and what must never be claimed.
+@@ -14,7 +14,7 @@
+ 
+ <!-- pm-currentization:2026-09-15 -->
+ > [!CAUTION]
+-> **Currentized 15 Sep 2026 — the contract is not yet release-qualified.** Each eligible saved session still requires exactly one **What went well** and one **What to improve** suggestion. #1473 owns automatic generation, structured configuration/provider/quota terminals, and truthful retry; #1474 owns the dominant G10 rendering footprint. #1471 and #1476 own durable single-tab and cross-tab progress settlement. #1472 owns the persisted filler evidence state `complete | unobservable | no_speech`; an empty object or zero without affirmative completeness contributes nothing and must never become a flattering zero, clean-delivery claim, or perfect clarity.
++> **Implementation provenance is separate from release qualification.** Each eligible saved session still requires exactly one **What went well** and one **What to improve** suggestion. Closed #1473 retains automatic-generation/failure/retry consolidation provenance; closed #1471/#1476 retain durable single-tab/cross-tab progress implementation provenance. Remaining deployed acceptance is retained by #1258/#1593, presentation by #1474, and existing copy/comparison acceptance by #1254. #1472 owns the persisted filler evidence state `complete | unobservable | no_speech`; an empty object or zero without affirmative completeness contributes nothing and must never become a flattering zero, clean-delivery claim, or perfect clarity. New consequential residual defects route to #1491 rather than reopening completed assignments by an old pin.
+ <!-- /pm-currentization:2026-09-15 -->
+ 
+ # SpeakSharp Progress and Next Action (v1)
+@@ -262,11 +262,12 @@
+   and renders no progress card — the saved review is the single progress authority. The unused
+   `ProgressVsBaseline` card and its module were removed with the session slot-map redesign.)* Eligibility: `durationSeconds >= 30` **and** a non-null composite quality
+   (`utils/aggregateProgress.ts`). Any remaining "unbuilt" assertion elsewhere is stale.
+-- **The next action is persisted but the outcome loop is not closed.** `sessions.next_action_signal` stores the
+-  prior recommendation, and `AnalyticsDashboard` renders it. Attempt evidence, comparable-session eligibility,
+-  target-specific outcomes and attribution limits are all **absent** — so advice plus later improvement can show
+-  **association only**, never that the user attempted the advice and never causation. #1259 is an instrumentation
+-  and attribution gap, not a database join. Full dated audit: [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10.4.
+-- **Canonical roadmap gap:** `ROADMAP.md` (canonical #3) does not exist. The deferral named #1272, which has
+-  **closed without producing it**; the live successor is **#1257**. Roadmap-level propagation lands here and in
+-  `RELEASE_STATUS.md` until #1257 delivers it (historical GAP-1: [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §11). The canonical `ROADMAP.md` now exists and owns the open work.
++- **Stored action and attempt evidence does not establish useful or causal improvement.** The original audit
++  predates the implemented evaluation, recommendation and explicit accepted-attempt records described in §8.
++  Owner-scoped progress RPCs bind attempts and resolve server-comparable directional outcomes. Those structures
++  exist; a displayed recommendation alone still does not prove an attempt. Advice plus later metric movement
++  establishes association only. Target-specific useful improvement and the broader #1548 same-target content
++  outcome remain separate acceptance questions; no causal claim follows. #1259 retains received instrumentation
++  and attribution assurance. Original dated audit: [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10.4.
++- **Canonical roadmap authority:** [`ROADMAP.md`](./ROADMAP.md) exists and owns open work. The missing-roadmap
++  GAP-1 is historical provenance in [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §11, not a current temporary propagation instruction.
+--- a/product_release/QUALITY.md
++++ b/product_release/QUALITY.md
+@@ -11,8 +11,10 @@
+ 
+ <!-- pm-currentization:2026-09-15 -->
+ > [!CAUTION]
+-> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. Release evidence must compare **v2 and v4** under one corpus/identity/word-count/filler-completeness/WER contract, validating v4 as provisional primary against v2 as fallback. **Moonshine is deferred until after RWT or MVP and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
++> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. **Moonshine activation remains deferred pending qualification and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
+ <!-- /pm-currentization:2026-09-15 -->
++
++**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+ 
+ # SpeakSharp Quality (v1)
+ 
+@@ -241,6 +243,7 @@
+ ## 7. Interpretation & closure rules
+ 
+ - **Raw artifacts win when summaries disagree.** Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, stress/endurance JSON, and browser traces are the source of truth until the aggregator is fixed and rerun on the same commit.
++- **Diagnosis does not waive required qualification.** Green shard jobs or manually interpreted raw artifacts do not establish a required aggregate/report PASS. Correct the aggregation, count or collector defect and obtain the required exact-head qualification result. Preserve each failed/cancelled attempt separately; neither a later rerun nor a high quality score rewrites the earlier evidence.
+ - **Quality score cannot override red release gates.** A high quality/coverage number does not prove STT quality, billing safety, quota enforcement, or privacy behavior.
+ - **Advisory metrics become blocking only when explicitly promoted** for a release in `RELEASE_PROCESS.md` gate definitions or `RELEASE_STATUS.md`.
+ - **Local generated output helps debugging; GitHub-generated artifacts close release evidence.**
+--- a/product_release/PRODUCT_REQUIREMENTS.md
++++ b/product_release/PRODUCT_REQUIREMENTS.md
+@@ -11,8 +11,10 @@
+ 
+ <!-- pm-currentization:2026-09-15 -->
+ > [!CAUTION]
+-> **Currentized 15 Sep 2026 — shipped foundation and open product contract are distinct.** #1416 shipped direct product navigation, the accepted Share feedback form, corrected labels, and the red Stop control; #1466 shipped the bounded Practice Loop placement/reveal foundation. Still required: #1473 automatic 1+1 review availability and truthful retry, #1471/#1476 durable progress, #1472 filler completeness, and comparable **v2/v4** behavior validating v4 as provisional primary against v2 as fallback (Moonshine deferred until after RWT or MVP). #1474 owns the approved G10 during/after hierarchy and theme: the Practice Loop dominates the first usable post-save viewport while metrics/transcript are secondary. #1475 owns the approved G12 landing page and its full above-fold offer: **30 days free, no card. Then $10/month. Cancel any time.** Newest-one retention remains the approved target and is not activated by this document.
++> **Shipped foundation and open product acceptance are distinct.** #1416 shipped direct product navigation, the accepted Share feedback form, corrected labels, and the red Stop control; #1466 shipped the bounded Practice Loop placement/reveal foundation. Closed #1471/#1476 retain progress implementation provenance, and closed #1473 retains automatic-review consolidation provenance; their remaining deployed journey acceptance belongs to #1258/#1593. #1472 retains filler-completeness acceptance, #1474 the approved G10 during/after hierarchy and theme, and #1254 the existing copy/comparison contract. The Practice Loop dominates the first usable post-save viewport while metrics/transcript are secondary. #1475 owns the approved G12 landing page and its full above-fold offer: **30 days free, no card. Then $10/month. Cancel any time.** Newest-one retention is the approved policy; activation and current runtime proof belong in `RELEASE_STATUS.md`, not this requirement.
+ <!-- /pm-currentization:2026-09-15 -->
++
++**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+ 
+ # SpeakSharp Product Requirements
+ 
+--- a/product_release/TESTER_OPERATIONS.md
++++ b/product_release/TESTER_OPERATIONS.md
+@@ -19,15 +19,18 @@
+ >   with a positive AND a negative control; an accepted request only shows something was sent.
+ > - **Record requested identity and observed identity separately**, and bracket the user's intent
+ >   through review and reopen. Where they diverge is the finding.
+-> - **Exercise every registered runtime candidate through controlled configuration**, across Open Mic
+->   and Focus Points, rather than whichever one happens to be resolved.
++> - **Exercise the selected current customer configuration**, with complete useful Open Mic, full Focus
++>   and partial Focus Points journeys. Exercising comparison candidates belongs to the separately
++>   separately authorized model evaluation phase; it is not a current MVP prerequisite.
+ > - **Never ask the Product Owner to choose Preview, local, or internal testing.** The customer
+ >   surface is the only one their judgment is being asked about.
+ 
+ <!-- pm-currentization:2026-09-15 -->
+ > [!IMPORTANT]
+-> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. A qualifying matrix must run **v4 (provisional primary) and v2 (fallback)** with requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Moonshine is deferred until after RWT or MVP and is not a required row in the current matrix. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
++> **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. Current-model qualification requires requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Moonshine activation remains deferred pending qualification and is not a required row in the current matrix. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
+ <!-- /pm-currentization:2026-09-15 -->
++
++**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+ 
+ # SpeakSharp Tester Operations
+ 
+@@ -139,7 +142,8 @@
+ 
+ ### 6.1 Authorized two-candidate Production comparison
+ 
+-This procedure is available only during a Product Owner-authorized comparison window. It exercises the
++This retained procedure is for the separately authorized model evaluation phase under the accepted #1565 plan and is available
++only during a separately Product Owner-authorized comparison window. It exercises the
+ canonical Production deployment; a pull-request Preview, local build, URL flag, browser-storage value, or
+ visible customer control is not qualifying evidence.
+ 
+@@ -160,7 +164,7 @@
+    exactly one `https://speaksharp-public.vercel.app` tab and sign in manually through the normal product path.
+    Never expose the debugging endpoint off-device.
+ 
+-For each of the **two authorised candidates** — v4 (provisional primary) and v2 (fallback) — perform one Open Mic take and one Focus Points take. Moonshine is deferred until after RWT or MVP: it is not dispatchable and must not be attempted, because `rc-gates.yml` no longer offers its cells. The
++For each of the **two authorised candidates** in that future comparison — v4 (provisional primary) and v2 (fallback) — perform one Open Mic take and one Focus Points take. Moonshine remains deferred: it is not dispatchable under this two-candidate procedure and must not be attempted, because `rc-gates.yml` no longer offers its cells. The
+ Focus Points count is user-selected within the MVP's 1–7 range; the comparison does not prescribe four or
+ any other count. Every point the user enters and substantively speaks must remain present, in order, and be
+ evaluated. Generate one lowercase UUIDv4 as the evidence-document id and reuse that id for exactly these
+--- a/product_release/EVIDENCE_INDEX.md
++++ b/product_release/EVIDENCE_INDEX.md
+@@ -145,7 +145,7 @@
+ | `evidence/retained/PUBLIC_LAUNCH_LEDGER.md` | Dated broad-launch gate proofs PL-001…PL-011: public signup, first Free session, test-mode Stripe checkout→entitlement journey, webhook/billing-lifecycle local proofs, trial lifecycle and historical provider-path evidence. | `ROADMAP.md` (open gates) + `RELEASE_STATUS.md` (current) |
+ | `evidence/retained/2026-08-30-stt-selection-inventory.md` | Point-in-time mechanical inventory of the nine fragmented Private-STT model-selection mechanisms present on `main@024b574f` (URL parameters, localStorage keys, PostHog flags, build veto, default constants), plus the `getMetadata` default-variant defect. Carries an appended 2026-09-01 CORRECTION: several line numbers were attributed to the wrong file and the source/test split was wrong. All listed mechanisms are retired as of #1263. | `ROADMAP.md` (open gates) + the config plane in `services/transcription/candidateSelection.ts` |
+ | `evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | Dated entitlement audit: former Pro cap reconciliation, AI-quota verification and fail-closed guard checks. | `ENTITLEMENTS_AND_BILLING.md` (requirement) + `ROADMAP.md` (open ops) |
+-| `product_release/SCA_EXCEPTIONS.md` — pinned-audit execution result (2026-07-15) | Dated SCA pinned-audit result + the single ignored advisory rationale. | `OPERATIONS_AND_SECURITY.md` |
++| [`archive/superseded-docs-2026-08-29/SCA_EXCEPTIONS.md`](./archive/superseded-docs-2026-08-29/SCA_EXCEPTIONS.md) — pinned-audit execution result (2026-07-15) | Historical SCA pinned-audit result and advisory rationale; not a fresh vulnerability scan or current green verdict. | `OPERATIONS_AND_SECURITY.md` §8 owns current exception rationale. |
+ | `evidence/retained/RELEASE_CLOSEOUT_LEDGER.md` — dated proof rows (§B doc-gap closures, §E DB-hygiene closeout) | Dated documentation-gap and DB-hygiene closeout records. | `ROADMAP.md` (open) + this index (dated) |
+ | Manual hardware evidence logs (captured per the `TESTER_OPERATIONS.md` run; e.g. dated Chrome physical-mic proof) | Real-device Native/Private hardware run logs (browser/version, spoken sentence, stop/save/history/analytics). | `QUALITY.md` (protocol) + `TESTER_OPERATIONS.md` (run) |
+ 
+@@ -153,7 +153,7 @@
+ 
+ ## 8. Exploratory reference (`v4_work/`)
+ 
+-`product_release/v4_work/**` holds v4 hard-off exploration material. It is **EVIDENCE_ONLY / retained reference**, not a release path — v4 remains OFF (see `TESTER_OPERATIONS.md` §7 and `STT.md`). Indexed here as reference, never as current posture.
++`product_release/v4_work/**` holds historical v4 exploration material. It is **EVIDENCE_ONLY / retained reference**, not a current release path or activation authority. Future model administration is described in [`TESTER_OPERATIONS.md` §6](./TESTER_OPERATIONS.md#6-private-v4-administration) and `STT.md`; current runtime posture belongs only in `RELEASE_STATUS.md`.
+ 
+ ---
+ 
+--- a/product_release/STT.md
++++ b/product_release/STT.md
+@@ -13,7 +13,9 @@
+ > [!CAUTION]
+ > **Currentized 16 Sep 2026 — APPROVED TARGET and CURRENT STATE are different, and this file states both.**
+ >
+-> **Approved target (Product Owner decision, for RWT and MVP).** **v4 is the customer primary on WebGPU-capable devices**, because it has the maintained model-release pipeline. **v2 is the pre-Start fallback**: when capability or initialization prevents v4 before recording, v2 is selected and attributed *before* Start and stays **locked for that whole take** — no mid-recording handoff and no v2 retranscription of a failed v4 take. Moonshine is deferred until after RWT or MVP and is excluded.
++> **Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
++>
++> **Deferred target, requiring future qualification and explicit promotion.** The proposed direction remains v4 primary on qualified WebGPU-capable devices and v2 as a labelled **pre-Start fallback**. Any selected producer is attributed *before* Start and stays **locked for that whole take** — no mid-recording handoff and no v2 retranscription of a failed v4 take. The historical target is not a claim that v4 is qualified, selected for the current RWT, or activated.
+ >
+ > **Current state: Production remains v2-only for ordinary customers.** v4 is **not** the customer default today, and that is enforced in code rather than merely configured: `candidateSelection.ts` refuses a candidate that is not `activationReady`, and separately refuses `acknowledgeNotProductionReady` unless `VITE_INTERNAL_BUILD` is true. So the **configured-default path cannot select v4 in a public build**.
+ >
+@@ -23,7 +25,7 @@
+ >
+ > **What is already observable, and what is not.** Candidate identity is not unobservable. During an authorized comparison `__SS_ACTIVE_CANDIDATE__` reports `requested`, `observed`, `expected`, `matches` and `source` (`config` | `runtime_switch` | `remote_safety_kill`), and the server-owned `session_attribution_authority` row carries durable identity — `engine_class`, `engine`, `engine_version`, `model_id`, `provider`, `resolved_device`, `authority_version` — readable by the owning authenticated user. The real gaps are narrower: ordinary Canary does not yet consume that authoritative row, and no durable receipt yet distinguishes **requested primary** from **effective candidate**, nor records a **fallback cause**, proof that v2 was selected **before Start**, or proof the engine stayed **locked for the take**. #1488 owns authoritative Canary attribution; #1263 owns customer selection, fallback, locking and attribution as ordered subtasks in one PR home.
+ >
+-> **How the gap closes.** The authorized four-cell v2/v4 comparison supplies the pre-promotion evidence; #1263 then implements the structural primary/fallback policy — capability detection, pre-Start fallback selection, take locking, and requested / effective / observed / fallback-cause attribution — and carries the normative document amendment with it. The final deployed RWT proves both a normal v4 journey and a bounded v2 fallback. **This document records the decision; it does not implement the selector, and nothing here makes v4 live.** The current work validates v4 over v2 on one evidence contract and is not a three-model down-selection.
++> **How the deferred model gap closes.** Reuse preserved #1567 evaluator and #1568 primary/fallback source through the selected current integration lane; the preserved branches are not shipped behavior. Comparable candidate/device evidence and a separate Product Owner promotion decision precede any transition. Any promoted configuration still needs full useful Open Mic and Focus Points journeys, applicable real-device proof, and requested / effective / observed / fallback-cause attribution. Current v2 MVP acceptance does not qualify a future v4 configuration or fallback. **This document does not implement the selector, and nothing here makes v4 live.** Current-model product/device qualification remains required without introducing a model-comparison prerequisite.
+ <!-- /pm-currentization:2026-09-15 -->
+ 
+ # SpeakSharp STT Contract
+@@ -143,12 +145,12 @@
+ 
+ ## 8. Operator-only comparison candidates
+ 
+-Private v2, Private v4, and Moonshine are registered comparison candidates. The current RWT compares **v4 (the approved primary, not yet live) against v2 (the pre-Start fallback, and today's only customer default)** only; Moonshine stays registered but is deferred until after RWT or MVP and is not required for current qualification. Candidate control is operator-only, applies only between settled takes, and never creates a customer-visible selector, entitlement, or silent fallback.
++Private v2, Private v4, and Moonshine remain registered candidates. Evaluation follows the selected #1565/#1304 queue and preserved source, without creating a current v2 MVP comparison gate. Moonshine activation remains unqualified; its preserved source and failure evidence feed #1304. Candidate control is operator-only, applies between settled takes, and never creates a customer selector, entitlement or silent fallback.
+ 
+ - The selected candidate is latched before Start and requested/observed identities must match through finalize, save, review, and reopen.
+ - A setup, switch, decode, finalization, repetition, or tail-integrity failure is recorded against that candidate; it is never hidden by relabeling, fallback, or transcript cleanup.
+ - Moonshine cold acquisition uses progress-sensitive stall handling, and a failed switch may be retried, but those mechanics do not override the unresolved long-form repetition/tail/stability failure.
+-- Promotion requires an explicit Product Owner decision after comparable **v2 and v4** setup, accuracy, filler preservation/completeness, opening/tail, finalization, memory, device, recovery, and failure evidence. Moonshine evidence is not required for it, being deferred until after RWT or MVP.
++- Future promotion requires an explicit Product Owner decision after comparable **v2 and v4** setup, accuracy, filler preservation/completeness, opening/tail, finalization, memory, device, recovery, and failure evidence. Moonshine evidence is not required for that two-candidate decision and remains deferred.
+ - A future device-capability choice occurs before a new recording; it is never a mid-recording switch.
+ 
+ ### Comparable benchmark protocol
+--- a/product_release/RELEASE_PROCESS.md
++++ b/product_release/RELEASE_PROCESS.md
+@@ -13,8 +13,10 @@
+ > [!CAUTION]
+ > **Currentized 16 Sep 2026.** Use **one merge token**, **one active implementation lane** as the standing rule, and exact-head review evidence. Review or CI waiting does not block unrelated executable work; only the merge token is serialized.
+ >
+-> **Narrow, temporary exception in force for the RWT closure queue only.** The Product Owner directed a deconflicted division of labour: Dev's active lane is #1477, then #1486, then #1467; PM's is #1488, then #1490. It holds only because the lanes share no branch and no file and neither side edits the other's; each lane completes exact-head Codex independently before handoff; merges stay strictly serial on the one token. **The exception expires when this RWT closure queue completes, and it is not standing policy** — the default remains one active implementation lane. The prior RWT remains incomplete and paused. Resume only when PM qualifies an exact deployed candidate and the Product Owner authorizes the named stop. Every qualifying model row must include **v2 and v4** on the same evidence contract, validating v4 as provisional primary against v2 as fallback; **Moonshine is deferred until after RWT or MVP and is not required for the current RWT**, and its repetition failure is never something to sanitize. Merge, deployment, database migration, Edge/config change, credential repair, payment action, and Production RWT remain separate exact-action authorizations.
++> **Deconflicted assigned work may proceed during review/CI waits.** Use the current coordination record for selected owners and queue order; dated ticket sequences are not standing assignments. Preserve isolated branch/file ownership, complete each selected increment's exact-head review before handoff, and keep merges serial on the one token. Any Product Owner exception to the default implementation-lane rule remains scoped to its named work; it does not become standing policy. Resume a held RWT only with an exact qualified deployed candidate and the applicable Product Owner authority. **Moonshine activation remains deferred pending qualification and is not required for the current RWT**, and its repetition failure is never something to sanitize. Merge, deployment, database migration, Edge/config change, credential repair, payment action, and Production RWT remain separate exact-action authorizations.
+ <!-- /pm-currentization:2026-09-15 -->
++
++**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+ 
+ # SpeakSharp Release Process (v1)
+ 
+--- a/product_release/ENTITLEMENTS_AND_BILLING.md
++++ b/product_release/ENTITLEMENTS_AND_BILLING.md
+@@ -1,3 +1,9 @@
++## Account-exit policy boundary
++
++Routine deletion is account-scoped, as confirmed in [#1643 policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298). Page navigation or email issuance is not destructive confirmation. Verified explicit confirmation records durable pending intent for that account, prevents new admission, and allows already accepted saves, coaching and billing work to finish and reconcile. Unknown outcomes remain pending: neither elapsed timeout nor an accepted request establishes settlement or deletion. Only verified DB/storage/Auth final state supports a deleted result. Other users continue normally; routine deletion requires no global shutdown.
++
++Cancellation is distinct: preserve account/login/history and verified remaining access while stopping renewal under the actual provider outcome. Cancellation alone schedules no deletion. Existing runtime generation/configuration and operational guards remain implementation prerequisites until a reviewed replacement is integrated; this policy does not remove them or invent global worker termination. The bounded legacy direct-checkout cutover still needs its own reconciliation. Backend staging or202 pending is not a completed customer journey, and source preparation authorizes no account/provider operation.
++
+ **Status:** Authoritative product contract
+ **Owner:** Product Owner (relativityE)
+ **Last Reviewed:** 2026-09-15
+--- a/product_release/OPERATIONS_AND_SECURITY.md
++++ b/product_release/OPERATIONS_AND_SECURITY.md
+@@ -1,3 +1,9 @@
++## Account-exit policy boundary
++
++Routine deletion is account-scoped, as confirmed in [#1643 policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298). Page navigation or email issuance is not destructive confirmation. Verified explicit confirmation records durable pending intent for that account, prevents new admission, and allows already accepted saves, coaching and billing work to finish and reconcile. Unknown outcomes remain pending: neither elapsed timeout nor an accepted request establishes settlement or deletion. Only verified DB/storage/Auth final state supports a deleted result. Other users continue normally; routine deletion requires no global shutdown.
++
++Cancellation is distinct: preserve account/login/history and verified remaining access while stopping renewal under the actual provider outcome. Cancellation alone schedules no deletion. Existing runtime generation/configuration and operational guards remain implementation prerequisites until a reviewed replacement is integrated; this policy does not remove them or invent global worker termination. The bounded legacy direct-checkout cutover still needs its own reconciliation. Backend staging or202 pending is not a completed customer journey, and source preparation authorizes no account/provider operation.
++
+ **Status:** Authoritative (SSOT for env/secrets/config catalog, rotation, paid-path activation controls, ops health, SCA exceptions, and security rules)
+ **Owner:** Operations / Security (relativityE)
+ **Last Reviewed:** 2026-09-15
+--- a/product_release/README.md
++++ b/product_release/README.md
+@@ -101,7 +101,7 @@
+ **Retained by classification, NOT canonical (indexed by `EVIDENCE_INDEX.md` or kept in `archive/`):**
+ - **Evidence** (dated proof; cite for rationale): `evidence/**`, including permanent STT model/benchmark history under `evidence/stt/` and retained launch/security proof under `evidence/retained/`.
+ - **Superseded / historical**: `archive/**`, including the completed migration sources and pinned legacy docs.
+-- **Exploratory** (not release-path): `v4_work/**` — reference for the deferred Private v4 disposition.
++- **Exploratory** (not release-path): `v4_work/**` — preserved historical source for the separately selected current model-evaluation queue; not shipped behavior or an automatic release gate.
+ 
+ `archive/**` is disposable after its remaining migration dependencies are removed. No STT model evaluation, benchmark protocol, raw result, or down-selection record may rely on it; those belong permanently under `evidence/stt/`.
+ 
+--- a/product_release/ROADMAP.md
++++ b/product_release/ROADMAP.md
+@@ -10,6 +10,8 @@
+ **Evidence Sources:** current linked owning issues, `RELEASE_STATUS.md`, and [Sam's #1318 assignment](https://github.com/relativityE/speaksharp/issues/1318#issuecomment-6234300137).
+ 
+ # SpeakSharp Roadmap
++
++**19 October receiving correction.** The [35-item owner/closure directive](https://app.slack.com/archives/C0C9RE8KNHG/p1792432639622239) supersedes older queue assignments: App owns11, CLI15, Browser PM3 and Sam6. RWT/Alpha and MVP/Beta overlap but remain separate milestones. Prepared source must pass integration, deployment and matching acceptance; a final human sitting cannot close branch-only or unapplied work. Routine account exit follows [account-scoped policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298); elapsed timeout or request acceptance is not deletion. This is routing, not release or operational approval. Dynamic source/deployment facts remain in RELEASE_STATUS.
+ 
+ The fixed integration / qualification baseline is `5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf`, the reviewed #1650 mainline base integrated into #1648. The dated `bc1ea8ea` observation, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production or claim an evergreen current-main pointer.
+ 
+@@ -55,7 +57,7 @@
+ |---|---|---|
+ | Full useful two-product RWT — #1258 / coordination #1593 | App Dev executes; Sam reviews; PO/named humans accept | Follow the existing nine-spec matrix and retain each case's PASS/FAIL/HOLD/not-run. Rebind the save/retry request-lost then response-lost packet to the actual served release with specific authority, receipt/cleanup review and stop conditions. Complete remaining received/human/device acceptance. Source merges do not close this outcome. |
+ | Backend-only staging — #1611 | CLI Dev post-deployment evidence; App Dev assigned operations; Sam dispositions | #1611 source is landed; migration120 is applied and verified, and the coupled Edge release and canary are reported successful. Do not repeat source reconciliation, landing or deployment. Remaining work is the existing nonsecret effective deployment identity, generation/configuration and default-disabled readback, followed by the separate #1643 customer-exit evidence. Deletion registration/activation and full customer acceptance remain separate decisions. Exact heads, runs and operation receipts live in `RELEASE_STATUS.md`. |
+-| Complete customer exit — #1643, with #1495 provider/fixture prerequisites | CLI Dev implementation/evidence; Sam scope/review; App Dev only assigned operations | Retain all nine existing acceptance items: cancellation versus deletion, account-bound email/UI, authoritative global legacy drain/settlement, registration/runtime binding, billing ownership/recovery, cleanup and terminal sign-in refusal, telemetry and controlled live proof. The authoritative registration/current-facts producer is SOURCE INCOMPLETE, separate from the missing operational drain/settlement evidence. Consolidate accepted preserved-source increments, integrate against current main and qualify before eligible controlled activation. Backend staging alone cannot close it. |
++| Complete customer exit — #1643, with #1495 provider/fixture prerequisites | CLI Dev implementation/evidence; Sam scope/review; App Dev only assigned operations | Retain all nine existing acceptance items: cancellation versus deletion, account-bound email/UI, account-scoped admission and settlement under policy6251767298 (legacy cutover remains separately evidenced), registration/runtime binding, billing ownership/recovery, cleanup and terminal sign-in refusal, telemetry and controlled live proof. The authoritative registration/current-facts producer is SOURCE INCOMPLETE, separate from the missing operational drain/settlement evidence. Consolidate accepted preserved-source increments, integrate against current main and qualify before eligible controlled activation. Backend staging alone cannot close it. |
+ | G10 presentation and acceptance — #1474 | App Dev final campaign release binding/live RWT; Browser PM evidence review; PO/named humans accept; Sam routing | [Sam's natural-growth ruling](https://github.com/relativityE/speaksharp/issues/1474#issuecomment-6240521998) supersedes the earlier pending recommendation. The Share Feedback opener is source-landed in #1649; #1652 source-landed the readable full prescription, unobscured repeat/retry controls and replacement rendered checks. [App's #1652 receipt6248196339](https://github.com/relativityE/speaksharp/pull/1652#issuecomment-6248196339) is recorded in the separately labelled post-snapshot addenda in [the deployment authority](./RELEASE_STATUS.md); do not repeat these repairs or that deployment. Remaining work is binding the final campaign to the actual served release, specifically authorized live RWT and human/mobile/device acceptance. Keep rejected reservations/unmet evidence; no clipping, hidden rows or weakened maximum-content oracle is approved here. |
+ | Truthful download progress — #1491 / #1647 | App Dev | The bounded percentage-display fix is source-integrated and included in the later #1649 served-release receipt recorded in `RELEASE_STATUS.md`. Cold-download proof and mobile stale-label behavior retain their own evidence boundaries; do not repeat the old served-identity task. |
+ | Canonical documentation — #1318 | Browser PM; Sam reviews | Publish this first bounded current-state docs diff with receipt-linked HOLD labels. Then continue the remaining canonical/current-document inventory and consolidated intake; do not recreate the accepted readiness packet or wait idle for release completion. This increment does not close the full inventory. |
+@@ -83,13 +85,17 @@
+ - [Sam's consolidated #1318 intake](https://github.com/relativityE/speaksharp/issues/1318#issuecomment-6234021735) retains signed-versus-owner-dispatched wording, six refutations/identifier aliases, retrospective evidence, old-bundle skew and release-tag decisions for the existing final batch. No separate documentation PR per row is required.
+ - The remaining 14-document verification and non-archive terminal-disposition inventory stay open under #1318. This two-file increment does not certify untouched documents, delete retained evidence or alter `archive/**`.
+ 
++## Current parallel model work
++
++**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
++
+ ## Later — explicitly post-MVP
+ 
+ Accepted work, deferred. Nothing in this section is declined, and nothing is dropped for being post-MVP: each item names the durable owner that holds its detail, so deferral never becomes deletion.
+ 
+ ### Retained engineering debt
+ 
+-**Current post-MVP model lane:** [#1304](https://github.com/relativityE/speaksharp/issues/1304) / [#1565](https://github.com/relativityE/speaksharp/issues/1565), reusing prepared evaluator [#1567](https://github.com/relativityE/speaksharp/pull/1567) and primary/fallback policy [#1568](https://github.com/relativityE/speaksharp/pull/1568). CLI Dev owns both implementations; Browser PM owns plan/evidence review, and PO owns model promotion/activation. [Completed plan6233865706](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6233865706) is [accepted6234300811](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6234300811): reuse it, do not commission another plan. **v2 may complete current MVP**; no model evaluation, download or activation is commissioned by this roadmap.
++
+ 
+ | Issues | Reason |
+ |---|---|
+--- a/product_release/RELEASE_STATUS.md
++++ b/product_release/RELEASE_STATUS.md
+@@ -1,3 +1,13 @@
++## 19 October 2026 bounded source/coordination addendum
++
++This addendum supersedes earlier present-tense queue and model-phase instructions, while retaining every historical outcome. GitHub main was independently read as c9d46b2d4ffef7530cb0cccaa533b5818d200320;24issues and11PRs were open in this reconciliation. App/CLI/Browser PM have personally acknowledged their assigned queues. The [35-item directive](https://app.slack.com/archives/C0C9RE8KNHG/p1792432639622239) and [current coordinator](https://github.com/relativityE/speaksharp/issues/1593) own later moving dispositions; these counts/pins are dated, not evergreen assignments.
++
++The exact main commit's Vercel status was FAILURE at2026-10-19T14:20:06Z: “Deployment rate limited — retry in24hours.” This status text is not a promised recovery time. No fresh served frontend SHA or new production canary was observed by this documentation correction. Source-main identity is not served identity. Full useful Open Mic/Focus, received telemetry and human/device acceptance remain HOLD/unexecuted where not evidenced.
++
++The1662/1666/1667/1668 release queue and case10 correction remain separate qualification/integration boundaries. Copy1254's current receiver aac368a7 is source-accepted; Analytics1472's receiver ee9c9c42 has independently executed64-control client/PGlite parity evidence, not hosted migration/application or deployed proof. Neither patch is claimed shipped. Canonical-target continuity1548 and customer-exit1643 remain open beyond narrow landed1636 labels and1611 backend staging.
++
++Routine account deletion follows [PO policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298): durable pending for the verified confirmed account, no new admission, settlement of accepted saves/coaching/billing, then verified DB/storage/Auth final state. Other users continue; global shutdown/termination is not the routine contract. Historical global-drain claims below do not override this policy. Existing operational configuration/legacy-cutover guards remain until a reviewed successor replaces them.202 pending and timeout are not deleted; cancellation remains distinct. No migration, runtime/provider/account mutation or activation is authorized here.
++
+ # Release Status
+ 
+ **Status:** Authoritative for the bounded 17 October 2026 snapshot and separately labelled owner-reported receipt addenda below; release acceptance HOLD.
+@@ -123,7 +133,7 @@
+ 
+ #1643 and #1495 retain cancellation, account-bound verification, billing ownership, authoritative worker cutoff/termination/settlement, runtime/schema binding, cleanup and actual customer/provider acceptance. **#1643's authoritative registration/current-facts producer is SOURCE INCOMPLETE**, per [Sam's explicit source disposition](https://github.com/relativityE/speaksharp/pull/1648#issuecomment-6239898735), in addition to the missing authoritative global-drain/settlement evidence. This is not merely a remaining operational-test task. Backend staging is not full deletion or MVP completion. Responding-instance probes, complete provider lists and synthetic fixtures cannot establish authoritative global drain. Accepted preserved-source increments and their dated receipts remain valid within their original bounds.
+ 
+-Retention activation/copy and model evaluation/promotion keep their existing separate dispositions. The current model lane is explicitly **post-MVP**: [#1304](https://github.com/relativityE/speaksharp/issues/1304) and [#1565](https://github.com/relativityE/speaksharp/issues/1565), reusing prepared [#1567](https://github.com/relativityE/speaksharp/pull/1567) evaluator and [#1568](https://github.com/relativityE/speaksharp/pull/1568) primary/fallback policy. **CLI Dev owns both implementations**; Browser PM owns plan/evidence review, and PO owns promotion/activation. Reuse [Browser PM's completed plan6233865706](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6233865706), [accepted by Sam6234300811](https://github.com/relativityE/speaksharp/issues/1565#issuecomment-6234300811); do not commission a second plan. **v2 may complete current MVP**. Closed #1462 is historical provenance, not the current lane owner or a new RWT gate. This docs edit changes no model selection, pricing, entitlement or operational authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
++**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+ 
+ ## Evidence and deployment interpretation
+ 
+--- a/product_release/TESTER_GUIDE.md
++++ b/product_release/TESTER_GUIDE.md
+@@ -67,8 +67,8 @@
+ 
+ 1. Sign in to SpeakSharp. You should land on the Practice page.
+ 2. Start with Open Mic.
+-3. If this is your first session, allow the one-time Private transcription setup. Wait until the session says “Ready — speak now.”
+-4. Start recording when you are ready, speak for approximately 1–2 minutes, then stop.
++3. Press the mic once. If this is your first session, allow the one-time Private transcription setup. Recording begins from that press when setup finishes; wait until the session says “Ready — speak now.”
++4. When the session says “Ready — speak now,” speak for approximately 1–2 minutes, then stop. Do not press the mic a second time to start after setup.
+ 5. Keep the page open while the transcript finishes on your device.
+ 6. Save the session and review the transcript, delivery evidence, and suggested next action.
+ 7. Open the saved session again from History or Progress. If a PDF report is available, open or export it.
+@@ -77,7 +77,7 @@
+ 
+ What to evaluate
+ 
+-- Was it clear where to begin and that recording would not start automatically?
++- Was it clear where to begin, that nothing records before you press the mic, and that the same press continues into recording after setup?
+ - Was the one-time Private setup clear?
+ - Did the live transcript and recording visualization respond while you spoke?
+ - Did the saved review preserve the beginning and end of your take?

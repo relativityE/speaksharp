@@ -1,0 +1,53 @@
+{
+  "main": "c9d46b2d4ffef7530cb0cccaa533b5818d200320",
+  "copy": {
+    "head": "aac368a7b9ec8a0f50dcd16e3384f15df69164a0",
+    "currentMainCompare": [
+      {
+        "path": "frontend/src/components/progress/__tests__/ProgressPanel.test.tsx",
+        "blob": "49565e888715935f21c303960faaa4139ba8bb41"
+      },
+      {
+        "path": "frontend/src/services/progress/__tests__/buildProgressEvaluation.test.ts",
+        "blob": "aa2266f9aa9d2f5f6f76e2f52f193270eb85796a"
+      },
+      {
+        "path": "frontend/src/services/progress/__tests__/loadSessionProgress.test.ts",
+        "blob": "58c0a26f46cd7ff933a1825489639a406b09a3ca"
+      },
+      {
+        "path": "frontend/src/services/progress/__tests__/progressPresentation.test.ts",
+        "blob": "5b890220cdfc52d7b085c9fd9f3c0b8aa25168bc"
+      },
+      {
+        "path": "frontend/src/services/progress/progressPresentation.ts",
+        "blob": "9994b02cdadfe2e03252971b46cc9df7089b5641"
+      },
+      {
+        "path": "tests/e2e/progress-cross-page.e2e.spec.ts",
+        "blob": "7307d85ce8b50df538ec0b55ac0fa9200682e55b"
+      }
+    ],
+    "execution": "Prepared976 overlay56 controls; successor source inspected/Sam ACCEPT, not all six successor paths executed by PM."
+  },
+  "analytics": {
+    "head": "ee9c9c420106310c0fab11b97ac9912fa775c192",
+    "deltaAfterB6": [
+      {
+        "path": "frontend/src/lib/analyticsUtils.ts",
+        "blob": "a593981a34897f8eb432f8ccc77c7483083a4e19"
+      },
+      {
+        "path": "tests/db/analytics-summary-rpc.integration.test.ts",
+        "blob": "4d2742652ab90ad506a1164141b402f1af4c81e4"
+      }
+    ],
+    "execution": "Actual current six-path overlay64/64PASS; not hosted."
+  },
+  "trustedLane1666": {
+    "run": 39304107524,
+    "workflowHead": "c9d46b2d4ffef7530cb0cccaa533b5818d200320",
+    "conclusion": "success",
+    "exactPRBinding": "CLI receipt1792435340.791049; artifact12213615119 binding f3dd/c9 reported, Sam's fresh trusted-base guard still separate."
+  }
+}

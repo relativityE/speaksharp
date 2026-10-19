@@ -1,0 +1,80 @@
+{
+  "main": "c9d46b2d4ffef7530cb0cccaa533b5818d200320",
+  "prepared": "f3f8704257c523bb44dfdc305e697e18f5f8e769",
+  "paths": [
+    {
+      "path": "product_release/ARCHITECTURE.md",
+      "mainSha256": "e9b744926397931978e073f890f7ac0ba46641953435e98f501c4a2ba045c328",
+      "preparedReceivingSha256": "090a95543eaef0f77e9a0566d7602aa9088f581e1d4edc3ce23decaea7ddbac7"
+    },
+    {
+      "path": "product_release/PROGRESS_AND_NEXT_ACTION.md",
+      "mainSha256": "d827ad5511e71fdea95482ddb57432db63e44db87510f44edca18942ca079c66",
+      "preparedReceivingSha256": "bb6898c3c38cceed55cbcd3360c126cd4508f34686e80e44892f1448b539850f"
+    },
+    {
+      "path": "product_release/QUALITY.md",
+      "mainSha256": "f76c0a547876a2910a0311691c033bfdac568410512481b743f461ed835a5b0d",
+      "preparedReceivingSha256": "cca86ca3b564a917e8ca43cde21666bc01392d020f88c8f0383e165fbf3feb96"
+    },
+    {
+      "path": "product_release/PRODUCT_REQUIREMENTS.md",
+      "mainSha256": "b08cf93ee34f44f5db13a506e8d0536bb594be4339101557f0f94509a593bec0",
+      "preparedReceivingSha256": "97a2220a785ea90a21c497e8725c775499454e456a12a2ae53414f7b8798abfb"
+    },
+    {
+      "path": "product_release/TESTER_OPERATIONS.md",
+      "mainSha256": "ac83135ef4b73435d684d1a9c3412c4d1f0960376e18d0c21cc3e405cc35a4c6",
+      "preparedReceivingSha256": "7ab8a06dcbe2e693d266a286d4f12aac9f027afe5412b2b8c0d4f40427abebfd"
+    },
+    {
+      "path": "product_release/EVIDENCE_INDEX.md",
+      "mainSha256": "59618e96c33e1863225bd77213b489369776201b5627f1d23ade851aeaf98bf6",
+      "preparedReceivingSha256": "0410d3027e2b5a0a66e92d10a487bdb1f9842b00222330d5e091da12cb0fb964"
+    },
+    {
+      "path": "product_release/STT.md",
+      "mainSha256": "6664f5fbc8a5ced1e303dce71b30acb92e114d606218d2b07f2de3c2791f7042",
+      "preparedReceivingSha256": "f6d7d726f7d6236a72c7cf4fd8ffaf537d515d1016f44056a6cb80d2f0b0f8a9"
+    },
+    {
+      "path": "product_release/RELEASE_PROCESS.md",
+      "mainSha256": "da085a0ff9abb805935c71daa1076d870867e68b4f3e87609cb8dfdf4d59d12f",
+      "preparedReceivingSha256": "6040dfd86a404e3507aef3ac9590ab7874cb3134db16bc2ff3ebe9a13a741415"
+    },
+    {
+      "path": "product_release/ENTITLEMENTS_AND_BILLING.md",
+      "mainSha256": "a6c951cd3392f89cef3b5dfb088f97dae7623efe0799fd657a77ce224f9c855a",
+      "preparedReceivingSha256": "b9e4b01de08ab48616282edb46d8c4117f56b3e03d15af81bc091672e571aef1"
+    },
+    {
+      "path": "product_release/OPERATIONS_AND_SECURITY.md",
+      "mainSha256": "a38574ff4ae83e22928f41935278017a2f88e2b29df8f95d35f7e2c5eddda9d6",
+      "preparedReceivingSha256": "eda4319668b0a0898eec91d201694accfbf9b9757c7431091676e9db271936b3"
+    },
+    {
+      "path": "product_release/README.md",
+      "mainSha256": "45f0559629116dbd1cc7cec74b94f6898364f8b8a87320c582e21cda581bf712",
+      "preparedReceivingSha256": "7d84737b742973707ad92db8128857590c33fbfc5619d54a9c076e3f8f343e84"
+    },
+    {
+      "path": "product_release/ROADMAP.md",
+      "mainSha256": "d491046c6d8461c347f42347d85d910b0b8774ddd5d52f887e88aae21c4114bd",
+      "preparedReceivingSha256": "ce5f008f15d5d5f7cf0c59f56534d89c0757de1112b6265306a8268a4f4a0f0e"
+    },
+    {
+      "path": "product_release/RELEASE_STATUS.md",
+      "mainSha256": "75e2d5214ecaebd94c52d8cd5d2dab015de6f50f6163bfc49b9680df6c667608",
+      "preparedReceivingSha256": "9eb5e7c8551790bfd1d500a79b8163138e1023abbf84d4cc687514ba4dba2539"
+    },
+    {
+      "path": "product_release/TESTER_GUIDE.md",
+      "mainSha256": "8391d0751277aa8c109caa7d6a6c27e7d1a1ead14d6ce0a2106a1224cc9fa8fb",
+      "preparedReceivingSha256": "0a3a2c216a78b0deadaea4f0b02ee21d02ed777afca6b69a8acf2cae13a0d177"
+    }
+  ],
+  "missingRelativeTargets": [],
+  "archiveChanges": 0,
+  "sourceOnly": true,
+  "scope": "All14 protected canonical receiving paths; whole nonarchive inventory/final shipped facts remain open. No shared files edited."
+}
