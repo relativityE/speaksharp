@@ -323,6 +323,21 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(onLateTerminal, 'no lease release on a rejected termination').not.toHaveBeenCalled();
     });
 
+    it('Codex P2 r4315983017 (#1668): a NORMAL stop is affirmative proof — a later redundant terminate() that rejects does not erase it', async () => {
+        engine.modelCached = true;
+        await controller.startRecording(POLICY as never, []);
+        await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+        const svc = (controller as unknown as { service: { stopTranscription: () => Promise<unknown>; destroy: () => Promise<void>; didConfirmTermination: () => boolean } }).service;
+        expect(svc.didConfirmTermination(), 'a running engine is not proven off').toBe(false);
+        await svc.stopTranscription();
+        expect(svc.didConfirmTermination(), 'the normal stop proved it off').toBe(true);
+        engine.terminateGate = Promise.reject(new Error('redundant terminate failed'));
+        engine.terminateGate.catch(() => undefined);
+        await svc.destroy();
+        expect(svc.didConfirmTermination(), 'the caught redundant rejection does not erase the stop proof').toBe(true);
+        expect(controller.isEngineTerminal()).toBe(true);
+    });
+
     it('case4: an IN-BOUND termination rejection of a preparing engine is not "terminal" either — the lease is kept', async () => {
         engine.downloadEnabled = false;
         await controller.warmUp('private');

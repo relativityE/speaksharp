@@ -1136,6 +1136,7 @@ export default class TranscriptionService {
       this.attachMicFramePump(mode);
       // #1476: from here the engine may be running — it counts as live until a proven stop (a start that throws too).
       enginesNotConfirmedStopped.add(this);
+      this.terminationConfirmed = false; // a new run: an earlier proof never vouches for this engine
       await this.strategy.start(this.mic!, this.options.userWords ?? []);
 
       // 🛡️ Step 4: Strict Success Coupling
@@ -1360,6 +1361,9 @@ export default class TranscriptionService {
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });
       enginesNotConfirmedStopped.delete(this); // the engine stopped normally
+      // Codex P2 r4315983017 (#1668): a normal stop is affirmative proof the engine is off — a later redundant terminate()
+      // that rejects inside destroy() must not erase it.
+      this.terminationConfirmed = true;
       this.isModeLocked = false; // 🔓 Release lock
       const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (m: string | null) => void; setModelLoadingProgress: (p: number | null) => void } }).getState?.();
       if (state) {
@@ -1438,9 +1442,10 @@ export default class TranscriptionService {
    * Idempotent and safe against concurrent calls.
    */
   /**
-   * #1593 case 4 (Sam RETURN on 77780845): whether destroy() AFFIRMATIVELY proved this service's engine terminated — its
-   * strategy.terminate() resolved, or it never had an engine. A rejected termination is caught inside destroy(), so a
-   * resolved destroy() alone is not that proof, and neither is the live-engine registry (a preparing engine is not in it).
+   * #1593 case 4 (Sam RETURN on 77780845): whether this service AFFIRMATIVELY proved its current engine off — a normal stop
+   * completed (Codex P2 r4315983017), or strategy.terminate() resolved, or there was never an engine. A rejected termination
+   * is caught inside destroy(), so a resolved destroy() alone is not that proof, and neither is the live-engine registry (a
+   * preparing engine is not in it). Reset when a new run starts its engine.
    */
   private terminationConfirmed = false;
 
@@ -1761,7 +1766,7 @@ export default class TranscriptionService {
     if (this.strategy) {
       this.strategyVersion++;
       void this.strategy.terminate().then(
-        () => { enginesNotConfirmedStopped.delete(this); },
+        () => { enginesNotConfirmedStopped.delete(this); this.terminationConfirmed = true; },
         (e) => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during reset'),
       );
       this.strategy = null;
