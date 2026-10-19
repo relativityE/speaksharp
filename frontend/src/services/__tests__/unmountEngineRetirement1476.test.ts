@@ -8,6 +8,8 @@
  * terminated, and whether the account's lease is released only once it is.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import React from 'react';
+import { act, render } from '@testing-library/react';
 import type { Result } from '../transcription/modes/types';
 
 type Store = typeof import('@/stores/useSessionStore').useSessionStore;
@@ -31,14 +33,26 @@ vi.mock('../../lib/supabaseClient', () => ({
         auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } }) },
     })),
 }));
+// Read-only account/query boundaries for the actual lifecycle hook + MicCard probe below.
+vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ session: null, user: null }) }));
+vi.mock('@/hooks/useProfile', () => ({ useProfile: () => ({ profile: null, isVerified: false }) }));
+vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn(), getQueriesData: () => [] }) }));
+vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: { can_start: true, subscription_status: 'free' } }) }));
+vi.mock('@/hooks/useStreak', () => ({ useStreak: () => ({ updateStreak: vi.fn() }) }));
+vi.mock('@/hooks/useUserFillerWords', () => ({ useUserFillerWords: () => ({ userFillerWords: [] }) }));
+vi.mock('@/providers/useTranscriptionContext', () => ({ useTranscriptionContext: () => ({ runtimeState: useSessionStore((s) => s.runtimeState) }) }));
+vi.mock('@/hooks/useSpeechRecognition', () => ({ useSpeechRecognition: () => ({
+    transcript: { transcript: '', partial: '', total_words: 0, duration: 0, accuracy: 100 }, chunks: [], fillerData: {},
+    isReady: false, modelLoadingProgress: null, mode: 'private', pauseMetrics: null, micLevel: 0, hasSpeechActivity: false,
+}) }));
 /** The account lease: held by this take; `release` is what another device waits on. */
-const lease = vi.hoisted(() => ({ release: vi.fn(async () => undefined) }));
+const lease = vi.hoisted(() => ({ release: vi.fn(async () => undefined), id: null as string | null }));
 vi.mock('../recordingLease', () => ({
     acquireTakeLease: vi.fn(async () => ({ action: 'start', tookOver: false })),
     confirmTakeLease: vi.fn(async () => 'held'),
     startLeaseHeartbeat: vi.fn(),
     releaseTakeLease: () => lease.release(),
-    currentTakeLeaseId: () => null,
+    currentTakeLeaseId: () => lease.id,
 }));
 
 const POLICY = {
@@ -54,6 +68,7 @@ class ControlledEngine {
     public failInit: Error | null = null;
     /** False models a machine where the download never lands — preparation that cannot settle. */
     public downloadEnabled = true;
+    public initGate: Promise<void> | null = null;
 
     /** `PrivateSTT` wraps this engine and forwards option updates to it. */
     updateOptions() { /* no-op */ }
@@ -70,6 +85,7 @@ class ControlledEngine {
      */
     async init(): Promise<Result<void, Error>> {
         this.initCalls += 1;
+        if (this.initGate) await this.initGate;
         if (!this.modelCached) {
             if (this.downloadEnabled) this.modelCached = true;   // the one-time download lands
             return {
@@ -140,7 +156,7 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         useSessionStore.getState().setRuntimeState('IDLE');
         ({ releaseTakeLeaseOnUnmount } = await import('@/hooks/useSessionLifecycle'));
     });
-    afterEach(() => { vi.clearAllMocks(); lease.release.mockImplementation(async () => undefined); vi.useRealTimers(); });
+    afterEach(() => { vi.clearAllMocks(); lease.release.mockImplementation(async () => undefined); lease.id = null; vi.useRealTimers(); });
 
     it('CASUALTY: unmount at the START of preparation (no engine yet) — the Start never becomes a recording and no engine is ever created', async () => {
         // The real cold path, unaided: the click drives the download and the held Start resumes when the model lands.
@@ -183,6 +199,469 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect((controller as unknown as { service: unknown }).service).toBeNull();
         expect(lease.release).toHaveBeenCalledTimes(1);
         expect(terminatedAtRelease, 'the preparing engine was terminated BEFORE the lease was released').toBeGreaterThan(terminatedBefore);
+    });
+
+    it.each(Array.from({ length: 5 }, (_, repeat) => (['initializing', 'download-required'] as const).map((phase) => ({ repeat, phase }))).flat())('case4 causal probe: $phase repetition $repeat publishes idle while its runtime still blocks Start', async ({ phase, repeat }) => {
+        engine.downloadEnabled = false;
+        // A real visit warms the page shell before its Start; retain that resolved infrastructure promise across return.
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        let finishInit: () => void = () => undefined;
+        if (phase === 'initializing') engine.initGate = new Promise<void>((resolve) => { finishInit = resolve; });
+        const started = controller.startRecording(POLICY as never, []);
+        void started.catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls), { timeout: 5_000 });
+        await settle();
+        let finishTermination!: () => void;
+        engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
+        const retiring = releaseTakeLeaseOnUnmount(false);
+        let unmountView: (() => void) | undefined;
+        try {
+            await vi.waitFor(() => expect(engine.terminateCalls).toBeGreaterThan(0));
+            await settle();
+            const beforeReturn = {
+                model: document.documentElement.getAttribute('data-model-status'),
+                controller: controller.getState(), runtime: useSessionStore.getState().runtimeState,
+                finalizing: useSessionStore.getState().isTranscriptFinalizing,
+                engineTerminal: controller.isEngineTerminal(),
+            };
+            // Returning mounts this warm-up path; it must not be mistaken for proof that retirement completed.
+            await controller.warmUp('private');
+            expect(document.documentElement.getAttribute('data-model-status')).toBe('idle');
+            expect(beforeReturn).toEqual({ model: 'idle', controller: phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED', runtime: phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED', finalizing: false, engineTerminal: true });
+            expect(['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED']).not.toContain(useSessionStore.getState().runtimeState);
+            const { useSessionLifecycle } = await import('@/hooks/useSessionLifecycle');
+            const { MicCard } = await import('@/components/session/MicCard');
+            const ReturnedCard = () => {
+                const lifecycle = useSessionLifecycle();
+                return React.createElement(MicCard, { onStart: () => undefined, privateModelStatus: lifecycle.privateModelStatus, disabled: lifecycle.isButtonDisabled });
+            };
+            const view = render(React.createElement(ReturnedCard));
+            unmountView = view.unmount;
+            expect(view.getByTestId('mic-card').getAttribute('data-model-status')).toBe('idle');
+            expect(view.getByTestId('mic-start').getAttribute('aria-label')).toBe('Start recording');
+            expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled).toBe(true);
+            expect(view.getByTestId('mic-status-row').textContent).toContain('Mic ready on this device');
+            if (repeat === 0) {
+                // The live caller waits two seconds after model idle before navigating back; this signature survives it.
+                await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2_100)); });
+            }
+            expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled).toBe(true);
+        } finally {
+            await act(async () => {
+                finishTermination();
+                finishInit();
+                await retiring;
+                await settle();
+            });
+        }
+        expect(controller.getState()).toBe('IDLE');
+        expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+        expect(controller.isEngineTerminal()).toBe(true);
+        expect((document.querySelector('[data-testid="mic-start"]') as HTMLButtonElement).disabled).toBe(false);
+        unmountView?.();
+    });
+
+    /** A Start parked in `phase`, then a bounded retirement whose termination is held past the bound. */
+    const timedOutRetirement = async (phase: 'initializing' | 'download-required', onLateTerminal?: () => void) => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        let finishInit: () => void = () => undefined;
+        if (phase === 'initializing') engine.initGate = new Promise<void>((resolve) => { finishInit = resolve; });
+        const started = controller.startRecording(POLICY as never, []);
+        void started.catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+        let finishTermination!: () => void;
+        let failTermination!: (e: Error) => void;
+        engine.terminateGate = new Promise<void>((resolve, reject) => { finishTermination = resolve; failTermination = reject; });
+        // The production default is 10s. Scale only the explicit bound, not any lifecycle state or cleanup result.
+        expect(await controller.retireEngineForUnmount(100, onLateTerminal)).toBe('unconfirmed');
+        const preparing = phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED';
+        expect(controller.getState(), 'cleanup is incomplete: the Start stays truthfully blocked').toBe(preparing);
+        return { preparing, finishTermination, failTermination, finishInit };
+    };
+    const renderReturnedCard = async () => {
+        const { useSessionLifecycle } = await import('@/hooks/useSessionLifecycle');
+        const { MicCard } = await import('@/components/session/MicCard');
+        const ReturnedCard = () => {
+            const lifecycle = useSessionLifecycle();
+            return React.createElement(MicCard, { onStart: () => undefined, privateModelStatus: lifecycle.privateModelStatus, disabled: lifecycle.isButtonDisabled });
+        };
+        return render(React.createElement(ReturnedCard));
+    };
+
+    it.each(['initializing', 'download-required'] as const)('case4 (CLI 0ae7573b): %s — a retirement that timed out then SUCCEEDED completes; Start re-enables', async (phase) => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement(phase, onLateTerminal);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+        t.finishTermination();
+        t.finishInit();
+        await settle(60);
+        expect(controller.isEngineTerminal()).toBe(true);
+        expect(controller.getState(), 'the late success finishes THIS retirement').toBe('IDLE');
+        expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false);
+        expect(onLateTerminal).toHaveBeenCalledTimes(1);
+        await controller.warmUp('private');
+        const view = await renderReturnedCard();
+        expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled, 'no forced enable: the runtime is genuinely IDLE').toBe(false);
+        view.unmount();
+    });
+
+    it.each(['initializing', 'download-required'] as const)('case4 (Sam RETURN on 77780845): %s — the engine\'s ACTUAL late termination rejection, caught inside destroy(), completes nothing', async (phase) => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement(phase, onLateTerminal);
+        lease.id = null;
+        t.failTermination(new Error('worker would not terminate'));
+        t.finishInit();
+        await settle(60);
+        // destroy() resolved (its catch) and the preparing engine was never in the live-engine registry — neither is proof.
+        expect(controller.getState(), 'no affirmative termination: Start stays blocked').toBe(t.preparing);
+        expect(useSessionStore.getState().runtimeState).toBe(t.preparing);
+        expect(onLateTerminal, 'no lease release on a rejected termination').not.toHaveBeenCalled();
+    });
+
+    it('Codex P2 r4315983017 (#1668): a NORMAL stop is affirmative proof — a later redundant terminate() that rejects does not erase it', async () => {
+        engine.modelCached = true;
+        await controller.startRecording(POLICY as never, []);
+        await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+        const svc = (controller as unknown as { service: { stopTranscription: () => Promise<unknown>; destroy: () => Promise<void>; didConfirmTermination: () => boolean } }).service;
+        expect(svc.didConfirmTermination(), 'a running engine is not proven off').toBe(false);
+        await svc.stopTranscription();
+        expect(svc.didConfirmTermination(), 'the normal stop proved it off').toBe(true);
+        engine.terminateGate = Promise.reject(new Error('redundant terminate failed'));
+        engine.terminateGate.catch(() => undefined);
+        await svc.destroy();
+        expect(svc.didConfirmTermination(), 'the caught redundant rejection does not erase the stop proof').toBe(true);
+        expect(controller.isEngineTerminal()).toBe(true);
+    });
+
+    it('Sam (#1668): the stop proof is bound to its engine generation — preparing a successor strategy on the same service clears it', async () => {
+        engine.modelCached = true;
+        await controller.startRecording(POLICY as never, []);
+        await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+        const svc = (controller as unknown as { service: { stopTranscription: () => Promise<unknown>; didConfirmTermination: () => boolean; initializeStrategy: (m: string) => Promise<void> } }).service;
+        await svc.stopTranscription();
+        expect(svc.didConfirmTermination()).toBe(true);
+        engine.initGate = new Promise<void>(() => undefined); // the successor stays preparing
+        let prepError: unknown = null;
+        void svc.initializeStrategy('private').catch((e: unknown) => { prepError = e; });
+        await settle();
+        expect(prepError, 'the successor preparation itself ran').toBeNull();
+        await vi.waitFor(() => expect(svc.didConfirmTermination(), 'a preparing successor is not proven off by the earlier stop').toBe(false));
+    });
+
+    describe('Sam (#1668 advisory): resetEphemeralState\'s delayed termination acts only for its own engine epoch', () => {
+        type Svc = { resetEphemeralState: () => void; didConfirmTermination: () => boolean; initializeStrategy: (m: string) => Promise<void> };
+        const recordingService = async (): Promise<Svc> => {
+            engine.modelCached = true;
+            await controller.startRecording(POLICY as never, []);
+            await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+            return (controller as unknown as { service: Svc }).service;
+        };
+
+        it('no successor: the late termination clears the entry and proves the engine off', async () => {
+            const svc = await recordingService();
+            let finish!: () => void;
+            engine.terminateGate = new Promise<void>((resolve) => { finish = resolve; });
+            svc.resetEphemeralState();
+            expect(controller.isEngineTerminal(), 'still terminating').toBe(false);
+            const epochBefore = (svc as unknown as { engineEpoch: number }).engineEpoch;
+            finish();
+            await settle();
+            expect((svc as unknown as { engineEpoch: number }).engineEpoch, 'no successor prepared').toBe(epochBefore);
+            expect(controller.isEngineTerminal(), 'entry cleared').toBe(true);
+            expect(svc.didConfirmTermination(), 'proof published').toBe(true);
+        });
+
+        it('a successor prepared meanwhile: the old engine\'s late success neither clears the live entry nor vouches for it', async () => {
+            const svc = await recordingService();
+            let finish!: () => void;
+            engine.terminateGate = new Promise<void>((resolve) => { finish = resolve; });
+            svc.resetEphemeralState();
+            engine.initGate = new Promise<void>(() => undefined);
+            void svc.initializeStrategy('private').catch(() => undefined); // the successor's epoch
+            await settle();
+            finish();
+            await settle();
+            expect(controller.isEngineTerminal(), 'the entry is not cleared on the successor\'s behalf').toBe(false);
+            expect(svc.didConfirmTermination()).toBe(false);
+        });
+
+        it('a successor prepared meanwhile and the old termination REJECTS: nothing is proven for the successor', async () => {
+            const svc = await recordingService();
+            let fail!: (e: Error) => void;
+            engine.terminateGate = new Promise<void>((_, reject) => { fail = reject; });
+            engine.terminateGate.catch(() => undefined);
+            svc.resetEphemeralState();
+            engine.initGate = new Promise<void>(() => undefined);
+            void svc.initializeStrategy('private').catch(() => undefined);
+            await settle();
+            fail(new Error('old worker would not terminate'));
+            await settle();
+            expect(svc.didConfirmTermination()).toBe(false);
+            expect(controller.isEngineTerminal()).toBe(false);
+        });
+    });
+
+    it('case4: an IN-BOUND termination rejection of a preparing engine is not "terminal" either — the lease is kept', async () => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        engine.initGate = new Promise<void>(() => undefined);
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        expect(await controller.retireEngineForUnmount(5_000)).toBe('unconfirmed');
+    });
+
+    it('case4: a destroy() that later REJECTS never claims cleanup — runtime stays blocked, no late completion', async () => {
+        // Same proof as the in-bound path: only a destroy() that RESOLVED with the engine registry confirming the stop
+        // completes a retirement. (A preparing engine that never ran is already "off" in that registry.)
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        engine.initGate = new Promise<void>(() => undefined);
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+        const svc = (controller as unknown as { service: { destroy: () => Promise<void> } }).service;
+        let reject!: (e: Error) => void;
+        vi.spyOn(svc, 'destroy').mockImplementation(() => new Promise<void>((_, r) => { reject = r; }));
+        const onLateTerminal = vi.fn();
+        expect(await controller.retireEngineForUnmount(100, onLateTerminal)).toBe('unconfirmed');
+        reject(new Error('destroy failed'));
+        await settle(60);
+        expect(controller.getState()).toBe('ENGINE_INITIALIZING');
+        expect(onLateTerminal).not.toHaveBeenCalled();
+    });
+
+    it('case4: a termination that is STILL hung completes nothing', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        await settle(60);
+        expect(controller.getState()).toBe(t.preparing);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+        t.finishTermination();
+        await settle(60);
+    });
+
+    it('case4: a SUPERSEDED retirement (hard reset since) never completes over its successor', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('initializing', onLateTerminal);
+        await controller.hardResetAwaited('case4-successor');
+        const transitions: string[] = [];
+        const unsubscribe = useSessionStore.subscribe((s, prev) => { if (s.runtimeState !== prev.runtimeState) transitions.push(s.runtimeState); });
+        t.finishTermination();
+        t.finishInit();
+        await settle(60);
+        unsubscribe();
+        expect(onLateTerminal, 'the reset owns the page now').not.toHaveBeenCalled();
+        expect(transitions, 'no stale TERMINATED/IDLE from the superseded retirement').toEqual([]);
+    });
+
+    /**
+     * Codex P2 r4317105661 (#1668, Sam 1792438537): `transition()` awaits, so a hard reset or a successor Start can take the
+     * runtime BETWEEN the late retirement's TERMINATED and IDLE. Interleave exactly there and require that the stale
+     * retirement publishes nothing after it, and never calls back for a take it no longer owns.
+     */
+    const interleaveAfterLateTerminated = (successor: () => Promise<void>) => {
+        const ctl = controller as unknown as { transition: (state: string, ...rest: unknown[]) => Promise<void> };
+        const original = ctl.transition.bind(controller);
+        let armed = true;
+        const seen: string[] = [];
+        vi.spyOn(ctl, 'transition').mockImplementation(async (state: string, ...rest: unknown[]) => {
+            await original(state, ...rest);
+            seen.push(state);
+            if (state === 'TERMINATED' && armed) { armed = false; await successor(); }
+        });
+        return seen;
+    };
+
+    it('Codex P2 r4317105661: a hard reset + successor Start inside the late TERMINATED→IDLE window keeps the successor\'s state', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('initializing', onLateTerminal);
+        engine.initGate = new Promise<void>(() => undefined); // the successor parks in its own preparation
+        let successorState = '';
+        interleaveAfterLateTerminated(async () => {
+            await controller.hardResetAwaited('p2-successor');
+            void controller.startRecording(POLICY as never, []).catch(() => undefined);
+            await vi.waitFor(() => expect(['INITIATING', 'ENGINE_INITIALIZING', 'DOWNLOAD_REQUIRED']).toContain(controller.getState()));
+            successorState = controller.getState();
+        });
+        t.finishTermination();
+        await settle(60);
+        expect(successorState, 'the successor really started inside the window').not.toBe('');
+        expect(controller.getState(), 'the stale retirement never publishes IDLE over the successor').toBe(successorState);
+        expect(useSessionStore.getState().runtimeState).toBe(successorState);
+        expect(onLateTerminal, 'no lease callback for a take the retirement no longer owns').not.toHaveBeenCalled();
+    });
+
+    it('Codex P2 r4317105661: a successor that only ATTACHES a service in the window (same lifecycle version) is still respected', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        const ctl = controller as unknown as { serviceGeneration: number };
+        const seen = interleaveAfterLateTerminated(async () => { ctl.serviceGeneration += 1; });
+        t.finishTermination();
+        await settle(60);
+        expect(seen, 'the retirement stopped after TERMINATED').toEqual(['TERMINATED']);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+    });
+
+    it('Codex P2 r4317105661: with the owner UNCHANGED through the window, the late retirement still completes to IDLE', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        const seen = interleaveAfterLateTerminated(async () => { await settle(5); });
+        t.finishTermination();
+        await settle(60);
+        expect(seen.slice(seen.indexOf('TERMINATED')), 'the retirement still completes both transitions').toEqual(['TERMINATED', 'IDLE']);
+        expect(controller.getState()).toBe('IDLE');
+        expect(onLateTerminal).toHaveBeenCalledTimes(1);
+    });
+
+    /**
+     * Main-path ownership (Sam 1792445123, separate from #1668's late path): `retireEngineForUnmount` awaits the retired
+     * service's destroy() for up to its bound. A returning page can start successor B through the real controller in that
+     * window; when A's destroy then resolves, the retirement must not set engine readiness, TERMINATED or IDLE over B,
+     * and A's receipt speaks only for A's own engine.
+     */
+    const preparingRetiree = async () => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const before = engine.initCalls;
+        engine.initGate = new Promise<void>(() => undefined); // A parks in its own preparation
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(before), { timeout: 5_000 });
+        await settle();
+        let finishTermination!: () => void;
+        let failTermination!: (e: Error) => void;
+        engine.terminateGate = new Promise<void>((resolve, reject) => { finishTermination = resolve; failTermination = reject; });
+        const retiring = controller.retireEngineForUnmount(10_000); // A's destroy is HELD inside the bound
+        await settle();
+        const ctl = controller as unknown as { service: unknown; serviceGeneration: number };
+        expect(ctl.service, 'A was detached before its destroy').toBeNull();
+        return { retiring, generationAtRetire: ctl.serviceGeneration, finishTermination, failTermination };
+    };
+    /** Successor B through the real controller: a hard reset (as take-over/sign-out does), then a Start that attaches B. */
+    const resetThenStartSuccessor = async () => {
+        await controller.hardResetAwaited('main-path-successor');
+        await settle();
+        engine.terminateGate = null; // A's destroy already holds ITS gate; B has none of its own
+        engine.initGate = new Promise<void>(() => undefined); // B parks in its own preparation
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        const ctl = controller as unknown as { service: unknown; serviceGeneration: number };
+        // B is real only when the controller attached B's own service through its Start. While A's termination is still
+        // held, the destroy-before-create gate refuses B's engine and B fails VISIBLY: that state is B's, and it is what a
+        // stale retirement must not overwrite.
+        await vi.waitFor(() => expect(ctl.service, 'B attached its own service').not.toBeNull(), { timeout: 5_000 });
+        await settle(30);
+        return { state: controller.getState(), service: ctl.service, generation: ctl.serviceGeneration };
+    };
+    const recordTransitions = () => {
+        const seen: string[] = [];
+        const unsubscribe = useSessionStore.subscribe((s, prev) => { if (s.runtimeState !== prev.runtimeState) seen.push(s.runtimeState); });
+        return { seen, unsubscribe };
+    };
+
+    it('main path (Sam 1792445123): successor B (reset, then a real Start that attaches B) during A\'s held destroy keeps its runtime', async () => {
+        const a = await preparingRetiree();
+        const b = await resetThenStartSuccessor();
+        expect(b.service, 'precondition: B attached its own service in the window').not.toBeNull();
+        // The service object is a shared instance; ownership is the controller's attachment generation.
+        expect(b.generation, 'precondition: B\'s attachment is newer than A\'s retirement').toBeGreaterThan(a.generationAtRetire);
+        const t = recordTransitions();
+        a.finishTermination();
+        const outcome = await a.retiring;
+        await settle(30);
+        t.unsubscribe();
+        expect(t.seen, 'the stale retirement publishes nothing over B').toEqual([]);
+        expect(controller.getState()).toBe(b.state);
+        expect(useSessionStore.getState().runtimeState).toBe(b.state);
+        expect((controller as unknown as { service: unknown }).service, 'B keeps its service').toBe(b.service);
+        expect(outcome, 'A\'s own engine was proven off').toBe('terminal');
+    });
+
+    it('main path (characterization): WITHOUT a reset, a Start or warm-up during A\'s held destroy attaches no successor service', async () => {
+        const a = await preparingRetiree();
+        const ctl = controller as unknown as { service: unknown; serviceGeneration: number; lifecycleVersion: number };
+        const generation = ctl.serviceGeneration;
+        const version = ctl.lifecycleVersion;
+        const before = engine.initCalls;
+        await controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await controller.warmUp('private').catch(() => undefined);
+        await settle(30);
+        // The runtime still shows A's preparation, so the controller does not attach a second service in this window:
+        // same-lifecycle attachment is not reachable here, and the version/generation guard covers it regardless.
+        expect(ctl.service).toBeNull();
+        expect(ctl.serviceGeneration).toBe(generation);
+        expect(ctl.lifecycleVersion).toBe(version);
+        expect(engine.initCalls).toBe(before);
+        a.finishTermination();
+        await a.retiring;
+    });
+
+    it('main path (Sam 1792445123): a HARD RESET during A\'s held destroy is never followed by A\'s TERMINATED/IDLE', async () => {
+        const a = await preparingRetiree();
+        await controller.hardResetAwaited('main-path-successor');
+        await settle();
+        const afterReset = controller.getState();
+        const t = recordTransitions();
+        a.finishTermination();
+        await a.retiring;
+        await settle(30);
+        t.unsubscribe();
+        expect(t.seen, 'no stale TERMINATED/IDLE after the reset owns the runtime').toEqual([]);
+        expect(controller.getState()).toBe(afterReset);
+    });
+
+    it('main path (Sam 1792445123): with the owner UNCHANGED through A\'s held destroy, the retirement still completes', async () => {
+        const a = await preparingRetiree();
+        const t = recordTransitions();
+        a.finishTermination();
+        const outcome = await a.retiring;
+        await settle(30);
+        t.unsubscribe();
+        expect(t.seen.slice(t.seen.indexOf('TERMINATED')), 'TERMINATED then IDLE').toEqual(['TERMINATED', 'IDLE']);
+        expect(controller.getState()).toBe('IDLE');
+        expect(outcome).toBe('terminal');
+    });
+
+    it('main path (Sam 1792445123): a REJECTED held destroy stays unconfirmed even when a successor attached meanwhile', async () => {
+        const a = await preparingRetiree();
+        const b = await resetThenStartSuccessor();
+        a.failTermination(new Error('worker would not terminate'));
+        const outcome = await a.retiring;
+        await settle(30);
+        expect(outcome, 'a rejected termination is never proof').toBe('unconfirmed');
+        expect(controller.getState(), 'B is untouched either way').toBe(b.state);
+        expect((controller as unknown as { service: unknown }).service).toBe(b.service);
+    });
+
+    it('case4: the hook releases the take\'s lease on late proof — only while that take still owns it', async () => {
+        const store = () => useSessionStore.getState();
+        const retire = vi.spyOn(controller, 'retireEngineForUnmount');
+        let late: (() => void) | undefined;
+        retire.mockImplementation(async (_bound?: number, onLate?: () => void) => { late = onLate; return 'unconfirmed'; });
+        lease.id = 'take-A';
+        await expect(releaseTakeLeaseOnUnmount(false)).resolves.toBe(false);
+        expect(lease.release).not.toHaveBeenCalled();
+        expect(store().sttStatus.type).toBe('error');
+        late?.();
+        expect(lease.release, 'proven off later: this take\'s lease is released').toHaveBeenCalledTimes(1);
+        expect(store().sttStatus.type, 'its own "could not confirm" status is withdrawn').toBe('idle');
+        // A newer take owns the lease when the proof arrives: nothing of the newer take is touched.
+        lease.release.mockClear();
+        await expect(releaseTakeLeaseOnUnmount(false)).resolves.toBe(false);
+        lease.id = 'take-B';
+        store().setSTTStatus({ type: 'error', message: 'a newer problem' });
+        late?.();
+        expect(lease.release).not.toHaveBeenCalled();
+        expect(store().sttStatus.message).toBe('a newer problem');
+        retire.mockRestore();
     });
 
     it('CASUALTY: a stop that REJECTS with the engine still live — the engine is destroyed, the Retry Save kept, and only then the lease released', async () => {
