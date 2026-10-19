@@ -301,6 +301,21 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
     });
 
+    it.each([1, 2, 3, 4, 5])('case3 causal input-boundary repetition %i: visible provisional cue does not update the rail until committed', () => {
+        const cue = 'I will name the price now.';
+        const { rerender } = render(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening
+            transcriptContent="" interimTranscript={cue} elapsedTime={8} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(screen.getByTestId('live-transcript')).toHaveTextContent(cue);
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'pending');
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('0/2');
+        rerender(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening
+            transcriptContent={cue} interimTranscript="" elapsedTime={9} />);
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'pending');
+    });
+
     it('P1 CASUALTY: Open Mic after-state keeps Practice this again, and it starts a new take', () => {
         // `practiceLoopReview` is always an element once a session completes, and passing it as
         // `slotDContent` REPLACED the default verdict instead of adding to it — taking `Practice this
