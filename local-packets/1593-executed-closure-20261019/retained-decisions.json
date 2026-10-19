@@ -1,0 +1,950 @@
+{
+  "read_at_utc": "2026-10-19T16:00Z",
+  "source": "actual GitHub job logs for all15; raw receipts14; case8 actual downloaded archive separately recomputed",
+  "case8_archive_sha256": "fabadee44005509c7bcc10c40ee80c20dead843922b06120a90b731d834a1a0e",
+  "decisions": [
+    {
+      "case": 1,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "open-mic-first-session",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179969048,
+      "job_id": 117830434231,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:15:39Z",
+      "job_completed": "2026-10-19T00:31:33Z",
+      "artifacts": [
+        {
+          "id": 12156237145,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:6126021aa3a572512431e16b5578f9d53a3893fc61861b7def3908671a678f0c",
+          "expires_at": "2026-10-20T00:15:38Z"
+        },
+        {
+          "id": 12156068001,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:4bb32ac5fc439504a144426290cd9a93be5893e30c174281e2d58307014f3002",
+          "expires_at": "2026-10-20T00:15:38Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "provider failure + received/storage gaps",
+      "next_action": "After #1666/current source is served, capture content-free exact A/B saved-pair/read-result discriminator and complete interrupted-repeat/received evidence with H1/H4.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "base_q4 primary",
+          "verdict": "HOLD",
+          "detail": "the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence"
+        },
+        {
+          "step": "coaching rendered",
+          "verdict": "FAIL",
+          "detail": "coaching did not render (state=error, http=502, reason=provider_http_4xx, provider_status=429); the cause is not proved external"
+        },
+        {
+          "step": "coaching length",
+          "verdict": "HOLD",
+          "detail": "no phrases to measure"
+        },
+        {
+          "step": "coaching phrases distinct",
+          "verdict": "HOLD",
+          "detail": "no phrases to compare"
+        },
+        {
+          "step": "coaching within the character ceiling",
+          "verdict": "HOLD",
+          "detail": "no phrases to measure"
+        },
+        {
+          "step": "coaching visible = saved",
+          "verdict": "HOLD",
+          "detail": "the session row holds no complete saved coaching response"
+        },
+        {
+          "step": "human: coaching is about this speech",
+          "verdict": "HUMAN",
+          "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize"
+        },
+        {
+          "step": "coaching server receipt",
+          "verdict": "HOLD",
+          "detail": "no server receipt for this session"
+        },
+        {
+          "step": "coaching consistent with saved fillers",
+          "verdict": "HOLD",
+          "detail": "no What to try next phrase to check"
+        },
+        {
+          "step": "human: spoken \"uh\" detected and saved (human speech)",
+          "verdict": "HUMAN",
+          "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize"
+        },
+        {
+          "step": "analytics detail shows both AI suggestions",
+          "verdict": "HOLD",
+          "detail": "no saved coaching response to look for"
+        },
+        {
+          "step": "feedback diagnostic chain",
+          "verdict": "HOLD",
+          "detail": "the chain is incomplete"
+        },
+        {
+          "step": "coaching differs between takes",
+          "verdict": "HOLD",
+          "detail": "two saved coaching pairs are needed to compare"
+        },
+        {
+          "step": "coaching prompt binding",
+          "verdict": "HOLD",
+          "detail": "the first take's evidence is unavailable"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        },
+        {
+          "step": "journey telemetry received",
+          "verdict": "HOLD",
+          "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+        },
+        {
+          "step": "coaching telemetry sent",
+          "verdict": "FAIL",
+          "detail": "a coaching outcome event did not leave the page"
+        }
+      ]
+    },
+    {
+      "case": 2,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "focus-points-session",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39180361522,
+      "job_id": 117831608915,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:20:49Z",
+      "job_completed": "2026-10-19T00:33:05Z",
+      "artifacts": [
+        {
+          "id": 12156322057,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:09da070e3090df83da6a5636e6b9e43d4453797739d0256e3056e594197ec78a",
+          "expires_at": "2026-10-20T00:20:47Z"
+        },
+        {
+          "id": 12156157877,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:f13b3322ece0082435cd19058e80484e8edd5d703d2811c3e2114f0a806e7133",
+          "expires_at": "2026-10-20T00:20:47Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "provider/order + missing downstream outcomes",
+      "next_action": "Land qualified #1667 readiness and selected Stop-order source, then run full Focus through New Set/Edit/switch with every coaching request terminal and H2.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "base_q4 primary",
+          "verdict": "HOLD",
+          "detail": "the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence"
+        },
+        {
+          "step": "Focus coaching rendered",
+          "verdict": "FAIL",
+          "detail": "coaching did not render (state=error, http=502, reason=provider_http_4xx, provider_status=429); the cause is not proved external"
+        },
+        {
+          "step": "analytics detail shows both AI suggestions",
+          "verdict": "HOLD",
+          "detail": "no saved coaching response to look for"
+        },
+        {
+          "step": "analytics point detail",
+          "verdict": "HOLD",
+          "detail": "no saved coaching, so the saved review shows no point evidence to read"
+        },
+        {
+          "step": "feedback diagnostic chain",
+          "verdict": "HOLD",
+          "detail": "the chain is incomplete"
+        },
+        {
+          "step": "coaching prompt binding",
+          "verdict": "HOLD",
+          "detail": "the first take's evidence is unavailable"
+        },
+        {
+          "step": "coaching request budget",
+          "verdict": "HOLD",
+          "detail": "a sent coaching request was still unanswered when the bounded wait ended, so provider invocations are unproven"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        },
+        {
+          "step": "journey telemetry received",
+          "verdict": "HOLD",
+          "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+        },
+        {
+          "step": "Focus coaching telemetry sent",
+          "verdict": "FAIL",
+          "detail": "the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)"
+        }
+      ]
+    },
+    {
+      "case": 3,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "focus-points-partial",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39180659914,
+      "job_id": 117832503703,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:24:52Z",
+      "job_completed": "2026-10-19T00:37:52Z",
+      "artifacts": [
+        {
+          "id": 12156955196,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:dd940e79a0fffb26b2e9061e112382f32ab123a1039510fa3f02ae816e2a29e7",
+          "expires_at": "2026-10-20T00:24:50Z"
+        },
+        {
+          "id": 12156019150,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:ddb493bd165e630e296c261aebbe06d6350edbae059392e3402dc9ad43c3cf51",
+          "expires_at": "2026-10-20T00:24:50Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "timing observation ambiguity + provider/outcome gaps",
+      "next_action": "Integrate accepted50d0 marker observer into the frozen Focus caller after1662; retain interval/audio-origin uncertainty and rerun partial fixture without changing9.02s deadline.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "base_q4 primary",
+          "verdict": "HOLD",
+          "detail": "the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence"
+        },
+        {
+          "step": "marker timing vs audio",
+          "verdict": "FAIL",
+          "detail": "a marker changed before its point was spoken, more than 5 s after it or after the next point began, or for an unspoken point"
+        },
+        {
+          "step": "Focus coaching rendered",
+          "verdict": "FAIL",
+          "detail": "coaching did not render (state=error, http=502, reason=provider_http_4xx, provider_status=429); the cause is not proved external"
+        },
+        {
+          "step": "analytics detail shows both AI suggestions",
+          "verdict": "HOLD",
+          "detail": "no saved coaching response to look for"
+        },
+        {
+          "step": "analytics point detail",
+          "verdict": "HOLD",
+          "detail": "no saved coaching, so the saved review shows no point evidence to read"
+        },
+        {
+          "step": "coaching prompt binding",
+          "verdict": "HOLD",
+          "detail": "the first take's evidence is unavailable"
+        },
+        {
+          "step": "coaching request budget",
+          "verdict": "HOLD",
+          "detail": "a sent coaching request was still unanswered when the bounded wait ended, so provider invocations are unproven"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        },
+        {
+          "step": "journey telemetry received",
+          "verdict": "HOLD",
+          "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+        },
+        {
+          "step": "Focus coaching telemetry sent",
+          "verdict": "FAIL",
+          "detail": "the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)"
+        }
+      ]
+    },
+    {
+      "case": 4,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "pending-start-navigation",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179780974,
+      "job_id": 117829875427,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:13Z",
+      "job_completed": "2026-10-19T00:16:26Z",
+      "artifacts": [
+        {
+          "id": 12155623444,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:02ed532066ce7703555d8ca697549a28c167c945953620a3ae1b90ad6c142e7f",
+          "expires_at": "2026-10-20T00:13:11Z"
+        },
+        {
+          "id": 12155349850,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:7894552f9b64e07bc34d9a33f35e8f300338cc160afafa1b38e853b38fc5941f",
+          "expires_at": "2026-10-20T00:13:11Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "confirmed current lifecycle mechanism; historical exact attribution unknown",
+      "next_action": "Qualify/reconcile1668 affirmative engine termination correction, then execute cancel/return bound to retiring generation and actual control state.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "return to Open Mic exposes truthful Start state",
+          "verdict": "FAIL",
+          "detail": "return did not expose an enabled Start/retry action consistent with model state idle"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    },
+    {
+      "case": 5,
+      "historical_disposition_preserved": "PASS",
+      "raw_receipt_acceptance": "PASS",
+      "suite": "save-retry-recovery-request-lost",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179810724,
+      "job_id": 117829964834,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:58Z",
+      "job_completed": "2026-10-19T00:19:37Z",
+      "artifacts": [
+        {
+          "id": 12155708690,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:12caa8dd1bb411f6139328fc85511075bf6f663c7f5d1de9e5570ca3001bdcfc",
+          "expires_at": "2026-10-20T00:13:34Z"
+        },
+        {
+          "id": 12155608787,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:81dcaf6d36ee6a14223280ebdab8c4dfc1b93157db070c1f386885c680fbd978",
+          "expires_at": "2026-10-20T00:13:34Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "historical PASS",
+      "next_action": "Preserve historical request-lost PASS; rebind only final-release acceptance/evidence as Sam selects, not a new repair.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    },
+    {
+      "case": 6,
+      "historical_disposition_preserved": "PASS",
+      "raw_receipt_acceptance": "PASS",
+      "suite": "save-retry-recovery-response-lost",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39180125712,
+      "job_id": 117830911973,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:17:42Z",
+      "job_completed": "2026-10-19T00:23:24Z",
+      "artifacts": [
+        {
+          "id": 12156390093,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:3400b034f01e85a51856f42beb943baa95ff85c9aa83a81d30aa356f26e25d5f",
+          "expires_at": "2026-10-20T00:17:41Z"
+        },
+        {
+          "id": 12155243926,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:210afbeb84027b7667f9e31a4d9067482a328ab63113d97bb606aa599131abe5",
+          "expires_at": "2026-10-20T00:17:41Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "historical PASS",
+      "next_action": "Preserve historical response-lost PASS; rebind only final-release acceptance/evidence as Sam selects, not a new repair.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    },
+    {
+      "case": 7,
+      "historical_disposition_preserved": "INCOMPLETE",
+      "raw_receipt_acceptance": "INCOMPLETE",
+      "suite": "feedback-association-boundaries-older-take",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39180129880,
+      "job_id": 117830923753,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:17:46Z",
+      "job_completed": "2026-10-19T00:23:37Z",
+      "artifacts": [
+        {
+          "id": 12155782519,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:abf6874a885b59147d929799ca56853bfcb69034f1167c2b161897097891c0bb",
+          "expires_at": "2026-10-20T00:17:44Z"
+        },
+        {
+          "id": 12155209075,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:51449553e941e362e980138e229e13d21f760daa7b89dc3dd7f8a4702fbf527e",
+          "expires_at": "2026-10-20T00:17:44Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "assurance/received-binding gap; association passed",
+      "next_action": "On served1665 receipt integration, join actual older-take failure diagnostic to received terminal and storage-success feedback; do not repeat accepted association fixes.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "feedback diagnostic chain",
+          "verdict": "HOLD",
+          "detail": "the chain is incomplete"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        },
+        {
+          "step": "journey telemetry received",
+          "verdict": "HOLD",
+          "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+        }
+      ]
+    },
+    {
+      "case": 8,
+      "historical_disposition_preserved": "PASS",
+      "raw_receipt_acceptance": "INCOMPLETE",
+      "suite": "feedback-association-boundaries-no-session",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179784510,
+      "job_id": 117829885363,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:15Z",
+      "job_completed": "2026-10-19T00:16:26Z",
+      "artifacts": [
+        {
+          "id": 12155732985,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:fabadee44005509c7bcc10c40ee80c20dead843922b06120a90b731d834a1a0e",
+          "expires_at": "2026-10-20T00:13:13Z"
+        },
+        {
+          "id": 12155409198,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:ae6d40a92bb2868c5dade8ed74c159656c33b99e15bd800ff2e314b732b98f71",
+          "expires_at": "2026-10-20T00:13:13Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "historical reconciled PASS",
+      "next_action": "Preserve historical no-session feedback PASS, independently recomputed here from actual archive receipt+readback; rebind only final release.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        },
+        {
+          "step": "journey telemetry received",
+          "verdict": "HOLD",
+          "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+        }
+      ]
+    },
+    {
+      "case": 9,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "abandon-and-two-tabs-navigate-away",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179788446,
+      "job_id": 117829896871,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:18Z",
+      "job_completed": "2026-10-19T00:17:23Z",
+      "artifacts": [
+        {
+          "id": 12156190633,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:3db7e55ef61ee6224225d174e374dd9e6582647aa124f372764748de1c622114",
+          "expires_at": "2026-10-20T00:13:16Z"
+        },
+        {
+          "id": 12156101081,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:68f7feeea7a65ad352a6113dbae25e450c0e1f0b142e204176eac7f011a3cc84",
+          "expires_at": "2026-10-20T00:13:16Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "harness modal intercept",
+      "next_action": "Use served1662 modal-dismissal/finalizer source and actual rendered Leave/return/saved-once proof; no new modal source change.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "scenario execution",
+          "verdict": "FAIL",
+          "detail": "TimeoutError"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    },
+    {
+      "case": 10,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "abandon-and-two-tabs-close-tab",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179792398,
+      "job_id": 117829911186,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:22Z",
+      "job_completed": "2026-10-19T00:19:04Z",
+      "artifacts": [
+        {
+          "id": 12156240560,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:5fbe20bba72540d67255bd14de3cc9f05a9108e0a1d280ecb844b6d185b63cdc",
+          "expires_at": "2026-10-20T00:13:20Z"
+        },
+        {
+          "id": 12155554091,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:848e903a1d479a7d7dda3048ae9cb1a2202422081bbafe217e755817ba4244c3",
+          "expires_at": "2026-10-20T00:13:20Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "oracle mismatch; historical fence/authority unavailable",
+      "next_action": "CLI approved disjoint fence oracle then explicit shared-caller integration/capture; bind exact old/new rows, permanent fence and absent authority, not zero-active or mandatory release stamp.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "next take saves only itself",
+          "verdict": "FAIL",
+          "detail": "1 session row(s) are still active after the next take saved"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    },
+    {
+      "case": 11,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "abandon-and-two-tabs-take-over",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179796291,
+      "job_id": 117829919835,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:24Z",
+      "job_completed": "2026-10-19T00:17:37Z",
+      "artifacts": [
+        {
+          "id": 12156160721,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:f88dd3326f4fa5d935c281debaa93bf67af6fa5c46119380abfc3a983527f852",
+          "expires_at": "2026-10-20T00:13:22Z"
+        },
+        {
+          "id": 12156066235,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:0e28a9995650df84b175f9f30143667454ae43a8f9f9c6a240735f10708ddf88",
+          "expires_at": "2026-10-20T00:13:22Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "harness preparation/refusal order, later observer corrections accepted",
+      "next_action": "Use receiving whole-window1662 collector and one bounded same-browser/isolated-device refusal/takeover receipt, including opening state and lost-document proof.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "scenario execution",
+          "verdict": "FAIL",
+          "detail": "Error"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    },
+    {
+      "case": 12,
+      "historical_disposition_preserved": "HELD",
+      "raw_receipt_acceptance": null,
+      "suite": "adverse-mic-model-mic-denied (no final receipt)",
+      "release": "7163f00d9c1b3fac36fd8cc13afd476b69f4ec0a",
+      "run_id": 39167876945,
+      "job_id": 117794561218,
+      "run_attempt": 1,
+      "job_started": "2026-10-18T21:26:59Z",
+      "job_completed": "2026-10-18T21:57:46Z",
+      "artifacts": [
+        {
+          "id": 12151274589,
+          "name": "gate-3-dast-diagnostic-ineligible-7163f00d9c1b3fac36fd8cc13afd476b69f4ec0a",
+          "digest": "sha256:75ddcec5a0ec16855c282b9b1624e93cb0affba39e4cecaaa83122eb1c5314d1",
+          "expires_at": "2026-10-19T21:26:56Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log; only diagnostic-ineligible artifact, no receipt artifact",
+      "classification": "missing final receipt; original cause and native proof unverified",
+      "next_action": "Sam keeps recovered private ownership binding/cleanup disposition separate; qualify bounded finalization and run authorized actual-denial recovery; H5 native prompt/original-page scope still unexecuted.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": []
+    },
+    {
+      "case": 13,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "adverse-mic-model-download-fails",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179799844,
+      "job_id": 117829930866,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:27Z",
+      "job_completed": "2026-10-19T00:22:37Z",
+      "artifacts": [
+        {
+          "id": 12156231000,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:6720cf2836fdaaf39ed6495ebcf7bacc57ac3dd427a86ea0097cb366cd886883",
+          "expires_at": "2026-10-20T00:13:25Z"
+        },
+        {
+          "id": 12155464910,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:b39468c7bf9c2b2a52512667817f7b7500603262e18187e939006495f89bdac9",
+          "expires_at": "2026-10-20T00:13:25Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "truthful fault status failed; old recovery/noCloud/cleanup passed",
+      "next_action": "At served fault-status+1662 observer source, bound injected model-asset request/failure to fresh one-press attempt, preserve visible error/Retry then explicit recovery; old recovery positives stay.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "model download failure is stated truthfully",
+          "verdict": "FAIL",
+          "detail": "the download failure ended as idle, not a failed state"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    },
+    {
+      "case": 14,
+      "historical_disposition_preserved": "FAIL",
+      "raw_receipt_acceptance": "FAIL",
+      "suite": "adverse-mic-model-offline-mid-download",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179803528,
+      "job_id": 117829942794,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:32Z",
+      "job_completed": "2026-10-19T00:22:49Z",
+      "artifacts": [
+        {
+          "id": 12155612791,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:a0c9bdd87066b2a42e9462f711699f4798502f439320a6017ca7353a1dcfbc23",
+          "expires_at": "2026-10-20T00:13:28Z"
+        },
+        {
+          "id": 12155358662,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:b99ef568fda93d94ba18b8724104411450bc8e439ced25e1a8902e42d1a9429a",
+          "expires_at": "2026-10-20T00:13:28Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "truthful fault status failed; old recovery/noCloud/cleanup passed",
+      "next_action": "Same selected-release proof with counter armed before offline await and injection result; retained count1 remains exercised while exact binding improves.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "model download failure is stated truthfully",
+          "verdict": "FAIL",
+          "detail": "the download failure ended as idle, not a failed state"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    },
+    {
+      "case": 15,
+      "historical_disposition_preserved": "INCOMPLETE",
+      "raw_receipt_acceptance": "INCOMPLETE",
+      "suite": "returning-user-navigation",
+      "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "run_id": 39179807441,
+      "job_id": 117829954812,
+      "run_attempt": 1,
+      "job_started": "2026-10-19T00:13:58Z",
+      "job_completed": "2026-10-19T00:16:59Z",
+      "artifacts": [
+        {
+          "id": 12156275147,
+          "name": "rwt-receipts-attempt-1",
+          "digest": "sha256:29000f382e4a6f190cac06796e4e6583888506e1f3ced4b2e5c3f5ba8b9749dc",
+          "expires_at": "2026-10-20T00:13:31Z"
+        },
+        {
+          "id": 12156195608,
+          "name": "gate-3-dast-diagnostic-ineligible-ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+          "digest": "sha256:76a377fc511ffe77e321f2fc48439de22451d2abbc9ec3d664457a97bebfd9f2",
+          "expires_at": "2026-10-20T00:13:31Z"
+        }
+      ],
+      "accessible_evidence": "actual decoded job log + parsed RWT_RECEIPT",
+      "classification": "fixture eligibility HOLD + unperformed native/phone observations",
+      "next_action": "Select supported runner+authenticated eligible existing fixture and finish before2026-10-20T15:30Z; actual no-write navigation plus separate H5/H6 evidence.",
+      "final_release_acceptance": "NOT_ESTABLISHED",
+      "nonpass_rows": [
+        {
+          "step": "returning-user access",
+          "verdict": "HOLD",
+          "detail": "this account cannot start a recording (expired or unentitled); not used for a recording journey"
+        },
+        {
+          "step": "human: On a real device, does the first recording ask for the microphone and behave truthfully when allowed or denied?",
+          "verdict": "HUMAN",
+          "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize"
+        },
+        {
+          "step": "human: On a real phone, does the saved confirmation stay visible when Stop is tapped during a flick?",
+          "verdict": "HUMAN",
+          "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        }
+      ]
+    }
+  ],
+  "successor_receipts": [
+    {
+      "case": 1,
+      "run": 39215823020,
+      "job": 117939313670,
+      "release": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+      "raw_acceptance": "INCOMPLETE",
+      "nonpass_rows": [
+        {
+          "step": "base_q4 primary",
+          "verdict": "HOLD",
+          "detail": "the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence"
+        },
+        {
+          "step": "human: coaching is about this speech",
+          "verdict": "HUMAN",
+          "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize"
+        },
+        {
+          "step": "human: spoken \"uh\" detected and saved (human speech)",
+          "verdict": "HUMAN",
+          "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize"
+        },
+        {
+          "step": "feedback diagnostic chain",
+          "verdict": "HOLD",
+          "detail": "the chain is incomplete"
+        },
+        {
+          "step": "coaching differs between takes",
+          "verdict": "HOLD",
+          "detail": "two saved coaching pairs are needed to compare"
+        },
+        {
+          "step": "coaching prompt binding",
+          "verdict": "HOLD",
+          "detail": "the first take's evidence is unavailable"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        },
+        {
+          "step": "journey telemetry received",
+          "verdict": "HOLD",
+          "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+        }
+      ]
+    },
+    {
+      "case": 2,
+      "run": 39217227242,
+      "job": 117943820127,
+      "release": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+      "raw_acceptance": "INCOMPLETE",
+      "nonpass_rows": [
+        {
+          "step": "base_q4 primary",
+          "verdict": "HOLD",
+          "detail": "the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence"
+        },
+        {
+          "step": "Focus coaching rendered",
+          "verdict": "EXTERNAL",
+          "detail": "external provider unavailable (provider timeout) — non-blocking per PO; the take stayed saved, the unavailable message and an enabled Try again were shown. Successful coaching was not exercised."
+        },
+        {
+          "step": "Focus coaching length",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the coaching provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "Focus coaching distinct",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the coaching provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "Focus coaching makes no omission claim",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the coaching provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "Focus coaching server receipt",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the coaching provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "Focus coaching within the character ceiling",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the coaching provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "Focus coaching refers to an open point",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the coaching provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "Focus coaching provenance",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the coaching provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "Focus coaching visible = saved",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the coaching provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "human: Focus coaching helps cover the chosen points",
+          "verdict": "HUMAN",
+          "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize"
+        },
+        {
+          "step": "analytics detail shows both AI suggestions",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the take has no saved coaching because the provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "saved review is the first block",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the take has no saved coaching because the provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "\"From this session\" evidence",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the take has no saved coaching because the provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "one practice action",
+          "verdict": "EXTERNAL",
+          "detail": "not exercised: the take has no saved coaching because the provider was unavailable (external, non-blocking per PO)"
+        },
+        {
+          "step": "analytics point detail",
+          "verdict": "HOLD",
+          "detail": "no saved coaching, so the saved review shows no point evidence to read"
+        },
+        {
+          "step": "feedback diagnostic chain",
+          "verdict": "HOLD",
+          "detail": "the chain is incomplete"
+        },
+        {
+          "step": "coaching prompt binding",
+          "verdict": "HOLD",
+          "detail": "the first take's evidence is unavailable"
+        },
+        {
+          "step": "coaching request budget",
+          "verdict": "HOLD",
+          "detail": "a sent coaching request was still unanswered when the bounded wait ended, so provider invocations are unproven"
+        },
+        {
+          "step": "signup-stage telemetry received",
+          "verdict": "HOLD",
+          "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+        },
+        {
+          "step": "journey telemetry received",
+          "verdict": "HOLD",
+          "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+        },
+        {
+          "step": "Focus coaching telemetry sent",
+          "verdict": "EXTERNAL",
+          "detail": "the first take's review request, this request's failure diagnostic and the app's failure report (bound by emission order) left the page; success telemetry not exercised — external provider outage"
+        }
+      ]
+    }
+  ]
+}
