@@ -286,6 +286,9 @@ test.describe('RWT — Open Mic first session @live', () => {
             // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
             const observed = await steps.step('telemetry observed', () => tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 }));
             receipt.meta.finalTelemetryObserved = observed?.observed ?? false;
+            // Codex P2 r4316425029: an event-specific wait returns at once when its events were decoded after the FIRST take,
+            // so a lifecycle failure from the LAST take may still be queued — settle every attached page's own flush first.
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
             await steps.step('watchdog', () => watch.record(receipt));
             // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary
             // tap after a bounded settle of every sent exchange. Unanswered or unreadable stays HOLD — never a zero or the max.

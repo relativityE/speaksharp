@@ -126,42 +126,74 @@ describe('16:15 tail RETURN — the refusal window ends at the take-over GESTURE
         expect(closeObservationWindow()).toMatchObject({ boundary: 'none', gestureAt: null });
     });
 
-    /** A changes at `gestureOffset` from B's gesture; the observer delivers at the end of that task, as in a browser. */
-    const aAt = async (gestureOffset: number, change: () => void) => {
-        vi.useFakeTimers({ toFake: ['Date'] });
+    /**
+     * A's realm with its heartbeat on fake timers: open at 10 000, B's gesture at 11 000. `advance` runs the page's tasks
+     * (ticks every 10 ms); `stall` jumps the clock with NO task running in between (a blocked event loop).
+     */
+    const realmA = () => {
+        vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
         vi.setSystemTime(10_000);
-        page();
+        const tracks = page();
         open('w-a');
-        vi.setSystemTime(10_000 + 1_000 + gestureOffset);
-        change();
-        await Promise.resolve();
-        vi.setSystemTime(10_000 + 2_000);
-        return closeObservationWindow({ until: 10_000 + 1_000, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS });
+        return {
+            tracks,
+            advance: (ms: number) => vi.advanceTimersByTime(ms),
+            stall: (to: number) => vi.setSystemTime(to),
+            close: () => closeObservationWindow({ until: 11_000, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS }),
+        };
     };
+    const deliver = () => Promise.resolve(); // the observer delivers at the end of the mutating task
 
-    it('A interrupted just BEFORE the gesture (beyond the margin) is in the refusal window', async () => {
-        const a = await aAt(-200, () => { root.setAttribute('data-runtime-state', 'STOPPING'); root.setAttribute('data-runtime-state', 'RECORDING'); });
-        expect(a).toMatchObject({ boundary: 'time', boundaryUncertain: false, runtimeTransitions: ['RECORDING', 'STOPPING', 'RECORDING'] });
+    it('A interrupted well BEFORE the gesture, with ticks after it, is in the refusal window', async () => {
+        const a = realmA();
+        a.advance(800);
+        root.setAttribute('data-runtime-state', 'STOPPING');
+        root.setAttribute('data-runtime-state', 'RECORDING');
+        await deliver();
+        a.advance(400);
+        expect(a.close()).toMatchObject({ boundary: 'time', boundaryUncertain: false, runtimeTransitions: ['RECORDING', 'STOPPING', 'RECORDING'] });
     });
 
-    it('A displaced AFTER the gesture (the legitimate take-over) is excluded; a track stopped then is excluded too', async () => {
-        const [track] = page();
-        vi.useFakeTimers({ toFake: ['Date'] });
-        vi.setSystemTime(20_000);
-        open('w-a');
-        vi.setSystemTime(21_500);
+    it('A displaced AFTER the gesture, past a post-gesture tick (the legitimate take-over), is excluded', async () => {
+        const a = realmA();
+        a.advance(1_200);
         root.setAttribute('data-runtime-state', 'READY');
-        track.stop();
-        await Promise.resolve();
-        const a = closeObservationWindow({ until: 21_000, marginMs: TAKEOVER_BOUNDARY_MARGIN_MS });
-        expect(a).toMatchObject({ boundary: 'time', boundaryUncertain: false, runtimeTransitions: ['RECORDING'], tracksStoppedSinceOpen: 0 });
+        a.tracks[0].stop();
+        await deliver();
+        a.advance(100);
+        expect(a.close()).toMatchObject({ boundary: 'time', boundaryUncertain: false, runtimeTransitions: ['RECORDING'], tracksStoppedSinceOpen: 0 });
     });
 
-    it('an A change within the margin of the gesture is uncertain (HOLD), never assigned to either window', async () => {
-        const a = await aAt(TAKEOVER_BOUNDARY_MARGIN_MS / 2, () => root.setAttribute('data-runtime-state', 'STOPPING'));
-        expect(a.boundaryUncertain).toBe(true);
+    it('delayed-observation RETURN: a change made BEFORE the gesture but delivered after it (a stalled loop, no tick between) is uncertain — HOLD', async () => {
+        const a = realmA();
+        a.advance(900); // last tick 10 900
+        root.setAttribute('data-runtime-state', 'STOPPING'); // made at 10 900, before the gesture...
+        a.stall(11_100); // ...but the task runs on: no tick until well after the gesture (beyond the clock margin)
+        await deliver(); // delivered at 11 100 — after B's gesture
+        a.advance(300); // the loop resumes; ticks after the gesture
+        const closed = a.close();
+        expect(closed.boundaryUncertain, 'never silently excluded as post-take-over').toBe(true);
         const b: ObservationClose = { token: 'w-b', boundary: 'gesture', boundaryUncertain: false, gestureAt: 11_000, runtimeTransitions: ['READY'], runtimeNow: 'READY',
             modelTransitions: ['download-required'], modelNow: 'download-required', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 0, recorderVisible: false };
-        expect(leaseRefusalWindowVerdict({ observed: true, refusalCopyShown: true, cold: true, modelRequests: 0, a, b }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ observed: true, refusalCopyShown: true, cold: true, modelRequests: 0, a: closed, b }).status).toBe('HOLD');
     });
+
+    it('a heartbeat that never ticked after the gesture leaves every post-gesture entry uncertain (HOLD)', async () => {
+        const a = realmA();
+        a.advance(900);
+        a.stall(11_400);
+        root.setAttribute('data-runtime-state', 'READY');
+        await deliver();
+        expect(a.close().boundaryUncertain).toBe(true);
+    });
+
+    it('an A change within the clock margin of the gesture is uncertain (HOLD) even with ticks around it', async () => {
+        const a = realmA();
+        a.advance(1_020);
+        root.setAttribute('data-runtime-state', 'STOPPING');
+        await deliver();
+        a.advance(200);
+        expect(a.close().boundaryUncertain).toBe(true);
+    });
+
 });

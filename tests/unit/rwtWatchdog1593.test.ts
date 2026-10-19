@@ -1285,15 +1285,16 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
                 // The step immediately before the verdict (within its own finalizer) must be a telemetry wait.
                 const before = src.slice(src.lastIndexOf('finalizer.once(async () => {', at), at);
                 const steps = [...before.matchAll(/steps\.step\('([^']+)'/g)].map((m) => m[1]);
-                expect({ file: f, previous: steps[steps.length - 1] }).toEqual({ file: f, previous: expect.stringMatching(/^telemetry (observed|settle)$/) });
+                expect({ file: f, previous: steps[steps.length - 1] }).toEqual({ file: f, previous: 'telemetry settle' });
             }
         }
         expect(records, 'every finalizer that records a watchdog verdict was checked').toBe(10);
     });
 
-    it('Sam 845401a5 #2: every changed finalizer settles EVERY attached page, not the first flush', () => {
-        for (const f of ['rwt-abandon-and-two-tabs', 'rwt-adverse-mic-model', 'rwt-feedback-association-boundaries', 'rwt-save-retry-recovery', 'rwt-pending-start-navigation']) {
-            const src = readFileSync(`tests/live/${f}.live.spec.ts`, 'utf8');
+    it('Sam 845401a5 #2 + Codex P2 r4316425029: EVERY finalizer settles every attached page, not the first flush', () => {
+        for (const f of ['rwt-abandon-and-two-tabs', 'rwt-adverse-mic-model', 'rwt-feedback-association-boundaries', 'rwt-save-retry-recovery', 'rwt-pending-start-navigation',
+            'rwt-open-mic-first-session', 'rwt-products-navigation', '../helpers/rwtFocusPointsJourney']) {
+            const src = readFileSync(f.startsWith('../') ? 'tests/live/helpers/rwtFocusPointsJourney.ts' : `tests/live/${f}.live.spec.ts`, 'utf8');
             expect({ f, perPage: src.includes("steps.step('telemetry settle', () => tap.settleEveryPage("), anyPage: src.includes("steps.step('telemetry settle', () => tap.settleQueuedTelemetry(") })
                 .toEqual({ f, perPage: true, anyPage: false });
         }

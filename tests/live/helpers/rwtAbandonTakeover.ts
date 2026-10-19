@@ -268,13 +268,20 @@ export type ObservationClose = {
 };
 
 /**
- * Sam (16:15 tail RETURN): the A-side split at B's gesture. Observer delivery runs at the end of the mutating task (sub-ms
- * to a few ms), while A's displacement by a take-over needs a server round trip, so an A entry within 50 ms of the gesture
- * is genuinely ambiguous — HOLD — and anything earlier belongs to the refusal window.
+ * Sam (16:15 tail RETURN): the cross-realm clock tolerance of the A-side split at B's gesture. Delivery DELAY is not bounded
+ * by it — that is the heartbeat's job (`OBSERVATION_TICK_MS`, see closeObservationWindow).
  */
 export const TAKEOVER_BOUNDARY_MARGIN_MS = 50;
 
-export function openObservationWindow(arg: { token: string; recorderTestId: string }): boolean {
+/**
+ * Sam (case-11 delayed-observation RETURN on 21c8a9d9): the page's own heartbeat while a window is open. An observer record
+ * is delivered at the end of the task that made the mutation, so it is always delivered BEFORE the next tick task runs:
+ * an entry at or before the last tick ≤ the boundary is proven earlier, one after the first tick > the boundary proven
+ * later, and anything between those ticks (a task straddling the boundary, a stalled loop) is uncertain.
+ */
+export const OBSERVATION_TICK_MS = 10;
+
+export function openObservationWindow(arg: { token: string; recorderTestId: string; tickMs?: number }): boolean {
     type Track = { readyState: string; stop: () => void; addEventListener: (t: string, f: () => void) => void };
     const w = window as unknown as Record<string, unknown>;
     const root = document.documentElement;
@@ -304,9 +311,11 @@ export function openObservationWindow(arg: { token: string; recorderTestId: stri
     };
     const observer = new MutationObserver(record);
     observer.observe(root, { attributes: true, attributeFilter: ['data-runtime-state', 'data-model-status'], attributeOldValue: true });
+    const ticks: number[] = [openedAt];
+    const heartbeat = setInterval(() => { ticks.push(Date.now()); }, arg.tickMs ?? 10);
     w.__rwtObservationWindow__ = {
         token: arg.token, recorderTestId: arg.recorderTestId, openedAt, runtime, runtimeAt, model, modelAt, stopped, openTracks, observer, record,
-        liveTracksAtOpen: openTracks.length, acquisitionsAtOpen: log ? log.length : null, gesture: null,
+        liveTracksAtOpen: openTracks.length, acquisitionsAtOpen: log ? log.length : null, gesture: null, ticks, heartbeat,
     };
     return true;
 }
@@ -344,6 +353,7 @@ export function closeObservationWindow(arg: { until?: number; marginMs?: number 
         stopped: Map<Track, number>; openTracks: Track[]; observer: MutationObserver; record: (r: MutationRecord[]) => void;
         acquisitionsAtOpen: number | null; liveTracksAtOpen: number;
         gesture: { at: number; runtime: number; model: number; acquisitions: number | null } | null;
+        ticks: number[]; heartbeat: ReturnType<typeof setInterval>;
     } | undefined;
     const streams = (w.__rwtMicStreams__ as { getAudioTracks: () => Track[] }[] | undefined) ?? [];
     const liveTracks = streams.flatMap((s) => s.getAudioTracks()).filter((t) => t.readyState === 'live').length;
@@ -354,6 +364,7 @@ export function closeObservationWindow(arg: { until?: number; marginMs?: number 
     }
     win.record(win.observer.takeRecords());
     win.observer.disconnect();
+    clearInterval(win.heartbeat);
     const now = Date.now();
     for (const track of win.openTracks) if (track.readyState !== 'live' && !win.stopped.has(track)) win.stopped.set(track, now);
     const log = w.__rwtMicAcquisitionLog__ as unknown[] | undefined;
@@ -375,10 +386,17 @@ export function closeObservationWindow(arg: { until?: number; marginMs?: number 
     if (arg.until !== undefined) {
         const until = arg.until;
         const margin = arg.marginMs ?? 0;
+        // The heartbeat brackets the boundary: entries delivered between the last tick at/before it and the first tick
+        // after it may come from a task that straddled it (a delayed delivery) — uncertain, never assigned.
+        const lastTickBefore = Math.max(...win.ticks.filter((t) => t <= until - margin), Number.NEGATIVE_INFINITY);
+        const afterTicks = win.ticks.filter((t) => t > until + margin);
+        const firstTickAfter = afterTicks.length ? Math.min(...afterTicks) : Number.POSITIVE_INFINITY;
         let uncertain = false;
         const side = (t: number): 'before' | 'after' => {
-            if (Math.abs(t - until) < margin) uncertain = true;
-            return t < until - margin ? 'before' : 'after';
+            if (t <= lastTickBefore) return 'before';
+            if (t > firstTickAfter) return 'after';
+            uncertain = true;
+            return 'after';
         };
         const runtime = win.runtime.filter((_v, i) => i === 0 || side(win.runtimeAt[i]) === 'before');
         const model = win.model.filter((_v, i) => i === 0 || side(win.modelAt[i]) === 'before');

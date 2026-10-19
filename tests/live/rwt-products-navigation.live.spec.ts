@@ -104,6 +104,9 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the receipt always runs.
             const steps = new FinalizationSteps();
             await steps.step('telemetry observed', () => tap.awaitObserved(page, { journey_step: 1 }));
+            // Codex P2 r4316425029: an event-specific wait returns at once when its events were decoded after the FIRST take,
+            // so a lifecycle failure from the LAST take may still be queued — settle every attached page's own flush first.
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
             await steps.step('watchdog', () => watch.record(receipt));
             await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
             await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
