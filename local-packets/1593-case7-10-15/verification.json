@@ -1,0 +1,37 @@
+{
+  "recordedAtUtc": "2026-10-19T06:31:00Z",
+  "sourceBase": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+  "initialProofCheckpoint": "5ea7dc9e5a012db61bba0c1959748162dcdade1a",
+  "focused": {
+    "initialTests": 76,
+    "initialPassed": 76,
+    "case7Boundary": 3,
+    "databaseSuite": 20,
+    "abandonOracleSuite": 53,
+    "enhancedRpcControlsRetested": 2,
+    "enhancedRpcControlsPassed": 2,
+    "existingHumanFinalizerControlsPassed": 32,
+    "existingAdapterControlsPassed": 34,
+    "scopedEslintExitCode": 0,
+    "retainedReceiptAuditExitCode": 0
+  },
+  "fullQuality": {
+    "command": "pnpm quality",
+    "exitCode": 0,
+    "completedUtc": "2026-10-19T06:30:26Z",
+    "checks": ["product contract", "bounded repository lint", "frontend typecheck", "live typecheck", "evidence typecheck", "banned eslint-disable guard"]
+  },
+  "sourceBehaviorProved": [
+    "Both forced and stale replacement permanently fence the exact abandoned row.",
+    "Actual complete_session_v2 saves the distinct successor and the displaced recovery.",
+    "Identical displaced completion replay is idempotent; only two rows remain.",
+    "Recovery completion preserves the permanent fence and current lease identity.",
+    "Old recording heartbeat, accrual, fence removal and reopening are refused.",
+    "Valid provider429/Edge502 feedback chain has no received settlement binding; success control does; borrowing newer request fails."
+  ],
+  "limits": [
+    "PGlite uses the explicit migration chain in the test, not every later migration or the hosted database.",
+    "No historical fence/lease facts can be reconstructed from the retained row counts alone.",
+    "No live execution, provider/model activity, deployment, migration apply, data mutation or human/device acceptance."
+  ]
+}

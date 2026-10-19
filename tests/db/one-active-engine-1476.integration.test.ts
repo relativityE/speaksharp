@@ -125,6 +125,12 @@ const statusOf = async (d: PGlite, id: string) =>
 describe('#1476 — one account, one authorized active engine (server fence)', () => {
     it.each(['forced', 'stale'] as const)('case10 receipt proof: %s replacement permanently fences the recoverable take after its successor saves and releases', async (replacement) => {
         const d = await db();
+        const rpcComplete = async (id: string) => (await d.query<{ r: J }>(
+            `SELECT public.complete_session_v2(
+                p_session_id => $1::uuid, p_status => 'completed', p_final_duration => 42, p_reason => NULL,
+                p_next_action => '{"kind":"practice_again","reason":"synthetic"}'::jsonb,
+                p_total_words => 7, p_clarity_score => 0.9, p_wpm => 120,
+                p_filler_counts => '{}'::jsonb, p_pause_metrics => NULL, p_final_transcript => 'synthetic take words') AS r`, [id])).rows[0].r;
         try {
             await acquire(d, L1);
             const abandoned = sessionId(await start(d, L1))!;
@@ -133,7 +139,7 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
             const next = sessionId(await start(d, L2))!;
             expect(next).toBeTruthy();
             expect(next).not.toBe(abandoned);
-            await directComplete(d, next);
+            expect(await rpcComplete(next)).toMatchObject({ success: true, idempotent: false, final_status: 'completed' });
             await d.query(`SELECT public.release_recording_lease($1::uuid)`, [L2]);
             expect(await leaseRow(d)).toBeUndefined();
             const rows = (await d.query<{ id: string; status: string; recording_fenced_at: string | null; recording_fenced_reason: string | null }>(
@@ -151,8 +157,14 @@ describe('#1476 — one account, one authorized active engine (server fence)', (
             expect(await acquire(d, L1)).toMatchObject({ acquired: true });
             await expect(keepRecording(d, abandoned)).rejects.toThrow(/lease_revoked/);
             // Recovery remains a save, never authorization to continue recording.
-            await directComplete(d, abandoned);
+            expect(await rpcComplete(abandoned)).toMatchObject({ success: true, idempotent: false, final_status: 'completed' });
+            expect(await rpcComplete(abandoned), 'a lost response retries the same displaced take exactly once').toMatchObject({ success: true, idempotent: true });
             expect((await statusOf(d, abandoned)).status).toBe('completed');
+            const saved = (await d.query<{ id: string; recording_fenced_at: string; recording_fenced_reason: string }>(
+                `SELECT id, recording_fenced_at, recording_fenced_reason FROM public.sessions WHERE user_id = $1`, [U])).rows;
+            expect(saved).toHaveLength(2);
+            expect(saved.find((r) => r.id === abandoned)).toMatchObject({ recording_fenced_at: old.recording_fenced_at, recording_fenced_reason: 'displaced' });
+            expect((await leaseRow(d))?.lease_id, 'recovery completion must not switch the current lease').toBe(L1);
             await expect(d.query(`UPDATE public.sessions SET status = 'active' WHERE id = $1`, [abandoned])).rejects.toThrow(/lease_revoked/);
         } finally { await d.close(); }
     });

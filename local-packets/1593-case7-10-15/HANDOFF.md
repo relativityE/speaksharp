@@ -17,6 +17,8 @@ Run `39179792398`: returned Start truthfully refused once then recorded; the suc
 
 Two added PGlite migration-chain controls exercise forced and stale replacement. They show the abandoned row remains `active` with a permanent `displaced` fence while the distinct successor is completed and its lease released. Old heartbeats fail; duration accrual, fence removal and reopening fail. Reacquiring even the old lease id does not remove the row fence; recovery saving remains possible. The current live zero-active oracle rejects this valid source state. These are offline source controls, not a claim about the deployed/historical row.
 
+The follow-up runs both successor completion and displaced recovery through the actual eleven-argument `complete_session_v2` RPC. The displaced response-lost replay is idempotent, row count remains two, the permanent fence is unchanged and completion does not switch the current lease. Both forced/stale controls pass. The fixture applies the explicit historical migration chain listed in the test, not every later migration or the hosted database.
+
 Required caller capture and oracle contract for App:
 
 1. Bind the abandoned row and lease before leaving; capture exact baseline identities. Bind the distinct successor row/lease after return. Counts alone cannot establish exclusion.
@@ -35,7 +37,7 @@ The caller accepts an explicitly authorized `RWT_RETURNING_*` fixture, otherwise
 
 - 76/76: case-7 boundary controls (3), full one-active-engine migration-chain suite (20), existing abandon/recovery oracle suite (53).
 - 32/32 human acceptance/finalization and 34/34 existing coaching adapter controls passed in the initial bounded run. The new provider failure fixture initially used the application's pre-provider quota reason with provider429; corrected to the valid provider HTTP failure shape, then all three controls passed.
-- Scoped ESLint passed. Full repository quality is recorded separately at the published checkpoint.
+- Scoped ESLint passed. Full `pnpm quality` passed (exit 0): product contract, bounded repository lint, frontend/live/evidence typechecks and banned-disable check. Both enhanced forced/stale RPC controls were re-executed after the initial 76-test checkpoint and passed.
 - `audit-retained.mts <private-run-set2-directory>` passed against four retained inputs; `retained-audit.json` contains the input hashes and allowlisted assertions.
 
 No live run, provider/model call, deployment, database apply, production data mutation or physical acceptance was performed. Parent cases remain open until their missing integration/received/live/human evidence is delivered.
