@@ -1437,6 +1437,17 @@ export default class TranscriptionService {
    * NUCLEAR CLEANUP: Forceful termination of all resources.
    * Idempotent and safe against concurrent calls.
    */
+  /**
+   * #1593 case 4 (Sam RETURN on 77780845): whether destroy() AFFIRMATIVELY proved this service's engine terminated — its
+   * strategy.terminate() resolved, or it never had an engine. A rejected termination is caught inside destroy(), so a
+   * resolved destroy() alone is not that proof, and neither is the live-engine registry (a preparing engine is not in it).
+   */
+  private terminationConfirmed = false;
+
+  public didConfirmTermination(): boolean {
+    return this.terminationConfirmed;
+  }
+
   public async destroy(): Promise<void> {
     this.isDestroyed = true;
     logger.info({ sId: this.serviceId, state: this.fsm.getState() }, '[TranscriptionService] destroy() invoked');
@@ -1447,6 +1458,7 @@ export default class TranscriptionService {
       if (this.fsm.is('TERMINATED')) {
         // Already terminal — ensure lock is released if it somehow wasn't
         this.lock.release();
+        if (!this.strategy) this.terminationConfirmed = true; // nothing left to terminate
         return;
       }
 
@@ -1466,6 +1478,7 @@ export default class TranscriptionService {
           await this.strategy.terminate(); // ← awaited; this is the only async gate
           logger.debug('[TranscriptionService] strategy.terminate() completed');
           enginesNotConfirmedStopped.delete(this); // termination RESOLVED: the engine is proven done
+          this.terminationConfirmed = true;
         } catch (error: unknown) {
           logger.error({ mode: this.mode, error: error as Error }, '[TranscriptionService] Strategy termination failed');
         }
@@ -1473,6 +1486,7 @@ export default class TranscriptionService {
         this.activeStrategyId = null;
       } else {
         enginesNotConfirmedStopped.delete(this); // no engine to terminate; the microphone is stopped above
+        this.terminationConfirmed = true;
       }
 
       this.runId = null;

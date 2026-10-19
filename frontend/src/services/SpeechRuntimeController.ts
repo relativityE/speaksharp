@@ -5106,11 +5106,12 @@ export class SpeechRuntimeController {
             const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration };
             const destroying = svc.destroy();
             const destroyed = await within(destroying);
-            // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside).
-            if (destroyed !== 'ok' || hasEngineNotConfirmedStopped()) {
+            // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside), and a
+            // preparing engine is not in the live-engine registry: only the service's own affirmative result proves it off.
+            if (destroyed !== 'ok' || hasEngineNotConfirmedStopped() || !svc.didConfirmTermination()) {
                 pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
                 // Only a TIMEOUT can still end well: finish this retirement if its destruction later succeeds.
-                if (destroyed === 'timeout') void destroying.then(() => this.completeLateRetirement(retirement, onLateTerminal), () => undefined);
+                if (destroyed === 'timeout') void destroying.then(() => this.completeLateRetirement(retirement, svc, onLateTerminal), () => undefined);
                 return 'unconfirmed';
             }
         }
@@ -5125,12 +5126,14 @@ export class SpeechRuntimeController {
      * before its TERMINATED/IDLE transitions, and nothing ever completed them: the runtime stayed ENGINE_INITIALIZING or
      * DOWNLOAD_REQUIRED with no service, so Start stayed disabled after the engine was off. Completed here only for THIS
      * retirement and only on proof: no hard reset or new lifecycle since (version), no service attached or replaced since
-     * (generation), the engine proven stopped, and the runtime still the preparation it retired. A rejected or still-hung
-     * destruction never reaches here, and a successor's runtime, finalization or lease is never touched.
+     * (generation), the retiring service's OWN termination affirmatively confirmed (Sam RETURN on 77780845: a caught rejection
+     * and an empty registry are not proof), and the runtime still the preparation it retired. A rejected or still-hung
+     * termination completes nothing, and a successor's runtime, finalization or lease is never touched.
      */
-    private async completeLateRetirement(retirement: { version: number; generation: number }, onLateTerminal?: () => void): Promise<void> {
+    private async completeLateRetirement(retirement: { version: number; generation: number }, retired: TranscriptionService, onLateTerminal?: () => void): Promise<void> {
         if (this.lifecycleVersion !== retirement.version || this.serviceGeneration !== retirement.generation || this.service !== null) return;
-        if (hasEngineNotConfirmedStopped()) return;
+        // Affirmative proof from the retiring service itself: its termination resolved (a caught rejection is not proof).
+        if (!retired.didConfirmTermination() || hasEngineNotConfirmedStopped()) return;
         if (this.state !== 'INITIATING' && this.state !== 'ENGINE_INITIALIZING' && this.state !== 'DOWNLOAD_REQUIRED') return;
         pushNativeRuntimeTrace('controller_unmount_retire_late_terminal', { state: this.state });
         this.setEngineReady(false);

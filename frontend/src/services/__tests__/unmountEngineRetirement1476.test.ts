@@ -310,6 +310,32 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         view.unmount();
     });
 
+    it.each(['initializing', 'download-required'] as const)('case4 (Sam RETURN on 77780845): %s — the engine\'s ACTUAL late termination rejection, caught inside destroy(), completes nothing', async (phase) => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement(phase, onLateTerminal);
+        lease.id = null;
+        t.failTermination(new Error('worker would not terminate'));
+        t.finishInit();
+        await settle(60);
+        // destroy() resolved (its catch) and the preparing engine was never in the live-engine registry — neither is proof.
+        expect(controller.getState(), 'no affirmative termination: Start stays blocked').toBe(t.preparing);
+        expect(useSessionStore.getState().runtimeState).toBe(t.preparing);
+        expect(onLateTerminal, 'no lease release on a rejected termination').not.toHaveBeenCalled();
+    });
+
+    it('case4: an IN-BOUND termination rejection of a preparing engine is not "terminal" either — the lease is kept', async () => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        engine.initGate = new Promise<void>(() => undefined);
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        expect(await controller.retireEngineForUnmount(5_000)).toBe('unconfirmed');
+    });
+
     it('case4: a destroy() that later REJECTS never claims cleanup — runtime stays blocked, no late completion', async () => {
         // Same proof as the in-bound path: only a destroy() that RESOLVED with the engine registry confirming the stop
         // completes a retirement. (A preparing engine that never ran is already "off" in that registry.)
