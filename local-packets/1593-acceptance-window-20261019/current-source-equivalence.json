@@ -1,0 +1,19 @@
+{
+  "api": "https://api.github.com/repos/relativityE/speaksharp/compare/a81fbb97850749596f6fbfba006895fc56c65b26...45c579099c86c38a91d1df811856e822e9cdde97",
+  "oldHead": "a81fbb97850749596f6fbfba006895fc56c65b26",
+  "currentHead": "45c579099c86c38a91d1df811856e822e9cdde97",
+  "status": "ahead",
+  "aheadBy": 1,
+  "changedFiles": [
+    "tests/live/helpers/rwtDocumentIdentity.ts",
+    "tests/live/helpers/rwtWatchdog.ts",
+    "tests/unit/rwtWatchdog1593.test.ts"
+  ],
+  "reviewedFilesUnchanged": [
+    "tests/live/rwt-adverse-mic-model.live.spec.ts",
+    "tests/live/helpers/rwtAdverse.ts",
+    "tests/live/helpers/rwtAbandonTakeover.ts"
+  ],
+  "wholeLatestSuiteRerun": false
+}
+

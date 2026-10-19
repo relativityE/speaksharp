@@ -1,0 +1,87 @@
+{
+  "observedAtUtc": "2026-10-19T13:10:57.260Z",
+  "sourceHead": "a81fbb97850749596f6fbfba006895fc56c65b26",
+  "hashes": {
+    "tests/live/rwt-adverse-mic-model.live.spec.ts": "5a3d48a3256c0dd5442c6bebdc104157d51b941aafac5d4bd79b6991a88767f7",
+    "tests/live/helpers/rwtAdverse.ts": "eb27a2bdce3edd80b40a4f7d53513fc4766d49be69029a8180b41ea3d89157bd",
+    "tests/live/helpers/rwtAbandonTakeover.ts": "24ffa6cde9eab833d7b21393419871e61566540880922377304608f7768d68f0"
+  },
+  "checks": [
+    {
+      "name": "honest failure",
+      "published": [
+        "loading",
+        "error"
+      ],
+      "observed": [
+        "loading",
+        "error"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "name": "ready delivered in distinct observer callback",
+      "published": [
+        "loading",
+        "ready",
+        "error"
+      ],
+      "observed": [
+        "loading",
+        "ready",
+        "error"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "name": "ready then error before observer delivery",
+      "published": [
+        "loading",
+        "ready",
+        "error"
+      ],
+      "observed": [
+        "loading",
+        "error"
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "name": "existing case11 oldValue observer on same mutations",
+      "published": [
+        "loading",
+        "ready",
+        "error"
+      ],
+      "observed": [
+        "ready",
+        "error"
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "name": "requestfailed delivered during awaited offline call",
+      "counter": 0,
+      "verdict": "HOLD",
+      "limit": "Actual listener/injection source with a synthetic scheduler. No claim that Playwright always uses this order or that it caused the historical run."
+    },
+    {
+      "name": "same failed weight request after offline await is counted",
+      "count": 1
+    },
+    {
+      "name": "non-model URL excluded",
+      "count": 0
+    },
+    {
+      "name": "unrelated model config under prefix also counts",
+      "count": 1,
+      "limit": "Prefix/phase count does not prove exact selected weight/attempt/injected-fault identity; Sam already tracks this binding gap."
+    }
+  ],
+  "assertions": 8,
+  "newLiveRuns": 0,
+  "providerCalls": 0,
+  "accountOperations": 0,
+  "finding": "Adverse logger drops intermediate published model ready state in one MutationObserver delivery; actual never-ready oracle returns PASS. Offline injected-fault count also has callback ordering sensitivity."
+}
