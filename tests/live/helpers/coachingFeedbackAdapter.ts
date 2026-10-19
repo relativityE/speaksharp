@@ -392,8 +392,14 @@ export async function feedbackDiagnosticChainRow(input: {
     // digests of the SENT request and terminal attempt ids (never the ids), the product and the configured model.
     // Finalization settles the row from that independent readback; any other HOLD or FAIL carries no binding.
     const sha = (v: string) => createHash('sha256').update(v, 'utf8').digest('hex');
+    // #1593 case 7: the contract normalizes answered failures (timeout, provider_error, etc.), while the page emits
+    // the raw terminal outcome `failure`. Both sides must name the same vocabulary. Never fabricate a binding for a
+    // client-network loss: it has no answered configured-model identity. All existing contract contradictions and
+    // missing page-failure evidence still prevent settlement.
+    const receivedOutcome = expected.outcome === 'success' ? 'success'
+        : expected.outcome !== null && expected.outcome !== 'client_network' ? 'failure' : null;
     const settleable = v.verdict === 'HOLD' && v.reasons.length === 1 && v.reasons[0] === 'telemetry_not_received'
-        && expected.outcome === 'success' && expected.requestId !== null && expected.requestId !== '' && expected.attemptId !== null && expected.attemptId !== '';
+        && receivedOutcome !== null && expected.requestId !== null && expected.requestId !== '' && expected.attemptId !== null && expected.attemptId !== '';
     receipt.row('feedback diagnostic chain', v.verdict,
         v.verdict === 'PASS' ? 'the report resolves to the exact coaching request for this take'
             : v.verdict === 'FAIL' ? 'the report and the coaching request contradict each other' : 'the chain is incomplete',
@@ -401,7 +407,7 @@ export async function feedbackDiagnosticChainRow(input: {
             reasons: v.reasons.join(',') || 'none', echoMismatches,
             ...(settleable ? {
                 expectedRequestSha256: sha(expected.requestId!), expectedAttemptSha256: sha(expected.attemptId!),
-                expectedProduct: input.product, expectedConfiguredModel: input.configuredModel, expectedOutcome: 'success',
+                expectedProduct: input.product, expectedConfiguredModel: input.configuredModel, expectedOutcome: receivedOutcome,
             } : {}),
         });
 }

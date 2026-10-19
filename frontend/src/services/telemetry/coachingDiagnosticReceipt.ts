@@ -20,7 +20,8 @@ export interface CoachingDiagnosticExpectation {
     attemptSha256: string;
     product: 'open_mic' | 'focus_points';
     configuredModel: string;
-    outcome: 'success';
+    /** The page's raw terminal vocabulary; a failed chain can be received without coaching having succeeded. */
+    outcome: 'success' | 'failure';
 }
 
 /** One received row, as the readback query returns it (raw; validated here, never trusted). */
@@ -118,7 +119,7 @@ export function validExpectation(value: unknown): value is CoachingDiagnosticExp
         && typeof e.attemptSha256 === 'string' && SHA64.test(e.attemptSha256)
         && (e.product === 'open_mic' || e.product === 'focus_points')
         && typeof e.configuredModel === 'string' && e.configuredModel.length > 0
-        && e.outcome === 'success';
+        && (e.outcome === 'success' || e.outcome === 'failure');
 }
 
 export function evaluateCoachingDiagnosticReceipt(
@@ -147,6 +148,8 @@ export function evaluateCoachingDiagnosticReceipt(
         if (t.product !== expected.product) reasons.add('product_mismatch');
         if (t.configuredModel !== expected.configuredModel) reasons.add('configured_model_mismatch');
         if (typeof t.clientReleaseId === 'string' && t.clientReleaseId !== releaseSha) reasons.add('release_mismatch');
+        // Failure settlement is new: require positive release binding, not merely absence of a conflicting string.
+        if (expected.outcome === 'failure' && t.clientReleaseId !== releaseSha) reasons.add('release_mismatch');
         // Endpoint and provider stay separate: a success is a 2xx ENDPOINT answer, and its provider provenance must be
         // coherent with its source — FRESH: at least one provider attempt and a 2xx provider response; CACHE: no provider
         // call and no provider status. A malformed status or an unknown source is never read as "no provider".
@@ -158,6 +161,20 @@ export function evaluateCoachingDiagnosticReceipt(
             const fresh = t.source === 'fresh' && attempts !== null && attempts >= 1 && is2xx(provider);
             const cache = t.source === 'cache' && attempts === 0 && provider === null;
             if (!fresh && !cache) reasons.add('provenance_incoherent');
+        }
+        if (t.outcome === 'failure') {
+            const isError = (v: number | null | 'malformed') => typeof v === 'number' && v >= 400 && v < 600;
+            if (!isError(endpoint)) reasons.add('status_incoherent');
+            const attempts = Number.isInteger(t.providerAttempts) ? Number(t.providerAttempts) : null;
+            // A fresh failed provider leg may never answer, time out after 2xx headers, return an error, or produce an
+            // invalid 2xx body / fail persistence. A refusal before the provider has no provider status or attempts.
+            // This is the closed union of answered failure shapes; readback does not prove the exact server reason.
+            // Governed provider_attempts is 0–3 (practiceLoopTelemetry MAX_REPORTED_PROVIDER_ATTEMPTS and allowlist).
+            const fresh = t.source === 'fresh' && attempts !== null && attempts >= 1 && attempts <= 3
+                && typeof endpoint === 'number' && endpoint >= 500 && endpoint < 600
+                && (provider === null || is2xx(provider) || isError(provider));
+            const refusal = t.source === 'unknown' && attempts === 0 && provider === null;
+            if (!fresh && !refusal) reasons.add('provenance_incoherent');
         }
         if (t.outcome === 'success' && !(typeof t.observedModel === 'string' && t.observedModel.length > 0)) reasons.add('observed_model_missing');
     }
