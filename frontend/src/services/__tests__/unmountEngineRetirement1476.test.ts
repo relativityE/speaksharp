@@ -338,6 +338,21 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(controller.isEngineTerminal()).toBe(true);
     });
 
+    it('Sam (#1668): the stop proof is bound to its engine generation — preparing a successor strategy on the same service clears it', async () => {
+        engine.modelCached = true;
+        await controller.startRecording(POLICY as never, []);
+        await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+        const svc = (controller as unknown as { service: { stopTranscription: () => Promise<unknown>; didConfirmTermination: () => boolean; initializeStrategy: (m: string) => Promise<void> } }).service;
+        await svc.stopTranscription();
+        expect(svc.didConfirmTermination()).toBe(true);
+        engine.initGate = new Promise<void>(() => undefined); // the successor stays preparing
+        let prepError: unknown = null;
+        void svc.initializeStrategy('private').catch((e: unknown) => { prepError = e; });
+        await settle();
+        expect(prepError, 'the successor preparation itself ran').toBeNull();
+        await vi.waitFor(() => expect(svc.didConfirmTermination(), 'a preparing successor is not proven off by the earlier stop').toBe(false));
+    });
+
     it('case4: an IN-BOUND termination rejection of a preparing engine is not "terminal" either — the lease is kept', async () => {
         engine.downloadEnabled = false;
         await controller.warmUp('private');

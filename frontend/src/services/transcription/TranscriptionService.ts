@@ -449,6 +449,7 @@ export default class TranscriptionService {
 
       const newStrategy = STTStrategyFactory.create(strategy.mode, this.strategyCallbacks, this.policy);
       this.strategy = newStrategy;
+      this.terminationConfirmed = false; // Sam (#1668): a new engine generation — an earlier stop proof never vouches for it
       this.activeStrategyId = (newStrategy as unknown as { instanceId: string }).instanceId ?? Math.random().toString(36);
 
       // 2. Initialize
@@ -700,6 +701,10 @@ export default class TranscriptionService {
     this.idempotencyKey = this.idempotencyKey || Math.random().toString(STT_CONFIG.ALPHANUMERIC_RADIX).substring(7);
     this.mode = mode;
     if (!this.backgroundPreparation) syncForensicAnchors(mapToRuntimeState(this.fsm.getState()), this.mode);
+
+    // Sam (#1668): preparing an engine — a new instance OR the preserved one — is a new engine generation; an earlier
+    // stop's proof never vouches for it until it is itself proven off.
+    this.terminationConfirmed = false;
 
     // 🏗️ 4. Strategy Lifecycle: Instantiate or Preserve
     if (!this.strategy) {
@@ -1445,7 +1450,8 @@ export default class TranscriptionService {
    * #1593 case 4 (Sam RETURN on 77780845): whether this service AFFIRMATIVELY proved its current engine off — a normal stop
    * completed (Codex P2 r4315983017), or strategy.terminate() resolved, or there was never an engine. A rejected termination
    * is caught inside destroy(), so a resolved destroy() alone is not that proof, and neither is the live-engine registry (a
-   * preparing engine is not in it). Reset when a new run starts its engine.
+   * preparing engine is not in it). Bound to the engine generation: cleared whenever a new strategy is created (preparation)
+   * and when a run starts its engine.
    */
   private terminationConfirmed = false;
 
@@ -1765,8 +1771,13 @@ export default class TranscriptionService {
     // Clear strategy reference
     if (this.strategy) {
       this.strategyVersion++;
+      const terminatedGeneration = this.strategyVersion;
       void this.strategy.terminate().then(
-        () => { enginesNotConfirmedStopped.delete(this); this.terminationConfirmed = true; },
+        () => {
+          enginesNotConfirmedStopped.delete(this);
+          // Proof only for THIS generation: a strategy created since (a successor preparing) is not vouched for.
+          if (this.strategyVersion === terminatedGeneration && this.strategy === null) this.terminationConfirmed = true;
+        },
         (e) => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during reset'),
       );
       this.strategy = null;
