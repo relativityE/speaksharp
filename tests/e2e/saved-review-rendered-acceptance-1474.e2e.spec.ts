@@ -356,12 +356,34 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
         await test.info().attach('slot-layouts-1280x800.json', { body: JSON.stringify(layouts, null, 2), contentType: 'application/json' });
     });
 
+    /**
+     * PROVENANCE MAPPING — the strict tracker below vs the approved natural-growth criteria (Sam 1792446752 / 1792447040).
+     * PO direction, 17 October 2026 19:50 UTC (verified by Sam): "I'm ok with natural growth but I want feedback at eye
+     * level, not something user should go dig for." Documented in #1474 comment 6240521998; reviewed replacements are the
+     * γ suites below (#1650) and the mobile clearance fix (#1652). This block maps; it changes no assertion, and the tracker
+     * is NOT removed until this mapping is reviewed.
+     *
+     * The tracker's claim, per review state (terminal failure, scheduled retry, terminal after retry) vs the saved review:
+     *   A.top, B.top identical      → STILL ASSERTED, passing: `expectSameColumns` compares A and B whole (x, top, width) in
+     *                                 every state inside `reviewJourney`, which this tracker and the acceptance test share.
+     *   C.x/width, D.x/width        → STILL ASSERTED, passing: `expectSameColumns` (C and D stay in their columns).
+     *   C.top, D.top identical      → SUPERSEDED by the PO's natural growth: the C/D row may move with the review's height.
+     *                                 Not a product requirement; identical coordinates are not re-imposed.
+     * What the strict tops were protecting (feedback the user doesn't have to hunt for) is carried by the γ criteria:
+     *   useful coaching at eye level  → `expectGamma`: the prescription / truthful headline `fullyVisible` at the top of the
+     *                                   page, after the exact saved coaching, message and evidence are proven rendered;
+     *   the repeat/retry action        → `expectGamma`: enabled and fully unobscured after programmatic focus and after scroll;
+     *   the secondary counts           → `expectGamma`: all three rows render and are scroll-reachable; plus the invariant here
+     *                                   that THIS RUN stays in slot D with numeric fillers/pace/words in every state.
+     * Those run at 1280/1024/768 (desktop) and 375×812 (mobile) for Open Mic and Focus Points, full/partial/pending/terminal.
+     * Remaining obligations are NOT closed by this mapping: candidate-tree E2E (owed to CI) and deployed / real-phone proof.
+     */
     test('ALL FOUR slot tops identical across saved, pending and terminal states (UNMET: slot C/D tops move with slot B)', async ({ page }) => {
         test.setTimeout(240_000);
         const layouts = await reviewJourney(page);
         // Marked only now, after the whole journey succeeded, so a setup failure can never pass as this known failure.
         // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
-        test.info().annotations.push({ type: 'unmet-requirement', description: '#1474 G10 slot stability — C/D tops differ between review states on main' });
+        test.info().annotations.push({ type: 'unmet-requirement', description: '#1474 G10 slot stability — C/D tops differ between review states on main; superseded by natural growth (see the provenance mapping above), pending review' });
         test.fail(true, 'UNMET on main: slot C/D tops move with slot B between review states');
         const tops = (l: Layout) => ({ A: l.A.top, B: l.B.top, C: l.C.top, D: l.D.top });
         await test.info().attach('slot-tops-1280x800.json', { body: JSON.stringify(Object.fromEntries(Object.entries(layouts).map(([k, l]) => [k, tops(l)])), null, 2), contentType: 'application/json' });
