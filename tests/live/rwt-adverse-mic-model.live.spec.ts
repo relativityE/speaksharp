@@ -233,18 +233,20 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
             let faultOn = false;
             context.on('requestfailed', (r) => { if (faultOn && MODEL_PATH.test(r.url())) modelFailures.afterFault += 1; });
             if (variant === 'download-fails') {
+                // Codex P1 r on f527a033: the phase opens BEFORE the fault is injected, so a failure the injection causes is
+                // always captured inside it (events are judged by their own capture time).
+                watch.setFaultPhase(true); // the injected model fault is expected only until the cause is removed
                 await context.route(MODEL_ASSETS, (route) => route.abort('failed'));
                 faultOn = true;
-                watch.setFaultPhase(true); // the injected model fault is expected only until the cause is removed
                 await page.getByTestId('mic-download').click();
             } else {
                 let modelRequests = 0;
                 context.on('request', (r) => { if (MODEL_PATH.test(r.url())) modelRequests += 1; });
                 await page.getByTestId('mic-download').click();
                 await expect.poll(() => modelRequests, { timeout: 120_000 }).toBeGreaterThan(0).catch(() => undefined);
+                watch.setFaultPhase(true); // opened before going offline: the offline transition itself fails the download
                 await context.setOffline(true);
                 faultOn = true;
-                watch.setFaultPhase(true); // the injected model fault is expected only until the cause is removed
             }
             await failedState(page, 300_000);
             const failure = downloadFailureVerdict({

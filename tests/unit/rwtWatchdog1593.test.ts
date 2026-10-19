@@ -527,3 +527,22 @@ describe('#1662 RETURN on b128cdf9 — page binding, event-time phases, invalida
         expect(FINALIZE_SETTLE_MS).toBeGreaterThan(COACHING_SETTLE_BOUND_MS);
     });
 });
+
+describe('#1662 Codex on f527a033 — each fault phase brackets exactly its injection', () => {
+    const read = (f: string) => readFileSync(f, 'utf8');
+
+    it('P1: the model-fault phase opens BEFORE the fault is injected (route abort, going offline)', () => {
+        const src = read('tests/live/rwt-adverse-mic-model.live.spec.ts');
+        for (const inject of ["await context.route(MODEL_ASSETS, (route) => route.abort('failed'));", 'await context.setOffline(true);']) {
+            const at = src.indexOf(inject);
+            expect(at).toBeGreaterThan(0);
+            expect(src.lastIndexOf('watch.setFaultPhase(true);', at), `${inject} — opened before`).toBeGreaterThan(src.lastIndexOf('watch.setFaultPhase(false);', at));
+        }
+    });
+
+    it('P2: the save-fault phase closes BEFORE Retry Save is pressed', () => {
+        const src = read('tests/live/rwt-save-retry-recovery.live.spec.ts');
+        const retry = src.indexOf("await page.getByTestId('session-retry-save').click();");
+        expect(src.lastIndexOf('watch.setFaultPhase(false);', retry)).toBeGreaterThan(src.lastIndexOf('watch.setFaultPhase(true);', retry));
+    });
+});

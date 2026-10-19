@@ -177,6 +177,9 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
                 messageLength: message.length });
         if (!bannerShown || !retryOffered) throw new Error('the recovery banner with Retry Save was not shown');
 
+        // Codex P2 on f527a033: the injected failure was the FIRST save; Retry Save and everything after it are strict, so a
+        // retry that fails again trips the watchdog instead of being excused as the injection.
+        watch.setFaultPhase(false);
         await page.getByTestId('session-retry-save').click();
         const resolved = await banner.waitFor({ state: 'detached', timeout: 120_000 }).then(() => true).catch(() => false);
         await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 60_000 }).catch(() => undefined);
@@ -194,8 +197,6 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             { rows: rowsAfterRetry.length, completed: rowsAfterRetry.filter((r) => r.status === 'completed').length,
                 persistedIdBound: savedId !== null, completionPosts: drop.completionPosts, completionOutcomes: await completions.evidence() });
 
-        // The fault phase ends with Retry Save: a failure of the NEXT take is never excused by the earlier injection.
-        watch.setFaultPhase(false);
         // The next Start, from the completed review's own repeat action, saves only itself.
         const again = page.getByTestId('verdict-practice-again');
         await expect(again).toBeEnabled({ timeout: 120_000 });
