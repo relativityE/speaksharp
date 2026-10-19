@@ -1,0 +1,34 @@
+{
+  "status": "PM isolated-source preparation error, not product outcome",
+  "reason": "frontend tsconfig references omitted tsconfig.node.json; no tests collected in first attempt. Restored exact current-main config/test-support before retry.",
+  "runs": [
+    {
+      "name": "1254-received-on-main",
+      "exit": 1,
+      "total": 0,
+      "passed": 0,
+      "failed": 0
+    },
+    {
+      "name": "1254-current-main-negative",
+      "exit": 1,
+      "total": 0,
+      "passed": 0,
+      "failed": 0
+    },
+    {
+      "name": "1472-client-rpc-received-on-main",
+      "exit": 1,
+      "total": 0,
+      "passed": 0,
+      "failed": 0
+    },
+    {
+      "name": "1472-new-client-old-rpc-negative",
+      "exit": 1,
+      "total": 0,
+      "passed": 0,
+      "failed": 0
+    }
+  ]
+}

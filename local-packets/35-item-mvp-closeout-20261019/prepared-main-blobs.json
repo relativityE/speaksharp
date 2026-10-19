@@ -1,0 +1,184 @@
+{
+  "97638983": [
+    {
+      "path": "frontend/src/services/progress/progressPresentation.ts",
+      "preparedBlob": "9994b02cdadfe2e03252971b46cc9df7089b5641",
+      "mainBlob": "a0187ae3876c6bfdfdfec3fdbef1b18344132dd3",
+      "identical": false,
+      "baseBlob": "a0187ae3876c6bfdfdfec3fdbef1b18344132dd3",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "frontend/src/services/progress/__tests__/loadSessionProgress.test.ts",
+      "preparedBlob": "832230e647fd24a7685c511955ce9d2c93d65858",
+      "mainBlob": "1200274421ee5c89799bdbd13dff9f434c5421bc",
+      "identical": false,
+      "baseBlob": "1200274421ee5c89799bdbd13dff9f434c5421bc",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "frontend/src/services/progress/__tests__/progressPresentation.test.ts",
+      "preparedBlob": "5b890220cdfc52d7b085c9fd9f3c0b8aa25168bc",
+      "mainBlob": "2e2d94e326c34b1a0f98604fec17f6d0958e0711",
+      "identical": false,
+      "baseBlob": "2e2d94e326c34b1a0f98604fec17f6d0958e0711",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "tests/e2e/progress-cross-page.e2e.spec.ts",
+      "preparedBlob": "7307d85ce8b50df538ec0b55ac0fa9200682e55b",
+      "mainBlob": "6e440647845859bf43c8c7b33fbe4bb5b8ba3792",
+      "identical": false,
+      "baseBlob": "6e440647845859bf43c8c7b33fbe4bb5b8ba3792",
+      "mainChangedSinceBase": false
+    }
+  ],
+  "b6fa965e": [
+    {
+      "path": "frontend/src/contracts/fillerEvidence.ts",
+      "preparedBlob": "5edb4354ce213efa6a7969e4253ea09f9659a113",
+      "mainBlob": "17cd934ef1e9e325f12ba707a61cc0285e45efc2",
+      "identical": false,
+      "baseBlob": "17cd934ef1e9e325f12ba707a61cc0285e45efc2",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "frontend/src/lib/analyticsUtils.ts",
+      "preparedBlob": "60068b5c00f2945db2fa2bbe299e18fbf742a633",
+      "mainBlob": "7eaa2a71807992112f9e2b29b4cf1e45553f2467",
+      "identical": false,
+      "baseBlob": "7eaa2a71807992112f9e2b29b4cf1e45553f2467",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "frontend/src/lib/__tests__/analyticsUtils.test.ts",
+      "preparedBlob": "a726f1461f5873ff9ad6ea93ad486ac8964e9426",
+      "mainBlob": "074b7558c97505a53e4c710eb462b818214e857f",
+      "identical": false,
+      "baseBlob": "074b7558c97505a53e4c710eb462b818214e857f",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "frontend/src/lib/__tests__/analyticsEvidenceValidity.test.ts",
+      "preparedBlob": "bb60d4e88e0f9d427fdee79b6daf1c438e722820",
+      "mainBlob": "56990f8354797a4f056610decbf77ea5e4bb16b2",
+      "identical": false,
+      "baseBlob": "56990f8354797a4f056610decbf77ea5e4bb16b2",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "tests/db/analytics-summary-rpc.integration.test.ts",
+      "preparedBlob": "766a8aa0b437f1e94f403d6f5828a9f1396e130e",
+      "mainBlob": "4c255fe3d849e770356d43b8285e822758bc67da",
+      "identical": false,
+      "baseBlob": "4c255fe3d849e770356d43b8285e822758bc67da",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "backend/supabase/migrations/20261018090000_analytics_summary_observed_filler_rate_1472.sql",
+      "preparedBlob": "5f7e8a1cbbc90d7e70201c0b0f0da00a91dda764",
+      "mainBlob": null,
+      "identical": false,
+      "baseBlob": null,
+      "mainChangedSinceBase": false
+    }
+  ],
+  "f3f8704": [
+    {
+      "path": "product_release/ARCHITECTURE.md",
+      "preparedBlob": "1e2e4c0137fb911c44ae38f9acd7ae8827f73582",
+      "mainBlob": "c3bb915111489b1ae15a62205577233df8244035",
+      "identical": false,
+      "baseBlob": "c3bb915111489b1ae15a62205577233df8244035",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "product_release/PROGRESS_AND_NEXT_ACTION.md",
+      "preparedBlob": "17710b0af96d41119c492698959ab1ca6fc987c8",
+      "mainBlob": "67f8f86c74d0b7f3637759a2869482bac0f3cca6",
+      "identical": false,
+      "baseBlob": "67f8f86c74d0b7f3637759a2869482bac0f3cca6",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "product_release/QUALITY.md",
+      "preparedBlob": "d32ad2d10eb195c9d8e50222de87677d22f31488",
+      "mainBlob": "0005ac298c3d452fa996701a7b5fe53cd385a43f",
+      "identical": false,
+      "baseBlob": "0005ac298c3d452fa996701a7b5fe53cd385a43f",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "product_release/PRODUCT_REQUIREMENTS.md",
+      "preparedBlob": "9d1f2ff9859f9334620dc3316a26ad0858603134",
+      "mainBlob": "daec1e428bc2bf545265eccedf3e7d25f59ef146",
+      "identical": false,
+      "baseBlob": "daec1e428bc2bf545265eccedf3e7d25f59ef146",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "product_release/TESTER_OPERATIONS.md",
+      "preparedBlob": "63c0ab9b30295074e0724b78b2dbd51c53f82e8c",
+      "mainBlob": "08e4f247b156af61a98e7c5c26c4d5dd6be762a8",
+      "identical": false,
+      "baseBlob": "08e4f247b156af61a98e7c5c26c4d5dd6be762a8",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "product_release/EVIDENCE_INDEX.md",
+      "preparedBlob": "874818e4736a3933df7a9e10606acc84b1e90103",
+      "mainBlob": "d0e746c3b1edba7b4bed713788ef304a44410ae0",
+      "identical": false,
+      "baseBlob": "d0e746c3b1edba7b4bed713788ef304a44410ae0",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "product_release/STT.md",
+      "preparedBlob": "8866a4a66f8aa35f774f945753b02dfa7fad70b3",
+      "mainBlob": "00278df9203d198c8e15ff865ae8e36d217dfcab",
+      "identical": false,
+      "baseBlob": "00278df9203d198c8e15ff865ae8e36d217dfcab",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "product_release/RELEASE_PROCESS.md",
+      "preparedBlob": "3ac84efd10af0f964248c61f47a615ba291ac7af",
+      "mainBlob": "74668c3d326c419b4a274cd1b77f5a8a86b03603",
+      "identical": false,
+      "baseBlob": "74668c3d326c419b4a274cd1b77f5a8a86b03603",
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "local-packets/pm-acceptance-reconciliation/ACCEPTANCE.md",
+      "preparedBlob": "fe58edabba69ca668e400842e7e5fcffa7ff64e3",
+      "mainBlob": null,
+      "identical": false,
+      "baseBlob": null,
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "local-packets/pm-acceptance-reconciliation/CASE1.md",
+      "preparedBlob": "eded2ab0a39295d1328756dc01761ea69ae9b6df",
+      "mainBlob": null,
+      "identical": false,
+      "baseBlob": null,
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "local-packets/1318-factual-batch/REVIEW.md",
+      "preparedBlob": "8d810591f72bee808820e82faa8c5160bc45e56e",
+      "mainBlob": null,
+      "identical": false,
+      "baseBlob": null,
+      "mainChangedSinceBase": false
+    },
+    {
+      "path": "local-packets/1318-factual-batch/INTEGRATION.md",
+      "preparedBlob": "f89249b290d706570fee2c4d61b4d3caf49f7514",
+      "mainBlob": null,
+      "identical": false,
+      "baseBlob": null,
+      "mainChangedSinceBase": false
+    }
+  ]
+}

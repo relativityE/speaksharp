@@ -1,0 +1,1079 @@
+[
+  {
+    "name": "1254-received-on-main",
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "frontend/vitest.config.mjs",
+      "--coverage.enabled=false",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile",
+      "<repository>/artifacts/pm-mvp-receiving-97638983/artifacts/pm-1254-received-on-main.json",
+      "frontend/src/services/progress/__tests__/loadSessionProgress.test.ts",
+      "frontend/src/services/progress/__tests__/progressPresentation.test.ts"
+    ],
+    "exit": 0,
+    "expectedExit": 0,
+    "total": 56,
+    "passed": 56,
+    "failed": 0,
+    "rawReportSha256": "6e07798f0a515c394b59c1abdf79e614deba0f6c05d09c1110633f8209cf3034",
+    "files": [
+      {
+        "path": "src/services/progress/__tests__/loadSessionProgress.test.ts",
+        "status": "passed",
+        "assertions": [
+          {
+            "name": "#1047 U2 loadSessionProgress distinguishes missing evaluation, ineligible evidence, and query failure",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with missing filler evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with negative filler evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with fractional filler evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with missing error-marker evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with negative error-marker evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with fractional error-marker evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses movement when a persisted comparison row has incomplete evidence",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress uses persisted baseline/previous references without client history",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress #1254: an INTERVENING ineligible recording is skipped, and the takeaway names the previous COMPARABLE session, not the last one",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress uses the sole prior evaluation as both baseline and previous on the first comparison",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress rejects a future timestamp persisted reference from comparison arithmetic",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress rejects a equal-time higher id persisted reference from comparison arithmetic",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress consumes equal-timestamp A/B/C/D same-mode predecessors with the server tuple order",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress does not let an invalid previous role influence a valid baseline",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress does not fabricate baseline or movement when retention removed baseline but previous survives",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress renders an explicit restart when a stored baseline exists but no previous comparable session does",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress never compares an incompatible cohort even when a malformed stored reference names it",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a missing persisted comparison reference",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a ineligible persisted comparison reference",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a self persisted comparison reference",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a ambiguous persisted comparison reference",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress distinguishes first-ever baseline from a persisted prior different-cohort session",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed when server chronology cannot be verified",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress does not synthesize coaching when the server recommendation is missing",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress recovers a missing recommendation by authoritative readback without duplicating on retry",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress reuses the stored recommendation contract after a hard reload instead of recomputing copy",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a malformed stored recommendation: missing copy",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a malformed stored recommendation: non-finite target",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a malformed stored recommendation: unknown metric",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a malformed stored recommendation: unknown direction",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress exposes the latest stored attempt outcome",
+            "status": "passed",
+            "failure": []
+          }
+        ]
+      },
+      {
+        "path": "src/services/progress/__tests__/progressPresentation.test.ts",
+        "status": "passed",
+        "assertions": [
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) the first eligible session establishes a baseline, never a fabricated zero",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) improvement reads as movement, not praise",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) decline reads as movement, not blame",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) movement below the product policy is honest, not inflated",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) the meaningful threshold is product policy, applied at the boundary",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) arithmetic uses unrounded values; only the display is rounded",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) a cohort change restarts the comparison instead of showing a false jump",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) fails closed against an INELIGIBLE baseline \u2014 never compares to a session that cannot count",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) an ineligible session shows the honest unavailable state",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) displays the two scores, never a percent-of-previous",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) a ZERO reference baseline yields a neutral, no-defensible-change state (never improved/declined)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) NEVER emits a grade, ranking, percentile or absolute score",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) uses the canonical label \"Practice this next\"",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) always yields exactly two takeaways plus a structured target",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) respects the word limits \u2014 6 and 8 \u2014 for every branch",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) the action is measurable \u2014 names a metric, a direction and a value",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) NEVER fabricates a positive when nothing improved \u2014 falls back to a NEUTRAL MEASURED fact",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) recognises a genuine improvement over the previous comparable session",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) is deterministic \u2014 no AI, no randomness",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) takeaway copy never claims overall speaking ability",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 \"clearer than last\" clears the same gates as direction (review batch 2) a SUB-threshold gain over the previous session is NOT claimed as improvement",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 \"clearer than last\" clears the same gates as direction (review batch 2) a threshold-meeting gain in the SAME cohort IS claimed",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 \"clearer than last\" clears the same gates as direction (review batch 2) a large gain against a DIFFERENT cohort is NOT claimed (setup changed)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 \"clearer than last\" clears the same gates as direction (review batch 2) an INELIGIBLE previous session is never used as the comparison",
+            "status": "passed",
+            "failure": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "1254-current-main-negative",
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "frontend/vitest.config.mjs",
+      "--coverage.enabled=false",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile",
+      "<repository>/artifacts/pm-mvp-baseline-1254/artifacts/pm-1254-current-main-negative.json",
+      "frontend/src/services/progress/__tests__/loadSessionProgress.test.ts",
+      "frontend/src/services/progress/__tests__/progressPresentation.test.ts"
+    ],
+    "exit": 1,
+    "expectedExit": 1,
+    "total": 56,
+    "passed": 53,
+    "failed": 3,
+    "rawReportSha256": "c5d7dfed12cc7e3b2ec7869163720b09fccd2834bd719ed7df60ae07ea01d1a8",
+    "files": [
+      {
+        "path": "src/services/progress/__tests__/loadSessionProgress.test.ts",
+        "status": "failed",
+        "assertions": [
+          {
+            "name": "#1047 U2 loadSessionProgress distinguishes missing evaluation, ineligible evidence, and query failure",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with missing filler evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with negative filler evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with fractional filler evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with missing error-marker evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with negative error-marker evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses an eligible-marked row with fractional error-marker evidence before producing coaching",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress refuses movement when a persisted comparison row has incomplete evidence",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress uses persisted baseline/previous references without client history",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress #1254: an INTERVENING ineligible recording is skipped, and the takeaway names the previous COMPARABLE session, not the last one",
+            "status": "failed",
+            "failure": [
+              "AssertionError: expected 'Clearer than your last session' to be 'Clearer than your previous comparable\u2026' // Object.is equality"
+            ]
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress uses the sole prior evaluation as both baseline and previous on the first comparison",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress rejects a future timestamp persisted reference from comparison arithmetic",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress rejects a equal-time higher id persisted reference from comparison arithmetic",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress consumes equal-timestamp A/B/C/D same-mode predecessors with the server tuple order",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress does not let an invalid previous role influence a valid baseline",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress does not fabricate baseline or movement when retention removed baseline but previous survives",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress renders an explicit restart when a stored baseline exists but no previous comparable session does",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress never compares an incompatible cohort even when a malformed stored reference names it",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a missing persisted comparison reference",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a ineligible persisted comparison reference",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a self persisted comparison reference",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a ambiguous persisted comparison reference",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress distinguishes first-ever baseline from a persisted prior different-cohort session",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed when server chronology cannot be verified",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress does not synthesize coaching when the server recommendation is missing",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress recovers a missing recommendation by authoritative readback without duplicating on retry",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress reuses the stored recommendation contract after a hard reload instead of recomputing copy",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a malformed stored recommendation: missing copy",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a malformed stored recommendation: non-finite target",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a malformed stored recommendation: unknown metric",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress fails closed for a malformed stored recommendation: unknown direction",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1047 U2 loadSessionProgress exposes the latest stored attempt outcome",
+            "status": "passed",
+            "failure": []
+          }
+        ]
+      },
+      {
+        "path": "src/services/progress/__tests__/progressPresentation.test.ts",
+        "status": "failed",
+        "assertions": [
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) the first eligible session establishes a baseline, never a fabricated zero",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) improvement reads as movement, not praise",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) decline reads as movement, not blame",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) movement below the product policy is honest, not inflated",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) the meaningful threshold is product policy, applied at the boundary",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) arithmetic uses unrounded values; only the display is rounded",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) a cohort change restarts the comparison instead of showing a false jump",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) fails closed against an INELIGIBLE baseline \u2014 never compares to a session that cannot count",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) an ineligible session shows the honest unavailable state",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) displays the two scores, never a percent-of-previous",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) a ZERO reference baseline yields a neutral, no-defensible-change state (never improved/declined)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 describeDirection \u2014 neutral, non-evaluative movement (\u00a76) NEVER emits a grade, ranking, percentile or absolute score",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) uses the canonical label \"Practice this next\"",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) always yields exactly two takeaways plus a structured target",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) respects the word limits \u2014 6 and 8 \u2014 for every branch",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) the action is measurable \u2014 names a metric, a direction and a value",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) NEVER fabricates a positive when nothing improved \u2014 falls back to a NEUTRAL MEASURED fact",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) recognises a genuine improvement over the previous comparable session",
+            "status": "failed",
+            "failure": [
+              "AssertionError: expected 'Clearer than your last session' to be 'Clearer than your previous comparable\u2026' // Object.is equality"
+            ]
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) is deterministic \u2014 no AI, no randomness",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 exactly two, one of them the action (\u00a77) takeaway copy never claims overall speaking ability",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 \"clearer than last\" clears the same gates as direction (review batch 2) a SUB-threshold gain over the previous session is NOT claimed as improvement",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 \"clearer than last\" clears the same gates as direction (review batch 2) a threshold-meeting gain in the SAME cohort IS claimed",
+            "status": "failed",
+            "failure": [
+              "AssertionError: expected 'Clearer than your last session' to be 'Clearer than your previous comparable\u2026' // Object.is equality"
+            ]
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 \"clearer than last\" clears the same gates as direction (review batch 2) a large gain against a DIFFERENT cohort is NOT claimed (setup changed)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 buildTakeaways \u2014 \"clearer than last\" clears the same gates as direction (review batch 2) an INELIGIBLE previous session is never used as the comparison",
+            "status": "passed",
+            "failure": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "1472-client-rpc-received-on-main",
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "frontend/vitest.config.mjs",
+      "--coverage.enabled=false",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile",
+      "<repository>/artifacts/pm-mvp-receiving-b6fa965e/artifacts/pm-1472-client-rpc-received-on-main.json",
+      "frontend/src/lib/__tests__/analyticsUtils.test.ts",
+      "frontend/src/lib/__tests__/analyticsEvidenceValidity.test.ts",
+      "tests/db/analytics-summary-rpc.integration.test.ts"
+    ],
+    "exit": 0,
+    "expectedExit": 0,
+    "total": 61,
+    "passed": 61,
+    "failed": 0,
+    "rawReportSha256": "b8272269cedf6d531b8da2cb3bf5f6d548cae0c7ba016012fbc80829c99bf43f",
+    "files": [
+      {
+        "path": "db/analytics-summary-rpc.integration.test.ts",
+        "status": "passed",
+        "assertions": [
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 1. overall filler-rate statistics agree between the RPC and calculateOverallStats",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 2. top filler words + trend parity (>=2 eligible \u2192 a trend), between the RPC and the client",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 3. the minimum-two-measurements trend gate: ONE eligible session yields NO trend on both sides",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4. only OBSERVED evidence enters the rate: {um:6} + {} + NULL \u2192 6.0/min from ONE contributor, RPC and client agree",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4b. an all-zero map, an empty map and a malformed map are all excluded; with no observed row the rate is absent, never 0.0",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4c. chart: an observed take plots its rate; {} and an all-zero map plot an omitted point (null), RPC and client agree",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4d. non-filler outputs, top filler words and trend windows are unchanged by the observed-rate gate",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 5. three or more metrics-only sessions remain available (retention regression)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 authorization preserved by the redefined function 6a. rejects a wrong identity and an unauthenticated caller",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 authorization preserved by the redefined function 6b. EXECUTE ACL: authenticated + service_role granted; anon + PUBLIC revoked",
+            "status": "passed",
+            "failure": []
+          }
+        ]
+      },
+      {
+        "path": "src/lib/__tests__/analyticsEvidenceValidity.test.ts",
+        "status": "passed",
+        "assertions": [
+          {
+            "name": "#1045 aggregate evidence validity does NOT drag Clear Delivery to 0% with sessions that were never scorable",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity reports Clear Delivery as unknown \u2014 not 0% \u2014 when NO session is scorable",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity reports pace as unknown rather than 0 WPM when nothing was transcribed",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity reports pause rhythm as unknown when no session recorded pause metrics",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity #1306: a NOT-MEASURED (null) filler session is excluded \u2014 absence is never praised as 0.0/min",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity #1472 increment 3: an empty map ({}) is NOT a measured zero \u2014 excluded from the rate, never a flattering 0.0/min",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity #1306/#1472: a MALFORMED filler map and an empty {} are both excluded (null); an observed count is a real rate",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity reports a filler rate from GENUINE filler evidence even when the word count was not persisted",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity exposes exact seconds so a short average is not rounded into a false zero",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 aggregate evidence validity returns unknown for every aggregate when there is no history at all",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 honest duration formatting never reports a real recording as \"0 mins\"",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 honest duration formatting formats ordinary durations normally",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 honest duration formatting distinguishes a true zero from missing evidence",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 no judgment without evidence clarity refuses to label a missing value",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 no judgment without evidence pause rhythm refuses to label a missing value",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 no judgment without evidence fillers refuses to label a missing value",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 no judgment without evidence pace refuses to label a missing value",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 no judgment without evidence still judges real values, including a genuine zero",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 metric validity predicate rejects only the values we cannot stand behind",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 metric validity predicate rejects a blank string \u2014 Number(\"\") is 0, which would be a fabricated zero",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness rejects missing and empty snapshots",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness rejects malformed snapshots",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness ACCEPTS a structurally valid measured zero \u2014 that is a real finding, not missing data",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness accepts a structurally valid non-zero snapshot",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness does not let an empty snapshot become a pause rate in the aggregate",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 pause evidence is structural, not truthiness does count a structurally valid measured zero as evidence",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 missing evidence never becomes coaching does not prescribe a pace/filler/pause/clarity action for a wordless session",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 missing evidence never becomes coaching never names a driver whose evidence is unavailable",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1045 missing evidence never becomes coaching still coaches normally when the evidence is there",
+            "status": "passed",
+            "failure": []
+          }
+        ]
+      },
+      {
+        "path": "src/lib/__tests__/analyticsUtils.test.ts",
+        "status": "passed",
+        "assertions": [
+          {
+            "name": "analyticsUtils calculateOverallStats should calculate overall stats correctly",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils calculateOverallStats aggregates Pause Rhythm (pauses/min) from short + long pauses, and is UNKNOWN without pause data",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils calculateOverallStats aggregates Clear Delivery (clarity) from clarity_score and ignores the unrelated STT accuracy field",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils calculateOverallStats uses aggregate words over aggregate time so short sessions do not distort average WPM",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils calculateFillerWordTrends normalizes filler word trends by speaking time across TWO nonempty windows",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils #1306 UNAVAILABLE/INVALID filler data is excluded \u2014 never a fabricated zero does NOT improve (dilute) the filler-rate average",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils #1306 UNAVAILABLE/INVALID filler data is excluded \u2014 never a fabricated zero does NOT enter the trend denominator (an unavailable row leaves a single eligible point \u2192 no trend)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils #1306: customer STT accuracy is REMOVED (no function, no field) exposes no calculateAccuracyData export \u2014 the customer accuracy series is gone, not stubbed",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils #1306: customer STT accuracy is REMOVED (no function, no field) the analytics summary contract carries no customer accuracyData field",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils calculateTopFillerWords correctly aggregates filler words and returns sorted results",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils calculateTopFillerWords ignores \"total\" keyword",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils calculateTopFillerWords handles empty session history",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "analyticsUtils calculateTopFillerWords handles sessions with no filler words",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 metric-presence provenance \u2014 a metric is included iff its OWN value is persisted overall rates (WPM, filler rate, clarity) equal the measured-only result \u2014 the unmeasured row is excluded",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 metric-presence provenance \u2014 a metric is included iff its OWN value is persisted total practice TIME stays all-session (the one metric that includes an unmeasured row duration)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 metric-presence provenance \u2014 a metric is included iff its OWN value is persisted top fillers, filler trends and chart points exclude an unmeasured (null filler) row",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 metric-presence provenance \u2014 a metric is included iff its OWN value is persisted #1472 increment 3: an empty-map ({}) filler row is EXCLUDED from the rate (not a measured zero)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification an EXPIRED row with words but NO persisted filler counts toward WPM only \u2014 never the filler rate",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification an EXPIRED row with fillers but NO persisted words counts toward the filler rate only \u2014 never WPM",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification reports NO filler trend from a SINGLE eligible measurement (>=2 gate)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification DOES report a filler trend once there are TWO eligible measurements (>=2 gate)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "(#1047 U1) metric-specific evidence + >=2 filler-trend gate \u2014 client falsification DOES report a filler trend once there are >=2 eligible measurements",
+            "status": "passed",
+            "failure": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "1472-new-client-old-rpc-negative",
+    "argv": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "frontend/vitest.config.mjs",
+      "--coverage.enabled=false",
+      "--maxWorkers=1",
+      "--reporter=json",
+      "--outputFile",
+      "<repository>/artifacts/pm-mvp-mixed-rpc-1472/artifacts/pm-1472-new-client-old-rpc-negative.json",
+      "tests/db/analytics-summary-rpc.integration.test.ts"
+    ],
+    "exit": 1,
+    "expectedExit": 1,
+    "total": 10,
+    "passed": 6,
+    "failed": 4,
+    "rawReportSha256": "1c90349d154deefe2f87b8743b8ebcc3311afa133042c2884232d1fc163ac47b",
+    "files": [
+      {
+        "path": "db/analytics-summary-rpc.integration.test.ts",
+        "status": "failed",
+        "assertions": [
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 1. overall filler-rate statistics agree between the RPC and calculateOverallStats",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 2. top filler words + trend parity (>=2 eligible \u2192 a trend), between the RPC and the client",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 3. the minimum-two-measurements trend gate: ONE eligible session yields NO trend on both sides",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4. only OBSERVED evidence enters the rate: {um:6} + {} + NULL \u2192 6.0/min from ONE contributor, RPC and client agree",
+            "status": "failed",
+            "failure": [
+              "AssertionError: expected '3.0' to be '6.0' // Object.is equality"
+            ]
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4b. an all-zero map, an empty map and a malformed map are all excluded; with no observed row the rate is absent, never 0.0",
+            "status": "failed",
+            "failure": [
+              "AssertionError: expected '0.0' to be null"
+            ]
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4c. chart: an observed take plots its rate; {} and an all-zero map plot an omitted point (null), RPC and client agree",
+            "status": "failed",
+            "failure": [
+              "AssertionError: expected [ +0, +0, 3 ] to deeply equal [ 3 ]"
+            ]
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 4d. non-filler outputs, top filler words and trend windows are unchanged by the observed-rate gate",
+            "status": "failed",
+            "failure": [
+              "AssertionError: expected '1.6' to be '4.0' // Object.is equality"
+            ]
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 client\u2194RPC parity on flat filler_counts 5. three or more metrics-only sessions remain available (retention regression)",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 authorization preserved by the redefined function 6a. rejects a wrong identity and an unauthenticated caller",
+            "status": "passed",
+            "failure": []
+          },
+          {
+            "name": "#1306 get_analytics_summary \u2014 authorization preserved by the redefined function 6b. EXECUTE ACL: authenticated + service_role granted; anon + PUBLIC revoked",
+            "status": "passed",
+            "failure": []
+          }
+        ]
+      }
+    ]
+  }
+]
