@@ -178,6 +178,14 @@ export function hasEngineNotConfirmedStopped(): boolean {
     return enginesNotConfirmedStopped.size > 0;
 }
 
+/**
+ * #1593 (live RWT cases 13/14; Browser PM counterexample 3) — the service whose Private model status the page shows.
+ * A live state (setup, download, ready, recording, failure) makes its service the owner; a teardown (CLEANING_UP,
+ * TERMINATED, IDLE) publishes only for the owner, so a late teardown of an old service never overwrites a successor's.
+ */
+let modelStatusOwner: string | null = null; // the owning service's `serviceId`
+const TEARDOWN_STATES = new Set<TranscriptionState>(['IDLE', 'CLEANING_UP', 'TERMINATED']);
+
 export default class TranscriptionService {
   public readonly serviceId: string;
   public fsm: TranscriptionFSM;
@@ -253,6 +261,13 @@ export default class TranscriptionService {
   private activeSubscriberId: string | null = null;
   private isTerminated: boolean = false;
   private isDestroyed: boolean = false;
+  /**
+   * #1593 (live RWT cases 13/14; Browser PM counterexamples 1-2): this service's setup FAILED (INIT_FAILED / FAILED) and
+   * nothing has recovered it. Its own teardown — destroy() or reset() — must not project an ordinary `idle` / "Ready"
+   * over that failure: the person would lose the failure and its Retry. Cleared only by an owned recovery (this service
+   * re-entering a live state, e.g. Retry's re-initialization) or by a successor service taking the page.
+   */
+  private unresolvedSetupFailure = false;
   /**
    * #1258 RWT round 2 finding A (run 38876581848) — a NEXT-TAKE preparation (`SpeechRuntimeController.prepareNextTake`)
    * builds and warms this service while the saved review is on screen. Its warm-up is not the user's: published, it
@@ -1685,10 +1700,11 @@ export default class TranscriptionService {
     if (state && !this.backgroundPreparation) {
       state.setActiveEngine(null);
       state.setModelLoadingProgress(null);
-      state.setSTTStatus({
-        type: targetState === 'TERMINATED' ? 'idle' : 'idle',
-        message: targetState === 'TERMINATED' ? 'Ready' : 'Ready'
-      });
+      // #1593 (Browser PM counterexample 2): a reset is not a recovery. An unresolved setup failure keeps its status
+      // (and the page its Retry); a successor that does not own the page leaves the page's status alone.
+      if (!this.unresolvedSetupFailure && (modelStatusOwner === null || modelStatusOwner === this.serviceId)) {
+        state.setSTTStatus({ type: 'idle', message: 'Ready' });
+      }
     }
   }
 
@@ -1993,7 +2009,15 @@ export default class TranscriptionService {
   private handleStateChange(state: TranscriptionState): void {
     logger.debug(`[TRACE] STATE_TRANSITION ${state}`);
     if (this.backgroundPreparation) return; // #1258 A — a background preparation publishes nothing until claimed
-    if (typeof document !== 'undefined') {
+    // #1593 — who may publish this state, and whether a teardown would erase an unresolved failure.
+    const teardown = TEARDOWN_STATES.has(state);
+    if (state === 'INIT_FAILED' || state === 'FAILED') this.unresolvedSetupFailure = true;
+    else if (!teardown) this.unresolvedSetupFailure = false; // an owned recovery: setup, download or ready again
+    if (!teardown) modelStatusOwner = this.serviceId;
+    const publish = !teardown || ((modelStatusOwner === null || modelStatusOwner === this.serviceId) && !this.unresolvedSetupFailure);
+    // A clean teardown by the owner releases the page; a failed one keeps it, so the failure stays until a successor.
+    if (teardown && state === 'TERMINATED' && modelStatusOwner === this.serviceId && !this.unresolvedSetupFailure) modelStatusOwner = null;
+    if (publish && typeof document !== 'undefined') {
       const modelStatus: Record<TranscriptionState, string> = {
         IDLE: 'idle',
         ACTIVATING_MIC: 'loading',
@@ -2067,7 +2091,7 @@ export default class TranscriptionService {
     }
 
     this.options.onStatusChange?.(status);
-    if (store) {
+    if (store && publish) {
       const currentStatus = store.sttStatus;
       // 🛡️ SSOT GUARD: Never overwrite active recording or controller-managed errors with service-level pulses
       const recoveryStatusTypes = new Set<SttStatus['type']>(['download-required', 'downloading', 'ready', 'initializing', 'init-failed']);
