@@ -1697,12 +1697,15 @@ export default class TranscriptionService {
       }
     }).getState?.();
 
-    if (state && !this.backgroundPreparation) {
+    // #1593 (Codex P2 on #1663): a late teardown of a service that no longer owns the page writes none of the page's
+    // shared state — not the live successor's engine identity, download progress or status.
+    const ownsPage = modelStatusOwner === null || modelStatusOwner === this.serviceId;
+    if (state && !this.backgroundPreparation && ownsPage) {
       state.setActiveEngine(null);
       state.setModelLoadingProgress(null);
       // #1593 (Browser PM counterexample 2): a reset is not a recovery. An unresolved setup failure keeps its status
-      // (and the page its Retry); a successor that does not own the page leaves the page's status alone.
-      if (!this.unresolvedSetupFailure && (modelStatusOwner === null || modelStatusOwner === this.serviceId)) {
+      // (and the page its Retry).
+      if (!this.unresolvedSetupFailure) {
         state.setSTTStatus({ type: 'idle', message: 'Ready' });
       }
     }

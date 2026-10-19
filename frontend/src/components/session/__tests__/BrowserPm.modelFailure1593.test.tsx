@@ -144,6 +144,23 @@ describe('Browser PM case13: public service transitions drive actual rendered fa
         expect(observed, 'A terminal/reset projection must not replace B loading').toBe('loading');
     });
 
+    it('Codex P2 (#1663): late destroy of old A must not clear live successor B\'s engine identity or download progress', async () => {
+        const a = service(engine());
+        await act(async () => { await a.warmUp('private'); await flush(); });
+        let finish!: (result: ReturnType<typeof Result.ok>) => void;
+        const pending = new Promise<ReturnType<typeof Result.ok>>((resolve) => { finish = resolve; });
+        const b = service(engine({ init: vi.fn().mockReturnValue(pending) })); project(b);
+        const warming = b.initiateDownload('private');
+        await act(async () => { await flush(); });
+        // B's published identity and download percentage while it loads.
+        act(() => { useSessionStore.getState().setActiveEngine('private'); useSessionStore.getState().setModelLoadingProgress(42); });
+        await act(async () => { await a.destroy(); await flush(); });
+        const { activeEngine, modelLoadingProgress } = useSessionStore.getState();
+        await act(async () => { finish(Result.ok(undefined)); await warming; await flush(); });
+        expect(activeEngine, 'A\'s teardown must not clear B\'s engine identity').toBe('private');
+        expect(modelLoadingProgress, 'A\'s teardown must not clear B\'s download percentage').toBe(42);
+    });
+
     it('control: ordinary successful teardown with no unresolved failure may return to idle', async () => {
         const s = service(engine()); project(s);
         await act(async () => { await s.warmUp('private'); await s.destroy(); await flush(); });
