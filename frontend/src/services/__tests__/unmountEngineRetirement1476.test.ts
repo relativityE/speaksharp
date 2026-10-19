@@ -8,6 +8,8 @@
  * terminated, and whether the account's lease is released only once it is.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import React from 'react';
+import { act, render } from '@testing-library/react';
 import type { Result } from '../transcription/modes/types';
 
 type Store = typeof import('@/stores/useSessionStore').useSessionStore;
@@ -31,14 +33,26 @@ vi.mock('../../lib/supabaseClient', () => ({
         auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'test-user' } } } }) },
     })),
 }));
+// Read-only account/query boundaries for the actual lifecycle hook + MicCard probe below.
+vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ session: null, user: null }) }));
+vi.mock('@/hooks/useProfile', () => ({ useProfile: () => ({ profile: null, isVerified: false }) }));
+vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn(), getQueriesData: () => [] }) }));
+vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: { can_start: true, subscription_status: 'free' } }) }));
+vi.mock('@/hooks/useStreak', () => ({ useStreak: () => ({ updateStreak: vi.fn() }) }));
+vi.mock('@/hooks/useUserFillerWords', () => ({ useUserFillerWords: () => ({ userFillerWords: [] }) }));
+vi.mock('@/providers/useTranscriptionContext', () => ({ useTranscriptionContext: () => ({ runtimeState: useSessionStore((s) => s.runtimeState) }) }));
+vi.mock('@/hooks/useSpeechRecognition', () => ({ useSpeechRecognition: () => ({
+    transcript: { transcript: '', partial: '', total_words: 0, duration: 0, accuracy: 100 }, chunks: [], fillerData: {},
+    isReady: false, modelLoadingProgress: null, mode: 'private', pauseMetrics: null, micLevel: 0, hasSpeechActivity: false,
+}) }));
 /** The account lease: held by this take; `release` is what another device waits on. */
-const lease = vi.hoisted(() => ({ release: vi.fn(async () => undefined) }));
+const lease = vi.hoisted(() => ({ release: vi.fn(async () => undefined), id: null as string | null }));
 vi.mock('../recordingLease', () => ({
     acquireTakeLease: vi.fn(async () => ({ action: 'start', tookOver: false })),
     confirmTakeLease: vi.fn(async () => 'held'),
     startLeaseHeartbeat: vi.fn(),
     releaseTakeLease: () => lease.release(),
-    currentTakeLeaseId: () => null,
+    currentTakeLeaseId: () => lease.id,
 }));
 
 const POLICY = {
@@ -54,6 +68,7 @@ class ControlledEngine {
     public failInit: Error | null = null;
     /** False models a machine where the download never lands — preparation that cannot settle. */
     public downloadEnabled = true;
+    public initGate: Promise<void> | null = null;
 
     /** `PrivateSTT` wraps this engine and forwards option updates to it. */
     updateOptions() { /* no-op */ }
@@ -70,6 +85,7 @@ class ControlledEngine {
      */
     async init(): Promise<Result<void, Error>> {
         this.initCalls += 1;
+        if (this.initGate) await this.initGate;
         if (!this.modelCached) {
             if (this.downloadEnabled) this.modelCached = true;   // the one-time download lands
             return {
@@ -140,7 +156,7 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         useSessionStore.getState().setRuntimeState('IDLE');
         ({ releaseTakeLeaseOnUnmount } = await import('@/hooks/useSessionLifecycle'));
     });
-    afterEach(() => { vi.clearAllMocks(); lease.release.mockImplementation(async () => undefined); vi.useRealTimers(); });
+    afterEach(() => { vi.clearAllMocks(); lease.release.mockImplementation(async () => undefined); lease.id = null; vi.useRealTimers(); });
 
     it('CASUALTY: unmount at the START of preparation (no engine yet) — the Start never becomes a recording and no engine is ever created', async () => {
         // The real cold path, unaided: the click drives the download and the held Start resumes when the model lands.
@@ -183,6 +199,183 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect((controller as unknown as { service: unknown }).service).toBeNull();
         expect(lease.release).toHaveBeenCalledTimes(1);
         expect(terminatedAtRelease, 'the preparing engine was terminated BEFORE the lease was released').toBeGreaterThan(terminatedBefore);
+    });
+
+    it.each(Array.from({ length: 5 }, (_, repeat) => (['initializing', 'download-required'] as const).map((phase) => ({ repeat, phase }))).flat())('case4 causal probe: $phase repetition $repeat publishes idle while its runtime still blocks Start', async ({ phase, repeat }) => {
+        engine.downloadEnabled = false;
+        // A real visit warms the page shell before its Start; retain that resolved infrastructure promise across return.
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        let finishInit: () => void = () => undefined;
+        if (phase === 'initializing') engine.initGate = new Promise<void>((resolve) => { finishInit = resolve; });
+        const started = controller.startRecording(POLICY as never, []);
+        void started.catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls), { timeout: 5_000 });
+        await settle();
+        let finishTermination!: () => void;
+        engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
+        const retiring = releaseTakeLeaseOnUnmount(false);
+        let unmountView: (() => void) | undefined;
+        try {
+            await vi.waitFor(() => expect(engine.terminateCalls).toBeGreaterThan(0));
+            await settle();
+            const beforeReturn = {
+                model: document.documentElement.getAttribute('data-model-status'),
+                controller: controller.getState(), runtime: useSessionStore.getState().runtimeState,
+                finalizing: useSessionStore.getState().isTranscriptFinalizing,
+                engineTerminal: controller.isEngineTerminal(),
+            };
+            // Returning mounts this warm-up path; it must not be mistaken for proof that retirement completed.
+            await controller.warmUp('private');
+            expect(document.documentElement.getAttribute('data-model-status')).toBe('idle');
+            expect(beforeReturn).toEqual({ model: 'idle', controller: phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED', runtime: phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED', finalizing: false, engineTerminal: true });
+            expect(['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED']).not.toContain(useSessionStore.getState().runtimeState);
+            const { useSessionLifecycle } = await import('@/hooks/useSessionLifecycle');
+            const { MicCard } = await import('@/components/session/MicCard');
+            const ReturnedCard = () => {
+                const lifecycle = useSessionLifecycle();
+                return React.createElement(MicCard, { onStart: () => undefined, privateModelStatus: lifecycle.privateModelStatus, disabled: lifecycle.isButtonDisabled });
+            };
+            const view = render(React.createElement(ReturnedCard));
+            unmountView = view.unmount;
+            expect(view.getByTestId('mic-card').getAttribute('data-model-status')).toBe('idle');
+            expect(view.getByTestId('mic-start').getAttribute('aria-label')).toBe('Start recording');
+            expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled).toBe(true);
+            expect(view.getByTestId('mic-status-row').textContent).toContain('Mic ready on this device');
+            if (repeat === 0) {
+                // The live caller waits two seconds after model idle before navigating back; this signature survives it.
+                await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2_100)); });
+            }
+            expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled).toBe(true);
+        } finally {
+            await act(async () => {
+                finishTermination();
+                finishInit();
+                await retiring;
+                await settle();
+            });
+        }
+        expect(controller.getState()).toBe('IDLE');
+        expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+        expect(controller.isEngineTerminal()).toBe(true);
+        expect((document.querySelector('[data-testid="mic-start"]') as HTMLButtonElement).disabled).toBe(false);
+        unmountView?.();
+    });
+
+    /** A Start parked in `phase`, then a bounded retirement whose termination is held past the bound. */
+    const timedOutRetirement = async (phase: 'initializing' | 'download-required', onLateTerminal?: () => void) => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        let finishInit: () => void = () => undefined;
+        if (phase === 'initializing') engine.initGate = new Promise<void>((resolve) => { finishInit = resolve; });
+        const started = controller.startRecording(POLICY as never, []);
+        void started.catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+        let finishTermination!: () => void;
+        let failTermination!: (e: Error) => void;
+        engine.terminateGate = new Promise<void>((resolve, reject) => { finishTermination = resolve; failTermination = reject; });
+        // The production default is 10s. Scale only the explicit bound, not any lifecycle state or cleanup result.
+        expect(await controller.retireEngineForUnmount(100, onLateTerminal)).toBe('unconfirmed');
+        const preparing = phase === 'initializing' ? 'ENGINE_INITIALIZING' : 'DOWNLOAD_REQUIRED';
+        expect(controller.getState(), 'cleanup is incomplete: the Start stays truthfully blocked').toBe(preparing);
+        return { preparing, finishTermination, failTermination, finishInit };
+    };
+    const renderReturnedCard = async () => {
+        const { useSessionLifecycle } = await import('@/hooks/useSessionLifecycle');
+        const { MicCard } = await import('@/components/session/MicCard');
+        const ReturnedCard = () => {
+            const lifecycle = useSessionLifecycle();
+            return React.createElement(MicCard, { onStart: () => undefined, privateModelStatus: lifecycle.privateModelStatus, disabled: lifecycle.isButtonDisabled });
+        };
+        return render(React.createElement(ReturnedCard));
+    };
+
+    it.each(['initializing', 'download-required'] as const)('case4 (CLI 0ae7573b): %s — a retirement that timed out then SUCCEEDED completes; Start re-enables', async (phase) => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement(phase, onLateTerminal);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+        t.finishTermination();
+        t.finishInit();
+        await settle(60);
+        expect(controller.isEngineTerminal()).toBe(true);
+        expect(controller.getState(), 'the late success finishes THIS retirement').toBe('IDLE');
+        expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false);
+        expect(onLateTerminal).toHaveBeenCalledTimes(1);
+        await controller.warmUp('private');
+        const view = await renderReturnedCard();
+        expect((view.getByTestId('mic-start') as HTMLButtonElement).disabled, 'no forced enable: the runtime is genuinely IDLE').toBe(false);
+        view.unmount();
+    });
+
+    it('case4: a destroy() that later REJECTS never claims cleanup — runtime stays blocked, no late completion', async () => {
+        // Same proof as the in-bound path: only a destroy() that RESOLVED with the engine registry confirming the stop
+        // completes a retirement. (A preparing engine that never ran is already "off" in that registry.)
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        engine.initGate = new Promise<void>(() => undefined);
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+        const svc = (controller as unknown as { service: { destroy: () => Promise<void> } }).service;
+        let reject!: (e: Error) => void;
+        vi.spyOn(svc, 'destroy').mockImplementation(() => new Promise<void>((_, r) => { reject = r; }));
+        const onLateTerminal = vi.fn();
+        expect(await controller.retireEngineForUnmount(100, onLateTerminal)).toBe('unconfirmed');
+        reject(new Error('destroy failed'));
+        await settle(60);
+        expect(controller.getState()).toBe('ENGINE_INITIALIZING');
+        expect(onLateTerminal).not.toHaveBeenCalled();
+    });
+
+    it('case4: a termination that is STILL hung completes nothing', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        await settle(60);
+        expect(controller.getState()).toBe(t.preparing);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+        t.finishTermination();
+        await settle(60);
+    });
+
+    it('case4: a SUPERSEDED retirement (hard reset since) never completes over its successor', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('initializing', onLateTerminal);
+        await controller.hardResetAwaited('case4-successor');
+        const transitions: string[] = [];
+        const unsubscribe = useSessionStore.subscribe((s, prev) => { if (s.runtimeState !== prev.runtimeState) transitions.push(s.runtimeState); });
+        t.finishTermination();
+        t.finishInit();
+        await settle(60);
+        unsubscribe();
+        expect(onLateTerminal, 'the reset owns the page now').not.toHaveBeenCalled();
+        expect(transitions, 'no stale TERMINATED/IDLE from the superseded retirement').toEqual([]);
+    });
+
+    it('case4: the hook releases the take\'s lease on late proof — only while that take still owns it', async () => {
+        const store = () => useSessionStore.getState();
+        const retire = vi.spyOn(controller, 'retireEngineForUnmount');
+        let late: (() => void) | undefined;
+        retire.mockImplementation(async (_bound?: number, onLate?: () => void) => { late = onLate; return 'unconfirmed'; });
+        lease.id = 'take-A';
+        await expect(releaseTakeLeaseOnUnmount(false)).resolves.toBe(false);
+        expect(lease.release).not.toHaveBeenCalled();
+        expect(store().sttStatus.type).toBe('error');
+        late?.();
+        expect(lease.release, 'proven off later: this take\'s lease is released').toHaveBeenCalledTimes(1);
+        expect(store().sttStatus.type, 'its own "could not confirm" status is withdrawn').toBe('idle');
+        // A newer take owns the lease when the proof arrives: nothing of the newer take is touched.
+        lease.release.mockClear();
+        await expect(releaseTakeLeaseOnUnmount(false)).resolves.toBe(false);
+        lease.id = 'take-B';
+        store().setSTTStatus({ type: 'error', message: 'a newer problem' });
+        late?.();
+        expect(lease.release).not.toHaveBeenCalled();
+        expect(store().sttStatus.message).toBe('a newer problem');
+        retire.mockRestore();
     });
 
     it('CASUALTY: a stop that REJECTS with the engine still live — the engine is destroyed, the Retry Save kept, and only then the lease released', async () => {

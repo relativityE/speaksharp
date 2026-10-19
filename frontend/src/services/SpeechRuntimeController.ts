@@ -5077,7 +5077,7 @@ export class SpeechRuntimeController {
      * flag: the durable Retry Save survives. Returns `terminal` only when no engine can still run here; `unconfirmed`
      * when destruction was rejected or did not complete in time — the caller must then keep the account's lease and say so.
      */
-    public async retireEngineForUnmount(boundMs: number = 10_000): Promise<'terminal' | 'unconfirmed'> {
+    public async retireEngineForUnmount(boundMs: number = 10_000, onLateTerminal?: () => void): Promise<'terminal' | 'unconfirmed'> {
         // PM pre-push RETURN 2: success, rejection and timeout are different answers. A rejected stop is survivable (the
         // engine is then destroyed); a rejected DESTROY is not confirmation the engine is off.
         const within = <T,>(p: Promise<T>): Promise<'ok' | 'rejected' | 'timeout'> => new Promise((resolve) => {
@@ -5103,10 +5103,14 @@ export class SpeechRuntimeController {
         if (svc) {
             this.stopWatchdog();
             this.stopHeartbeat();
-            const destroyed = await within(svc.destroy());
+            const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration };
+            const destroying = svc.destroy();
+            const destroyed = await within(destroying);
             // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside).
             if (destroyed !== 'ok' || hasEngineNotConfirmedStopped()) {
                 pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
+                // Only a TIMEOUT can still end well: finish this retirement if its destruction later succeeds.
+                if (destroyed === 'timeout') void destroying.then(() => this.completeLateRetirement(retirement, onLateTerminal), () => undefined);
                 return 'unconfirmed';
             }
         }
@@ -5114,6 +5118,25 @@ export class SpeechRuntimeController {
         await this.transition('TERMINATED');
         await this.transition('IDLE');
         return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
+    }
+
+    /**
+     * #1593 case 4 (CLI 0ae7573b) — A RETIREMENT THAT TIMED OUT, THEN SUCCEEDED. The bounded wait returned `unconfirmed`
+     * before its TERMINATED/IDLE transitions, and nothing ever completed them: the runtime stayed ENGINE_INITIALIZING or
+     * DOWNLOAD_REQUIRED with no service, so Start stayed disabled after the engine was off. Completed here only for THIS
+     * retirement and only on proof: no hard reset or new lifecycle since (version), no service attached or replaced since
+     * (generation), the engine proven stopped, and the runtime still the preparation it retired. A rejected or still-hung
+     * destruction never reaches here, and a successor's runtime, finalization or lease is never touched.
+     */
+    private async completeLateRetirement(retirement: { version: number; generation: number }, onLateTerminal?: () => void): Promise<void> {
+        if (this.lifecycleVersion !== retirement.version || this.serviceGeneration !== retirement.generation || this.service !== null) return;
+        if (hasEngineNotConfirmedStopped()) return;
+        if (this.state !== 'INITIATING' && this.state !== 'ENGINE_INITIALIZING' && this.state !== 'DOWNLOAD_REQUIRED') return;
+        pushNativeRuntimeTrace('controller_unmount_retire_late_terminal', { state: this.state });
+        this.setEngineReady(false);
+        await this.transition('TERMINATED');
+        await this.transition('IDLE');
+        if (this.lifecycleVersion === retirement.version && this.getState() === 'IDLE' && !hasEngineNotConfirmedStopped()) onLateTerminal?.();
     }
 
     private resetEphemeralState(reason: string = 'unknown'): void {
