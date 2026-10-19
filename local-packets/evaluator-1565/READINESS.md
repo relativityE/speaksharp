@@ -1,3 +1,7 @@
+# Correction notice — 19 October 2026
+
+The historical preparation below is retained for provenance. Use [the correction addendum](../evaluator-1565-corrections/CORRECTIONS.md) for row states, rating anchors, statistical definitions and diagnostic provenance. Run `local-packets/evaluator-1565-corrections/audit_corpus.py` for the source-aware audit; the original script below used a hardcoded sourceHead. See [full PM queue accounting](../evaluator-1565-corrections/QUEUE.md). Numeric proposals remain unapproved and full model qualification remains HOLD.
+
 # #1565 corpus, blind review and calibration reconciliation
 
 Browser PM, 19 October 2026. This is an executed inventory and preparation delta to the already accepted plan, not another evaluator plan, new release gate, model run or implementation assignment. CLI Dev remains the sole evaluator implementation owner. No weights, corpus archives or dependencies were acquired.

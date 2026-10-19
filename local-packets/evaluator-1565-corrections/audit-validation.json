@@ -1,0 +1,23 @@
+{
+  "scriptSha256": "f7c287e8b4bfe0362dbd72c5adb385869ac023f84ffe7ecb3b8d4bcdffe61ea6",
+  "controls": [
+    {
+      "control": "retained-source audit repeated byte-equivalent",
+      "result": "PASS",
+      "sourceHead": "31ab9a5f507b2ee91cd648065f4ef491884a49af",
+      "inputFiles": 12,
+      "localWavs": 7
+    },
+    {
+      "control": "independent Git snapshot labels its actual HEAD, not the original pin",
+      "result": "PASS",
+      "observedHead": "9b5b7a18355ec18384ff14f5727511e8b26d28f4"
+    },
+    {
+      "control": "semantically unchanged but uncommitted manifest bytes rejected",
+      "result": "PASS",
+      "error": "source input differs from observed HEAD: tests/fixtures/corpus-manifest.json"
+    }
+  ],
+  "scope": "retained files and isolated temporary Git snapshot only; no model or corpus acquisition"
+}
