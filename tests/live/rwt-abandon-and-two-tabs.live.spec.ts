@@ -15,7 +15,7 @@ import type { BrowserContext, Dialog, Page, TestInfo } from '@playwright/test';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { routeVercelBypass } from './helpers/deployedLiveTest';
-import { applyRwtIdentity, rwtIdentityFor } from './helpers/rwtBrowserIdentity';
+import { applyRwtIdentity, rwtIdentityFor, rwtPageReady } from './helpers/rwtBrowserIdentity';
 import {
     AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, rwtLaunchArgs,
     suppressPageSnapshot, telemetryClassRows,
@@ -194,6 +194,8 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
                 ? 'the tab closed, ending its document and every microphone track it held'
                 : 'the tab did not close after the person chose Leave', { leavePrompt, tabClosed });
             returned = await context.newPage();
+            // #1593: its identity and proven document tracking are in place before its first navigation.
+            await rwtPageReady(returned);
             watch.setPage(returned);
             observe(returned, tap, generations, cloud);
             await installMicAcquisitionCounter(returned);
@@ -328,6 +330,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // take-over press itself is strict (setStartRefusedAllowed(false) below).
             watch.setFaultPhase(true);
             sameBrowserTab = await tabA.context().newPage();
+            await rwtPageReady(sameBrowserTab);
             observe(sameBrowserTab, tap, generations, cloud);
             // Codex P1 r4309261415: the long waits of this phase run on the second tab, so its DOM is what can stall.
             watch.setPage(sameBrowserTab);

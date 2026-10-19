@@ -9,7 +9,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { DOM_READ_TIMEOUT_MS, FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyWatchdog, STALL_MS, WATCHED_FIELDS, fatalSignalOf, stallOf, watchProfileFor, type DomState, type WatchProfile } from '../live/helpers/rwtWatchdog';
 import { COACHING_SETTLE_BOUND_MS } from '../live/helpers/rwtCoachingEvidence';
 import { deniedAfterPress } from '../live/helpers/rwtAdverse';
-import { AnalyticsTap, CommittedDocumentTracker } from '../live/helpers/rwtJourney';
+import { AnalyticsTap, CommittedDocumentTracker, trackDocuments } from '../live/helpers/rwtJourney';
+import { documentTrackerOf } from '../live/helpers/rwtDocumentIdentity';
+import { applyRwtIdentity, rwtPageReady } from '../live/helpers/rwtBrowserIdentity';
 import { EventEmitter } from 'node:events';
 import { modelWorkBeforeRefusal } from '../live/helpers/rwtAbandonTakeover';
 
@@ -841,20 +843,16 @@ describe('#1662 RETURN on 76a0bf6e — committed-document boot identity; downloa
         expect(await w.tick(), 'document 1 still belongs to its own boot').toMatchObject({ kind: 'save_failed' });
     });
 
-    it('item 1: the tap derives each event\'s document from its page\'s lifetime CommittedDocumentTracker', () => {
+    it('item 1: the tap derives each event\'s document from its page\'s lifetime tracker, proven by the RWT CDP session', () => {
         const src = readFileSync('tests/live/helpers/rwtJourney.ts', 'utf8');
-        const start = src.indexOf('private documentsOf(page: Page): CommittedDocumentTracker {');
-        const wiring = src.slice(start, src.indexOf('    attach(page: Page): void {', start));
-        expect(wiring).toContain('const seq = documents.onRequest();');
-        expect(wiring).toContain("if (!response) { documents.onFailed(seq); return undefined; }");
-        expect(wiring).toContain('documents.onResponse(response.url(), response.status(), Date.now(), seq);');
-        expect(wiring).toContain('if (error) documents.onFailed(seq);');
-        expect(wiring).toContain('documents.onCommitted(frame.url())');
-        expect(src).toContain('const documents = this.documentsOf(page);');
+        expect(src).toContain('const documents = documentTrackerOf(page);');
         expect(src).toContain("Object.defineProperty(this.events[i], 'sourceDocumentRef', { value: ref, enumerable: false });");
         expect(src).toContain('const ref = documents.currentRef();');
         // Never part of the transport listener set that detach / re-attach removes.
-        expect(src).not.toMatch(/this\.listeners\.push\(\['response'/);
+        expect(src).not.toMatch(/this\.listeners\.push\(\['(response|framenavigated)'/);
+        // The fixture's page-lifetime CDP session is the proven commit source, before the page's first navigation.
+        const identity = readFileSync('tests/live/helpers/rwtBrowserIdentity.ts', 'utf8');
+        expect(identity).toContain('await trackDocuments(page, cdp);');
     });
 
     it('stall controls: genuine slow progress never trips; absent progress uses only the long bound; transitions restart the clock', async () => {
@@ -885,8 +883,7 @@ describe('#1662 RETURN on 76a0bf6e — committed-document boot identity; downloa
     });
 });
 
-describe('#1662 RETURN on 46ebed0f — transfer-only download stall; failed-navigation latch', () => {
-    const quiet = { log: () => undefined, label: 'case' };
+describe('#1662 RETURN on 46ebed0f — transfer-only download stall', () => {
     const dom = (o: Partial<DomState>): DomState => ({ runtimeState: 'DOWNLOAD_REQUIRED', modelStatus: 'loading', control: 'mic-download', controlEnabled: false, progress: 40, ...o });
 
     it('item 1: engine initialization (loading, bar left at 100 %) keeps its 960 s budget — never the 180 s transfer rule', () => {
@@ -909,112 +906,37 @@ describe('#1662 RETURN on 46ebed0f — transfer-only download stall; failed-navi
         expect(stallOf(dom({ progress: 99 }), STALL_MS.DOWNLOAD_NO_PROGRESS + 1)).toBe('download_stuck');
         expect(stallOf(dom({ progress: null }), STALL_MS.DOWNLOAD_UNREADABLE + 1)).toBe('download_stuck');
     });
-
-    it('item 2: Sam\'s sequence — a failed navigation, then a same-document navigation, never advances the document', () => {
-        const t = new CommittedDocumentTracker();
-        t.onRequest();
-        t.onResponse('https://app.test/session', 200, 1_000);
-        t.onFailed(); // the navigation fails after its response; the original document stays current
-        t.onCommitted('https://app.test/session'); // a later same-document navigation (route change) to the same URL
-        expect(t.generation).toBe(0);
-        t.onCommitted('https://app.test/analytics');
-        expect(t.generation).toBe(0);
-    });
-
-    it('item 2: only the responded URL commits a document; a superseded, redirected or no-content response never does', () => {
-        const t = new CommittedDocumentTracker();
-        t.onRequest(); t.onResponse('https://app.test/a', 200, 10);
-        t.onCommitted('https://app.test/other'); // a same-document change before the real commit
-        expect(t.generation).toBe(0);
-        t.onCommitted('https://app.test/a#top'); // the responded document commits (hash ignored)
-        expect([t.generation, t.committedAt]).toEqual([1, 10]);
-        t.onCommitted('https://app.test/a'); // a later same-document change to the same URL: no latch left
-        expect(t.generation).toBe(1);
-        t.onRequest(); t.onResponse('https://app.test/b', 200, 20);
-        t.onRequest(); // superseded by a newer navigation before committing
-        t.onCommitted('https://app.test/b');
-        expect(t.generation).toBe(1);
-        t.onResponse('https://app.test/c', 302, 30); t.onCommitted('https://app.test/c');
-        t.onResponse('https://app.test/d', 204, 40); t.onCommitted('https://app.test/d');
-        expect(t.generation, 'redirect / 204 never commit').toBe(1);
-    });
-
-    it('item 2: end to end — after a failed navigation and a same-document route change, the original boot\'s fatal still trips', async () => {
-        const t = new CommittedDocumentTracker();
-        const page = { context: () => ({ close: async () => undefined }), evaluate: async () => null };
-        const tap = { events: [] as object[] };
-        const w = new JourneyWatchdog({ ...quiet, page: page as never, tap: tap as never, profile: {} });
-        const stamp = (e: object) => sentBy(page, e, { boot: 'boot-A', document: t.generation, documentAt: 0 });
-        tap.events.push(stamp({ event: 'journey_step', at: Date.now() }));
-        expect(await w.tick()).toBeNull();
-        t.onRequest(); t.onResponse('https://app.test/x', 200); t.onFailed();
-        t.onCommitted('https://app.test/x');
-        tap.events.push(stamp({ event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } }));
-        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
-    });
 });
 
-describe('#1662 RETURN on 814d2e25 — document tracking lives for the page, not the transport attachment', () => {
+/**
+ * Sam, #1662 RETURN on 2cab5b0c — document identity is PROVEN by the browser's own cross-document commit (CDP
+ * `Page.frameNavigated`), never inferred from navigation responses, URLs or Playwright's `framenavigated` (which fires for
+ * same-document changes too). The fake below is the page's Playwright events plus its page-lifetime CDP session; a commit
+ * emits both, a same-document change only the Playwright one (CDP reports that kind as `Page.navigatedWithinDocument`, which
+ * is never a boundary). Replaces the 46eb / 814d / 006f / b0dd / 06fe response-and-URL controls with the same schedules.
+ */
+describe('#1662 RETURN on 2cab5b0c — proven document ownership; unproven commits leave the PAGE uncertain', () => {
     const quiet = { log: () => undefined, label: 'case' };
-    class TabPage extends EventEmitter {
-        readonly frame = { name: 'main' };
-        mainFrame() { return this.frame; }
-        context() { return { close: async () => undefined }; }
-        async evaluate() { return null; }
+    class FakeCdp extends EventEmitter {
+        private release!: () => void;
+        private readonly enabled = new Promise<void>((r) => { this.release = r; });
+        constructor(live: boolean) { super(); if (live) this.release(); }
+        enable(): void { this.release(); }
+        send(method: string): Promise<unknown> { return method === 'Page.enable' ? this.enabled : Promise.resolve(); }
     }
-    const posthog = (event: string, boot: string, capturedAt: number, props: Record<string, string> = {}) => ({
-        url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
-        postDataBuffer: () => Buffer.from(JSON.stringify([{ event, timestamp: new Date(capturedAt).toISOString(), properties: { boot_id: boot, ...props } }])),
-        response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
-    });
-    const flush = () => new Promise((r) => setTimeout(r, 0));
-
-    it('Sam\'s control: A → attach B → reload A → A\'s new-boot fatal still trips', async () => {
-        const a = new TabPage();
-        const b = new TabPage();
-        // framenavigated passes the main frame object itself.
-        const commit = async (page: TabPage, url: string) => {
-            page.emit('request', { url: () => url, method: () => 'GET', isNavigationRequest: () => true, frame: () => page.frame, postDataBuffer: () => null,
-                response: () => Promise.resolve({ url: () => url, status: () => 200, finished: () => Promise.resolve(null) }), failure: () => null });
-            await flush();
-            Object.assign(page.frame, { url: () => url });
-            page.emit('framenavigated', page.frame);
-        };
-        const tap = new AnalyticsTap();
-        tap.attach(a as never);
-        const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
-        const t0 = Date.now();
-        a.emit('request', posthog('journey_step', 'boot-A1', t0));
-        expect(await w.tick()).toBeNull();
-        tap.attach(b as never); // the shared tap's transport moves to device B
-        w.setPage(b as never);
-        await commit(a, 'https://app.test/session'); // A reloads: a new document, a new boot
-        await flush();
-        a.emit('request', posthog('session_save_latency_measured', 'boot-A2', Date.now() + 5, { outcome: 'failed' }));
-        expect(await w.tick(), 'A\'s new boot is its new document\'s boot').toMatchObject({ kind: 'save_failed' });
-    });
-
-    it('a superseded navigation\'s late response changes nothing; a failure reported after the response clears the latch', () => {
-        const t = new CommittedDocumentTracker();
-        const first = t.onRequest();
-        const second = t.onRequest();
-        t.onResponse('https://app.test/old', 200, 1, first); // late response of the superseded request
-        t.onCommitted('https://app.test/old');
-        expect(t.generation).toBe(0);
-        t.onResponse('https://app.test/new', 200, 2, second);
-        t.onFailed(second); // the body failed after the response
-        t.onCommitted('https://app.test/new');
-        expect(t.generation).toBe(0);
-    });
-});
-
-describe('#1662 RETURN on 006f896d — navigation response and commit in EITHER order', () => {
-    const quiet = { log: () => undefined, label: 'case' };
-    class TabPage extends EventEmitter {
+    class CdpTab extends EventEmitter {
         readonly frame: { url: () => string } = { url: () => 'about:blank' };
+        readonly cdp: FakeCdp;
+        constructor(live = true) { super(); this.cdp = new FakeCdp(live); }
         mainFrame() { return this.frame; }
         context() { return { close: async () => undefined }; }
         async evaluate() { return null; }
+        /** A same-document change (pushState, hash, a route notification): Playwright reports it, CDP does not commit. */
+        sameDocument(url: string): void { this.frame.url = () => url; this.emit('framenavigated', this.frame); }
+        /** The CDP half of a commit. */
+        cdpCommit(type = 'Navigation'): void { this.cdp.emit('Page.frameNavigated', { frame: { id: 'main' }, type }); }
+        /** The Playwright half of a commit. */
+        pwCommit(url: string): void { this.frame.url = () => url; this.emit('framenavigated', this.frame); }
     }
     const posthog = (event: string, boot: string, capturedAt: number, props: Record<string, string> = {}) => ({
         url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
@@ -1022,252 +944,29 @@ describe('#1662 RETURN on 006f896d — navigation response and commit in EITHER 
         response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
     });
     const flush = () => new Promise((r) => setTimeout(r, 0));
-    /** A main-frame navigation whose response the test releases explicitly — so the commit can be emitted FIRST. */
-    const navigate = (page: TabPage, url: string, status: number | null = 200) => {
+    /** A main-frame navigation whose response the test releases explicitly (null status = aborted / failed). */
+    const navigate = (page: CdpTab, url: string, status: number | null = 200) => {
         let release!: () => void;
         const responded = new Promise<void>((r) => { release = r; });
         page.emit('request', { url: () => url, method: () => 'GET', isNavigationRequest: () => true, frame: () => page.frame, postDataBuffer: () => null,
             response: () => responded.then(() => (status === null ? null : { url: () => url, status: () => status, finished: () => Promise.resolve(null) })),
             failure: () => null });
-        const commit = () => { page.frame.url = () => url; page.emit('framenavigated', page.frame); };
-        return { commit, respond: async () => { release(); await flush(); } };
-    };
-
-    it('tracker: commit BEFORE response completes the same request\'s document (at the commit time)', () => {
-        const t = new CommittedDocumentTracker();
-        const seq = t.onRequest();
-        t.onCommitted('https://app.test/s', 500);
-        expect(t.generation).toBe(0);
-        t.onResponse('https://app.test/s', 200, 900, seq);
-        expect([t.generation, t.committedAt]).toEqual([1, 500]);
-    });
-
-    it('tracker: response BEFORE commit still completes it (at the response time)', () => {
-        const t = new CommittedDocumentTracker();
-        const seq = t.onRequest();
-        t.onResponse('https://app.test/s', 200, 400, seq);
-        t.onCommitted('https://app.test/s', 600);
-        expect([t.generation, t.committedAt]).toEqual([1, 400]);
-    });
-
-    it('tracker: an early commit is dropped by a newer request, a failure, a redirect/204, or a different URL', () => {
-        const t = new CommittedDocumentTracker();
-        const first = t.onRequest();
-        t.onCommitted('https://app.test/a');
-        t.onRequest(); // superseded before its response
-        t.onResponse('https://app.test/a', 200, 1, first);
-        expect(t.generation).toBe(0);
-        const failed = t.onRequest();
-        t.onCommitted('https://app.test/b');
-        t.onFailed(failed);
-        expect(t.generation).toBe(0);
-        const redirected = t.onRequest();
-        t.onCommitted('https://app.test/c');
-        t.onResponse('https://app.test/c', 302, 3, redirected);
-        const noContent = t.onRequest();
-        t.onCommitted('https://app.test/d');
-        t.onResponse('https://app.test/d', 204, 4, noContent);
-        expect(t.generation).toBe(0);
-        const routeChange = t.onRequest();
-        t.onCommitted('https://app.test/route-change'); // a same-document change while the navigation is in flight
-        t.onResponse('https://app.test/e', 200, 5, routeChange);
-        expect(t.generation, 'the in-flight navigation has not committed yet').toBe(0);
-        t.onCommitted('https://app.test/e');
-        expect(t.generation).toBe(1);
-        t.onCommitted('https://app.test/e'); // no in-flight request: a later same-document change never holds a commit
-        expect(t.generation).toBe(1);
-    });
-
-    for (const order of ['commit-first', 'response-first'] as const) {
-        it(`tap, single-page reload (${order}): the new boot's fatal trips`, async () => {
-            const a = new TabPage();
-            const tap = new AnalyticsTap();
-            tap.attach(a as never);
-            const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
-            a.emit('request', posthog('journey_step', 'boot-1', Date.now()));
-            expect(await w.tick()).toBeNull();
-            const nav = navigate(a, 'https://app.test/session');
-            if (order === 'commit-first') { nav.commit(); await nav.respond(); } else { await nav.respond(); nav.commit(); }
-            a.emit('request', posthog('session_save_latency_measured', 'boot-2', Date.now() + 5, { outcome: 'failed' }));
-            expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
-        });
-
-        it(`tap, A → attach B → reload A (${order}): A's new-boot fatal trips`, async () => {
-            const a = new TabPage();
-            const b = new TabPage();
-            const tap = new AnalyticsTap();
-            tap.attach(a as never);
-            const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
-            a.emit('request', posthog('journey_step', 'boot-A1', Date.now()));
-            expect(await w.tick()).toBeNull();
-            tap.attach(b as never);
-            w.setPage(b as never);
-            const nav = navigate(a, 'https://app.test/session');
-            if (order === 'commit-first') { nav.commit(); await nav.respond(); } else { await nav.respond(); nav.commit(); }
-            a.emit('request', posthog('session_save_latency_measured', 'boot-A2', Date.now() + 5, { outcome: 'failed' }));
-            expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
-        });
-    }
-
-    it('tap: a navigation that fails after an early commit keeps the original document; its boot\'s fatal still trips', async () => {
-        const a = new TabPage();
-        const tap = new AnalyticsTap();
-        tap.attach(a as never);
-        const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
-        a.emit('request', posthog('journey_step', 'boot-1', Date.now()));
-        expect(await w.tick()).toBeNull();
-        const nav = navigate(a, 'https://app.test/session', null); // the response never arrives (failed navigation)
-        nav.commit(); // a same-document commit while it was in flight
-        await nav.respond();
-        a.emit('request', posthog('session_save_latency_measured', 'boot-1', Date.now() + 5, { outcome: 'failed' }));
-        expect(await w.tick(), 'the original document is still current').toMatchObject({ kind: 'save_failed' });
-    });
-});
-
-describe('#1662 RETURN on b0dd763a — events while a navigation settles keep an unresolved document, judged once it settles', () => {
-    const quiet = { log: () => undefined, label: 'case' };
-    class TabPage extends EventEmitter {
-        readonly frame: { url: () => string } = { url: () => 'about:blank' };
-        mainFrame() { return this.frame; }
-        context() { return { close: async () => undefined }; }
-        async evaluate() { return null; }
-    }
-    const posthog = (event: string, boot: string, capturedAt: number, props: Record<string, string> = {}) => ({
-        url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
-        postDataBuffer: () => Buffer.from(JSON.stringify([{ event, timestamp: new Date(capturedAt).toISOString(), properties: { boot_id: boot, ...props } }])),
-        response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
-    });
-    const flush = () => new Promise((r) => setTimeout(r, 0));
-    const navigate = (page: TabPage, url: string, status: number | null = 200) => {
-        let release!: () => void;
-        const responded = new Promise<void>((r) => { release = r; });
-        page.emit('request', { url: () => url, method: () => 'GET', isNavigationRequest: () => true, frame: () => page.frame, postDataBuffer: () => null,
-            response: () => responded.then(() => (status === null ? null : { url: () => url, status: () => status, finished: () => Promise.resolve(null) })),
-            failure: () => null });
-        const commit = () => { page.frame.url = () => url; page.emit('framenavigated', page.frame); };
-        return { commit, respond: async () => { release(); await flush(); } };
-    };
-    const saveFailed = (boot: string) => posthog('session_save_latency_measured', boot, Date.now() + 5, { outcome: 'failed' });
-    /** A watched page with an established boot, optionally after the tap moved to page B. */
-    const setup = async (viaB: boolean) => {
-        const a = new TabPage();
-        const tap = new AnalyticsTap();
-        tap.attach(a as never);
-        const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
-        a.emit('request', posthog('journey_step', 'boot-1', Date.now()));
-        expect(await w.tick()).toBeNull();
-        if (viaB) { const b = new TabPage(); tap.attach(b as never); w.setPage(b as never); }
-        return { a, tap, w };
-    };
-
-    for (const viaB of [false, true]) {
-        const path = viaB ? 'A → attach B → reload A' : 'single page';
-        for (const tickInside of [false, true]) {
-            it(`${path}: commit → new-boot fatal → response${tickInside ? ' (tick inside the unresolved window)' : ''} — trips`, async () => {
-                const { a, w } = await setup(viaB);
-                const nav = navigate(a, 'https://app.test/session');
-                nav.commit();
-                a.emit('request', saveFailed('boot-2'));
-                const inside = tickInside ? await w.tick() : null;
-                expect(inside, 'unresolved: retained, not judged').toBeNull();
-                await nav.respond();
-                expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
-            });
-        }
-    }
-
-    it('fatal BEFORE the commit belongs to the original document and trips', async () => {
-        const { a, w } = await setup(false);
-        const nav = navigate(a, 'https://app.test/session');
-        a.emit('request', saveFailed('boot-1'));
-        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
-        nav.commit();
-        await nav.respond();
-    });
-
-    it('fatal AFTER response and commit trips', async () => {
-        const { a, w } = await setup(true);
-        const nav = navigate(a, 'https://app.test/session');
-        nav.commit();
-        await nav.respond();
-        a.emit('request', saveFailed('boot-2'));
-        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
-    });
-
-    it('an old-boot late event inside the window resolves to the new document and is foreign; the new boot still trips', async () => {
-        const { a, w } = await setup(false);
-        const nav = navigate(a, 'https://app.test/session');
-        nav.commit();
-        a.emit('request', saveFailed('boot-1')); // the predecessor's late unload beacon
-        await nav.respond();
-        expect(await w.tick(), 'the old boot cannot claim the new document').toBeNull();
-        a.emit('request', saveFailed('boot-2'));
-        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
-    });
-
-    it('a navigation that FAILS after an early commit resolves the window to the original document; its boot still trips', async () => {
-        const { a, w } = await setup(false);
-        const nav = navigate(a, 'https://app.test/session', null);
-        nav.commit();
-        a.emit('request', saveFailed('boot-1'));
-        expect(await w.tick()).toBeNull();
-        await nav.respond();
-        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
-    });
-
-    it('a SUPERSEDED navigation leaves its window AMBIGUOUS — never assigned to the predecessor (06fe RETURN)', () => {
-        const t = new CommittedDocumentTracker();
-        t.onRequest();
-        t.onCommitted('https://app.test/a');
-        const ref = t.currentRef();
-        expect(ref.resolved).toBe(false);
-        t.onRequest(); // a newer navigation abandons the held commit
-        expect([ref.resolved, ref.ambiguous]).toEqual([false, true]);
-    });
-
-    it('evidence still unresolved when the journey ends is HOLD, never PASS', async () => {
-        const { a, w } = await setup(false);
-        const rows: { verdict: string; evidence?: Record<string, unknown> }[] = [];
-        const nav = navigate(a, 'https://app.test/session');
-        nav.commit();
-        a.emit('request', saveFailed('boot-2')); // its navigation never settles before finalization
-        await w.record({ row: (_s: string, verdict: string, _d: string, evidence?: Record<string, unknown>) => { rows.push({ verdict, evidence }); } } as never);
-        expect(rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unresolvedIdentity: 1 }) })]);
-    });
-});
-
-describe('#1662 RETURN on 06fe109b — ambiguity is never proof of predecessor identity (fail closed)', () => {
-    const quiet = { log: () => undefined, label: 'case' };
-    class TabPage extends EventEmitter {
-        readonly frame: { url: () => string } = { url: () => 'about:blank' };
-        mainFrame() { return this.frame; }
-        context() { return { close: async () => undefined }; }
-        async evaluate() { return null; }
-    }
-    const posthog = (event: string, boot: string, capturedAt: number, props: Record<string, string> = {}) => ({
-        url: () => 'https://us.i.posthog.com/e/?ip=1', method: () => 'POST', isNavigationRequest: () => false, frame: () => ({}),
-        postDataBuffer: () => Buffer.from(JSON.stringify([{ event, timestamp: new Date(capturedAt).toISOString(), properties: { boot_id: boot, ...props } }])),
-        response: () => Promise.resolve({ status: () => 200 }), failure: () => null,
-    });
-    const flush = () => new Promise((r) => setTimeout(r, 0));
-    const navigate = (page: TabPage, url: string, status: number | null = 200) => {
-        let release!: () => void;
-        const responded = new Promise<void>((r) => { release = r; });
-        page.emit('request', { url: () => url, method: () => 'GET', isNavigationRequest: () => true, frame: () => page.frame, postDataBuffer: () => null,
-            response: () => responded.then(() => (status === null ? null : { url: () => url, status: () => status, finished: () => Promise.resolve(null) })),
-            failure: () => null });
-        const commit = (at = url) => { page.frame.url = () => at; page.emit('framenavigated', page.frame); };
+        /** The real commit — Playwright half first by default; `cdpFirst` swaps the order. */
+        const commit = (o: { cdpFirst?: boolean } = {}) => { if (o.cdpFirst) { page.cdpCommit(); page.pwCommit(url); } else { page.pwCommit(url); page.cdpCommit(); } };
         return { commit, respond: async () => { release(); await flush(); } };
     };
     const saveFailed = (boot: string, dt = 5) => posthog('session_save_latency_measured', boot, Date.now() + dt, { outcome: 'failed' });
-    const setup = async (viaB: boolean) => {
-        const a = new TabPage();
+    /** A tracked, watched page with an established boot-1; optionally the tap then moves to page B. */
+    const setup = async (o: { viaB?: boolean; cdp?: 'live' | 'pending' | 'none' } = {}) => {
+        const a = new CdpTab(o.cdp !== 'pending');
+        const ready = o.cdp === 'none' ? Promise.resolve() : trackDocuments(a as never, a.cdp);
+        if (o.cdp !== 'pending') await ready;
         const tap = new AnalyticsTap();
         tap.attach(a as never);
         const w = new JourneyWatchdog({ ...quiet, page: a as never, tap: tap as never, profile: {} });
         a.emit('request', posthog('journey_step', 'boot-1', Date.now()));
         expect(await w.tick()).toBeNull();
-        if (viaB) { const b = new TabPage(); tap.attach(b as never); w.setPage(b as never); }
+        if (o.viaB) { const b = new CdpTab(); tap.attach(b as never); w.setPage(b as never); }
         return { a, w };
     };
     const recordRows = async (w: JourneyWatchdog) => {
@@ -1278,86 +977,186 @@ describe('#1662 RETURN on 06fe109b — ambiguity is never proof of predecessor i
 
     for (const viaB of [false, true]) {
         const path = viaB ? 'A → attach B → reload A' : 'single page';
-        it(`${path} — Sam #1: commit → new-boot fatal → newer navigation → stale response → abort: HOLD, never PASS`, async () => {
-            const { a, w } = await setup(viaB);
-            const nav1 = navigate(a, 'https://app.test/one');
-            nav1.commit();
-            a.emit('request', saveFailed('boot-2'));
-            expect(await w.tick(), 'unresolved, retained').toBeNull();
-            const nav2 = navigate(a, 'https://app.test/two', null); // a newer navigation, which then aborts
-            await nav1.respond(); // the stale response of the superseded navigation changes nothing
-            await nav2.respond();
-            expect(await w.tick(), 'still not resolvable to either document').toBeNull();
-            const rows = await recordRows(w);
-            expect(rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unresolvedIdentity: 1 }) })]);
-        });
+        for (const fatalAfterAbort of [false, true]) {
+            it(`${path} — Sam #1: Nav1 commits → Nav2 starts before response1 → new-boot fatal ${fatalAfterAbort ? 'after' : 'before'} Nav2 aborts: trips`, async () => {
+                const { a, w } = await setup({ viaB });
+                const nav1 = navigate(a, 'https://app.test/one');
+                nav1.commit();
+                const nav2 = navigate(a, 'https://app.test/two', null);
+                if (!fatalAfterAbort) a.emit('request', saveFailed('boot-2'));
+                await nav1.respond(); // the superseded navigation's stale response
+                await nav2.respond(); // Nav2 aborts without committing
+                if (fatalAfterAbort) a.emit('request', saveFailed('boot-2'));
+                expect(await w.tick(), 'Nav1 committed a new document; its boot\'s fatal is evidence').toMatchObject({ kind: 'save_failed' });
+            });
+        }
 
-        for (const tickInside of [false, true]) {
-            it(`${path} — Sam #2: same-document route event before the real commit${tickInside ? ' (tick inside)' : ''}: the new boot's fatal trips`, async () => {
-                const { a, w } = await setup(viaB);
+        for (const noticeAfterResponse of [false, true]) {
+            it(`${path} — Sam #2: a same-URL hash notification ${noticeAfterResponse ? 'after' : 'before'} the response precedes the real reload commit: the original boot's fatal trips`, async () => {
+                const { a, w } = await setup({ viaB });
                 const nav = navigate(a, 'https://app.test/session');
-                nav.commit('https://app.test/route-change'); // a same-document route event while the response is pending
-                a.emit('request', posthog('journey_step', 'boot-1', Date.now() + 1)); // the old boot, still current
-                nav.commit(); // the real commit
+                if (noticeAfterResponse) await nav.respond();
+                a.sameDocument('https://app.test/session#review'); // same URL once the hash is stripped
+                a.emit('request', saveFailed('boot-1')); // the original boot, captured before the real commit
+                if (!noticeAfterResponse) await nav.respond();
+                nav.commit();
+                expect(await w.tick(), 'URL equality never makes a new document').toMatchObject({ kind: 'save_failed' });
+            });
+        }
+
+        for (const order of ['commit-first', 'response-first', 'cdp-before-playwright'] as const) {
+            it(`${path} — reload (${order}): the new boot's fatal trips; the old boot's late event is foreign`, async () => {
+                const { a, w } = await setup({ viaB });
+                const nav = navigate(a, 'https://app.test/session');
+                if (order === 'response-first') await nav.respond();
+                nav.commit({ cdpFirst: order === 'cdp-before-playwright' });
+                if (order !== 'response-first') await nav.respond();
+                a.emit('request', saveFailed('boot-1')); // the predecessor's late unload beacon, after the proven commit
+                expect(await w.tick(), 'proven old-boot exclusion').toBeNull();
                 a.emit('request', saveFailed('boot-2'));
-                const inside = tickInside ? await w.tick() : null;
-                expect(inside).toBeNull();
-                await nav.respond();
                 expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
             });
         }
     }
 
-    it('route event AFTER the real commit belongs to the new document; its fatal trips', async () => {
-        const { a, w } = await setup(false);
+    for (const [label, status] of [['abort', null], ['redirect', 302], ['204', 204], ['205', 205]] as const) {
+        it(`${label} with no commit: the page stays on its proven document; its boot's fatal trips, before or after the response`, async () => {
+            for (const before of [true, false]) {
+                const { a, w } = await setup();
+                const nav = navigate(a, 'https://app.test/session', status);
+                if (before) a.emit('request', saveFailed('boot-1'));
+                await nav.respond();
+                a.sameDocument('https://app.test/session'); // a same-URL notification; nothing committed
+                if (!before) a.emit('request', saveFailed('boot-1'));
+                expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+            }
+        });
+    }
+
+    it('a same-document route change after a proven commit never moves the document: the new boot\'s fatal trips', async () => {
+        const { a, w } = await setup();
         const nav = navigate(a, 'https://app.test/session');
         nav.commit();
         await nav.respond();
-        nav.commit('https://app.test/session#step-2'); // a same-document change on the new document; nothing in flight
+        a.sameDocument('https://app.test/session#step-2');
+        a.sameDocument('https://app.test/analytics');
         a.emit('request', saveFailed('boot-2'));
         expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
     });
 
-    for (const [label, status] of [['abort', null], ['redirect', 302], ['204', 204], ['205', 205]] as const) {
-        it(`${label} after an early commit: an UNKNOWN boot stays unresolved (HOLD); a KNOWN boot's fatal still fails closed`, async () => {
-            const { a, w } = await setup(false);
-            const nav = navigate(a, 'https://app.test/session', status);
-            nav.commit();
-            a.emit('request', saveFailed('boot-2'));
-            await nav.respond();
-            expect(await w.tick(), 'unknown boot: no binding from ambiguity').toBeNull();
-            const silent = await recordRows(w);
-            expect(silent, 'the unknown boot\'s evidence keeps the row from passing').toEqual([expect.objectContaining({ verdict: 'HOLD' })]);
-            // After the window, the current document is the original one: its known boot's fatal trips.
-            const second = await setup(false);
-            const nav2 = navigate(second.a, 'https://app.test/session', status);
-            nav2.commit();
-            await nav2.respond();
-            second.a.emit('request', saveFailed('boot-1', 6));
-            expect(await second.w.tick()).toMatchObject({ kind: 'save_failed' });
-        });
-    }
-
-    it('known boot inside an abandoned window is judged as its own evidence (fail closed)', async () => {
-        const { a, w } = await setup(false);
-        const nav = navigate(a, 'https://app.test/session', null);
-        nav.commit();
+    it('an iframe commit is not the page\'s document', async () => {
+        const { a, w } = await setup();
+        a.cdp.emit('Page.frameNavigated', { frame: { id: 'child', parentId: 'main' }, type: 'Navigation' });
         a.emit('request', saveFailed('boot-1'));
-        await nav.respond();
         expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
     });
 
-    it('a new navigation after an earlier ACTUAL commit keeps that commit; one after a never-committed navigation holds nothing', async () => {
-        const { a, w } = await setup(false);
-        const nav1 = navigate(a, 'https://app.test/one');
-        nav1.commit();
-        await nav1.respond(); // nav1 resolved: boot-2 belongs to document 1
-        a.emit('request', posthog('journey_step', 'boot-2', Date.now() + 1));
-        expect(await w.tick()).toBeNull();
-        const nav2 = navigate(a, 'https://app.test/two', null); // never commits; aborts
-        a.emit('request', saveFailed('boot-2', 3)); // document 1 is still current: no commit is held
-        await nav2.respond();
+    it('UNPROVEN: a commit while the CDP source is not live leaves the PAGE uncertain even before any event — unknown boot HOLDs', async () => {
+        const { a, w } = await setup({ cdp: 'pending' });
+        a.pwCommit('https://app.test/session'); // no event yet: the uncertainty is the page's, not an event's
+        await flush();
+        a.cdp.enable(); // the source goes live AFTER the commit: it cannot prove which document this is
+        await flush();
+        a.emit('request', saveFailed('boot-2'));
+        expect(await w.tick(), 'an unknown boot binds nothing').toBeNull();
+        const rows = await recordRows(w);
+        expect(rows).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unresolvedIdentity: 1 }) })]);
+    });
+
+    it('UNPROVEN: a known boot inside the uncertain page is judged as its own evidence (fail closed)', async () => {
+        const { a, w } = await setup({ cdp: 'none' });
+        a.pwCommit('https://app.test/session');
+        a.emit('request', saveFailed('boot-1'));
         expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('UNPROVEN, then a same-document notification and an abort: still uncertain — never back to the predecessor', async () => {
+        const { a, w } = await setup({ cdp: 'none' });
+        const nav = navigate(a, 'https://app.test/one', null);
+        a.pwCommit('https://app.test/one');
+        await nav.respond();
+        a.sameDocument('https://app.test/one#x');
+        a.emit('request', saveFailed('boot-2'));
+        expect(await w.tick()).toBeNull();
+        expect(await recordRows(w)).toEqual([expect.objectContaining({ verdict: 'HOLD' })]);
+    });
+
+    it('late resolution: a later PROVEN commit makes the page certain; the uncertain window\'s unknown boot still HOLDs', async () => {
+        const { a, w } = await setup({ cdp: 'pending' });
+        a.pwCommit('https://app.test/one');
+        a.emit('request', saveFailed('boot-2')); // captured while uncertain
+        a.cdp.enable();
+        await flush();
+        const nav = navigate(a, 'https://app.test/two');
+        nav.commit();
+        await nav.respond();
+        a.emit('request', posthog('journey_step', 'boot-3', Date.now() + 10));
+        expect(await w.tick()).toBeNull();
+        a.emit('request', saveFailed('boot-3', 11));
+        expect(await w.tick(), 'the proven document\'s boot trips').toMatchObject({ kind: 'save_failed' });
+        // The window's event never resolved: no clean run is claimed for it.
+        const t = new CommittedDocumentTracker();
+        t.onUnprovenCommit();
+        const windowRef = t.currentRef();
+        t.onDocumentCommitted(1);
+        expect([windowRef.resolved, windowRef.ambiguous, t.uncertain]).toEqual([false, true, false]);
+    });
+
+    it('a commit reported by CDP before `Page.enable` answers is still proven; the Playwright half alone is not', async () => {
+        const { a, w } = await setup({ cdp: 'pending' });
+        const nav = navigate(a, 'https://app.test/session');
+        nav.commit({ cdpFirst: true }); // CDP first, then Playwright while still pending: the page is left uncertain
+        a.emit('request', saveFailed('boot-2'));
+        expect(await w.tick(), 'fail closed: unknown boot').toBeNull();
+        const b = await setup({ cdp: 'pending' });
+        const nav2 = navigate(b.a, 'https://app.test/session');
+        nav2.commit(); // Playwright first (uncertain), then CDP proves the commit
+        b.a.emit('request', saveFailed('boot-2'));
+        expect(await b.w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('a back/forward-cache restore is not a new document: the page is uncertain; a known boot still fails closed', async () => {
+        const { a, w } = await setup();
+        a.pwCommit('https://app.test/previous');
+        a.cdpCommit('BackForwardCacheRestore');
+        a.emit('request', saveFailed('boot-1'));
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+        const other = await setup();
+        other.a.pwCommit('https://app.test/previous');
+        other.a.cdpCommit('BackForwardCacheRestore');
+        other.a.emit('request', saveFailed('boot-9'));
+        expect(await other.w.tick()).toBeNull();
+        expect(await recordRows(other.w)).toEqual([expect.objectContaining({ verdict: 'HOLD' })]);
+    });
+
+    it('tracking is once per page: a second `trackDocuments` adds no second commit source', async () => {
+        const a = new CdpTab();
+        await trackDocuments(a as never, a.cdp);
+        await trackDocuments(a as never, a.cdp);
+        expect(a.cdp.listenerCount('Page.frameNavigated')).toBe(1);
+        expect(a.listenerCount('framenavigated')).toBe(1);
+    });
+
+    it('applyRwtIdentity is once per page and makes the page proven before it resolves', async () => {
+        const a = new CdpTab();
+        const newCDPSession = vi.fn(async () => a.cdp);
+        const context = { newCDPSession } as never;
+        const identity = { userAgent: 'ua' } as never;
+        await Promise.all([applyRwtIdentity(context, a as never, identity), applyRwtIdentity(context, a as never, identity)]);
+        await rwtPageReady(a as never);
+        expect(newCDPSession).toHaveBeenCalledTimes(1);
+        const t = documentTrackerOf(a as never);
+        expect(t.proven).toBe(true);
+        a.pwCommit('https://app.test/x');
+        a.cdpCommit();
+        expect([t.generation, t.uncertain]).toEqual([1, false]);
+    });
+
+    it('evidence still unresolved when the journey ends is HOLD, never PASS', async () => {
+        const { a, w } = await setup({ cdp: 'none' });
+        a.pwCommit('https://app.test/session');
+        a.emit('request', saveFailed('boot-2'));
+        expect(await recordRows(w)).toEqual([expect.objectContaining({ verdict: 'HOLD', evidence: expect.objectContaining({ unresolvedIdentity: 1 }) })]);
     });
 });
 

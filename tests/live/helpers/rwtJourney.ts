@@ -18,10 +18,11 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateSync } from 'node:zlib';
-import { expect, type Frame, type Locator, type Page, type Request, type Response, type TestInfo } from '@playwright/test';
+import { expect, type Locator, type Page, type Request, type TestInfo } from '@playwright/test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
+import { documentTrackerOf } from './rwtDocumentIdentity';
 import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
     UNAVAILABLE_HEADLINE,
@@ -664,124 +665,8 @@ function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: stri
 }
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
-/**
- * #1593 (Sam, #1662 RETURN on 76a0bf6e item 2) — WHICH COMMITTED DOCUMENT IS CURRENT, from the main frame's navigation events.
- * A navigation is "pending" only from the response of the request that will become the document until that same URL commits:
- * a failed navigation, a newer navigation request, a redirect or a no-content response clears it, and a commit of any other
- * URL (a same-document route change) never advances the generation — so a failed navigation can never leave a latch that a
- * later same-document navigation consumes, hiding the original boot's events.
- */
-/**
- * Which document an event belongs to. Unresolved while its navigation's response and commit have not both settled;
- * `ambiguous` when that navigation was abandoned (superseded, failed, redirected, no-content, or never matched) before its
- * identity could be established — never silently assigned to the predecessor document.
- */
-export interface DocumentRef {
-    resolved: boolean;
-    ambiguous: boolean;
-    generation: number;
-    committedAt: number;
-}
-
-export class CommittedDocumentTracker {
-    generation = 0;
-    committedAt = Date.now();
-    private pending: { url: string; at: number } | null = null;
-    private requestSeq = 0;
-    /** The navigation request whose response has not been handled yet. */
-    private inFlight: number | null = null;
-    /**
-     * Sam, #1662 RETURNs on 006f896d / b0dd763a / 06fe109b: commits seen while a navigation is in flight are held IN ORDER,
-     * each with its own reference for the events captured after it. Only a supported identity resolves them: the response
-     * (or, after the response, the commit) whose URL matches one held commit. Commits before it were same-document changes
-     * on the current document; the matching commit and those after it belong to the new document. Anything else leaves
-     * them ambiguous — fail closed.
-     */
-    private held: { url: string; at: number; seq: number; ref: DocumentRef }[] = [];
-    private settledRef: DocumentRef | null = null;
-
-    /** The document an event captured NOW belongs to (possibly unresolved). */
-    currentRef(): DocumentRef {
-        const last = this.held[this.held.length - 1];
-        if (last) return last.ref;
-        if (!this.settledRef || this.settledRef.generation !== this.generation) {
-            this.settledRef = { resolved: true, ambiguous: false, generation: this.generation, committedAt: this.committedAt };
-        }
-        return this.settledRef;
-    }
-
-    /** A new main-frame navigation request supersedes any earlier pending one; returns its sequence number. */
-    onRequest(): number {
-        this.pending = null;
-        this.abandonHeld();
-        this.inFlight = ++this.requestSeq;
-        return this.inFlight;
-    }
-
-    /** `seq` (when given) binds the response to its request: a superseded navigation's late response changes nothing. */
-    onResponse(url: string, status: number, now = Date.now(), seq?: number): void {
-        if (seq !== undefined && seq !== this.requestSeq) return;
-        this.inFlight = null;
-        // A redirect continues as another request; 204/205 never commit a document.
-        if ((status >= 300 && status < 400) || status === 204 || status === 205) { this.pending = null; this.abandonHeld(); return; }
-        const responded = stripHash(url);
-        const match = this.held.findIndex((c) => c.url === responded && (seq === undefined || c.seq === seq));
-        if (match !== -1) { this.commitHeldAt(match); return; }
-        // Not committed yet: the matching commit may still come (held commits so far stay held until it does).
-        this.pending = { url: responded, at: now };
-    }
-
-    onFailed(seq?: number): void {
-        if (seq !== undefined && seq !== this.requestSeq) return;
-        this.pending = null;
-        this.abandonHeld();
-        this.inFlight = null;
-    }
-
-    onCommitted(url: string, now = Date.now()): void {
-        const committed = stripHash(url);
-        if (this.pending !== null && committed === this.pending.url) {
-            // The responded document commits: earlier held commits were same-document changes on the current document.
-            const at = this.pending.at;
-            this.resolveHeld(this.held, this.generation, this.committedAt);
-            this.held = [];
-            this.advance(at);
-            return;
-        }
-        // While a navigation's response is outstanding (or responded but not yet committed), hold every commit in order.
-        if (this.inFlight !== null || this.pending !== null) {
-            this.held.push({ url: committed, at: now, seq: this.inFlight ?? this.requestSeq, ref: { resolved: false, ambiguous: false, generation: Number.NaN, committedAt: Number.NaN } });
-        }
-    }
-
-    /** Held commit `index` is the navigation's document: earlier ones stay on the current document; it and later ones move. */
-    private commitHeldAt(index: number): void {
-        const before = this.held.slice(0, index);
-        const from = this.held.slice(index);
-        this.resolveHeld(before, this.generation, this.committedAt);
-        this.advance(from[0].at);
-        this.resolveHeld(from, this.generation, this.committedAt);
-        this.held = [];
-    }
-
-    private resolveHeld(commits: { ref: DocumentRef }[], generation: number, committedAt: number): void {
-        for (const c of commits) Object.assign(c.ref, { resolved: true, ambiguous: false, generation, committedAt });
-    }
-
-    /** The navigation was abandoned before its identity was established: its windows stay unresolved, marked ambiguous. */
-    private abandonHeld(): void {
-        for (const c of this.held) c.ref.ambiguous = true;
-        this.held = [];
-    }
-
-    private advance(at: number): void {
-        this.generation += 1;
-        this.committedAt = at;
-        this.pending = null;
-    }
-}
-
-const stripHash = (url: string): string => { const i = url.indexOf('#'); return i === -1 ? url : url.slice(0, i); };
+// #1593 (Sam, #1662 RETURN on 2cab5b0c): document identity is proven by the browser — see rwtDocumentIdentity.ts.
+export { CommittedDocumentTracker, trackDocuments, type DocumentRef } from './rwtDocumentIdentity';
 
 export class AnalyticsTap {
     /** #1258 smoke item 2: every event-carrying PostHog request and its outcome, in send order (retries are new entries). */
@@ -813,33 +698,6 @@ export class AnalyticsTap {
         try { this.documentPath = new URL(url).pathname; } catch { this.documentPath = null; }
     }
 
-    private readonly documentTrackers = new WeakMap<Page, CommittedDocumentTracker>();
-
-    /**
-     * The page's committed-document tracker, wired ONCE for the page's lifetime: its own navigation-request listener (the
-     * request's response — or null when it failed — and the response's own completion, which reports a failure after the
-     * response) and `framenavigated`. Never removed by detach or by attaching to another page.
-     */
-    private documentsOf(page: Page): CommittedDocumentTracker {
-        const existing = this.documentTrackers.get(page);
-        if (existing) return existing;
-        const documents = new CommittedDocumentTracker();
-        this.documentTrackers.set(page, documents);
-        page.on('request', (request: Request) => {
-            let main = false;
-            try { main = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { main = false; }
-            if (!main) return;
-            const seq = documents.onRequest();
-            void request.response().then((response: Response | null) => {
-                if (!response) { documents.onFailed(seq); return undefined; }
-                documents.onResponse(response.url(), response.status(), Date.now(), seq);
-                return response.finished().then((error) => { if (error) documents.onFailed(seq); });
-            }).catch(() => documents.onFailed(seq));
-        });
-        page.on('framenavigated', (frame: Frame) => { if (frame === page.mainFrame()) documents.onCommitted(frame.url()); });
-        return documents;
-    }
-
     attach(page: Page): void {
         // A repeated attach replaces the outcome listeners instead of stacking a second set.
         this.removeTransportListeners();
@@ -847,11 +705,11 @@ export class AnalyticsTap {
         this.transportOpen = true;
         const generation = ++this.transportGeneration;
         const live = () => this.transportOpen && this.transportGeneration === generation;
-        // #1593 (Sam, #1662 RETURNs on f527a033 / 76a0bf6e / 46ebed0f / 814d2e25): which COMMITTED document of this page sent
-        // each event — a boot IS a document load. Tracked for the PAGE's lifetime (`documentsOf`), independently of the
-        // transport-outcome listeners below: re-attaching the tap to another page must never stop tracking this one while its
-        // sent-event capture continues.
-        const documents = this.documentsOf(page);
+        // #1593 (Sam, #1662 RETURNs on f527a033 / 76a0bf6e / 46ebed0f / 814d2e25 / 2cab5b0c): which COMMITTED document of this
+        // page sent each event — a boot IS a document load. Tracked for the PAGE's lifetime and proven by the browser's own
+        // commits (`documentTrackerOf`), independently of the transport-outcome listeners below: re-attaching the tap to
+        // another page must never stop tracking this one while its sent-event capture continues.
+        const documents = documentTrackerOf(page);
         const mainNavigation = (request: Request): boolean => {
             try { return request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { return false; }
         };
