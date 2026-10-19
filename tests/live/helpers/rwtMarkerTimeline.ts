@@ -65,6 +65,7 @@ export function armMarkerTimelineInPage(config: { token: string; points: number 
     const initialAcquisitions = Array.isArray(microphoneMarks) ? microphoneMarks.slice() : null;
     if (!initialAcquisitions) failures.add('microphone_observer_unavailable');
     let transcriptConfirmedAt = 0;
+    let transcriptRoot = document.querySelector('[data-testid="live-transcript"]');
     let finished = false;
     let cached: MarkerTimeline | null = null;
     let recordCount = 0;
@@ -85,21 +86,37 @@ export function armMarkerTimelineInPage(config: { token: string; points: number 
     const collect = (records: MutationRecord[]): void => {
         if (finished) return;
         const at = now();
+        const remainingRecords = Math.max(0, 20_000 - recordCount);
+        if (records.length > remainingRecords) {
+            failures.add('observation_limit_exceeded');
+            records = records.slice(0, remainingRecords);
+        }
+        recordCount += records.length;
         if (!rail.isConnected || document.querySelector('[data-testid="focus-points-rail"]') !== rail) {
             failures.add('rail_replaced_or_removed');
         }
         if (document.querySelectorAll('[data-testid="focus-points-rail"]').length !== 1) failures.add('rail_identity_ambiguous');
+        const currentTranscript = document.querySelector('[data-testid="live-transcript"]');
+        if (transcriptRoot && currentTranscript !== transcriptRoot) failures.add('transcript_surface_replaced_or_removed');
+        if (!transcriptRoot && currentTranscript) transcriptRoot = currentTranscript;
+        // Reconstruct coalesced after-values in one reverse pass. Reading only the final target loses
+        // intermediate statuses; repeatedly searching the remaining batch would make a busy page quadratic.
+        const followingValues = new Map<MutationRecord, string | null>();
+        const precedingValues = new Map<Node, string | null>();
+        for (let i = records.length - 1; i >= 0; i -= 1) {
+            const record = records[i];
+            if (record.type !== 'attributes' || record.attributeName !== 'data-status') continue;
+            followingValues.set(record, precedingValues.has(record.target) ? precedingValues.get(record.target)!
+                : (record.target as Element).getAttribute('data-status'));
+            precedingValues.set(record.target, record.oldValue);
+        }
         let transcriptChanged = false;
         for (let i = 0; i < records.length; i += 1) {
             const record = records[i];
-            // Bound memory even for a broken/repeatedly mutating page; truncation must never qualify.
-            recordCount += 1;
-            if (recordCount > 20_000) { failures.add('observation_limit_exceeded'); break; }
             if (record.type === 'attributes' && record.attributeName === 'data-status') {
                 const point = rows.indexOf(record.target as Element);
                 if (point >= 0) {
-                    const later = records.slice(i + 1).find((r) => r.target === record.target && r.attributeName === 'data-status');
-                    const next = later ? later.oldValue : (record.target as Element).getAttribute('data-status');
+                    const next = followingValues.get(record) ?? null;
                     if (!statuses.has(record.oldValue ?? '') || !statuses.has(next ?? '')) {
                         failures.add('marker_status_unreadable');
                     } else if (record.oldValue !== next) {
@@ -112,7 +129,7 @@ export function armMarkerTimelineInPage(config: { token: string; points: number 
             }
             const element = record.target.nodeType === Node.ELEMENT_NODE ? record.target as Element : record.target.parentElement;
             if (element?.closest('[data-testid="live-transcript"]')
-                || (record.type === 'childList' && Array.from(record.addedNodes).some((node) => node.nodeType === Node.ELEMENT_NODE
+                || (record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === Node.ELEMENT_NODE
                     && ((node as Element).matches('[data-testid="live-transcript"]')
                         || (node as Element).querySelector('[data-testid="live-transcript"]'))))) transcriptChanged = true;
         }
@@ -137,7 +154,6 @@ export function armMarkerTimelineInPage(config: { token: string; points: number 
     const heartbeat = setInterval(() => collect(observer.takeRecords()), 50);
     const lost = () => { failures.add('document_observation_lost'); };
     window.addEventListener('pagehide', lost);
-    window.addEventListener('beforeunload', lost);
     w.__rwtMarkerTimeline__ = {
         token: config.token,
         finish: () => {
@@ -147,7 +163,6 @@ export function armMarkerTimelineInPage(config: { token: string; points: number 
             observer.disconnect();
             clearInterval(heartbeat);
             window.removeEventListener('pagehide', lost);
-            window.removeEventListener('beforeunload', lost);
             finished = true;
             const finalMarks = w.__rwtMicAcquisitions__;
             let acquired: number[] = [];

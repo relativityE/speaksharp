@@ -22,7 +22,17 @@
       "rawSha256": "ba719da5e4eca5a37604cdf61bde5f98380e2babf6ff382b2c16df6fdb34d3ca",
       "normalizedSha256": "7a14b180f422f17ad6a6188beaf7e1e3bfa6134fe2265b56e847f70e15185241",
       "rawArchiveBasename": "ba719da5e4eca5a37604cdf61bde5f98380e2babf6ff382b2c16df6fdb34d3ca-collector-green.json"
+    },
+    "final-collector-bounded.json": {
+      "rawSha256": "8c95e4432f6a741c9c913ceaf5e3a26e6dab758077ed1b2fe133d08df4e6b991",
+      "normalizedSha256": "faf460d392d3fe4935554ae5d7214e522aa63d219fef8f20be64bf440853f60e",
+      "rawArchiveBasename": "8c95e4432f6a741c9c913ceaf5e3a26e6dab758077ed1b2fe133d08df4e6b991-final-collector-bounded.json"
+    },
+    "final-collector.json": {
+      "rawSha256": "ac414655ad3530ee76f9a678a9bb7a50c34517f1fed73b45901819add4c6840a",
+      "normalizedSha256": "0d4e05658f1cc66204e450844a050cec6212a53e863f3a053e08aa8bdff338b1",
+      "rawArchiveBasename": "ac414655ad3530ee76f9a678a9bb7a50c34517f1fed73b45901819add4c6840a-final-collector.json"
     }
   },
-  "lastNormalizedUtc": "2026-10-19T14:21:13.079Z"
+  "lastNormalizedUtc": "2026-10-19T14:32:16.591Z"
 }

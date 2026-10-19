@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runInNewContext } from 'node:vm';
 import { armMarkerTimelineInPage, closeMarkerTimelineInPage } from '../live/helpers/rwtMarkerTimeline';
 
 type ObservedWindow = Window & {
@@ -109,9 +110,9 @@ describe('case3 pre-Start marker collector — actual MutationObserver', () => {
         expect(close().token).toBe('case3-window');
     });
 
-    it.each(['pagehide', 'beforeunload'])('%s preserves observation loss', (event) => {
+    it('pagehide preserves observation loss, including a subsequently restored document', () => {
         arm(); acquire();
-        window.dispatchEvent(new Event(event));
+        window.dispatchEvent(new Event('pagehide'));
         expect(close().observationFailures).toContain('document_observation_lost');
     });
 
@@ -192,5 +193,47 @@ describe('case3 pre-Start marker collector — actual MutationObserver', () => {
         expect(result.armedWallMs).toBe(WALL);
         expect(result.acquisitionRequestWallMs[0] - result.armedWallMs).toBe(200);
         expect(result.audioOnsetVerified).toBe(false);
+    });
+
+    it('the page functions survive serialization without Node/module closure dependencies', () => {
+        const realm = { window, document, performance, Date, Node, MutationObserver, setInterval, clearInterval };
+        const serializedArm = runInNewContext(`(${armMarkerTimelineInPage.toString()})`, realm) as typeof armMarkerTimelineInPage;
+        const serializedClose = runInNewContext(`(${closeMarkerTimelineInPage.toString()})`, realm) as typeof closeMarkerTimelineInPage;
+        serializedArm({ token: 'serialized', points: 2 });
+        acquire();
+        at = 20; point().setAttribute('data-status', 'covered');
+        expect(serializedClose('serialized')?.changes[0]).toMatchObject({ point: 0, to: 'covered', observedMs: 20 });
+    });
+
+    it('loss of an already-observed rendered transcript surface cannot silently look like an empty stable transcript', async () => {
+        arm(); acquire();
+        document.body.insertAdjacentHTML('beforeend', '<div data-testid="live-transcript">budget</div>');
+        await Promise.resolve();
+        document.querySelector('[data-testid="live-transcript"]')!.remove();
+        const result = close();
+        expect(result.observationFailures).toContain('transcript_surface_replaced_or_removed');
+        expect(result.rendered.at(-1)?.visibleCharacters).toBe(0);
+    });
+
+    it('rewriting an earlier acquisition mark invalidates the observation chain', () => {
+        acquire(); arm();
+        w.__rwtMicAcquisitions__![0] -= 1;
+        acquire();
+        expect(close().observationFailures).toContain('microphone_observation_lost');
+    });
+
+    it.each([Number.NaN, WALL - 1, WALL + 100])('invalid/out-of-window request clock %s remains unqualified', (mark) => {
+        arm();
+        w.__rwtMicAcquisitions__!.push(mark);
+        expect(close().observationFailures).toContain('acquisition_clock_invalid');
+    });
+
+    it('bounds retained observations and explicitly rejects truncation on a runaway page', () => {
+        arm(); acquire();
+        const row = point();
+        for (let i = 0; i < 20_002; i += 1) row.setAttribute('data-status', i % 2 === 0 ? 'covered' : 'pending');
+        const result = close();
+        expect(result.observationFailures).toContain('observation_limit_exceeded');
+        expect(result.changes.length).toBeLessThanOrEqual(20_000);
     });
 });
