@@ -21,7 +21,7 @@ import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAc
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
-import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { openProductsItem } from './helpers/productsMenu';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
@@ -74,8 +74,8 @@ async function transcriptOnPageLength(page: Page): Promise<number> {
 
 const persistedId = (page: Page) => page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
 
-/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
-const backstop = new CleanupBackstop<RunOwner>();
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
 
 async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVariant): Promise<void> {
     const suite = `${SAVE_RETRY_SUITE}-${variant}`;
@@ -83,7 +83,7 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
     const tap = new AnalyticsTap();
     const generations = new CoachingGenerationTap();
     tap.attach(page); generations.attach(page);
-    const owner: RunOwner = backstop.track({ email: '', uid: '' });
+    const owner: RunOwner = { email: '', uid: '' };
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     const takes: string[] = [];
@@ -97,6 +97,27 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         if (completions.isObserved(response.request())) completions.onResponse(response.request(), response.status(), response.text().catch(() => null));
     });
     page.on('requestfailed', (request) => completions.onFailed(request, request.failure()?.errorText));
+    // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+    // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+    const finish = finalizer.once(async () => {
+        await watch.record(receipt);
+        await page.unroute(COMPLETION_RPC).catch(() => undefined);
+        await generations.settle();
+        // Two saved takes: at most one coaching request each.
+        coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes });
+        // A signup that died before its uid was read is still found by its created email.
+        if ((owner.uid || owner.email) && !accountDeleted) {
+            try {
+                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                accountDeleted = true;
+                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+            } catch {
+                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+            }
+        }
+        telemetryClassRows(receipt, tap, claimed, false);
+        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+    });
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `save-retry-${variant}`, admin, SERVICE_ROLE);
@@ -105,6 +126,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
 
+        // #1593 (Sam, #1662 RETURN control 3): the injected save failure is expected only for THIS take, until Retry Save.
+        watch.setFaultPhase(true);
         await page.route(COMPLETION_RPC, async (route: Route) => {
             if (route.request().method() !== 'POST') return route.fallback();
             drop.completionPosts += 1;
@@ -166,6 +189,8 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
             { rows: rowsAfterRetry.length, completed: rowsAfterRetry.filter((r) => r.status === 'completed').length,
                 persistedIdBound: savedId !== null, completionPosts: drop.completionPosts, completionOutcomes: await completions.evidence() });
 
+        // The fault phase ends with Retry Save: a failure of the NEXT take is never excused by the earlier injection.
+        watch.setFaultPhase(false);
         // The next Start, from the completed review's own repeat action, saves only itself.
         const again = page.getByTestId('verdict-practice-again');
         await expect(again).toBeEnabled({ timeout: 120_000 });
@@ -187,29 +212,13 @@ async function runVariant(page: Page, testInfo: TestInfo, variant: SaveRetryVari
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
-        watch.record(receipt);
-        await page.unroute(COMPLETION_RPC).catch(() => undefined);
-        await generations.settle();
-        // Two saved takes: at most one coaching request each.
-        coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes });
-        if (owner.uid && !accountDeleted) {
-            try {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                accountDeleted = true;
-                backstop.done(owner);
-                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-            } catch {
-                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-            }
-        }
-        telemetryClassRows(receipt, tap, claimed, false);
-        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+        await finish();
     }
 }
 
 test.describe('RWT — Retry Save and recovery @live', () => {
     test.afterEach(async () => {
-        await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+        await finalizer.drain();
     });
 
     test('request lost: the completion never reaches the server; Retry Save saves the take once', async ({ page }, testInfo) => {

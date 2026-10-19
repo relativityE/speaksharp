@@ -16,8 +16,13 @@ export const MODEL_ASSETS = '**/models/**';
 export const MODEL_FAILED_STATES = ['error', 'init-failed'] as const;
 
 /** Blocked microphone: the denial actually applied, the page says so, and nothing records or holds a track. */
-export function micDeniedVerdict(o: { denialApplied: boolean; blockedCopyShown: boolean; tab: TabState }): Verdict {
-    if (!o.denialApplied) return { status: 'HOLD', detail: 'the browser did not apply the microphone denial, so the case was not exercised' };
+/**
+ * #1593 (Sam, #1662 RETURN): the case is exercised only when the APPLICATION's acquisition was refused with a
+ * NotAllowedError — what a blocked site setting does and what the product reads. A permission query is informational: it
+ * can read "denied" while a fake-media flag still grants a live track (live case 12), or "prompt" while acquisition is denied.
+ */
+export function micDeniedVerdict(o: { deniedAtAcquisition: boolean; blockedCopyShown: boolean; tab: TabState }): Verdict {
+    if (!o.deniedAtAcquisition) return { status: 'HOLD', detail: 'the page\'s microphone acquisition was never refused with NotAllowedError, so the case was not exercised' };
     if (!o.blockedCopyShown) return { status: 'FAIL', detail: 'the page did not say the microphone is blocked' };
     if (o.tab.runtimeState === 'RECORDING' || o.tab.recorderVisible) return { status: 'FAIL', detail: 'the page shows a recording although the microphone is blocked' };
     if (o.tab.liveTracks > 0) return { status: 'FAIL', detail: 'a microphone track is live although access is blocked' };

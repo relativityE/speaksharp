@@ -348,8 +348,11 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         const device = spec.slice(deviceStart, spec.indexOf("receipt.row('another device is refused by the account lease'", deviceStart));
         expect(device, 'the cold control is pressed as the Start').toContain("await deviceB.getByTestId('mic-download').click();");
         expect(device, 'no download-only helper on device B').not.toContain('preparePrivateModelIfPrompted(deviceB');
-        expect(device, 'a cold press must answer in seconds: refused, or visibly into the download').toMatch(/coldPressAnswered = !coldB \|\| await expect\.poll\([\s\S]*?\{ timeout: 30_000 \}\)/);
-        expect(device, 'a dead cold press is never a refusal').toContain('const leaseRefusal = coldPressAnswered');
+        // Sam, #1662 RETURN: the first press is refused within a bounded window and BEFORE any model work.
+        expect(device).toContain('const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 })');
+        expect(device).toContain("const modelWorkBeforeRefusal = coldB && modelStatusAtRefusal !== 'download-required';");
+        expect(device, 'a refusal after model work is never a PASS').toContain('const leaseRefusal = refusedInTime && !modelWorkBeforeRefusal;');
+        expect(device, 'no 900 s wait for the first refusal').not.toMatch(/refusalShownB\.waitFor\(\{ timeout: coldB \? 900_000/);
         const takeOver = spec.slice(spec.indexOf("// The person's explicit second press is the take-over"));
         expect(takeOver, 'the take-over presses the control the refused page renders').toContain(`await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();`);
         expect(takeOver, 'a cold take-over gets the model budget, and a take-over that never records ends the scenario')

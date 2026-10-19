@@ -219,7 +219,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 { path: signOutPath ?? 'none', sessionCleared });
             if (historyUnproven) throw new Error('HOLD returning history: the returning-user account has no saved session, so returning history is unproven');
         } finally {
-            watch.record(receipt);
+            await watch.record(receipt);
             await tap.awaitObserved(page, { journey_step: 1 });
             await generations.settle();
             coachingRequestBudgetRow(receipt, generations, { maximum: 0 });

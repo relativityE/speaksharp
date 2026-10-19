@@ -90,13 +90,21 @@ export const WATCH_PROFILES: Readonly<Record<string, WatchProfile>> = Object.fre
 /** The profile for a suite; an unknown suite gets the strictest (empty) profile. */
 export const watchProfileFor = (suite: string): WatchProfile => WATCH_PROFILES[suite] ?? {};
 
-/** Stall bounds (ms). The cold model download is the slow legitimate case, so ENGINE_INITIALIZING gets the model budget. */
+/**
+ * Stall bounds (ms), each ABOVE the longest wait a journey legitimately spends in that state (Sam, #1662 RETURN: never
+ * silently shrink a phase wait): engine preparation waits up to 900 s for the cold model, a Retry Save STOPPING up to
+ * 180 s. A state that outlives its bound is stuck by any journey's own standard. Shorter holds are reported by the
+ * heartbeat (`heldS`) as diagnostics, never as a FAIL.
+ */
 export const STALL_MS = Object.freeze({
-    INITIATING: 90_000,
-    ENGINE_INITIALIZING: 600_000,
-    STOPPING: 120_000,
-    START_DEAD: 90_000,
+    INITIATING: 120_000,
+    ENGINE_INITIALIZING: 960_000,
+    STOPPING: 240_000,
+    START_DEAD: 180_000,
 });
+
+/** A DOM read that has not answered within this bound is counted as unreadable; it never blocks the telemetry scan. */
+export const DOM_READ_TIMEOUT_MS = 5_000;
 
 /** The closed watched fields of one decoded event, from the tap's in-memory record. */
 export const watchedFieldsOf = (e: Pick<SentEvent, 'watch'>): Record<string, string> => ({ ...(e.watch ?? {}) });
@@ -173,6 +181,13 @@ async function readDom(page: Page): Promise<DomState | null> {
     }).catch(() => null);
 }
 
+/** A DOM read bounded by DOM_READ_TIMEOUT_MS: a hung evaluation answers null instead of holding the watchdog. */
+async function readDomBounded(page: Page): Promise<DomState | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), DOM_READ_TIMEOUT_MS); });
+    try { return await Promise.race([readDom(page), timeout]); } finally { if (timer) clearTimeout(timer); }
+}
+
 export class WatchdogTripped extends Error {
     constructor(readonly signal: WatchSignal) {
         super(`fail-early watchdog: ${signal.kind}${signal.event ? ` (${signal.event})` : ''}`);
@@ -187,6 +202,11 @@ export interface ArmOptions {
     /** Extra contexts the journey drives (another device); all are closed when the tripwire fires. */
     readonly contexts?: () => readonly (BrowserContext | null)[];
     readonly label: string;
+    /**
+     * Sam, #1662 RETURN (control 2): only this run's evidence may trip the wire. An event naming another release, or
+     * captured before the watchdog was armed, is not this journey's — it is ignored and counted.
+     */
+    readonly releaseSha?: string;
     readonly log?: (line: string) => void;
     readonly pollMs?: number;
     readonly heartbeatMs?: number;
@@ -204,14 +224,32 @@ export class JourneyWatchdog {
     private lastEvent: { name: string; at: number } | null = null;
     private timer: ReturnType<typeof setInterval> | null = null;
     private beat: ReturnType<typeof setInterval> | null = null;
-    private busy = false;
+    /** Sam, #1662 RETURN (control 4): after stop(), no in-flight callback may trip; record() drains it first. */
+    private stopped = false;
+    private generation = 0;
+    private domRead: Promise<void> | null = null;
+    /** Observation accounting: missing observation is reported, never read as a clean journey. */
+    private watchedSeen = 0;
+    private foreignIgnored = 0;
+    private domOk = 0;
+    private domUnreadable = 0;
+    /**
+     * Sam, #1662 RETURN (control 3): a suite's expected faults are allowed only while the spec has its fault phase open.
+     * Outside it the strict (empty) profile applies, so a later take's failure is never excused by an earlier injection.
+     */
+    private faultPhase = false;
 
     private readonly o: ArmOptions;
     /** Codex P2 r4309303716: the journey's starting context stays in the close set after the DOM view moves elsewhere. */
     private readonly initialContext: BrowserContext;
     /** Codex P2 r4309303711: a phase may withdraw the suite's refusal allowance (null = the profile's own). */
     private refusalAllowed: boolean | null = null;
-    constructor(options: ArmOptions) { this.o = { ...options }; this.initialContext = options.page.context(); }
+    constructor(options: ArmOptions) {
+        // Default: the release this run executes against (the same variables `expectedReleaseSha()` reads in rwtJourney).
+        const release = options.releaseSha ?? (process.env.EXPECTED_RELEASE_SHA ?? process.env.EXPECT_RELEASE_SHA ?? '').trim();
+        this.o = { ...options, releaseSha: release || undefined };
+        this.initialContext = options.page.context();
+    }
 
     arm(): this {
         const log = this.o.log ?? ((line: string) => console.log(line));
@@ -231,13 +269,31 @@ export class JourneyWatchdog {
      */
     setStartRefusedAllowed(allowed: boolean): void { this.refusalAllowed = allowed; }
 
+    /** Open (true) or close (false) the phase in which the suite's declared faults are expected. */
+    setFaultPhase(open: boolean): void { this.faultPhase = open; }
+
     /** Around a step whose truthful outcome is no recording (a denied microphone): a RECORDING transition then trips. */
     setForbidRecording(on: boolean): void { this.forbidRecording = on; }
 
     stop(): void {
+        this.stopped = true;
+        this.generation += 1;
         if (this.timer) clearInterval(this.timer);
         if (this.beat) clearInterval(this.beat);
         this.timer = null; this.beat = null;
+    }
+
+    /** The profile in force now: the suite's allowances inside its fault phase, strict outside it. */
+    private activeProfile(): WatchProfile {
+        const base: WatchProfile = this.faultPhase ? this.o.profile : {};
+        return this.refusalAllowed === null ? base : { ...base, allowStartRefused: this.refusalAllowed };
+    }
+
+    /** True when an event is not this journey's evidence (another release, or captured before arming). */
+    private foreign(e: SentEvent): boolean {
+        if (this.o.releaseSha && e.releaseSha && e.releaseSha !== this.o.releaseSha) return true;
+        const captured = e.capturedAt ?? e.at;
+        return captured < this.started - 1_000;
     }
 
     /** One content-free status line: state, model, control, last watched event and its age. */
@@ -252,35 +308,45 @@ export class JourneyWatchdog {
         })}`;
     }
 
-    /** Scan new telemetry, then the DOM. Exposed for tests; the armed interval calls it. */
+    /**
+     * Scan new telemetry, then (on its own bounded track) the DOM. Exposed for tests; the armed interval calls it.
+     * The telemetry scan never waits on a DOM read (Sam, #1662 RETURN: a hung evaluation blocked later fatal telemetry),
+     * and nothing trips once stop() has run (control 4).
+     */
     async tick(now = Date.now()): Promise<WatchSignal | null> {
-        if (this.signal || this.busy) return this.signal;
-        this.busy = true;
-        try {
-            const events = this.o.tap.events;
-            for (; this.cursor < events.length; this.cursor += 1) {
-                const e = events[this.cursor];
-                if (!(e.event in WATCHED_FIELDS)) continue;
-                this.lastEvent = { name: e.event, at: e.at };
-                const profile = this.refusalAllowed === null ? this.o.profile : { ...this.o.profile, allowStartRefused: this.refusalAllowed };
-                const kind = fatalSignalOf(e, profile, this.forbidRecording);
-                if (kind) return await this.trip({ kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started });
+        if (this.signal || this.stopped) return this.signal;
+        const events = this.o.tap.events;
+        for (; this.cursor < events.length; this.cursor += 1) {
+            const e = events[this.cursor];
+            if (!(e.event in WATCHED_FIELDS)) continue;
+            if (this.foreign(e)) { this.foreignIgnored += 1; continue; }
+            this.watchedSeen += 1;
+            this.lastEvent = { name: e.event, at: e.at };
+            const kind = fatalSignalOf(e, this.activeProfile(), this.forbidRecording);
+            if (kind) return this.trip({ kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started });
+        }
+        if (this.domRead) return null; // the previous read is still pending; telemetry was scanned regardless
+        const generation = this.generation;
+        let stall: WatchSignal | null = null;
+        this.domRead = (async () => {
+            const dom = await readDomBounded(this.o.page);
+            if (this.stopped || generation !== this.generation || this.signal) return; // fenced: stopped while awaiting
+            if (!dom) { this.domUnreadable += 1; return; }
+            this.domOk += 1;
+            const key = conditionKey(dom);
+            if (key !== this.lastKey) { this.lastKey = key; this.heldSince = now; }
+            this.lastDom = dom;
+            const kind = stallOf(dom, now - this.heldSince);
+            if (kind) {
+                stall = { kind, event: null, elapsedMs: now - this.started, fields: {
+                    runtimeState: dom.runtimeState ?? 'unreadable', modelStatus: dom.modelStatus ?? 'unreadable',
+                    control: dom.control ?? 'none', controlEnabled: dom.controlEnabled ?? false, heldMs: now - this.heldSince,
+                } };
             }
-            const dom = await readDom(this.o.page);
-            if (dom) {
-                const key = conditionKey(dom);
-                if (key !== this.lastKey) { this.lastKey = key; this.heldSince = now; }
-                this.lastDom = dom;
-                const stall = stallOf(dom, now - this.heldSince);
-                if (stall) {
-                    return await this.trip({ kind: stall, event: null, elapsedMs: now - this.started, fields: {
-                        runtimeState: dom.runtimeState ?? 'unreadable', modelStatus: dom.modelStatus ?? 'unreadable',
-                        control: dom.control ?? 'none', controlEnabled: dom.controlEnabled ?? false, heldMs: now - this.heldSince,
-                    } });
-                }
-            }
-            return null;
-        } finally { this.busy = false; }
+        })().finally(() => { this.domRead = null; });
+        await this.domRead;
+        if (stall && !this.stopped && generation === this.generation && !this.signal) return this.trip(stall);
+        return null;
     }
 
     private async trip(signal: WatchSignal): Promise<WatchSignal> {
@@ -295,14 +361,25 @@ export class JourneyWatchdog {
         return signal;
     }
 
-    /** The receipt row: PASS when the journey ran without an unexpected signal, FAIL naming the signal otherwise. */
-    record(receipt: RwtReceipt): void {
+    /**
+     * The receipt row, written only after any in-flight check has drained (Sam, #1662 RETURN control 4): FAIL naming the
+     * signal; HOLD when the journey was never actually observed (no readable DOM and no watched telemetry — silence is not
+     * a clean journey); PASS otherwise. Observation counts are always recorded.
+     */
+    async record(receipt: RwtReceipt): Promise<void> {
         this.stop();
+        if (this.domRead) await Promise.race([this.domRead, new Promise((r) => setTimeout(r, DOM_READ_TIMEOUT_MS))]);
         const s = this.signal;
-        receipt.row('fail-early watchdog', s ? 'FAIL' : 'PASS', s
-            ? `the journey was stopped early: ${s.kind}${s.event ? ` (${s.event})` : ''} after ${Math.round(s.elapsedMs / 1000)} s`
-            : 'no unexpected failure, refusal or stall signal during the journey',
-        s ? { kind: s.kind, event: s.event ?? 'dom', elapsedMs: s.elapsedMs, ...s.fields } : undefined);
+        const observation = { watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable };
+        if (s) {
+            receipt.row('fail-early watchdog', 'FAIL',
+                `the journey was stopped early: ${s.kind}${s.event ? ` (${s.event})` : ''} after ${Math.round(s.elapsedMs / 1000)} s`,
+                { kind: s.kind, event: s.event ?? 'dom', elapsedMs: s.elapsedMs, ...s.fields, ...observation });
+        } else if (this.domOk === 0 && this.watchedSeen === 0) {
+            receipt.row('fail-early watchdog', 'HOLD', 'the journey was never observed (no readable page state and no watched telemetry), so no clean run is claimed', observation);
+        } else {
+            receipt.row('fail-early watchdog', 'PASS', 'no unexpected failure, refusal or stall signal during the observed journey', observation);
+        }
     }
 }
 
@@ -312,18 +389,42 @@ export function armWatchdog(o: ArmOptions): JourneyWatchdog {
 }
 
 /**
- * #1593 (live case 12, run 39167876945): the Playwright test timeout ended the body before its `finally`, so the run-owned
- * account was never deleted and no receipt was written. A body tracks its owner at creation and marks it done once its own
- * cleanup ran; the suite's `afterEach` — which Playwright runs after a timeout — deletes every owner still tracked. Only a
- * body that never completed its cleanup is retried, so an already-deleted account is never looked up again.
+ * #1593 (live case 12, run 39167876945; Sam, #1662 RETURN control 1) — ONE OWNED FINALIZATION PER JOURNEY.
+ *
+ * The Playwright test timeout ended the body before its `finally`, so the run-owned account was never deleted and no receipt
+ * was written. A Set-based backstop then raced the body's own cleanup and could never publish the receipt. Instead, each
+ * journey registers its WHOLE finalization (watchdog row, cleanup, receipt) once: the body's `finally` and the suite's
+ * `afterEach` (which Playwright runs after a timeout) invoke the same memoized promise, so it runs exactly once — whichever
+ * reaches it first — and the other awaits that same run.
  */
-export class CleanupBackstop<O extends { uid: string; email: string }> {
-    private readonly owners = new Set<O>();
-    track(owner: O): O { this.owners.add(owner); return owner; }
-    done(owner: O): void { this.owners.delete(owner); }
-    async drain(cleanup: (owner: O) => Promise<unknown>): Promise<void> {
-        const pending = [...this.owners].filter((o) => o.uid || o.email);
-        this.owners.clear();
-        for (const owner of pending) await cleanup(owner);
+export class JourneyFinalizer {
+    private readonly registered = new Map<symbol, () => Promise<void>>();
+    private readonly runs = new Map<symbol, Promise<void>>();
+
+    /** Register a journey's finalization; the returned function runs it at most once and always returns that one run. */
+    once(finalize: () => Promise<void>): () => Promise<void> {
+        const key = Symbol('journey');
+        this.registered.set(key, finalize);
+        return () => this.run(key);
+    }
+
+    private run(key: symbol): Promise<void> {
+        const existing = this.runs.get(key);
+        if (existing) return existing;
+        const finalize = this.registered.get(key);
+        if (!finalize) return Promise.resolve();
+        const run = Promise.resolve().then(finalize);
+        this.runs.set(key, run);
+        return run;
+    }
+
+    /** afterEach: run every registered finalization that has not run, and await every one in flight. */
+    async drain(): Promise<void> {
+        const keys = [...this.registered.keys()];
+        const results = await Promise.allSettled(keys.map((key) => this.run(key)));
+        this.registered.clear();
+        this.runs.clear();
+        const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+        if (failed) throw failed.reason;
     }
 }

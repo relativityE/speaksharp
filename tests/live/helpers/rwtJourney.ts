@@ -462,8 +462,13 @@ export async function installMicAcquisitionCounter(page: Page): Promise<void> {
     await page.addInitScript(() => {
         const marks: number[] = [];
         const streams: MediaStream[] = [];
-        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[] };
+        // #1593 (Sam, #1662 RETURN): the acquisition boundary's own REJECTIONS, by closed DOMException name only — the
+        // product learns "blocked" from a NotAllowedError here, so a denial case must observe one, not a permission query.
+        const rejections: string[] = [];
+        const NAMES = ['NotAllowedError', 'NotFoundError', 'NotReadableError', 'AbortError', 'SecurityError', 'OverconstrainedError', 'TypeError'];
+        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[]; __rwtMicRejections__?: string[] };
         w.__rwtMicAcquisitions__ = marks;
+        w.__rwtMicRejections__ = rejections;
         w.__rwtMicStreams__ = streams; // references only, to read track readyState; never audio data
         const media = navigator.mediaDevices;
         if (!media?.getUserMedia) return;
@@ -471,7 +476,13 @@ export async function installMicAcquisitionCounter(page: Page): Promise<void> {
         media.getUserMedia = (constraints?: MediaStreamConstraints) => {
             const audio = Boolean(constraints && (constraints as { audio?: unknown }).audio);
             if (audio) marks.push(Date.now());
-            return original(constraints).then((stream) => { if (audio) streams.push(stream); return stream; });
+            return original(constraints).then((stream) => { if (audio) streams.push(stream); return stream; }, (error: unknown) => {
+                if (audio) {
+                    const name = (error as { name?: unknown } | null)?.name;
+                    rejections.push(typeof name === 'string' && NAMES.includes(name) ? name : 'other');
+                }
+                throw error;
+            });
         };
     });
 }
@@ -481,6 +492,11 @@ export async function liveMicTracks(page: Page): Promise<number> {
     return page.evaluate(() => ((window as unknown as { __rwtMicStreams__?: MediaStream[] }).__rwtMicStreams__ ?? [])
         .flatMap((stream) => stream.getAudioTracks())
         .filter((track) => track.readyState === 'live').length);
+}
+
+/** The closed DOMException names of the page's rejected microphone acquisitions, in order. */
+export async function micRejections(page: Page): Promise<string[]> {
+    return page.evaluate(() => ((window as unknown as { __rwtMicRejections__?: string[] }).__rwtMicRejections__ ?? []).slice()).catch(() => []);
 }
 
 export async function micAcquisitions(page: Page): Promise<number[]> {

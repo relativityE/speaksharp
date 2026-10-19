@@ -21,15 +21,15 @@ const idle: TabState = { runtimeState: 'READY', recorderVisible: false, liveTrac
 
 describe('micDeniedVerdict — a blocked microphone is stated, and nothing records', () => {
     it('denial applied, stated, nothing recording → PASS', () => {
-        expect(micDeniedVerdict({ denialApplied: true, blockedCopyShown: true, tab: idle }).status).toBe('PASS');
+        expect(micDeniedVerdict({ deniedAtAcquisition: true, blockedCopyShown: true, tab: idle }).status).toBe('PASS');
     });
     it('the browser never applied the denial → HOLD, not PASS', () => {
-        expect(micDeniedVerdict({ denialApplied: false, blockedCopyShown: true, tab: idle }).status).toBe('HOLD');
+        expect(micDeniedVerdict({ deniedAtAcquisition: false, blockedCopyShown: true, tab: idle }).status).toBe('HOLD');
     });
     it('not stated, a recording shown, or a live track → FAIL', () => {
-        expect(micDeniedVerdict({ denialApplied: true, blockedCopyShown: false, tab: idle }).status).toBe('FAIL');
-        expect(micDeniedVerdict({ denialApplied: true, blockedCopyShown: true, tab: { ...idle, recorderVisible: true } }).status).toBe('FAIL');
-        expect(micDeniedVerdict({ denialApplied: true, blockedCopyShown: true, tab: { ...idle, liveTracks: 1 } }).status).toBe('FAIL');
+        expect(micDeniedVerdict({ deniedAtAcquisition: true, blockedCopyShown: false, tab: idle }).status).toBe('FAIL');
+        expect(micDeniedVerdict({ deniedAtAcquisition: true, blockedCopyShown: true, tab: { ...idle, recorderVisible: true } }).status).toBe('FAIL');
+        expect(micDeniedVerdict({ deniedAtAcquisition: true, blockedCopyShown: true, tab: { ...idle, liveTracks: 1 } }).status).toBe('FAIL');
     });
 });
 

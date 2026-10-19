@@ -796,7 +796,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 });
             });
         } finally {
-            watch.record(receipt);
+            await watch.record(receipt);
             // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
             receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 })).observed;
             // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary

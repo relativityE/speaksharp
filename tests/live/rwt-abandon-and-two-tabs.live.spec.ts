@@ -25,7 +25,7 @@ import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAc
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
-import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { openProductsItem } from './helpers/productsMenu';
 import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
@@ -80,20 +80,20 @@ async function startFirstPrivateTake(page: Page, label: string): Promise<void> {
     }
 }
 
-/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
-const backstop = new CleanupBackstop<RunOwner>();
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
 
-async function finish(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
+async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
     owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null): Promise<void> {
     const cloudVerdict = noCloudVerdict(cloud.requests);
     receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
     await generations.settle();
     const sessionIdsVerified = await refreshCompletedTakeIds(takes, takeBaseline, () => readRows(owner.uid));
     coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes, sessionIdsVerified });
-    if (owner.uid) {
+    // A signup that died before its uid was read is still found by its created email.
+    if (owner.uid || owner.email) {
         try {
             await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-            backstop.done(owner);
             receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
         } catch {
             receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
@@ -110,12 +110,18 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
     const generations = new CoachingGenerationTap();
     const cloud = { requests: 0 };
     observe(page, tap, generations, cloud);
-    const owner: RunOwner = backstop.track({ email: '', uid: '' });
+    const owner: RunOwner = { email: '', uid: '' };
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite });
     const takes: string[] = [];
     let claimed = false;
     let rowsBeforeFirst: RowFacts[] | null = null;
+    // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+    // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+    const finish = finalizer.once(async () => {
+        await watch.record(receipt);
+        await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
+    });
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `abandon-${variant}`, admin, SERVICE_ROLE);
@@ -133,6 +139,9 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         if (!midTake) return;
 
         let returned = page;
+        // #1593 (Sam, #1662 RETURN control 3): the left take's lease and the truthful return refusal are expected from the
+        // leave until the return Start has been judged; the next take is strict.
+        watch.setFaultPhase(true);
         if (variant === 'navigate-away') {
             // #1258 run 38876623812: the product asks before leaving a live recording. Unanswered, Playwright dismisses it
             // (the person's Cancel) and the page rightly stays; a person leaving answers Leave. Only the first exact leave
@@ -234,6 +243,7 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         }
         const start = returnStartVerdict({ firstPressRecorded, refusalCopyShown, secondPressRecorded });
         receipt.row('return Start is truthful', start.status, start.detail, { firstPressRecorded, refusalCopyShown, secondPressRecorded });
+        watch.setFaultPhase(false);
         if (start.status !== 'PASS') return;
         await returned.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
         await stopBenchmarkRecording(returned, `abandon-${variant}-2`, 180_000);
@@ -248,14 +258,13 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
-        watch.record(receipt);
-        await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
+        await finish();
     }
 }
 
 test.describe('RWT — leaving a recording, and two tabs @live', () => {
     test.afterEach(async () => {
-        await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+        await finalizer.drain();
     });
 
     test('navigate away mid-recording, return, and the next take saves only itself', async ({ page }, testInfo) => {
@@ -275,7 +284,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         const generations = new CoachingGenerationTap();
         const cloud = { requests: 0 };
         observe(tabA, tap, generations, cloud);
-        const owner: RunOwner = backstop.track({ email: '', uid: '' });
+        const owner: RunOwner = { email: '', uid: '' };
         const takes: string[] = [];
         let claimed = false;
         let rowsBeforeFirst: RowFacts[] | null = null;
@@ -283,6 +292,14 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         let otherDevice: BrowserContext | null = null;
         // #1593 fail early, across both places: tab A's context and the other device are closed together on a trip.
         const watch = armWatchdog({ page: tabA, tap, profile: watchProfileFor(TWO_TAB_SUITE), label: TWO_TAB_SUITE, contexts: () => [otherDevice] });
+        // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+        // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+        const finish = finalizer.once(async () => {
+            await watch.record(receipt);
+            await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
+            await sameBrowserTab?.close().catch(() => undefined);
+            await otherDevice?.close().catch(() => undefined);
+        });
         try {
             await suppressPageSnapshot(testInfo);
             claimed = await prepareRunOwnedAccount(tabA, receipt, owner, 'two-tab', admin, SERVICE_ROLE);
@@ -294,6 +311,9 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
 
             // (1) SAME BROWSER (PM 6207105255): a second tab of this context meets this browser's own tab lock before any
             // server lease is involved. It must be refused truthfully and start no engine; A keeps recording.
+            // #1593: from the second tab on, lease refusals and the displaced take are this journey's expected faults; the
+            // take-over press itself is strict (setStartRefusedAllowed(false) below).
+            watch.setFaultPhase(true);
             sameBrowserTab = await tabA.context().newPage();
             observe(sameBrowserTab, tap, generations, cloud);
             // Codex P1 r4309261415: the long waits of this phase run on the second tab, so its DOM is what can stall.
@@ -337,19 +357,21 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
                 await waitForPrivateEngineReady(deviceB, 600_000);
                 await deviceB.getByTestId('mic-start').click();
             }
-            // Cold, the press must answer in SECONDS — refused at once, or visibly into the one-time download (after which
-            // the lease decides, within the model budget). A press that does neither is the dead control this row reports.
+            // Sam, #1662 RETURN (lease-before-model): the lease decides BEFORE any engine or model work — the start handler
+            // acquires it first (useSessionLifecycle acquireTakeLease). So the first press must be refused within a bounded
+            // window, and on a cold device the model must still be `download-required` when it is: a refusal that only
+            // arrives after model preparation began is a FAIL, never a slow PASS. Model work belongs to the take-over press.
             const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();
-            const coldPressAnswered = !coldB || await expect.poll(async () => await refusalShownB.isVisible().catch(() => false)
-                || await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status')) !== 'download-required',
-            { timeout: 30_000 }).toBe(true).then(() => true, () => false);
-            const leaseRefusal = coldPressAnswered
-                && await refusalShownB.waitFor({ timeout: coldB ? 900_000 : 15_000 }).then(() => true).catch(() => false);
+            const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
+            const modelStatusAtRefusal = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+            const modelWorkBeforeRefusal = coldB && modelStatusAtRefusal !== 'download-required';
+            const leaseRefusal = refusedInTime && !modelWorkBeforeRefusal;
             await deviceB.waitForTimeout(2_000);
             const [refusedB, stillA2] = [await tabState(deviceB), await tabState(tabA)];
             const lease = secondTabBlockedVerdict({ refusalCopyShown: leaseRefusal, tabB: refusedB, tabA: stillA2 });
-            receipt.row('another device is refused by the account lease', lease.status, lease.detail,
-                { refusalCopyShown: leaseRefusal, coldB, coldPressAnswered, ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
+            receipt.row('another device is refused by the account lease', lease.status,
+                modelWorkBeforeRefusal ? 'model preparation began before the account lease refused the press' : lease.detail,
+                { refusalCopyShown: refusedInTime, coldB, modelWorkBeforeRefusal, ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
 
             // The person's explicit second press is the take-over — on whichever primary control the refused page renders
             // (still the cold `mic-download` when the lease refused before any download).
@@ -380,10 +402,7 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
-            watch.record(receipt);
-            await finish(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
-            await sameBrowserTab?.close().catch(() => undefined);
-            await otherDevice?.close().catch(() => undefined);
+            await finish();
         }
     });
 });

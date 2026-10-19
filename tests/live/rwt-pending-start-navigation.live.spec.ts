@@ -20,7 +20,7 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
-import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 
 const SUITE = 'pending-start-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -66,10 +66,10 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }) },
 });
 
-/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
-const backstop = new CleanupBackstop<{ uid: string; email: string }>();
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
 test.afterEach(async () => {
-    await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+    await finalizer.drain();
 });
 
 test('leaving during a cold Start does not leave a recording or session behind @live', async ({ page }, testInfo) => {
@@ -82,9 +82,29 @@ test('leaving during a cold Start does not leave a recording or session behind @
     let uid = '';
     let claimed = false;
     let accountDeleted = false;
-    const owner = backstop.track({ uid: '', email: '' });
+    const owner = { uid: '', email: '' };
     // #1593 fail early: an unexpected failure, refusal or stall (case 4's dead Start) ends the journey in seconds.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
+    // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+    // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+    const finish = finalizer.once(async () => {
+        await watch.record(receipt);
+        await generations.settle();
+        // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
+        coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
+        // A signup that died before its uid was read is still found by its created email.
+        if ((uid || email) && !accountDeleted) {
+            try {
+                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                accountDeleted = true;
+                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+            } catch {
+                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+            }
+        }
+        telemetryClassRows(receipt, tap, claimed, false);
+        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+    });
     try {
         await suppressPageSnapshot(testInfo);
         const missing = rwtPreconditionFailures();
@@ -136,6 +156,9 @@ test('leaving during a cold Start does not leave a recording or session behind @
 
         // This is the normal product CTA, not a synthetic network delay. Navigate away as soon as the real UI
         // reports its acquisition phase; the route change is the user's cancellation action under test.
+        // #1593 (Sam, #1662 RETURN control 3): the abandoned Start's own cancellation (and the return's gate) is this
+        // journey's expected fault — from the press until the return has been checked.
+        watch.setFaultPhase(true);
         await page.getByTestId('mic-download').click({ timeout: 15_000 });
         // Codex P1 r4247193674: TranscriptionService publishes BOTH DOWNLOADING and ENGINE_INITIALIZING as the root
         // `data-model-status="loading"`; `downloading`/`initializing` are never written, so only `loading` is the pending Start.
@@ -242,21 +265,6 @@ test('leaving during a cold Start does not leave a recording or session behind @
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
-        watch.record(receipt);
-        await generations.settle();
-        // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
-        coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
-        if (uid && !accountDeleted) {
-            try {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                accountDeleted = true;
-                backstop.done(owner);
-                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-            } catch {
-                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-            }
-        }
-        telemetryClassRows(receipt, tap, claimed, false);
-        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+        await finish();
     }
 });

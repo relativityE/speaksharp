@@ -16,7 +16,8 @@ import { applyRwtIdentity, rwtIdentityFor } from './helpers/rwtBrowserIdentity';
 import { test, expect } from './helpers/rwtProductionTest';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import {
-    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, loadRwtFixture, rwtLaunchArgs, suppressPageSnapshot, telemetryClassRows,
+    AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, micRejections, rwtLaunchArgs,
+    suppressPageSnapshot, telemetryClassRows,
 } from './helpers/rwtJourney';
 import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAccount';
 import { isRecording, observeCloudStt, persistedId, tabState } from './helpers/rwtPageState';
@@ -26,7 +27,7 @@ import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode, stopBenchmarkRecording } from './helpers/benchmark-utils';
 import { noCloudVerdict } from './helpers/rwtAbandonTakeover';
-import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import {
     ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict,
     micDeniedVerdict, recoveredTakeVerdict,
@@ -118,8 +119,8 @@ async function saveRecoveredTake(page: Page, uid: string, label: string, takes: 
     return recoveredTakeVerdict({ recorded, savedId, savedStatus });
 }
 
-/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
-const backstop = new CleanupBackstop<RunOwner>();
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
 
 async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, variant: AdverseVariant): Promise<void> {
     const suite = `${ADVERSE_SUITE}-${variant}`;
@@ -128,7 +129,7 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
     const generations = new CoachingGenerationTap();
     const cloud = { requests: 0 };
     tap.attach(page); generations.attach(page); observeCloudStt(page, cloud);
-    const owner: RunOwner = backstop.track({ email: '', uid: '' });
+    const owner: RunOwner = { email: '', uid: '' };
     const takes: string[] = [];
     let claimed = false;
     const context = page.context();
@@ -136,10 +137,35 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
     let recoveryBrowser: Browser | null = null;
     // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the 30-minute timeout.
     const watch = armWatchdog({ page, tap, profile: watchProfileFor(suite), label: suite, contexts: () => recoveryBrowser?.contexts() ?? [] });
+    // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+    // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+    const finish = finalizer.once(async () => {
+        await watch.record(receipt);
+        await recoveryBrowser?.close().catch(() => undefined);
+        await context.setOffline(false).catch(() => undefined);
+        await context.unroute(MODEL_ASSETS).catch(() => undefined);
+        const cloudVerdict = noCloudVerdict(cloud.requests);
+        receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
+        await generations.settle();
+        coachingRequestBudgetRow(receipt, generations, { maximum: 1, oneRequestPerSession: takes });
+        // A signup that died before its uid was read is still found by its created email.
+        if (owner.uid || owner.email) {
+            try {
+                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+            } catch {
+                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+            }
+        }
+        telemetryClassRows(receipt, tap, claimed, false);
+        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+    });
     try {
         await suppressPageSnapshot(testInfo);
         claimed = await prepareRunOwnedAccount(page, receipt, owner, `adverse-${variant}`, admin, SERVICE_ROLE);
         if (!claimed) return;
+        // The acquisition boundary's own outcomes (grants and NotAllowedError) are observed from the first page load.
+        await installMicAcquisitionCounter(page);
         await page.goto('/practice');
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
@@ -148,20 +174,26 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
 
         if (variant === 'mic-denied') {
             await setSiteMicrophone(page, browser, 'denied');
-            const denialApplied = (await micPermissionState(page)) === 'denied';
+            // Informational only (Sam, #1662 RETURN): the verdict is decided at the acquisition boundary below.
+            const permissionQuery = await micPermissionState(page);
             const control = page.getByTestId('mic-download').or(page.getByTestId('mic-start')).filter({ visible: true }).first();
             // Live case 12: with the microphone denied, a RECORDING transition is the failure itself — stop there. Armed
             // whether or not the denial reads as applied: a recording here is never this scenario's truthful outcome.
             watch.setForbidRecording(true);
+            // #1593 (Sam, #1662 RETURN control 3): the denial's own failed Start is expected only in this step.
+            watch.setFaultPhase(true);
             await control.click();
             // The model downloads first on a fresh account; the blocked microphone is met at the recording boundary.
             const blockedCopyShown = await page.getByText(MIC_BLOCKED_COPY).first().waitFor({ timeout: 900_000 }).then(() => true).catch(() => false);
             await page.waitForTimeout(2_000);
             const state = await tabState(page);
-            const denied = micDeniedVerdict({ denialApplied, blockedCopyShown, tab: state });
+            const rejections = await micRejections(page);
+            const deniedAtAcquisition = rejections.includes('NotAllowedError');
+            const denied = micDeniedVerdict({ deniedAtAcquisition, blockedCopyShown, tab: state });
             receipt.row('blocked microphone is stated truthfully', denied.status, denied.detail,
-                { denialApplied, blockedCopyShown, ...state, mode: await sttMode(page) });
+                { deniedAtAcquisition, acquisitionRejections: rejections.length, permissionQuery, blockedCopyShown, ...state, mode: await sttMode(page) });
             watch.setForbidRecording(false);
+            watch.setFaultPhase(false);
             // #1593 (local probe, 2026-10-18): only `--use-fake-ui-for-media-stream=deny` makes the browser answer a
             // truthful NotAllowedError, and that browser can never grant afterwards. Allowing the microphone is therefore
             // what a person does next: the same account, in a browser that allows it (the harness's ordinary launch).
@@ -180,7 +212,11 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
             await allowedPage.waitForURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(allowedPage, 'private');
             const recovered = await saveRecoveredTake(allowedPage, owner.uid, `adverse-${variant}`, takes);
-            receipt.row('after allowing the microphone a take saves', recovered.status, recovered.detail);
+            // Sam, #1662 RETURN: this proves recovery for the SAME ACCOUNT in a FRESH, allowing browser — not Allow→Retry in
+            // the originally denied page, which a `=deny` browser cannot grant.
+            receipt.row('after allowing the microphone a take saves', recovered.status,
+                `${recovered.detail} (same account, fresh allowing browser; not Allow→Retry in the denied page)`,
+                { recoveryScope: 'same_account_fresh_browser' });
         } else {
             const modelFailures = { afterFault: 0 };
             let faultOn = false;
@@ -188,6 +224,7 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
             if (variant === 'download-fails') {
                 await context.route(MODEL_ASSETS, (route) => route.abort('failed'));
                 faultOn = true;
+                watch.setFaultPhase(true); // the injected model fault is expected only until the cause is removed
                 await page.getByTestId('mic-download').click();
             } else {
                 let modelRequests = 0;
@@ -196,6 +233,7 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
                 await expect.poll(() => modelRequests, { timeout: 120_000 }).toBeGreaterThan(0).catch(() => undefined);
                 await context.setOffline(true);
                 faultOn = true;
+                watch.setFaultPhase(true); // the injected model fault is expected only until the cause is removed
             }
             await failedState(page, 300_000);
             const failure = downloadFailureVerdict({
@@ -212,6 +250,7 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
             if (variant === 'download-fails') await context.unroute(MODEL_ASSETS);
             else await context.setOffline(false);
             faultOn = false;
+            watch.setFaultPhase(false);
             const recovered = await saveRecoveredTake(page, owner.uid, `adverse-${variant}`, takes);
             receipt.row('Retry downloads the model and a take saves', recovered.status, recovered.detail,
                 { sawReadyAfterRetry: (await modelStatuses(page)).includes('ready'), mode: await sttMode(page) });
@@ -220,31 +259,13 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
-        watch.record(receipt);
-        await recoveryBrowser?.close().catch(() => undefined);
-        await context.setOffline(false).catch(() => undefined);
-        await context.unroute(MODEL_ASSETS).catch(() => undefined);
-        const cloudVerdict = noCloudVerdict(cloud.requests);
-        receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
-        await generations.settle();
-        coachingRequestBudgetRow(receipt, generations, { maximum: 1, oneRequestPerSession: takes });
-        if (owner.uid) {
-            try {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                backstop.done(owner);
-                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-            } catch {
-                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-            }
-        }
-        telemetryClassRows(receipt, tap, claimed, false);
-        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+        await finish();
     }
 }
 
 test.describe('RWT — adverse microphone and model states @live', () => {
     test.afterEach(async () => {
-        await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+        await finalizer.drain();
     });
 
     /**

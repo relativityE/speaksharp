@@ -25,7 +25,7 @@ import {
 } from './helpers/feedbackDiagnosticRef';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
-import { CleanupBackstop, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import {
     expectBenchmarkRecordingStarted, preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording,
     stopBenchmarkRecording, waitForBenchmarkSaveCandidate, waitForPrivateEngineReady,
@@ -193,17 +193,17 @@ async function finishReceipt(
     }), tap.trafficTypes());
 }
 
-/** #1593 (live case 12): the run-owned cleanup must survive a test timeout — see `CleanupBackstop`. */
-const backstop = new CleanupBackstop<Owner>();
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
 
 test.describe('RWT — Share Feedback association boundaries @live', () => {
     test.afterEach(async () => {
-        await backstop.drain((o) => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: o.uid, createdEmail: o.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+        await finalizer.drain();
     });
 
     test('feedback selected for an older take links only to that take', async ({ page }, testInfo) => {
         test.setTimeout(1_800_000);
-        const owner: Owner = backstop.track({ email: '', uid: '' });
+        const owner: Owner = { email: '', uid: '' };
         const receipt = new RwtReceipt(`${SUITE}-older-take`);
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
@@ -215,6 +215,31 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         let reportId: string | null = null;
         // #1594: the takes this scenario saved, for the end-of-scenario one-request-per-take budget.
         const takes: string[] = [];
+        // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+        // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+        const finish = finalizer.once(async () => {
+            await watch.record(receipt);
+            await generations.settle();
+            // The WHOLE scenario, after feedback and navigation: at most one request per saved take (two in all).
+            coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes });
+            if (owner.uid && reportId) {
+                accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
+                    () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+            } else if ((owner.uid || owner.email) && !accountDeleted) {
+                try {
+                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                    accountDeleted = true;
+                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted; no report retention row was available to check');
+                } catch {
+                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+                }
+            }
+            if ((owner.uid || owner.email) && !accountDeleted) {
+                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })
+                    .then(() => { accountDeleted = true; }, () => undefined);
+            }
+                        await finishReceipt(receipt, testInfo, tap, claimed);
+        });
         try {
             await suppressPageSnapshot(testInfo);
             const ready = await prepareDisposable(page, receipt, owner);
@@ -250,34 +275,13 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
-            watch.record(receipt);
-            await generations.settle();
-            // The WHOLE scenario, after feedback and navigation: at most one request per saved take (two in all).
-            coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes });
-            if (owner.uid && reportId) {
-                accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
-                    () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            } else if (owner.uid && !accountDeleted) {
-                try {
-                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                    accountDeleted = true;
-                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted; no report retention row was available to check');
-                } catch {
-                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-                }
-            }
-            if (owner.uid && !accountDeleted) {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })
-                    .then(() => { accountDeleted = true; }, () => undefined);
-            }
-            if (accountDeleted) backstop.done(owner);
-            await finishReceipt(receipt, testInfo, tap, claimed);
+            await finish();
         }
     });
 
     test('No session feedback stores no take or coaching link', async ({ page }, testInfo) => {
         test.setTimeout(300_000);
-        const owner: Owner = backstop.track({ email: '', uid: '' });
+        const owner: Owner = { email: '', uid: '' };
         const receipt = new RwtReceipt(`${SUITE}-no-session`);
         const tap = new AnalyticsTap();
         const generations = new CoachingGenerationTap();
@@ -287,6 +291,31 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
         let claimed = false;
         let accountDeleted = false;
         let reportId: string | null = null;
+        // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+        // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+        const finish = finalizer.once(async () => {
+            await watch.record(receipt);
+            await generations.settle();
+            // No session links no take, so the whole scenario must send no coaching request at all.
+            coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
+            if (owner.uid && reportId) {
+                accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
+                    () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+            } else if ((owner.uid || owner.email) && !accountDeleted) {
+                try {
+                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                    accountDeleted = true;
+                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted; no report retention row was available to check');
+                } catch {
+                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+                }
+            }
+            if ((owner.uid || owner.email) && !accountDeleted) {
+                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })
+                    .then(() => { accountDeleted = true; }, () => undefined);
+            }
+                        await finishReceipt(receipt, testInfo, tap, claimed);
+        });
         try {
             await suppressPageSnapshot(testInfo);
             const ready = await prepareDisposable(page, receipt, owner);
@@ -300,28 +329,7 @@ test.describe('RWT — Share Feedback association boundaries @live', () => {
             receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
             throw error;
         } finally {
-            watch.record(receipt);
-            await generations.settle();
-            // No session links no take, so the whole scenario must send no coaching request at all.
-            coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
-            if (owner.uid && reportId) {
-                accountDeleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, reportId,
-                    () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            } else if (owner.uid && !accountDeleted) {
-                try {
-                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                    accountDeleted = true;
-                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted; no report retention row was available to check');
-                } catch {
-                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-                }
-            }
-            if (owner.uid && !accountDeleted) {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })
-                    .then(() => { accountDeleted = true; }, () => undefined);
-            }
-            if (accountDeleted) backstop.done(owner);
-            await finishReceipt(receipt, testInfo, tap, claimed);
+            await finish();
         }
     });
 });

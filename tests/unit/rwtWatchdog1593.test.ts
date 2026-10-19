@@ -6,7 +6,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { JourneyWatchdog, STALL_MS, WATCHED_FIELDS, fatalSignalOf, stallOf, type DomState, type WatchProfile } from '../live/helpers/rwtWatchdog';
+import { DOM_READ_TIMEOUT_MS, JourneyFinalizer, JourneyWatchdog, STALL_MS, WATCHED_FIELDS, fatalSignalOf, stallOf, type DomState, type WatchProfile } from '../live/helpers/rwtWatchdog';
 
 const ev = (event: string, watch: Record<string, string> = {}) => ({ event, watch, at: Date.now() });
 const NONE: WatchProfile = {};
@@ -133,6 +133,7 @@ describe('JourneyWatchdog — trips once, closes the journey\'s contexts, and re
     it('Codex P2 r4309303711: a phase can withdraw the suite\'s refusal allowance, so a second refusal trips', async () => {
         const h = harness(null);
         const w = new JourneyWatchdog({ page: h.page as never, tap: h.tap as never, profile: { allowStartRefused: true }, label: 'case', log: () => undefined });
+        w.setFaultPhase(true);
         h.tap.events.push({ event: 'session_start_latency_measured', at: Date.now(), watch: { outcome: 'refused' } });
         expect(await w.tick(), 'the expected first refusal').toBeNull();
         w.setStartRefusedAllowed(false);
@@ -207,5 +208,103 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
             if (!src.includes('cleanupRunOwnedAccount(')) continue;
             expect(/test\.afterEach\(/.test(src), `${f} has an afterEach cleanup`).toBe(true);
         }
+    });
+});
+
+/**
+ * Sam's #1662 RETURN controls (executed against 4cd98533): each reproduced a defect in the integration. Every one must hold.
+ */
+describe('#1662 RETURN — single-flight finalization, bound evidence, phase scope, fencing, observation', () => {
+    const fakes = (domState: () => Promise<DomState | null>) => {
+        const closed: string[] = [];
+        const ctx = { close: async () => { closed.push('main'); } };
+        const page = { context: () => ctx, evaluate: domState };
+        const tap = { events: [] as { event: string; at: number; capturedAt?: number; releaseSha?: string; watch?: Record<string, string> }[] };
+        const rows: { step: string; verdict: string }[] = [];
+        const receipt = { row: (step: string, verdict: string) => { rows.push({ step, verdict }); } };
+        return { closed, page, tap, rows, receipt };
+    };
+    const quiet = { log: () => undefined, label: 'case' };
+
+    it('control 1: the body\'s finish and the afterEach drain run ONE finalization, and drain runs one the body never reached', async () => {
+        const f = new JourneyFinalizer();
+        let runs = 0;
+        let release!: () => void;
+        const gate = new Promise<void>((r) => { release = r; });
+        const finish = f.once(async () => { runs += 1; await gate; });
+        const body = finish();
+        const drain = f.drain();
+        release();
+        await Promise.all([body, drain]);
+        expect(runs, 'concurrent body + backstop run it once').toBe(1);
+
+        const g = new JourneyFinalizer();
+        let published = false;
+        g.once(async () => { published = true; }); // a body that timed out before its finally
+        await g.drain();
+        expect(published, 'the timeout path still finalizes (cleanup + receipt)').toBe(true);
+    });
+
+    it('control 2: an event from another release, or captured before arming, never trips the wire', async () => {
+        const h = fakes(async () => null);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: 'a'.repeat(40) });
+        h.tap.events.push({ event: 'session_save_latency_measured', at: Date.now(), releaseSha: 'b'.repeat(40), watch: { outcome: 'failed' } });
+        h.tap.events.push({ event: 'session_save_latency_measured', at: 0, capturedAt: 0, watch: { outcome: 'failed' } });
+        expect(await w.tick()).toBeNull();
+        expect(h.closed).toEqual([]);
+        h.tap.events.push({ event: 'session_save_latency_measured', at: Date.now(), releaseSha: 'a'.repeat(40), watch: { outcome: 'failed' } });
+        expect(await w.tick(), 'this run\'s own failure still trips').toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('control 3: an injected fault is excused only inside its phase — a later take\'s failure trips', async () => {
+        const h = fakes(async () => null);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: { allowSaveFailed: true } });
+        w.setFaultPhase(true);
+        h.tap.events.push({ event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } });
+        expect(await w.tick(), 'the injected failure').toBeNull();
+        w.setFaultPhase(false);
+        h.tap.events.push({ event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } });
+        expect(await w.tick(), 'the next take\'s failure').toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('control 4: a DOM read in flight when the journey stops never trips afterwards; record() drains it first', async () => {
+        let answer!: (d: DomState) => void;
+        const h = fakes(() => new Promise<DomState>((r) => { answer = r; }));
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {} });
+        const t0 = Date.now() - 10 * STALL_MS.START_DEAD; // a condition that would be a dead Start
+        const pending = w.tick(t0);
+        const recorded = w.record(h.receipt as never);
+        answer({ runtimeState: 'TERMINATED', modelStatus: 'idle', control: 'mic-start', controlEnabled: false });
+        await Promise.all([pending, recorded]);
+        expect(h.closed, 'no context closed after stop').toEqual([]);
+        expect(h.rows.map((r) => r.verdict)).toEqual(['HOLD']); // nothing was observed before the stop
+    });
+
+    it('a hung DOM evaluation never blocks the telemetry scan', async () => {
+        const h = fakes(() => new Promise<DomState>(() => { /* never answers */ }));
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {} });
+        void w.tick(); // the DOM read hangs
+        h.tap.events.push({ event: 'recording_state', at: Date.now(), watch: { to_state: 'FAILED', failure_code: 'engine_error' } });
+        expect(await w.tick(), 'the fatal event is still seen').toMatchObject({ kind: 'recording_failed' });
+        expect(DOM_READ_TIMEOUT_MS).toBeLessThanOrEqual(5_000);
+    });
+
+    it('missing observation is HOLD, never PASS; an observed clean journey is PASS', async () => {
+        const silent = fakes(async () => null);
+        const w1 = new JourneyWatchdog({ ...quiet, page: silent.page as never, tap: silent.tap as never, profile: {} });
+        await w1.tick();
+        await w1.record(silent.receipt as never);
+        expect(silent.rows.map((r) => r.verdict)).toEqual(['HOLD']);
+
+        const seen = fakes(async () => ({ runtimeState: 'READY', modelStatus: 'ready', control: 'mic-start', controlEnabled: true }));
+        const w2 = new JourneyWatchdog({ ...quiet, page: seen.page as never, tap: seen.tap as never, profile: {} });
+        await w2.tick();
+        await w2.record(seen.receipt as never);
+        expect(seen.rows.map((r) => r.verdict)).toEqual(['PASS']);
+    });
+
+    it('stall bounds sit above the phase waits they guard (Sam: never shrink a wait)', () => {
+        expect(STALL_MS.ENGINE_INITIALIZING).toBeGreaterThan(900_000); // cold model preparation waits up to 900 s
+        expect(STALL_MS.STOPPING).toBeGreaterThan(180_000); // Retry Save's STOPPING waits up to 180 s
     });
 });
