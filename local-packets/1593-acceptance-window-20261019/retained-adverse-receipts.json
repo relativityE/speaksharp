@@ -1,0 +1,120 @@
+{
+  "method": "Read current GitHub run metadata and decoded original job-log RWT_RECEIPT; preserve dated results, no rerun.",
+  "records": [
+    {
+      "case": 13,
+      "run_id": 39179799844,
+      "attempt": 1,
+      "source_head": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "receipt_release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "job_id": 117829930866,
+      "source_url": "https://github.com/relativityE/speaksharp/actions/runs/39179799844",
+      "job_url": "https://github.com/relativityE/speaksharp/actions/runs/39179799844/job/117829930866",
+      "workflow_conclusion": "failure",
+      "receipt_acceptance": "FAIL",
+      "receipt_summary": {
+        "pass": 9,
+        "fail": 1,
+        "hold": 1,
+        "human": 0
+      },
+      "truthfulness": {
+        "verdict": "FAIL",
+        "evidence": {
+          "modelFailuresAfterFault": 1,
+          "finalStatus": "idle",
+          "mode": "private",
+          "runtimeState": "TERMINATED",
+          "recorderVisible": false,
+          "liveTracks": 0
+        }
+      },
+      "recovery": {
+        "verdict": "PASS",
+        "evidence": {
+          "sawReadyAfterRetry": true,
+          "mode": "private"
+        }
+      },
+      "no_cloud": {
+        "verdict": "PASS",
+        "evidence": {
+          "cloudRequests": 0
+        }
+      },
+      "coaching": {
+        "budget_verdict": "PASS",
+        "browser_requests": 1,
+        "answered": 1,
+        "provider_attempts_reported": 3,
+        "unanswered_at_bound": 0,
+        "answered_http_statuses": [
+          "502"
+        ],
+        "useful_coaching_proven_by_budget": false
+      },
+      "cleanup_reported_verdict": "PASS",
+      "human_observations": 0,
+      "exact_asset_path_present_in_decoded_job_log": false,
+      "archive_downloaded_for_this_review": false
+    },
+    {
+      "case": 14,
+      "run_id": 39179803528,
+      "attempt": 1,
+      "source_head": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "receipt_release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+      "job_id": 117829942794,
+      "source_url": "https://github.com/relativityE/speaksharp/actions/runs/39179803528",
+      "job_url": "https://github.com/relativityE/speaksharp/actions/runs/39179803528/job/117829942794",
+      "workflow_conclusion": "failure",
+      "receipt_acceptance": "FAIL",
+      "receipt_summary": {
+        "pass": 9,
+        "fail": 1,
+        "hold": 1,
+        "human": 0
+      },
+      "truthfulness": {
+        "verdict": "FAIL",
+        "evidence": {
+          "modelFailuresAfterFault": 1,
+          "finalStatus": "idle",
+          "mode": "private",
+          "runtimeState": "TERMINATED",
+          "recorderVisible": false,
+          "liveTracks": 0
+        }
+      },
+      "recovery": {
+        "verdict": "PASS",
+        "evidence": {
+          "sawReadyAfterRetry": true,
+          "mode": "private"
+        }
+      },
+      "no_cloud": {
+        "verdict": "PASS",
+        "evidence": {
+          "cloudRequests": 0
+        }
+      },
+      "coaching": {
+        "budget_verdict": "PASS",
+        "browser_requests": 1,
+        "answered": 1,
+        "provider_attempts_reported": 3,
+        "unanswered_at_bound": 0,
+        "answered_http_statuses": [
+          "502"
+        ],
+        "useful_coaching_proven_by_budget": false
+      },
+      "cleanup_reported_verdict": "PASS",
+      "human_observations": 0,
+      "exact_asset_path_present_in_decoded_job_log": false,
+      "archive_downloaded_for_this_review": false
+    }
+  ]
+}
+
