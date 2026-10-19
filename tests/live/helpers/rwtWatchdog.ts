@@ -365,26 +365,38 @@ export class JourneyWatchdog {
     }
 
     /**
-     * True when an event is not this journey's evidence: not sent by a watched page, another release, captured before
-     * arming, or from a boot that is not the boot of the (page, document) that sent it.
+     * Sam, #1662 RETURN on 76a0bf6e (item 1): the boot of each COMMITTED (page, document) is established from that
+     * document's own events, never from first arrival alone. A boot binds to a document only from an event captured after
+     * the document's navigation response (so an earlier document's late flush cannot claim it), and a boot already bound to
+     * one document can never bind another. Every event a watched page sends registers here, not only watched ones, so the
+     * old boot is known before its unload beacons arrive. Returns whether the event belongs to its document's boot.
      */
-    private foreign(e: SentEvent): boolean {
-        const source = e as SentEvent & { sourcePage?: object; sourceDocument?: number };
-        if (!source.sourcePage || !this.watchedPages.has(source.sourcePage)) return true;
-        if (this.o.releaseSha && e.releaseSha && e.releaseSha !== this.o.releaseSha) return true;
-        if ((e.capturedAt ?? e.at) < this.started - 1_000) return true;
-        if (!e.bootId || source.sourceDocument === undefined) return true;
+    private bootMatches(e: SentEvent): boolean {
+        const source = e as SentEvent & { sourcePage?: object; sourceDocument?: number; sourceDocumentAt?: number };
+        if (!source.sourcePage || !e.bootId || source.sourceDocument === undefined) return false;
         let pageId = this.pageIds.get(source.sourcePage);
         if (pageId === undefined) { pageId = this.nextPageId++; this.pageIds.set(source.sourcePage, pageId); }
         const document = `${pageId}:${source.sourceDocument}`;
         const boundDocument = this.bootDocument.get(e.bootId);
         const boundBoot = this.documentBoot.get(document);
-        if (boundDocument === undefined && boundBoot === undefined) {
-            this.bootDocument.set(e.bootId, document);
-            this.documentBoot.set(document, e.bootId);
-            return false;
-        }
-        return boundDocument !== document || boundBoot !== e.bootId;
+        if (boundDocument !== undefined || boundBoot !== undefined) return boundDocument === document && boundBoot === e.bootId;
+        const captured = e.capturedAt;
+        if (captured === undefined || captured < (source.sourceDocumentAt ?? Number.POSITIVE_INFINITY)) return false;
+        this.bootDocument.set(e.bootId, document);
+        this.documentBoot.set(document, e.bootId);
+        return true;
+    }
+
+    /**
+     * True when an event is not this journey's evidence: not sent by a watched page, another release, captured before
+     * arming, or not from the boot of the committed document that sent it.
+     */
+    private foreign(e: SentEvent): boolean {
+        const source = e as SentEvent & { sourcePage?: object };
+        if (!source.sourcePage || !this.watchedPages.has(source.sourcePage)) return true;
+        if (this.o.releaseSha && e.releaseSha && e.releaseSha !== this.o.releaseSha) return true;
+        if ((e.capturedAt ?? e.at) < this.started - 1_000) return true;
+        return !this.bootMatches(e);
     }
 
     /** Classify every queued event (synchronous); the first unexpected fatal one is returned. */
@@ -392,7 +404,11 @@ export class JourneyWatchdog {
         const events = this.o.tap.events;
         for (; this.cursor < events.length; this.cursor += 1) {
             const e = events[this.cursor];
-            if (!(e.event in WATCHED_FIELDS)) continue;
+            if (!(e.event in WATCHED_FIELDS)) {
+                // Every event a watched page sends establishes its document's boot (never a watched signal itself).
+                if (this.watchedPages.has((e as { sourcePage?: unknown }).sourcePage)) this.bootMatches(e);
+                continue;
+            }
             if (this.foreign(e)) { this.foreignIgnored += 1; continue; }
             this.watchedSeen += 1;
             this.lastEvent = { name: e.event, at: e.at };

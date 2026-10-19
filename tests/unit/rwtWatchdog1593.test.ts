@@ -22,12 +22,13 @@ const defaultBoot = (page: unknown): string => {
     if (!bootOfPage.has(key)) bootOfPage.set(key, `boot-${Math.random().toString(36).slice(2, 10)}`);
     return bootOfPage.get(key)!;
 };
-const sentBy = <T extends object>(page: unknown, e: T, o: { boot?: string; document?: number; noCaptureTime?: boolean } = {}): T & { bootId: string } => {
+const sentBy = <T extends object>(page: unknown, e: T, o: { boot?: string; document?: number; documentAt?: number; noCaptureTime?: boolean } = {}): T & { bootId: string } => {
     const at = (e as { at?: number; capturedAt?: number });
     const stamped = Object.assign(e, { bootId: o.boot ?? (e as { bootId?: string }).bootId ?? defaultBoot(page) },
         o.noCaptureTime || at.capturedAt !== undefined || at.at === undefined ? {} : { capturedAt: at.at });
     Object.defineProperty(stamped, 'sourcePage', { value: page, enumerable: false });
     Object.defineProperty(stamped, 'sourceDocument', { value: o.document ?? 0, enumerable: false });
+    Object.defineProperty(stamped, 'sourceDocumentAt', { value: o.documentAt ?? 0, enumerable: false });
     return stamped;
 };
 const NONE: WatchProfile = {};
@@ -725,6 +726,8 @@ describe('#1662 RETURN on f527a033 — one owned deletion, bounded closes, boot 
         const h = fakes();
         const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: { allowSaveFailed: true } });
         w.setFaultPhase(true);
+        // The boot is established by its document's own timed event; its untimed failure is then judged strictly.
+        h.tap.events.push(sentBy(h.page, { event: 'journey_step', at: Date.now() }));
         h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } }, { noCaptureTime: true }));
         expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
     });
@@ -788,5 +791,86 @@ describe('#1662 Codex on 76a0bf6e — a hung download is bounded; device closes 
         expect(closure.indexOf("steps.step('other device close'")).toBeGreaterThan(closure.indexOf('await finishJourney('));
         expect(closure.indexOf("steps.step('other device close'")).toBeLessThan(closure.lastIndexOf('});'));
         expect(closure).toMatch(/await finishJourney\([^)]*steps, async \(\) => \{/);
+    });
+});
+
+describe('#1662 RETURN on 76a0bf6e — committed-document boot identity; download stall negative controls', () => {
+    const fakes = () => {
+        const closed: string[] = [];
+        const page = { context: () => ({ close: async () => { closed.push('main'); } }), evaluate: async () => null };
+        return { closed, page, tap: { events: [] as object[] } };
+    };
+    const quiet = { log: () => undefined, label: 'case' };
+    const failed = (at = Date.now()) => ({ event: 'session_save_latency_measured', at, watch: { outcome: 'failed' } });
+
+    it('item 1: an aborted navigation leaves the original document current — its boot\'s failure still trips', async () => {
+        // The tap advances the document only on a navigation that received its response AND committed; an aborted one
+        // leaves the stamp at the original document, so the original boot keeps its binding.
+        const h = fakes();
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {} });
+        h.tap.events.push(sentBy(h.page, { event: 'journey_step', at: Date.now() }, { boot: 'boot-A', document: 0 }));
+        expect(await w.tick()).toBeNull();
+        h.tap.events.push(sentBy(h.page, failed(), { boot: 'boot-A', document: 0 })); // still document 0
+        expect(await w.tick()).toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('item 1: a foreign first arrival cannot poison the document; the genuine boot\'s failure still trips', async () => {
+        const h = fakes();
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {} });
+        const committedAt = Date.now();
+        // The previous document's boot, captured BEFORE document 1's response, arrives first stamped with document 1.
+        h.tap.events.push(sentBy(h.page, failed(committedAt - 500), { boot: 'boot-OLD', document: 1, documentAt: committedAt }));
+        expect(await w.tick(), 'an earlier document\'s event never binds or trips').toBeNull();
+        h.tap.events.push(sentBy(h.page, { event: 'journey_step', at: committedAt + 50 }, { boot: 'boot-NEW', document: 1, documentAt: committedAt }));
+        h.tap.events.push(sentBy(h.page, failed(committedAt + 100), { boot: 'boot-NEW', document: 1, documentAt: committedAt }));
+        expect(await w.tick(), 'the committed document\'s own boot').toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('item 1: a boot established on one document can never claim the next (unload beacons of the old boot)', async () => {
+        const h = fakes();
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {} });
+        const t = Date.now();
+        h.tap.events.push(sentBy(h.page, { event: 'journey_step', at: t }, { boot: 'boot-A', document: 0 }));
+        expect(await w.tick()).toBeNull();
+        // boot-A's late beacon, captured after document 1's response and stamped document 1, arrives first.
+        h.tap.events.push(sentBy(h.page, failed(t + 200), { boot: 'boot-A', document: 1, documentAt: t + 100 }));
+        expect(await w.tick()).toBeNull();
+        h.tap.events.push(sentBy(h.page, failed(t + 300), { boot: 'boot-B', document: 1, documentAt: t + 100 }));
+        expect(await w.tick(), 'document 1 still belongs to its own boot').toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('item 1: the tap advances the document only on a responded-and-committed main-frame navigation', () => {
+        const src = readFileSync('tests/live/helpers/rwtJourney.ts', 'utf8');
+        const block = src.slice(src.indexOf('let documentGen = 0;'), src.indexOf("page.on('request', (request) => {", src.indexOf('let documentGen = 0;')));
+        expect(block).toMatch(/page\.on\('response'[\s\S]*isNavigationRequest\(\)[\s\S]*respondedAt = Date\.now\(\)/);
+        expect(block).toMatch(/page\.on\('framenavigated'[\s\S]*respondedAt === null\) return;[\s\S]*documentGen \+= 1;/);
+        expect(src).not.toMatch(/if \(mainDocument\) \{ documentGen \+= 1;/);
+    });
+
+    it('stall controls: genuine slow progress never trips; absent progress uses only the long bound; transitions restart the clock', async () => {
+        const at = { pct: 1 as number | null, model: 'loading' };
+        const page = { context: () => ({ close: async () => undefined }),
+            evaluate: async () => ({ runtimeState: 'DOWNLOAD_REQUIRED', modelStatus: at.model, control: 'mic-download', controlEnabled: false, progress: at.pct }) };
+        const w = new JourneyWatchdog({ ...quiet, page: page as never, tap: { events: [] } as never, profile: {} });
+        const t0 = Date.now();
+        // Genuine slow progress: one percent every 170 s, for 20 steps (~57 min) — never a stall.
+        for (let i = 0; i < 20; i += 1) {
+            at.pct = 1 + i;
+            expect(await w.tick(t0 + i * 170_000)).toBeNull();
+        }
+        // Progress becomes unreadable: the long bound applies from the transition, not the short one.
+        const t1 = t0 + 20 * 170_000;
+        at.pct = null;
+        expect(await w.tick(t1)).toBeNull();
+        expect(await w.tick(t1 + STALL_MS.DOWNLOAD_NO_PROGRESS + 1), 'unreadable progress is not frozen progress').toBeNull();
+        // Ready, then loading again: the clock restarts at each transition.
+        at.model = 'ready';
+        expect(await w.tick(t1 + STALL_MS.DOWNLOAD_UNREADABLE - 1)).toBeNull();
+        at.model = 'loading';
+        at.pct = 30;
+        const t2 = t1 + STALL_MS.DOWNLOAD_UNREADABLE;
+        expect(await w.tick(t2)).toBeNull();
+        expect(await w.tick(t2 + STALL_MS.DOWNLOAD_NO_PROGRESS), 'exactly at the bound').toBeNull();
+        expect(await w.tick(t2 + STALL_MS.DOWNLOAD_NO_PROGRESS + 1)).toMatchObject({ kind: 'download_stuck', fields: { progress: 30 } });
     });
 });

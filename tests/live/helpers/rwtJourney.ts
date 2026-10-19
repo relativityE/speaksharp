@@ -719,13 +719,29 @@ export class AnalyticsTap {
         page.on('requestfinished', onFinished);
         page.on('requestfailed', onFailed);
         this.listeners.push(['requestfinished', onFinished as never], ['requestfailed', onFailed as never]);
-        // #1593 (Sam, #1662 RETURN on f527a033 item 3): which document of this page sent each event — a boot IS a document
-        // load, so the watchdog binds each boot id to exactly one (page, document) and refuses a foreign boot on a watched page.
+        // #1593 (Sam, #1662 RETURN on f527a033 item 3; RETURN on 76a0bf6e item 1): which COMMITTED document of this page sent
+        // each event — a boot IS a document load. The generation advances only when a main-frame navigation that received its
+        // response then commits (`framenavigated`): an aborted navigation leaves the original document current, and a
+        // same-document route change (no navigation request) is not a new document. `documentAt` is that response's time —
+        // nothing the new document captures can precede it.
         let documentGen = 0;
+        let documentAt = Date.now();
+        let respondedAt: number | null = null;
+        page.on('response', (response) => {
+            let mainDocument = false;
+            try { mainDocument = response.request().isNavigationRequest() && response.frame() === page.mainFrame(); } catch { mainDocument = false; }
+            if (mainDocument) respondedAt = Date.now();
+        });
+        page.on('framenavigated', (frame) => {
+            if (frame !== page.mainFrame() || respondedAt === null) return;
+            documentGen += 1;
+            documentAt = respondedAt;
+            respondedAt = null;
+        });
         page.on('request', (request) => {
             let mainDocument = false;
             try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
-            if (mainDocument) { documentGen += 1; this.noteDocument(request.url()); return; }
+            if (mainDocument) { this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
@@ -779,6 +795,7 @@ export class AnalyticsTap {
             for (let i = before; i < this.events.length; i += 1) {
                 Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
                 Object.defineProperty(this.events[i], 'sourceDocument', { value: documentGen, enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocumentAt', { value: documentAt, enumerable: false });
             }
             if (this.events.length > before) {
                 this.notePosthogRequest();
