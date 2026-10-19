@@ -1,0 +1,50 @@
+{
+  "kind": "independent-retained-receipt-audit",
+  "sourceBase": "ba1a9f5ad31778460a4ea9e383a08be14b3222f6",
+  "release": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+  "hashes": {
+    "case07-run39180129880/receipts/feedback-association-boundaries-older-take.receipt.json": "8da8430834409293a30e8ce9430943297ded89c53151d79910f356fecf8d4e5e",
+    "case07-run39180129880/receipts/feedback-association-boundaries-older-take.readback-verdicts.json": "6a2f2cca29aee84a9258c719ee86ab2addead8b9f2deb1b317c7d0d0905a4a43",
+    "case10-run39179792398/receipts/abandon-and-two-tabs-close-tab.receipt.json": "00557a8279cdac3b63bf66e3d675d8acfb27638981a99939461fc8f2dae5e94c",
+    "case15-run39179807441/receipts/returning-user-navigation.receipt.json": "290ccd55719b0d59c1b5884c5152e488fecd1811065fc97c573d8e6de497b48c"
+  },
+  "case7": {
+    "run": 39180129880,
+    "association": "PASS",
+    "olderRequestExclusion": "PASS",
+    "genericShareFeedbackReadback": "QUALIFIED",
+    "finalizerErrors": 0,
+    "mergedJourneyTelemetry": "PASS",
+    "mergedDiagnosticChain": "HOLD",
+    "sentBindingPresent": false,
+    "receivedDiagnosticResultPresent": false,
+    "conclusion": "Generic journey qualification cannot settle the diagnostic chain; source path accepts success only, while retained budget records two answered 502s. No association defect established."
+  },
+  "case10": {
+    "run": 39179792398,
+    "historicalVerdict": "FAIL",
+    "rowCounts": {
+      "rowsBefore": 1,
+      "rowsAfter": 2,
+      "activeAfter": 1
+    },
+    "fenceFieldsRetained": false,
+    "leaseIdentityRetained": false,
+    "conclusion": "Zero-active oracle rejects the retained recoverable shape; counts alone do not prove permanent fencing, lease exclusion or exact displaced identity."
+  },
+  "case15": {
+    "run": 39179807441,
+    "access": "HOLD",
+    "canStart": false,
+    "trialActive": false,
+    "isPro": false,
+    "navigationRows": "PASS",
+    "pendingPhysicalObservations": 2,
+    "conclusion": "No new navigation defect established. An eligible authorized returning fixture and real microphone/phone observations remain required."
+  },
+  "limits": [
+    "No new live execution, production query, provider call, account mutation or physical observation.",
+    "Database controls prove source behavior in PGlite, not the historical or deployed row.",
+    "Original failures remain preserved."
+  ]
+}

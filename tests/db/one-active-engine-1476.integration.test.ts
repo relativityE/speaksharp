@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { nextTakeOnlyItselfVerdict } from '../live/helpers/rwtAbandonTakeover';
 
 const MIG_DIR = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
 const M = (f: string) => readFileSync(resolve(MIG_DIR, f), 'utf8');
@@ -122,6 +123,40 @@ const statusOf = async (d: PGlite, id: string) =>
     (await d.query<{ status: string; status_reason: string | null }>(`SELECT status, status_reason FROM public.sessions WHERE id = $1`, [id])).rows[0];
 
 describe('#1476 — one account, one authorized active engine (server fence)', () => {
+    it.each(['forced', 'stale'] as const)('case10 receipt proof: %s replacement permanently fences the recoverable take after its successor saves and releases', async (replacement) => {
+        const d = await db();
+        try {
+            await acquire(d, L1);
+            const abandoned = sessionId(await start(d, L1))!;
+            if (replacement === 'stale') await d.query(`UPDATE public.active_recording_lease SET heartbeat_at = now() - interval '20 seconds' WHERE user_id = $1`, [U]);
+            expect(await acquire(d, L2, replacement === 'forced')).toMatchObject({ acquired: true });
+            const next = sessionId(await start(d, L2))!;
+            expect(next).toBeTruthy();
+            expect(next).not.toBe(abandoned);
+            await directComplete(d, next);
+            await d.query(`SELECT public.release_recording_lease($1::uuid)`, [L2]);
+            expect(await leaseRow(d)).toBeUndefined();
+            const rows = (await d.query<{ id: string; status: string; recording_fenced_at: string | null; recording_fenced_reason: string | null }>(
+                `SELECT id, status, recording_fenced_at, recording_fenced_reason FROM public.sessions ORDER BY created_at, id`)).rows;
+            const old = rows.find((r) => r.id === abandoned)!;
+            expect(old).toMatchObject({ status: 'active', recording_fenced_reason: 'displaced' });
+            expect(old.recording_fenced_at).not.toBeNull();
+            expect(rows.find((r) => r.id === next)?.status).toBe('completed');
+            // Characterization: today's live oracle rejects this legitimate recoverable state.
+            expect(nextTakeOnlyItselfVerdict([{ id: abandoned, status: 'active' }], rows, next)).toMatchObject({ status: 'FAIL' });
+            await expect(keepRecording(d, abandoned), 'release must not revive the old recording').rejects.toThrow(/lease_revoked/);
+            await expect(d.query(`UPDATE public.sessions SET recording_fenced_at = NULL, recording_fenced_reason = NULL WHERE id = $1`, [abandoned])).rejects.toThrow(/recording_fenced/);
+            expect(await heartbeat(d, L1)).toMatchObject({ valid: false });
+            // Even reacquiring the old lease identity cannot remove the permanent row fence.
+            expect(await acquire(d, L1)).toMatchObject({ acquired: true });
+            await expect(keepRecording(d, abandoned)).rejects.toThrow(/lease_revoked/);
+            // Recovery remains a save, never authorization to continue recording.
+            await directComplete(d, abandoned);
+            expect((await statusOf(d, abandoned)).status).toBe('completed');
+            await expect(d.query(`UPDATE public.sessions SET status = 'active' WHERE id = $1`, [abandoned])).rejects.toThrow(/lease_revoked/);
+        } finally { await d.close(); }
+    });
+
     it('PRECONDITION: the fence migration exists (RED until implemented)', () => {
         expect(existsSync(resolve(MIG_DIR, FENCE_MIGRATION))).toBe(true);
     });
