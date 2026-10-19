@@ -878,8 +878,9 @@ export function evaluateQualificationStage(
  * `evaluateTelemetryCompleteness` defaults to the recording spine, which is right for any journey that recorded. A
  * FEEDBACK-ONLY journey (feedback shared after a reload minted a new journey) never records, so demanding that spine of
  * it held every good run. When the only declared stage is `share_feedback`, the journey must still produce the
- * pre-journey identity receipts and the feedback families; any recording stage keeps the full spine unchanged. An
- * empty or unknown declaration keeps the full spine (fail closed; the stage loop separately HOLDs unknown names).
+ * pre-journey identity receipts and the feedback families. Recording stages keep the full spine except a known
+ * interrupted repeat with no declared full review: its explicit lifecycle invariant replaces the generic practice-loop
+ * prerequisite. An empty or unknown declaration keeps the full spine (the stage loop separately HOLDs unknown names).
  * The default argument — and so every other caller, including the in-tab record — is unchanged.
  */
 const RECORDING_STAGES: ReadonlySet<string> = new Set(['session_during', 'session_after_open_mic', 'session_after_focus_points', 'session_interrupted_repeat']);
@@ -891,7 +892,18 @@ export function declaresRecordingStage(declared: readonly string[]): boolean {
 }
 
 export function requiredFamiliesForStages(declared: readonly string[]): readonly string[] {
-    if (declaresRecordingStage(declared)) return REQUIRED_EVENT_FAMILIES;
+    if (declaresRecordingStage(declared)) {
+        // #1593 case 1: an interrupted repeat proves its own observed coaching lifecycle terminal, not a completed
+        // practice loop. Keep every other recording/identity family. Unknown declarations and ANY stage that requires
+        // practice_loop (including either full after-review stage) retain the original strict recording spine.
+        const interruptedWithoutFullReview = declared.includes('session_interrupted_repeat') && declared.every((name) => {
+            const stage = QUALIFICATION_STAGES.find((s) => s.stage === name);
+            return stage !== undefined && !stage.requiredFamilies.includes('practice_loop');
+        });
+        return interruptedWithoutFullReview
+            ? Object.freeze(REQUIRED_EVENT_FAMILIES.filter((family) => family !== 'practice_loop'))
+            : REQUIRED_EVENT_FAMILIES;
+    }
     const stageFamilies = declared.flatMap((name) => QUALIFICATION_STAGES.find((s) => s.stage === name)!.requiredFamilies);
     return Object.freeze([...new Set<string>([...PRE_JOURNEY_EVENT_FAMILIES, ...stageFamilies])]);
 }
