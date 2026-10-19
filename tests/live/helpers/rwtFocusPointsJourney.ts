@@ -17,7 +17,7 @@ import {
 import { MODEL_COMPARISON_AUTH_KEY } from './practiceLoopJourney';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict, detectedCountExpected, expectsLiveChange, focusPointMeetsExpectation, liveChangeFailures, persistedVerdictMismatches, newSetSourcePoints, newSetEditVerdicts, setupIsBlank, switchIsolationVerdict, labelHeardIn, focusBackReloadVerdict, focusIdentityObservation, firstTakeSavedExactlyOnceVerdict } from './rwtOracles';
 import { cleanupRunOwnedAccount } from './runOwnedCleanup';
-import { armWatchdog, watchProfileFor } from './rwtWatchdog';
+import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, armWatchdog, watchProfileFor, type JourneyFinalizer } from './rwtWatchdog';
 import { savedFocusIdentityVerdict } from './rwtSavedFocusIdentity';
 import { recordRunOwnedCleanup } from './rwtAcceptance';
 import { CoachingGenerationTap } from './coachingGenerationTap';
@@ -128,7 +128,7 @@ const meetsExpectation = (expected: string, got: RailStatus | null): boolean => 
  * @param coachingMaximum #1593 (Sam 1792317800 §6): the selected whole-scenario browser coaching-request maximum for THIS
  *   suite — 7 for the full PO-corpus journey, 4 for the partial fixture. It bounds the `coaching request budget` row.
  */
-export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }, coachingMaximum: number) {
+export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixtureKey: FixtureKey, suite: string, owner: { email: string; uid: string }, coachingMaximum: number, finalizer: JourneyFinalizer) {
     const preconditions = rwtPreconditionFailures();
     if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
     const run: RunTarget = await resolveRunTarget(JOURNEY);
@@ -206,6 +206,136 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
     let rowsStoppedAt = 0;
     let focusInventoryFrom = 0;
     let rowsGenerationsAt = 0;
+    const finish = finalizer.once(async () => {
+        // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
+        const steps = new FinalizationSteps();
+        await steps.step('watchdog', () => watch.record(receipt));
+        // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
+        const observed = await steps.step('telemetry observed', () => tap.awaitObserved(page, { coverage_evaluation: 1 }));
+        receipt.meta.finalTelemetryObserved = observed?.observed ?? false;
+        // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count, from the same request-boundary tap after a
+        // bounded settle of every sent exchange, so the campaign's budget admission reads an actual count. An unanswered or
+        // unreadable exchange stays HOLD (never a zero or the planned maximum).
+        await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: coachingMaximum }));
+        let userJourneys: string[] = [];
+        await steps.step('telemetry rows', () => {
+            ({ userJourneys } = telemetryClassRows(receipt, tap, claimed));
+            const coverageSeen = tap.sent('coverage_evaluation').length > 0;
+            const coverageReceivedBy = ['session_after_focus_points'] as const;
+            receipt.row('coverage_evaluation sent', sentVerdict(coverageSeen, tap, rowsStoppedAt),
+                sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap, rowsStoppedAt, coverageReceivedBy),
+                { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons, ...readbackSettlement(coverageReceivedBy, tap, rowsStoppedAt) });
+            // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
+            // receipt, not only the rail's) and the PM's inventory events. SENT here; RECEIVED = the PostHog readback.
+            const focusTelemetry = {
+                reviewRequested: tap.sent('practice_loop_review_requested').length,
+                reviewRendered: tap.sent('practice_loop_review_rendered').length,
+                productsMenuOpened: tap.sent('products_menu_opened').length,
+                savedReviewRevisited: tap.sent('saved_review_revisited').length,
+            };
+            const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
+            // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path must have left the page instead.
+            const focusExternal = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
+            // PM 6173420642 §2: bound to THIS take's request id — never whole-run counts a later take could satisfy.
+            const focusBoundFailure = failureTelemetryBinding(tap.events,
+                persistedId ? takeExchangeEvidence(generations.forSession(persistedId)).diagnosticRequestId : null);
+            // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
+            const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
+            const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
+            const focusCoachingTelemetry = coachingTelemetryVerdict(
+                { verdict: focusExternal ? 'EXTERNAL' : 'PASS', detail: '', external: focusExternal ? 'provider_5xx' : null },
+                focusBoundFailure,
+                sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
+                sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt),
+                // Codex P1 r4277621594: the FIRST take's request proof, from the same first-take window as the generation row.
+                generationVerdict);
+            receipt.row('Focus coaching telemetry sent', focusCoachingTelemetry.verdict, focusCoachingTelemetry.detail,
+                { ...focusTelemetry, boundFailureOutcome: focusBoundFailure, blindBeacons: tap.blindBeacons,
+                    firstTakeRequestCount: generationsForFirstTake, firstTakeRequestProof: generationVerdict });
+            receipt.row('revisit is not a generation', generationVerdict,
+                generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD' : 'the generation count is not exactly one for this take',
+                { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
+            const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
+            const focusInventoryReceivedBy = ['analytics_inventory'] as const;
+            receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap, focusInventoryFrom),
+                sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap, focusInventoryFrom, focusInventoryReceivedBy),
+                { ...focusTelemetry, blindBeacons: tap.blindBeacons, ...readbackSettlement(focusInventoryReceivedBy, tap, focusInventoryFrom) });
+            // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
+            // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
+            // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.
+            // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
+            // correlation on RECEIVED events then settles the row at finalization.
+            const practiceArrival = practiceArrivalVerdict(tap.events);
+            const practiceArrivalReceivedBy = ['practice_again'] as const;
+            receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
+                { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, rowsStoppedAt) });
+            if (fixtureKey === 'focus_points_tts') {
+                const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
+                const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
+                receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
+                    { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, rowsStoppedAt) });
+            }
+            // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
+            acquisitionTimingRow(receipt, tap, tap.journeyIds());
+        });
+        const deleteOwned = () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+        if ((owner.uid || owner.email) && fixtureKey === 'focus_points_tts') {
+            // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
+            // On success the owner is cleared so the fallback below does not repeat the deletion.
+            await steps.step('run-owned cleanup', async () => {
+                const deleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId, deleteOwned);
+                if (deleted) { owner.uid = ''; owner.email = ''; }
+            }, FINALIZE_CLEANUP_MS, { critical: true });
+        } else if ((owner.uid || owner.email) && fixtureKey === 'focus_points_partial_tts') {
+            // #1532 Codex P1 r4126745141: the partial run's receipt carries its own cleanup verdict. Cleanup runs HERE,
+            // before write(); a failure is a FAIL row (the test still ends failed) and never skips the receipt. Only a
+            // verified deletion clears the owner.
+            await steps.step('run-owned cleanup', async () => {
+                const cleaned = await recordRunOwnedCleanup((step, verdict, detail, evidence) => receipt.row(step, verdict, detail, evidence), deleteOwned);
+                if (cleaned) { owner.uid = ''; owner.email = ''; }
+            }, FINALIZE_CLEANUP_MS, { critical: true });
+        }
+        // No feedback report (the body ended before Share Feedback) or a failed first attempt: the account is still deleted,
+        // here and only here — no spec-level cleanup remains.
+        if (owner.uid || owner.email) {
+            await steps.step('run-owned cleanup fallback', async () => {
+                try {
+                    await deleteOwned();
+                    owner.uid = '';
+                    owner.email = '';
+                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+                } catch {
+                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+                }
+            }, FINALIZE_CLEANUP_MS, { critical: true });
+        }
+        // Last, so it covers every row above, including cleanup.
+        await steps.step('receipt content check', () => {
+            // Point text and topic are the person's content: they must never reach the receipt.
+            const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
+            receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
+        });
+        steps.report(receipt);
+        receipt.write(testInfo,
+            bindReadbackJourneys(tap.events, {
+                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'],
+                // #1593 (Sam 15:51, same contract as Open Mic): the Focus repeat take is interrupted by the next take on purpose.
+                repeatRecording: ['session_during', 'session_interrupted_repeat'],
+                takes: {
+                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
+                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
+                },
+                feedback: fixtureKey === 'focus_points_tts',
+                // #1258 (#1563, Codex r4197420116): the received press→arrival is required of Focus as of Open Mic.
+                practiceAgain: true,
+                actionBindings: tap.actionBindings,
+                actionCaptures: tap.actionCaptures,
+                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
+                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            }),
+            tap.trafficTypes(), userJourneys);
+    });
     try {
         await test.step('account — sign up, canary claim (if authorized), sign back in', async () => {
             await page.goto('/auth/signup');
@@ -782,106 +912,6 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             });
         }
     } finally {
-        await watch.record(receipt);
-        // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
-        receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { coverage_evaluation: 1 })).observed;
-        // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count, from the same request-boundary tap after a
-        // bounded settle of every sent exchange, so the campaign's budget admission reads an actual count. An unanswered or
-        // unreadable exchange stays HOLD (never a zero or the planned maximum).
-        await generations.settle();
-        coachingRequestBudgetRow(receipt, generations, { maximum: coachingMaximum });
-        const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
-        const coverageSeen = tap.sent('coverage_evaluation').length > 0;
-        const coverageReceivedBy = ['session_after_focus_points'] as const;
-        receipt.row('coverage_evaluation sent', sentVerdict(coverageSeen, tap, rowsStoppedAt),
-            sentDetail('the coverage evaluation left the page (sent, not yet received)', coverageSeen, tap, rowsStoppedAt, coverageReceivedBy),
-            { sent: tap.sent('coverage_evaluation').length, blindBeacons: tap.blindBeacons, ...readbackSettlement(coverageReceivedBy, tap, rowsStoppedAt) });
-        // The Focus review's coaching receipts (the readback's Focus stage now requires the coaching card's rendered
-        // receipt, not only the rail's) and the PM's inventory events. SENT here; RECEIVED = the PostHog readback.
-        const focusTelemetry = {
-            reviewRequested: tap.sent('practice_loop_review_requested').length,
-            reviewRendered: tap.sent('practice_loop_review_rendered').length,
-            productsMenuOpened: tap.sent('products_menu_opened').length,
-            savedReviewRevisited: tap.sent('saved_review_revisited').length,
-        };
-        const focusCoachingSeen = focusTelemetry.reviewRendered > 0;
-        // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path must have left the page instead.
-        const focusExternal = receipt.rows.some((r) => r.step === 'Focus coaching rendered' && r.verdict === 'EXTERNAL');
-        // PM 6173420642 §2: bound to THIS take's request id — never whole-run counts a later take could satisfy.
-        const focusBoundFailure = failureTelemetryBinding(tap.events,
-            persistedId ? takeExchangeEvidence(generations.forSession(persistedId)).diagnosticRequestId : null);
-        // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
-        const generationsForFirstTake = generationsForTake ?? focusTelemetry.reviewRequested;
-        const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, rowsStoppedAt, generationsForTake === null ? Date.now() : rowsGenerationsAt);
-        const focusCoachingTelemetry = coachingTelemetryVerdict(
-            { verdict: focusExternal ? 'EXTERNAL' : 'PASS', detail: '', external: focusExternal ? 'provider_5xx' : null },
-            focusBoundFailure,
-            sentVerdict(focusCoachingSeen, tap, rowsStoppedAt),
-            sentDetail('the coaching review rendered receipt (practice_loop_review_rendered) left the page (sent; no readback stage requires this event)', focusCoachingSeen, tap, rowsStoppedAt),
-            // Codex P1 r4277621594: the FIRST take's request proof, from the same first-take window as the generation row.
-            generationVerdict);
-        receipt.row('Focus coaching telemetry sent', focusCoachingTelemetry.verdict, focusCoachingTelemetry.detail,
-            { ...focusTelemetry, boundFailureOutcome: focusBoundFailure, blindBeacons: tap.blindBeacons,
-                firstTakeRequestCount: generationsForFirstTake, firstTakeRequestProof: generationVerdict });
-        receipt.row('revisit is not a generation', generationVerdict,
-            generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none' : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD' : 'the generation count is not exactly one for this take',
-            { reviewRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
-        const focusInventorySeen = focusTelemetry.productsMenuOpened > 0 && focusTelemetry.savedReviewRevisited > 0;
-        const focusInventoryReceivedBy = ['analytics_inventory'] as const;
-        receipt.row('inventory events sent', sentVerdict(focusInventorySeen, tap, focusInventoryFrom),
-            sentDetail('products_menu_opened and saved_review_revisited left the page (sent; received is qualified in the recording journey by the analytics_inventory stage)', focusInventorySeen, tap, focusInventoryFrom, focusInventoryReceivedBy),
-            { ...focusTelemetry, blindBeacons: tap.blindBeacons, ...readbackSettlement(focusInventoryReceivedBy, tap, focusInventoryFrom) });
-        // #1258 (#1563, Codex r4197420116): Focus presses Practice again too, so it proves the same correlation Open Mic does —
-        // each press reached its intended route (same boot + action_seq) — and, in the full run that shares feedback, each
-        // attempt resolved (same boot + submit_seq). Sent here; received is the `practice_again` / `share_feedback` readback.
-        // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
-        // correlation on RECEIVED events then settles the row at finalization.
-        const practiceArrival = practiceArrivalVerdict(tap.events);
-        const practiceArrivalReceivedBy = ['practice_again'] as const;
-        receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
-            { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, rowsStoppedAt) });
-        if (fixtureKey === 'focus_points_tts') {
-            const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
-            const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
-            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
-                { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, rowsStoppedAt) });
-        }
-        // Point text and topic are the person's content: they must never reach the receipt.
-        const leaks = receiptContentLeaks(receipt, [owner.email, SERVICE_ROLE, topic, ...points].filter(Boolean));
-        receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no point text, topic or credential in the receipt' : 'the receipt carried a forbidden value');
-        // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
-        acquisitionTimingRow(receipt, tap, tap.journeyIds());
-        if (fixtureKey === 'focus_points_tts') {
-            // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
-            // On success the owner is cleared so the spec's afterEach does not repeat the deletion.
-            const deleted = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            if (deleted) { owner.uid = ''; owner.email = ''; }
-        } else if (fixtureKey === 'focus_points_partial_tts') {
-            // #1532 Codex P1 r4126745141: the partial run's receipt carries its own cleanup verdict. Cleanup runs HERE,
-            // before write(); a failure is a FAIL row (the test still ends failed) and never skips the receipt. Only a
-            // verified deletion clears the owner, so the spec's afterEach stays an idempotent fallback.
-            const cleaned = await recordRunOwnedCleanup((step, verdict, detail, evidence) => receipt.row(step, verdict, detail, evidence),
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            if (cleaned) { owner.uid = ''; owner.email = ''; }
-        }
-        receipt.write(testInfo,
-            bindReadbackJourneys(tap.events, {
-                recording: ['session_during', 'session_after_focus_points', 'analytics_inventory'],
-                // #1593 (Sam 15:51, same contract as Open Mic): the Focus repeat take is interrupted by the next take on purpose.
-                repeatRecording: ['session_during', 'session_interrupted_repeat'],
-                takes: {
-                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
-                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
-                },
-                feedback: fixtureKey === 'focus_points_tts',
-                // #1258 (#1563, Codex r4197420116): the received press→arrival is required of Focus as of Open Mic.
-                practiceAgain: true,
-                actionBindings: tap.actionBindings,
-                actionCaptures: tap.actionCaptures,
-                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
-                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
-            }),
-            tap.trafficTypes(), userJourneys);
+        await finish();
     }
 }

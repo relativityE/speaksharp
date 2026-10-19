@@ -27,10 +27,10 @@ import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode, stopBenchmarkRecording } from './helpers/benchmark-utils';
 import { noCloudVerdict } from './helpers/rwtAbandonTakeover';
-import { JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import {
     ADVERSE_SUITE, type AdverseVariant, MIC_BLOCKED_COPY, MODEL_ASSETS, MODEL_FAILED_STATES, downloadFailureVerdict,
-    micDeniedVerdict, recoveredTakeVerdict,
+    deniedAfterPress, micDeniedVerdict, recoveredTakeVerdict,
 } from './helpers/rwtAdverse';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -140,24 +140,31 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
     // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
     // (which Playwright runs after a timeout) run this same memoized closure exactly once.
     const finish = finalizer.once(async () => {
-        await watch.record(receipt);
-        await recoveryBrowser?.close().catch(() => undefined);
-        await context.setOffline(false).catch(() => undefined);
-        await context.unroute(MODEL_ASSETS).catch(() => undefined);
-        const cloudVerdict = noCloudVerdict(cloud.requests);
-        receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
-        await generations.settle();
-        coachingRequestBudgetRow(receipt, generations, { maximum: 1, oneRequestPerSession: takes });
+        // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+        const steps = new FinalizationSteps();
+        await steps.step('watchdog', () => watch.record(receipt));
+        await steps.step('recovery browser close', () => recoveryBrowser?.close());
+        await steps.step('offline restore', () => context.setOffline(false));
+        await steps.step('model route restore', () => context.unroute(MODEL_ASSETS));
+        await steps.step('no cloud row', () => {
+            const cloudVerdict = noCloudVerdict(cloud.requests);
+            receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
+        });
+        await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 1, oneRequestPerSession: takes }));
         // A signup that died before its uid was read is still found by its created email.
         if (owner.uid || owner.email) {
-            try {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-            } catch {
-                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-            }
+            await steps.step('run-owned cleanup', async () => {
+                try {
+                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+                } catch {
+                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+                }
+            }, FINALIZE_CLEANUP_MS, { critical: true });
         }
-        telemetryClassRows(receipt, tap, claimed, false);
+        await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
+        steps.report(receipt);
         receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
     });
     try {
@@ -182,13 +189,17 @@ async function runVariant(page: Page, browser: Browser, testInfo: TestInfo, vari
             watch.setForbidRecording(true);
             // #1593 (Sam, #1662 RETURN control 3): the denial's own failed Start is expected only in this step.
             watch.setFaultPhase(true);
+            // Sam, #1662 RETURN: only THIS press's acquisition outcome counts — an earlier rejection on the page cannot
+            // qualify a later Start that failed for another reason.
+            const rejectionsBeforePress = (await micRejections(page)).length;
             await control.click();
             // The model downloads first on a fresh account; the blocked microphone is met at the recording boundary.
             const blockedCopyShown = await page.getByText(MIC_BLOCKED_COPY).first().waitFor({ timeout: 900_000 }).then(() => true).catch(() => false);
             await page.waitForTimeout(2_000);
             const state = await tabState(page);
-            const rejections = await micRejections(page);
-            const deniedAtAcquisition = rejections.includes('NotAllowedError');
+            const allRejections = await micRejections(page);
+            const deniedAtAcquisition = deniedAfterPress(allRejections, rejectionsBeforePress);
+            const rejections = allRejections.slice(rejectionsBeforePress);
             const denied = micDeniedVerdict({ deniedAtAcquisition, blockedCopyShown, tab: state });
             receipt.row('blocked microphone is stated truthfully', denied.status, denied.detail,
                 { deniedAtAcquisition, acquisitionRejections: rejections.length, permissionQuery, blockedCopyShown, ...state, mode: await sttMode(page) });

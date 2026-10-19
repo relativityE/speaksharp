@@ -20,7 +20,7 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
-import { JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 
 const SUITE = 'pending-start-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -88,21 +88,26 @@ test('leaving during a cold Start does not leave a recording or session behind @
     // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
     // (which Playwright runs after a timeout) run this same memoized closure exactly once.
     const finish = finalizer.once(async () => {
-        await watch.record(receipt);
-        await generations.settle();
+        // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+        const steps = new FinalizationSteps();
+        await steps.step('watchdog', () => watch.record(receipt));
+        await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
         // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
-        coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
         // A signup that died before its uid was read is still found by its created email.
         if ((uid || email) && !accountDeleted) {
-            try {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                accountDeleted = true;
-                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-            } catch {
-                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-            }
+            await steps.step('run-owned cleanup', async () => {
+                try {
+                    await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                    accountDeleted = true;
+                    receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+                } catch {
+                    receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+                }
+            }, FINALIZE_CLEANUP_MS, { critical: true });
         }
-        telemetryClassRows(receipt, tap, claimed, false);
+        await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
+        steps.report(receipt);
         receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
     });
     try {

@@ -191,6 +191,15 @@ export function nextTakeOnlyItselfVerdict(before: readonly RowFacts[], after: re
     return { status: 'PASS', detail: 'the next take saved one new completed session and no take was left active' };
 }
 
+/**
+ * Sam, #1662 RETURN (case 11, lease-before-model): on a cold device, ANY model work observed from before the first press
+ * through its refusal — a model-asset request, any published status other than `download-required`, or that status at
+ * refusal — means the lease did not decide first. A final snapshot alone cannot prove it (loading → download-required).
+ */
+export function modelWorkBeforeRefusal(o: { cold: boolean; modelRequests: number; statusHistory: readonly string[]; statusAtRefusal: string | null }): boolean {
+    return o.cold && (o.modelRequests > 0 || o.statusHistory.some((s) => s !== 'download-required') || o.statusAtRefusal !== 'download-required');
+}
+
 /** Two tabs: the second tab is refused truthfully, starts no engine, and the first tab keeps recording. */
 export function secondTabBlockedVerdict(o: { refusalCopyShown: boolean; tabB: TabState; tabA: TabState }): Verdict {
     if (!o.refusalCopyShown) return { status: 'FAIL', detail: 'the second tab was not told why it could not record' };

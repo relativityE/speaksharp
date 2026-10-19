@@ -298,13 +298,18 @@ describe('Focus partial: cleanup is verified before the receipt is written, and 
 
     it('order and idempotency: cleanup runs before write() in the partial branch; only a verified deletion clears the owner; afterEach remains the fallback', () => {
         const focus = readFileSync(path.resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
-        const branch = focus.slice(focus.indexOf("} else if (fixtureKey === 'focus_points_partial_tts') {"));
+        const branch = focus.slice(focus.indexOf("} else if ((owner.uid || owner.email) && fixtureKey === 'focus_points_partial_tts') {"));
         expect(branch.indexOf('recordRunOwnedCleanup(')).toBeGreaterThan(-1);
         expect(branch.indexOf('recordRunOwnedCleanup(')).toBeLessThan(branch.indexOf('receipt.write(testInfo,'));
         expect(branch).toMatch(/if \(cleaned\) \{ owner\.uid = ''; owner\.email = ''; \}/);
+        // #1593 (Sam, #1662 RETURN): the fallback lives in the same finalization — it cleans whatever the owner still names
+        // (nothing after a verified deletion), before the receipt is written; the spec's afterEach drains that finalization.
+        const fallback = branch.indexOf("steps.step('run-owned cleanup fallback'");
+        expect(fallback).toBeGreaterThan(branch.indexOf('recordRunOwnedCleanup('));
+        expect(fallback).toBeLessThan(branch.indexOf('receipt.write(testInfo,'));
+        expect(branch.slice(fallback - 60, fallback)).toContain('if (owner.uid || owner.email) {');
         const spec = readFileSync(path.resolve(__dirname, '../live/rwt-focus-points-partial.live.spec.ts'), 'utf8');
-        // afterEach cleans whatever the owner still names: nothing after a verified in-body deletion ('cleanup_not_required').
-        expect(spec).toMatch(/test\.afterEach\([\s\S]{0,120}cleanupRunOwnedAccount\(\{ admin: admin as never, capturedUid: owner\.uid, createdEmail: owner\.email/);
+        expect(spec).toMatch(/test\.afterEach\([\s\S]{0,300}await finalizer\.drain\(\);/);
     });
 });
 

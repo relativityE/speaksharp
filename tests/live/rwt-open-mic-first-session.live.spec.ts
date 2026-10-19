@@ -40,7 +40,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
-import { armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { characterCeilingVerdict, fillerAdviceVerdict, readTwoTakesCoaching, takesDifferVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
 import { MODEL_COMPARISON_AUTH_KEY } from './helpers/practiceLoopJourney';
@@ -176,6 +176,9 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: WEBGPU }) },
 });
 
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
+
 test.describe('RWT — Open Mic first session @live', () => {
     let activeSampler: ProcessSampler | null = null;
     let activeTap: AnalyticsTap | null = null;
@@ -185,17 +188,17 @@ test.describe('RWT — Open Mic first session @live', () => {
     let accountDeletedInTest = false;
 
     test.afterEach(async () => {
-        // Backstop: the sampler stops in the test's own finally; this covers a body that never reached it.
-        activeSampler?.stop();
-        activeSampler = null;
-        // Smoke item 2 (PM 6182647952 §2): transport capture closes on every exit, including a body that threw.
-        activeTap?.detachTransport();
-        activeTap = null;
-        // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product
-        // policy (user_issue_reports.user_id is SET NULL on account deletion); the test body deletes the account first
-        // and proves that retention (#1532 Codex P1 r4105978630). This is the fallback when the body did not.
-        if (!accountDeletedInTest) {
-            await cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+        // #1593 (Sam, #1662 RETURN control 1): the journey's ONE owned finalization (rows, account cleanup, receipt) — the
+        // same memoized run the body's finally starts, so a test timeout still deletes the account and writes the receipt.
+        try {
+            await finalizer.drain();
+        } finally {
+            // Process-resource backstops for a body that failed before its finalization was registered; idempotent.
+            activeSampler?.stop();
+            activeSampler = null;
+            // Smoke item 2 (PM 6182647952 §2): transport capture closes on every exit, including a body that threw.
+            activeTap?.detachTransport();
+            activeTap = null;
         }
         createdEmail = '';
         capturedUid = '';
@@ -279,6 +282,146 @@ test.describe('RWT — Open Mic first session @live', () => {
         let savedNext = '';
         // The Practice-again pass's saved take: the coaching evidence's repeat take.
         let repeatSessionId: string | null = null;
+        const finish = finalizer.once(async () => {
+            // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
+            const steps = new FinalizationSteps();
+            await steps.step('watchdog', () => watch.record(receipt));
+            // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
+            const observed = await steps.step('telemetry observed', () => tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 }));
+            receipt.meta.finalTelemetryObserved = observed?.observed ?? false;
+            // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary
+            // tap after a bounded settle of every sent exchange. Unanswered or unreadable stays HOLD — never a zero or the max.
+            await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+            await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 4 }));
+            // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.
+            sampler.stop();
+            activeSampler = null;
+            await steps.step('diagnostics', () => { Object.assign(receipt.meta, diag.snapshot()); });
+            let userJourneys: string[] = [];
+            await steps.step('telemetry rows', () => {
+                // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
+                ({ userJourneys } = telemetryClassRows(receipt, tap, claimed));
+                const telemetrySeen = tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0;
+                // The journey's capture ends here: outcome listeners are removed and any request still pending is unobservable.
+                tap.detachTransport();
+                const telemetryReceivedBy = ['session_after_open_mic', 'share_feedback'] as const;
+                receipt.row('telemetry sent', sentVerdict(telemetrySeen, tap, stoppedAt),
+                    sentDetail('session_saved and feedback_submit left the page (sent, not yet received)', telemetrySeen, tap, stoppedAt, telemetryReceivedBy),
+                    { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length, ...readbackSettlement(telemetryReceivedBy, tap, stoppedAt),
+                        // Smoke item 2 (PM 6182446740): each family's decoded request(s) and their HTTP outcome — diagnostic only.
+                        ...tap.transportEvidence(takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length), FIRST_TAKE_SAVE_FAMILIES) });
+                // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
+                // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
+                // Sent here; received is the deployed PostHog readback. Closed enums and integers only.
+                // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
+                // correlation on RECEIVED events then settles the row at finalization.
+                const practiceArrival = practiceArrivalVerdict(tap.events);
+                const practiceArrivalReceivedBy = ['practice_again'] as const;
+                receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
+                    { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, stoppedAt) });
+                const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
+                const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
+                receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
+                    { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, stoppedAt) });
+                // Coaching telemetry the page SENT. RECEIVED is proven by the PostHog readback of the declared
+                // session_after_open_mic stage: its post-Stop chain requires a received stage_latency "review_rendered", which
+                // the app emits only once a validated two-phrase review is on screen.
+                const reviewRendered = tap.sent('stage_latency').filter((e) => e.stage === 'review_rendered').length;
+                const coachingEvents = {
+                    requested: tap.sent('practice_loop_review_requested').length,
+                    completed: tap.sent('practice_loop_review_completed').length,
+                    persisted: tap.sent('practice_loop_review_persisted').length,
+                    rendered: tap.sent('practice_loop_review_rendered').length,
+                    failed: tap.sent('practice_loop_review_failed').length,
+                    reviewRenderedStage: reviewRendered,
+                };
+                const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
+                // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path (requested + failed) must have left
+                // the page instead; success events are never assumed.
+                // PM 6173420642 §2: the failure outcome bound to THIS take's request id — never whole-run counts.
+                const boundFailure = failureTelemetryBinding(tap.events, coachingTakeRequestId);
+                // Codex P1 r4277621594 (PM 6182054477): the FIRST take's request, counted in the existing first-take window (closed
+                // before Practice-again generates its own request) under the existing blind-beacon policy.
+                const firstTakeRequestCount = generationsForTake ?? tap.sent('practice_loop_review_requested').length;
+                const firstTakeRequestProof = exactCountVerdict(firstTakeRequestCount, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
+                const coachingTelemetry = coachingTelemetryVerdict(coachingParentOutcome ?? { verdict: 'FAIL', detail: '', external: null },
+                    boundFailure, sentVerdict(coachingSent, tap, stoppedAt),
+                    coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
+                        : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt),
+                    firstTakeRequestProof);
+                receipt.row('coaching telemetry sent', coachingTelemetry.verdict, coachingTelemetry.detail,
+                    { ...coachingEvents, boundFailureOutcome: boundFailure, blindBeacons: tap.blindBeacons, firstTakeRequestCount, firstTakeRequestProof });
+                // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
+                // RECEIVED is the deployed PostHog readback for this journey.
+                const inventory = {
+                    productsMenuOpened: tap.sent('products_menu_opened').length,
+                    pdfDownloaded: tap.sent('session_pdf_downloaded').length,
+                    savedReviewRevisited: tap.sent('saved_review_revisited').length,
+                    reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
+                };
+                const inventorySeen = inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0;
+                const inventoryReceivedBy = ['analytics_inventory', 'session_pdf_export'] as const;
+                receipt.row('inventory events sent', sentVerdict(inventorySeen, tap, inventoryFrom),
+                    sentDetail('products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventorySeen, tap, inventoryFrom, inventoryReceivedBy),
+                    { ...inventory, blindBeacons: tap.blindBeacons, ...readbackSettlement(inventoryReceivedBy, tap, inventoryFrom) });
+                // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
+                const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
+                const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
+                receipt.row('revisit is not a generation', generationVerdict,
+                    generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none'
+                        : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD'
+                            : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
+                // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
+                // "analytics detail shows both AI suggestions").
+                // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
+                acquisitionTimingRow(receipt, tap, tap.journeyIds());
+            });
+            // Idempotent: capture also closes when a row above threw before the rows' own detach.
+            tap.detachTransport();
+            // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product policy
+            // (user_issue_reports.user_id is SET NULL on account deletion), so retention is proven only after the account is
+            // deleted (#1532 Codex P1 r4105978630).
+            if (capturedUid || createdEmail) {
+                await steps.step('run-owned cleanup', async () => {
+                    accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
+                        () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+                }, FINALIZE_CLEANUP_MS, { critical: true });
+            }
+            // No feedback report (the body ended before Share Feedback): the account is still deleted, here and only here.
+            if ((capturedUid || createdEmail) && !accountDeletedInTest) {
+                await steps.step('run-owned cleanup fallback', async () => {
+                    try {
+                        await cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                        accountDeletedInTest = true;
+                        receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+                    } catch {
+                        receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+                    }
+                }, FINALIZE_CLEANUP_MS, { critical: true });
+            }
+            // Last, so it covers every row above, including cleanup.
+            await steps.step('receipt content check', () => {
+                const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
+                receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential, email or coaching text in the receipt' : 'the receipt carried a forbidden value');
+            });
+            steps.report(receipt);
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, {
+                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'],
+                // #1593 (Sam 15:51): the repeat take is deliberately interrupted by the next take (rapid-repeat stress), so it
+                // proves save + request + explicit supersession + no stale render — never a full render it cannot reach.
+                repeatRecording: ['session_during', 'session_interrupted_repeat'],
+                takes: {
+                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
+                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
+                },
+                feedback: true, pdfExport: true, practiceAgain: true,
+                actionBindings: tap.actionBindings,
+                actionCaptures: tap.actionCaptures,
+                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
+                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            }),
+                tap.trafficTypes(), userJourneys);
+        });
         try {
             // ── Row 1 — sign up, then sign back in through the real form ────────────────────────────────
             await test.step('row 1 — sign up and sign in', async () => {
@@ -796,114 +939,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 });
             });
         } finally {
-            await watch.record(receipt);
-            // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
-            receipt.meta.finalTelemetryObserved = (await tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 })).observed;
-            // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary
-            // tap after a bounded settle of every sent exchange. Unanswered or unreadable stays HOLD — never a zero or the max.
-            await generations.settle();
-            coachingRequestBudgetRow(receipt, generations, { maximum: 4 });
-            // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.
-            sampler.stop();
-            activeSampler = null;
-            Object.assign(receipt.meta, diag.snapshot());
-            // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
-            const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
-            const telemetrySeen = tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0;
-            // The journey's capture ends here: outcome listeners are removed and any request still pending is unobservable.
-            tap.detachTransport();
-            const telemetryReceivedBy = ['session_after_open_mic', 'share_feedback'] as const;
-            receipt.row('telemetry sent', sentVerdict(telemetrySeen, tap, stoppedAt),
-                sentDetail('session_saved and feedback_submit left the page (sent, not yet received)', telemetrySeen, tap, stoppedAt, telemetryReceivedBy),
-                { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length, ...readbackSettlement(telemetryReceivedBy, tap, stoppedAt),
-                    // Smoke item 2 (PM 6182446740): each family's decoded request(s) and their HTTP outcome — diagnostic only.
-                    ...tap.transportEvidence(takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length), FIRST_TAKE_SAVE_FAMILIES) });
-            // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
-            // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
-            // Sent here; received is the deployed PostHog readback. Closed enums and integers only.
-            // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
-            // correlation on RECEIVED events then settles the row at finalization.
-            const practiceArrival = practiceArrivalVerdict(tap.events);
-            const practiceArrivalReceivedBy = ['practice_again'] as const;
-            receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
-                { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, stoppedAt) });
-            const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
-            const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
-            receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
-                { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, stoppedAt) });
-            // Coaching telemetry the page SENT. RECEIVED is proven by the PostHog readback of the declared
-            // session_after_open_mic stage: its post-Stop chain requires a received stage_latency "review_rendered", which
-            // the app emits only once a validated two-phrase review is on screen.
-            const reviewRendered = tap.sent('stage_latency').filter((e) => e.stage === 'review_rendered').length;
-            const coachingEvents = {
-                requested: tap.sent('practice_loop_review_requested').length,
-                completed: tap.sent('practice_loop_review_completed').length,
-                persisted: tap.sent('practice_loop_review_persisted').length,
-                rendered: tap.sent('practice_loop_review_rendered').length,
-                failed: tap.sent('practice_loop_review_failed').length,
-                reviewRenderedStage: reviewRendered,
-            };
-            const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
-            // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path (requested + failed) must have left
-            // the page instead; success events are never assumed.
-            // PM 6173420642 §2: the failure outcome bound to THIS take's request id — never whole-run counts.
-            const boundFailure = failureTelemetryBinding(tap.events, coachingTakeRequestId);
-            // Codex P1 r4277621594 (PM 6182054477): the FIRST take's request, counted in the existing first-take window (closed
-            // before Practice-again generates its own request) under the existing blind-beacon policy.
-            const firstTakeRequestCount = generationsForTake ?? tap.sent('practice_loop_review_requested').length;
-            const firstTakeRequestProof = exactCountVerdict(firstTakeRequestCount, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
-            const coachingTelemetry = coachingTelemetryVerdict(coachingParentOutcome ?? { verdict: 'FAIL', detail: '', external: null },
-                boundFailure, sentVerdict(coachingSent, tap, stoppedAt),
-                coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
-                    : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt),
-                firstTakeRequestProof);
-            receipt.row('coaching telemetry sent', coachingTelemetry.verdict, coachingTelemetry.detail,
-                { ...coachingEvents, boundFailureOutcome: boundFailure, blindBeacons: tap.blindBeacons, firstTakeRequestCount, firstTakeRequestProof });
-            // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
-            // RECEIVED is the deployed PostHog readback for this journey.
-            const inventory = {
-                productsMenuOpened: tap.sent('products_menu_opened').length,
-                pdfDownloaded: tap.sent('session_pdf_downloaded').length,
-                savedReviewRevisited: tap.sent('saved_review_revisited').length,
-                reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
-            };
-            const inventorySeen = inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0;
-            const inventoryReceivedBy = ['analytics_inventory', 'session_pdf_export'] as const;
-            receipt.row('inventory events sent', sentVerdict(inventorySeen, tap, inventoryFrom),
-                sentDetail('products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventorySeen, tap, inventoryFrom, inventoryReceivedBy),
-                { ...inventory, blindBeacons: tap.blindBeacons, ...readbackSettlement(inventoryReceivedBy, tap, inventoryFrom) });
-            // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
-            const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
-            const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
-            receipt.row('revisit is not a generation', generationVerdict,
-                generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none'
-                    : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD'
-                        : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
-            // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
-            // "analytics detail shows both AI suggestions").
-            const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
-            receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential, email or coaching text in the receipt' : 'the receipt carried a forbidden value');
-            // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
-            acquisitionTimingRow(receipt, tap, tap.journeyIds());
-            // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
-            accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            receipt.write(testInfo, bindReadbackJourneys(tap.events, {
-                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'],
-                // #1593 (Sam 15:51): the repeat take is deliberately interrupted by the next take (rapid-repeat stress), so it
-                // proves save + request + explicit supersession + no stale render — never a full render it cannot reach.
-                repeatRecording: ['session_during', 'session_interrupted_repeat'],
-                takes: {
-                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
-                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
-                },
-                feedback: true, pdfExport: true, practiceAgain: true,
-                actionBindings: tap.actionBindings,
-                actionCaptures: tap.actionCaptures,
-                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
-                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
-            }),
-                tap.trafficTypes(), userJourneys);
+            await finish();
         }
     });
 });

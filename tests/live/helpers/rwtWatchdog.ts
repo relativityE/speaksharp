@@ -16,6 +16,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test';
 import type { AnalyticsTap, RwtReceipt, SentEvent } from './rwtJourney';
+import { COACHING_SETTLE_BOUND_MS } from './rwtCoachingEvidence';
 
 /** The ONLY properties the watchdog reads from an event: every one a governed closed enum (telemetryAllowlist). */
 export const WATCHED_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -234,21 +235,27 @@ export class JourneyWatchdog {
     private domOk = 0;
     private domUnreadable = 0;
     /**
-     * Sam, #1662 RETURN (control 3): a suite's expected faults are allowed only while the spec has its fault phase open.
-     * Outside it the strict (empty) profile applies, so a later take's failure is never excused by an earlier injection.
+     * Sam, #1662 RETURN (b128 controls 2-3): a suite's expected faults are allowed only for events CAPTURED while the spec
+     * had its fault phase open — recorded as time intervals and judged by the event's own capture time, never by the phase
+     * at scan time. An expected event scanned late stays excused; an earlier unexpected one scanned inside stays fatal.
      */
-    private faultPhase = false;
+    private readonly faultIntervals: { from: number; to: number }[] = [];
+    /** Time after which the suite's refusal allowance is withdrawn (a take-over press must not be refused again). */
+    private refusalRevokedAt: number | null = null;
+    /** Sam, #1662 RETURN (b128 control 1): only events SENT by a page this journey watches are its evidence. */
+    private readonly watchedPages = new Set<unknown>();
+    /** Bumped by setPage: a DOM read started for the previous page can never judge the new one (b128 control 5). */
+    private pageGeneration = 0;
 
     private readonly o: ArmOptions;
     /** Codex P2 r4309303716: the journey's starting context stays in the close set after the DOM view moves elsewhere. */
     private readonly initialContext: BrowserContext;
-    /** Codex P2 r4309303711: a phase may withdraw the suite's refusal allowance (null = the profile's own). */
-    private refusalAllowed: boolean | null = null;
     constructor(options: ArmOptions) {
         // Default: the release this run executes against (the same variables `expectedReleaseSha()` reads in rwtJourney).
         const release = options.releaseSha ?? (process.env.EXPECTED_RELEASE_SHA ?? process.env.EXPECT_RELEASE_SHA ?? '').trim();
         this.o = { ...options, releaseSha: release || undefined };
         this.initialContext = options.page.context();
+        this.watchedPages.add(options.page);
     }
 
     arm(): this {
@@ -260,17 +267,32 @@ export class JourneyWatchdog {
         return this;
     }
 
-    /** The journey moved to another page (a closed tab reopened): read its DOM from now on. */
-    setPage(page: Page): void { this.o.page = page; }
+    /**
+     * The journey moved to another page (a reopened tab, another device): read its DOM from now on, and accept its events.
+     * A read still pending for the previous page is invalidated, and the stall clock restarts for the new page.
+     */
+    setPage(page: Page): void {
+        this.o.page = page;
+        this.watchedPages.add(page);
+        this.pageGeneration += 1;
+        this.lastKey = '';
+        this.heldSince = Date.now();
+        this.lastDom = null;
+    }
 
     /**
      * Narrow the refusal allowance for one phase: after a scenario's EXPECTED refusal, the explicit take-over press must not
      * be refused again — a second refusal then trips instead of waiting out the recording timeout.
      */
-    setStartRefusedAllowed(allowed: boolean): void { this.refusalAllowed = allowed; }
+    setStartRefusedAllowed(allowed: boolean): void { this.refusalRevokedAt = allowed ? null : Date.now(); }
 
     /** Open (true) or close (false) the phase in which the suite's declared faults are expected. */
-    setFaultPhase(open: boolean): void { this.faultPhase = open; }
+    setFaultPhase(open: boolean): void {
+        const now = Date.now();
+        const last = this.faultIntervals[this.faultIntervals.length - 1];
+        if (open && (!last || last.to !== Infinity)) this.faultIntervals.push({ from: now, to: Infinity });
+        if (!open && last && last.to === Infinity) last.to = now;
+    }
 
     /** Around a step whose truthful outcome is no recording (a denied microphone): a RECORDING transition then trips. */
     setForbidRecording(on: boolean): void { this.forbidRecording = on; }
@@ -283,17 +305,33 @@ export class JourneyWatchdog {
         this.timer = null; this.beat = null;
     }
 
-    /** The profile in force now: the suite's allowances inside its fault phase, strict outside it. */
-    private activeProfile(): WatchProfile {
-        const base: WatchProfile = this.faultPhase ? this.o.profile : {};
-        return this.refusalAllowed === null ? base : { ...base, allowStartRefused: this.refusalAllowed };
+    /** The profile that applied when an event was CAPTURED: the suite's allowances inside a fault interval, else strict. */
+    private profileAt(captured: number): WatchProfile {
+        const inFault = this.faultIntervals.some((i) => captured >= i.from && captured <= i.to);
+        const base: WatchProfile = inFault ? this.o.profile : {};
+        return this.refusalRevokedAt !== null && captured >= this.refusalRevokedAt ? { ...base, allowStartRefused: false } : base;
     }
 
-    /** True when an event is not this journey's evidence (another release, or captured before arming). */
+    /** True when an event is not this journey's evidence: not sent by a watched page, another release, or pre-arming. */
     private foreign(e: SentEvent): boolean {
+        if (!this.watchedPages.has((e as { sourcePage?: unknown }).sourcePage)) return true;
         if (this.o.releaseSha && e.releaseSha && e.releaseSha !== this.o.releaseSha) return true;
-        const captured = e.capturedAt ?? e.at;
-        return captured < this.started - 1_000;
+        return (e.capturedAt ?? e.at) < this.started - 1_000;
+    }
+
+    /** Classify every queued event (synchronous); the first unexpected fatal one is returned. */
+    private scanTelemetry(now: number): WatchSignal | null {
+        const events = this.o.tap.events;
+        for (; this.cursor < events.length; this.cursor += 1) {
+            const e = events[this.cursor];
+            if (!(e.event in WATCHED_FIELDS)) continue;
+            if (this.foreign(e)) { this.foreignIgnored += 1; continue; }
+            this.watchedSeen += 1;
+            this.lastEvent = { name: e.event, at: e.at };
+            const kind = fatalSignalOf(e, this.profileAt(e.capturedAt ?? e.at), this.forbidRecording);
+            if (kind) { this.cursor += 1; return { kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started }; }
+        }
+        return null;
     }
 
     /** One content-free status line: state, model, control, last watched event and its age. */
@@ -315,23 +353,18 @@ export class JourneyWatchdog {
      */
     async tick(now = Date.now()): Promise<WatchSignal | null> {
         if (this.signal || this.stopped) return this.signal;
-        const events = this.o.tap.events;
-        for (; this.cursor < events.length; this.cursor += 1) {
-            const e = events[this.cursor];
-            if (!(e.event in WATCHED_FIELDS)) continue;
-            if (this.foreign(e)) { this.foreignIgnored += 1; continue; }
-            this.watchedSeen += 1;
-            this.lastEvent = { name: e.event, at: e.at };
-            const kind = fatalSignalOf(e, this.activeProfile(), this.forbidRecording);
-            if (kind) return this.trip({ kind, event: e.event, fields: watchedFieldsOf(e), elapsedMs: now - this.started });
-        }
+        const fatal = this.scanTelemetry(now);
+        if (fatal) return this.trip(fatal);
         if (this.domRead) return null; // the previous read is still pending; telemetry was scanned regardless
         const generation = this.generation;
+        const pageGeneration = this.pageGeneration;
         let stall: WatchSignal | null = null;
         this.domRead = (async () => {
             const dom = await readDomBounded(this.o.page);
-            if (this.stopped || generation !== this.generation || this.signal) return; // fenced: stopped while awaiting
-            if (!dom) { this.domUnreadable += 1; return; }
+            // Fenced: stopped, or the journey moved to another page, while this read was pending.
+            if (this.stopped || generation !== this.generation || pageGeneration !== this.pageGeneration || this.signal) return;
+            // Codex P2 r4309443357: only a page that publishes the app's runtime state is an observation of the journey.
+            if (!dom || dom.runtimeState === null) { this.domUnreadable += 1; return; }
             this.domOk += 1;
             const key = conditionKey(dom);
             if (key !== this.lastKey) { this.lastKey = key; this.heldSince = now; }
@@ -345,7 +378,7 @@ export class JourneyWatchdog {
             }
         })().finally(() => { this.domRead = null; });
         await this.domRead;
-        if (stall && !this.stopped && generation === this.generation && !this.signal) return this.trip(stall);
+        if (stall && !this.stopped && generation === this.generation && pageGeneration === this.pageGeneration && !this.signal) return this.trip(stall);
         return null;
     }
 
@@ -367,6 +400,12 @@ export class JourneyWatchdog {
      * a clean journey); PASS otherwise. Observation counts are always recorded.
      */
     async record(receipt: RwtReceipt): Promise<void> {
+        // Codex P2 r4309443352 / Sam b128 control 4: drain every queued event before fencing — a fatal event queued just
+        // before finalization must FAIL the journey, not slip past a PASS.
+        if (!this.signal && !this.stopped) {
+            const late = this.scanTelemetry(Date.now());
+            if (late) await this.trip(late);
+        }
         this.stop();
         if (this.domRead) await Promise.race([this.domRead, new Promise((r) => setTimeout(r, DOM_READ_TIMEOUT_MS))]);
         const s = this.signal;
@@ -426,5 +465,58 @@ export class JourneyFinalizer {
         this.runs.clear();
         const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
         if (failed) throw failed.reason;
+    }
+}
+
+/** Default bound for one finalization step (diagnostics, readback waits, coaching settle, closing a context). */
+export const FINALIZE_STEP_MS = 60_000;
+/** Account deletion plus its residue readback: the one step whose failure is a FAIL, not a HOLD. */
+export const FINALIZE_CLEANUP_MS = 180_000;
+/** The coaching settle carries its own Edge-budget bound; its step allows that plus 15 s. */
+export const FINALIZE_SETTLE_MS = COACHING_SETTLE_BOUND_MS + 15_000;
+
+export type StepOutcome = 'ok' | 'timeout' | 'error';
+
+/**
+ * Sam, #1662 RETURN (bounded, failure-safe finalization): a finalization step that may stall or throw never stands
+ * between the journey and its cleanup and receipt. Each named step is bounded and isolated — on timeout or error it yields
+ * `undefined`, its closed outcome is kept, and the finalization continues. `report()` then names every step that did not
+ * complete: HOLD (the receipt is incomplete), or FAIL when a `critical` step (run-owned cleanup) did not complete, because
+ * residue is then unproven. A clean finalization writes no row. Step names are fixed literals; no value is recorded.
+ */
+export class FinalizationSteps {
+    private readonly outcomes = new Map<string, { outcome: StepOutcome; critical: boolean }>();
+
+    async step<T>(name: string, run: () => Promise<T> | T, ms = FINALIZE_STEP_MS, o: { critical?: boolean } = {}): Promise<T | undefined> {
+        const timedOut = Symbol('timeout');
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<typeof timedOut>((resolve) => { timer = setTimeout(() => resolve(timedOut), ms); });
+        let outcome: StepOutcome = 'ok';
+        try {
+            const value = await Promise.race([Promise.resolve().then(run), timeout]);
+            if (value === timedOut) { outcome = 'timeout'; return undefined; }
+            return value as T;
+        } catch {
+            outcome = 'error';
+            return undefined;
+        } finally {
+            if (timer) clearTimeout(timer);
+            this.outcomes.set(name, { outcome, critical: o.critical === true });
+        }
+    }
+
+    /** Every step that did not complete, with its closed outcome. */
+    incomplete(): Record<string, StepOutcome> {
+        return Object.fromEntries([...this.outcomes].filter(([, v]) => v.outcome !== 'ok').map(([k, v]) => [k, v.outcome]));
+    }
+
+    report(receipt: RwtReceipt): void {
+        const incomplete = this.incomplete();
+        const names = Object.keys(incomplete);
+        if (names.length === 0) return;
+        const critical = names.some((n) => this.outcomes.get(n)?.critical);
+        receipt.row('journey finalization', critical ? 'FAIL' : 'HOLD', critical
+            ? 'run-owned cleanup did not complete within its bound, so residue is unproven; the receipt was still written'
+            : `${names.length} finalization step(s) did not complete within their bound; cleanup and the receipt still ran`, incomplete);
     }
 }

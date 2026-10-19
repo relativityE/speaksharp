@@ -21,6 +21,14 @@ export const MODEL_FAILED_STATES = ['error', 'init-failed'] as const;
  * NotAllowedError — what a blocked site setting does and what the product reads. A permission query is informational: it
  * can read "denied" while a fake-media flag still grants a live track (live case 12), or "prompt" while acquisition is denied.
  */
+/**
+ * Sam, #1662 RETURN (case 12, press-bound denial): only an acquisition refusal recorded AFTER this press qualifies — an
+ * earlier rejection on the page cannot qualify a later Start that failed for another reason.
+ */
+export function deniedAfterPress(rejections: readonly string[], rejectionsBeforePress: number): boolean {
+    return rejections.slice(rejectionsBeforePress).includes('NotAllowedError');
+}
+
 export function micDeniedVerdict(o: { deniedAtAcquisition: boolean; blockedCopyShown: boolean; tab: TabState }): Verdict {
     if (!o.deniedAtAcquisition) return { status: 'HOLD', detail: 'the page\'s microphone acquisition was never refused with NotAllowedError, so the case was not exercised' };
     if (!o.blockedCopyShown) return { status: 'FAIL', detail: 'the page did not say the microphone is blocked' };

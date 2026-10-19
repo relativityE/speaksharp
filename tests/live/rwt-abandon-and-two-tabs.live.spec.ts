@@ -25,7 +25,7 @@ import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAc
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
-import { JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { FINALIZE_CLEANUP_MS, FINALIZE_SETTLE_MS, FinalizationSteps, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 import { openProductsItem } from './helpers/productsMenu';
 import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
@@ -33,7 +33,7 @@ import {
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    addCompletedTakeIds, modelWorkBeforeRefusal, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -84,22 +84,30 @@ async function startFirstPrivateTake(page: Page, label: string): Promise<void> {
 const finalizer = new JourneyFinalizer();
 
 async function finishJourney(receipt: RwtReceipt, testInfo: TestInfo, tap: AnalyticsTap, generations: CoachingGenerationTap,
-    owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null): Promise<void> {
-    const cloudVerdict = noCloudVerdict(cloud.requests);
-    receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
-    await generations.settle();
-    const sessionIdsVerified = await refreshCompletedTakeIds(takes, takeBaseline, () => readRows(owner.uid));
-    coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes, sessionIdsVerified });
+    owner: RunOwner, claimed: boolean, cloud: { requests: number }, takes: string[], takeBaseline: readonly RowFacts[] | null,
+    steps: FinalizationSteps): Promise<void> {
+    await steps.step('no cloud row', () => {
+        const cloudVerdict = noCloudVerdict(cloud.requests);
+        receipt.row('no Cloud STT request', cloudVerdict.status, cloudVerdict.detail, { cloudRequests: cloud.requests });
+    });
+    await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+    await steps.step('coaching budget', async () => {
+        const sessionIdsVerified = await refreshCompletedTakeIds(takes, takeBaseline, () => readRows(owner.uid));
+        coachingRequestBudgetRow(receipt, generations, { maximum: 2, oneRequestPerSession: takes, sessionIdsVerified });
+    });
     // A signup that died before its uid was read is still found by its created email.
     if (owner.uid || owner.email) {
-        try {
-            await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-            receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-        } catch {
-            receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-        }
+        await steps.step('run-owned cleanup', async () => {
+            try {
+                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
+            } catch {
+                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
+            }
+        }, FINALIZE_CLEANUP_MS, { critical: true });
     }
-    telemetryClassRows(receipt, tap, claimed, false);
+    await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
+    steps.report(receipt);
     receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
 }
 
@@ -119,8 +127,10 @@ async function abandonAndReturn(page: Page, testInfo: TestInfo, variant: Abandon
     // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
     // (which Playwright runs after a timeout) run this same memoized closure exactly once.
     const finish = finalizer.once(async () => {
-        await watch.record(receipt);
-        await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
+        // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+        const steps = new FinalizationSteps();
+        await steps.step('watchdog', () => watch.record(receipt));
+        await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps);
     });
     try {
         await suppressPageSnapshot(testInfo);
@@ -295,8 +305,10 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
         // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
         // (which Playwright runs after a timeout) run this same memoized closure exactly once.
         const finish = finalizer.once(async () => {
-            await watch.record(receipt);
-            await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst);
+            // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+            const steps = new FinalizationSteps();
+            await steps.step('watchdog', () => watch.record(receipt));
+            await finishJourney(receipt, testInfo, tap, generations, owner, claimed, cloud, takes, rowsBeforeFirst, steps);
             await sameBrowserTab?.close().catch(() => undefined);
             await otherDevice?.close().catch(() => undefined);
         });
@@ -351,6 +363,19 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // press is a Start the lease decides, so it is the person's first press here; the download-only setup helper
             // (which requires the status to leave `download-required`) asserted a control the product no longer has.
             const coldB = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status')) === 'download-required';
+            // Sam, #1662 RETURN (lease-before-model): observe model work from BEFORE the first press through the refusal —
+            // every model-asset request on device B, and every published model status (a final snapshot cannot prove no
+            // prior work: loading → download-required would look clean).
+            let modelRequestsB = 0;
+            otherDevice.on('request', (r) => { if (/\/models\//.test(r.url())) modelRequestsB += 1; });
+            await deviceB.evaluate(() => {
+                const w = window as unknown as { __rwtModelStatusHistory__?: string[] };
+                const history: string[] = [];
+                w.__rwtModelStatusHistory__ = history;
+                const root = document.documentElement;
+                new MutationObserver(() => { history.push(root.getAttribute('data-model-status') ?? 'unreadable'); })
+                    .observe(root, { attributes: true, attributeFilter: ['data-model-status'] });
+            });
             if (coldB) {
                 await deviceB.getByTestId('mic-download').click();
             } else {
@@ -363,15 +388,20 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // arrives after model preparation began is a FAIL, never a slow PASS. Model work belongs to the take-over press.
             const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();
             const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
+            const modelRequestsBeforeRefusal = modelRequestsB;
+            const statusHistoryB = await deviceB.evaluate(() => ((window as unknown as { __rwtModelStatusHistory__?: string[] }).__rwtModelStatusHistory__ ?? []).slice());
             const modelStatusAtRefusal = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status'));
-            const modelWorkBeforeRefusal = coldB && modelStatusAtRefusal !== 'download-required';
-            const leaseRefusal = refusedInTime && !modelWorkBeforeRefusal;
+            const modelWorkFirst = modelWorkBeforeRefusal({
+                cold: coldB, modelRequests: modelRequestsBeforeRefusal, statusHistory: statusHistoryB, statusAtRefusal: modelStatusAtRefusal,
+            });
+            const leaseRefusal = refusedInTime && !modelWorkFirst;
             await deviceB.waitForTimeout(2_000);
             const [refusedB, stillA2] = [await tabState(deviceB), await tabState(tabA)];
             const lease = secondTabBlockedVerdict({ refusalCopyShown: leaseRefusal, tabB: refusedB, tabA: stillA2 });
             receipt.row('another device is refused by the account lease', lease.status,
-                modelWorkBeforeRefusal ? 'model preparation began before the account lease refused the press' : lease.detail,
-                { refusalCopyShown: refusedInTime, coldB, modelWorkBeforeRefusal, ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
+                modelWorkFirst ? 'model preparation began before the account lease refused the press' : lease.detail,
+                { refusalCopyShown: refusedInTime, coldB, modelWorkBeforeRefusal: modelWorkFirst, modelRequestsBeforeRefusal, statusChangesBeforeRefusal: statusHistoryB.length,
+                    ...flatTabState('deviceB', refusedB), ...flatTabState('tabA', stillA2) });
 
             // The person's explicit second press is the take-over — on whichever primary control the refused page renders
             // (still the cold `mic-download` when the lease refused before any download).
@@ -386,6 +416,9 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const moved = takeOverVerdict({ tabA: displacedA, tabB: takingB, displacedCopyShown });
             receipt.row('take-over moves the one engine', moved.status, moved.detail,
                 { displacedCopyShown, ...flatTabState('tabA', displacedA), ...flatTabState('deviceB', takingB) });
+            // Codex P2 r4309443360: the displaced take's lease codes were the expected faults; from here device B's own
+            // recording and save are strict — B failing with a lease code is never excused.
+            watch.setFaultPhase(false);
 
             await deviceB.waitForTimeout(6_000);
             await stopBenchmarkRecording(deviceB, 'two-tab-b', 180_000);

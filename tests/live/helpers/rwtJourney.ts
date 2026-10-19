@@ -767,6 +767,9 @@ export class AnalyticsTap {
                     } } : {}),
                 });
             }
+            // #1593 (Sam, #1662 RETURN): which page SENT each event, so a watchdog can refuse evidence from pages it does not
+            // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.
+            for (let i = before; i < this.events.length; i += 1) Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
             if (this.events.length > before) {
                 this.notePosthogRequest();
                 this.track(request, { batches: [batch], names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
