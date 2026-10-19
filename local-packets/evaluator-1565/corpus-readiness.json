@@ -1,0 +1,493 @@
+{
+  "auditVersion": "pm-corpus-readiness-v1",
+  "sourceHead": "ecce3e8d9e154ddb12f7238a514f0ec85d4b75b4",
+  "status": "PREPARATION_ONLY_NO_MODEL_QUALIFICATION",
+  "manifestSha256": "706b61053c3c4aa9976099d8eb490f64e6d8b0e2ff86529f59b9982abd59453b",
+  "frozenSelectionDigest": "755487e8de185857e956bbf8d63c8af051ecae55086076a1cd47a2ae96497eba",
+  "manifestDeclaredLicence": "CC BY 4.0",
+  "licenceStatus": "RETAINED_MANIFEST_DECLARATION_NOT_NEW_RIGHTS_REVIEW",
+  "clips": 600,
+  "speakers": 73,
+  "sessionClusterProxies": 159,
+  "emptyReferences": 0,
+  "sourceAudioBytes": 74756427,
+  "sourceAudioVerification": "NOT_PERFORMED_600_FLAC_BYTES_NOT_IN_THIS_CHECKOUT_NO_DOWNLOAD",
+  "proposedFolds": {
+    "status": "PROPOSED_NOT_ACCEPTED",
+    "seed": "speaksharp-1565-speaker-review-v1",
+    "rule": "sha256(seed + ':' + speakerId) modulo5:0=held_out;1..4=development",
+    "assignmentDigest": "f7f1c856867cbd98981ba9e9032c3c9d8e94b1ba6870fdef2e63ec335f0114f3",
+    "folds": {
+      "development": {
+        "clips": 485,
+        "speakers": 58,
+        "sourcePartitions": {
+          "test-clean": 239,
+          "test-other": 246
+        }
+      },
+      "held_out": {
+        "clips": 115,
+        "speakers": 15,
+        "sourcePartitions": {
+          "test-clean": 61,
+          "test-other": 54
+        }
+      }
+    },
+    "speakerOverlap": 0
+  },
+  "smokeManifestSha256": "0cce0234e5b96065fca2aed49b73078bbdffecfe13660a9ed421ad7f6778633c",
+  "rwtManifestSha256": "e0e9e1586872e4c67ec95b61cbc6bc084bf3ed4a0e502e72fb0b95df0673a9ef",
+  "verifiedLocalWavs": [
+    {
+      "path": "tests/evidence/fixtures/corpus/fixture-001.wav",
+      "group": "synthetic_smoke",
+      "sha256": "500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247",
+      "sampleRate": 16000,
+      "channels": 1,
+      "sampleBytes": 2,
+      "frames": 82671,
+      "durationSeconds": 5.166938
+    },
+    {
+      "path": "tests/evidence/fixtures/corpus/fixture-002.wav",
+      "group": "synthetic_smoke",
+      "sha256": "1441f3e970c91fdd4602c4419f1210e398ac46e09d7f553c9aea71e9b8eeb2ce",
+      "sampleRate": 16000,
+      "channels": 1,
+      "sampleBytes": 2,
+      "frames": 65766,
+      "durationSeconds": 4.110375
+    },
+    {
+      "path": "tests/evidence/fixtures/corpus/fixture-003.wav",
+      "group": "synthetic_smoke",
+      "sha256": "095b7fe19672a33b90fa7e696f37b96c0acfa0a2e9862758b851e24662d10150",
+      "sampleRate": 16000,
+      "channels": 1,
+      "sampleBytes": 2,
+      "frames": 45000,
+      "durationSeconds": 2.8125
+    },
+    {
+      "path": "tests/fixtures/rwt/open_mic_tts.wav",
+      "group": "synthetic_product_flow",
+      "sha256": "7f4d6bb6073b580acca4630fef04b74e04279098458782b87598099ae8b19867",
+      "sampleRate": 16000,
+      "channels": 1,
+      "sampleBytes": 2,
+      "frames": 970423,
+      "durationSeconds": 60.651438
+    },
+    {
+      "path": "tests/fixtures/rwt/focus_points_tts.wav",
+      "group": "synthetic_product_flow",
+      "sha256": "528cac3c11ca5cd18df119636212e654d4fcc6643f0e4b0bf943d581c1b42ccc",
+      "sampleRate": 16000,
+      "channels": 1,
+      "sampleBytes": 2,
+      "frames": 979396,
+      "durationSeconds": 61.21225
+    },
+    {
+      "path": "tests/fixtures/rwt/focus_points_partial_tts.wav",
+      "group": "synthetic_product_flow",
+      "sha256": "8a2bdb57440352e473b62e4a190077693d632da0856f3406cf4f33653c08722d",
+      "sampleRate": 16000,
+      "channels": 1,
+      "sampleBytes": 2,
+      "frames": 592088,
+      "durationSeconds": 37.0055
+    },
+    {
+      "path": "tests/fixtures/corpus-longform/long-01.wav",
+      "group": "derived_librispeech",
+      "sha256": "dc346dbf161e4c2bf338e5290b70e007033edb10556cb415eea0befb6d2bed49",
+      "sampleRate": 16000,
+      "channels": 1,
+      "sampleBytes": 2,
+      "frames": 605841,
+      "durationSeconds": 37.865063
+    }
+  ],
+  "verificationErrors": 0,
+  "requiredAnnotationGaps": [
+    "accent",
+    "measured_noise",
+    "contextual_filler_spans_and_negatives",
+    "pause_boundaries",
+    "silence_hallucination_controls",
+    "opening_tail_alignment",
+    "long_take_repetition",
+    "natural_focus_content",
+    "human_usefulness"
+  ],
+  "speakerAssignments": [
+    {
+      "speaker": "1089",
+      "proposedReviewFold": "development",
+      "clips": 9
+    },
+    {
+      "speaker": "1188",
+      "proposedReviewFold": "held_out",
+      "clips": 5
+    },
+    {
+      "speaker": "121",
+      "proposedReviewFold": "held_out",
+      "clips": 8
+    },
+    {
+      "speaker": "1221",
+      "proposedReviewFold": "development",
+      "clips": 6
+    },
+    {
+      "speaker": "1284",
+      "proposedReviewFold": "development",
+      "clips": 5
+    },
+    {
+      "speaker": "1320",
+      "proposedReviewFold": "development",
+      "clips": 3
+    },
+    {
+      "speaker": "1580",
+      "proposedReviewFold": "development",
+      "clips": 14
+    },
+    {
+      "speaker": "1688",
+      "proposedReviewFold": "development",
+      "clips": 11
+    },
+    {
+      "speaker": "1995",
+      "proposedReviewFold": "held_out",
+      "clips": 10
+    },
+    {
+      "speaker": "1998",
+      "proposedReviewFold": "development",
+      "clips": 14
+    },
+    {
+      "speaker": "2033",
+      "proposedReviewFold": "held_out",
+      "clips": 4
+    },
+    {
+      "speaker": "2094",
+      "proposedReviewFold": "development",
+      "clips": 11
+    },
+    {
+      "speaker": "2300",
+      "proposedReviewFold": "development",
+      "clips": 2
+    },
+    {
+      "speaker": "237",
+      "proposedReviewFold": "development",
+      "clips": 11
+    },
+    {
+      "speaker": "2414",
+      "proposedReviewFold": "development",
+      "clips": 9
+    },
+    {
+      "speaker": "260",
+      "proposedReviewFold": "development",
+      "clips": 6
+    },
+    {
+      "speaker": "2609",
+      "proposedReviewFold": "development",
+      "clips": 8
+    },
+    {
+      "speaker": "2830",
+      "proposedReviewFold": "development",
+      "clips": 11
+    },
+    {
+      "speaker": "2961",
+      "proposedReviewFold": "development",
+      "clips": 11
+    },
+    {
+      "speaker": "3005",
+      "proposedReviewFold": "development",
+      "clips": 16
+    },
+    {
+      "speaker": "3080",
+      "proposedReviewFold": "development",
+      "clips": 7
+    },
+    {
+      "speaker": "3331",
+      "proposedReviewFold": "held_out",
+      "clips": 8
+    },
+    {
+      "speaker": "3528",
+      "proposedReviewFold": "development",
+      "clips": 9
+    },
+    {
+      "speaker": "3538",
+      "proposedReviewFold": "development",
+      "clips": 13
+    },
+    {
+      "speaker": "3570",
+      "proposedReviewFold": "held_out",
+      "clips": 4
+    },
+    {
+      "speaker": "3575",
+      "proposedReviewFold": "development",
+      "clips": 5
+    },
+    {
+      "speaker": "367",
+      "proposedReviewFold": "development",
+      "clips": 6
+    },
+    {
+      "speaker": "3729",
+      "proposedReviewFold": "development",
+      "clips": 5
+    },
+    {
+      "speaker": "3764",
+      "proposedReviewFold": "development",
+      "clips": 8
+    },
+    {
+      "speaker": "3997",
+      "proposedReviewFold": "development",
+      "clips": 13
+    },
+    {
+      "speaker": "4077",
+      "proposedReviewFold": "development",
+      "clips": 3
+    },
+    {
+      "speaker": "4198",
+      "proposedReviewFold": "development",
+      "clips": 8
+    },
+    {
+      "speaker": "4294",
+      "proposedReviewFold": "development",
+      "clips": 7
+    },
+    {
+      "speaker": "4350",
+      "proposedReviewFold": "development",
+      "clips": 7
+    },
+    {
+      "speaker": "4446",
+      "proposedReviewFold": "development",
+      "clips": 11
+    },
+    {
+      "speaker": "4507",
+      "proposedReviewFold": "development",
+      "clips": 10
+    },
+    {
+      "speaker": "4852",
+      "proposedReviewFold": "development",
+      "clips": 10
+    },
+    {
+      "speaker": "4970",
+      "proposedReviewFold": "development",
+      "clips": 6
+    },
+    {
+      "speaker": "4992",
+      "proposedReviewFold": "development",
+      "clips": 8
+    },
+    {
+      "speaker": "5105",
+      "proposedReviewFold": "development",
+      "clips": 8
+    },
+    {
+      "speaker": "5142",
+      "proposedReviewFold": "development",
+      "clips": 10
+    },
+    {
+      "speaker": "533",
+      "proposedReviewFold": "development",
+      "clips": 12
+    },
+    {
+      "speaker": "5442",
+      "proposedReviewFold": "held_out",
+      "clips": 3
+    },
+    {
+      "speaker": "5484",
+      "proposedReviewFold": "development",
+      "clips": 8
+    },
+    {
+      "speaker": "5639",
+      "proposedReviewFold": "development",
+      "clips": 3
+    },
+    {
+      "speaker": "5683",
+      "proposedReviewFold": "development",
+      "clips": 10
+    },
+    {
+      "speaker": "5764",
+      "proposedReviewFold": "held_out",
+      "clips": 6
+    },
+    {
+      "speaker": "6070",
+      "proposedReviewFold": "development",
+      "clips": 7
+    },
+    {
+      "speaker": "61",
+      "proposedReviewFold": "development",
+      "clips": 12
+    },
+    {
+      "speaker": "6128",
+      "proposedReviewFold": "held_out",
+      "clips": 9
+    },
+    {
+      "speaker": "6432",
+      "proposedReviewFold": "development",
+      "clips": 14
+    },
+    {
+      "speaker": "672",
+      "proposedReviewFold": "development",
+      "clips": 7
+    },
+    {
+      "speaker": "6829",
+      "proposedReviewFold": "development",
+      "clips": 11
+    },
+    {
+      "speaker": "6930",
+      "proposedReviewFold": "held_out",
+      "clips": 13
+    },
+    {
+      "speaker": "6938",
+      "proposedReviewFold": "development",
+      "clips": 2
+    },
+    {
+      "speaker": "7018",
+      "proposedReviewFold": "development",
+      "clips": 7
+    },
+    {
+      "speaker": "7021",
+      "proposedReviewFold": "development",
+      "clips": 8
+    },
+    {
+      "speaker": "7105",
+      "proposedReviewFold": "development",
+      "clips": 8
+    },
+    {
+      "speaker": "7127",
+      "proposedReviewFold": "development",
+      "clips": 5
+    },
+    {
+      "speaker": "7176",
+      "proposedReviewFold": "held_out",
+      "clips": 8
+    },
+    {
+      "speaker": "7729",
+      "proposedReviewFold": "development",
+      "clips": 9
+    },
+    {
+      "speaker": "7902",
+      "proposedReviewFold": "development",
+      "clips": 12
+    },
+    {
+      "speaker": "7975",
+      "proposedReviewFold": "development",
+      "clips": 10
+    },
+    {
+      "speaker": "8131",
+      "proposedReviewFold": "held_out",
+      "clips": 17
+    },
+    {
+      "speaker": "8188",
+      "proposedReviewFold": "development",
+      "clips": 11
+    },
+    {
+      "speaker": "8224",
+      "proposedReviewFold": "development",
+      "clips": 4
+    },
+    {
+      "speaker": "8230",
+      "proposedReviewFold": "development",
+      "clips": 2
+    },
+    {
+      "speaker": "8280",
+      "proposedReviewFold": "development",
+      "clips": 9
+    },
+    {
+      "speaker": "8455",
+      "proposedReviewFold": "development",
+      "clips": 7
+    },
+    {
+      "speaker": "8461",
+      "proposedReviewFold": "held_out",
+      "clips": 7
+    },
+    {
+      "speaker": "8463",
+      "proposedReviewFold": "held_out",
+      "clips": 9
+    },
+    {
+      "speaker": "8555",
+      "proposedReviewFold": "development",
+      "clips": 6
+    },
+    {
+      "speaker": "908",
+      "proposedReviewFold": "held_out",
+      "clips": 4
+    }
+  ]
+}
