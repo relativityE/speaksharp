@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import posthog from 'posthog-js';
 
 const { mockPipeline } = vi.hoisted(() => ({
     mockPipeline: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('@huggingface/transformers', () => ({
         INFO: 'info',
     },
 }));
+vi.mock('posthog-js', () => ({ default: { isFeatureEnabled: vi.fn() } }));
 
 type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-error';
 
@@ -106,6 +108,8 @@ describe('TransformersJSV4Engine worker message contract', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+        vi.mocked(posthog.isFeatureEnabled).mockReset().mockReturnValue(false);
         mockPipeline.mockReset();
         window.localStorage.clear();
         fakeWorkerMode = 'ready';
@@ -125,6 +129,145 @@ describe('TransformersJSV4Engine worker message contract', () => {
         vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+    });
+
+    it('binds an internal evaluator attempt to the selected v4 model and variant', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(true);
+        expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                type: 'init', model: 'onnx-community/whisper-base.en',
+                attempt: expect.objectContaining({ candidateId: 'v4:base:q4' }),
+            }),
+            [],
+        );
+        await engine.destroy();
+    });
+
+    it('refuses evaluator selection outside an internal build before worker init', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'false');
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(false);
+        expect(fakeWorkerInstances).toHaveLength(0);
+    });
+
+    it.each([
+        ['v4:base:q4', 'base_q4', 'wasm'], ['v4:base:q4', 'base_q4', 'webgpu'],
+        ['v4:distil:q4', 'distil_q4', 'wasm'], ['v4:distil:q4', 'distil_q4', 'webgpu'],
+    ] as const)('threads declared evaluator backend %s/%s/%s into worker initialization', async (candidateId, variant, backend) => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: candidateId, v4Variant: variant, evaluatorBackend: backend,
+        } as never);
+        try {
+            expect((await engine.init()).isOk).toBe(true);
+            expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({ type: 'init', device: backend }), [],
+            );
+        } finally { await engine.destroy(); }
+    });
+
+    it.each([
+        ['v4:base:q4', 'wasm'], ['v4:base:q4', 'webgpu'],
+        ['v4:distil:q4', 'wasm'], ['v4:distil:q4', 'webgpu'],
+    ] as const)('threads the local evaluator page backend for %s/%s', async (candidateId, backend) => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        vi.resetModules();
+        await import('../../../../benchmark/model-evaluator-local');
+        try {
+            await window.__MODEL_EVALUATOR__!.initialize(candidateId, backend);
+            expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({ type: 'init', device: backend }), [],
+            );
+        } finally { await window.__MODEL_EVALUATOR__?.dispose(); }
+    });
+
+    it('rejects an invalid evaluator backend before worker creation', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4', evaluatorBackend: 'cpu',
+        } as never);
+        expect((await engine.init()).isOk).toBe(false);
+        expect(fakeWorkerInstances).toHaveLength(0);
+    });
+
+    it('rejects an invalid page backend before engine creation', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        vi.resetModules();
+        await import('../../../../benchmark/model-evaluator-local');
+        await expect(window.__MODEL_EVALUATOR__!.initialize('v4:base:q4', 'cpu' as never))
+            .rejects.toThrow('unsupported model evaluator backend');
+        expect(fakeWorkerInstances).toHaveLength(0);
+    });
+
+    it('does not apply evaluator backend options to an ordinary product attempt', async () => {
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ evaluatorBackend: 'webgpu' } as never);
+        try {
+            expect((await engine.init()).isOk).toBe(true);
+            expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
+                expect.objectContaining({ type: 'init', device: undefined }), [],
+            );
+        } finally { await engine.destroy(); }
+    });
+
+    it('refuses evaluator selection when the remote safety kill forces v2', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        vi.mocked(posthog.isFeatureEnabled).mockReturnValue(true);
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(false);
+        expect(fakeWorkerInstances).toHaveLength(0);
+    });
+
+    it('refuses an evaluator candidate whose loaded v4 variant differs', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:distil:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(false);
+        expect(fakeWorkerInstances).toHaveLength(0);
+    });
+
+    it('refuses evaluator selection when the browser cannot use the worker path', async () => {
+        vi.stubEnv('VITE_INTERNAL_BUILD', 'true');
+        (globalThis as { Worker?: unknown }).Worker = undefined;
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({
+            evaluatorCandidateId: 'v4:base:q4', v4Variant: 'base_q4',
+        } as never);
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(false);
+        expect((result as { isOk: false; error: Error }).error.message).toContain('worker path');
+        expect(mockPipeline).not.toHaveBeenCalled();
+        expect(fakeWorkerInstances).toHaveLength(0);
     });
 
     it('contract: init resolves when the v4 worker responds with ready', async () => {
