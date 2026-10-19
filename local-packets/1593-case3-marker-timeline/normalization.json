@@ -1,0 +1,28 @@
+{
+  "scope": "machine-path substitutions in retained evidence only",
+  "invariants": [
+    "object keys and array lengths preserved",
+    "all numeric counts/times and booleans/null preserved",
+    "strings changed only by documented path aliases",
+    "raw pre-normalization bytes retained outside Git"
+  ],
+  "aliases": [
+    "<repo>",
+    "<dependencies>",
+    "<temporary>",
+    "<home>"
+  ],
+  "files": {
+    "collector-first.json": {
+      "rawSha256": "0cb0eacd580cb0753c1f2db683f92e916f71de78ad25d69893af3af37b877029",
+      "normalizedSha256": "b1edc16ad4de847e163328a5c55ed035277d1c09931e34adcedad072b3576db9",
+      "rawArchiveBasename": "0cb0eacd580cb0753c1f2db683f92e916f71de78ad25d69893af3af37b877029-collector-first.json"
+    },
+    "collector-green.json": {
+      "rawSha256": "ba719da5e4eca5a37604cdf61bde5f98380e2babf6ff382b2c16df6fdb34d3ca",
+      "normalizedSha256": "7a14b180f422f17ad6a6188beaf7e1e3bfa6134fe2265b56e847f70e15185241",
+      "rawArchiveBasename": "ba719da5e4eca5a37604cdf61bde5f98380e2babf6ff382b2c16df6fdb34d3ca-collector-green.json"
+    }
+  },
+  "lastNormalizedUtc": "2026-10-19T14:21:13.079Z"
+}
