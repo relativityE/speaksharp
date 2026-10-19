@@ -20,12 +20,13 @@
     "probe-receipts.mjs": "519c822e0354d8e9ebb425af427fdde35a733a216d9b0cd2d0c16d481a5e8fa2",
     "seam-results.json": "550256f23e02756cb205d62125a6307141d6ff317572c275f22b8914211741fa",
     "seam-results-2bd050cd.json": "a58c6a5dd7c7da6323383ace872ca366ddfd03b19585f350704b03e7aaebcef3",
-    "02_ACTUAL_CASE_DECISIONS.md": "425fc8899ce0d7526f375fde4dbd2303003379c094f7a9d566fafcf838cf611a",
+    "02_ACTUAL_CASE_DECISIONS.md": "838e3e73f10cd112519bf894d8addbd69229c7f0ae1c1d6c33a286a9707c0855",
     "engine-results.json": "42e93c534b55ae95019bce782a6230d94fa6d99e4c1514a2fa323c76d4300c37",
     "05_EXECUTABLE_CLOSURE_HANDOFF.md": "ae3440c0f76a8b97f1575f643d19f5e3ced30bc010e447e1e23ed2a45e3b78b4",
-    "retained-decisions.json": "b313e3575880684566c5768d2edad5946731c2d3c8b2d83c9ad325f8829a5dbd",
+    "retained-decisions.json": "7031bfed6b5d159189a529c3aa809536b4c1923276f6ad90e683f05f37226c10",
     "prepare-engine-mirror.py": "3fc78c849fb22239b639979c6d370fe856697b1b783c309c88fdda95fc821b2c",
     "probe-seams.mjs": "37848da69c71f1ccbdd23927f296d5e35c420c1834714ee26797fcad536c8962",
     "04_RECEIPT_EXECUTION.md": "2f796a190c23d04ea0ac58c0a9f0c503d7a6e348aaa276897be12a652c740680"
-  }
+  },
+  "note": "Hashes cover exact final public contents; self excluded."
 }
