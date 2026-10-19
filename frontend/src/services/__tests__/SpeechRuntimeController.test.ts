@@ -9,6 +9,11 @@ import { getSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/se
 import { analyticsBuffer } from '../AnalyticsBuffer';
 import { completeSession } from '../../lib/storage';
 import { clearPrivateRecordingIdentity, getLastPrivateIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
+import posthog from 'posthog-js';
+import { markCompletionStage, __resetCompletionStagesForTests } from '../telemetry/completionStages';
+import { beginJourney, beginRecordingAttempt, __resetJourneyIdentityForTests } from '../telemetry/journeyIdentity';
+
+vi.mock('posthog-js', () => ({ default: { capture: vi.fn(), identify: vi.fn(), reset: vi.fn(), reloadFeatureFlags: vi.fn() } }));
 
 // Mock Dependencies
 vi.mock('../../lib/logger', () => ({
@@ -549,6 +554,79 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         getMetadata: vi.fn().mockReturnValue(meta),
         setSessionId: vi.fn(),
         isServiceDestroyed: () => false,
+    });
+
+    // #1593 cases2/3: exercise REAL Stop -> completion -> objective evaluation -> terminal
+    // release. Only service/storage/provider seams are fakes. Never seed final_transcript.
+    const emittedStages = () => {
+        analyticsBuffer.push('session_started', { mode: 'private' }, 'CRITICAL');
+        return vi.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'stage_latency')
+            .map(([, props]) => props as { stage: string; attempt_id: string });
+    };
+    const beginOrderingTake = () => {
+        __resetCompletionStagesForTests();
+        __resetJourneyIdentityForTests();
+        beginJourney();
+        const attempt = beginRecordingAttempt();
+        analyticsBuffer.queue.length = 0;
+        analyticsBuffer.ready = true;
+        vi.mocked(posthog.capture).mockClear();
+        // The real Stop click's input marker; transcript/evaluation markers must
+        // come exclusively from the controller/store production path.
+        markCompletionStage('stop_intent');
+        return attempt;
+    };
+
+    it.each(['full', 'partial'] as const)('#1593 integrated Stop ordering: %s Focus final transcript precedes evaluation without releasing the latch early', async (kind) => {
+        const attempt = beginOrderingTake();
+        const sessionId = `ordering-${kind}`;
+        const brief = { projectId: `proj-${kind}`, briefId: `brief-${kind}`, points: ['First point', 'Second point'], topic: 'Synthetic test' };
+        useSessionStore.getState().setActiveObjectiveBrief(brief);
+        let releaseObjective: (value: unknown) => void = () => {};
+        let releaseDestroy: () => void = () => {};
+        finalizeObjectiveSessionOnSave.mockReturnValueOnce(new Promise((resolve) => { releaseObjective = resolve; }));
+        const service = mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' });
+        service.destroy = vi.fn(() => new Promise<void>((resolve) => { releaseDestroy = resolve; }));
+        const completion = driveStopWithService(service, sessionId, 'private', { mode: 'focus_points', brief });
+        for (let i = 0; i < 80; i += 1) await Promise.resolve();
+        const whileEvaluationPending = {
+            finalizing: useSessionStore.getState().isTranscriptFinalizing,
+            stages: emittedStages().map((row) => row.stage),
+        };
+        releaseObjective({ ok: true, registered: true, objectiveSessionId: `objective-${kind}`, evidenceCount: 1,
+            coverage: [{ briefPointId: 'p1', point: 'First point', status: 'covered' },
+                { briefPointId: 'p2', point: 'Second point', status: kind === 'full' ? 'covered' : 'not_covered' }] });
+        for (let i = 0; i < 80; i += 1) await Promise.resolve();
+        const whileDestroyPending = useSessionStore.getState().isTranscriptFinalizing;
+        releaseDestroy();
+        await completion;
+
+        expect(finalizeObjectiveSessionOnSave).toHaveBeenCalledWith(expect.objectContaining({ sourceSessionId: sessionId, idempotencyKey: sessionId }));
+        expect(completeSession).toHaveBeenCalledWith(sessionId, expect.objectContaining({ status: 'completed' }));
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        expect(wireProgressEvaluationOnSave).toHaveBeenCalledWith(expect.objectContaining({ sessionId }));
+        expect(whileEvaluationPending.finalizing, 'Start stays blocked while evaluation resolves').toBe(true);
+        expect(whileEvaluationPending.stages).not.toContain('evaluation_complete');
+        expect(whileDestroyPending, 'evaluation completion does not release the teardown latch').toBe(true);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false);
+        const rows = emittedStages();
+        const stages = rows.map((row) => row.stage);
+        expect(rows.every((row) => row.attempt_id === attempt), 'all emitted stages belong to the same take').toBe(true);
+        expect(stages.filter((stage) => stage === 'final_transcript')).toHaveLength(1);
+        expect(stages.filter((stage) => stage === 'evaluation_complete')).toHaveLength(1);
+        // Intentionally RED on ecce3e8d: observed order is recording_terminated,
+        // evaluation_complete, final_transcript. This is the App correction target.
+        expect(stages, 'actual controller emission order').toEqual(['recording_terminated', 'final_transcript', 'evaluation_complete']);
+    });
+
+    it('#1593 integrated Stop ordering: Open Mic control produces its own final transcript without a Focus evaluation', async () => {
+        const attempt = beginOrderingTake();
+        await driveStopWithService(mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' }), 'ordering-open', 'private');
+        const rows = emittedStages();
+        expect(finalizeObjectiveSessionOnSave).not.toHaveBeenCalled();
+        expect(rows.map((row) => row.stage)).toEqual(['recording_terminated', 'final_transcript']);
+        expect(rows.every((row) => row.attempt_id === attempt)).toBe(true);
+        expect(completeSession).toHaveBeenCalledWith('ordering-open', expect.objectContaining({ status: 'completed' }));
     });
     // #1161: the client no longer writes attribution columns — it POSTs runtime evidence to the trusted
     // producer. These read the attest-session-engine invocations instead of updateSession patches.
