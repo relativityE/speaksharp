@@ -20,7 +20,8 @@ import {
     AnalyticsTap, RWT_ACCOUNT_PREFIX, RwtReceipt, installMicAcquisitionCounter, loadRwtFixture, rwtLaunchArgs,
     suppressPageSnapshot, telemetryClassRows,
 } from './helpers/rwtJourney';
-import { flatTabState, isRecording, observeCloudStt, persistedId, tabState, tabStateOrNull } from './helpers/rwtPageState';
+import { flatTabState, isRecording, observeCloudStt, persistedId, tabState } from './helpers/rwtPageState';
+import { RECORDER_BAR } from '../helpers/micControls';
 import { type RunOwner, prepareRunOwnedAccount } from './helpers/rwtDisposableAccount';
 import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
@@ -31,9 +32,9 @@ import {
     preparePrivateModelIfPrompted, selectBenchmarkMode, startBenchmarkRecording, stopBenchmarkRecording, waitForPrivateEngineReady,
 } from './helpers/benchmark-utils';
 import {
-    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, type TabState, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
+    ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -382,11 +383,13 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             let modelRequestsB = 0;
             otherDevice.on('request', (r) => { if (/\/models\//.test(r.url())) modelRequestsB += 1; });
             await deviceB.evaluate(installModelStatusHistory);
-            // Case 11 window (Sam's 13:13 ACCEPT of PM 9fc69b51): B's microphone acquisitions and its document are read at
-            // the window's start; an unreadable counter is a lost observation, never zero.
-            const micCountB = (): Promise<number | null> => deviceB.evaluate(() => (window as unknown as { __rwtMicAcquisitionLog__?: unknown[] }).__rwtMicAcquisitionLog__?.length ?? null).catch(() => null);
-            const micBeforeB = await micCountB();
-            const urlBeforeB = deviceB.url();
+            // Case 11 window (Sam's 13:13 ACCEPT of PM 9fc69b51; RETURN on c8e5d59f): ONE continuous observation window in
+            // each page, opened before the first press — A's runtime transitions and track continuity, B's model, microphone
+            // and runtime history — closed by one synchronous read just before the take-over press. Bound to each page's
+            // document by its token: a replaced document has no window, which is a lost observation, never zero activity.
+            const windowToken = `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            const openedA = await tabA.evaluate(openObservationWindow, { token: `${windowToken}-a`, recorderTestId: RECORDER_BAR }).catch(() => false);
+            const openedB = await deviceB.evaluate(openObservationWindow, { token: `${windowToken}-b`, recorderTestId: RECORDER_BAR }).catch(() => false);
             if (coldB) {
                 await deviceB.getByTestId('mic-download').click();
             } else {
@@ -400,32 +403,22 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();
             const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
             const modelRequestsBeforeRefusal = modelRequestsB;
-            // The WHOLE refused window, through the last observation immediately before the take-over press: A sampled across
-            // the hold the person waits (not two identical endpoints), then B's complete model and microphone history.
-            const samplesA: TabState[] = [];
-            let observedWindow = micBeforeB !== null;
-            for (let i = 0; i < 5; i += 1) {
-                const a = await tabStateOrNull(tabA);
-                if (a === null) observedWindow = false;
-                else samplesA.push(a);
-                if (i < 4) await deviceB.waitForTimeout(500);
-            }
-            const statusHistoryB = await deviceB.evaluate(() => (window as unknown as { __rwtModelStatusHistory__?: string[] }).__rwtModelStatusHistory__?.slice() ?? null).catch(() => null);
-            const modelStatusAtEnd = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status')).catch(() => null);
-            const micAfterB = await micCountB();
-            const endB = await tabStateOrNull(deviceB);
-            observedWindow = observedWindow && statusHistoryB !== null && micAfterB !== null && endB !== null && !deviceB.isClosed() && deviceB.url() === urlBeforeB;
-            const micAcquisitionsInWindow = micAfterB !== null && micBeforeB !== null ? micAfterB - micBeforeB : 0;
+            // The hold the person waits, then the closing observation of both pages, immediately before the take-over press.
+            await deviceB.waitForTimeout(2_000);
+            const closedB = await deviceB.evaluate(closeObservationWindow).catch(() => null);
+            const closedA = await tabA.evaluate(closeObservationWindow).catch(() => null);
+            const lost: ObservationClose = { token: null, runtimeTransitions: [], runtimeNow: null, modelTransitions: [], modelNow: null, micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, liveTracks: 0, recorderVisible: false };
+            const observedWindow = openedA && openedB && closedA?.token === `${windowToken}-a` && closedB?.token === `${windowToken}-b`;
             const refusal = leaseRefusalWindowVerdict({
-                observed: observedWindow, refusalCopyShown: refusedInTime, cold: coldB, modelRequests: modelRequestsB,
-                statusHistory: statusHistoryB ?? [], statusAtEnd: modelStatusAtEnd, micAcquisitionsB: micAcquisitionsInWindow, samplesA,
-                endB: endB ?? { runtimeState: null, recorderVisible: false, liveTracks: 0 },
+                observed: observedWindow, refusalCopyShown: refusedInTime, cold: coldB, modelRequests: modelRequestsB, b: closedB ?? lost, a: closedA ?? lost,
             });
-            const lastA = samplesA[samplesA.length - 1] ?? { runtimeState: null, recorderVisible: false, liveTracks: 0 };
             receipt.row('another device is refused by the account lease', refusal.status, refusal.detail, {
                 refusalCopyShown: refusedInTime, coldB, observedWindow, modelRequestsBeforeRefusal, modelRequestsInWindow: modelRequestsB,
-                statusChangesInWindow: statusHistoryB?.length ?? -1, micAcquisitionsInWindow, samplesA: samplesA.length,
-                ...flatTabState('deviceB', endB ?? { runtimeState: null, recorderVisible: false, liveTracks: 0 }), ...flatTabState('tabA', lastA),
+                modelTransitionsB: (closedB ?? lost).modelTransitions.length, micAcquisitionsB: (closedB ?? lost).micAcquisitionsSinceOpen ?? -1,
+                runtimeTransitionsA: (closedA ?? lost).runtimeTransitions.length, tracksStoppedA: (closedA ?? lost).tracksStoppedSinceOpen,
+                micAcquisitionsA: (closedA ?? lost).micAcquisitionsSinceOpen ?? -1,
+                deviceBRuntimeState: (closedB ?? lost).runtimeNow, deviceBLiveTracks: (closedB ?? lost).liveTracks,
+                tabARuntimeState: (closedA ?? lost).runtimeNow, tabALiveTracks: (closedA ?? lost).liveTracks,
             });
 
             // The person's explicit second press is the take-over — on whichever primary control the refused page renders

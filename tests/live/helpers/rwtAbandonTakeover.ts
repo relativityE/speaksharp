@@ -229,41 +229,127 @@ export function secondTabBlockedVerdict(o: { refusalCopyShown: boolean; tabB: Ta
 }
 
 /**
- * #1593 case 11 (Sam's 13:13 ACCEPT of PM 9fc69b51, ACCEPTANCE.md): the lease refusal is judged over its WHOLE window —
- * from before the first press through the last refused-state observation immediately before the explicit take-over
- * press — never from snapshots frozen before the hold. Model work, any B microphone acquisition, or A not recording at
- * ANY sampled moment of that window fails it; a lost observation (an unreadable read, B navigated or replaced, too few A
- * samples to cover the hold) is HOLD, never zero activity. The take-over window is judged separately (takeOverVerdict).
+ * #1593 case 11 (Sam RETURN on c8e5d59f) — ONE OBSERVATION WINDOW PER PAGE, opened inside the page before the first press
+ * and closed by one synchronous read immediately before the take-over press. While open it records every published
+ * runtime-state and model-status value (MutationObserver with old values; the close drains undelivered records with
+ * takeRecords), every microphone track live at open that is stopped or ends, and the page's acquisition count at open. The
+ * window lives in the page's own JS realm, so a replaced document (same URL or not) has no window — its close returns
+ * `token: null`, a lost observation. Self-contained: both run in the page via `page.evaluate`, and the unit tests drive the
+ * same functions in jsdom.
+ */
+export type ObservationClose = {
+    /** The token given at open, read from THIS document — null when the document has no open window (replaced or never opened). */
+    token: string | null;
+    runtimeTransitions: string[];
+    runtimeNow: string | null;
+    modelTransitions: string[];
+    modelNow: string | null;
+    /** Audio acquisitions started since open; null when the page's counter is unavailable. */
+    micAcquisitionsSinceOpen: number | null;
+    /** Tracks live at open that were stopped or ended since. */
+    tracksStoppedSinceOpen: number;
+    liveTracks: number;
+    recorderVisible: boolean;
+};
+
+export function openObservationWindow(arg: { token: string; recorderTestId: string }): boolean {
+    type Track = { readyState: string; stop: () => void; addEventListener: (t: string, f: () => void) => void };
+    const w = window as unknown as Record<string, unknown>;
+    const root = document.documentElement;
+    const streams = (w.__rwtMicStreams__ as { getAudioTracks: () => Track[] }[] | undefined) ?? [];
+    const log = w.__rwtMicAcquisitionLog__ as unknown[] | undefined;
+    const runtime: string[] = [];
+    const model: string[] = [];
+    const stopped = new Set<Track>();
+    const openTracks = streams.flatMap((s) => s.getAudioTracks()).filter((t) => t.readyState === 'live');
+    for (const track of openTracks) {
+        const stop = track.stop.bind(track);
+        track.stop = () => { stopped.add(track); stop(); };
+        track.addEventListener('ended', () => { stopped.add(track); });
+    }
+    const record = (records: MutationRecord[]): void => {
+        records.forEach((r, i) => {
+            const name = r.attributeName ?? '';
+            const next = records.slice(i + 1).find((x) => x.attributeName === name);
+            const after = next ? next.oldValue : root.getAttribute(name);
+            (name === 'data-runtime-state' ? runtime : model).push(after ?? 'absent');
+        });
+    };
+    const observer = new MutationObserver(record);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-runtime-state', 'data-model-status'], attributeOldValue: true });
+    w.__rwtObservationWindow__ = {
+        token: arg.token, recorderTestId: arg.recorderTestId, runtime, model, stopped, openTracks, observer, record,
+        acquisitionsAtOpen: log ? log.length : null,
+    };
+    return true;
+}
+
+export function closeObservationWindow(): ObservationClose {
+    type Track = { readyState: string };
+    const w = window as unknown as Record<string, unknown>;
+    const root = document.documentElement;
+    const win = w.__rwtObservationWindow__ as {
+        token: string; recorderTestId: string; runtime: string[]; model: string[]; stopped: Set<Track>; openTracks: Track[];
+        observer: MutationObserver; record: (r: MutationRecord[]) => void; acquisitionsAtOpen: number | null;
+    } | undefined;
+    const streams = (w.__rwtMicStreams__ as { getAudioTracks: () => Track[] }[] | undefined) ?? [];
+    const liveTracks = streams.flatMap((s) => s.getAudioTracks()).filter((t) => t.readyState === 'live').length;
+    const base = {
+        runtimeNow: root.getAttribute('data-runtime-state'), modelNow: root.getAttribute('data-model-status'), liveTracks,
+        recorderVisible: win ? document.querySelector(`[data-testid="${win.recorderTestId}"]`) !== null : false,
+    };
+    if (!win) return { token: null, runtimeTransitions: [], modelTransitions: [], micAcquisitionsSinceOpen: null, tracksStoppedSinceOpen: 0, ...base };
+    win.record(win.observer.takeRecords());
+    win.observer.disconnect();
+    for (const track of win.openTracks) if (track.readyState !== 'live') win.stopped.add(track);
+    const log = w.__rwtMicAcquisitionLog__ as unknown[] | undefined;
+    delete w.__rwtObservationWindow__;
+    return {
+        token: win.token, runtimeTransitions: win.runtime.slice(), modelTransitions: win.model.slice(),
+        micAcquisitionsSinceOpen: win.acquisitionsAtOpen === null || !log ? null : log.length - win.acquisitionsAtOpen,
+        tracksStoppedSinceOpen: win.stopped.size, ...base,
+    };
+}
+
+/**
+ * #1593 case 11 (Sam's 13:13 ACCEPT of PM 9fc69b51; RETURN on c8e5d59f): the lease refusal is judged over its WHOLE window —
+ * from before the first press through one closing observation immediately before the explicit take-over press — from
+ * each page's own continuous observation, never from sampled or frozen snapshots. Model work, any B microphone
+ * acquisition, B recording, or ANY interruption of A (a runtime transition, a track stopped or ended, a re-acquisition, or
+ * A not recording at the close) fails it. A lost observation — a window missing from a page's current document, an
+ * unavailable counter — is HOLD, never zero activity. The take-over window is judged separately (takeOverVerdict).
  */
 export type LeaseRefusalWindow = {
-    /** Every read in the window succeeded and B stayed on the same document. */
+    /** Both windows opened and closed in the SAME documents, with their counters available. */
     observed: boolean;
     refusalCopyShown: boolean;
     cold: boolean;
-    /** Model-asset requests on B over the whole window. */
+    /** Model-asset requests on B over the whole window (network level). */
     modelRequests: number;
-    /** Every published model status on B over the whole window, and the status at its end. */
-    statusHistory: readonly string[];
-    statusAtEnd: string | null;
-    /** Microphone acquisitions B started during the window (any outcome). */
-    micAcquisitionsB: number;
-    /** A, sampled from the refusal through the end of the window. */
-    samplesA: readonly TabState[];
-    /** B at the end of the window. */
-    endB: TabState;
+    /** B's closing observation. */
+    b: ObservationClose;
+    /** A's closing observation. */
+    a: ObservationClose;
 };
 
 export function leaseRefusalWindowVerdict(w: LeaseRefusalWindow): Verdict {
-    if (!w.observed) return { status: 'HOLD', detail: 'the refused window was not observed completely (an unreadable read, or the device left its page), so no refusal is claimed' };
+    if (!w.observed || w.a.token === null || w.b.token === null || w.a.micAcquisitionsSinceOpen === null || w.b.micAcquisitionsSinceOpen === null) {
+        return { status: 'HOLD', detail: 'the refused window was not observed continuously in the same documents, so no refusal is claimed' };
+    }
     if (!w.refusalCopyShown) return { status: 'FAIL', detail: 'the second tab was not told why it could not record' };
-    if (modelWorkBeforeRefusal({ cold: w.cold, modelRequests: w.modelRequests, statusHistory: w.statusHistory, statusAtRefusal: w.statusAtEnd })) {
+    if (modelWorkBeforeRefusal({ cold: w.cold, modelRequests: w.modelRequests, statusHistory: w.b.modelTransitions, statusAtRefusal: w.b.modelNow })) {
         return { status: 'FAIL', detail: 'model preparation happened while the account lease was refusing the device' };
     }
-    if (w.micAcquisitionsB > 0) return { status: 'FAIL', detail: 'the refused device asked for the microphone during the refusal' };
-    if (recordingNow(w.endB)) return { status: 'FAIL', detail: 'the refused tab started recording or opened the microphone' };
-    if (w.samplesA.length < 2) return { status: 'HOLD', detail: 'the first tab was not sampled across the refused hold, so its continuity is unproven' };
-    if (w.samplesA.some((a) => !recordingNow(a) || a.liveTracks === 0)) return { status: 'FAIL', detail: 'the first tab stopped recording at some point while the second was refused' };
-    return { status: 'PASS', detail: 'refused truthfully across the whole window: no model work, no microphone on the refused device, and the first tab recorded throughout' };
+    if (w.b.micAcquisitionsSinceOpen > 0) return { status: 'FAIL', detail: 'the refused device asked for the microphone during the refusal' };
+    if (recordingNow({ runtimeState: w.b.runtimeNow, recorderVisible: w.b.recorderVisible, liveTracks: w.b.liveTracks })) {
+        return { status: 'FAIL', detail: 'the refused tab started recording or opened the microphone' };
+    }
+    // A re-publishing RECORDING is not an interruption; any other published state is.
+    const interrupted = w.a.runtimeTransitions.some((s) => s !== 'RECORDING') || w.a.tracksStoppedSinceOpen > 0 || w.a.micAcquisitionsSinceOpen > 0;
+    if (interrupted || w.a.runtimeNow !== 'RECORDING' || w.a.liveTracks === 0) {
+        return { status: 'FAIL', detail: 'the first tab did not record continuously while the second was refused' };
+    }
+    return { status: 'PASS', detail: 'refused truthfully across the whole window: no model work, no microphone on the refused device, and the first tab recorded without interruption' };
 }
 
 /** The explicit take-over moves the ONE engine: B records, A stops, lets go of its microphone and says why. */
