@@ -1,0 +1,48 @@
+{
+  "scope": "machine-path substitutions in retained evidence only",
+  "invariants": [
+    "object keys and array lengths preserved",
+    "all numeric counts/times and booleans/null preserved",
+    "strings changed only by documented path aliases",
+    "raw pre-normalization bytes retained outside Git"
+  ],
+  "aliases": [
+    "<repo>",
+    "<dependencies>",
+    "<temporary>",
+    "<home>"
+  ],
+  "files": {
+    "baseline-red.json": {
+      "rawSha256": "940c02aeedcabb386c2758d791a683f35efb710f563c59849a429f6c8a0c1a1c",
+      "normalizedSha256": "73a95f7a61628183929660712e44a139bc240ede443ebdfee2d43061d4d3dd9d",
+      "rawArchiveBasename": "940c02aeedcabb386c2758d791a683f35efb710f563c59849a429f6c8a0c1a1c-baseline-red.json"
+    },
+    "first-integration-attempt.json": {
+      "rawSha256": "fbd480dac07f2f5b2aad96603dda31c49c1a2eda6a33e2862bddf0d44a3b1e1b",
+      "normalizedSha256": "c9c5aaeaac7c8c43a11634b0b4525cb46f913e7195639058957b9f6c567ab04f",
+      "rawArchiveBasename": "fbd480dac07f2f5b2aad96603dda31c49c1a2eda6a33e2862bddf0d44a3b1e1b-first-integration-attempt.json"
+    },
+    "focused-green.json": {
+      "rawSha256": "8095bacc3036485e8b01cde9e7c56ef50f4255e955a4096f034ffb042ff07d56",
+      "normalizedSha256": "78144971d5f10325c30c40e2b033a76e2810b95aff5824eaa0ca14de3dfb7573",
+      "rawArchiveBasename": "8095bacc3036485e8b01cde9e7c56ef50f4255e955a4096f034ffb042ff07d56-focused-green.json"
+    },
+    "provider-cap-green.json": {
+      "rawSha256": "f7750fff406ef125d208311b5478a2789725aa0ff110291c1acc9a30d1c55fda",
+      "normalizedSha256": "46333bc1e81471df63952f47f74ba6700c0f3b663882940478eeff4fe29fb299",
+      "rawArchiveBasename": "f7750fff406ef125d208311b5478a2789725aa0ff110291c1acc9a30d1c55fda-provider-cap-green.json"
+    },
+    "provider-cap-red.json": {
+      "rawSha256": "26fcccf0472c6dace05c63a2c5e2d919be0ce30696b2587cb6386def76ff1df4",
+      "normalizedSha256": "d7de7d28f051d504a78748221647c7b07c84e0584b8f8731b2936c458d557e31",
+      "rawArchiveBasename": "26fcccf0472c6dace05c63a2c5e2d919be0ce30696b2587cb6386def76ff1df4-provider-cap-red.json"
+    },
+    "rebased-green.json": {
+      "rawSha256": "0db8e74a1de799740b82f5a25fd9fe15c7b1839d7b35ba6230984bd0e092c1e8",
+      "normalizedSha256": "6d47360cf9e93110ca67bc2957ca9bcab99cf1ba06870bb7e4c2dea8a716ebed",
+      "rawArchiveBasename": "0db8e74a1de799740b82f5a25fd9fe15c7b1839d7b35ba6230984bd0e092c1e8-rebased-green.json"
+    }
+  },
+  "lastNormalizedUtc": "2026-10-19T13:56:57.788Z"
+}
