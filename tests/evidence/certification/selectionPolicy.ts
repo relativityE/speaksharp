@@ -11,6 +11,7 @@
  * technically won. Otherwise integration convenience quietly becomes a quality argument.
  */
 import { assertSingleRuntime, type TechnicalVerdict } from './deploymentMetrics';
+import { validatePairedEvidence, type PairedEvidenceIdentity } from './pairedEvidence';
 
 export const SELECTION_POLICY = Object.freeze({
     version: 'policy_v1',
@@ -70,8 +71,8 @@ export function qualify(row: TechnicalVerdict): Qualification {
     }
 
     const rtf = row.speed.realTimeFactorP95;
-    // NULL is not a pass. An unmeasured latency cannot clear a latency gate.
-    if (rtf === null || rtf >= SELECTION_POLICY.maxRealTimeFactorP95) reasons.push('rtf_p95_too_slow');
+    // Missing/nonfinite/negative measurements cannot clear a latency gate.
+    if (typeof rtf !== 'number' || !Number.isFinite(rtf) || rtf < 0 || rtf >= SELECTION_POLICY.maxRealTimeFactorP95) reasons.push('rtf_p95_too_slow');
 
     if (row.duration.truncatedClips > 0) reasons.push('long_form_truncated');
     if (row.duration.longFormTailPreserved === false) reasons.push('long_form_tail_lost');
@@ -103,21 +104,22 @@ function makeRng(seed: string) {
 }
 
 /** One utterance's contribution to a pooled WER, for one arm. */
-export interface PairedUtterance {
-    utteranceId: string;
-    referenceWords: number;
+export interface PairedUtterance extends PairedEvidenceIdentity {
     /** substitutions + deletions + insertions */
     errors: number;
 }
 
 export interface PairedInterval {
+    status: 'DEFINED' | 'HOLD';
+    reason: string | null;
     /** Pooled WER difference, A minus B. Negative means A is better. */
-    observedDelta: number;
-    lower: number;
-    upper: number;
+    observedDelta: number | null;
+    lower: number | null;
+    upper: number | null;
     /** TRUE when the interval spans zero — the models are TIED, not winner and loser. */
-    tied: boolean;
+    tied: boolean | null;
     resamples: number;
+    invalidResamples: number;
 }
 
 /**
@@ -126,19 +128,28 @@ export interface PairedInterval {
  * Paired because both arms scored the same clips: comparing independent samples would attribute the
  * corpus's own variation to the models. If the 95% interval includes zero, the difference is a tie —
  * a 0.0003 gap on 600 clips is not a winner, and the policy says so before anyone has seen the gap.
+ * `expected` must come from the independently frozen corpus/trials, never reconstructed from arm output.
+ * Missing identity/population or an undefined lexical denominator HOLDs; silence needs its own metric.
+ * This retains the legacy utterance bootstrap, not full speaker-block/power/model qualification.
  */
 export function pairedBootstrapInterval(
     armA: readonly PairedUtterance[],
     armB: readonly PairedUtterance[],
     options = SELECTION_POLICY,
+    expected?: readonly PairedEvidenceIdentity[],
 ): PairedInterval {
-    const byId = new Map(armB.map((u) => [u.utteranceId, u]));
-    const pairs = armA
-        .map((a) => ({ a, b: byId.get(a.utteranceId) }))
-        .filter((p): p is { a: PairedUtterance; b: PairedUtterance } => p.b !== undefined);
-    if (pairs.length === 0) {
-        throw new Error('paired bootstrap requires the two arms to share utterances');
-    }
+    const hold = (reason: string, invalidResamples = 0): PairedInterval => ({
+        status: 'HOLD', reason, observedDelta: null, lower: null, upper: null, tied: null,
+        resamples: options.bootstrapResamples, invalidResamples,
+    });
+    if (!expected) return hold('missing_frozen_population');
+    let pairs: readonly { a: PairedUtterance; b: PairedUtterance }[];
+    try { pairs = validatePairedEvidence(expected, armA, armB); }
+    catch { return hold('paired_evidence_invalid'); }
+    if (pairs.some(p => [p.a.errors, p.b.errors].some(n => !Number.isSafeInteger(n) || n < 0))) return hold('invalid_error_count');
+    if (!Number.isSafeInteger(options.bootstrapResamples) || options.bootstrapResamples <= 0
+        || !Number.isFinite(options.confidence) || options.confidence <= 0 || options.confidence >= 1
+        || typeof options.bootstrapSeed !== 'string' || !options.bootstrapSeed.length) return hold('invalid_bootstrap_options');
 
     const pooled = (sample: readonly { a: PairedUtterance; b: PairedUtterance }[]) => {
         let errA = 0, errB = 0, words = 0;
@@ -147,26 +158,35 @@ export function pairedBootstrapInterval(
             errB += p.b.errors;
             words += p.a.referenceWords;
         }
-        return words === 0 ? 0 : (errA - errB) / words;
+        return words === 0 ? null : (errA - errB) / words;
     };
 
     const observedDelta = pooled(pairs);
+    if (observedDelta === null) return hold('zero_reference_words');
     const rng = makeRng(options.bootstrapSeed);
     const deltas: number[] = [];
+    let invalidResamples = 0;
     for (let i = 0; i < options.bootstrapResamples; i++) {
         const resample = Array.from({ length: pairs.length },
             () => pairs[Math.floor(rng() * pairs.length)]);
-        deltas.push(pooled(resample));
+        const delta = pooled(resample);
+        if (delta === null) invalidResamples += 1;
+        else deltas.push(delta);
     }
+    // Retain the invalid count and HOLD; never redraw, drop-and-score, add epsilon or coerce a silence panel to a tie.
+    if (invalidResamples > 0) return hold('zero_reference_resample', invalidResamples);
     deltas.sort((x, y) => x - y);
     const alpha = (1 - options.confidence) / 2;
     const lower = deltas[Math.floor(alpha * deltas.length)] ?? observedDelta;
     const upper = deltas[Math.min(deltas.length - 1, Math.ceil((1 - alpha) * deltas.length))] ?? observedDelta;
 
-    return { observedDelta, lower, upper, tied: lower <= 0 && upper >= 0, resamples: options.bootstrapResamples };
+    return { status: 'DEFINED', reason: null, observedDelta, lower, upper,
+        tied: lower <= 0 && upper >= 0, resamples: options.bootstrapResamples, invalidResamples: 0 };
 }
 
 export interface Selection {
+    status: 'READY' | 'HOLD';
+    reasons: string[];
     /** Rule 6 — best QUALIFIED model on the evidence. No integration-cost adjustment. */
     primary: string | null;
     /** Rule 7 — best qualified candidate with meaningfully DIFFERENT failure exposure. */
@@ -190,6 +210,7 @@ export function select(
     rows: readonly TechnicalVerdict[],
     pairedScores: Map<string, PairedUtterance[]>,
     exposureOf: (armId: string) => { runtime: string; family: string },
+    expected?: readonly PairedEvidenceIdentity[],
 ): Selection {
     assertSingleRuntime(rows.length > 0 ? [rows[0]] : []); // shape check only; rows may span runtimes by design
     const checks = rows.map(qualify);
@@ -197,16 +218,25 @@ export function select(
     const byId = new Map(rows.map((r) => [r.armId, r]));
 
     const ranked = [...qualified].sort((a, b) => (byId.get(a)?.wer ?? 1) - (byId.get(b)?.wer ?? 1));
+    const held = (reason: string): Selection => ({ status: 'HOLD', reasons: [reason], primary: null, fallback: null,
+        fallbackRationale: null, qualified, disqualified: checks.filter(c => !c.qualified), tiedWithPrimary: [] });
     const primary = ranked[0] ?? null;
     if (primary === null) {
-        return { primary: null, fallback: null, fallbackRationale: null, qualified, disqualified: checks.filter((c) => !c.qualified), tiedWithPrimary: [] };
+        return held('no_qualified_model');
     }
-
+    // Even a sole candidate needs the independent declared population. A self-pair here checks integrity only,
+    // not statistical power, physical execution, model usefulness or permission to activate a candidate.
+    for (const id of ranked) {
+        const scores = pairedScores.get(id);
+        if (!scores) return held('paired_scores_missing');
+        const checked = pairedBootstrapInterval(scores, scores, SELECTION_POLICY, expected);
+        if (checked.status === 'HOLD') return held(checked.reason ?? 'paired_comparison_undefined');
+    }
     const primaryScores = pairedScores.get(primary);
     const tiedWithPrimary = ranked.slice(1).filter((id) => {
         const other = pairedScores.get(id);
         if (!primaryScores || !other) return false;
-        return pairedBootstrapInterval(primaryScores, other).tied;
+        return pairedBootstrapInterval(primaryScores, other, SELECTION_POLICY, expected).tied === true;
     });
 
     const primaryExposure = exposureOf(primary);
@@ -216,6 +246,7 @@ export function select(
     });
 
     return {
+        status: 'READY', reasons: [],
         primary,
         fallback: differentExposure ?? null,
         fallbackRationale: differentExposure

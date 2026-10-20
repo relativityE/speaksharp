@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
     BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, STOP_FAILED_ALERT_COPY, type TabState,
     TWO_TAB_SUITE, RECOVERY_NOTICE_COPY, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
-    secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict, leaseRefusalWindowVerdict, modelWorkBeforeRefusal, type LeaseRefusalWindow, type ObservationClose,
 } from '../live/helpers/rwtAbandonTakeover';
 import {
     ABANDON_CLOSE_TAB_SUITE, ABANDON_NAVIGATE_SUITE, finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance,
@@ -339,8 +339,37 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(spec).toContain('sameBrowserTab = await tabA.context().newPage();');
         expect(spec).toContain("otherDevice = await browser.newContext({ baseURL, permissions: ['microphone'] });");
         expect(spec).toContain('await owner.signInOn(deviceB);');
-        expect(spec).toContain('const leaseRefusal = await deviceB.getByText(BLOCKED_COPY)');
+        expect(spec).toContain('const refusalShownB = deviceB.getByText(BLOCKED_COPY).first();');
         expect(spec).not.toMatch(/tabB = await tabA\.context\(\)\.newPage\(\)/);
+    });
+
+    it('#1593 case 11: on a cold device the first press IS the Start the lease decides — never the download-only setup helper', () => {
+        const deviceStart = spec.indexOf('await owner.signInOn(deviceB);');
+        const device = spec.slice(deviceStart, spec.indexOf("receipt.row('another device is refused by the account lease'", deviceStart));
+        expect(device, 'the cold control is pressed as the Start').toContain("await deviceB.getByTestId('mic-download').click();");
+        expect(device, 'no download-only helper on device B').not.toContain('preparePrivateModelIfPrompted(deviceB');
+        // Sam, #1662 RETURN: the first press is refused within a bounded window and BEFORE any model work.
+        expect(device).toContain('const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 })');
+        // Sam, #1662 RETURN (item 10) + case-11 window: judged on the model-work HISTORY from before the first press through
+        // the whole refused window (leaseRefusalWindowVerdict applies modelWorkBeforeRefusal to it), not a frozen snapshot.
+        expect(device).toContain('const refusal = leaseRefusalWindowVerdict({');
+        expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);'), 'history observed before the first press').toBeGreaterThan(-1);
+        expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);')).toBeLessThan(device.indexOf("await deviceB.getByTestId('mic-download').click();"));
+        expect(spec, 'a refusal after model work is never a PASS: the row is the whole-window verdict').toContain("receipt.row('another device is refused by the account lease', refusal.status, refusal.detail");
+        expect(device, 'no 900 s wait for the first refusal').not.toMatch(/refusalShownB\.waitFor\(\{ timeout: coldB \? 900_000/);
+        const takeOver = spec.slice(spec.indexOf("// The person's explicit second press is the take-over"));
+        expect(takeOver, 'the take-over presses the control the refused page renders').toContain(`await deviceB.locator('[data-testid="mic-start"], [data-testid="mic-download"]').first().click();`);
+        expect(takeOver, 'a cold take-over gets the model budget, and a take-over that never records ends the scenario')
+            .toContain("if (!(await isRecording(deviceB, coldB ? 900_000 : 60_000))) throw new Error('the explicit take-over press did not start a recording');");
+        expect(takeOver.indexOf('watch.setStartRefusedAllowed(false);'), 'the expected refusal is spent before the take-over press')
+            .toBeLessThan(takeOver.indexOf("await deviceB.locator('[data-testid=\"mic-start\"], [data-testid=\"mic-download\"]').first().click();"));
+    });
+
+    it('#1593 case 9: navigate away closes the Focus Points setup modal before using Products again', () => {
+        const navStart = spec.indexOf("if (variant === 'navigate-away')");
+        const nav = spec.slice(navStart, spec.indexOf("await openProductsItem(page, 'open-mic')", navStart));
+        expect(nav.indexOf("await page.keyboard.press('Escape');"), 'the modal is closed').toBeGreaterThan(nav.indexOf("receipt.row('leaving mid-recording releases the microphone'"));
+        expect(nav).toContain("await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0, { timeout: 10_000 });");
     });
 
     it('nothing is intercepted: the scenarios are the person\'s own actions', () => {
@@ -372,5 +401,101 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         expect(saveRow).toBeGreaterThan(spec.indexOf('const leftTakeSaved = priorTakeSaved('));
         expect(saveRow).toBeLessThan(spec.indexOf('const rowsBeforeNext = await readRows(owner.uid);'));
         expect(spec.slice(spec.indexOf('const leftTakeSaved = priorTakeSaved('), saveRow)).toContain("if (variant === 'navigate-away') {");
+    });
+});
+
+describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (Sam 13:13 ACCEPT of PM 9fc69b51; RETURN on c8e5d59f)', () => {
+    // After the take-over (the windows are read then): A displaced and B recording NOW — the cut portions are what count.
+    const recA: ObservationClose = { token: 'w-a', boundary: 'time', boundaryUncertain: false, gestureAt: null, runtimeTransitions: ['RECORDING'], runtimeNow: 'RECORDING', modelTransitions: ['ready'], modelNow: 'ready', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 1, liveTracks: 0, recorderVisible: false };
+    const refusedB: ObservationClose = { token: 'w-b', boundary: 'gesture', boundaryUncertain: false, gestureAt: 1_000, runtimeTransitions: ['READY'], runtimeNow: 'READY', modelTransitions: ['download-required'], modelNow: 'download-required', micAcquisitionsSinceOpen: 0, tracksStoppedSinceOpen: 0, liveTracksAtOpen: 0, liveTracks: 1, recorderVisible: true };
+    const clean: LeaseRefusalWindow = { observed: true, refusalCopyShown: true, cold: true, modelRequests: 0, a: recA, b: refusedB };
+    /** The row as it stood at a81fbb97: endpoint snapshots taken after the refusal, before the hold — both looked clean then. */
+    const endpointRow = (w: LeaseRefusalWindow) => (
+        modelWorkBeforeRefusal({ cold: w.cold, modelRequests: 0, statusHistory: [], statusAtRefusal: 'download-required' })
+            ? 'FAIL' : secondTabBlockedVerdict({ refusalCopyShown: w.refusalCopyShown,
+                tabB: { runtimeState: 'READY', recorderVisible: false, liveTracks: 0 },
+                tabA: { runtimeState: 'RECORDING', recorderVisible: true, liveTracks: 1 } }).status);
+
+    it('a clean cold refusal with A recording without interruption PASSes', () => {
+        expect(leaseRefusalWindowVerdict(clean).status).toBe('PASS');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, runtimeTransitions: ['RECORDING', 'RECORDING'] } }).status, 'RECORDING re-published is not an interruption').toBe('PASS');
+    });
+
+    it('PM counterexample 1: model work DURING the hold FAILs; the endpoint row passed it', () => {
+        const w = { ...clean, modelRequests: 1, b: { ...refusedB, modelTransitions: ['download-required', 'loading', 'download-required'] } };
+        expect(endpointRow(w), 'the frozen pre-hold snapshot saw nothing').toBe('PASS');
+        expect(leaseRefusalWindowVerdict(w)).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('model preparation') });
+    });
+
+    it('PM counterexample 2: a transient B microphone acquisition that ended before the endpoint FAILs; the endpoint row passed it', () => {
+        const w = { ...clean, b: { ...refusedB, micAcquisitionsSinceOpen: 1 } };
+        expect(endpointRow(w)).toBe('PASS');
+        expect(leaseRefusalWindowVerdict(w)).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('microphone') });
+    });
+
+    it('PM counterexample 3 / c8e5 #1: A stops and resumes (a transition, a stopped track, or a re-acquisition) FAILs; the endpoint row passed it', () => {
+        for (const a of [{ ...recA, runtimeTransitions: ['RECORDING', 'STOPPING', 'RECORDING'] }, { ...recA, tracksStoppedSinceOpen: 1 }, { ...recA, micAcquisitionsSinceOpen: 1 }]) {
+            const w = { ...clean, a };
+            expect(endpointRow(w)).toBe('PASS');
+            expect(leaseRefusalWindowVerdict(w)).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('continuously') });
+        }
+    });
+
+    it('04920bce opening state: A already STOPPING (or trackless) when the window opens, or B already loading / holding a track, FAILs', () => {
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, runtimeTransitions: ['STOPPING', 'RECORDING'] } }).status, 'A was not recording at open').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, liveTracksAtOpen: 0 } }).status, 'A had no live track at open').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, runtimeTransitions: [] } }).status, 'no opening state is no continuity').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, modelTransitions: ['loading', 'download-required'] } }).status, 'B already loading at open').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, liveTracksAtOpen: 1, liveTracks: 0 } }).status, 'B held a track at open').toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, runtimeTransitions: ['READY', 'RECORDING', 'READY'] } }).status, 'B recorded mid-window').toBe('FAIL');
+    });
+
+    it('c8e5 #3: a lost observation is HOLD, never zero activity — a replaced document (no window), a missing counter, or a failed open', () => {
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, token: null } }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, token: null } }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, micAcquisitionsSinceOpen: null } }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, observed: false }).status).toBe('HOLD');
+    });
+
+    it('retained controls: no refusal copy, B recording before the gesture, model status left non-cold all FAIL', () => {
+        expect(leaseRefusalWindowVerdict({ ...clean, refusalCopyShown: false }).status).toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, runtimeTransitions: ['READY', 'RECORDING'] } }).status).toBe('FAIL');
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, modelNow: 'ready' } }).status).toBe('FAIL');
+    });
+
+    it('16:15 tail RETURN: the post-gesture take-over (A displaced, B recording NOW) is never the refusal window\'s — it PASSes', () => {
+        expect(leaseRefusalWindowVerdict(clean).status).toBe('PASS');
+    });
+
+    it('16:15 tail RETURN: no marked gesture, an uncut window, or an A change at the boundary is HOLD', () => {
+        expect(leaseRefusalWindowVerdict({ ...clean, b: { ...refusedB, boundary: 'none', gestureAt: null } }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, boundary: 'none' } }).status).toBe('HOLD');
+        expect(leaseRefusalWindowVerdict({ ...clean, a: { ...recA, boundaryUncertain: true } }).status).toBe('HOLD');
+    });
+
+    it('the spec opens both windows before the first press and closes them just before the take-over press', () => {
+        const spec = readFileSync(path.join(ROOT, 'tests/live/rwt-abandon-and-two-tabs.live.spec.ts'), 'utf8');
+        const openA = spec.indexOf('await tabA.evaluate(openObservationWindow');
+        const openB = spec.indexOf('await deviceB.evaluate(openObservationWindow');
+        const press = spec.indexOf("await deviceB.getByTestId('mic-download').click();");
+        const arm = spec.indexOf('await deviceB.evaluate(armTakeoverGesture');
+        // The take-over's own click (the return retry earlier in the file has its own revocation).
+        const takeover = spec.indexOf("await deviceB.locator('[data-testid=\"mic-start\"], [data-testid=\"mic-download\"]').first().click();");
+        const closeB = spec.indexOf('await deviceB.evaluate(closeObservationWindow');
+        const closeA = spec.indexOf('await tabA.evaluate(closeObservationWindow');
+        const verdict = spec.indexOf('leaseRefusalWindowVerdict({');
+        expect(Math.min(openA, openB, arm, takeover)).toBeGreaterThan(-1);
+        expect(Math.max(openA, openB)).toBeLessThan(press);
+        // 16:15 tail: the windows stay open THROUGH the gesture — armed before it, read only after it, cut at it.
+        expect(arm).toBeGreaterThan(press);
+        expect(arm).toBeLessThan(takeover);
+        expect(Math.min(closeA, closeB)).toBeGreaterThan(takeover);
+        expect(closeB).toBeLessThan(closeA);
+        // A is cut at B's gesture mapped through MEASURED realm clocks, and a missing measurement is a lost observation.
+        expect(spec.slice(closeB, closeA)).toContain('crossRealmBoundary(gestureAt, clockA, clockB)');
+        expect(spec).toContain('boundaryA !== null && closedA?.token');
+        expect(verdict).toBeGreaterThan(closeA);
+        expect(spec.slice(arm, takeover)).toContain('const modelRequestsBeforeGesture = modelRequestsB;');
+        expect(spec).not.toContain('tabStateOrNull');
     });
 });

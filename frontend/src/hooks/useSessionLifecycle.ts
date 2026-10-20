@@ -110,7 +110,15 @@ export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise
     // #1476 Codex P1 on 1414f0c89: bound to the retiring take's lease. A remounted page may acquire a new take's lease
     // while this retirement is still settling; that lease is never released (or reported as unresolved) from here.
     const leaseOfTake = currentTakeLeaseId();
-    const outcome = await speechRuntimeController.retireEngineForUnmount();
+    // #1593 case 4: a retirement that timed out and LATER proved the engine off releases this take's lease then — still
+    // only while this take owns it — and withdraws its own "could not confirm" status, never a newer one.
+    const onLateTerminal = () => {
+        if (currentTakeLeaseId() !== leaseOfTake) return;
+        void releaseTakeLease();
+        const store = useSessionStore.getState();
+        if (store.sttStatus.message === ENGINE_RETIRE_UNCONFIRMED_MESSAGE) store.setSTTStatus({ type: 'idle', message: 'Ready to record' });
+    };
+    const outcome = await speechRuntimeController.retireEngineForUnmount(undefined, onLateTerminal);
     if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
     if (outcome === 'terminal') {
         await releaseTakeLease();

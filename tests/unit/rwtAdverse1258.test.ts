@@ -21,15 +21,15 @@ const idle: TabState = { runtimeState: 'READY', recorderVisible: false, liveTrac
 
 describe('micDeniedVerdict — a blocked microphone is stated, and nothing records', () => {
     it('denial applied, stated, nothing recording → PASS', () => {
-        expect(micDeniedVerdict({ denialApplied: true, blockedCopyShown: true, tab: idle }).status).toBe('PASS');
+        expect(micDeniedVerdict({ deniedAtAcquisition: true, blockedCopyShown: true, tab: idle }).status).toBe('PASS');
     });
     it('the browser never applied the denial → HOLD, not PASS', () => {
-        expect(micDeniedVerdict({ denialApplied: false, blockedCopyShown: true, tab: idle }).status).toBe('HOLD');
+        expect(micDeniedVerdict({ deniedAtAcquisition: false, blockedCopyShown: true, tab: idle }).status).toBe('HOLD');
     });
     it('not stated, a recording shown, or a live track → FAIL', () => {
-        expect(micDeniedVerdict({ denialApplied: true, blockedCopyShown: false, tab: idle }).status).toBe('FAIL');
-        expect(micDeniedVerdict({ denialApplied: true, blockedCopyShown: true, tab: { ...idle, recorderVisible: true } }).status).toBe('FAIL');
-        expect(micDeniedVerdict({ denialApplied: true, blockedCopyShown: true, tab: { ...idle, liveTracks: 1 } }).status).toBe('FAIL');
+        expect(micDeniedVerdict({ deniedAtAcquisition: true, blockedCopyShown: false, tab: idle }).status).toBe('FAIL');
+        expect(micDeniedVerdict({ deniedAtAcquisition: true, blockedCopyShown: true, tab: { ...idle, recorderVisible: true } }).status).toBe('FAIL');
+        expect(micDeniedVerdict({ deniedAtAcquisition: true, blockedCopyShown: true, tab: { ...idle, liveTracks: 1 } }).status).toBe('FAIL');
     });
 });
 
@@ -86,11 +86,16 @@ describe('guards — the spec, the acceptance map and the product stay in step',
     });
 
     it('only the model assets or the network are altered, and each fault is removed before recovery', () => {
-        expect(spec).toContain("await context.route(MODEL_ASSETS, (route) => route.abort('failed'));");
-        expect(spec).toContain('await context.setOffline(true);');
+        // Sam's ACCEPT of PM 731eb5c0: each injection's own outcome is retained (it is awaited as `injected`).
+        expect(spec).toContain("injected = await context.route(MODEL_ASSETS, (route) => route.abort('failed')).then(() => true, () => false);");
+        expect(spec).toContain('injected = await context.setOffline(true).then(() => true, () => false);');
         expect(spec).toContain("if (variant === 'download-fails') await context.unroute(MODEL_ASSETS);");
         expect(spec).toContain('else await context.setOffline(false);');
-        expect(spec).toContain("await setSiteMicrophone(page, browser, 'granted');");
+        // #1593 (live case 12 + local probe): the denial is a real NotAllowedError (`=deny`), and allowing the microphone
+        // happens where a person would do it — the same account, in an ordinarily launched browser.
+        expect(spec).toContain("a === '--use-fake-ui-for-media-stream' ? '--use-fake-ui-for-media-stream=deny' : a");
+        expect(spec).toContain('recoveryBrowser = await chromium.launch({ args: rwtLaunchArgs(fixture, { webgpu: false }) });');
+        expect(spec).toContain('await owner.signInOn(allowedPage);');
         expect(spec).not.toMatch(/route\.fulfill|addInitScript/);
     });
 });

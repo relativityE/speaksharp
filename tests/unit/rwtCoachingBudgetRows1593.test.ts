@@ -9,42 +9,45 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const src = (f: string) => readFileSync(f, 'utf8');
+/** #1593 (Sam, #1662 RETURN): the journey's ONE owned finalization — registration to its report. */
+const finalization = (s: string) => {
+    const at = s.indexOf('finalizer.once(async () => {');
+    return at === -1 ? '' : s.slice(at, s.indexOf('steps.report(receipt);', at));
+};
+const SETTLE = "await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);";
 
 describe('#1593 whole-scenario coaching request budget rows (cases 1–3 and 15)', () => {
-    it('Open Mic: maximum 4, emitted in the scenario finally AFTER settling every sent exchange', () => {
-        const s = src('tests/live/rwt-open-mic-first-session.live.spec.ts');
-        const fin = s.lastIndexOf('} finally {');
-        const settle = s.indexOf('await generations.settle();', fin);
-        const row = s.indexOf('coachingRequestBudgetRow(receipt, generations, { maximum: 4 });', fin);
-        expect(fin).toBeGreaterThan(-1);
-        expect(settle).toBeGreaterThan(fin);
+    it('Open Mic: maximum 4, emitted in the scenario finalization AFTER settling every sent exchange', () => {
+        const f = finalization(src('tests/live/rwt-open-mic-first-session.live.spec.ts'));
+        const settle = f.indexOf(SETTLE);
+        const row = f.indexOf('coachingRequestBudgetRow(receipt, generations, { maximum: 4 })');
+        expect(settle).toBeGreaterThan(-1);
         expect(row).toBeGreaterThan(settle);
     });
 
-    it('shared Focus journey: the row uses the suite maximum, after settling, in its finally', () => {
-        const s = src('tests/live/helpers/rwtFocusPointsJourney.ts');
-        const fin = s.lastIndexOf('} finally {');
-        const settle = s.indexOf('await generations.settle();', fin);
-        const row = s.indexOf('coachingRequestBudgetRow(receipt, generations, { maximum: coachingMaximum });', fin);
-        expect(settle).toBeGreaterThan(fin);
+    it('shared Focus journey: the row uses the suite maximum, after settling, in its finalization', () => {
+        const f = finalization(src('tests/live/helpers/rwtFocusPointsJourney.ts'));
+        const settle = f.indexOf(SETTLE);
+        const row = f.indexOf('coachingRequestBudgetRow(receipt, generations, { maximum: coachingMaximum })');
+        expect(settle).toBeGreaterThan(-1);
         expect(row).toBeGreaterThan(settle);
     });
 
     it('full Focus passes 7 and partial Focus passes 4 — the selected campaign maxima, never a planned-max substitute', () => {
-        expect(src('tests/live/rwt-focus-points-session.live.spec.ts')).toContain("'focus-points-session', owner, 7);");
-        expect(src('tests/live/rwt-focus-points-partial.live.spec.ts')).toContain("'focus-points-partial', owner, 4);");
+        expect(src('tests/live/rwt-focus-points-session.live.spec.ts')).toContain("'focus-points-session', owner, 7, finalizer);");
+        expect(src('tests/live/rwt-focus-points-partial.live.spec.ts')).toContain("'focus-points-partial', owner, 4, finalizer);");
     });
 
-    it('case 15 navigation: the tap is attached before the journey, and maximum 0 is emitted after settling in the finally', () => {
+    it('case 15 navigation: the tap is attached before the journey, and maximum 0 is emitted after settling in the finalization', () => {
         const s = src('tests/live/rwt-products-navigation.live.spec.ts');
         const attach = s.indexOf('generations.attach(page);');
         const tryAt = s.indexOf('try {', attach);
-        const fin = s.lastIndexOf('} finally {');
-        const settle = s.indexOf('await generations.settle();', fin);
-        const row = s.indexOf('coachingRequestBudgetRow(receipt, generations, { maximum: 0 });', fin);
+        const f = finalization(s);
+        const settle = f.indexOf(SETTLE);
+        const row = f.indexOf('coachingRequestBudgetRow(receipt, generations, { maximum: 0 })');
         expect(attach).toBeGreaterThan(-1);
         expect(tryAt).toBeGreaterThan(attach);
-        expect(settle).toBeGreaterThan(fin);
+        expect(settle).toBeGreaterThan(-1);
         expect(row).toBeGreaterThan(settle);
     });
 });

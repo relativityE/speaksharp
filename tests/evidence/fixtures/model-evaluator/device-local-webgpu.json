@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "label": "apple-m2-metal3-headed-webgpu",
+  "baseUrl": "http://127.0.0.1:5173",
+  "baselineBackend": "wasm",
+  "candidateBackend": "webgpu",
+  "headless": false,
+  "expectedGpuVendor": "apple"
+}

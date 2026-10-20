@@ -20,6 +20,7 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 
 const SUITE = 'pending-start-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -65,6 +66,12 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }) },
 });
 
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
+test.afterEach(async () => {
+    await finalizer.drain();
+});
+
 test('leaving during a cold Start does not leave a recording or session behind @live', async ({ page }, testInfo) => {
     test.setTimeout(1_500_000);
     const receipt = new RwtReceipt(SUITE);
@@ -75,6 +82,31 @@ test('leaving during a cold Start does not leave a recording or session behind @
     let uid = '';
     let claimed = false;
     let accountDeleted = false;
+    const owner = { uid: '', email: '' };
+    // #1593 fail early: an unexpected failure, refusal or stall (case 4's dead Start) ends the journey in seconds.
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
+    // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+    // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+    const finish = finalizer.once(async () => {
+        // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+        const steps = new FinalizationSteps();
+        // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+        // (bounded; page-independent, since a finalizer may run after its tabs closed).
+        await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+        await steps.step('watchdog', () => watch.record(receipt));
+        await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+        // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
+        // A signup that died before its uid was read is still found by its created email.
+        if ((uid || email) && !accountDeleted) {
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
+            accountDeleted = (await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })))) === 'deleted';
+        }
+        await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
+        steps.report(receipt);
+        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+    });
     try {
         await suppressPageSnapshot(testInfo);
         const missing = rwtPreconditionFailures();
@@ -89,9 +121,11 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await page.goto('/auth/signup');
         await requireApprovedSurface(page, receipt);
         email = newDisposableEmail('pending-start');
+        owner.email = email;
         receipt.forbid(email, SERVICE_ROLE);
         const account = await signUpDisposableAccount(page, email);
         uid = account.uid;
+        owner.uid = uid;
         const identity = await runOwnedIdentityFailures(admin as never, uid, email);
         if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
         receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');
@@ -124,6 +158,9 @@ test('leaving during a cold Start does not leave a recording or session behind @
 
         // This is the normal product CTA, not a synthetic network delay. Navigate away as soon as the real UI
         // reports its acquisition phase; the route change is the user's cancellation action under test.
+        // #1593 (Sam, #1662 RETURN control 3): the abandoned Start's own cancellation (and the return's gate) is this
+        // journey's expected fault — from the press until the return has been checked.
+        watch.setFaultPhase(true);
         await page.getByTestId('mic-download').click({ timeout: 15_000 });
         // Codex P1 r4247193674: TranscriptionService publishes BOTH DOWNLOADING and ENGINE_INITIALIZING as the root
         // `data-model-status="loading"`; `downloading`/`initializing` are never written, so only `loading` is the pending Start.
@@ -230,19 +267,6 @@ test('leaving during a cold Start does not leave a recording or session behind @
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
-        await generations.settle();
-        // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
-        coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
-        if (uid && !accountDeleted) {
-            try {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                accountDeleted = true;
-                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-            } catch {
-                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-            }
-        }
-        telemetryClassRows(receipt, tap, claimed, false);
-        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+        await finish();
     }
 });

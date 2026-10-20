@@ -101,7 +101,7 @@ Ownership is per-document by accountable role (Product Owner remains final appro
 **Retained by classification, NOT canonical (indexed by `EVIDENCE_INDEX.md` or kept in `archive/`):**
 - **Evidence** (dated proof; cite for rationale): `evidence/**`, including permanent STT model/benchmark history under `evidence/stt/` and retained launch/security proof under `evidence/retained/`.
 - **Superseded / historical**: `archive/**`, including the completed migration sources and pinned legacy docs.
-- **Exploratory** (not release-path): `v4_work/**` — reference for the deferred Private v4 disposition.
+- **Exploratory** (not release-path): `v4_work/**` — preserved historical source for the separately selected current model-evaluation queue; not shipped behavior or an automatic release gate.
 
 `archive/**` is disposable after its remaining migration dependencies are removed. No STT model evaluation, benchmark protocol, raw result, or down-selection record may rely on it; those belong permanently under `evidence/stt/`.
 
@@ -198,8 +198,7 @@ Each canonical document carries this header:
 
 The dated [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) records the complete pre-consolidation Markdown audit — authority, class, staleness
 exposure, correction status and canonical routing — and carries the claim-by-claim product-evaluation audit
-against current code. Completeness is enforced by `tests/config/documentationLedger.test.ts`: a new Markdown file
-that is not classified there fails the suite.
+against current code. The existing tests/config/documentationLedger.test.ts validates retained historical audit claims; it does not enumerate the present repository or reject every newly unclassified Markdown file. Current source completeness must be established by the exact-tree receiving inventory and consumer review, not inferred from that historical test passing.
 
 It is a **procedure record, not a canonical document** — the canonical set above is unchanged. Its historical
 GAP-1 is resolved: canonical #3 `ROADMAP.md` now exists. **All 14 canonical documents are present.**

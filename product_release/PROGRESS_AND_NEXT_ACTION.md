@@ -2,7 +2,7 @@
 **Owner:** Product Owner (relativityE)
 
 **Last Reviewed:** 2026-09-15
-**Last Verified:** 2026-09-15 — ownership now routes to #1471/#1476 progress integrity, #1473 automatic review, #1474 presentation, and #1472 filler completeness.
+**Last Verified:** 2026-09-15 — historical review date; closed implementation/consolidation provenance and retained acceptance are distinguished below.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
 **Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the two-suggestion Session review, selection of one next practice action, and what must never be claimed.
@@ -14,7 +14,7 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 15 Sep 2026 — the contract is not yet release-qualified.** Each eligible saved session still requires exactly one **What went well** and one **What to improve** suggestion. #1473 owns automatic generation, structured configuration/provider/quota terminals, and truthful retry; #1474 owns the dominant G10 rendering footprint. #1471 and #1476 own durable single-tab and cross-tab progress settlement. #1472 owns the persisted filler evidence state `complete | unobservable | no_speech`; an empty object or zero without affirmative completeness contributes nothing and must never become a flattering zero, clean-delivery claim, or perfect clarity.
+> **Implementation provenance is separate from release qualification.** Each eligible saved session still requires exactly one **What went well** and one **What to improve** suggestion. Closed #1473 retains automatic-generation/failure/retry consolidation provenance; closed #1471/#1476 retain durable single-tab/cross-tab progress implementation provenance. Remaining deployed acceptance is retained by #1258/#1593, presentation by #1474, and existing copy/comparison acceptance by #1254. #1472 owns the persisted filler evidence state `complete | unobservable | no_speech`; an empty object or zero without affirmative completeness contributes nothing and must never become a flattering zero, clean-delivery claim, or perfect clarity. New consequential residual defects route to #1491 rather than reopening completed assignments by an old pin.
 <!-- /pm-currentization:2026-09-15 -->
 
 # SpeakSharp Progress and Next Action (v1)
@@ -262,11 +262,12 @@ Pause rhythm (insufficient measured coverage), message structure and punctuation
   and renders no progress card — the saved review is the single progress authority. The unused
   `ProgressVsBaseline` card and its module were removed with the session slot-map redesign.)* Eligibility: `durationSeconds >= 30` **and** a non-null composite quality
   (`utils/aggregateProgress.ts`). Any remaining "unbuilt" assertion elsewhere is stale.
-- **The next action is persisted but the outcome loop is not closed.** `sessions.next_action_signal` stores the
-  prior recommendation, and `AnalyticsDashboard` renders it. Attempt evidence, comparable-session eligibility,
-  target-specific outcomes and attribution limits are all **absent** — so advice plus later improvement can show
-  **association only**, never that the user attempted the advice and never causation. #1259 is an instrumentation
-  and attribution gap, not a database join. Full dated audit: [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10.4.
-- **Canonical roadmap gap:** `ROADMAP.md` (canonical #3) does not exist. The deferral named #1272, which has
-  **closed without producing it**; the live successor is **#1257**. Roadmap-level propagation lands here and in
-  `RELEASE_STATUS.md` until #1257 delivers it (historical GAP-1: [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §11). The canonical `ROADMAP.md` now exists and owns the open work.
+- **Stored action and attempt evidence does not establish useful or causal improvement.** The original audit
+  predates the implemented evaluation, recommendation and explicit accepted-attempt records described in §8.
+  Owner-scoped progress RPCs bind attempts and resolve server-comparable directional outcomes. Those structures
+  exist; a displayed recommendation alone still does not prove an attempt. Advice plus later metric movement
+  establishes association only. Target-specific useful improvement and the broader #1548 same-target content
+  outcome remain separate acceptance questions; no causal claim follows. #1259 retains received instrumentation
+  and attribution assurance. Original dated audit: [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10.4.
+- **Canonical roadmap authority:** [`ROADMAP.md`](./ROADMAP.md) exists and owns open work. The missing-roadmap
+  GAP-1 is historical provenance in [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §11, not a current temporary propagation instruction.

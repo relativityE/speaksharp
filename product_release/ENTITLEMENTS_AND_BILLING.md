@@ -1,3 +1,9 @@
+## Account-exit policy boundary
+
+Routine deletion is account-scoped, as confirmed in [#1643 policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298). Page navigation or email issuance is not destructive confirmation. Verified explicit confirmation records durable pending intent for that account, prevents new admission, and allows already accepted saves, coaching and billing work to finish and reconcile. Unknown outcomes remain pending: neither elapsed timeout nor an accepted request establishes settlement or deletion. Only verified DB/storage/Auth final state supports a deleted result. Other users continue normally; routine deletion requires no global shutdown.
+
+Cancellation is distinct: preserve account/login/history and verified remaining access while stopping renewal under the actual provider outcome. Cancellation alone schedules no deletion. Existing runtime generation/configuration and operational guards remain implementation prerequisites until a reviewed replacement is integrated; this policy does not remove them or invent global worker termination. The bounded legacy direct-checkout cutover still needs its own reconciliation. Backend staging or202 pending is not a completed customer journey, and source preparation authorizes no account/provider operation.
+
 **Status:** Authoritative product contract
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-09-15

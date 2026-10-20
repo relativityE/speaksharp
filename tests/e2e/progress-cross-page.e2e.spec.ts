@@ -219,6 +219,9 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await navigateToRoute(page, `/analytics/${SESSION_ID}`);
     await expect(page.getByTestId('progress-panel')).toBeVisible();
     await expect(page.getByTestId('progress-what-worked')).toHaveCount(1);
+    // #1254 (Sam 6243870280): the takeaway names what was actually compared — the previous COMPARABLE session.
+    await expect(page.getByTestId('progress-what-worked')).toContainText('Clearer than your previous comparable session');
+    await expect(page.getByTestId('progress-what-worked')).not.toContainText('last session');
     // #1258 G20 (PM 2026-09-25): the saved review at the top owns the ONE next action; Progress keeps its metrics
     // and drops its competing sentence and button. The linked repeat runs through the review's control.
     await expect(page.getByTestId('progress-practice-next')).toHaveCount(0);
