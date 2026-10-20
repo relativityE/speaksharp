@@ -392,7 +392,7 @@ export class JourneyWatchdog {
      * one document can never bind another. Every event a watched page sends registers here, not only watched ones, so the
      * old boot is known before its unload beacons arrive. Returns whether the event belongs to its document's boot.
      */
-    private bootMatches(e: SentEvent): boolean {
+    private bootMatches(e: SentEvent, bind = true): boolean {
         const source = e as SentEvent & { sourcePage?: object; sourceDocument?: number; sourceDocumentAt?: number };
         if (!source.sourcePage || !e.bootId) return false;
         const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
@@ -412,6 +412,8 @@ export class JourneyWatchdog {
         if (boundDocument !== undefined || boundBoot !== undefined) return boundDocument === document && boundBoot === e.bootId;
         const captured = e.capturedAt;
         if (captured === undefined || captured < (source.sourceDocumentAt ?? Number.POSITIVE_INFINITY)) return false;
+        // Sam 1792454447: `bind = false` asks "would this be its document's boot?" without claiming the document.
+        if (!bind) return true;
         this.bootDocument.set(e.bootId, document);
         this.documentBoot.set(document, e.bootId);
         return true;
@@ -426,11 +428,15 @@ export class JourneyWatchdog {
         if (!source.sourcePage || !this.watchedPages.has(source.sourcePage)) return true;
         if (this.o.releaseSha && e.releaseSha && e.releaseSha !== this.o.releaseSha) return true;
         if ((e.capturedAt ?? e.at) < this.started - 1_000) return true;
-        if (!this.bootMatches(e)) return true;
         // Codex P2 r4319876160: with a release under test, this journey's own event that carries NO release stamp cannot be
         // attributed to that release. It may neither trip nor count as observed; record() HOLDs instead of claiming a clean run.
-        if (this.o.releaseSha && !e.releaseSha) { this.releaseUnattested += 1; return true; }
-        return false;
+        // Sam 1792454447: judged BEFORE any boot-claiming mutation — the boot check here never binds, so an unstamped event
+        // cannot claim its document and suppress this release's own later fatal from the real boot.
+        if (this.o.releaseSha && !e.releaseSha) {
+            if (this.bootMatches(e, false)) this.releaseUnattested += 1;
+            return true;
+        }
+        return !this.bootMatches(e);
     }
 
     /**

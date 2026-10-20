@@ -374,6 +374,19 @@ describe('#1662 RETURN — single-flight finalization, bound evidence, phase sco
         expect(await w.tick(), 'the unstamped event did not claim the document for its boot').toMatchObject({ kind: 'save_failed' });
     });
 
+    it('Sam 1792454447: an UNSTAMPED WATCHED event on another boot never claims the document — the real boot\'s matching fatal still FAILs', async () => {
+        const h = fakes(observed);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: SHA });
+        // A watched, non-fatal event with no release stamp arrives first on document 0 from boot 'unattested' …
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'success' } }, { boot: 'unattested', document: 0 }));
+        expect(await w.tick()).toBeNull();
+        // … then the release under test's own fatal from the boot that really owns document 0.
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: SHA, watch: { outcome: 'failed' } }, { boot: 'real', document: 0 }));
+        expect(await w.tick(), 'the real fatal is not suppressed').toMatchObject({ kind: 'save_failed' });
+        await w.record(h.receipt as never);
+        expect(h.rows.map((r) => r.verdict), 'a true FAIL, not a HOLD').toEqual(['FAIL']);
+    });
+
     it('PM 1792453024 / Sam 1792453060: a FOREIGN-release non-watched event never establishes a boot — the matching-release fatal still trips', async () => {
         const h = fakes(observed);
         const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: SHA });
