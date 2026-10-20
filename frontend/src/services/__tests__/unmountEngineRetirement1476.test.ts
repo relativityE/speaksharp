@@ -919,11 +919,12 @@ describe('#1476 — unmount retires the engine before the account lease is relea
     });
 
     /**
-     * Codex P2 r4320680220 (Sam SOURCE RETURN 1792461197): a successor Start is ACCEPTED synchronously — selection lock and
-     * intent minted — before any queued work attaches a service, so lifecycle version, service generation and service all
-     * still match the old retirement. Whichever side of the late proof it lands on, the retirement must never retire the
-     * successor's intent or lock, never publish IDLE over a successor that has moved the runtime, and never run the retired
-     * take's lease callback while the successor is pending.
+     * Codex P2 r4320680220 (Sam SOURCE RETURN 1792461197, scope 1792462026/1792462080/1792462096): a successor Start is
+     * ACCEPTED synchronously — selection lock and intent minted — before any queued work attaches a service. While a
+     * retirement that detached the service is still settling, that accepted Start must neither vanish (absorbed by the
+     * retired take's stale state) nor be retired by the retirement's TERMINATED. It waits — bounded — then proceeds from the
+     * truthful state the retirement settled to, or is refused truthfully and retryably; nothing is launched before the old
+     * engine is affirmatively off. The retired take never regains lease authority once any Start was accepted.
      */
     const acceptSuccessor = () => {
         const ctl = controller as unknown as { service: unknown; engineSelectionIntentLocked: boolean };
@@ -931,93 +932,155 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         void controller.startRecording(POLICY as never, []).then(() => { outcome = 'resolved'; }, (e: Error) => { outcome = `rejected:${e.message}`; });
         return { ctl, intent: intentApi.pendingRecordingIntent(), locked: ctl.engineSelectionIntentLocked, outcome: () => outcome };
     };
-    /** Runs `before` immediately BEFORE the late retirement's TERMINATED, and `inside` right after it (before IDLE). */
-    const aroundLateTerminated = (hooks: { before?: () => void; inside?: () => void }) => {
+    /** Records every transition() call; runs `before` just BEFORE the first TERMINATED and `inside` right after it. */
+    const aroundTerminated = (hooks: { before?: () => void; inside?: () => void; afterIdle?: () => void }) => {
         const ctl = controller as unknown as { transition: (state: string, ...rest: unknown[]) => Promise<void> };
         const original = ctl.transition.bind(controller);
         const seen: string[] = [];
-        let armed = true;
+        let armedT = true;
+        let armedI = true;
         vi.spyOn(ctl, 'transition').mockImplementation(async (state: string, ...rest: unknown[]) => {
-            const first = state === 'TERMINATED' && armed;
-            if (first) { armed = false; hooks.before?.(); }
+            const firstT = state === 'TERMINATED' && armedT;
+            if (firstT) { armedT = false; hooks.before?.(); }
             await original(state, ...rest);
             seen.push(state);
-            if (first) hooks.inside?.();
+            if (firstT) hooks.inside?.();
+            if (state === 'IDLE' && armedI && !armedT) { armedI = false; hooks.afterIdle?.(); }
         });
         return seen;
     };
+    /** The retirement's own IDLE precedes the successor's first move; no IDLE ever lands after the successor moved. */
+    const expectRetirementSettledBeforeSuccessor = (seen: string[]) => {
+        const t = seen.indexOf('TERMINATED');
+        const after = seen.slice(t + 1);
+        expect(after[0], `the retirement settles to IDLE before the successor moves: ${JSON.stringify(seen)}`).toBe('IDLE');
+        expect(after.slice(1), 'no IDLE lands after the successor started moving').not.toContain('IDLE');
+        expect(after, 'the successor proceeds into its own Start').toContain('INITIATING');
+    };
 
-    it.each(['initializing', 'download-required'] as const)('Codex P2 r4320680220: %s — a Start accepted just BEFORE the late TERMINATED keeps its intent and lock, gets no stale IDLE or lease callback, and proceeds', async (phase) => {
+    it.each(['initializing', 'download-required'] as const)('Codex P2 r4320680220: late path, %s — a Start accepted just BEFORE the late TERMINATED keeps intent and lock, waits, then proceeds; no lease callback', async (phase) => {
         const onLateTerminal = vi.fn();
         const t = await timedOutRetirement(phase, onLateTerminal);
         engine.initGate = new Promise<void>(() => undefined); // the successor parks in its own preparation
         const initsBefore = engine.initCalls;
         let b: ReturnType<typeof acceptSuccessor> | null = null;
-        const seen = aroundLateTerminated({ before: () => { b = acceptSuccessor(); } });
+        const seen = aroundTerminated({ before: () => { b = acceptSuccessor(); } });
         t.finishTermination();
         await settle(60);
-        expect(b, 'the successor was accepted').not.toBeNull();
         expect(b!.intent, 'precondition: the successor minted its intent').not.toBeNull();
         expect(b!.locked, 'precondition: the successor took the selection lock').toBe(true);
-        expect(b!.outcome(), 'the scoped TERMINATED never rejects the successor').not.toMatch(/teardown|RECORDING_INTENT_RETIRED/);
-        expect(seen.slice(seen.indexOf('TERMINATED') + 1), 'no IDLE from the stale retirement after the successor moved the runtime').not.toContain('IDLE');
-        expect(onLateTerminal, 'no lease callback for a runtime the successor has claimed').not.toHaveBeenCalled();
-        expect(engine.initCalls, 'the successor proceeds into its own preparation once the old engine is off').toBeGreaterThan(initsBefore);
-        expect(b!.ctl.engineSelectionIntentLocked, 'the successor still holds the selection lock').toBe(true);
-    });
-
-    it('Codex P2 r4320680220 CONTROL: a Start accepted INSIDE the late TERMINATED→IDLE window owns the runtime — no stale IDLE, no callback, it proceeds', async () => {
-        const onLateTerminal = vi.fn();
-        const t = await timedOutRetirement('download-required', onLateTerminal);
-        engine.initGate = new Promise<void>(() => undefined);
-        const initsBefore = engine.initCalls;
-        let b: ReturnType<typeof acceptSuccessor> | null = null;
-        const seen = aroundLateTerminated({ inside: () => { b = acceptSuccessor(); } });
-        t.finishTermination();
-        await settle(60);
-        expect(b!.intent, 'precondition: the successor minted its intent inside the window').not.toBeNull();
-        expect(b!.outcome()).not.toMatch(/teardown|RECORDING_INTENT_RETIRED/);
-        expect(seen.slice(seen.indexOf('TERMINATED') + 1), 'the retirement stops after its TERMINATED').not.toContain('IDLE');
-        expect(onLateTerminal).not.toHaveBeenCalled();
-        expect(engine.initCalls, 'the successor proceeds from TERMINATED').toBeGreaterThan(initsBefore);
+        expect(b!.outcome(), 'never retired by the old TERMINATED, never absorbed as a no-op').toBe('pending');
+        expectRetirementSettledBeforeSuccessor(seen);
+        expect(onLateTerminal, 'a Start was accepted since the detach: no lease authority').not.toHaveBeenCalled();
+        expect(engine.initCalls, 'the successor prepared its own engine once the old one was off').toBeGreaterThan(initsBefore);
         expect(b!.ctl.engineSelectionIntentLocked).toBe(true);
     });
 
-    it('Codex P2 r4320680220 (characterization): a Start pressed in the SAME tick the late destroy resolves is absorbed by its own queued no-op first — the retirement then still completes once, never stuck', async () => {
-        // The successor's queued task runs before the late proof: it sees the retired take's preparation state and takes the
-        // existing "a Start during a running take is a resolved no-op" branch, releasing its own intent and lock. With no
-        // successor pending, the retirement is still the owner and finishes the runtime. (Whether such a Start should WAIT
-        // for the retirement instead is a Start-admission question outside this fix.)
-        const onLateTerminal = vi.fn();
-        const t = await timedOutRetirement('download-required', onLateTerminal);
-        engine.initGate = new Promise<void>(() => undefined);
-        t.finishTermination();
-        const b = acceptSuccessor();
-        await settle(60);
-        expect(b.outcome(), 'absorbed as a resolved no-op, not rejected by the retirement').toBe('resolved');
-        expect(controller.getState(), 'never left in the retired preparation state').toBe('IDLE');
-        expect(onLateTerminal).toHaveBeenCalledTimes(1);
-        expect(b.ctl.engineSelectionIntentLocked).toBe(false);
-    });
-
-    it('Codex P2 r4320680220 CONTROL: a Start accepted while the late IDLE transition is in flight gets no lease callback from the retired take, and proceeds', async () => {
+    it('Codex P2 r4320680220: late path, SAME tick — a Start pressed as the late destroy resolves is not absorbed; it waits and proceeds', async () => {
         const onLateTerminal = vi.fn();
         const t = await timedOutRetirement('download-required', onLateTerminal);
         engine.initGate = new Promise<void>(() => undefined);
         const initsBefore = engine.initCalls;
-        const ctl = controller as unknown as { transition: (state: string, ...rest: unknown[]) => Promise<void> };
-        const original = ctl.transition.bind(controller);
+        const seen = aroundTerminated({});
+        t.finishTermination();
+        const b = acceptSuccessor();
+        await settle(60);
+        expect(b.intent).not.toBeNull();
+        expect(b.outcome(), 'the accepted Start did not vanish as a resolved no-op').toBe('pending');
+        expectRetirementSettledBeforeSuccessor(seen);
+        expect(engine.initCalls).toBeGreaterThan(initsBefore);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+        expect(b.ctl.engineSelectionIntentLocked).toBe(true);
+    });
+
+    it('Codex P2 r4320680220: late path, DIRECT-RESET interleaving — a Start accepted at the late TERMINATED waits; the queued TERMINATED→IDLE reset never runs ahead of the retirement', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        engine.initGate = new Promise<void>(() => undefined);
         let b: ReturnType<typeof acceptSuccessor> | null = null;
-        let armed = true;
-        vi.spyOn(ctl, 'transition').mockImplementation(async (state: string, ...rest: unknown[]) => {
-            await original(state, ...rest);
-            if (state === 'IDLE' && armed) { armed = false; b = acceptSuccessor(); }
-        });
+        const seen = aroundTerminated({ inside: () => { b = acceptSuccessor(); } });
         t.finishTermination();
         await settle(60);
-        expect(b!.intent, 'precondition: the successor minted its intent as the retirement reached IDLE').not.toBeNull();
-        expect(onLateTerminal, 'the retired take must not release the lease the accepted successor is about to claim').not.toHaveBeenCalled();
-        expect(b!.outcome()).not.toMatch(/teardown|RECORDING_INTENT_RETIRED/);
-        expect(engine.initCalls, 'the successor proceeds from the truthful IDLE').toBeGreaterThan(initsBefore);
+        expect(b!.intent, 'precondition: accepted while the runtime showed the retirement\'s TERMINATED').not.toBeNull();
+        expect(b!.outcome()).toBe('pending');
+        // The retirement's IDLE is a transition() call; the queued Start's direct reset is not. IDLE recorded right after
+        // TERMINATED proves the retirement published it, before the successor touched the state.
+        expectRetirementSettledBeforeSuccessor(seen);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+    });
+
+    it('Codex P2 r4320680220 CONTROL: a Start accepted once the late retirement reached IDLE proceeds at once; the retired take still has no lease authority', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        engine.initGate = new Promise<void>(() => undefined);
+        const initsBefore = engine.initCalls;
+        let b: ReturnType<typeof acceptSuccessor> | null = null;
+        aroundTerminated({ afterIdle: () => { b = acceptSuccessor(); } });
+        t.finishTermination();
+        await settle(60);
+        expect(b!.intent).not.toBeNull();
+        expect(b!.outcome()).toBe('pending');
+        expect(onLateTerminal, 'count-based: an accepted Start ends the retired take\'s lease authority').not.toHaveBeenCalled();
+        expect(engine.initCalls).toBeGreaterThan(initsBefore);
+    });
+
+    it('Codex P2 r4320680220 (ABA): a successor accepted and then CANCELLED before the late proof does not give the retired take its lease authority back', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        const b = acceptSuccessor();
+        await settle(10);
+        expect(b.intent, 'precondition: accepted').not.toBeNull();
+        intentApi.retireRecordingIntent('navigated'); // the page went away again before the old engine was proven off
+        await settle(10);
+        expect(intentApi.pendingRecordingIntent(), 'precondition: the successor was cancelled').toBeNull();
+        t.finishTermination();
+        await settle(60);
+        expect(controller.getState(), 'the runtime still settles truthfully').toBe('IDLE');
+        expect(onLateTerminal, 'no ABA: a settled/cancelled successor does not restore the old callback').not.toHaveBeenCalled();
+        expect(b.ctl.engineSelectionIntentLocked, 'the cancelled Start holds no lock').toBe(false);
+    });
+
+    it('Codex P2 r4320680220: a retirement that never confirms termination refuses the waiting Start truthfully and retryably — no replacement engine', async () => {
+        const onLateTerminal = vi.fn();
+        await timedOutRetirement('download-required', onLateTerminal); // termination stays HELD
+        (controller as unknown as { retirementAdmissionWaitMs: number }).retirementAdmissionWaitMs = 150;
+        const initsBefore = engine.initCalls;
+        const b = acceptSuccessor();
+        await vi.waitFor(() => expect(b.outcome()).not.toBe('pending'), { timeout: 3_000 });
+        expect(b.outcome(), 'a truthful, retryable refusal naming the unretired engine').toBe('rejected:PREVIOUS_TAKE_SERVICE_NOT_RETIRED');
+        expect(intentApi.pendingRecordingIntent()).toBeNull();
+        expect(b.ctl.engineSelectionIntentLocked, 'its lock is released').toBe(false);
+        expect(b.ctl.service, 'nothing was launched before the old engine is off').toBeNull();
+        expect(engine.initCalls).toBe(initsBefore);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+    });
+
+    it('Codex P2 r4320680220: IN-BOUND path — a Start accepted during the held in-bound destroy waits, is never retired by its TERMINATED, and proceeds once the engine is off', async () => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        engine.initGate = new Promise<void>(() => undefined);
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+        let finishTermination!: () => void;
+        engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
+        const retiring = controller.retireEngineForUnmount(10_000); // A's destroy is HELD inside the bound
+        await settle();
+        engine.terminateGate = null;
+        const initsBefore = engine.initCalls;
+        const seen = aroundTerminated({});
+        const b = acceptSuccessor();
+        await settle(20);
+        expect(b.intent, 'precondition: the successor was accepted during the held destroy').not.toBeNull();
+        expect(b.outcome(), 'not absorbed while the old engine is still terminating').toBe('pending');
+        expect(engine.initCalls, 'no replacement before the old engine is off').toBe(initsBefore);
+        finishTermination();
+        expect(await retiring, 'A\'s own engine was proven off').toBe('terminal');
+        await settle(60);
+        expect(b.outcome(), 'the in-bound TERMINATED is scoped: the successor is not retired').toBe('pending');
+        expectRetirementSettledBeforeSuccessor(seen);
+        expect(engine.initCalls, 'the successor then prepares its own engine').toBeGreaterThan(initsBefore);
+        expect(b.ctl.engineSelectionIntentLocked).toBe(true);
     });
 });

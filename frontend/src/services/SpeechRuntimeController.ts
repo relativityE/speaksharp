@@ -183,8 +183,8 @@ type ProgressCompletionContext =
     | { mode: 'unknown' };
 
 type RichMetricsPayload = Parameters<typeof updateSession>[1];
-/** What an engine retirement captured at detach: lifecycle version and service generation. */
-type RetirementOwnership = { version: number; generation: number };
+/** What an engine retirement captured at detach: lifecycle version, service generation and accepted-Start count. */
+type RetirementOwnership = { version: number; generation: number; starts: number };
 /** Names the already-retired attempt to a retirement's TERMINATED, so it retires no successor's pending intent. */
 const RETIRED_ATTEMPT_INTENT = 'retired-engine-attempt';
 type ProgressMetricsState = {
@@ -715,6 +715,20 @@ export class SpeechRuntimeController {
      * generation must not be allowed to fail the replacement lifecycle.
      */
     private serviceGeneration = 0;
+    /**
+     * Codex P2 r4320680220 (Sam 1792462026): counts ACCEPTED Starts. A Start takes the engine-selection lock and mints its
+     * intent synchronously, before any queued work attaches a service. A retirement captures this at detach: once it has
+     * moved, the retired take has no lease authority left — even if that successor later settles or cancels.
+     */
+    private startAcceptanceGeneration = 0;
+    /**
+     * Codex P2 r4320680220: a retirement that detached its service and has not settled yet (its in-bound bound, or its late
+     * completion after a timed-out destroy). A Start accepted meanwhile waits on this — bounded — instead of being absorbed
+     * by the retired take's stale state, and nothing is launched before the old engine is affirmatively off.
+     */
+    private pendingRetirement: Promise<void> | null = null;
+    /** How long an accepted Start waits for a pending retirement before refusing truthfully (retryable). */
+    private retirementAdmissionWaitMs = 10_000;
     /**
      * #1258 — services that have been admitted to a take. A service runs ONE take: the next Start never
      * reuses one, whatever path left it attached (see `startRecording`). Weak, so a retired service is not
@@ -4169,6 +4183,7 @@ export class SpeechRuntimeController {
         // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
         // INITIATING — so a rapid engine change right after Start cannot win the race. Released in transition().
         this.engineSelectionIntentLocked = true;
+        this.startAcceptanceGeneration++;
         // Publish in the same synchronous turn as the click. Navigation and the engine selector consume
         // this projection; waiting for the queued INITIATING transition leaves a same-turn window in which
         // the controller is locked but the UI still believes the take is settled.
@@ -4294,6 +4309,38 @@ export class SpeechRuntimeController {
                 // #1415 — a superseded attempt still owes its caller an answer.
                 retireRecordingIntent('superseded', intent.token);
                 return;
+            }
+
+            // Codex P2 r4320680220 (Sam 1792462026) — AN ACCEPTED START IS NOT ABSORBED BY A RETIRED ENGINE'S STALE STATE.
+            // While a retirement that detached the service is still settling, the runtime can still show the retired take's
+            // preparation or active state with NO service. The no-op branch below exists for a double click during a LIVE
+            // take; here nothing is running, so absorbing would make an accepted click vanish. Wait for that retirement —
+            // bounded, and not through the command queue (the retirement transitions directly) — then either proceed from
+            // the truthful state it settled to, or refuse THIS intent truthfully and retryably. Nothing is launched before
+            // the old engine is affirmatively off. A live service, or no pending retirement, keeps the existing behaviour.
+            const retiring = this.pendingRetirement;
+            if (retiring && this.service === null && this.state !== 'READY' && this.state !== 'IDLE') {
+                pushNativeRuntimeTrace('controller_start_waits_for_retirement', { state: this.state });
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                const waited = await Promise.race([
+                    retiring.then(() => 'settled' as const),
+                    new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), this.retirementAdmissionWaitMs); }),
+                ]);
+                if (timer !== undefined) clearTimeout(timer);
+                if (this.currentRecordingId !== recordingId || !isCurrentIntent(intent.token)) {
+                    // Superseded while waiting (a newer Start, or a reset that already answered this intent): settle only this one.
+                    pushNativeRuntimeTrace('controller_start_superseded_while_waiting_for_retirement');
+                    retireRecordingIntent('superseded', intent.token);
+                    // Its own lock only: a newer Start (different recording id) keeps the lock it took.
+                    if (this.currentRecordingId === recordingId) this.releaseRefusedStartLock();
+                    return;
+                }
+                const after = this.getState(); // re-read: the retirement changed it while this Start waited
+                const settledToRest = after === 'IDLE' || after === 'READY' || after === 'TERMINATED';
+                if (waited === 'timeout' || !settledToRest || this.service !== null || hasEngineNotConfirmedStopped()) {
+                    this.refuseStartOnSpentService(intent.token);
+                    return;
+                }
             }
 
             if (this.state === 'FAILED_VISIBLE' || this.state === 'TERMINATED') {
@@ -5107,37 +5154,58 @@ export class SpeechRuntimeController {
         // #1593 (Sam 1792445123): the destroy below is awaited for up to its bound, and a hard reset or a successor Start
         // can take the runtime in that window. This retirement owns the runtime only while nothing replaced it since the
         // detach; once superseded it publishes nothing, and its receipt speaks only for ITS OWN engine.
-        const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration };
+        const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration, starts: this.startAcceptanceGeneration };
         const superseded = (): boolean => !this.ownsRetirement(retirement);
         const ownReceipt = (): 'terminal' | 'unconfirmed' => (svc
             ? (svc.didConfirmTermination() ? 'terminal' : 'unconfirmed')
             : (hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal'));
-        if (svc) {
-            this.stopWatchdog();
-            this.stopHeartbeat();
-            const destroying = svc.destroy();
-            const destroyed = await within(destroying);
-            // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside), and a
-            // preparing engine is not in the live-engine registry: only the service's own affirmative result proves it off.
-            if (destroyed !== 'ok' || hasEngineNotConfirmedStopped() || !svc.didConfirmTermination()) {
-                pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
-                // Only a TIMEOUT can still end well: finish this retirement if its destruction later succeeds.
-                if (destroyed === 'timeout') void destroying.then(() => this.completeLateRetirement(retirement, svc, onLateTerminal), () => undefined);
-                return 'unconfirmed';
+        // Codex P2 r4320680220: published until this retirement settles, so a Start accepted meanwhile waits for it.
+        let settleRetirement!: () => void;
+        const settled = new Promise<void>((resolve) => { settleRetirement = resolve; });
+        this.pendingRetirement = settled;
+        const finish = (): void => {
+            if (this.pendingRetirement === settled) this.pendingRetirement = null;
+            settleRetirement();
+        };
+        let lateArmed = false;
+        try {
+            if (svc) {
+                this.stopWatchdog();
+                this.stopHeartbeat();
+                const destroying = svc.destroy();
+                const destroyed = await within(destroying);
+                // A destroy() that RESOLVED can still hide a termination that threw (it is caught and logged inside), and a
+                // preparing engine is not in the live-engine registry: only the service's own affirmative result proves it off.
+                if (destroyed !== 'ok' || hasEngineNotConfirmedStopped() || !svc.didConfirmTermination()) {
+                    pushNativeRuntimeTrace('controller_unmount_retire_unconfirmed', { state: this.state, destroy: destroyed });
+                    // Only a TIMEOUT can still end well: finish this retirement if its destruction later succeeds. It stays
+                    // pending until then, so an accepted Start keeps waiting for it rather than for this bounded return.
+                    if (destroyed === 'timeout') {
+                        lateArmed = true;
+                        void destroying
+                            .then(() => this.completeLateRetirement(retirement, svc, onLateTerminal), () => undefined)
+                            .finally(finish);
+                    }
+                    return 'unconfirmed';
+                }
             }
+            if (superseded()) {
+                pushNativeRuntimeTrace('controller_unmount_retire_superseded', { state: this.state, phase: 'after_destroy' });
+                return ownReceipt();
+            }
+            this.setEngineReady(false);
+            // Codex P2 r4320680220: SCOPED to the retired attempt (its intent was retired at the top, `navigated`), so it can
+            // never retire an accepted successor's intent — the same rule as the late path.
+            await this.transition('TERMINATED', undefined, undefined, RETIRED_ATTEMPT_INTENT);
+            if (superseded()) {
+                pushNativeRuntimeTrace('controller_unmount_retire_superseded', { state: this.state, phase: 'after_terminated' });
+                return ownReceipt();
+            }
+            await this.transition('IDLE');
+            return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
+        } finally {
+            if (!lateArmed) finish();
         }
-        if (superseded()) {
-            pushNativeRuntimeTrace('controller_unmount_retire_superseded', { state: this.state, phase: 'after_destroy' });
-            return ownReceipt();
-        }
-        this.setEngineReady(false);
-        await this.transition('TERMINATED');
-        if (superseded()) {
-            pushNativeRuntimeTrace('controller_unmount_retire_superseded', { state: this.state, phase: 'after_terminated' });
-            return ownReceipt();
-        }
-        await this.transition('IDLE');
-        return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
     }
 
     /**
@@ -5173,7 +5241,10 @@ export class SpeechRuntimeController {
         // covers it.)
         if (!this.ownsRetirement(retirement)) return;
         await this.transition('IDLE');
-        if (this.ownsRetirement(retirement) && this.getState() === 'IDLE' && !hasEngineNotConfirmedStopped()) onLateTerminal?.();
+        // Codex P2 r4320680220 (Sam 1792462080): lease authority is COUNT-based, not pending-based. Once any Start has been
+        // accepted since the detach, the retired take never regains it — not even after that successor settles or cancels.
+        if (this.ownsRetirement(retirement) && this.startAcceptanceGeneration === retirement.starts
+            && this.getState() === 'IDLE' && !hasEngineNotConfirmedStopped()) onLateTerminal?.();
     }
 
     /** The retirement still owns the runtime: no hard reset or new lifecycle (version), no service attached or replaced (generation, service). */
