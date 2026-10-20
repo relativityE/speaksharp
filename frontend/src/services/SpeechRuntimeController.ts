@@ -733,9 +733,9 @@ export class SpeechRuntimeController {
     private retirementAdmissionWaitMs = 10_000;
     /**
      * Sam SOURCE RETURN 1792464541 on bfbb1ed2: a retirement that SETTLED without affirmative proof (a rejected destroy, or
-     * one that resolved while the retired service never confirmed termination) and still owns the runtime. The runtime is
-     * left detached in the retired take's stale state; this keeps that fact until a hard reset or an attached service ends
-     * this retirement's ownership, so a Start meanwhile is refused truthfully rather than absorbed or given a replacement.
+     * one that resolved while the retired service never confirmed termination). The runtime is left detached in the retired
+     * take's stale state; this debt is kept — across repeated unmount cleanups, whose lifecycle churn does not discharge it —
+     * until an explicit hard reset, so a Start meanwhile is refused truthfully rather than absorbed or given a replacement.
      */
     private unresolvedRetirement: { retired: TranscriptionService | null; retirement: RetirementOwnership } | null = null;
     /**
@@ -4354,10 +4354,8 @@ export class SpeechRuntimeController {
             // state would let it build a replacement beside an engine never proven off. Refuse truthfully and retryably. The
             // in-tree service has no later-proof path once its termination failed (`destroy()` is memoized and nulls the
             // strategy), so the recovery is the existing one: a hard reset (reload), which ends this retirement's ownership.
-            const unresolved = this.unresolvedRetirement;
-            if (unresolved && !this.ownsRetirement(unresolved.retirement)) {
-                this.unresolvedRetirement = null; // a hard reset or an attached service ended that retirement's ownership
-            } else if (unresolved && this.service === null && this.getState() !== 'READY' && this.getState() !== 'IDLE') {
+            // Only an explicit hard reset discharges it (Sam 1792467541): lifecycle churn from another cleanup does not.
+            if (this.unresolvedRetirement && this.service === null && this.getState() !== 'READY' && this.getState() !== 'IDLE') {
                 this.refuseStartOnSpentService(intent.token);
                 return;
             }
@@ -4994,6 +4992,9 @@ export class SpeechRuntimeController {
         }
 
         logger.warn({ reason, state: this.state }, '[SpeechRuntimeController] HARD RESET triggered');
+        // Sam 1792467541: an explicit hard reset (reload, take-over, sign-out) is the recovery for an unproven retirement.
+        // Nothing else — not another unmount's lifecycle churn — may discharge that debt.
+        this.unresolvedRetirement = null;
 
         // 1. Monotonic Boundary Cut (FIRST)
         this.lifecycleVersion++;
@@ -5160,6 +5161,13 @@ export class SpeechRuntimeController {
         if (this.state === 'RECORDING' || this.state === 'STOPPING' || this.state === 'FAILED' || this.state === 'FAILED_VISIBLE') {
             await within(this.stopRecording());
         }
+        // Sam 1792467541: an earlier retirement whose engine was never proven off is still outstanding. A repeated cleanup with
+        // nothing attached has nothing of its own to retire, so it must not churn the lifecycle (which would make that debt
+        // look superseded) or report 'terminal' — the caller keeps the lease and says so, as for the first cleanup.
+        if (this.unresolvedRetirement && this.service === null) {
+            pushNativeRuntimeTrace('controller_unmount_retire_unresolved_outstanding', { state: this.state });
+            return 'unconfirmed';
+        }
         const atRest = (): boolean => this.state === 'IDLE' || this.state === 'READY' || this.state === 'TERMINATED' || this.state === 'DOWNLOAD_REQUIRED';
         const preparing = this.state === 'INITIATING' || this.state === 'ENGINE_INITIALIZING' || this.state === 'DOWNLOAD_REQUIRED';
         if (atRest() && !preparing && !hasEngineNotConfirmedStopped()) return 'terminal';
@@ -5189,7 +5197,8 @@ export class SpeechRuntimeController {
         // later Start refuses truthfully (or recovers on later proof) instead of being absorbed by the stale state.
         const finish = (completed: boolean): void => {
             if (this.pendingRetirement === settled) this.pendingRetirement = null;
-            if (!completed && this.ownsRetirement(retirement)) this.unresolvedRetirement = { retired: svc, retirement };
+            // The OLDEST outstanding debt is kept: a later retirement never replaces it.
+            if (!completed && this.ownsRetirement(retirement) && !this.unresolvedRetirement) this.unresolvedRetirement = { retired: svc, retirement };
             settleRetirement();
         };
         let lateArmed = false;
@@ -5230,7 +5239,7 @@ export class SpeechRuntimeController {
             await this.transition('IDLE');
             completed = true;
             this.releaseRetiredLatch(retiredLatch);
-            return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
+            return hasEngineNotConfirmedStopped() || this.unresolvedRetirement ? 'unconfirmed' : 'terminal';
         } finally {
             if (!lateArmed) finish(completed);
         }

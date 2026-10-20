@@ -136,6 +136,7 @@ describe('#1476 — unmount retires the engine before the account lease is relea
     let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
     let engine: ControlledEngine;
     let releaseTakeLeaseOnUnmount: (wasListening: boolean) => Promise<boolean>;
+    let ENGINE_RETIRE_UNCONFIRMED = '';
 
     beforeEach(async () => {
         localStorage.clear();
@@ -157,7 +158,7 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         priv.pendingFullSaveRetry = null;
         useSessionStore.getState().resetSession();
         useSessionStore.getState().setRuntimeState('IDLE');
-        ({ releaseTakeLeaseOnUnmount } = await import('@/hooks/useSessionLifecycle'));
+        ({ releaseTakeLeaseOnUnmount, ENGINE_RETIRE_UNCONFIRMED_MESSAGE: ENGINE_RETIRE_UNCONFIRMED } = await import('@/hooks/useSessionLifecycle'));
     });
     afterEach(() => { vi.clearAllMocks(); lease.release.mockImplementation(async () => undefined); lease.id = null; vi.useRealTimers(); });
 
@@ -1277,6 +1278,44 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(second.outcome(), 'after the reset the next Start is neither refused by the old retirement nor absorbed').toBe('pending');
         expect(engine.initCalls, 'it proceeds into its own preparation').toBeGreaterThan(initsBefore);
         expect(second.ctl.engineSelectionIntentLocked).toBe(true);
+    });
+
+    it('Sam 1792467541: a SECOND unmount after an unproven preparation retirement neither churns the lifecycle nor reports terminal; the next Start is still refused', async () => {
+        await preparingTake();
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        expect(await controller.retireEngineForUnmount(5_000), 'first cleanup: unproven').toBe('unconfirmed');
+        await settle(10);
+        const ctl = controller as unknown as { lifecycleVersion: number; serviceGeneration: number; unresolvedRetirement: unknown };
+        const debt = ctl.unresolvedRetirement;
+        expect(debt, 'precondition: the owned debt').not.toBeNull();
+        const version = ctl.lifecycleVersion;
+        const generation = ctl.serviceGeneration;
+        const stale = controller.getState();
+        engine.terminateGate = null;
+        expect(await controller.retireEngineForUnmount(5_000), 'second cleanup: still no proof — never terminal').toBe('unconfirmed');
+        await settle(10);
+        expect(ctl.lifecycleVersion, 'no lifecycle churn that would look like supersession').toBe(version);
+        expect(ctl.serviceGeneration).toBe(generation);
+        expect(controller.getState(), 'no IDLE published on lifecycle churn alone').toBe(stale);
+        expect(ctl.unresolvedRetirement, 'the original debt is kept').toBe(debt);
+        engine.initGate = null;
+        const initsBefore = engine.initCalls;
+        const b = acceptSuccessor();
+        await expectTruthfulRefusal(b, initsBefore);
+    });
+
+    it('Sam 1792467541: repeated unmount through the real hook after an unproven retirement never releases the lease', async () => {
+        await preparingTake();
+        lease.id = 'lease-A';
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        await expect(releaseTakeLeaseOnUnmount(false), 'first unmount keeps the lease').resolves.toBe(false);
+        engine.terminateGate = null;
+        await expect(releaseTakeLeaseOnUnmount(false), 'second unmount keeps it too').resolves.toBe(false);
+        await settle(20);
+        expect(lease.release, 'no lease release on lifecycle churn alone').not.toHaveBeenCalled();
+        expect(useSessionStore.getState().sttStatus.message).toBe(ENGINE_RETIRE_UNCONFIRMED);
     });
 
     it('lease binding (Sam 1792464541): a successor take that acquired its own lease during the held in-bound destroy is never released by the retired take', async () => {
