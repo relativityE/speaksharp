@@ -1318,6 +1318,48 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(useSessionStore.getState().sttStatus.message).toBe(ENGINE_RETIRE_UNCONFIRMED);
     });
 
+    it('Sam 1792468869: a SECOND unmount while the first retirement\'s destroy is still PENDING returns a bounded unconfirmed without churn; the first completes, once', async () => {
+        const firstLate = vi.fn();
+        const t = await timedOutRetirement('download-required', firstLate); // first: bounded 'unconfirmed', destroy held
+        const ctl = controller as unknown as { lifecycleVersion: number; serviceGeneration: number; pendingRetirement: unknown; unresolvedRetirement: unknown };
+        const pending = ctl.pendingRetirement;
+        expect(pending, 'precondition: the in-flight obligation').not.toBeNull();
+        expect(ctl.unresolvedRetirement, 'precondition: no settled debt yet').toBeNull();
+        const version = ctl.lifecycleVersion;
+        const generation = ctl.serviceGeneration;
+        const stale = controller.getState();
+        const secondLate = vi.fn();
+        expect(await controller.retireEngineForUnmount(100, secondLate), 'still pending at the bound: never terminal').toBe('unconfirmed');
+        expect(ctl.lifecycleVersion, 'no lifecycle churn').toBe(version);
+        expect(ctl.serviceGeneration).toBe(generation);
+        expect(ctl.pendingRetirement, 'the in-flight obligation is preserved, not replaced').toBe(pending);
+        expect(controller.getState(), 'no IDLE without proof').toBe(stale);
+        const transitions: string[] = [];
+        const unsubscribe = useSessionStore.subscribe((st, prev) => { if (st.runtimeState !== prev.runtimeState) transitions.push(st.runtimeState); });
+        t.finishTermination();
+        await settle(60);
+        unsubscribe();
+        expect(transitions, 'the owner-fenced late completion runs exactly once').toEqual(['TERMINATED', 'IDLE']);
+        expect(firstLate, 'the first retirement\'s callback fires once').toHaveBeenCalledTimes(1);
+        expect(secondLate, 'the joining cleanup registers no second completion').not.toHaveBeenCalled();
+        expect(ctl.pendingRetirement).toBeNull();
+    });
+
+    it('Sam 1792468869: through the real hook, a repeated unmount JOINS the in-flight retirement and releases the lease only on its affirmative completion', async () => {
+        const firstLate = vi.fn();
+        lease.id = 'lease-A';
+        const t = await timedOutRetirement('download-required', firstLate);
+        const releasing = releaseTakeLeaseOnUnmount(false); // joins the pending retirement within its bound
+        await settle(10);
+        expect(lease.release, 'nothing released while the destroy is pending').not.toHaveBeenCalled();
+        t.finishTermination();
+        await expect(releasing, 'the joined retirement completed on proof').resolves.toBe(true);
+        await settle(30);
+        expect(controller.getState()).toBe('IDLE');
+        expect(firstLate).toHaveBeenCalledTimes(1);
+        expect(lease.release, 'one release, after affirmative completion').toHaveBeenCalledTimes(1);
+    });
+
     it('lease binding (Sam 1792464541): a successor take that acquired its own lease during the held in-bound destroy is never released by the retired take', async () => {
         await preparingTake();
         lease.id = 'lease-A';

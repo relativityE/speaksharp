@@ -5164,6 +5164,18 @@ export class SpeechRuntimeController {
         // Sam 1792467541: an earlier retirement whose engine was never proven off is still outstanding. A repeated cleanup with
         // nothing attached has nothing of its own to retire, so it must not churn the lifecycle (which would make that debt
         // look superseded) or report 'terminal' — the caller keeps the lease and says so, as for the first cleanup.
+        // Sam 1792468869 — the IN-FLIGHT variant: an earlier retirement's destroy is still pending (its bounded return already
+        // said 'unconfirmed'; its late completion is armed). Nothing attached is not "nothing to do" — JOIN that obligation,
+        // within this call's own bound, rather than churn the lifecycle (which would void its owner-fenced completion). Still
+        // pending at the bound: a bounded 'unconfirmed', and the earlier retirement completes — once — when it can.
+        const inFlight = this.pendingRetirement;
+        if (inFlight && this.service === null) {
+            const joined = await within(inFlight);
+            if (joined !== 'ok' || this.pendingRetirement !== null) {
+                pushNativeRuntimeTrace('controller_unmount_retire_joined_pending', { state: this.state, joined });
+                return 'unconfirmed';
+            }
+        }
         if (this.unresolvedRetirement && this.service === null) {
             pushNativeRuntimeTrace('controller_unmount_retire_unresolved_outstanding', { state: this.state });
             return 'unconfirmed';
