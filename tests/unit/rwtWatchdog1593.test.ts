@@ -329,6 +329,113 @@ describe('#1662 RETURN — single-flight finalization, bound evidence, phase sco
         expect(await w.tick(), 'this run\'s own failure still trips').toMatchObject({ kind: 'save_failed' });
     });
 
+    // Codex P2 r4319876160 (#1671): with an expected release set, this journey's own event that carries NO release stamp is
+    // not attributable to the release under test — it must neither trip the wire nor count as observed, and the record HOLDs.
+    const SHA = 'a'.repeat(40);
+    const observed = async () => ({ runtimeState: 'READY', modelStatus: 'ready', control: 'mic-start', controlEnabled: true }) as DomState;
+    it('Codex P2 r4319876160: an unstamped event never trips or counts when a release is expected, and the record HOLDs', async () => {
+        const h = fakes(observed);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: SHA });
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } }));
+        expect(await w.tick(), 'an unattributable failure does not trip').toBeNull();
+        expect(h.closed).toEqual([]);
+        await w.record(h.receipt as never);
+        expect(h.rows.map((r) => r.verdict), 'unattributable evidence is never a clean PASS').toEqual(['HOLD']);
+    });
+
+    it('Codex P2 r4319876160 controls: stamped with the expected release trips; another release is ignored; no expected release keeps today\'s behaviour', async () => {
+        const own = fakes(observed);
+        const w1 = new JourneyWatchdog({ ...quiet, page: own.page as never, tap: own.tap as never, profile: {}, releaseSha: SHA });
+        own.tap.events.push(sentBy(own.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: SHA, watch: { outcome: 'failed' } }));
+        expect(await w1.tick()).toMatchObject({ kind: 'save_failed' });
+
+        const other = fakes(observed);
+        const w2 = new JourneyWatchdog({ ...quiet, page: other.page as never, tap: other.tap as never, profile: {}, releaseSha: SHA });
+        other.tap.events.push(sentBy(other.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: 'b'.repeat(40), watch: { outcome: 'failed' } }));
+        expect(await w2.tick()).toBeNull();
+        await w2.record(other.receipt as never);
+        expect(other.rows.map((r) => r.verdict), 'another release is simply not this journey\'s evidence').toEqual(['PASS']);
+
+        const unset = fakes(observed);
+        const w3 = new JourneyWatchdog({ ...quiet, page: unset.page as never, tap: unset.tap as never, profile: {}, releaseSha: '' });
+        unset.tap.events.push(sentBy(unset.page, { event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } }));
+        expect(await w3.tick(), 'with no expected release, an unstamped failure still trips').toMatchObject({ kind: 'save_failed' });
+    });
+
+    // Sam 1792452368: the same release rule governs boot binding, the finalization drain and every precedence edge.
+    it('Sam 1792452368: an UNSTAMPED non-watched event never establishes a boot — a stamped fatal from the real boot still trips', async () => {
+        const h = fakes(observed);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: SHA });
+        // A non-watched event with no release stamp arrives first on document 0 from a stale boot …
+        h.tap.events.push(sentBy(h.page, { event: 'cta_clicked', at: Date.now() }, { boot: 'boot-stale', document: 0 }));
+        expect(await w.tick()).toBeNull();
+        // … then the release under test's own fatal, from the boot that really owns document 0.
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: SHA, watch: { outcome: 'failed' } }, { boot: 'boot-real', document: 0 }));
+        expect(await w.tick(), 'the unstamped event did not claim the document for its boot').toMatchObject({ kind: 'save_failed' });
+    });
+
+    it('Sam 1792454447: an UNSTAMPED WATCHED event on another boot never claims the document — the real boot\'s matching fatal still FAILs', async () => {
+        const h = fakes(observed);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: SHA });
+        // A watched, non-fatal event with no release stamp arrives first on document 0 from boot 'unattested' …
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'success' } }, { boot: 'unattested', document: 0 }));
+        expect(await w.tick()).toBeNull();
+        // … then the release under test's own fatal from the boot that really owns document 0.
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: SHA, watch: { outcome: 'failed' } }, { boot: 'real', document: 0 }));
+        expect(await w.tick(), 'the real fatal is not suppressed').toMatchObject({ kind: 'save_failed' });
+        await w.record(h.receipt as never);
+        expect(h.rows.map((r) => r.verdict), 'a true FAIL, not a HOLD').toEqual(['FAIL']);
+    });
+
+    it('PM 1792453024 / Sam 1792453060: a FOREIGN-release non-watched event never establishes a boot — the matching-release fatal still trips', async () => {
+        const h = fakes(observed);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: SHA });
+        h.tap.events.push(sentBy(h.page, { event: 'cta_clicked', at: Date.now(), releaseSha: 'b'.repeat(40) }, { boot: 'boot-old-release', document: 0 }));
+        expect(await w.tick()).toBeNull();
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: SHA, watch: { outcome: 'failed' } }, { boot: 'boot-this-release', document: 0 }));
+        expect(await w.tick(), 'the old release did not claim the document for its boot').toMatchObject({ kind: 'save_failed' });
+        await w.record(h.receipt as never);
+        expect(h.rows.map((r) => r.verdict)).toEqual(['FAIL']);
+    });
+
+    it('Sam 1792452368: matching telemetry + an unstamped event HOLDs; a genuine stamped FAIL keeps precedence over the HOLD', async () => {
+        const mixed = fakes(observed);
+        const w1 = new JourneyWatchdog({ ...quiet, page: mixed.page as never, tap: mixed.tap as never, profile: {}, releaseSha: SHA });
+        mixed.tap.events.push(sentBy(mixed.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: SHA, watch: { outcome: 'success' } }));
+        mixed.tap.events.push(sentBy(mixed.page, { event: 'recording_state', at: Date.now(), watch: { from_state: 'STOPPING', to_state: 'FAILED', failure_code: 'x' } }));
+        expect(await w1.tick()).toBeNull();
+        await w1.record(mixed.receipt as never);
+        expect(mixed.rows.map((r) => r.verdict), 'observed + unattributable is never PASS').toEqual(['HOLD']);
+
+        const fail = fakes(observed);
+        const w2 = new JourneyWatchdog({ ...quiet, page: fail.page as never, tap: fail.tap as never, profile: {}, releaseSha: SHA });
+        fail.tap.events.push(sentBy(fail.page, { event: 'recording_state', at: Date.now(), watch: { from_state: 'STOPPING', to_state: 'FAILED', failure_code: 'x' } }));
+        fail.tap.events.push(sentBy(fail.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: SHA, watch: { outcome: 'failed' } }));
+        expect(await w2.tick()).toMatchObject({ kind: 'save_failed' });
+        await w2.record(fail.receipt as never);
+        expect(fail.rows.map((r) => r.verdict), 'a genuine failure still FAILs').toEqual(['FAIL']);
+    });
+
+    it('Sam 1792452368: an unstamped event arriving in the finalization drain HOLDs; empty string counts as missing', async () => {
+        const h = fakes(observed);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: SHA });
+        expect(await w.tick()).toBeNull();
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: Date.now(), releaseSha: '', watch: { outcome: 'failed' } }));
+        await w.record(h.receipt as never); // arrives after the last tick: only record()'s drain sees it
+        expect(h.rows.map((r) => r.verdict)).toEqual(['HOLD']);
+    });
+
+    it('Sam 1792452368: unwatched-page and pre-run unstamped events stay plain exclusions — no HOLD', async () => {
+        const h = fakes(observed);
+        const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: {}, releaseSha: SHA });
+        const elsewhere = { context: () => ({ close: async () => undefined }), evaluate: observed };
+        h.tap.events.push(sentBy(elsewhere, { event: 'session_save_latency_measured', at: Date.now(), watch: { outcome: 'failed' } }));
+        h.tap.events.push(sentBy(h.page, { event: 'session_save_latency_measured', at: 0, capturedAt: 0, watch: { outcome: 'failed' } }));
+        expect(await w.tick()).toBeNull();
+        await w.record(h.receipt as never);
+        expect(h.rows.map((r) => r.verdict), 'demonstrably not this run: excluded, not held').toEqual(['PASS']);
+    });
+
     it('control 3: an injected fault is excused only inside its phase — a later take\'s failure trips', async () => {
         const h = fakes(async () => null);
         const w = new JourneyWatchdog({ ...quiet, page: h.page as never, tap: h.tap as never, profile: { allowSaveFailed: true } });

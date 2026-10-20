@@ -264,6 +264,8 @@ export class JourneyWatchdog {
     /** Observation accounting: missing observation is reported, never read as a clean journey. */
     private watchedSeen = 0;
     private foreignIgnored = 0;
+    /** Codex P2 r4319876160: this journey's own events that carried no release stamp while one was expected. */
+    private releaseUnattested = 0;
     private domOk = 0;
     private domUnreadable = 0;
     /**
@@ -390,7 +392,7 @@ export class JourneyWatchdog {
      * one document can never bind another. Every event a watched page sends registers here, not only watched ones, so the
      * old boot is known before its unload beacons arrive. Returns whether the event belongs to its document's boot.
      */
-    private bootMatches(e: SentEvent): boolean {
+    private bootMatches(e: SentEvent, bind = true): boolean {
         const source = e as SentEvent & { sourcePage?: object; sourceDocument?: number; sourceDocumentAt?: number };
         if (!source.sourcePage || !e.bootId) return false;
         const ref = (e as SentEvent & { sourceDocumentRef?: DocumentRef }).sourceDocumentRef;
@@ -410,6 +412,8 @@ export class JourneyWatchdog {
         if (boundDocument !== undefined || boundBoot !== undefined) return boundDocument === document && boundBoot === e.bootId;
         const captured = e.capturedAt;
         if (captured === undefined || captured < (source.sourceDocumentAt ?? Number.POSITIVE_INFINITY)) return false;
+        // Sam 1792454447: `bind = false` asks "would this be its document's boot?" without claiming the document.
+        if (!bind) return true;
         this.bootDocument.set(e.bootId, document);
         this.documentBoot.set(document, e.bootId);
         return true;
@@ -424,6 +428,14 @@ export class JourneyWatchdog {
         if (!source.sourcePage || !this.watchedPages.has(source.sourcePage)) return true;
         if (this.o.releaseSha && e.releaseSha && e.releaseSha !== this.o.releaseSha) return true;
         if ((e.capturedAt ?? e.at) < this.started - 1_000) return true;
+        // Codex P2 r4319876160: with a release under test, this journey's own event that carries NO release stamp cannot be
+        // attributed to that release. It may neither trip nor count as observed; record() HOLDs instead of claiming a clean run.
+        // Sam 1792454447: judged BEFORE any boot-claiming mutation — the boot check here never binds, so an unstamped event
+        // cannot claim its document and suppress this release's own later fatal from the real boot.
+        if (this.o.releaseSha && !e.releaseSha) {
+            if (this.bootMatches(e, false)) this.releaseUnattested += 1;
+            return true;
+        }
         return !this.bootMatches(e);
     }
 
@@ -461,8 +473,11 @@ export class JourneyWatchdog {
     /** Judge one event whose document identity is settled; returns its fatal signal, if any. */
     private judge(e: SentEvent, now: number): WatchSignal | null {
         if (!(e.event in WATCHED_FIELDS)) {
-            // Every event a watched page sends establishes its document's boot (never a watched signal itself).
-            if (this.watchedPages.has((e as { sourcePage?: unknown }).sourcePage)) this.bootMatches(e);
+            // Every event a watched page sends establishes its document's boot (never a watched signal itself) — but only an
+            // event attributable to the release under test (Sam 1792452368, PM 1792453024): an unstamped or foreign-release
+            // event never claims a boot, so it cannot make this release's own later evidence look foreign.
+            const attributable = !this.o.releaseSha || e.releaseSha === this.o.releaseSha;
+            if (attributable && this.watchedPages.has((e as { sourcePage?: unknown }).sourcePage)) this.bootMatches(e);
             return null;
         }
         if (this.foreign(e)) { this.foreignIgnored += 1; return null; }
@@ -596,6 +611,7 @@ export class JourneyWatchdog {
         const observation = {
             watchedEvents: this.watchedSeen, foreignIgnored: this.foreignIgnored, domReads: this.domOk, domUnreadable: this.domUnreadable,
             unresolvedIdentity, unprovenPages, unattributedRequests, provenanceConflicts, blindBeacons,
+            releaseUnattested: this.releaseUnattested,
         };
         if (s) {
             receipt.row('fail-early watchdog', 'FAIL',
@@ -606,6 +622,8 @@ export class JourneyWatchdog {
             receipt.row('fail-early watchdog', 'HOLD', `${unresolvedIdentity} event(s) arrived while a navigation was still settling and never resolved to a document, so no clean run is claimed`, observation);
         } else if (unprovenPages > 0 || unattributedRequests > 0 || provenanceConflicts > 0) {
             receipt.row('fail-early watchdog', 'HOLD', `document provenance is incomplete (${unprovenPages} unproven or lost page source(s), ${unattributedRequests} unattributed request(s), ${provenanceConflicts} conflicting pairing(s)), so no clean run is claimed`, observation);
+        } else if (this.releaseUnattested > 0) {
+            receipt.row('fail-early watchdog', 'HOLD', `${this.releaseUnattested} event(s) from this journey carried no release stamp while ${this.o.releaseSha} was expected, so their signals cannot be attributed to the release under test and no clean run is claimed`, observation);
         } else if (blindBeacons > 0) {
             receipt.row('fail-early watchdog', 'HOLD', `${blindBeacons} beacon(s) from a watched page carried a body the browser does not expose, so their signals are unknown and no clean run is claimed`, observation);
         } else if (this.domOk === 0 && this.watchedSeen === 0) {
