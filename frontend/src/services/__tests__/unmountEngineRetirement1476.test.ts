@@ -827,4 +827,94 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(engine.terminateCalls).toBe(terminatedBefore);
         expect(lease.release).toHaveBeenCalledTimes(1);
     });
+
+    /**
+     * Codex P1 r4320483450 (Sam FIX NOW 1792459463): a retirement that began from an ACTIVE take. The bounded stop and the
+     * destroy both exceed the bound; the lifecycle bump cancels the stop's continuation, so the runtime is left in the active
+     * state it retired. A later affirmative destroy must finish THAT retirement exactly once (TERMINATED → IDLE, lease
+     * callback), keep the durable Retry Save, and never act for a successor.
+     *  - `recording`: the real stop path runs and its engine stop never settles (left STOPPING);
+     *  - `failed`: a failure state still holding the engine whose stop is wedged in the queue (left FAILED).
+     */
+    const timedOutActiveRetirement = async (from: 'recording' | 'failed', onLateTerminal: () => void) => {
+        engine.modelCached = true;
+        await controller.startRecording(POLICY as never, []);
+        await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+        const ctl = controller as unknown as { service: { stopTranscription: () => Promise<unknown> }; state: string; pendingFullSaveRetry: unknown; lifecycleVersion: number; serviceGeneration: number };
+        const svc = ctl.service;
+        if (from === 'recording') {
+            vi.spyOn(svc, 'stopTranscription').mockImplementation(() => new Promise(() => undefined));
+        } else {
+            ctl.state = 'FAILED';
+            vi.spyOn(controller, 'stopRecording').mockImplementation(() => new Promise(() => undefined));
+        }
+        const retry = { sessionId: 'sess-retry', marker: 'durable-retry-save' };
+        ctl.pendingFullSaveRetry = retry;
+        let finishTermination!: () => void;
+        engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
+        expect(await controller.retireEngineForUnmount(100, onLateTerminal)).toBe('unconfirmed');
+        const stranded = controller.getState();
+        expect(stranded, 'cleanup is incomplete: the retired active state is held').toBe(from === 'recording' ? 'STOPPING' : 'FAILED');
+        expect(onLateTerminal).not.toHaveBeenCalled();
+        const retirement = { version: ctl.lifecycleVersion, generation: ctl.serviceGeneration };
+        return { ctl, svc, retry, retirement, stranded, finishTermination };
+    };
+
+    it.each(['recording', 'failed'] as const)('Codex P1 r4320483450: %s — stop AND destroy timed out; the late destroy success completes once and keeps the Retry Save', async (from) => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutActiveRetirement(from, onLateTerminal);
+        t.finishTermination();
+        await settle(60);
+        expect(controller.isEngineTerminal()).toBe(true);
+        expect(controller.getState(), `the late success finishes THIS retirement (was ${t.stranded})`).toBe('IDLE');
+        expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+        expect(onLateTerminal, 'the owned lease is released exactly once, after the engine is proven off').toHaveBeenCalledTimes(1);
+        expect(t.ctl.pendingFullSaveRetry, 'the durable Retry Save survives the completion').toBe(t.retry);
+    });
+
+    it('Codex P1 r4320483450: a DUPLICATE late proof for the same retirement publishes nothing and calls back no second time', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutActiveRetirement('recording', onLateTerminal);
+        t.finishTermination();
+        await settle(60);
+        expect(onLateTerminal).toHaveBeenCalledTimes(1);
+        const transitions: string[] = [];
+        const unsubscribe = useSessionStore.subscribe((s, prev) => { if (s.runtimeState !== prev.runtimeState) transitions.push(s.runtimeState); });
+        const late = controller as unknown as { completeLateRetirement: (r: { version: number; generation: number }, svc: unknown, cb: () => void) => Promise<void> };
+        await late.completeLateRetirement(t.retirement, t.svc, onLateTerminal);
+        await settle(10);
+        unsubscribe();
+        expect(transitions, 'an already-completed retirement republishes nothing').toEqual([]);
+        expect(controller.getState()).toBe('IDLE');
+        expect(onLateTerminal).toHaveBeenCalledTimes(1);
+        expect(t.ctl.pendingFullSaveRetry).toBe(t.retry);
+    });
+
+    it('Codex P1 r4320483450: a HARD RESET (lifecycle changed) during the held destroy is never followed by the active retirement\'s TERMINATED/IDLE or callback', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutActiveRetirement('recording', onLateTerminal);
+        await controller.hardResetAwaited('p1-successor');
+        const transitions: string[] = [];
+        const unsubscribe = useSessionStore.subscribe((s, prev) => { if (s.runtimeState !== prev.runtimeState) transitions.push(s.runtimeState); });
+        t.finishTermination();
+        await settle(60);
+        unsubscribe();
+        expect(onLateTerminal, 'the reset owns the page now').not.toHaveBeenCalled();
+        expect(transitions, 'no stale TERMINATED/IDLE from the superseded retirement').toEqual([]);
+    });
+
+    it('Codex P1 r4320483450: a successor ENGINE attached since the retirement (generation changed) is respected — nothing published, no callback', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutActiveRetirement('recording', onLateTerminal);
+        t.ctl.serviceGeneration += 1;
+        const transitions: string[] = [];
+        const unsubscribe = useSessionStore.subscribe((s, prev) => { if (s.runtimeState !== prev.runtimeState) transitions.push(s.runtimeState); });
+        t.finishTermination();
+        await settle(60);
+        unsubscribe();
+        expect(transitions).toEqual([]);
+        expect(controller.getState(), 'the retirement no longer owns the runtime').toBe(t.stranded);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+        expect(t.ctl.pendingFullSaveRetry).toBe(t.retry);
+    });
 });

@@ -5150,7 +5150,11 @@ export class SpeechRuntimeController {
         if (this.lifecycleVersion !== retirement.version || this.serviceGeneration !== retirement.generation || this.service !== null) return;
         // Affirmative proof from the retiring service itself: its termination resolved (a caught rejection is not proof).
         if (!retired.didConfirmTermination() || hasEngineNotConfirmedStopped()) return;
-        if (this.state !== 'INITIATING' && this.state !== 'ENGINE_INITIALIZING' && this.state !== 'DOWNLOAD_REQUIRED') return;
+        // Codex P1 r4320483450: a retirement that began from RECORDING/STOPPING/FAILED is left there when its bounded stop
+        // also timed out (the lifecycle bump cancels that stop's continuation), so those states are completed too — exactly
+        // the states the in-bound path completes. The ownership tuple above, not the state, proves no successor took over.
+        const retiredStates: ReadonlyArray<string> = ['INITIATING', 'ENGINE_INITIALIZING', 'DOWNLOAD_REQUIRED', 'RECORDING', 'STOPPING', 'FAILED', 'FAILED_VISIBLE'];
+        if (!retiredStates.includes(this.state)) return;
         pushNativeRuntimeTrace('controller_unmount_retire_late_terminal', { state: this.state });
         this.setEngineReady(false);
         await this.transition('TERMINATED');
