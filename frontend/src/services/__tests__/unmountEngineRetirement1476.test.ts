@@ -102,7 +102,10 @@ class ControlledEngine {
     }
     /** True models an engine whose stop REJECTS while it may still be running. */
     public stopRejects = false;
+    /** When set, the engine's stop waits on this promise (held, then released by the test). */
+    public stopGate: Promise<void> | null = null;
     async stop() {
+        if (this.stopGate) await this.stopGate;
         if (this.stopRejects) throw new Error('engine did not stop');
     }
     async resume() { /* no-op */ }
@@ -1082,5 +1085,214 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expectRetirementSettledBeforeSuccessor(seen);
         expect(engine.initCalls, 'the successor then prepares its own engine').toBeGreaterThan(initsBefore);
         expect(b.ctl.engineSelectionIntentLocked).toBe(true);
+    });
+
+    /**
+     * Sam SOURCE RETURN 1792464541 on bfbb1ed2: a retirement that SETTLES WITHOUT AFFIRMATIVE PROOF leaves the runtime detached
+     * in the retired take's stale state. A Start after that settlement must be refused truthfully and retryably — never
+     * absorbed as a resolved no-op and never handed a replacement engine — until the retired service itself proves it is off.
+     */
+    const preparingTake = async () => {
+        engine.downloadEnabled = false;
+        await controller.warmUp('private');
+        const initialCalls = engine.initCalls;
+        engine.initGate = new Promise<void>(() => undefined);
+        void controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(engine.initCalls).toBeGreaterThan(initialCalls));
+        await settle();
+    };
+    const expectTruthfulRefusal = async (b: ReturnType<typeof acceptSuccessor>, initsBefore: number) => {
+        await vi.waitFor(() => expect(b.outcome()).not.toBe('pending'), { timeout: 3_000 });
+        expect(b.outcome(), 'refused truthfully and retryably — not absorbed as a resolved no-op').toBe('rejected:PREVIOUS_TAKE_SERVICE_NOT_RETIRED');
+        expect(intentApi.pendingRecordingIntent()).toBeNull();
+        expect(b.ctl.engineSelectionIntentLocked, 'the refused Start releases its own lock').toBe(false);
+        expect(b.ctl.service, 'no replacement service').toBeNull();
+        expect(engine.initCalls, 'no replacement engine').toBe(initsBefore);
+    };
+
+    it('SOURCE RETURN 1792464541 (1) in-bound: terminate REJECTS inside destroy (destroy resolves, no proof) — a later Start is refused truthfully, no replacement', async () => {
+        await preparingTake();
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        expect(await controller.retireEngineForUnmount(5_000)).toBe('unconfirmed');
+        await settle(10);
+        const stale = controller.getState();
+        expect(['ENGINE_INITIALIZING', 'DOWNLOAD_REQUIRED'], 'precondition: detached in the retired take\'s stale preparation').toContain(stale);
+        engine.initGate = null;
+        const initsBefore = engine.initCalls;
+        const b = acceptSuccessor();
+        await expectTruthfulRefusal(b, initsBefore);
+        expect(controller.getState(), 'the stale state is not overwritten without proof').toBe(stale);
+    });
+
+    it('SOURCE RETURN 1792464541 (1) late: the timed-out retirement\'s termination later REJECTS — a later Start is refused truthfully', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        t.failTermination(new Error('worker would not terminate'));
+        await settle(60);
+        engine.initGate = null;
+        const initsBefore = engine.initCalls;
+        const b = acceptSuccessor();
+        await expectTruthfulRefusal(b, initsBefore);
+        expect(onLateTerminal).not.toHaveBeenCalled();
+    });
+
+    it('SOURCE RETURN 1792464541 (2) in-bound: destroy() itself REJECTS — a later Start is refused truthfully, no replacement', async () => {
+        await preparingTake();
+        const svc = (controller as unknown as { service: { destroy: () => Promise<void> } }).service;
+        vi.spyOn(svc, 'destroy').mockRejectedValue(new Error('destroy failed'));
+        expect(await controller.retireEngineForUnmount(5_000)).toBe('unconfirmed');
+        await settle(10);
+        engine.initGate = null;
+        const initsBefore = engine.initCalls;
+        const b = acceptSuccessor();
+        await expectTruthfulRefusal(b, initsBefore);
+    });
+
+    it('SOURCE RETURN 1792464541 (2) late: a timed-out destroy() that later REJECTS — a later Start is refused truthfully', async () => {
+        await preparingTake();
+        const svc = (controller as unknown as { service: { destroy: () => Promise<void> } }).service;
+        let reject!: (e: Error) => void;
+        vi.spyOn(svc, 'destroy').mockImplementation(() => new Promise<void>((_, r) => { reject = r; }));
+        expect(await controller.retireEngineForUnmount(100)).toBe('unconfirmed');
+        reject(new Error('destroy failed'));
+        await settle(60);
+        engine.initGate = null;
+        const initsBefore = engine.initCalls;
+        const b = acceptSuccessor();
+        await expectTruthfulRefusal(b, initsBefore);
+    });
+
+    it('SOURCE RETURN 1792464541: detached FAILED take (never recorded: init succeeded, engine start threw) — the unproven engine keeps every Start gate closed; no replacement', async () => {
+        // From FAILED, the retirement's own bounded stop runs the failure path, which detaches and destroys the service; its
+        // termination rejects. The retirement then has no service of its own and settles, but the tab's live-engine registry
+        // still lists the unproven engine — which is exactly what the product's Start gate (useSessionLifecycle: isEngineTerminal
+        // / confirmEngineShutdown, before any controller Start) refuses on. The controller's own marker covers the other case:
+        // a retirement that detached its OWN unproven service (including a preparing engine absent from the registry).
+        engine.modelCached = true;
+        engine.failStart = new Error('engine start failed');
+        await controller.startRecording(POLICY as never, []).catch(() => undefined);
+        await vi.waitFor(() => expect(['FAILED', 'FAILED_VISIBLE']).toContain(controller.getState()), { timeout: 5_000 });
+        expect((controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved, 'precondition: nothing was recorded').toBe(false);
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        expect(await controller.retireEngineForUnmount(100)).toBe('unconfirmed');
+        await settle(10);
+        engine.failStart = null;
+        engine.terminateGate = null;
+        expect(controller.isEngineTerminal(), 'the unproven engine is still on record').toBe(false);
+        expect(await controller.confirmEngineShutdown(150), 'the Start gate\'s bounded proof attempt fails: the Start is refused before any engine work').toBe('unconfirmed');
+    });
+
+    /** A take recording, then an unmount whose bounded stop never settles: the stop armed the finalization latch. */
+    const recordingWithHeldStop = async () => {
+        engine.modelCached = true;
+        await controller.startRecording(POLICY as never, []);
+        await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+        const ctl = controller as unknown as { service: { stopTranscription: () => Promise<unknown> }; finalizingOwner: unknown; pendingFullSaveRetry: unknown };
+        vi.spyOn(ctl.service, 'stopTranscription').mockImplementation(() => new Promise(() => undefined));
+        return ctl;
+    };
+    const nextStart = async () => {
+        const b = acceptSuccessor();
+        await settle(30);
+        expect(b.outcome(), 'never refused by the retired take\'s orphaned finalization latch').not.toBe('rejected:START_REFUSED_FINALIZATION_IN_PROGRESS');
+        return b;
+    };
+
+    it('latch (P1 additional defect, Sam 1792465458): IN-BOUND completion from STOPPING releases the retired take\'s latch; the next Start meets only the legitimate unsaved-work guard', async () => {
+        const ctl = await recordingWithHeldStop();
+        engine.terminateGate = null; // destruction succeeds inside the bound
+        expect(await controller.retireEngineForUnmount(100)).toBe('terminal');
+        await settle(20);
+        expect(controller.getState()).toBe('IDLE');
+        expect(useSessionStore.getState().isTranscriptFinalizing, 'the orphaned latch is released on proof').toBe(false);
+        expect(ctl.finalizingOwner).toBeNull();
+        // The existing in-bound 'terminal' path also resolves the unsaved-recording flag (pre-existing; unchanged here), so no
+        // #1033 guard applies and the next Start genuinely records.
+        const b = await nextStart();
+        expect(b.intent, 'the next Start was accepted').not.toBeNull();
+        await vi.waitFor(() => expect(controller.getState()).toBe('RECORDING'), { timeout: 5_000 });
+    });
+
+    it('latch (P1 additional defect): LATE completion from STOPPING releases the retired take\'s latch and keeps the Retry Save; the next Start meets only the legitimate guard', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutActiveRetirement('recording', onLateTerminal);
+        expect(useSessionStore.getState().isTranscriptFinalizing, 'precondition: the cancelled stop armed the latch').toBe(true);
+        t.finishTermination();
+        await settle(60);
+        expect(controller.getState()).toBe('IDLE');
+        expect(useSessionStore.getState().isTranscriptFinalizing, 'released on the late proof').toBe(false);
+        expect(t.ctl.pendingFullSaveRetry, 'durable Retry Save untouched').toBe(t.retry);
+        const b = await nextStart();
+        // The pending Retry Save keeps the legitimate #1033 guard: refused visibly, before any intent — not the stale latch.
+        expect(useSessionStore.getState().sttStatus.message).toBe('Finish saving your previous recording before starting a new one.');
+        expect(b.intent).toBeNull();
+    });
+
+    it('latch CONTROL: a latch armed by ANOTHER take before the late completion is never released by the retirement', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutActiveRetirement('recording', onLateTerminal);
+        const ctl = controller as unknown as { finalizingOwner: unknown };
+        // A different take's latch (strict identity differs) — the retirement must not treat it as the retired take's.
+        const other = { lifecycleVersion: 9_999, serviceGeneration: 9_999, service: null };
+        ctl.finalizingOwner = other;
+        useSessionStore.getState().setTranscriptFinalizing(true);
+        t.finishTermination();
+        await settle(60);
+        expect(ctl.finalizingOwner, 'another take\'s latch is untouched').toBe(other);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(true);
+    });
+
+    it('latch: an UNPROVEN retirement releases nothing — the latch stays until the stop\'s own bound or proof', async () => {
+        const ctl = await recordingWithHeldStop();
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        expect(await controller.retireEngineForUnmount(100)).toBe('unconfirmed');
+        await settle(20);
+        expect(useSessionStore.getState().isTranscriptFinalizing, 'no affirmative proof: no latch release').toBe(true);
+        expect(ctl.finalizingOwner).not.toBeNull();
+        // Characterization: the in-tree service has no later proof once its termination failed (destroy() is memoized and
+        // has nulled the strategy), so the unresolved marker holds until a hard reset.
+        const retired = (controller as unknown as { unresolvedRetirement: { retired: { didConfirmTermination: () => boolean } } | null }).unresolvedRetirement;
+        expect(retired?.retired.didConfirmTermination()).toBe(false);
+    });
+
+    it('SOURCE RETURN 1792464541: RECOVERY (never-recorded take) — the unresolved retirement refuses until a hard reset ends its ownership; then the next Start proceeds', async () => {
+        await preparingTake();
+        engine.terminateGate = Promise.reject(new Error('worker would not terminate'));
+        engine.terminateGate.catch(() => undefined);
+        expect(await controller.retireEngineForUnmount(5_000)).toBe('unconfirmed');
+        await settle(10);
+        engine.initGate = null;
+        engine.terminateGate = null;
+        const initsBefore = engine.initCalls;
+        const first = acceptSuccessor();
+        await expectTruthfulRefusal(first, initsBefore);
+        await controller.hardResetAwaited('user-reload');
+        await settle(10);
+        engine.initGate = new Promise<void>(() => undefined);
+        const second = acceptSuccessor();
+        await settle(60);
+        expect(second.outcome(), 'after the reset the next Start is neither refused by the old retirement nor absorbed').toBe('pending');
+        expect(engine.initCalls, 'it proceeds into its own preparation').toBeGreaterThan(initsBefore);
+        expect(second.ctl.engineSelectionIntentLocked).toBe(true);
+    });
+
+    it('lease binding (Sam 1792464541): a successor take that acquired its own lease during the held in-bound destroy is never released by the retired take', async () => {
+        await preparingTake();
+        lease.id = 'lease-A';
+        let finishTermination!: () => void;
+        engine.terminateGate = new Promise<void>((resolve) => { finishTermination = resolve; });
+        const releasing = releaseTakeLeaseOnUnmount(false);
+        await settle();
+        lease.id = 'lease-B'; // the returning page acquired the successor's lease before its Start
+        engine.terminateGate = null;
+        const b = acceptSuccessor();
+        finishTermination();
+        await expect(releasing, 'a newer take owns the lease now').resolves.toBe(false);
+        await settle(30);
+        expect(lease.release, 'the retired take never releases the successor\'s lease').not.toHaveBeenCalled();
+        expect(b.outcome()).not.toMatch(/teardown|RECORDING_INTENT_RETIRED/);
     });
 });

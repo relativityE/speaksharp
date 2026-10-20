@@ -183,6 +183,8 @@ type ProgressCompletionContext =
     | { mode: 'unknown' };
 
 type RichMetricsPayload = Parameters<typeof updateSession>[1];
+/** The take identity a finalization latch is armed with; the only fields `releaseFinalizingIfOwner` compares. */
+type LatchOwner = Pick<StopAuthority, 'lifecycleVersion' | 'serviceGeneration' | 'service'>;
 /** What an engine retirement captured at detach: lifecycle version, service generation and accepted-Start count. */
 type RetirementOwnership = { version: number; generation: number; starts: number };
 /** Names the already-retired attempt to a retirement's TERMINATED, so it retires no successor's pending intent. */
@@ -459,7 +461,7 @@ export class SpeechRuntimeController {
     private releaseFinalizingIfOwner(
         reason: string,
         capturedOwnerVersion: number | null = null,
-        capturedOwner: StopAuthority | null = null,
+        capturedOwner: LatchOwner | null = null,
     ): boolean {
         /**
          * THE COMPARISON IS AGAINST THE CAPTURED OWNER, NOT THE LIVE LIFECYCLE.
@@ -729,6 +731,13 @@ export class SpeechRuntimeController {
     private pendingRetirement: Promise<void> | null = null;
     /** How long an accepted Start waits for a pending retirement before refusing truthfully (retryable). */
     private retirementAdmissionWaitMs = 10_000;
+    /**
+     * Sam SOURCE RETURN 1792464541 on bfbb1ed2: a retirement that SETTLED without affirmative proof (a rejected destroy, or
+     * one that resolved while the retired service never confirmed termination) and still owns the runtime. The runtime is
+     * left detached in the retired take's stale state; this keeps that fact until a hard reset or an attached service ends
+     * this retirement's ownership, so a Start meanwhile is refused truthfully rather than absorbed or given a replacement.
+     */
+    private unresolvedRetirement: { retired: TranscriptionService | null; retirement: RetirementOwnership } | null = null;
     /**
      * #1258 — services that have been admitted to a take. A service runs ONE take: the next Start never
      * reuses one, whatever path left it attached (see `startRecording`). Weak, so a retired service is not
@@ -4335,12 +4344,22 @@ export class SpeechRuntimeController {
                     if (this.currentRecordingId === recordingId) this.releaseRefusedStartLock();
                     return;
                 }
-                const after = this.getState(); // re-read: the retirement changed it while this Start waited
-                const settledToRest = after === 'IDLE' || after === 'READY' || after === 'TERMINATED';
-                if (waited === 'timeout' || !settledToRest || this.service !== null || hasEngineNotConfirmedStopped()) {
+                if (waited === 'timeout') {
                     this.refuseStartOnSpentService(intent.token);
                     return;
                 }
+            }
+            // Sam SOURCE RETURN 1792464541 — A RETIREMENT THAT SETTLED WITHOUT PROOF IS NOT A RETIRED ENGINE. It left the runtime
+            // detached in the retired take's stale state; the no-op branch below would absorb this accepted click, and a FAILED
+            // state would let it build a replacement beside an engine never proven off. Refuse truthfully and retryably. The
+            // in-tree service has no later-proof path once its termination failed (`destroy()` is memoized and nulls the
+            // strategy), so the recovery is the existing one: a hard reset (reload), which ends this retirement's ownership.
+            const unresolved = this.unresolvedRetirement;
+            if (unresolved && !this.ownsRetirement(unresolved.retirement)) {
+                this.unresolvedRetirement = null; // a hard reset or an attached service ended that retirement's ownership
+            } else if (unresolved && this.service === null && this.getState() !== 'READY' && this.getState() !== 'IDLE') {
+                this.refuseStartOnSpentService(intent.token);
+                return;
             }
 
             if (this.state === 'FAILED_VISIBLE' || this.state === 'TERMINATED') {
@@ -5155,6 +5174,9 @@ export class SpeechRuntimeController {
         // can take the runtime in that window. This retirement owns the runtime only while nothing replaced it since the
         // detach; once superseded it publishes nothing, and its receipt speaks only for ITS OWN engine.
         const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration, starts: this.startAcceptanceGeneration };
+        // The retired take's finalization latch, if its stop armed one: a cancelled stop never reaches its own release, so
+        // the retirement releases EXACTLY that latch when it completes — never one a newer take armed (strict identity).
+        const retiredLatch = this.finalizingOwner;
         const superseded = (): boolean => !this.ownsRetirement(retirement);
         const ownReceipt = (): 'terminal' | 'unconfirmed' => (svc
             ? (svc.didConfirmTermination() ? 'terminal' : 'unconfirmed')
@@ -5163,11 +5185,15 @@ export class SpeechRuntimeController {
         let settleRetirement!: () => void;
         const settled = new Promise<void>((resolve) => { settleRetirement = resolve; });
         this.pendingRetirement = settled;
-        const finish = (): void => {
+        // Settled WITHOUT reaching its own IDLE while it still owns the runtime: keep that as an unresolved retirement, so a
+        // later Start refuses truthfully (or recovers on later proof) instead of being absorbed by the stale state.
+        const finish = (completed: boolean): void => {
             if (this.pendingRetirement === settled) this.pendingRetirement = null;
+            if (!completed && this.ownsRetirement(retirement)) this.unresolvedRetirement = { retired: svc, retirement };
             settleRetirement();
         };
         let lateArmed = false;
+        let completed = false;
         try {
             if (svc) {
                 this.stopWatchdog();
@@ -5183,8 +5209,8 @@ export class SpeechRuntimeController {
                     if (destroyed === 'timeout') {
                         lateArmed = true;
                         void destroying
-                            .then(() => this.completeLateRetirement(retirement, svc, onLateTerminal), () => undefined)
-                            .finally(finish);
+                            .then(() => this.completeLateRetirement(retirement, svc, onLateTerminal, retiredLatch), () => false)
+                            .then((done) => finish(done), () => finish(false));
                     }
                     return 'unconfirmed';
                 }
@@ -5202,9 +5228,11 @@ export class SpeechRuntimeController {
                 return ownReceipt();
             }
             await this.transition('IDLE');
+            completed = true;
+            this.releaseRetiredLatch(retiredLatch);
             return hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal';
         } finally {
-            if (!lateArmed) finish();
+            if (!lateArmed) finish(completed);
         }
     }
 
@@ -5217,15 +5245,16 @@ export class SpeechRuntimeController {
      * and an empty registry are not proof), and the runtime still the preparation it retired. A rejected or still-hung
      * termination completes nothing, and a successor's runtime, finalization or lease is never touched.
      */
-    private async completeLateRetirement(retirement: RetirementOwnership, retired: TranscriptionService, onLateTerminal?: () => void): Promise<void> {
-        if (!this.ownsRetirement(retirement)) return;
+    /** Resolves true only when THIS retirement reached its own IDLE; false when it published nothing or stood down. */
+    private async completeLateRetirement(retirement: RetirementOwnership, retired: TranscriptionService, onLateTerminal?: () => void, retiredLatch: LatchOwner | null = null): Promise<boolean> {
+        if (!this.ownsRetirement(retirement)) return false;
         // Affirmative proof from the retiring service itself: its termination resolved (a caught rejection is not proof).
-        if (!retired.didConfirmTermination() || hasEngineNotConfirmedStopped()) return;
+        if (!retired.didConfirmTermination() || hasEngineNotConfirmedStopped()) return false;
         // Codex P1 r4320483450: a retirement that began from RECORDING/STOPPING/FAILED is left there when its bounded stop
         // also timed out (the lifecycle bump cancels that stop's continuation), so those states are completed too — exactly
         // the states the in-bound path completes. The ownership tuple above, not the state, proves no successor took over.
         const retiredStates: ReadonlyArray<string> = ['INITIATING', 'ENGINE_INITIALIZING', 'DOWNLOAD_REQUIRED', 'RECORDING', 'STOPPING', 'FAILED', 'FAILED_VISIBLE'];
-        if (!retiredStates.includes(this.state)) return;
+        if (!retiredStates.includes(this.state)) return false;
         pushNativeRuntimeTrace('controller_unmount_retire_late_terminal', { state: this.state });
         this.setEngineReady(false);
         // Codex P2 r4320680220 (Sam SOURCE RETURN 1792461197): a successor Start is ACCEPTED synchronously — selection lock
@@ -5239,12 +5268,27 @@ export class SpeechRuntimeController {
         // owns the runtime now — recheck this retirement's tuple before publishing anything else. (A Start accepted in that
         // window resets TERMINATED → IDLE and attaches its service in the same synchronous run, so the generation check
         // covers it.)
-        if (!this.ownsRetirement(retirement)) return;
+        if (!this.ownsRetirement(retirement)) return false;
         await this.transition('IDLE');
+        if (this.ownsRetirement(retirement)) this.releaseRetiredLatch(retiredLatch);
         // Codex P2 r4320680220 (Sam 1792462080): lease authority is COUNT-based, not pending-based. Once any Start has been
         // accepted since the detach, the retired take never regains it — not even after that successor settles or cancels.
         if (this.ownsRetirement(retirement) && this.startAcceptanceGeneration === retirement.starts
             && this.getState() === 'IDLE' && !hasEngineNotConfirmedStopped()) onLateTerminal?.();
+        return true;
+    }
+
+    /**
+     * Found 2026-10-20 03:01 UTC, Sam 1792465458: a retirement that COMPLETED on affirmative proof (its own IDLE, ownership
+     * unchanged) releases the retired take's finalization latch. The retirement's lifecycle bump fenced that take's stop
+     * continuation, so only its hung-stop timeout would ever release it; until then every Start was refused as "finalization
+     * in progress" while the runtime already reported IDLE. Released only through the strict captured-owner identity, so a
+     * latch any other take armed is never touched; an UNPROVEN retirement releases nothing. Durable recovery state and the
+     * unsaved-recording guard are not touched.
+     */
+    private releaseRetiredLatch(retiredLatch: LatchOwner | null): void {
+        if (!retiredLatch || this.finalizingOwner !== retiredLatch) return;
+        this.releaseFinalizingIfOwner('engine_retirement_completed', retiredLatch.lifecycleVersion, retiredLatch);
     }
 
     /** The retirement still owns the runtime: no hard reset or new lifecycle (version), no service attached or replaced (generation, service). */
