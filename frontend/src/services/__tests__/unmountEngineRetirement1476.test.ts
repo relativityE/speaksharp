@@ -917,4 +917,107 @@ describe('#1476 — unmount retires the engine before the account lease is relea
         expect(onLateTerminal).not.toHaveBeenCalled();
         expect(t.ctl.pendingFullSaveRetry).toBe(t.retry);
     });
+
+    /**
+     * Codex P2 r4320680220 (Sam SOURCE RETURN 1792461197): a successor Start is ACCEPTED synchronously — selection lock and
+     * intent minted — before any queued work attaches a service, so lifecycle version, service generation and service all
+     * still match the old retirement. Whichever side of the late proof it lands on, the retirement must never retire the
+     * successor's intent or lock, never publish IDLE over a successor that has moved the runtime, and never run the retired
+     * take's lease callback while the successor is pending.
+     */
+    const acceptSuccessor = () => {
+        const ctl = controller as unknown as { service: unknown; engineSelectionIntentLocked: boolean };
+        let outcome = 'pending';
+        void controller.startRecording(POLICY as never, []).then(() => { outcome = 'resolved'; }, (e: Error) => { outcome = `rejected:${e.message}`; });
+        return { ctl, intent: intentApi.pendingRecordingIntent(), locked: ctl.engineSelectionIntentLocked, outcome: () => outcome };
+    };
+    /** Runs `before` immediately BEFORE the late retirement's TERMINATED, and `inside` right after it (before IDLE). */
+    const aroundLateTerminated = (hooks: { before?: () => void; inside?: () => void }) => {
+        const ctl = controller as unknown as { transition: (state: string, ...rest: unknown[]) => Promise<void> };
+        const original = ctl.transition.bind(controller);
+        const seen: string[] = [];
+        let armed = true;
+        vi.spyOn(ctl, 'transition').mockImplementation(async (state: string, ...rest: unknown[]) => {
+            const first = state === 'TERMINATED' && armed;
+            if (first) { armed = false; hooks.before?.(); }
+            await original(state, ...rest);
+            seen.push(state);
+            if (first) hooks.inside?.();
+        });
+        return seen;
+    };
+
+    it.each(['initializing', 'download-required'] as const)('Codex P2 r4320680220: %s — a Start accepted just BEFORE the late TERMINATED keeps its intent and lock, gets no stale IDLE or lease callback, and proceeds', async (phase) => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement(phase, onLateTerminal);
+        engine.initGate = new Promise<void>(() => undefined); // the successor parks in its own preparation
+        const initsBefore = engine.initCalls;
+        let b: ReturnType<typeof acceptSuccessor> | null = null;
+        const seen = aroundLateTerminated({ before: () => { b = acceptSuccessor(); } });
+        t.finishTermination();
+        await settle(60);
+        expect(b, 'the successor was accepted').not.toBeNull();
+        expect(b!.intent, 'precondition: the successor minted its intent').not.toBeNull();
+        expect(b!.locked, 'precondition: the successor took the selection lock').toBe(true);
+        expect(b!.outcome(), 'the scoped TERMINATED never rejects the successor').not.toMatch(/teardown|RECORDING_INTENT_RETIRED/);
+        expect(seen.slice(seen.indexOf('TERMINATED') + 1), 'no IDLE from the stale retirement after the successor moved the runtime').not.toContain('IDLE');
+        expect(onLateTerminal, 'no lease callback for a runtime the successor has claimed').not.toHaveBeenCalled();
+        expect(engine.initCalls, 'the successor proceeds into its own preparation once the old engine is off').toBeGreaterThan(initsBefore);
+        expect(b!.ctl.engineSelectionIntentLocked, 'the successor still holds the selection lock').toBe(true);
+    });
+
+    it('Codex P2 r4320680220 CONTROL: a Start accepted INSIDE the late TERMINATED→IDLE window owns the runtime — no stale IDLE, no callback, it proceeds', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        engine.initGate = new Promise<void>(() => undefined);
+        const initsBefore = engine.initCalls;
+        let b: ReturnType<typeof acceptSuccessor> | null = null;
+        const seen = aroundLateTerminated({ inside: () => { b = acceptSuccessor(); } });
+        t.finishTermination();
+        await settle(60);
+        expect(b!.intent, 'precondition: the successor minted its intent inside the window').not.toBeNull();
+        expect(b!.outcome()).not.toMatch(/teardown|RECORDING_INTENT_RETIRED/);
+        expect(seen.slice(seen.indexOf('TERMINATED') + 1), 'the retirement stops after its TERMINATED').not.toContain('IDLE');
+        expect(onLateTerminal).not.toHaveBeenCalled();
+        expect(engine.initCalls, 'the successor proceeds from TERMINATED').toBeGreaterThan(initsBefore);
+        expect(b!.ctl.engineSelectionIntentLocked).toBe(true);
+    });
+
+    it('Codex P2 r4320680220 (characterization): a Start pressed in the SAME tick the late destroy resolves is absorbed by its own queued no-op first — the retirement then still completes once, never stuck', async () => {
+        // The successor's queued task runs before the late proof: it sees the retired take's preparation state and takes the
+        // existing "a Start during a running take is a resolved no-op" branch, releasing its own intent and lock. With no
+        // successor pending, the retirement is still the owner and finishes the runtime. (Whether such a Start should WAIT
+        // for the retirement instead is a Start-admission question outside this fix.)
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        engine.initGate = new Promise<void>(() => undefined);
+        t.finishTermination();
+        const b = acceptSuccessor();
+        await settle(60);
+        expect(b.outcome(), 'absorbed as a resolved no-op, not rejected by the retirement').toBe('resolved');
+        expect(controller.getState(), 'never left in the retired preparation state').toBe('IDLE');
+        expect(onLateTerminal).toHaveBeenCalledTimes(1);
+        expect(b.ctl.engineSelectionIntentLocked).toBe(false);
+    });
+
+    it('Codex P2 r4320680220 CONTROL: a Start accepted while the late IDLE transition is in flight gets no lease callback from the retired take, and proceeds', async () => {
+        const onLateTerminal = vi.fn();
+        const t = await timedOutRetirement('download-required', onLateTerminal);
+        engine.initGate = new Promise<void>(() => undefined);
+        const initsBefore = engine.initCalls;
+        const ctl = controller as unknown as { transition: (state: string, ...rest: unknown[]) => Promise<void> };
+        const original = ctl.transition.bind(controller);
+        let b: ReturnType<typeof acceptSuccessor> | null = null;
+        let armed = true;
+        vi.spyOn(ctl, 'transition').mockImplementation(async (state: string, ...rest: unknown[]) => {
+            await original(state, ...rest);
+            if (state === 'IDLE' && armed) { armed = false; b = acceptSuccessor(); }
+        });
+        t.finishTermination();
+        await settle(60);
+        expect(b!.intent, 'precondition: the successor minted its intent as the retirement reached IDLE').not.toBeNull();
+        expect(onLateTerminal, 'the retired take must not release the lease the accepted successor is about to claim').not.toHaveBeenCalled();
+        expect(b!.outcome()).not.toMatch(/teardown|RECORDING_INTENT_RETIRED/);
+        expect(engine.initCalls, 'the successor proceeds from the truthful IDLE').toBeGreaterThan(initsBefore);
+    });
 });

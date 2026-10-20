@@ -183,6 +183,10 @@ type ProgressCompletionContext =
     | { mode: 'unknown' };
 
 type RichMetricsPayload = Parameters<typeof updateSession>[1];
+/** What an engine retirement captured at detach: lifecycle version and service generation. */
+type RetirementOwnership = { version: number; generation: number };
+/** Names the already-retired attempt to a retirement's TERMINATED, so it retires no successor's pending intent. */
+const RETIRED_ATTEMPT_INTENT = 'retired-engine-attempt';
 type ProgressMetricsState = {
     /** Exact immutable payload calculated for this recording, or null when recovery cannot prove it. */
     payload: RichMetricsPayload | null;
@@ -5104,8 +5108,7 @@ export class SpeechRuntimeController {
         // can take the runtime in that window. This retirement owns the runtime only while nothing replaced it since the
         // detach; once superseded it publishes nothing, and its receipt speaks only for ITS OWN engine.
         const retirement = { version: this.lifecycleVersion, generation: this.serviceGeneration };
-        const superseded = (): boolean => this.lifecycleVersion !== retirement.version
-            || this.serviceGeneration !== retirement.generation || this.service !== null;
+        const superseded = (): boolean => !this.ownsRetirement(retirement);
         const ownReceipt = (): 'terminal' | 'unconfirmed' => (svc
             ? (svc.didConfirmTermination() ? 'terminal' : 'unconfirmed')
             : (hasEngineNotConfirmedStopped() ? 'unconfirmed' : 'terminal'));
@@ -5146,8 +5149,8 @@ export class SpeechRuntimeController {
      * and an empty registry are not proof), and the runtime still the preparation it retired. A rejected or still-hung
      * termination completes nothing, and a successor's runtime, finalization or lease is never touched.
      */
-    private async completeLateRetirement(retirement: { version: number; generation: number }, retired: TranscriptionService, onLateTerminal?: () => void): Promise<void> {
-        if (this.lifecycleVersion !== retirement.version || this.serviceGeneration !== retirement.generation || this.service !== null) return;
+    private async completeLateRetirement(retirement: RetirementOwnership, retired: TranscriptionService, onLateTerminal?: () => void): Promise<void> {
+        if (!this.ownsRetirement(retirement)) return;
         // Affirmative proof from the retiring service itself: its termination resolved (a caught rejection is not proof).
         if (!retired.didConfirmTermination() || hasEngineNotConfirmedStopped()) return;
         // Codex P1 r4320483450: a retirement that began from RECORDING/STOPPING/FAILED is left there when its bounded stop
@@ -5157,12 +5160,26 @@ export class SpeechRuntimeController {
         if (!retiredStates.includes(this.state)) return;
         pushNativeRuntimeTrace('controller_unmount_retire_late_terminal', { state: this.state });
         this.setEngineReady(false);
-        await this.transition('TERMINATED');
+        // Codex P2 r4320680220 (Sam SOURCE RETURN 1792461197): a successor Start is ACCEPTED synchronously — selection lock
+        // and intent minted — before any queued work attaches a service, so the tuple above cannot see it. The retired
+        // take's own intent was already retired at detach (`navigated`), so this TERMINATED is SCOPED to that retired attempt
+        // and can never retire a successor's pending intent. The runtime still finalizes: the old engine is proven off and
+        // nothing is attached, so IDLE is the truthful state — and the one an accepted successor's queued Start proceeds from,
+        // instead of being absorbed by the retired take's stale preparation state.
+        await this.transition('TERMINATED', undefined, undefined, RETIRED_ATTEMPT_INTENT);
         // Codex P2 r4317105661: transition() awaits, so a hard reset or a successor that attached a service in that window
-        // owns the runtime now — recheck this retirement's tuple before publishing anything else.
-        if (this.lifecycleVersion !== retirement.version || this.serviceGeneration !== retirement.generation || this.service !== null) return;
+        // owns the runtime now — recheck this retirement's tuple before publishing anything else. (A Start accepted in that
+        // window resets TERMINATED → IDLE and attaches its service in the same synchronous run, so the generation check
+        // covers it.)
+        if (!this.ownsRetirement(retirement)) return;
         await this.transition('IDLE');
-        if (this.lifecycleVersion === retirement.version && this.getState() === 'IDLE' && !hasEngineNotConfirmedStopped()) onLateTerminal?.();
+        if (this.ownsRetirement(retirement) && this.getState() === 'IDLE' && !hasEngineNotConfirmedStopped()) onLateTerminal?.();
+    }
+
+    /** The retirement still owns the runtime: no hard reset or new lifecycle (version), no service attached or replaced (generation, service). */
+    private ownsRetirement(retirement: RetirementOwnership): boolean {
+        return this.lifecycleVersion === retirement.version && this.serviceGeneration === retirement.generation
+            && this.service === null;
     }
 
     private resetEphemeralState(reason: string = 'unknown'): void {
