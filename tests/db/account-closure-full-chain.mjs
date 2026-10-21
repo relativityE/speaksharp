@@ -631,6 +631,11 @@ export const MAIN_U1_MIGRATION = Object.freeze({
   "version": "20261019010000",
   "sha256": "df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45"
 });
+export const MAIN_ANALYTICS_MIGRATION=Object.freeze({
+  name:'20261018090000_analytics_summary_observed_filler_rate_1472.sql',
+  version:'20261018090000',sha256:'72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f',
+});
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122'];
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
 const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
 
@@ -640,12 +645,12 @@ export function parseMainProofArguments(args) {
   assert.ok(profiles.length <= 1, 'choose exactly one proof profile');
   for (const arg of args) assert.ok(arg === '--plan' || arg === '--cleanup' || profiles.includes(arg), 'unknown proof argument');
   const profile = profiles[0]?.slice('--profile='.length) ?? 'main-120';
-  assert.ok(['main-120', 'main-u1-121'].includes(profile), 'unknown reviewed main proof profile');
+  assert.ok(MAIN_PROFILES.includes(profile), 'unknown reviewed main proof profile');
   return { profile, plan: args.includes('--plan'), cleanup: args.includes('--cleanup') };
 }
 
 export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
-  assert.ok(['main-120', 'main-u1-121'].includes(profile), 'unknown reviewed main proof profile');
+  assert.ok(MAIN_PROFILES.includes(profile), 'unknown reviewed main proof profile');
   assert.ok(Array.isArray(rows), 'migration manifest must be an array');
   const actual = rows.map(row => {
     assert.ok(row && typeof row === 'object' && !Array.isArray(row), 'migration row must be an object');
@@ -659,7 +664,8 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   assert.equal(new Set(actual.map(row => row.name)).size, actual.length, 'duplicate migration name');
   const versioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(versioned.map(row => row.version)).size, versioned.length, 'duplicate migration version');
-  const expected = [...MAIN_MIGRATION_SNAPSHOT, ...(profile === 'main-u1-121' ? [MAIN_U1_MIGRATION] : [])];
+  const expected = [...MAIN_MIGRATION_SNAPSHOT, ...(profile !== 'main-120' ? [MAIN_U1_MIGRATION] : []),
+    ...(profile === 'main-analytics-u1-122' ? [MAIN_ANALYTICS_MIGRATION] : [])];
   const byName = new Map(expected.map(row => [row.name, row]));
   for (const row of actual) {
     assert.ok(byName.has(row.name), 'unreviewed migration requires an explicit updated baseline: ' + row.name);
@@ -667,11 +673,13 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(actual.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name];
   const stages = [
-    { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, MAIN_U1_MIGRATION.name]) },
-    { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, MAIN_U1_MIGRATION.name]) },
-    { name: 'checkout-rejection-recovery', versions: history([MAIN_U1_MIGRATION.name]) },
-    ...(profile === 'main-u1-121' ? [{ name: 'heartbeat-u1', versions: history([]) }] : []),
+    { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
+    { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
+    { name: 'checkout-rejection-recovery', versions: history(late) },
+    ...(profile === 'main-analytics-u1-122' ? [{name:'analytics-observed-rate',versions:history([MAIN_U1_MIGRATION.name])}] : []),
+    ...(profile !== 'main-120' ? [{ name: 'heartbeat-u1', versions: history([]) }] : []),
   ];
   return { mode: 'PLAN_ONLY', profile, migrations: versioned.length,
     unversioned: actual.filter(row => row.version === null), stages, executed: false };
@@ -784,7 +792,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of files.filter((name) => name !== candidate && name !== recovery && name !== MAIN_U1_MIGRATION.name)) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -853,11 +861,25 @@ export function runMainClosureProof() {
     assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('c3333333-3333-4333-8333-333333333333','c4444444-4444-4444-8444-444444444444')"), '0', 'rejection fixture residue');
     verifyEnforcement('after');
     console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED');
-    if (args.profile === 'main-u1-121') {
+    const verifyAnalytics=()=>{
+      const proof=sql(readFileSync('tests/db/analytics-observed-rate-full-chain.sql','utf8'));
+      assert.ok(proof.includes('ANALYTICS OBSERVED RATE FULL-CHAIN INVARIANTS PASSED'),'Analytics proof marker absent');
+      assert.equal(sql("SELECT count(*) FROM auth.users WHERE id='a1472000-0000-4000-8000-000000000001'"),'0','Analytics fixture Auth residue');
+      assert.equal(sql("SELECT count(*) FROM public.sessions WHERE user_id='a1472000-0000-4000-8000-000000000001'"),'0','Analytics fixture session residue');
+    };
+    if(args.profile==='main-analytics-u1-122') {
+      cpSync(join(root,MAIN_ANALYTICS_MIGRATION.name),join(directory,'migrations',MAIN_ANALYTICS_MIGRATION.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name==='analytics-observed-rate').versions,'Analytics history is incomplete');
+      verifyAnalytics();
+      verifyEnforcement('after');
+      assertCheckoutRejection(sql(checkoutRejectionQuery('after',readFileSync(join(root,recovery),'utf8'))),'after');
+    }
+    if (args.profile !== 'main-120') {
       // The original 118 -> 119 -> 120 proof above is unchanged. Only now may U1 enter staging.
       cpSync(join(root, MAIN_U1_MIGRATION.name), join(directory, 'migrations', MAIN_U1_MIGRATION.name));
       cli(['migration', 'up', '--local']);
-      assert.deepEqual(history(), plan.stages[3].versions, 'U1 history is incomplete');
+      assert.deepEqual(history(), plan.stages.find(stage=>stage.name==='heartbeat-u1').versions, 'U1 history is incomplete');
       assertCheckoutRejection(sql(checkoutRejectionQuery('after', readFileSync(join(root, recovery), 'utf8'))), 'after');
       verifyEnforcement('after');
       const u1EnforcementProof = sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql', 'utf8'));
@@ -870,6 +892,7 @@ export function runMainClosureProof() {
       assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('c3333333-3333-4333-8333-333333333333','c4444444-4444-4444-8444-444444444444')"), '0', 'U1 rejection fixture residue');
       verifyEnforcement('after');
       console.log('MAIN PLUS U1 CLOSURE INVARIANTS PASSED');
+      if(args.profile==='main-analytics-u1-122') verifyAnalytics();
     }
   } catch (error) {
     primaryError = error;

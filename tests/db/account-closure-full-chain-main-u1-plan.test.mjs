@@ -12,6 +12,8 @@ const read = path => readFileSync(join(root, path), 'utf8');
 // Independent pins reviewed from99585/e772, not values read back from the planner.
 const U1 = Object.freeze({ name: '20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql',
   version: '20261019010000', sha256: 'df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45' });
+const ANALYTICS=Object.freeze({name:'20261018090000_analytics_summary_observed_filler_rate_1472.sql',
+  version:'20261018090000',sha256:'72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f'});
 const baseTuplesSha256 = '601403209858cc31dba0f9125b1feebd535827d7e4bed469e2458e6ff7cda2b0';
 const drain = '20261016180000_account_closure_drain_enforcement.sql';
 const recovery = '20261017200000_checkout_rejection_recovery.sql';
@@ -19,8 +21,9 @@ const physical = readdirSync(join(root, 'backend/supabase/migrations')).filter(n
   name, version: name.match(/^(\d{8}|\d{14})_.+\.sql$/)?.[1] ?? null,
   sha256: hash(readFileSync(join(root, 'backend/supabase/migrations', name))),
 }));
-const main = physical.filter(row => row.name !== U1.name);
+const main = physical.filter(row => row.name !== U1.name && row.name !== ANALYTICS.name);
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
+const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
 const versionsWithout = names => receiving.filter(row => row.version !== null && !names.includes(row.name)).map(row => row.version);
 
 test('frozen independent main identity and exact physical source count', () => {
@@ -65,6 +68,42 @@ test('default rejects extra U1; explicit U1 refuses a missing dependency', () =>
   assert.throws(() => buildMainU1ReplayPlan(receiving), /unreviewed migration/);
   assert.throws(() => buildMainU1ReplayPlan(main, 'main-u1-121'), /reviewed migration missing/);
 });
+
+test('Analytics explicit122 orders original118/119/120 then Analytics121 then U1122',()=>{
+  const plan=buildMainU1ReplayPlan(analyticsReceiving,'main-analytics-u1-122');
+  assert.equal(plan.migrations,122);
+  assert.deepEqual(plan.stages.slice(0,3),buildMainU1ReplayPlan(main).stages);
+  assert.deepEqual(plan.stages.slice(3).map(s=>[s.name,s.versions.length]),[
+    ['analytics-observed-rate',121],['heartbeat-u1',122],
+  ]);
+  assert.equal(plan.stages[3].versions.at(-1),ANALYTICS.version);
+  assert.equal(plan.stages[4].versions.at(-1),U1.version);
+  assert.deepEqual(physical,analyticsReceiving);
+});
+test('Analytics bytes are independently pinned and legacy120/U1121 profiles refuse them',()=>{
+  assert.equal(parseMainProofArguments(['--profile=main-analytics-u1-122']).profile,'main-analytics-u1-122');
+  assert.equal(hash(readFileSync(join(root,'backend/supabase/migrations',ANALYTICS.name))),ANALYTICS.sha256);
+  assert.throws(()=>buildMainU1ReplayPlan(analyticsReceiving),/unreviewed migration/);
+  assert.throws(()=>buildMainU1ReplayPlan(analyticsReceiving,'main-u1-121'),/unreviewed migration/);
+  assert.throws(()=>buildMainU1ReplayPlan(receiving,'main-analytics-u1-122'),/reviewed migration missing/);
+});
+test('Analytics runtime staging and same SQL oracle run before AND after U1',()=>{
+  const driver=read('tests/db/account-closure-full-chain.mjs');
+  const analytics=driver.indexOf("if(args.profile==='main-analytics-u1-122')");
+  const u1=driver.indexOf("if (args.profile !== 'main-120')");
+  assert.ok(analytics>driver.indexOf("console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED')"));
+  assert.ok(u1>analytics);
+  assert.ok(driver.slice(analytics,u1).includes('verifyAnalytics()'));
+  assert.ok(driver.slice(u1).includes("if(args.profile==='main-analytics-u1-122') verifyAnalytics()"));
+});
+for(const member of analyticsReceiving) {
+  test('Analytics122 refuses missing reviewed member: '+member.name,()=>{
+    assert.throws(()=>buildMainU1ReplayPlan(analyticsReceiving.filter(r=>r.name!==member.name),'main-analytics-u1-122'),/reviewed migration missing/);
+  });
+  test('Analytics122 refuses changed reviewed digest: '+member.name,()=>{
+    assert.throws(()=>buildMainU1ReplayPlan(analyticsReceiving.map(r=>r.name===member.name?{...r,sha256:'0'.repeat(64)}:r),'main-analytics-u1-122'),/reviewed migration digest changed/);
+  });
+}
 
 for (const member of receiving) {
   test('explicit U1 refuses missing reviewed member: ' + member.name, () => {
@@ -150,8 +189,8 @@ for (const { path, sha256 } of unchangedProofs) test('original proof/helper unch
 
 test('U1 is excluded from initial staging and all four final proof layers remain explicit', () => {
   const driver = read('tests/db/account-closure-full-chain.mjs');
-  const replay = driver.indexOf("if (args.profile === 'main-u1-121')");
-  assert.ok(driver.includes('name !== candidate && name !== recovery && name !== MAIN_U1_MIGRATION.name'));
+  const replay = driver.indexOf("if (args.profile !== 'main-120')");
+  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name].includes(name)'));
   const final = driver.slice(replay, driver.indexOf('} catch (error)', replay));
   assert.ok(replay > driver.indexOf("console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED')"));
   for (const token of [
@@ -169,13 +208,13 @@ test('U1 is excluded from initial staging and all four final proof layers remain
   assert.ok(driver.includes('if (primaryError || cleanupError) throw primaryError ?? cleanupError'));
 });
 
-test('existing workflow collects new Node tests and explicitly selects U1 on replay AND cleanup', () => {
+test('existing workflow collects new Node tests and explicitly selects Analytics/U1 on replay AND cleanup', () => {
   const workflow = read('.github/workflows/account-closure-full-chain-proof.yml');
   const collection = workflow.indexOf('run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs');
   assert.ok(collection > workflow.indexOf('actions/setup-node@v6'));
   assert.ok(collection < workflow.indexOf('supabase/setup-cli@v2'));
-  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=main-u1-121'));
-  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-u1-121'));
+  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=main-analytics-u1-122'));
+  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-analytics-u1-122'));
   assert.ok(workflow.includes('node tests/db/account-closure-concurrency-realpg.mjs'));
   assert.ok(workflow.includes('node tests/db/account-closure-attestation-realpg.mjs'));
   assert.ok(workflow.includes('if: always()'));
