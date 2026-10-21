@@ -151,6 +151,16 @@ describe('production workflow admission before production environments and secre
         expect(release.jobs['release-frontend'].concurrency).toEqual(workflow('deploy-supabase-migrations').concurrency);
         expect(release.jobs['release-frontend'].concurrency).toEqual(workflow('apply-exact-allowlisted-migration').concurrency);
     });
+    it.each(['Prepare the exact production build (no upload)', 'Upload one prebuilt production release'])('%s: resolves configured Vercel variables, keeping only the token secret', (name) => {
+        const step = workflow('production-release').jobs['release-frontend'].steps.find((value) => value.name === name);
+        const render = (expression, vars) => runInNewContext(String(expression).replace(/^\$\{\{\s*|\s*\}\}$/g, ''),
+            { vars, secrets: { VERCEL_ACCESS_TOKEN: 'synthetic-token' } }, { timeout: 100 });
+        const vars = { VERCEL_PROJECT_ID: 'configured-project', VERCEL_TEAM_ID: 'configured-team', VERCEL_ORG_ID: 'configured-org' };
+        expect(render(step.env.VERCEL_PROJECT_ID, vars)).toBe('configured-project');
+        expect(render(step.env.VERCEL_ORG_ID, vars)).toBe('configured-team');
+        expect(render(step.env.VERCEL_ORG_ID, { ...vars, VERCEL_TEAM_ID: '' })).toBe('configured-org');
+        expect(render(step.env.VERCEL_ACCESS_TOKEN, vars)).toBe('synthetic-token');
+    });
     it.each(['apply-exact-allowlisted-migration', 'apply-webhook-db-prerequisite'])('%s: policy reads precede the final main read, immediately followed by apply', (name) => {
         const wf = workflow(name);
         const job = Object.values(wf.jobs).find((value) => value.environment === 'production-db');
