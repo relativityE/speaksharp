@@ -1,5 +1,6 @@
 import React from 'react';
 import { SessionBeforeState } from './SessionBeforeState';
+import type { RepeatPracticeTargetView } from '@/services/progress/repeatPracticeTarget';
 import { SessionDuringState } from './SessionDuringState';
 import { SessionAfterState } from './SessionAfterState';
 import { resolveSessionState } from '@/utils/sessionStateMachine';
@@ -67,6 +68,7 @@ const WAVEFORM_SOURCE_LEVELS = 480;
  * All values come from `useSessionLifecycle` (passed in by SessionPage) so this stays a pure view.
  */
 export interface SessionOverhaulViewProps {
+    practiceTarget?: RepeatPracticeTargetView;
     authUserId: string | null;
     isListening: boolean;
     sttStatus: SttStatus;
@@ -183,6 +185,7 @@ const gateBlocksStartFor = (
 ): boolean => resolvedFor !== (authUserId ?? '') || gate !== null;
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
+    practiceTarget,
     authUserId,
     isListening,
     sttStatus,
@@ -913,6 +916,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             );
         return (
             <SessionBeforeState
+                practiceTarget={practiceTarget}
                 mic={{
                     onStart: onStartStop,
                     error: permissionError ? sttStatus.message : null,
@@ -959,6 +963,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const showReopenChip = !isObjective && promptAutoHidden;
         return (
             <SessionDuringState
+                practiceTarget={practiceTarget}
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, onStop: onStartStop }}
                 transcript={{
                     tokens: isObjective ? fpDuringTokens : duringTokens,

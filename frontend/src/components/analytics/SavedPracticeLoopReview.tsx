@@ -6,6 +6,8 @@ import { loadSavedSessionReview, type SavedSessionReview } from '@/services/revi
 import { useLinkedRepeat } from '@/hooks/useLinkedRepeat';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { PRODUCT_NAMES } from '@/constants/productNames';
+import { authEpoch } from '@/services/loginSessionLog';
+import type { DisplayedRepeatTarget } from '@/services/progress/repeatPracticeTarget';
 import {
     trackSavedReviewPracticeAction, trackSavedReviewPracticeSelected, trackSavedReviewPracticeState, trackSavedReviewRevisited,
     type PracticeActionTaken, type PracticeBlockedReason, type PracticeIntendedRoute, type PracticeProgressStatus, type PracticeReviewState,
@@ -50,17 +52,25 @@ interface SavedPracticeLoopReviewProps {
 
 export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false, noneFallback }) => {
     const navigate = useNavigate();
-    const [saved, setSaved] = useState<{ sessionId: string; value: SavedSessionReview } | null>(null);
+    const [saved, setSaved] = useState<{ sessionId: string; ownerId: string | null; epoch: number; value: SavedSessionReview } | null>(null);
     const [readAttempt, setReadAttempt] = useState(0);
     const repeat = useLinkedRepeat(sessionId);
+    const epoch = authEpoch();
 
     useEffect(() => {
         let active = true;
-        void loadSavedSessionReview(sessionId).then((value) => { if (active) setSaved({ sessionId, value }); });
+        if (repeat.userId === null || repeat.signedOutByUser) return () => { active = false; };
+        const ownerId = repeat.userId;
+        const readEpoch = epoch;
+        void loadSavedSessionReview(sessionId).then((value) => {
+            if (active && authEpoch() === readEpoch) setSaved({ sessionId, ownerId, epoch: readEpoch, value });
+        });
         return () => { active = false; };
-    }, [sessionId, readAttempt]);
+    }, [sessionId, readAttempt, repeat.userId, repeat.signedOutByUser, epoch]);
 
-    const review = saved && saved.sessionId === sessionId ? saved.value : null;
+    const review = saved && saved.sessionId === sessionId && saved.ownerId === repeat.userId && saved.epoch === epoch && !repeat.signedOutByUser ? saved.value : null;
+    const displayed = useRef(review);
+    displayed.current = review;
 
     // #1258 (PM 2026-09-25): showing the SAVED review is a revisit, once per session per page view — its own event,
     // never a generation. Content-free: product, which state showed, and whether an evidence line showed.
@@ -151,7 +161,18 @@ export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = (
         trackSavedReviewPracticeSelected(review.product, repeat.linkState === 'linked');
         if (repeat.linkState === 'linked') {
             record('accept_linked');
-            void repeat.accept(() => openProduct(actionSeq), actionSeq, routeClass(productTarget()));
+            const source = review;
+            const target: DisplayedRepeatTarget | undefined = source.coaching.kind === 'review'
+                && repeat.userId && (source.product === 'open_mic' || source.product === 'focus_points') ? {
+                    ownerId: repeat.userId, epoch, sessionId, product: source.product,
+                    instruction: source.coaching.review.whatToTryNext,
+                    focus: source.product === 'focus_points' && source.focusBrief ? {
+                        ...source.focusBrief, points: [...source.focusPoints],
+                    } : null,
+                    isCurrent: () => displayed.current === source,
+                } : undefined;
+            if (target) void repeat.accept(() => openProduct(actionSeq), actionSeq, routeClass(productTarget()), target);
+            else void repeat.accept(() => openProduct(actionSeq), actionSeq, routeClass(productTarget()));
         } else {
             record(productTarget());
             openProduct(actionSeq);
