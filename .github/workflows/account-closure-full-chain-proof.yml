@@ -46,6 +46,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      - name: Prove explicit main and U1 replay plans offline
+        run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
@@ -71,10 +73,10 @@ jobs:
           node tests/db/account-closure-concurrency-realpg.mjs
           node tests/db/account-closure-attestation-realpg.mjs
       - name: Replay actual baseline and closure migration; prove invariants
-        run: node tests/db/account-closure-full-chain.mjs
+        run: node tests/db/account-closure-full-chain.mjs --profile=main-u1-121
       - name: Recover owned disposable resources after interruption
         if: always()
-        run: node tests/db/account-closure-full-chain.mjs --cleanup
+        run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-u1-121
       - name: Retain bounded proof manifest
         if: always()
         uses: actions/upload-artifact@v6
