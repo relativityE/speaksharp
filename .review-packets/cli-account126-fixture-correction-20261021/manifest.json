@@ -1,0 +1,47 @@
+{
+  "preparedUtc": "2026-10-21T18:55:30.129391+00:00",
+  "sourceHead": "19c23385e187e014b6cfc1cad7676e12b007002d",
+  "sourceTree": "ccea0efc245b780bf66a2935e35e63788da99bdd",
+  "parent": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+  "rawCommitBase64": "dHJlZSBjY2VhMGVmYzI0NWI3ODBiZjY2YTI5MzVlMzVlNjM3ODhkYTk5YmRkCnBhcmVudCAzZDAyMTcxZDJjZDJiMjRjNDY1ZWJiNjExOWJlOTQ1ZWVkYTVhYTVhCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA4ODk2IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA4ODk2IC0wNDAwCgp0ZXN0KGFjY291bnQpOiBwcmVzZXJ2ZSBzdHJpY3QgbmV4dC1hY3Rpb24gcmVqZWN0aW9uIGJlZm9yZSB2YWxpZCBhZG1pdHRlZCBzYXZlCg==",
+  "receivingHead": "d964f410524638f735ddd9c99ac9bfc8d370743e",
+  "receivingAppliedTree": "f46862a6a7c8337b130aa3b43e1b2527fe48a298",
+  "preimagesMatch": true,
+  "tempIndexApply": "PASS",
+  "paths": [
+    {
+      "path": "tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+      "bytes": 18696,
+      "sha256": "a197036eded6ed78e36aa64fd8da2d03e16df53fcfaa288b4f358f03c87910df",
+      "blob": "2c451cc1cba4faf9bde8f7c36a895809315a8218"
+    },
+    {
+      "path": "tests/db/account-completion-full-chain-invariants.sql",
+      "bytes": 19543,
+      "sha256": "51c555cb4333ff2229a4f5d92327b5dd699886a21858c1e7a4c21d7557a41f58",
+      "blob": "1617fb93fc5bcfa3f65ce1eca1cf1c48218cf968"
+    }
+  ],
+  "patchBytes": 3874,
+  "patchSha256": "b023caa975997bc036dd00153cb39abae05ba34042467ed368b77de741a49ea1",
+  "qualification": {
+    "offlinePlanTests": 777,
+    "offlineExitCode": 0,
+    "diffCheck": "PASS",
+    "fullQualitySuccessor": "NOT_RUN; App group6 owns local slot",
+    "native126Successor": "NOT_RUN; receiving workflow required"
+  },
+  "failurePreserved": {
+    "run": 39653894287,
+    "job": 119408975540,
+    "result": "FAIL #1306 invalid next_action_signal fixture; owned cleanup succeeded",
+    "oldOracleSha256": "cff4aa7309c38ca80f192746b73f4552ba9ef567e03b7faa3882671c02e0e2de"
+  },
+  "fix": "Keep old invalid shape in an actual SQL negative complete_session_v2 call requiring exact23514 +strict validator message; prove active take/no nextaction/admitted save obligation survive. Then save with valid ON_TRACK/MAINTAIN enum+numeric next_action. All remaining completion assertions unchanged. Update only oracle source pin/test label.",
+  "limits": [
+    "No product validator/function/migration changed",
+    "No production operation",
+    "777 offline tests do NOT execute SQL negative or positive controls",
+    "App receives corrected2paths after independent review, qualifies exact receiving head and reruns actual126 lane; originalFAIL remains"
+  ]
+}
