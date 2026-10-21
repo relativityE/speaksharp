@@ -1,0 +1,34 @@
+{
+  "state": "PROPOSED_NOT_EXECUTED",
+  "sourceHead": "c29baf256aeda2a7281e49a2739fa972a11b624c",
+  "sourceTree": "049e8a3247a4822ef33eafb82b643317e174774b",
+  "route": "LOCAL existing cached assets, single owned headless Chrome/WebGPU runtime; no paid provider/account",
+  "command": "node scripts/host-interlock.mjs hold local -- pnpm model:investigate --kind=llama --coaching-protocol=product-contract --cache=/private/tmp/speaksharp-model-assets-1304 --out=/private/tmp/cli-llama-product-c29baf25-20261021.json",
+  "inputs": "six explicitly SYNTHETIC canonical Open Mic/full/partial/unavailable Focus evidence fixtures x3 trials, independent18-row declaration",
+  "maxGenerations": 18,
+  "explicitWarmup": 0,
+  "internalWarmup": "UNKNOWN retained",
+  "model": "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+  "revision": "2a37b0a5ecb622d51ddc2fac74de0b95872affd7",
+  "runtime": "@mlc-ai/web-llm@0.2.86",
+  "context": 4096,
+  "outputTokens": 256,
+  "temperature": 0,
+  "budgets": {
+    "minStartAvailableGiB": 2,
+    "minRunningAvailableGiB": 1,
+    "lowMemoryAbortSeconds": 5,
+    "loadMs": 120000,
+    "perCellMs": 120000,
+    "totalMs": 2430000
+  },
+  "limits": [
+    "No software-GPU allowance: absence of hardware GPU is HOLD",
+    "No external acquisition during inference; only hash-verified cached allowlisted assets served over loopback",
+    "No Gemini/provider calls, saved account use, migration, deployment, activation or new writer",
+    "Source/input/model failures retained, no added retries/substitution",
+    "Real saved-session usefulness, full product lifecycle, multi-device and Gemini retirement remain open",
+    "STT/LLM simultaneous residency is not selected"
+  ],
+  "decisionOwner": "Sam under PO delegated authority"
+}

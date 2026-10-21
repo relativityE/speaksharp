@@ -1,0 +1,36 @@
+{
+  "state": "CAUSAL_REPRO_ONLY_NOT_FIX_NOT_READY_TO_LAND",
+  "sourceHead": "e596a1e5d1818854754447a2a9e2a7a08ead0554",
+  "base": "63c67f6f66c3f9db7a090735fd1250c8f72893da",
+  "sourceTree": "085f5666cd738d65a6cbb8f8bf7b51db7a4c715b",
+  "rawCommitBase64": "dHJlZSAwODVmNTY2NmNkNzM4ZDY1YTZjYmI4ZjhiZjdiNTFkYjdhNGM3MTViCnBhcmVudCA2M2M2N2Y2ZjY2YzNmOWRiN2EwOTA3MzVmZDEyNTBjOGY3Mjg5M2RhCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTg5NDIzIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTg5NDIzIC0wNDAwCgp0ZXN0KG1vb25zaGluZSk6IHJlcHJvZHVjZSBkdXBsaWNhdGUgcG9zdC1zdG9wIG5hdGl2ZSBlbnRyeQo=",
+  "patchSha256": "599c1f65584ffa564c22bbe031669cd186e4504f52dd70ceb85e344ded9a7b2f",
+  "patchBytes": 2658,
+  "realJSWrapper": {
+    "package": "@moonshine-ai/moonshine-wasm",
+    "version": "0.1.5",
+    "streamJsSha256": "443a90c0fa92f4a75d85015f9c109ab48f4201b7546bccae0749111a885fd21b"
+  },
+  "nativeHandle": "FAKE; no model, WASM instance, microphone or provider",
+  "testResult": {
+    "session": 46297,
+    "exitCode": 1,
+    "failed": 3,
+    "passed": 1,
+    "casualties": [
+      "stop",
+      "facade-final",
+      "standalone"
+    ],
+    "expectedNativeTranscribeCalls": 1,
+    "actualNativeTranscribeCalls": 2,
+    "positiveControl": "real Stream.stop then ordinary Stream.transcribe preserves final tail and invokes native once"
+  },
+  "finding": "Engine forces another raw transcription call after actual wrapper.stop already forced one. Existing stop-drain fake does not model stop flush.",
+  "limits": [
+    "No two-neural-inference, latency speedup, real tail fidelity or repetition cure established",
+    "No engine/controller source modified",
+    "No additional full quality claimed for this intentionally failing repro"
+  ],
+  "proposedFix": "At two post-stop read sites only, use normal cached stream.transcribe() after preserving stream.stop(). App/Sam writer handoff still required."
+}
