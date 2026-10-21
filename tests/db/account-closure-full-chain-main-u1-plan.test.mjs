@@ -270,7 +270,9 @@ const accountProofs=[
   // Hosted126 run39653894287 rejected the old synthetic-control next action.
   // Preserve that casualty as a negative control; use a valid structured action
   // for the positive save. Migration bytes and all other oracle pins are unchanged.
-  ['account-completion-full-chain-invariants.sql','51c555cb4333ff2229a4f5d92327b5dd699886a21858c1e7a4c21d7557a41f58'],
+  // Native126 run39667772634 reached the real Storage direct-delete guard.
+  // Preserve its denial; exact synthetic cleanup temporarily uses Storage's local opt-in.
+  ['account-completion-full-chain-invariants.sql','5a289a2a14cfde092bc4a782afd39848d574052a9b0acfa4e936333e94423964'],
 ];
 for(const [file,sha] of accountProofs) test('pins exact reviewed account oracle or bounded fixture successor: '+file,()=>{
   assert.equal(hash(readFileSync(join(root,'tests/db',file))),sha);
@@ -290,4 +292,15 @@ test('complete126 reuses existing substantive account proofs and verifies disabl
     'completion proof must restore disabled configuration','synthetic coverage escaped rollback',
     'completion fixture Auth residue','completion fixture storage residue','completion fixture table escaped rollback'])
     assert.ok(driver.includes(token),token);
+});
+
+test('real Storage guard readback is retained with image and SQL identity before completion execution',()=>{
+  const driver=read('tests/db/account-closure-full-chain.mjs');
+  const receipt=driver.indexOf("writeFileSync(join(evidence,'storage-delete-guard.json')");
+  const execution=driver.indexOf('const completionProof=sql(');
+  assert.ok(receipt>driver.indexOf("'functionDefinition',pg_get_functiondef(p.oid)"));
+  assert.ok(receipt<execution);
+  const binding=driver.slice(receipt,execution);
+  for(const token of ["'database-image.json'",'completionSqlSha256','trigger.enabled',"trigger.type===10"])
+    assert.ok(binding.includes(token),token);
 });

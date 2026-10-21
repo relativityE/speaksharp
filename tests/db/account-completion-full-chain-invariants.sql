@@ -66,6 +66,7 @@ DECLARE
   receipt jsonb; issued jsonb; stage_key text; verifier_owner text;
   status_hash text:=repeat('c',64); replacement_hash text:=repeat('d',64);
   heartbeat_profile boolean:=current_setting('closure_proof.heartbeat_profile')::boolean;
+  storage_delete_prior text; storage_guard_hint text; deleted_objects bigint;
 BEGIN
   -- A real admitted take is created before pending closure; it must remain saveable.
   PERFORM set_config('request.jwt.claim.sub',a::text,true);
@@ -221,7 +222,42 @@ BEGIN
   SET LOCAL ROLE service_role;
   IF public.complete_account_pending_completion_v1(c,req_c,exec_c,scope) IS NOT NULL THEN RAISE EXCEPTION 'storage path residue falsely completed'; END IF;
   RESET ROLE;
-  DELETE FROM storage.objects WHERE bucket_id='closure-completion-proof';
+  -- Synthetic metadata cleanup only, using Storage's transaction-local opt-in.
+  -- This does not exercise Storage API/object-store deletion. Keep its guard intact.
+  INSERT INTO storage.objects(bucket_id,name) VALUES('closure-completion-proof','untouched-control/residue');
+  storage_delete_prior:=current_setting('storage.allow_delete_query',true);
+  IF storage_delete_prior='true' THEN RAISE EXCEPTION 'Storage fixture requires a fail-closed prior setting'; END IF;
+  BEGIN
+    DELETE FROM storage.objects WHERE bucket_id='closure-completion-proof' AND name=c::text||'/residue';
+    RAISE EXCEPTION 'Storage guard failed to reject direct fixture deletion';
+  EXCEPTION WHEN SQLSTATE '42501' THEN
+    GET STACKED DIAGNOSTICS storage_guard_hint=PG_EXCEPTION_HINT;
+    IF SQLERRM<>'Direct deletion from storage tables is not allowed. Use the Storage API instead.'
+      OR storage_guard_hint IS DISTINCT FROM 'This prevents accidental data loss from orphaned objects.' THEN RAISE; END IF;
+  END;
+  IF (SELECT count(*) FROM storage.objects WHERE bucket_id='closure-completion-proof' AND name=c::text||'/residue')<>1 THEN
+    RAISE EXCEPTION 'Storage guard rejection lost the synthetic residue';
+  END IF;
+  PERFORM set_config('storage.allow_delete_query','true',true);
+  DELETE FROM storage.objects WHERE bucket_id='closure-completion-proof' AND name=c::text||'/residue';
+  GET DIAGNOSTICS deleted_objects=ROW_COUNT;
+  -- An originally absent custom GUC is restored as its empty, fail-closed state.
+  PERFORM set_config('storage.allow_delete_query',coalesce(storage_delete_prior,''),true);
+  IF current_setting('storage.allow_delete_query',true) IS DISTINCT FROM coalesce(storage_delete_prior,'')
+    OR current_setting('storage.allow_delete_query',true)='true' THEN
+    RAISE EXCEPTION 'Storage fixture did not restore the fail-closed prior setting';
+  END IF;
+  IF deleted_objects<>1 OR EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='closure-completion-proof' AND name=c::text||'/residue')
+    OR (SELECT count(*) FROM storage.objects WHERE bucket_id='closure-completion-proof' AND name='untouched-control/residue')<>1 THEN
+    RAISE EXCEPTION 'Storage fixture cleanup escaped the exact object or failed to remove it';
+  END IF;
+  -- The statement-level guard must reject even a zero-row DELETE after restoration.
+  BEGIN
+    DELETE FROM storage.objects WHERE bucket_id='closure-completion-proof' AND name=c::text||'/residue';
+    RAISE EXCEPTION 'Storage guard remained enabled for direct deletion after cleanup';
+  EXCEPTION WHEN SQLSTATE '42501' THEN
+    IF SQLERRM<>'Direct deletion from storage tables is not allowed. Use the Storage API instead.' THEN RAISE; END IF;
+  END;
   UPDATE public.trial_entitlements SET email='completion-chain-unrelated@example.test' WHERE email='completion-chain-terminal@example.test';
   SET LOCAL ROLE service_role;
   IF public.complete_account_pending_completion_v1(c,req_c,exec_c,scope) IS NOT NULL THEN RAISE EXCEPTION 'missing retained trial falsely completed'; END IF;

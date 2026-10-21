@@ -944,6 +944,21 @@ export function runMainClosureProof() {
       cpSync(join(root,completion.name),join(directory,'migrations',completion.name));
       cli(['migration','up','--local']);
       assert.deepEqual(history(),plan.stages.find(stage=>stage.name===completion.stage).versions,'completion history is incomplete');
+      // Catalog metadata only, bound to the immutable image already verified above.
+      // Retain it before completion SQL, including when that SQL later fails.
+      const storageGuard=JSON.parse(sql(`SELECT json_build_object(
+        'functionDefinition',pg_get_functiondef(p.oid),'functionBodyMd5',md5(p.prosrc),
+        'objectDeleteTriggers',(SELECT json_agg(json_build_object('name',t.tgname,'enabled',t.tgenabled,
+          'type',t.tgtype,'definition',pg_get_triggerdef(t.oid)) ORDER BY t.tgname)
+          FROM pg_trigger t WHERE t.tgrelid='storage.objects'::regclass AND t.tgfoid=p.oid AND NOT t.tgisinternal))
+        FROM pg_proc p WHERE p.oid='storage.protect_delete()'::regprocedure;`));
+      writeFileSync(join(evidence,'storage-delete-guard.json'),JSON.stringify({
+        profile:args.profile,image:JSON.parse(readFileSync(join(evidence,'database-image.json'),'utf8')),
+        completionSqlSha256:createHash('sha256').update(readFileSync('tests/db/account-completion-full-chain-invariants.sql')).digest('hex'),
+        guard:storageGuard,scope:'catalog readback; synthetic metadata cleanup only, not Storage API/object-store deletion',
+      },null,2));
+      assert.ok(storageGuard.objectDeleteTriggers?.some(trigger=>trigger.name==='protect_objects_delete'
+        && trigger.enabled==='O' && trigger.type===10),'actual Storage statement-level delete guard missing or disabled');
       const completionProof=sql("SET closure_proof.heartbeat_profile='true';\n"+readFileSync('tests/db/account-completion-full-chain-invariants.sql','utf8'));
       assert.ok(completionProof.includes('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED'),'completion proof marker absent');
       assert.equal(sql('SELECT enabled FROM public.account_completion_configuration;'),'f','completion proof must restore disabled configuration');
