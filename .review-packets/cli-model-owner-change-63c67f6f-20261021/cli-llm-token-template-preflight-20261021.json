@@ -1,0 +1,71 @@
+{
+  "status": "OFFLINE_TEMPLATE_TOKENIZER_PREFLIGHT",
+  "pins": {
+    "mlc-chat-config.json": "0ec513b54b419ad471006430686bdcffaae7102b41f7b0246fbfcde2517acc7f",
+    "tokenizer.json": "79e3e522635f3171300913bb421464a87de6222182a0570b9b2ccba2a964b2b4",
+    "tokenizer_config.json": "9823dcfdc1121869029da45192238e85cf44f0b232a6d9dc20e4fe6f4242a14e"
+  },
+  "rows": [
+    {
+      "id": "short-synthetic",
+      "inputKind": "SYNTHETIC_OR_ADVERSARIAL",
+      "predictedPromptTokens": 36,
+      "outputReservation": 256,
+      "context": 4096,
+      "headroom": 3804,
+      "realSavedSession": false,
+      "observedWebLLMPromptTokens": null
+    },
+    {
+      "id": "whitespace-synthetic",
+      "inputKind": "SYNTHETIC_OR_ADVERSARIAL",
+      "predictedPromptTokens": 38,
+      "outputReservation": 256,
+      "context": 4096,
+      "headroom": 3802,
+      "realSavedSession": false,
+      "observedWebLLMPromptTokens": null
+    },
+    {
+      "id": "literal-special-tokens-adversarial",
+      "inputKind": "SYNTHETIC_OR_ADVERSARIAL",
+      "predictedPromptTokens": 34,
+      "outputReservation": 256,
+      "context": 4096,
+      "headroom": 3806,
+      "realSavedSession": false,
+      "observedWebLLMPromptTokens": null
+    },
+    {
+      "id": "unicode-synthetic",
+      "inputKind": "SYNTHETIC_OR_ADVERSARIAL",
+      "predictedPromptTokens": 46,
+      "outputReservation": 256,
+      "context": 4096,
+      "headroom": 3794,
+      "realSavedSession": false,
+      "observedWebLLMPromptTokens": null
+    },
+    {
+      "id": "repeated-text-stress-NOT-real-session",
+      "inputKind": "SYNTHETIC_OR_ADVERSARIAL",
+      "predictedPromptTokens": 1827,
+      "outputReservation": 256,
+      "context": 4096,
+      "headroom": 2013,
+      "realSavedSession": false,
+      "observedWebLLMPromptTokens": null
+    }
+  ],
+  "networkAttempts": 0,
+  "modelInferenceCalls": 0,
+  "providerCalls": 0,
+  "runtimeAcquisitionCalls": 0,
+  "limitations": [
+    "No actual saved-session corpus or Focus verdicts used",
+    "Synthetic stress is not a 10-minute speech qualification",
+    "R1 WebLLM-observed token equality NOT RUN",
+    "R3 realistic saved-session headroom NOT RUN",
+    "No model quality or device coverage grade"
+  ]
+}

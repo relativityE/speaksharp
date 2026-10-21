@@ -1,0 +1,77 @@
+{
+  "sourceHead": "63c67f6f66c3f9db7a090735fd1250c8f72893da",
+  "sourceTree": "878a446012e627e5263828c62f626d00dfa63fc7",
+  "base": "d4de0c674771318704f2a45a9fbe99da66bf5868",
+  "branch": "cli-dev/1304-offline-model-controls-20261021",
+  "disposition": "Not ready to land",
+  "sourceFiles": [
+    "frontend/src/components/session/__tests__/AISuggestions.localConsent.test.tsx",
+    "frontend/src/components/session/__tests__/AISuggestions.localProviderRoute.test.tsx",
+    "frontend/src/services/coaching/productProvider.ts",
+    "tests/db/local-coaching-authority.integration.test.ts"
+  ],
+  "patchSha256": "e2611d4f0275f770d62e679edf00c54ebf9994280e10391a358d5170495739c4",
+  "patchBytes": 20725,
+  "rawCommitBase64": "dHJlZSA4NzhhNDQ2MDEyZTYyN2U1MjYzODI4YzYyZjYyNmQwMGRmYTYzZmM3CnBhcmVudCBkNGRlMGM2NzQ3NzEzMTg3MDRmMmE0NWE5ZmJlOTlkYTY2YmY1ODY4CmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTg1NTUyIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTg1NTUyIC0wNDAwCgpmaXgoY29hY2hpbmcpOiBpc29sYXRlIGxvY2FsIHJlcXVlc3RzIGFjcm9zcyBhY2NvdW50IGNoYW5nZXMK",
+  "exactTemporaryIndexReconstruction": "PASS",
+  "implemented": [
+    "Synchronous Auth owner-event subscription before authoritative getUser; late mismatched read cannot start old-owner work",
+    "Abort changed-owner/sign-out work, preserve same-owner refresh, unsubscribe on settlement",
+    "Filter old-owner reply even when accepted commit finishes before asynchronous disposal",
+    "Saved Focus fixture order/verdict/time into canonical prompt; pending55000 prevents generation"
+  ],
+  "tests": {
+    "localLifecycle": {
+      "session": 21307,
+      "passed": 22
+    },
+    "providerFocusRoute": {
+      "session": 3894,
+      "passed": 91,
+      "files": 4
+    },
+    "existingComponentLifecycle": {
+      "session": 46040,
+      "passed": 199,
+      "files": 2
+    },
+    "focusedTotal": 290,
+    "pinnedTokenizerPreflight": {
+      "session": 3967,
+      "passed": 4,
+      "runtimeCalls": 0
+    },
+    "quality": {
+      "session": 74066,
+      "state": "PASS",
+      "exitCode": 0,
+      "sourceHead": "63c67f6f66c3f9db7a090735fd1250c8f72893da",
+      "sourceTree": "878a446012e627e5263828c62f626d00dfa63fc7"
+    }
+  },
+  "causalFailures": [
+    {
+      "session": 59194,
+      "pass": 1,
+      "fail": 1,
+      "claim": "Changed owner during acquisition fails to abort; same-owner refresh passes"
+    },
+    {
+      "session": 72430,
+      "fail": 1,
+      "skipped": 16,
+      "expected": "terminal",
+      "actual": "complete",
+      "claim": "Old-owner reply renders after committed work waits on disposal"
+    }
+  ],
+  "limitations": [
+    "Synthetic Auth/Edge/worker only; no actual account or inference",
+    "Accepted or already-dispatched commit is not rolled back; cancellation attempt is not server settlement proof",
+    "Focus PGlite fixture is not native/hosted schema qualification",
+    "Tokenizer predicted counts are synthetic, not real saved corpus or WebLLM runtime equality",
+    "Llama/Gemini actual outputs0/0; no STT inference or device acceptance",
+    "No receiving branch update, migration, hosted dispatch, merge, deployment or activation",
+    "Apply only bounded delta to accepted d4de0c67; do not merge historical evidence/model branch"
+  ]
+}
