@@ -1,0 +1,44 @@
+{
+  "sourceHead": "fd421a730ec467651ba227d5d671e8ba93991fd9",
+  "sourceTree": "270379e4d4c495deff0e5bf454c66aee516a9f75",
+  "base": "bd8b1fc1419e472bb93b7caf1221a92048b1cb2f",
+  "branch": "cli-dev/1304-cdp-evaluator-20261021",
+  "rawCommitBase64": "dHJlZSAyNzAzNzllNGQ0YzQ5NWRlZmYwZTViZjQ1NGM2NmFlZTUxNmE5Zjc1CnBhcmVudCBiZDhiMWZjMTQxOWU0NzJiYjkzYjdjYWYxMjIxYTkyMDQ4YjFjYjJmCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA1OTg4IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA1OTg4IC0wNDAwCgp0ZXN0KG1vZGVscyk6IGF0dGFjaCBldmFsdWF0b3IgdG8gZGVkaWNhdGVkIGxvb3BiYWNrIENocm9tZSBvdmVyIENEUAo=",
+  "patchBytes": 13312,
+  "patchSha256": "db7d990a67b86840c450714834f1eb2d2aeec7e9854baa197f7d69ae3664afa3",
+  "reconstruction": "EXACT_TEMP_INDEX_TREE_PASS",
+  "paths": [
+    {
+      "path": "scripts/model-evaluator/cdp-browser.ts",
+      "sha256": "f965f5491e4cef875bd15f4f4ca915d3771a22e8cda5053674852b29ff66f952"
+    },
+    {
+      "path": "scripts/model-investigation.mts",
+      "sha256": "6e0934a3de764d59b80da8be524a38a08a2e32703a79b9b4afd034c1ef3a58ff"
+    },
+    {
+      "path": "tests/unit/modelCdpBrowser.test.ts",
+      "sha256": "a67a99a70b7a55bb0230db62da31145e2de39339bb799a0309a4ea5c73ecf311"
+    }
+  ],
+  "focused": {
+    "session": 25664,
+    "tests": 14,
+    "exitCode": 0,
+    "coverage": "disabled for focused run; initial7test command accidentally whole-repo coverage failed; retained"
+  },
+  "quality": {
+    "session": 68252,
+    "status": "RUNNING"
+  },
+  "explicitRunnerTypecheck": "PENDING_AFTER_QUALITY",
+  "scope": "Optional --cdp-endpoint=http://127.0.0.1:9222, same approved six synthetic product-contract fixtures x3trials=max18 generation; zero paid/cloud calls; no changed STT corpus, model identity, memory, egress, tokens or raw-failure retention",
+  "execution": "NO_MODEL_RUN; source review requested before inference",
+  "limits": [
+    "Complete real-corpus Llama/Smol/Gemini quality NOT RUN",
+    "STT same-corpus comparison remains open",
+    "Dedicated Chrome needs working visible blank anchor; original reconnect failure retained separately",
+    "Owned incognito context closes; no external browser.close/kill in CDP path; process exit disconnects, installedPlaywright1.57 sets disposeOnDetach:true",
+    "No product activation/deployment/migration/account-close operation"
+  ]
+}
