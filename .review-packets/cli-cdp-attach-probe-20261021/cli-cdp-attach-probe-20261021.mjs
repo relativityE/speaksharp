@@ -33,8 +33,12 @@ export function verifyOwner() {
   const expected='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir='+profile+' --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1';
   if(command!==expected || !readlinkSync(profile+'/SingletonLock').endsWith('-'+pids[0])) throw Error('OWNER_PROFILE_PID_MISMATCH');
   return {verifiedUtc:new Date().toISOString(),pid:Number(pids[0]),listener:'127.0.0.1:9222',profile,
-    commandMatches:true,singletonLockMatches:true,provenance:'PO current chat Im up; command ownership receipt Slack1792604022.349099',
-    signedOut:'PO attestation; profile contents not inspected'};
+    commandMatches:true,singletonLockMatches:true,
+    ownershipEvidenceReference:'https://app.slack.com/archives/C0C9RE8KNHG/p1792604022349099',
+    signedOut:{currentProfileState:'UNKNOWN_NOT_INSPECTED',suppliedAttestation:{
+      reference:'https://app.slack.com/archives/C0C9RE8KNHG/p1792602988569849',
+      claim:'Sam records PO reporting stay-signed-out on earlier visible-browser check',
+      independentlyVerifiedForThisProfile:false}}};
 }
 const bounded=(promise,ms,label)=>{
   let timer;

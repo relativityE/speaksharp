@@ -28,7 +28,7 @@
   "source": [
     {
       "path": "cli-cdp-attach-probe-20261021.mjs",
-      "sha256": "7b9b24f5e517b2978a03ca4ddc445d3d667238cfccf087a74d42af9768cd0e96"
+      "sha256": "a5ac7ccf85fbcccdfbc00dfee71410caaade9761536765039dc1b8d331579cab"
     },
     {
       "path": "cli-cdp-attach-probe-20261021.test.mjs",
@@ -38,7 +38,7 @@
   "execution": "3993/4048/4133 corrections addressed; NOT_RUN; final bounded re-review requested",
   "productRunnerChange": false,
   "modelRunAuthorizedByPlan": false,
-  "ownership": "Fresh lsof sole127.0.0.1:9222 listener PID + exact dedicated profile ps command + matching SingletonLock verified before discovery and immediately before connect; provenance references PO chat + Slack4022",
+  "ownership": "Fresh lsof/ps/SingletonLock measurements bind dedicated profile/PID before discovery and connection; actual Slack4022 evidence URL. Earlier signed-out claim is explicitly supplied attestation from Sam2988 and UNKNOWN for current profile, not hardcoded verified identity.",
   "discovery": "redirect:error; validate exact local websocket and connect directly to it; no second HTTP discovery",
   "overallDeadlineMs": 45000,
   "attachedVersion": "browser.version must exactly equal validated Chrome discovery version before any context creation"
