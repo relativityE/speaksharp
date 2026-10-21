@@ -1,0 +1,181 @@
+{
+  "updatedUtc": "2026-10-21T12:06:21.996237+00:00",
+  "disposition": "SOURCE_TEST_REVIEW_REQUESTED_NOT_READY_TO_LAND",
+  "request": "1792583578.573689",
+  "sourceHead": "6f6d72682148973ec00e41e73eb9bcd9a506b062",
+  "sourceTree": "59b9e136773abd51165e817d9966baee9a342bca",
+  "parent": "99585c8a1fe892a282383e2381bdec429817c5da",
+  "branch": "cli-dev/1643-main-u1-proof-profile-20261021",
+  "paths": [
+    "tests/db/account-closure-full-chain.mjs",
+    "tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+    ".github/workflows/account-closure-full-chain-proof.yml"
+  ],
+  "manifest": {
+    "versioned": 121,
+    "rows": 123,
+    "unversioned": 2,
+    "fullManifestProposal": "7b454f3a1686508ae71ac2d18199b04716a515c5/.review-packets/cli-u1-main-profile-proposal-20261021/proposal.json",
+    "independentMainTupleSha256": "601403209858cc31dba0f9125b1feebd535827d7e4bed469e2458e6ff7cda2b0"
+  },
+  "offlineControls": {
+    "command": "node --test --test-reporter=dot tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+    "pass": 263,
+    "fail": 0,
+    "exitCode": 0,
+    "covered": [
+      "Frozen independent123/121/120 counts and full main tuple hash",
+      "Every member missing/changed includingU1 and unversioned scripts",
+      "Unknown/wrong/repeated profiles, names/versions, malformed rows",
+      "Exact ordered118/119/120/121 stage lists",
+      "Seven unchanged helper bytes",
+      "Explicit replay AND cleanup profile plus offline test collection",
+      "Current final proof/marker/residue/error/cleanup source contracts"
+    ]
+  },
+  "retainedInitialFailure": {
+    "pass": 11,
+    "fail": 252,
+    "exitCode": 1,
+    "cause": "Overescaped regex in independent physical manifest test fixture; corrected test only, not product defect"
+  },
+  "mainOnlyPlan": {
+    "command": "node tests/db/account-closure-full-chain.mjs --plan",
+    "profile": "main-120",
+    "migrations": 120,
+    "executed": false,
+    "exitCode": 0
+  },
+  "quality": {
+    "session": 20387,
+    "status": "RUNNING_NOT_YET_PASS",
+    "dependencies": "Reused same existing App-qualified wt-n3 dependency directory via ignored symlink; no install/download or source dependency change"
+  },
+  "invariants": [
+    {
+      "stage": "baseline-before-drain",
+      "checks": [
+        "verifyEnforcement(before)",
+        "Original205-line baselineSQL unchanged: disabled rollout, RLS/ACL/search-path, trial gates, checkout retry/fence/token replay, uncertain-delete hold, residue and retained email binding, Auth cascade, future FK refusal/recoverable journal, trial reuse/alias preservation",
+        "Original denial-control SQL and marker unchanged"
+      ]
+    },
+    {
+      "stage": "drain-enforcement",
+      "checks": [
+        "Exact staged migration history",
+        "verifyEnforcement(after)",
+        "Original enforcement SQL unchanged",
+        "Original Auth/journal fixture zero-residue checks and disabled checkout-workers gate restoration"
+      ]
+    },
+    {
+      "stage": "checkout-rejection-recovery",
+      "checks": [
+        "Original before/after checkoutRejectionGate verifier",
+        "Exact120-version history",
+        "Original recovery SQL unchanged",
+        "Original rejection fixture zero-residue checks",
+        "verifyEnforcement(after)"
+      ]
+    },
+    {
+      "stage": "heartbeat-u1",
+      "checks": [
+        "Exact121-version/hash history after applying only pinned U1",
+        "Rerun existing after-enforcement verifier, enforcementSQL and recoverySQL because U1 must not weaken applicable final closure/recovery semantics",
+        "Repeat all original fixture residue/rollout restoration assertions"
+      ]
+    },
+    {
+      "stage": "always-finally",
+      "checks": [
+        "Capture original owned DB/process diagnostics before teardown",
+        "Original owned Supabase stop/containers/volumes/network/firewall removal and zero-residue checks",
+        "Any primary/cleanup error keeps verdictFAIL and propagates nonzero exit",
+        "ProviderProof remainsfalse; exact tested/requested head and image/version representativeness preserved"
+      ]
+    }
+  ],
+  "unchangedHelpers": [
+    {
+      "path": "tests/db/account-closure-full-chain.sql",
+      "sha256": "26b7fcfa8391224903e23b339e0ae06f1b32c6ed2573e9332d79b12d96cf0368",
+      "action": "UNCHANGED"
+    },
+    {
+      "path": "tests/db/account-closure-enforcement-full-chain.sql",
+      "sha256": "ab579be545147a2c494dbc8686c7931f188c73793c4e3ef7f1e9bd03f10069fe",
+      "action": "UNCHANGED"
+    },
+    {
+      "path": "tests/db/account-closure-denial-control.sql",
+      "sha256": "dccbf47df8ee43ca64add790a731d444d6a9fa5985cf28d9d4560304607e2ee5",
+      "action": "UNCHANGED"
+    },
+    {
+      "path": "tests/db/checkout-rejection-recovery.sql",
+      "sha256": "d1d32577cf750d84d1a1670653c7fdde0b4e954f92a0aeb7e3a2cf5326a905f7",
+      "action": "UNCHANGED"
+    },
+    {
+      "path": "tests/db/account-closure-concurrency-realpg.mjs",
+      "sha256": "517dd04048e52ceeb0042ec8263ce91465878293d89270d9c3d508856444ed7a",
+      "action": "UNCHANGED"
+    },
+    {
+      "path": "tests/db/account-closure-attestation-realpg.mjs",
+      "sha256": "c0297c1fd5deadce70d23336d15cfe5d5cb64103040360bd1772cba4cdaac4e3",
+      "action": "UNCHANGED"
+    },
+    {
+      "path": "tests/db/account-closure-full-chain-diagnostics.mjs",
+      "sha256": "323a5b274605b8125cf861e64a87742bd034132f8c334bb80f600ae90a76e287",
+      "action": "UNCHANGED"
+    }
+  ],
+  "stages": {
+    "originalMain": [
+      118,
+      119,
+      120
+    ],
+    "U1AddedLast": 121,
+    "initialU1Staging": false,
+    "at121": [
+      "recovery catalog verifier",
+      "enforcement verifier",
+      "both SQL proofs and success markers",
+      "all Auth/journal/rejection residues",
+      "disabled rollout gate"
+    ],
+    "cleanupSelector": "explicit main-u1-121"
+  },
+  "reconstruction": {
+    "source": "59b9e136773abd51165e817d9966baee9a342bca",
+    "virtualCombinedOnly": "017ae81a69ee6fe9096f0950b1173929492d5fdf"
+  },
+  "virtualCombinedOnly": {
+    "base": "e7729df08f7b3cb4f8385651793ab02a0e83cd7d",
+    "tree": "017ae81a69ee6fe9096f0950b1173929492d5fdf",
+    "method": "Temporary Git index only; no receiving branch/worktree changed, no SQL or test execution on combined tree",
+    "claim": "Patch applies without textual conflict to existing U1 source"
+  },
+  "remaining": [
+    "Full quality terminal result",
+    "Independent implementation/test review",
+    "Explicit receiving handoff to existing1675 owner",
+    "Exact receiving-head hosted/native/disposable qualification in authorized scope"
+  ],
+  "notExecuted": [
+    "SQL/native Postgres/Supabase runtime",
+    "Model/provider/accounts",
+    "CI rerun",
+    "App receiving branch update",
+    "Merge/deployment"
+  ],
+  "patchSha256": "59e0590ff0c402752339d84fc11dda439251ea667cded4abecb62ca54fa80044",
+  "gzipSha256": "1d86c7e24e4b908d7a766a93952784c77246d27905f1195393af8f10c068c22b",
+  "patchBytes": 72886,
+  "transportOnlyNotLandingBranch": true
+}
