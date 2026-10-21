@@ -47,6 +47,64 @@ describe('CoveragePace', () => {
         expect(screen.queryByTestId('coverage-this-run-pips')).not.toBeInTheDocument();
     });
 
+    // #1474 N2 (adopted Rev2; Browser PM audit F07 on 724c): during a run, pace is a COVERAGE-EVENT reading. Elapsed time
+    // alone used to drift the projection (2/3 at 150 s → 151 s read 3:45 → 3:47) with nothing newly covered.
+    describe('N2 — during, the pace reading changes only on a coverage event', () => {
+        const during = (covered: number, elapsedSec: number) =>
+            <CoveragePace covered={covered} total={3} elapsedSec={elapsedSec} guideSecPerPoint={60} sessionState="during" />;
+
+        it('CASUALTY: a time-only rerender keeps the dial, bar and projection exactly where the last coverage event left them', () => {
+            const { rerender } = render(during(2, 150));
+            const before = {
+                dial: screen.getByTestId('coverage-pace-perpoint').textContent,
+                projection: screen.getByTestId('coverage-pace-projection').textContent,
+                bar: (screen.getByTestId('coverage-pace-bar').firstElementChild as HTMLElement).style.width,
+            };
+            expect(before.projection).toContain('3:45 at this pace');
+            for (const t of [151, 170, 240]) {
+                rerender(during(2, t));
+                expect(screen.getByTestId('coverage-pace-perpoint').textContent).toBe(before.dial);
+                expect(screen.getByTestId('coverage-pace-projection').textContent).toBe(before.projection);
+                expect((screen.getByTestId('coverage-pace-bar').firstElementChild as HTMLElement).style.width).toBe(before.bar);
+            }
+        });
+
+        it('a NEW covered point updates the reading from the elapsed time at that event', () => {
+            const { rerender } = render(during(2, 150));
+            rerender(during(2, 200)); // time passes; nothing newly covered
+            rerender(during(3, 210)); // the third point is detected at 210 s
+            expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('3');
+            expect(screen.getByTestId('coverage-pace-perpoint')).toHaveTextContent('1:10 /point');
+            expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('3:30 at this pace');
+        });
+
+        it('CONTROL: with nothing covered there is still no projection; with no guide, still no pace half', () => {
+            const { rerender } = render(during(0, 40));
+            rerender(during(0, 90));
+            expect(screen.queryByTestId('coverage-pace-projection')).not.toBeInTheDocument();
+            expect(screen.getByTestId('coverage-pace-perpoint')).toHaveTextContent('— /point');
+            rerender(<CoveragePace covered={2} total={3} elapsedSec={150} guideSecPerPoint={null} sessionState="during" />);
+            expect(screen.queryByTestId('coverage-pace-projection')).not.toBeInTheDocument();
+        });
+
+        it('session reset: a new run (covered back to 0) never shows the previous run\'s reading', () => {
+            const { rerender } = render(during(2, 150));
+            rerender(during(0, 5)); // the next run starts
+            expect(screen.queryByTestId('coverage-pace-projection')).not.toBeInTheDocument();
+            expect(screen.getByTestId('coverage-pace-perpoint')).toHaveTextContent('— /point');
+            rerender(during(0, 30));
+            rerender(during(1, 40)); // first point of the new run, at 40 s
+            expect(screen.getByTestId('coverage-pace-perpoint')).toHaveTextContent('0:40 /point');
+            expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('2:00 at this pace');
+        });
+
+        it('CONTROL: after the run, "actual" is the real elapsed total, not a frozen coverage reading', () => {
+            const { rerender } = render(during(2, 150));
+            rerender(<CoveragePace covered={2} total={3} elapsedSec={204} guideSecPerPoint={60} sessionState="after" />);
+            expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('3:24 actual');
+        });
+    });
+
     // Design Correction Brief F-2 / F-3 / G4 — `before` states the plan once, and scores nothing.
     describe('before — the plan, not a score', () => {
         it('with a guide: one sentence carrying count, total and pace', () => {

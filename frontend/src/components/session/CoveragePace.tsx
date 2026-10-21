@@ -8,7 +8,7 @@
  *
  * So the surface says detected / not detected, which is exactly what the measurement supports.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import { computePaceStats, coveragePlanSentence, fmtDuration } from '@/utils/focusPace';
 
 /**
@@ -47,6 +47,12 @@ export interface CoveragePaceProps {
 
 export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elapsedSec, guideSecPerPoint, sessionState, onEditPace }) => {
     const isBefore = sessionState === 'before';
+    // #1474 N2 (adopted Rev2): during a run the pace reading is taken at COVERAGE EVENTS. The elapsed time is captured
+    // when the covered count changes, so a time-only rerender leaves the dial, bar and "at this pace" projection where
+    // the last detected point put them (they are one average, so they move together). `after` reads the real total.
+    const [coverageEvent, setCoverageEvent] = useState({ covered, elapsedSec });
+    if (coverageEvent.covered !== covered) setCoverageEvent({ covered, elapsedSec });
+    const paceElapsedSec = sessionState === 'during' && coverageEvent.covered === covered ? coverageEvent.elapsedSec : elapsedSec;
 
     if (isBefore) {
         return (
@@ -75,7 +81,7 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
     }
 
     const { pacePerPointSec, guideTotalSec, projectionSec, overGuide, barFraction } =
-        computePaceStats({ elapsedSec, coveredCount: covered, totalPoints: total, guideSecPerPoint });
+        computePaceStats({ elapsedSec: paceElapsedSec, coveredCount: covered, totalPoints: total, guideSecPerPoint });
     const hasGuide = guideTotalSec != null;
     const countColor = covered > 0 ? 'var(--brand-status)' : 'var(--brand-neutral-muted)';
     const overColor = overGuide ? 'var(--brand-signature-text)' : 'var(--brand-neutral-muted)';
