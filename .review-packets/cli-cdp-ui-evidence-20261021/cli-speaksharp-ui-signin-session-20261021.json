@@ -1,0 +1,218 @@
+{
+  "utc": "2026-10-21T17:57:57.180Z",
+  "recordingStarted": false,
+  "modelEvaluationCalls": 0,
+  "evidence": [
+    {
+      "stage": "UI_ONLY_MEMORY_OBSERVATION",
+      "memoryPressure": "The system has 8589934592 (524288 pages with a page size of 16384).\nSystem-wide memory free percentage: 35%",
+      "modelOrRecordingActionsAllowed": false
+    },
+    {
+      "stage": "APP_OPEN",
+      "ownerPid": 42813,
+      "url": "https://speaksharp-public.vercel.app/",
+      "title": "SpeakSharp - Private Practice. Public Impact!",
+      "headings": [],
+      "buttons": [],
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "SpeakSharp",
+          "href": "/"
+        },
+        {
+          "text": "Sign In",
+          "href": "/auth"
+        },
+        {
+          "text": "Get Started",
+          "href": "/auth/signup"
+        }
+      ],
+      "inputs": [],
+      "alerts": "",
+      "publicBody": "Skip to content\nSpeakSharp\nSign In\nGet Started\nPrivate Practice.\nPublic Impact!\n\nSpeak. See what to fix. Say it again. Your audio never leaves the browser.\n\nStart your session\n\nFree for 30 days, $10/month after.\n\nProducts\nOpen Mic\n\nStart a Private practice recording whenever you are ready. Speak freely, then review the transcript and coaching.\n\nStart Open Mic\nFocus Points\n\nOptionally name the points you want to cover. See which points were detected — and what to retry.\n\nStart Focus Points\nPRIVATE, AND BUILT TO REPEAT\nNever uploaded\n\nYour practice audio stays on your device. There is no recording to leak or delete.\n\nThe Practice Loop\n\nEvery run ends with one thing to change — then you run it again. Same loop in Open Mic and Focus Points.\n\nSpeak\nFeedback\nPractice again\nPricing\n\nThe trial is the complete product. Nothing is held back.\n\nFree trial\n\nFirst 30 days\n\n$0\n\nOpen Mic and Focus Points sessions\nFull feedback and review after every run\nPrivate transcription, audio stays local\nStart your session\nPro\n\nPer month, after trial\n\n$10\n/month\n\nEverything in the trial, unchanged\nYour session history keeps building\nCancel any time\n\nAvailable at the end of your trial.\n\nPrivate transcription keeps audio local\nTranscript data supports SpeakSharp features\nReady to practice before it matters?\n\nYour recordings stay Private on this device.\n\nStart your session\n\n© 2026 SpeakSharp. All rights reserved.\n\nTerms of Service\nPrivacy"
+    },
+    {
+      "url": "https://speaksharp-public.vercel.app/auth/signin",
+      "title": "SpeakSharp - Private Practice. Public Impact!",
+      "headings": [
+        "SpeakSharp"
+      ],
+      "buttons": [
+        "Forgot Password? Reset",
+        "Sign In",
+        "Send sign-in link"
+      ],
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "SpeakSharp",
+          "href": "/"
+        },
+        {
+          "text": "Sign In",
+          "href": "/auth"
+        },
+        {
+          "text": "Get Started",
+          "href": "/auth/signup"
+        },
+        {
+          "text": "Create an account",
+          "href": "/auth/signup"
+        }
+      ],
+      "inputs": [
+        {
+          "type": "email",
+          "name": "",
+          "placeholder": "name@example.com"
+        },
+        {
+          "type": "password",
+          "name": "",
+          "placeholder": ""
+        }
+      ],
+      "alerts": "",
+      "publicBody": "Skip to content\nSpeakSharp\nSign In\nGet Started\nSpeakSharp\n\nMaster your communication skills.\n\nWelcome back\n\nEnter your credentials to access your account\n\nEmail\nPassword\nForgot Password? Reset\nSign In\nOR SIGN IN WITH EMAIL\nSend sign-in link\n\nEnter your email to send a sign-in link.\n\nDon't have an account? Create an account"
+    },
+    {
+      "stage": "LOGIN_ATTEMPT",
+      "auth": {
+        "status": 200
+      },
+      "credentialSource": "/private/tmp/speaksharp-cli-product-models-20261020/frontend/.env.test",
+      "valuesPrinted": false,
+      "url": "https://speaksharp-public.vercel.app/practice",
+      "title": "SpeakSharp - Private Practice. Public Impact!",
+      "headings": [
+        "Pick how you want to practise.",
+        "Open Mic",
+        "Focus Points"
+      ],
+      "buttons": [
+        "Products",
+        "Share Feedback",
+        "FAQ",
+        "T",
+        "Last sessionNo sessions yet",
+        "Analytics",
+        "Start your session",
+        "Set your focus points"
+      ],
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "SpeakSharp",
+          "href": "/practice"
+        },
+        {
+          "text": "Home",
+          "href": "/practice"
+        },
+        {
+          "text": "Progress",
+          "href": "/analytics"
+        }
+      ],
+      "inputs": [],
+      "alerts": ""
+    },
+    {
+      "url": "https://speaksharp-public.vercel.app/session",
+      "title": "SpeakSharp - Private Practice. Public Impact!",
+      "headings": [
+        "Practice Session",
+        "Live transcript"
+      ],
+      "buttons": [
+        "Products",
+        "Share Feedback",
+        "FAQ",
+        "T",
+        "How Open Mic works",
+        "Download & start recordingOne-time model download to this device, then recording starts automatically",
+        "Give me a prompt",
+        "Read a sample",
+        "Edit"
+      ],
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "SpeakSharp",
+          "href": "/practice"
+        },
+        {
+          "text": "Home",
+          "href": "/practice"
+        },
+        {
+          "text": "Progress",
+          "href": "/analytics"
+        }
+      ],
+      "inputs": [],
+      "alerts": "",
+      "publicBody": "Skip to content\nSpeakSharp\nHome\nProducts\nProgress\nShare Feedback\nFAQ\nT\nPractice Session\n\nSession 1\n\nHow\nOpen Mic\nworks\nPrivate model required\nSet up the Private model in this browser. All audio processing remains local.\nDownload & start recording\nOne-time model download to this device, then recording starts automatically\nOne-time download needed\n\nLIVE COACHING\n\nTips appear as you speak.\n\nLIVE TRANSCRIPT\n0 words\n\nNot sure what to say?\n\nGive me a prompt\nRead a sample\n\nOr just press the mic — your words appear here.\n\nYOUR PROGRESS\n\nFirst session — this run becomes your baseline.\n\nComparisons start after your next full session.\n\nTracking 13 filler words\n\nEdit"
+    },
+    {
+      "url": "https://speaksharp-public.vercel.app/session",
+      "title": "SpeakSharp - Private Practice. Public Impact!",
+      "headings": [
+        "Practice Session",
+        "Live transcript"
+      ],
+      "buttons": [
+        "Products",
+        "Share Feedback",
+        "FAQ",
+        "T",
+        "How Open Mic works",
+        "Download & start recordingOne-time model download to this device, then recording starts automatically",
+        "Give me a prompt",
+        "Read a sample",
+        "Edit"
+      ],
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "SpeakSharp",
+          "href": "/practice"
+        },
+        {
+          "text": "Home",
+          "href": "/practice"
+        },
+        {
+          "text": "Progress",
+          "href": "/analytics"
+        }
+      ],
+      "inputs": [],
+      "alerts": "",
+      "publicBody": "Skip to content\nSpeakSharp\nHome\nProducts\nProgress\nShare Feedback\nFAQ\nT\nPractice Session\n\nSession 1\n\nHow\nOpen Mic\nworks\nPrivate model required\nSet up the Private model in this browser. All audio processing remains local.\nDownload & start recording\nOne-time model download to this device, then recording starts automatically\nOne-time download needed\n\nLIVE COACHING\n\nTips appear as you speak.\n\nLIVE TRANSCRIPT\n0 words\n\nNot sure what to say?\n\nGive me a prompt\nRead a sample\n\nOr just press the mic — your words appear here.\n\nYOUR PROGRESS\n\nFirst session — this run becomes your baseline.\n\nComparisons start after your next full session.\n\nTracking 13 filler words\n\nEdit"
+    },
+    {
+      "cleanup": "OWNED_CONTEXT_CLOSED",
+      "externalBrowserClosed": false
+    }
+  ]
+}

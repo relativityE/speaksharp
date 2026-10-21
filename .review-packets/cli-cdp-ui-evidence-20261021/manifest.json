@@ -1,0 +1,57 @@
+{
+  "observedUtc": "2026-10-21T17:58:56.636258+00:00",
+  "modelFreeProbeSource": "80ccc409110401119f592d9c60aa54bd700c3248",
+  "sourceReview": "Sam1792604640.486929",
+  "probe": {
+    "status": "PASS_MODEL_FREE_ATTACH_ONLY",
+    "pageAndWorker": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "fallback": false,
+      "shaderF16": true
+    },
+    "crossOriginIsolated": true,
+    "ownedContextClosed": true,
+    "ownerBrowserUntouched": true
+  },
+  "accountProvisioning": {
+    "performedBy": "PO normalTerminal",
+    "command": "pnpm make:test-user free",
+    "workflowRun": 39647997529,
+    "job": 119388569954,
+    "status": "SUCCESS",
+    "count": 1,
+    "kind": "disposableFree",
+    "credentials": "localgitignored frontend/.env.test, values excluded"
+  },
+  "ui": {
+    "site": "https://speaksharp-public.vercel.app",
+    "authStatus": 200,
+    "practiceReached": true,
+    "sessionReached": true,
+    "screen": "Download & start recording; one-time Private model setup needed",
+    "recordingStarted": false,
+    "modelEvaluationCalls": 0,
+    "servedReleaseSHA": "NOT_CAPTURED_NO_EXACT_RELEASE_ACCEPTANCE_CLAIM",
+    "ownedContextClosed": true,
+    "ownerBrowserClosed": false
+  },
+  "limitations": [
+    "No STT recording/transcription/save/coaching execution",
+    "No Llama/Smol/wllama inference or Gemini comparison",
+    "No account-close/destructive operation, migration, deployment or activation",
+    "Model start guards unchanged; UI navigation/controller has no mic/model-start action"
+  ],
+  "files": [
+    {
+      "path": "cli-cdp-attach-probe-20261021-attempt1.json",
+      "bytes": 1782,
+      "sha256": "6fd30410501ecd088f41746d430116cbd2e54df15a7455916cbb4dcb7e92aaab"
+    },
+    {
+      "path": "cli-speaksharp-ui-signin-session-20261021.json",
+      "bytes": 8398,
+      "sha256": "382eecc9244de1f7a2a14adb4b63d933f21c2579a1fbdd2af076dd3cfe1028ac"
+    }
+  ]
+}
