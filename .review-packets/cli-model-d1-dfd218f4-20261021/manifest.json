@@ -1,0 +1,67 @@
+{
+  "updatedUtc": "2026-10-21T10:42:40.446335+00:00",
+  "disposition": "Not ready to land",
+  "repo": "/private/tmp/speaksharp-cli-product-models-20261020",
+  "branch": "cli-dev/1304-product-coaching-route-20261021",
+  "head": "dfd218f4166facac97026f13c76bd03706e1586c",
+  "tree": "f3aa78da2fc72e6c2cb53c7a22937150b5b5bd21",
+  "base": "e0a3ab434c42bf50d4c7b7be416bfe22f0606686",
+  "scope": [
+    "frontend/src/components/session/AISuggestions.tsx",
+    "frontend/src/services/coaching/productProvider.ts",
+    "frontend/src/components/session/__tests__/AISuggestions.localProviderRoute.test.tsx"
+  ],
+  "finding": "Eligible uncached product requests used ordinary Edge route under Llama selection; local prepare route was never reached",
+  "correction": "Reuse existing coaching provider at component request boundary with owner, consent, internal qualification, original lifecycle and shared configuration",
+  "evidence": {
+    "causalRed": {
+      "session": 23877,
+      "pass": 1,
+      "fail": 2
+    },
+    "finalFocused": {
+      "session": 68027,
+      "pass": 215,
+      "fail": 0,
+      "exitCode": 0
+    },
+    "quality": {
+      "session": 2299,
+      "exitCode": 0,
+      "includes": [
+        "product contract",
+        "repository lint",
+        "frontend typecheck",
+        "live typecheck",
+        "evidence typecheck",
+        "eslint-disable guard"
+      ]
+    }
+  },
+  "actualModelCalls": 0,
+  "geminiDefaultChanged": false,
+  "releaseCandidate": false,
+  "publication": {
+    "managed": "RESTORED: GitHub read and Slack send/readback verified 2026-10-21T10:44Z",
+    "git": {
+      "defaultAndApprovedHostRetry": "failed to get: -50; fatal: could not read Username for https://github.com: Device not configured"
+    },
+    "published": false
+  },
+  "remaining": [
+    "Publish exact source and receive independent review",
+    "Reconcile bounded delta onto final candidate; original broad historical base is not landing scope",
+    "Authorized real inference/product evidence remains open"
+  ],
+  "patch": "/Users/fibonacci/SW_Dev/delivery-support/0001-fix-coaching-route-product-requests-through-selected.patch",
+  "patchSha256": "fd9e04b26648d38f2d7371066634e6315a21fd7907575fb2cbea087ee5ba325e",
+  "reconstruction": {
+    "baseSourceCommit": "e0a3ab434c42bf50d4c7b7be416bfe22f0606686",
+    "baseSourceTree": "e8a657ece10abee0ee1afc6aac0736612b96ab1d",
+    "baseEvidenceCommit": "f4fcdce77f866f9eb4139f11ad241d193c9816c2",
+    "baseEvidenceDirectory": ".review-packets/cli-model-e0a3ab4-20261021",
+    "apply": "Decode delta-from-e0.patch.b64, verify patchSha256, reconstruct original e0 using existing base archive README, then git apply --index delta; git write-tree must equal reported tree.",
+    "transportOnly": true,
+    "noMergeOfEvidenceBranch": true
+  }
+}
