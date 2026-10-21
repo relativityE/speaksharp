@@ -141,6 +141,63 @@ and thinking tokens are billed at the output rate. No code path records `usageMe
 The thinking cost is unknown and is not treated as negligible. Measurement is deferred under
 #1259/#1491. No pricing, cohort-size or `thinking_level` change is assigned.
 
+## Cost sensitivities — trials, retries, evaluator runs (21 October 2026)
+
+Every figure in this section is an **estimate**. **No coaching cost has been measured.** No code
+path records Gemini `usageMetadata`, and the evaluator has produced no paid results. The workbook
+is unchanged; these figures use its own assumptions:
+
+- 2,500 input and 200 output tokens per generation (`Assumptions!B15:B16`);
+- 10 generations per active user per month (`B14`);
+- Gemini 3.8 Flash at $0.75 / $3.75 per 1M tokens through 2026, then $1.50 / $7.50 (`B20:B23`).
+
+The thinking-token values (0, 1,000 and 3,000 per call) are illustrative; actual thinking use is
+unknown.
+
+**Per generation, USD**
+
+| Thinking tokens | 2026 price | 2027 price |
+| --- | ---: | ---: |
+| 0 | 0.002625 | 0.00525 |
+| 1,000 | 0.006375 | 0.01275 |
+| 3,000 | 0.013875 | 0.02775 |
+
+**Coaching cost per month at the 2027 price, USD**
+
+| Population (10 generations each) | 0 thinking | 1,000 | 1,000, every generation billed twice | 3,000, billed twice |
+| --- | ---: | ---: | ---: | ---: |
+| Launch cap, 100 active users | 5.25 | 12.75 | 25.50 | 55.50 |
+| Year-end cap, 250 active users | 13.13 | 31.88 | 63.75 | 138.75 |
+| Uncapped, 500 trials | 26.25 | 63.75 | 127.50 | 277.50 |
+| One paid user at the daily cap (310 generations) | 1.63 | 3.95 | 7.91 | 17.21 |
+
+- **Ties to the workbook.** The 500-trial, 1,000-thinking cell ($63.75) equals
+  `Price Sensitivity!B69`.
+- **Retries.** "Billed twice" is the worst case: `AI_PROVIDER_ATTEMPTS = 2`, with every second
+  attempt billed. Whether a failed attempt is billed at all is unknown.
+- **Effect on contribution.** A paid user at the daily cap in the last two columns costs more than
+  the $7 and $5 contributions ($6.40 and $4.47). The workbook's thinking-token break-even rows
+  already show this.
+
+**Evaluator measurement runs.** Provider cost estimates only; local compute and hosting are not
+costed.
+
+| Run | Provider calls | Estimated provider cost |
+| --- | --- | ---: |
+| #1565 coaching baseline, 18 declared Gemini pairs (reported by CLI; none executed) | 18 Gemini generations | $0.05–$0.50 at the 2026 price, 0 to 3,000 thinking tokens, 1–2 attempts |
+| Llama 3.2 1B / SmolLM2 on-device arms | none (on device) | $0 provider |
+| v2 / v4 STT evaluator, Moonshine C2 matrix | none (on device) | $0 provider |
+
+**To replace these estimates with measurements:**
+
+- Log `promptTokenCount`, `candidatesTokenCount` and `thoughtsTokenCount` per generation, with no
+  transcript content.
+- Log billed attempts per generation.
+- Confirm whether a failed attempt is billed.
+
+Until then, the headline results above exclude thinking and retries. No pricing, billing or
+`thinking_level` change is implied.
+
 ## Verification performed
 
 ### Status-control correction — 18 October 2026
