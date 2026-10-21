@@ -1,0 +1,75 @@
+{
+  "sourceHead": "3e113fc4fd555d6d4d669d654f5d9d81fd0ea1c0",
+  "sourceTree": "f5086d46bbc5ced1e6d69629b12d4042e2c7482c",
+  "base": "19c23385e187e014b6cfc1cad7676e12b007002d",
+  "branch": "cli-dev/1643-full-t2-proof-20261021",
+  "rawCommitBase64": "dHJlZSBmNTA4NmQ0NmJiYzVjZWQxZTZkNjk2MjliMTJkNDA0MmUyYzc0ODJjCnBhcmVudCAxOWMyMzM4NWUxODdlMDE0YjZjZmMxY2FkNzY3NmUxMmIwMDcwMDJkCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjE4MzE5IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjE4MzE5IC0wNDAwCgpmaXgodGVzdCk6IHJlc3BlY3QgU3RvcmFnZSBndWFyZCBpbiBzeW50aGV0aWMgYWNjb3VudCBjb21wbGV0aW9uIGNsZWFudXAK",
+  "receivingBase": "aeb65701e51ae43d191440baaaaece0394cadcd5",
+  "expectedReceivingTree": "2522615dc968f09a818bd11311a2be931182bf2c",
+  "paths": [
+    {
+      "path": "tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+      "preimageGitBlob": "2c451cc1cba4faf9bde8f7c36a895809315a8218",
+      "receivingPreimageIdentical": true,
+      "preimageSha256": "a197036eded6ed78e36aa64fd8da2d03e16df53fcfaa288b4f358f03c87910df",
+      "newGitBlob": "188e4caa50ea1109b9413113a55b06285b9bd5d5",
+      "newSha256": "e2396f69ed5223f920b81898ac43e4a037cf10f30b759fe201686bac36f3ad09"
+    },
+    {
+      "path": "tests/db/account-closure-full-chain.mjs",
+      "preimageGitBlob": "84acfd5ee09d0772b3c4b575d9a686dbded6e634",
+      "receivingPreimageIdentical": true,
+      "preimageSha256": "17f502c7d5c00a49b6b853a0964ce59d33a1644c63e77c900641b1113c45811d",
+      "newGitBlob": "af0acc9c812e2d0a71fb275e4a39e7fc0191d8b5",
+      "newSha256": "930b174ece8ee3c9757ffd82aadfec30952ad2c96a30ff94dbb545333ec36068"
+    },
+    {
+      "path": "tests/db/account-completion-full-chain-invariants.sql",
+      "preimageGitBlob": "1617fb93fc5bcfa3f65ce1eca1cf1c48218cf968",
+      "receivingPreimageIdentical": true,
+      "preimageSha256": "51c555cb4333ff2229a4f5d92327b5dd699886a21858c1e7a4c21d7557a41f58",
+      "newGitBlob": "a02d9038502dbb6e1cdb9228cc77ca8961250a16",
+      "newSha256": "5a289a2a14cfde092bc4a782afd39848d574052a9b0acfa4e936333e94423964"
+    }
+  ],
+  "patchBytes": 8857,
+  "patchSha256": "5e9ed7d6916eb8e7b23387e23e5051a51b259dddeb76d2cdb9d2bc6fa0c8ae0d",
+  "treeReconstruction": "SOURCE_AND_RECEIVING_TEMP_INDEX_PASS",
+  "findingReceipts": [
+    "1792613734.980359",
+    "1792613781.712929",
+    "1792613873.175769"
+  ],
+  "personalAcknowledgment": "1792617951.615739",
+  "driverReceiptScopeNotice": "1792618084.055339",
+  "correction": [
+    "Exact42501/message/hint denial and target-row-survives proof retained",
+    "Transaction-local opt-in only around exact synthetic bucket+object deletion, exactly1 row required",
+    "Immediately restore prior fail-closed value; originally absent custom GUC restored to empty fail-closed state",
+    "Unrelated synthetic neighbor retained; zero-row post-restore DELETE must again hit statement guard",
+    "All existing storage/trial/FK/terminal and outer rollback assertions preserved",
+    "Third owned driver path retains actual guard/function/trigger catalog receipt bound to existing immutable image and exact SQL SHA before fixture execution"
+  ],
+  "qualification": {
+    "planTests": 778,
+    "planExitCode": 0,
+    "sqlMicroControls": 9,
+    "sqlMicroSession": 65772,
+    "sqlMicroExitCode": 0,
+    "microScope": "PGlite substrate + exact upstream guard + actual correction SQL fragment; NOT native126 or real Supabase/object-store proof",
+    "syntaxCheck": "PASS",
+    "diffCheck": "PASS",
+    "migrationsChanged": false,
+    "fullQuality": "NOT_RUN_ON_SUCCESSOR",
+    "native126": "NOT_RUN; App receiving owner must retain corrected run and storage-delete-guard.json",
+    "independentReview": "PENDING",
+    "state": "NOT_READY_TO_LAND"
+  },
+  "originalFailure": "39667772634/job119457252668 retained; earlier39653894287 remains retained too",
+  "upstreamSource": "https://github.com/supabase/storage/commit/c6ff8c2",
+  "limits": [
+    "Synthetic metadata cleanup only; no Storage API/object-store deletion proof",
+    "No product migration, trigger/function, ACL, workflow, production data, credentials or activation change",
+    "Original seven proof/helper byte pins remain unchanged and plan tests pass"
+  ]
+}
