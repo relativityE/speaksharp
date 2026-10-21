@@ -635,7 +635,19 @@ export const MAIN_ANALYTICS_MIGRATION=Object.freeze({
   name:'20261018090000_analytics_summary_observed_filler_rate_1472.sql',
   version:'20261018090000',sha256:'72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f',
 });
-const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122'];
+export const MAIN_T2_ACCOUNT_MIGRATIONS=Object.freeze([
+  {name:'20261018170000_account_closure_pending_checkout.sql',version:'20261018170000',sha256:'68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19',stage:'account-pending'},
+  {name:'20261019055102_account_pending_recording_admission_1643.sql',version:'20261019055102',sha256:'e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4',stage:'recording-admission'},
+  {name:'20261019202856_account_coaching_admission_1643.sql',version:'20261019202856',sha256:'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e',stage:'coaching-admission'},
+  {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'955d829bdcc9649dadfd23e9ebef2839d56b31bddd87cd77fd2122df3ba87a1c',stage:'account-completion'},
+].map(row=>Object.freeze(row)));
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126'];
+function selectedAdditions(profile) {
+  const rows=[...(profile!=='main-120'?[{...MAIN_U1_MIGRATION,stage:'heartbeat-u1'}]:[]),
+    ...(['main-analytics-u1-122','main-t2-account-126'].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
+    ...(profile==='main-t2-account-126'?MAIN_T2_ACCOUNT_MIGRATIONS:[])];
+  return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
+}
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
 const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
 
@@ -664,8 +676,8 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   assert.equal(new Set(actual.map(row => row.name)).size, actual.length, 'duplicate migration name');
   const versioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(versioned.map(row => row.version)).size, versioned.length, 'duplicate migration version');
-  const expected = [...MAIN_MIGRATION_SNAPSHOT, ...(profile !== 'main-120' ? [MAIN_U1_MIGRATION] : []),
-    ...(profile === 'main-analytics-u1-122' ? [MAIN_ANALYTICS_MIGRATION] : [])];
+  const additions=selectedAdditions(profile);
+  const expected = [...MAIN_MIGRATION_SNAPSHOT,...additions];
   const byName = new Map(expected.map(row => [row.name, row]));
   for (const row of actual) {
     assert.ok(byName.has(row.name), 'unreviewed migration requires an explicit updated baseline: ' + row.name);
@@ -673,13 +685,12 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(actual.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name)];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
     { name: 'checkout-rejection-recovery', versions: history(late) },
-    ...(profile === 'main-analytics-u1-122' ? [{name:'analytics-observed-rate',versions:history([MAIN_U1_MIGRATION.name])}] : []),
-    ...(profile !== 'main-120' ? [{ name: 'heartbeat-u1', versions: history([]) }] : []),
+    ...additions.map((row,index)=>({name:row.stage,versions:history(additions.slice(index+1).map(item=>item.name))})),
   ];
   return { mode: 'PLAN_ONLY', profile, migrations: versioned.length,
     unversioned: actual.filter(row => row.version === null), stages, executed: false };
@@ -703,6 +714,8 @@ export function runMainClosureProof() {
   const migrations = manifest.filter((row) => row.version !== null);
   assert.equal(new Set(migrations.map((row) => row.version)).size, migrations.length, 'duplicate migration versions');
   const plan = buildMainU1ReplayPlan(manifest, args.profile);
+  const completeT2=args.profile==='main-t2-account-126';
+  const hasAnalytics=['main-analytics-u1-122','main-t2-account-126'].includes(args.profile);
   if (args.plan) {
     console.log(JSON.stringify({ ...plan, candidate: migrations.at(-1) }));
     process.exit(0);
@@ -792,7 +805,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name)].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -867,7 +880,25 @@ export function runMainClosureProof() {
       assert.equal(sql("SELECT count(*) FROM auth.users WHERE id='a1472000-0000-4000-8000-000000000001'"),'0','Analytics fixture Auth residue');
       assert.equal(sql("SELECT count(*) FROM public.sessions WHERE user_id='a1472000-0000-4000-8000-000000000001'"),'0','Analytics fixture session residue');
     };
-    if(args.profile==='main-analytics-u1-122') {
+    const assertCompletionAbsent=()=>{
+      const state=JSON.parse(sql("SELECT json_build_object("+
+        "'tables',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN "+
+        "('account_completion_configuration','account_completion_coverage','account_save_obligations','account_completion_executions','account_completion_stages','account_completion_status_capabilities')),"+
+        "'functions',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND (p.proname LIKE '%account%completion%' OR p.proname LIKE '_account_save_%')),"+
+        "'triggers',(SELECT count(*) FROM pg_trigger WHERE tgname IN ('zz_account_save_obligation','zz_account_save_session_obligation','account_save_delete_guard')))::text;"));
+      assert.deepEqual(state,{tables:0,functions:0,triggers:0},'completion leaked into an earlier account checkpoint');
+    };
+    const applyAccountStage=(row,proofFile,marker)=>{
+      cpSync(join(root,row.name),join(directory,'migrations',row.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name===row.stage).versions,'account stage history is incomplete: '+row.stage);
+      if(row.stage!=='account-completion') assertCompletionAbsent();
+      const output=sql(readFileSync(proofFile,'utf8')+"\nSELECT '"+marker+"';");
+      assert.ok(output.includes(marker),'account stage proof marker absent: '+row.stage);
+      assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'),'f','account proof enabled legacy rollout');
+    };
+    if(completeT2) assertCompletionAbsent();
+    if(hasAnalytics) {
       cpSync(join(root,MAIN_ANALYTICS_MIGRATION.name),join(directory,'migrations',MAIN_ANALYTICS_MIGRATION.name));
       cli(['migration','up','--local']);
       assert.deepEqual(history(),plan.stages.find(stage=>stage.name==='analytics-observed-rate').versions,'Analytics history is incomplete');
@@ -875,13 +906,24 @@ export function runMainClosureProof() {
       verifyEnforcement('after');
       assertCheckoutRejection(sql(checkoutRejectionQuery('after',readFileSync(join(root,recovery),'utf8'))),'after');
     }
+    if(completeT2) {
+      applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[0],'tests/db/account-closure-pending-invariants.sql','ACCOUNT CLOSURE PENDING INVARIANTS PASSED');
+      // Reuse semantic legacy controls after pending replaces selected function bodies.
+      // The immutable118/119/120 catalog checks above remain at their original boundary.
+      const retained=sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql','utf8'));
+      assert.ok(retained.includes('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED'));
+    }
     if (args.profile !== 'main-120') {
       // The original 118 -> 119 -> 120 proof above is unchanged. Only now may U1 enter staging.
       cpSync(join(root, MAIN_U1_MIGRATION.name), join(directory, 'migrations', MAIN_U1_MIGRATION.name));
       cli(['migration', 'up', '--local']);
       assert.deepEqual(history(), plan.stages.find(stage=>stage.name==='heartbeat-u1').versions, 'U1 history is incomplete');
-      assertCheckoutRejection(sql(checkoutRejectionQuery('after', readFileSync(join(root, recovery), 'utf8'))), 'after');
-      verifyEnforcement('after');
+      // Pending intentionally replaces checkout bodies. Preserve exact catalog
+      // fingerprints on120/121/122;126 uses the same substantive recovery SQL below.
+      if(!completeT2) {
+        assertCheckoutRejection(sql(checkoutRejectionQuery('after', readFileSync(join(root, recovery), 'utf8'))), 'after');
+        verifyEnforcement('after');
+      }
       const u1EnforcementProof = sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql', 'utf8'));
       assert.ok(u1EnforcementProof.includes('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED'), 'U1 enforcement proof marker absent');
       const u1RecoveryProof = sql(readFileSync('tests/db/checkout-rejection-recovery.sql', 'utf8'));
@@ -890,9 +932,28 @@ export function runMainClosureProof() {
       assert.equal(sql("SELECT count(*) FROM public.account_closure_attempts WHERE user_id='c1111111-1111-4111-8111-111111111111'"), '0', 'U1 owned fixture journal residue');
       assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'), 'f', 'U1 proof must restore disabled rollout gate');
       assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('c3333333-3333-4333-8333-333333333333','c4444444-4444-4444-8444-444444444444')"), '0', 'U1 rejection fixture residue');
-      verifyEnforcement('after');
+      if(!completeT2) verifyEnforcement('after');
       console.log('MAIN PLUS U1 CLOSURE INVARIANTS PASSED');
-      if(args.profile==='main-analytics-u1-122') verifyAnalytics();
+      if(hasAnalytics) verifyAnalytics();
+    }
+    if(completeT2) {
+      assertCompletionAbsent();
+      applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[1],'tests/db/account-recording-admission-invariants.sql','ACCOUNT RECORDING ADMISSION INVARIANTS PASSED');
+      applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[2],'tests/db/account-coaching-admission-invariants.sql','ACCOUNT COACHING ADMISSION INVARIANTS PASSED');
+      const completion=MAIN_T2_ACCOUNT_MIGRATIONS[3];
+      cpSync(join(root,completion.name),join(directory,'migrations',completion.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name===completion.stage).versions,'completion history is incomplete');
+      const completionProof=sql("SET closure_proof.heartbeat_profile='true';\n"+readFileSync('tests/db/account-completion-full-chain-invariants.sql','utf8'));
+      assert.ok(completionProof.includes('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED'),'completion proof marker absent');
+      assert.equal(sql('SELECT enabled FROM public.account_completion_configuration;'),'f','completion proof must restore disabled configuration');
+      assert.equal(sql('SELECT count(*) FROM public.account_completion_coverage;'),'0','synthetic coverage escaped rollback');
+      assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'),'f','legacy rollout must remain disabled');
+      assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('b9110000-0000-4000-8000-000000000001','b9110000-0000-4000-8000-000000000002','b9110000-0000-4000-8000-000000000003','b9110000-0000-4000-8000-000000000004')"),'0','completion fixture Auth residue');
+      assert.equal(sql("SELECT count(*) FROM storage.buckets WHERE id='closure-completion-proof'"),'0','completion fixture storage residue');
+      assert.equal(sql("SELECT to_regclass('public.completion_chain_residue_fixture') IS NULL"),'t','completion fixture table escaped rollback');
+      verifyAnalytics();
+      console.log('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED');
     }
   } catch (error) {
     primaryError = error;

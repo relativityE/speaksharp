@@ -55,17 +55,41 @@ export async function closeAccount(
   emailedToken: string,
   deps: ClosureDependencies,
 ): Promise<ClosureResult> {
+  if (!authenticatedUserId || !emailedToken) return refusedClosure();
+  try {
+    return await executeClaimedAccountClosure(authenticatedUserId,
+      await deps.consumeProof(authenticatedUserId, emailedToken), deps);
+  } catch { return refusedClosure(); }
+}
+
+function refusedClosure(): ClosureResult {
+  return { outcome: 'refused', stage: 'verification', billingClosed: false,
+    customerDeleted: false, accountDeleted: false };
+}
+
+/**
+ * The one deletion policy, after a server-side claim. Pending completion supplies
+ * a durable request-bound proof, never replays its already-consumed email token.
+ * This entry is not an authorization check: its caller must supply fenced,
+ * journaled adapters. No production caller selects this entry by default.
+ */
+export async function executeClaimedAccountClosure(
+  authenticatedUserId: string,
+  claimedProof: ClosureProof | null,
+  deps: Omit<ClosureDependencies, 'consumeProof'>,
+): Promise<ClosureResult> {
   const result: ClosureResult = {
     outcome: 'refused', stage: 'verification', billingClosed: false,
     customerDeleted: false, accountDeleted: false,
   };
-  if (!authenticatedUserId || !emailedToken) return result;
+  if (!authenticatedUserId) return result;
   try {
-    const proof = await deps.consumeProof(authenticatedUserId, emailedToken);
+    const proof = claimedProof;
     const now = deps.now();
-    if (!proof || proof.userId !== authenticatedUserId || !proof.requestId
-      || !proof.email || !Number.isFinite(now) || !Number.isFinite(proof.expiresAt)
-      || proof.expiresAt <= now || proof.customerId === '') return result;
+    if (!proof || proof.userId !== authenticatedUserId || typeof proof.requestId !== 'string' || !proof.requestId
+      || typeof proof.email !== 'string' || !proof.email || !Number.isFinite(now) || !Number.isFinite(proof.expiresAt)
+      || proof.expiresAt <= now || !(proof.customerId === null
+        || (typeof proof.customerId === 'string' && proof.customerId.length > 0))) return result;
 
     result.outcome = 'incomplete';
     result.stage = 'subscriptions';

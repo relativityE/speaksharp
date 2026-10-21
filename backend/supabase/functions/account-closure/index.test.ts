@@ -1,7 +1,8 @@
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type Stripe from 'npm:stripe@16';
-import { buildDependencies, handler } from './index.ts';
+import { buildDependencies, handler, ACCOUNT_COMPLETION_STATUS_PATH } from './index.ts';
+import { ACCOUNT_COMPLETION_RUNTIME_SCHEMA_SHA256 } from '../_shared/accountClosureCompletionRuntimeBinding.ts';
 import { handleClosureRequest } from '../_shared/accountClosureRequest.ts';
 import { ACCOUNT_CLOSURE_RUNTIME_SCHEMA_SHA256 } from '../_shared/accountClosureRuntimeBinding.ts';
 
@@ -9,12 +10,136 @@ const OWNER = '10000000-0000-4000-8000-000000000001';
 const REQUEST = '20000000-0000-4000-8000-000000000002';
 const ATTESTATION = '30000000-0000-4000-8000-000000000003';
 
+async function completionFixture() {
+  const context = { candidateSha: 'b'.repeat(40), configDigest: 'c'.repeat(64),
+    migrationDigest: ACCOUNT_COMPLETION_RUNTIME_SCHEMA_SHA256, projectId: 'fixture-project', environment: 'production' };
+  const deploymentId = 'fixture-project_function_2', target = 'https://fixture-project.supabase.co';
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(
+    [1, deploymentId, context.candidateSha, context.configDigest, context.migrationDigest, context.projectId, context.environment, target],
+  ))));
+  const scopeDigest = Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+  const settings: Record<string, string> = { SUPABASE_URL: target, DENO_DEPLOYMENT_ID: deploymentId,
+    SUPABASE_SERVICE_ROLE_KEY: 'synthetic-unused-network-key',
+    ACCOUNT_COMPLETION_RUNTIME_BINDING: JSON.stringify({ version: 1, deploymentId, context, scopeDigest }) };
+  const calls: { name: string; args: unknown }[] = [];
+  const env = (name: string) => settings[name];
+  const factory = (url: string, key: string, options: unknown) => {
+    calls.push({ name: 'construct', args: { url, key, options } });
+    return {
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        calls.push({ name, args });
+        return { error: null, data: name === 'issue_account_completion_status_v1'
+          ? { requestId: REQUEST, expiresAt: Date.now() + 60_000 }
+          : name === 'acknowledge_account_completion_status_v1' ? true
+            : { outcome: 'completed', requestId: REQUEST, canRetry: false, accountDeleted: true, expiresAt: Date.now() + 60_000 } };
+      },
+      auth: { getUser: async (jwt: string) => {
+        calls.push({ name: 'getUser', args: { jwt, url } });
+        return { data: { user: { id: OWNER } }, error: null };
+      } },
+    } as unknown as SupabaseClient;
+  };
+  const request = (action = 'completion_status_read', path = ACCOUNT_COMPLETION_STATUS_PATH, bearer: string | null = null) => new Request(
+    `https://fixture-project.supabase.co${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json',
+      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) }, body: JSON.stringify({ action, requestId: REQUEST,
+      ...(action === 'completion_status_issue' ? {} : { token: 'f'.repeat(64) }) }) });
+  return { settings, calls, env, factory, request, target, scopeDigest };
+}
+
+for (const path of [ACCOUNT_COMPLETION_STATUS_PATH, `/functions/v1${ACCOUNT_COMPLETION_STATUS_PATH}`]) {
+  Deno.test(`completion status exact path ${path}: cap-only read requires no JWT/Auth call`, async () => {
+    const f = await completionFixture(); const request = f.request('completion_status_read', path);
+    const response = await handler(request, f.env, f.factory);
+    assertEquals(response.status, 200); assertEquals(response.headers.get('Cache-Control'), 'no-store');
+    assertEquals(await response.json(), { outcome: 'completed', requestId: REQUEST, canRetry: false, accountDeleted: true });
+    assertEquals(f.calls.map(call => call.name), ['construct', 'read_account_completion_status_v1']);
+    const data = f.calls[1].args as Record<string, unknown>;
+    assertEquals(data.p_scope_digest, f.scopeDigest); assertEquals(data.p_request_id, REQUEST);
+    assertEquals(data.p_token_hash === 'f'.repeat(64), false);
+  });
+}
+for (const action of ['completion_status_issue', 'completion_status_ack']) {
+  Deno.test(`completion ${action} uses explicit owner JWT on the same client/target as RPC`, async () => {
+    const f = await completionFixture(), request = f.request(action, ACCOUNT_COMPLETION_STATUS_PATH, 'synthetic-owner-jwt');
+    const response = await handler(request, f.env, f.factory); assertEquals(response.status, 200);
+    const body = await response.json(); assertEquals(body.outcome, action.endsWith('issue') ? 'status_capability' : 'status_acknowledged');
+    assertEquals(f.calls.filter(call => call.name === 'construct').length, 1);
+    assertEquals(f.calls.find(call => call.name === 'getUser')?.args, { jwt: 'synthetic-owner-jwt', url: f.target });
+    for (const call of f.calls.filter(call => call.name.endsWith('_v1'))) {
+      assertEquals((call.args as Record<string, unknown>).p_scope_digest, f.scopeDigest);
+    }
+    assertEquals(f.calls.some(call => /delete|complete_account_pending|claim_account/.test(call.name)), false);
+  });
+  Deno.test(`completion ${action} without live credentials never calls Auth/RPC`, async () => {
+    const f = await completionFixture(), response = await handler(f.request(action), f.env, f.factory);
+    assertEquals(response.status, 401); assertEquals(f.calls.map(call => call.name), ['construct']);
+  });
+}
+for (const missing of ['ACCOUNT_COMPLETION_RUNTIME_BINDING', 'SUPABASE_URL', 'DENO_DEPLOYMENT_ID', 'SUPABASE_SERVICE_ROLE_KEY']) {
+  Deno.test(`completion missing ${missing}: unavailable before SDK construction`, async () => {
+    const f = await completionFixture(); delete f.settings[missing];
+    const response = await handler(f.request(), f.env, f.factory);
+    assertEquals(response.status, 503); assertEquals(await response.json(), { outcome: 'unavailable', canRetry: false });
+    assertEquals(f.calls, []);
+  });
+}
+Deno.test('legacy drain binding cannot enable the completion route', async () => {
+  const f = await completionFixture(); delete f.settings.ACCOUNT_COMPLETION_RUNTIME_BINDING;
+  f.settings.ACCOUNT_CLOSURE_RUNTIME_BINDING = JSON.stringify({ version: 1, deploymentId: f.settings.DENO_DEPLOYMENT_ID, scope: { bindingDigest: f.scopeDigest } });
+  const response = await handler(f.request(), f.env, f.factory); assertEquals(response.status, 503); assertEquals(f.calls, []);
+});
+for (const path of ['/account-closure/completion-status/', '/account-closure/completion-status/extra',
+  '/account-closure%2Fcompletion-status', '/account-closure/completion%2Dstatus',
+  '/functions/v1/account-closure/completion-status/extra', '/functions/v1/account-closure%2fcompletion-status']) {
+  Deno.test(`completion lookalike ${path} cannot select status or legacy SDK`, async () => {
+    const f = await completionFixture(), response = await handler(f.request('completion_status_read', path), f.env, f.factory);
+    assertEquals(response.status, 404); assertEquals(f.calls, []);
+  });
+}
+Deno.test('common CORS rejection and preflight precede binding/SDK for completion', async () => {
+  const f = await completionFixture(); const denied = f.request(); denied.headers.set('Origin', 'https://evil.example.test');
+  const rejected = await handler(denied, f.env, f.factory); assertEquals(rejected.status, 403); assertEquals(f.calls, []);
+  const options = await handler(new Request(`https://fixture-project.supabase.co${ACCOUNT_COMPLETION_STATUS_PATH}`, {
+    method: 'OPTIONS', headers: { Origin: 'http://localhost:5173', 'Access-Control-Request-Method': 'POST' },
+  }), f.env, f.factory); assertEquals(options.status, 204); assertEquals(f.calls, []);
+});
+Deno.test('allowed browser completion reply preserves exact CORS and no-store', async () => {
+  const f = await completionFixture(), request = f.request(); request.headers.set('Origin', 'http://localhost:5173');
+  const response = await handler(request, f.env, f.factory);
+  assertEquals(response.status, 200); assertEquals(response.headers.get('Access-Control-Allow-Origin'), 'http://localhost:5173');
+  assertEquals(response.headers.get('Cache-Control'), 'no-store');
+});
+Deno.test('completion dispatch passes the untouched request with one body reader and no clone', async () => {
+  const f = await completionFixture(), request = f.request();
+  const body = request.body!; const original = body.getReader.bind(body); let readers = 0;
+  Object.defineProperty(body, 'getReader', { value: () => { readers++; return original(); } });
+  Object.defineProperty(request, 'clone', { value: () => { throw new Error('request must not be cloned'); } });
+  const response = await handler(request, f.env, f.factory);
+  assertEquals(response.status, 200); assertEquals(readers, 1); assertEquals(request.bodyUsed, true);
+  assertEquals(f.calls.some(call => call.name === 'getUser'), false);
+});
+Deno.test('an invalid or changed completion manifest never constructs an SDK client', async () => {
+  const f = await completionFixture(); f.settings.DENO_DEPLOYMENT_ID = 'fixture-project_function_3';
+  const response = await handler(f.request(), f.env, f.factory); assertEquals(response.status, 503); assertEquals(f.calls, []);
+});
+Deno.test('completion context change during RPC discards completed response without retry', async () => {
+  const f = await completionFixture(); const create = (url: string, key: string, options: unknown) => {
+    const client = f.factory(url, key, options);
+    client.rpc = (() => { f.settings.DENO_DEPLOYMENT_ID = 'fixture-project_function_3';
+      return Promise.resolve({ data: { outcome: 'completed', requestId: REQUEST, canRetry: false, accountDeleted: true, expiresAt: Date.now() + 60_000 }, error: null }); }) as unknown as typeof client.rpc;
+    return client;
+  };
+  const response = await handler(f.request(), f.env, create);
+  assertEquals(await response.json(), { outcome: 'unavailable', canRetry: false });
+  assertEquals(f.calls.some(call => call.name === 'getUser'), false);
+});
+
 function fixture() {
   const calls: { name: string; args: unknown }[] = [];
   const settings = { deletedCustomer: false, authAbsent: true, customerOwner: 'cus', storageRemains: false,
     deleteThrows: false, readThrows: false, authorityExpired: false, authorityPhase: 'processing',
     journalResponseLost: '' as '' | 'committed' | 'not-committed', journalFailures: 0,
-    authUnknownBeforeDelete: false,
+    authUnknownBeforeDelete: false, pendingFailure: '' as '' | 'missing' | 'lost',
     checkouts: [] as {id:string;status:string;client_reference_id:string;metadata:{userId:string};customer:string|null}[],
     pending: [] as {operation_id:string;session_id:string|null}[] };
   let removed = false; let deleteSent = false;
@@ -28,6 +153,10 @@ function fixture() {
   const admin = {
     rpc: async (name: string, args: Record<string, unknown>) => {
       calls.push({ name, args });
+      if (['issue_account_closure_pending_token','begin_account_closure_pending'].includes(name) && settings.pendingFailure) {
+        if (settings.pendingFailure === 'lost') throw new Error('private lost reply');
+        return { data: null, error: { code: 'PGRST202', message: 'missing pending function' } };
+      }
       const lost = name === 'record_account_closure_auth_state_with_drain' && args.p_state === 'auth_unknown'
         && settings.journalResponseLost && settings.journalFailures++ === 0;
       if (lost && settings.journalResponseLost === 'not-committed') throw new Error('lost journal response');
@@ -41,7 +170,8 @@ function fixture() {
         : name === 'claim_account_closure_token_with_drain' ? [{ user_id: OWNER, email: 'user@example.test',
         customer_id: 'cus', request_id: REQUEST, expires_at: new Date(Date.now() + 900_000).toISOString() }]
         : name === 'list_account_closure_storage' ? (!removed || settings.storageRemains ? [{ bucket_id: 'audio', name: 'owned/file' }] : [])
-        : name === 'verify_account_closure_residue_with_drain' ? true : name === 'issue_account_closure_token_with_drain' ? [{ request_id: REQUEST }] : null;
+        : name === 'begin_account_closure_pending' ? { requestId: REQUEST, phase: 'pending', destructiveEnabled: false, checkoutPending: 1 }
+        : name === 'verify_account_closure_residue_with_drain' ? true : name === 'issue_account_closure_pending_token' ? [{ request_id: REQUEST }] : null;
       return { data, error: null };
     },
     auth: { admin: {
@@ -59,7 +189,13 @@ function fixture() {
       calls.push({ name: 'storageRemove', args: { bucket, paths } }); removed = true; return { error: null };
     } }) },
   } as unknown as SupabaseClient;
-  const auth = { auth: {
+  const auth = { rpc: async (name: string) => {
+    calls.push({ name, args: {} });
+    if (settings.pendingFailure === 'lost') throw new Error('private lost reply');
+    return settings.pendingFailure === 'missing'
+      ? { data: null, error: { code: 'PGRST202', message: 'missing pending function' } }
+      : { data: { requestId: REQUEST, phase: 'pending', checkoutPending: 1, destructiveEnabled: false }, error: null };
+  }, auth: {
     getUser: async () => ({ data: { user: { id: OWNER, email: 'user@example.test', email_confirmed_at: '2026-10-13' } }, error: null }),
     signInWithOtp: async (args: unknown) => { calls.push({ name: 'sendLink', args }); return { error: null }; },
   } } as unknown as SupabaseClient;
@@ -323,16 +459,27 @@ Deno.test('context drift after a provider call preserves the uncertain fence ins
   await deps.finish(OWNER, REQUEST);
   assertEquals(calls.some((c) => c.name === 'finish_account_closure_attempt'), false);
 });
-Deno.test('public confirm composes guarded claim, deletion and accepted recovery with persisted completion readback', async () => {
-  const { deps, calls, settings } = fixture();
+Deno.test('public confirm records pending without entering legacy destructive adapters', async () => {
+  const { deps, calls } = fixture();
   const response = await handleClosureRequest(new Request('https://example.test', { method: 'POST',
     body: JSON.stringify({ action: 'confirm', token: 'a'.repeat(64), confirmIrreversible: true }) }), deps);
-  assertEquals(response.status, 200);
-  assertEquals((await response.json()).outcome, 'deleted');
-  assertEquals(settings.authorityPhase, 'completed');
-  assertEquals(calls.filter((c) => c.name === 'deleteUser').length, 1);
-  assertEquals(calls.filter((c) => c.name === 'record_account_closure_auth_state_with_drain')
-    .map((c) => (c.args as { p_state: string }).p_state), ['auth_unknown', 'auth_deleted', 'completed']);
-  assertEquals(calls.some((c) => ['claim_account_closure_token', 'settle_account_closure_billing',
-    'record_account_closure_auth_state', 'verify_account_closure_residue'].includes(c.name)), false);
+  assertEquals(response.status, 202);
+  assertEquals(await response.json(), { outcome: 'pending', requestId: REQUEST, phase: 'pending', checkoutPending: 1, destructiveEnabled: false });
+  assertEquals(calls.map(c => c.name), ['begin_account_closure_pending']);
+  assertEquals((calls[0].args as { p_user_id: string }).p_user_id, OWNER);
+  assertEquals((calls[0].args as { p_token_hash: string }).p_token_hash === 'a'.repeat(64), false);
 });
+for (const failure of ['missing','lost'] as const) {
+  for (const action of ['request','confirm','status']) {
+    Deno.test(`inactive ${action}: ${failure} RPC returns unknown/unavailable with no email or destructive fallback`, async () => {
+      const { deps, calls, settings } = fixture(); settings.pendingFailure = failure;
+      const response = await handleClosureRequest(new Request('https://example.test', { method: 'POST',
+        body: JSON.stringify({ action, token: 'a'.repeat(64), confirmIrreversible: true }) }), deps);
+      assertEquals(response.status, 503);
+      assertEquals(response.headers.get('cache-control'), 'no-store');
+      assertEquals(await response.json(), { error: 'account_closure_unavailable' });
+      assertEquals(calls.map(call => call.name), [action === 'request' ? 'issue_account_closure_pending_token'
+        : action === 'confirm' ? 'begin_account_closure_pending' : 'account_closure_pending_status']);
+    });
+  }
+}
