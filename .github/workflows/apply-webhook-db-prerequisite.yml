@@ -133,19 +133,14 @@ jobs:
 
       - name: Revalidate main immediately before apply
         env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
           EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
+          node scripts/production-release-policy.mjs authorize
           current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
           [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced after dry-run'; exit 1; }
-
-      - name: Recheck exact green main before mutation
-        env:
-          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
-          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/production-release-policy.mjs authorize
 
       - name: Apply the exact reviewed migration
         id: apply

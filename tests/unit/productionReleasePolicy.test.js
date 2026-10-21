@@ -151,6 +151,17 @@ describe('production workflow admission before production environments and secre
         expect(release.jobs['release-frontend'].concurrency).toEqual(workflow('deploy-supabase-migrations').concurrency);
         expect(release.jobs['release-frontend'].concurrency).toEqual(workflow('apply-exact-allowlisted-migration').concurrency);
     });
+    it.each(['apply-exact-allowlisted-migration', 'apply-webhook-db-prerequisite'])('%s: policy reads precede the final main read, immediately followed by apply', (name) => {
+        const wf = workflow(name);
+        const job = Object.values(wf.jobs).find((value) => value.environment === 'production-db');
+        const index = job.steps.findIndex((step) => /^Revalidate main/i.test(step.name ?? ''));
+        expect(index).toBeGreaterThan(-1);
+        const guard = job.steps[index];
+        expect(guard.run).toContain('node scripts/production-release-policy.mjs authorize');
+        expect(guard.run.indexOf('gh api')).toBeGreaterThan(guard.run.indexOf('production-release-policy.mjs authorize'));
+        expect(job.steps[index + 1].name).toBe('Apply the exact reviewed migration');
+        expect(guard.env.DEPLOY_PRODUCTION).toBe('${{ inputs.deploy_production }}');
+    });
     it('ordinary main merges do not start live canaries; scheduled health remains bound to served SHA', () => {
         const wf = workflow('canary');
         expect(wf.on.push).toBeUndefined();
