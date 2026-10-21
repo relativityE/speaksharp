@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
+import process from 'node:process';
 import { test } from 'node:test';
 import { ACCOUNT_STAGE_NAMES, HEARTBEAT_PREREQUISITE, REVIEWED_MIGRATION_SNAPSHOT,
   buildAccountReplayPlan } from './account-closure-full-chain.mjs';
