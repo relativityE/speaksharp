@@ -1,0 +1,23 @@
+{
+  "executionRequest": "require_escalated through saved node scripts/host-interlock.mjs prefix; no interactive approval pause",
+  "command": "node scripts/host-interlock.mjs hold local -- node /private/tmp/cli-chrome-launch-signature-20261021.mjs /private/tmp/cli-chrome-launch-signature-20261021-attempt3.json",
+  "result": {
+    "startedUtc": "2026-10-21T16:57:57.684Z",
+    "platform": "darwin",
+    "arch": "arm64",
+    "modelCalls": 0,
+    "assetRequests": 0,
+    "modelCacheWrites": 0,
+    "engineCreation": "NOT_REACHED",
+    "events": [],
+    "logs": [],
+    "status": "HOLD",
+    "memoryPressure": "The system has 8589934592 (524288 pages with a page size of 16384).\nSystem-wide memory free percentage: 22%",
+    "vmStat": "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                                     3563.\nPages active:                                  54777.\nPages inactive:                                50173.\nPages speculative:                              3581.\nPages throttled:                                   0.\nPages wired down:                             210879.\nPages purgeable:                                   0.\n\"Translation faults\":                   109117478534.\nPages copy-on-write:                      3449553042.\nPages zero filled:                       36766612895.\nPages reactivated:                       36000151279.\nPages purged:                             1376447159.\nFile-backed pages:                             55436.\nAnonymous pages:                               53095.\nPages stored in compressor:                   884170.\nPages occupied by compressor:                 164371.\nDecompressions:                          42696556742.\nCompressions:                            51368713188.\nPageins:                                  2741279378.\nPageouts:                                   17912042.\nSwapins:                                  1421329519.\nSwapouts:                                 1542652746.",
+    "availableBytes": 1889785610.24,
+    "error": "Error: HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+    "newChromeCrashFiles": [],
+    "finishedUtc": "2026-10-21T16:57:57.693Z"
+  },
+  "interpretation": "Held before browser launch. Does not confirm or refute launch-context hypothesis. No model calls. Heavy slot released1792601887.362189."
+}
