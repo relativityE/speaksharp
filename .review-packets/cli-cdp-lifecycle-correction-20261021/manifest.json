@@ -1,0 +1,89 @@
+{
+  "sourceHead": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+  "sourceTree": "bd53e4f5d33e402f85a32af7d34ad32848d934ed",
+  "base": "bd8b1fc1419e472bb93b7caf1221a92048b1cb2f",
+  "returnedHead": "fd421a730ec467651ba227d5d671e8ba93991fd9",
+  "branch": "cli-dev/1304-cdp-evaluator-20261021",
+  "rawCommitChain": [
+    {
+      "sha": "fd421a730ec467651ba227d5d671e8ba93991fd9",
+      "rawCommitBase64": "dHJlZSAyNzAzNzllNGQ0YzQ5NWRlZmYwZTViZjQ1NGM2NmFlZTUxNmE5Zjc1CnBhcmVudCBiZDhiMWZjMTQxOWU0NzJiYjkzYjdjYWYxMjIxYTkyMDQ4YjFjYjJmCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA1OTg4IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA1OTg4IC0wNDAwCgp0ZXN0KG1vZGVscyk6IGF0dGFjaCBldmFsdWF0b3IgdG8gZGVkaWNhdGVkIGxvb3BiYWNrIENocm9tZSBvdmVyIENEUAo="
+    },
+    {
+      "sha": "b496cc03b8f31ca850206206f857c622cacfc69d",
+      "rawCommitBase64": "dHJlZSBkYzY1MDMxNjE4ZWM2N2JkMTIwNDg0ZWQwNGFmNmY0YzZhZjI0YWYxCnBhcmVudCBmZDQyMWE3MzBlYzQ2NzY1MWJhMjI3ZDVkNjcxZThiYTkzOTkxZmQ5CmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA2NDkxIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA2NDkxIC0wNDAwCgpmaXgobW9kZWxzKTogYm91bmQgZXZhbHVhdG9yIGNvbnRleHQgb3duZXJzaGlwIGFuZCByZXNvdXJjZSBhYm9ydHMK"
+    },
+    {
+      "sha": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+      "rawCommitBase64": "dHJlZSBiZDUzZTRmNWQzM2U0MDJmODVhMzJhZjdkMzRhZDMyODQ4ZDkzNGVkCnBhcmVudCBiNDk2Y2MwM2I4ZjMxY2E4NTAyMDYyMDZmODU3YzYyMmNhY2ZjNjlkCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA2NzIwIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjA2NzIwIC0wNDAwCgp0ZXN0KG1vZGVscyk6IGF3YWl0IGxpZmVjeWNsZSBmYWlsdXJlIGFzc2VydGlvbnMgZXhwbGljaXRseQo="
+    }
+  ],
+  "patchBytes": 24707,
+  "patchSha256": "5d9b5373cde2eac0dfcff68ca4e611ac87e25ccf3c3b9e6d7ea434fe1ea5fb50",
+  "correctionBytes": 17685,
+  "correctionSha256": "94f7c5e37af37cf8ce04e3ef810eb5812a181ad378a9215f42f78d0a1f23559b",
+  "reconstruction": "EXACT_TEMP_INDEX_TREE_PASS",
+  "paths": [
+    {
+      "path": "scripts/model-evaluator/cdp-browser.ts",
+      "sha256": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+    },
+    {
+      "path": "scripts/model-investigation.mts",
+      "sha256": "6200c11a96cd0243fd57ed32f50a0aa8d4aa0377cc60ec308a8d96d600414ee1"
+    },
+    {
+      "path": "tests/unit/modelCdpBrowser.test.ts",
+      "sha256": "e904df837fc2e8d253d5671a9616d3e6242c86a41d4c4ba3e96928298741d0d2"
+    }
+  ],
+  "qualification": {
+    "head": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+    "tree": "bd53e4f5d33e402f85a32af7d34ad32848d934ed",
+    "focused": {
+      "session": 48650,
+      "tests": 20,
+      "exitCode": 0
+    },
+    "fullQuality": {
+      "session": 96422,
+      "exitCode": 0,
+      "status": "PASS"
+    },
+    "explicitRunnerTypecheck": {
+      "session": 69727,
+      "exitCode": 0,
+      "config": "cli-cdp-runner-tsconfig-20261021.json"
+    },
+    "originalFailureRetained": {
+      "session": 5028,
+      "exitCode": 1,
+      "reason": "four async-expect lint findings; corrected test assertions in00eceeb82"
+    },
+    "modelCalls": 0,
+    "observedUtc": "2026-10-21T18:42:03.687672+00:00"
+  },
+  "reviewCorrections": [
+    "1792606155: preserve pending context creation and close late arrivals; NOT_CREATED/PENDING/UNKNOWN are distinct from confirmed CLOSED",
+    "1792606205: memory abort bounds context cleanup to 2s then exits only standalone evaluator, even on failed close; borrowed Chrome never closed or signalled",
+    "1792606205: same production owner.run checks safety before/after initialization and each cell, plus pre-loop guard",
+    "1792606268: route/newPage setup each 10s; navigation30s and pageboot10s; inherited whole-run watchdog retained",
+    "Specific resource error retained across abort-induced operation failure; emergency exit still occurs if final report write throws"
+  ],
+  "lifecycleControls": [
+    "acquire timeout -> pending cleanup timeout UNKNOWN -> late context closed exactly once",
+    "failed close during initialization -> evaluator exit -> late initialization cannot dispatch generation",
+    "hung close -> evaluator exit at deadline, subsequent dispatch refused",
+    "abort during pending context creation -> UNKNOWN and evaluator exit, late arrival closed",
+    "abort between cells -> no next dispatch, exactly one close/exit",
+    "normal completion closes owned context without emergency exit; no acquisition reports NOT_CREATED"
+  ],
+  "testClassification": "Injected lifecycle integration controls in unit suite; actual browser E2E specs must use *.e2e.spec.ts per PO",
+  "execution": "NO_MODEL_RUN_ON_THIS_HEAD; independent source review required before bounded smoke",
+  "scope": "Same approved six synthetic canonical product-contract fixtures x3=max18 Llama generations; memory/model/asset/egress/token/raw-output guards unchanged",
+  "limits": [
+    "Real-corpus Llama/Smol/Gemini comparison NOT RUN",
+    "STT comparison NOT RUN",
+    "No new paid/cloud call, model activation, deployment, migration or account mutation"
+  ]
+}
