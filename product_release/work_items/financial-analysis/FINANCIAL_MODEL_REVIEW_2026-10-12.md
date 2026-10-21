@@ -3,7 +3,7 @@
 **Status:** Unvalidated financial-planning artifact  
 **As of:** 2026-10-12  
 **Workbook:** `SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx`  
-**SHA-256:** `0be91eb36743ff3260b651fe03fff039b01c4cff140618ce5b9ad3ba89e17575`
+**SHA-256:** `0be91eb36743ff3260b651fe03fff039b01c4cff140618ce5b9ad3ba89e17575`  
 **Supersedes:** `FINANCIAL_MODEL_REVIEW_2026-09-05.md` and its workbook, which are kept unchanged
 as the prior point-in-time record.
 
@@ -74,7 +74,8 @@ hypotheses.
    - Summary timing cells show "none in 12" instead of `#N/A`.
    - `Checks!F33:F35` cover the cap plan: it never exceeds the active-user cap, the one-month
      trial its slot logic assumes, and a month-1 tie.
-   - `MODEL STATUS` covers `F20:F35`.
+   - `MODEL STATUS` requires all 27 checks (`F5:F15` and `F20:F35`) to say `OK`. The 2026-10-12
+     version passed when no check said `FAIL`; the 18 October correction below closed that gap.
 10. **Thinking companion rows (PM correction, #1599).** Headline results exclude Gemini thinking
     tokens and provider retries, and are labelled that way. `Price Sensitivity` rows 65–76 apply
     the illustrative 1,000 thinking tokens to paid **and** trial users together. In the uncapped
@@ -166,6 +167,26 @@ preserve all unrelated content and native features. Changed status views were re
 before and after the correction. Executable local controls are preserved under
 `local-packets/1599-model-status-control/`. This correction does not change pricing,
 billing or release policy.
+
+### Independent requalification — 21 October 2026 (Consultant)
+
+Separate harness, separate author. The workbook was not changed; the SHA-256 is the same as above.
+
+- **Scope check.** Of all package parts, only `xl/worksheets/sheet11.xml` (Checks) differs from
+  `764890c3`. Inside it, only the `Checks!A18` formula changed. All other cell and non-cell XML is
+  identical.
+- **Method.** Each case copies the workbook and changes one input with openpyxl. It then
+  recalculates in LibreOffice and reads `Checks!A18`, `Key!C62` and all 27 statuses.
+- **Results.** 15 of 15 cases matched expectations, and `Key!C62` equalled `Checks!A18` in every case.
+  - **PASS, 27/27 `OK`, 0 errors in 1,517 formulas:** default, One at $20, Two at $20, Exclude and
+    Pre-launch. Their outputs equal `764890c3` exactly: fixed OpEx 65 / 85 / 45 / 245; contribution
+    $9.2875; profit at 60 paid users $466 / $446 / $486 / $286.
+  - **FAIL:** text in `Assumptions!B33`; a blank, `=1/0`, unrecognised (`ok `) or literal `FAIL`
+    check status; months 1 and 2 swapped; duplicated months with an equal sum; a blank month; a
+    month-12 cap of 1, below the paying base; a two-month trial.
+- **The original defect reproduces on `764890c3`.** There, text in B33 and a blank, error or
+  unrecognised status all give a false `PASS`.
+- **Not exercised.** Microsoft Excel was not tested, only LibreOffice.
 
 ### Prior workbook validation at source 764890c3
 
