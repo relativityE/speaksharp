@@ -14,7 +14,7 @@ function fixture() {
   const settings = { deletedCustomer: false, authAbsent: true, customerOwner: 'cus', storageRemains: false,
     deleteThrows: false, readThrows: false, authorityExpired: false, authorityPhase: 'processing',
     journalResponseLost: '' as '' | 'committed' | 'not-committed', journalFailures: 0,
-    authUnknownBeforeDelete: false,
+    authUnknownBeforeDelete: false, pendingFailure: '' as '' | 'missing' | 'lost',
     checkouts: [] as {id:string;status:string;client_reference_id:string;metadata:{userId:string};customer:string|null}[],
     pending: [] as {operation_id:string;session_id:string|null}[] };
   let removed = false; let deleteSent = false;
@@ -28,6 +28,10 @@ function fixture() {
   const admin = {
     rpc: async (name: string, args: Record<string, unknown>) => {
       calls.push({ name, args });
+      if (['issue_account_closure_pending_token','begin_account_closure_pending'].includes(name) && settings.pendingFailure) {
+        if (settings.pendingFailure === 'lost') throw new Error('private lost reply');
+        return { data: null, error: { code: 'PGRST202', message: 'missing pending function' } };
+      }
       const lost = name === 'record_account_closure_auth_state_with_drain' && args.p_state === 'auth_unknown'
         && settings.journalResponseLost && settings.journalFailures++ === 0;
       if (lost && settings.journalResponseLost === 'not-committed') throw new Error('lost journal response');
@@ -41,7 +45,8 @@ function fixture() {
         : name === 'claim_account_closure_token_with_drain' ? [{ user_id: OWNER, email: 'user@example.test',
         customer_id: 'cus', request_id: REQUEST, expires_at: new Date(Date.now() + 900_000).toISOString() }]
         : name === 'list_account_closure_storage' ? (!removed || settings.storageRemains ? [{ bucket_id: 'audio', name: 'owned/file' }] : [])
-        : name === 'verify_account_closure_residue_with_drain' ? true : name === 'issue_account_closure_token_with_drain' ? [{ request_id: REQUEST }] : null;
+        : name === 'begin_account_closure_pending' ? { requestId: REQUEST, phase: 'pending', destructiveEnabled: false, checkoutPending: 1 }
+        : name === 'verify_account_closure_residue_with_drain' ? true : name === 'issue_account_closure_pending_token' ? [{ request_id: REQUEST }] : null;
       return { data, error: null };
     },
     auth: { admin: {
@@ -59,7 +64,13 @@ function fixture() {
       calls.push({ name: 'storageRemove', args: { bucket, paths } }); removed = true; return { error: null };
     } }) },
   } as unknown as SupabaseClient;
-  const auth = { auth: {
+  const auth = { rpc: async (name: string) => {
+    calls.push({ name, args: {} });
+    if (settings.pendingFailure === 'lost') throw new Error('private lost reply');
+    return settings.pendingFailure === 'missing'
+      ? { data: null, error: { code: 'PGRST202', message: 'missing pending function' } }
+      : { data: { requestId: REQUEST, phase: 'pending', checkoutPending: 1, destructiveEnabled: false }, error: null };
+  }, auth: {
     getUser: async () => ({ data: { user: { id: OWNER, email: 'user@example.test', email_confirmed_at: '2026-10-13' } }, error: null }),
     signInWithOtp: async (args: unknown) => { calls.push({ name: 'sendLink', args }); return { error: null }; },
   } } as unknown as SupabaseClient;
@@ -323,16 +334,27 @@ Deno.test('context drift after a provider call preserves the uncertain fence ins
   await deps.finish(OWNER, REQUEST);
   assertEquals(calls.some((c) => c.name === 'finish_account_closure_attempt'), false);
 });
-Deno.test('public confirm composes guarded claim, deletion and accepted recovery with persisted completion readback', async () => {
-  const { deps, calls, settings } = fixture();
+Deno.test('public confirm records pending without entering legacy destructive adapters', async () => {
+  const { deps, calls } = fixture();
   const response = await handleClosureRequest(new Request('https://example.test', { method: 'POST',
     body: JSON.stringify({ action: 'confirm', token: 'a'.repeat(64), confirmIrreversible: true }) }), deps);
-  assertEquals(response.status, 200);
-  assertEquals((await response.json()).outcome, 'deleted');
-  assertEquals(settings.authorityPhase, 'completed');
-  assertEquals(calls.filter((c) => c.name === 'deleteUser').length, 1);
-  assertEquals(calls.filter((c) => c.name === 'record_account_closure_auth_state_with_drain')
-    .map((c) => (c.args as { p_state: string }).p_state), ['auth_unknown', 'auth_deleted', 'completed']);
-  assertEquals(calls.some((c) => ['claim_account_closure_token', 'settle_account_closure_billing',
-    'record_account_closure_auth_state', 'verify_account_closure_residue'].includes(c.name)), false);
+  assertEquals(response.status, 202);
+  assertEquals(await response.json(), { outcome: 'pending', requestId: REQUEST, phase: 'pending', checkoutPending: 1, destructiveEnabled: false });
+  assertEquals(calls.map(c => c.name), ['begin_account_closure_pending']);
+  assertEquals((calls[0].args as { p_user_id: string }).p_user_id, OWNER);
+  assertEquals((calls[0].args as { p_token_hash: string }).p_token_hash === 'a'.repeat(64), false);
 });
+for (const failure of ['missing','lost'] as const) {
+  for (const action of ['request','confirm','status']) {
+    Deno.test(`inactive ${action}: ${failure} RPC returns unknown/unavailable with no email or destructive fallback`, async () => {
+      const { deps, calls, settings } = fixture(); settings.pendingFailure = failure;
+      const response = await handleClosureRequest(new Request('https://example.test', { method: 'POST',
+        body: JSON.stringify({ action, token: 'a'.repeat(64), confirmIrreversible: true }) }), deps);
+      assertEquals(response.status, 503);
+      assertEquals(response.headers.get('cache-control'), 'no-store');
+      assertEquals(await response.json(), { error: 'account_closure_unavailable' });
+      assertEquals(calls.map(call => call.name), [action === 'request' ? 'issue_account_closure_pending_token'
+        : action === 'confirm' ? 'begin_account_closure_pending' : 'account_closure_pending_status']);
+    });
+  }
+}
