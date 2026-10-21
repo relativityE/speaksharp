@@ -1,0 +1,76 @@
+{
+  "sourceHead": "d02a73ac7048ec72572e6463f45c51decb2d01a1",
+  "sourceTree": "bd955a2fa081ffc35949baa27821cb5a6d2be81f",
+  "base": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+  "state": "SOURCE_PREPARED_FOCUSED_CONTROLS_PASS_NOT_READY_TO_LAND",
+  "branch": "cli-dev/1304-smol-profile-20261021",
+  "rawCommitBase64": "dHJlZSBiZDk1NWEyZmEwODFmZmMzNTk0OWJhYTI3ODIxY2I1YTZkMmJlODFmCnBhcmVudCAwMGVjZWViODJlNzBmOTQ4MWJiMWU5YjA4YTJlNGQxNGRkZjNjOTMwCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjExODc5IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjExODc5IC0wNDAwCgpyZWZhY3Rvcihjb2FjaGluZyk6IHNoYXJlIHBpbm5lZCBXZWJMTE0gcnVudGltZSB3aXRoIGRvcm1hbnQgU21vbCBhZGFwdGVyCg==",
+  "patchBytes": 24047,
+  "patchSha256": "262eea25f3986b0c9018ce899953154720dfa227ecc888cdc95fed4942794c30",
+  "reconstruction": "EXACT_TEMP_INDEX_TREE_PASS",
+  "paths": [
+    {
+      "path": "frontend/src/services/coaching/llamaProvider.ts",
+      "sha256": "cba6028604cc42a92d884aa993f624d8b8e24040a9174cda93a3037f83de734e"
+    },
+    {
+      "path": "frontend/src/services/coaching/smolProvider.ts",
+      "sha256": "f20ea0c5cdd4aa882b8ab49b1a23e7dd7bf676ee50772b533d6b4c686600aa42"
+    },
+    {
+      "path": "frontend/src/services/coaching/webLlmProfiles.ts",
+      "sha256": "c1bb50118326aff89568e8579c585ffe22f2d00a74fdfb4482c349c7c79248ea"
+    },
+    {
+      "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+      "sha256": "a8be009ecd627c23068448b4a2f9215c5e9f741ff47fe9d3afbe2de1c1a9f3af"
+    },
+    {
+      "path": "tests/fixtures/model-evaluator/smollm2-mlc-chat-config.json",
+      "sha256": "b246a0cdcbdc65d546b320c960555f505c4f061af919df9ac7d793895f3d48e5"
+    },
+    {
+      "path": "tests/unit/webLlmProfiles.test.ts",
+      "sha256": "e4d75fa4aa013b379c6e765cd88b4bbb488904d4056e00954afe90c4a9d51b21"
+    }
+  ],
+  "qualification": {
+    "focused": {
+      "session": 70611,
+      "files": 3,
+      "tests": 27,
+      "exitCode": 0,
+      "mode": "one worker; focused coverage disabled; SDK and tokenizer mocked"
+    },
+    "retainedFailures": [
+      {
+        "session": 57423,
+        "reason": "Node fixture URL accidentally used JSDOM URL; fixed with explicit node:url import"
+      },
+      {
+        "session": 20159,
+        "assertions": "27/27 pass",
+        "exitCode": 1,
+        "reason": "focused subset cannot meet whole-repository coverage thresholds; no required threshold changed"
+      }
+    ],
+    "diffCheck": "PASS",
+    "fullQuality": "NOT_RUN_WAITING_BROAD_TEST_SLOT",
+    "independentReview": "PENDING",
+    "actualModelCalls": 0
+  },
+  "behavior": [
+    "One shared WebLLM generation/cancellation/disposal/error-evidence implementation, reused by Llama and dormant Smol adapter",
+    "Closed pinned model profiles with distinct identity/template/prefix-token accounting",
+    "Llama canonical coaching remains unchanged; diagnostic instanceof import retained as shared error alias",
+    "Smol adapter is raw schema-caller runtime only; no product-coaching-schema compatibility claimed",
+    "Pinned Smol ChatML config golden fixture SHA matches prior official acquisition receipt"
+  ],
+  "limits": [
+    "No worker allowlist, product/default selection, backend contract, App lifecycle or account edits",
+    "Smol worker/asset-plan/coaching-contract/evaluator integration remains unfinished",
+    "Mocked controls do not establish real tokenizer agreement, GPU inference, output quality or Gemini replacement",
+    "Accepted Llama evaluator stays separately frozen at base; do not run this successor under the existing smoke source acceptance",
+    "No new model, cloud/provider, migration, deployment or activation authority"
+  ]
+}
