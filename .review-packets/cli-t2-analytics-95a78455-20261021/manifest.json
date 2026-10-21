@@ -1,0 +1,62 @@
+{
+  "sourceHead": "95a78455ce889eea1c4616c25aa19f7b865360f1",
+  "sourceTree": "0f94ca0f516df30f7ca548b7ca2f62626c441de7",
+  "baseU1Receiving": "9b58f43bfdc2fe8617d3d166699ec0cda8252986",
+  "frozenAnalyticsInputCommit": "afee60ba975aef683e2954a9846b2ee3448f2481",
+  "inputCommitRawBase64": "dHJlZSA1YTM5ZDRlODdjYjhkMDYxNWUzZWViNGMyZDExMjVkZmE4YzU3ZTNlCnBhcmVudCA5YjU4ZjQzYmZkYzJmZTg2MTdkM2QxNjY2OTllYzBjZGE4MjUyOTg2CmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkxNTg0IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkxNTg0IC0wNDAwCgp0ZXN0KGFjY291bnQtcHJvb2YpOiBmcmVlemUgYWNjZXB0ZWQgQW5hbHl0aWNzIGlucHV0IG9uIFUxIHJlY2VpdmluZyBiYXNlCg==",
+  "rawCommitBase64": "dHJlZSAwZjk0Y2EwZjUxNmRmMzBmN2NhNTQ4YjdjYTJmNjI2MjZjNDQxZGU3CnBhcmVudCBhZmVlNjBiYTk3NWFlZjY4M2UyOTU0YTk4NDZiMmVlMzQ0OGYyNDgxCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkyMDg0IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkyMDg0IC0wNDAwCgp0ZXN0KGFjY291bnQtcHJvb2YpOiBxdWFsaWZ5IHBpbm5lZCBBbmFseXRpY3MgYmVmb3JlIFUxIG9uIGZ1bGwgY2hhaW4K",
+  "harnessPaths": [
+    ".github/workflows/account-closure-full-chain-proof.yml",
+    "tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+    "tests/db/account-closure-full-chain.mjs",
+    "tests/db/analytics-observed-rate-full-chain.integration.test.ts",
+    "tests/db/analytics-observed-rate-full-chain.sql"
+  ],
+  "compositePaths": [
+    ".github/workflows/account-closure-full-chain-proof.yml",
+    "backend/supabase/migrations/20261018090000_analytics_summary_observed_filler_rate_1472.sql",
+    "tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+    "tests/db/account-closure-full-chain.mjs",
+    "tests/db/analytics-observed-rate-full-chain.integration.test.ts",
+    "tests/db/analytics-observed-rate-full-chain.sql"
+  ],
+  "frozenInputSource": "aff0268fb3e6137b8323423bd413666d0383fa4e",
+  "frozenInputSha256": "72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f",
+  "patchBytes": 33095,
+  "patchSha256": "2c40d5763732602a2e21d5c932604134555fa879ffde67af56f47b99b41c16cc",
+  "incrementPatchBytes": 21131,
+  "incrementPatchSha256": "6cb09d10ec435d5367a435840ad953da84775c1f83f776ad27e149077ab00527",
+  "reconstruction": "EXACT_TEMP_INDEX_TREE_PASS",
+  "qualification": {
+    "targetedOriginalRed": "unknown reviewed main proof profile;1FAIL",
+    "offlinePlanControls": 514,
+    "boundedPGliteSQL": {
+      "session": 5536,
+      "pass": 2,
+      "oldActualFunctionNegative": true
+    },
+    "physicalPlan": {
+      "migrations": 122,
+      "stages": [
+        118,
+        119,
+        120,
+        121,
+        122
+      ],
+      "executed": false
+    },
+    "fullQuality": {
+      "session": 54926,
+      "exitCode": 0
+    }
+  },
+  "limits": [
+    "Native full-schema Supabase chain on receiving head NOT RUN",
+    "PGlite fixture does not prove complete hosted schema",
+    "No production apply/deployment/activation",
+    "Full account126profile remains next; production U1 order still requires pending predecessor decision",
+    "95a is local source; evidence transport is separate not landing branch"
+  ],
+  "disposition": "Not ready to land; bounded CODE+TEST review requested"
+}
