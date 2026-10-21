@@ -185,6 +185,8 @@ describe('#1282 trial/expiry + Private-only journey (executed in PGlite)', () =>
       expect(heartbeat.success).toBe(true);
       expect(Object.keys(heartbeat)).not.toContain('private_sample_seconds_remaining');
 
+      // HISTORICAL (#1593 RF-1): proves the 0812-chain v1 `complete_session`, which 20260829120000 dropped. The shipped
+      // save path is `complete_session_v2`; its rules are proven in trial-session-v2-current-chain.integration.test.ts.
       const completed = (await db.query<{ result: Record<string, unknown> }>(`
         SELECT public.complete_session('${sessionId}', 'completed', 'safe proof', 900, NULL) AS result
       `)).rows[0].result;
@@ -197,6 +199,9 @@ describe('#1282 trial/expiry + Private-only journey (executed in PGlite)', () =>
     }
   });
 
+  // HISTORICAL (#1593 RF-1): this case saves through the v1 `complete_session` that 20260829120000 dropped; it stays as
+  // the record of the 0812-chain rule. The shipped v2 denial and clamp are proven in
+  // trial-session-v2-current-chain.integration.test.ts.
   it('expiry is rechecked at save time and the 600-second per-recording safety cap is shared', async () => {
     const active = await make(TRIAL_ACTIVE);
     await act(active);
