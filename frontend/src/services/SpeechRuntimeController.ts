@@ -5940,7 +5940,7 @@ export class SpeechRuntimeController {
                                 durationSeconds: Math.round(duration),
                                 wordCount,
                                 wpm,
-                                fillerCounts: finalFillerCounts,
+                                countedFillerTotal: headlineFillerCount,
                                 clarityScore,
                             });
 
