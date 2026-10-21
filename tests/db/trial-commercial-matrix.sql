@@ -50,8 +50,6 @@ BEGIN
   IF v_count <> 1 THEN RAISE EXCEPTION 'paid account was mutated by activation'; END IF;
 
   -- SECURITY DEFINER fixed paths and least-privilege ACLs.
-  -- HISTORICAL (#1593 RF-1): this lane applies the 0812 chain only, where v1 complete_session still exists; v1 was
-  -- dropped by 20260829120000. The shipped v2 search_path is asserted in trial-session-v2-current-chain.integration.test.ts.
   FOREACH v_fn IN ARRAY ARRAY[
     'public.update_user_usage(integer,text,uuid)'::regprocedure,
     'public.check_usage_limit()'::regprocedure,
@@ -126,8 +124,6 @@ BEGIN
   IF v_result->>'can_start' <> 'false' OR v_result->>'error' <> 'trial_expired' THEN
     RAISE EXCEPTION 'exact expiry did not deny creation';
   END IF;
-  -- HISTORICAL (#1593 RF-1): v1 save denial on the 0812 chain. The shipped complete_session_v2 denial (row unchanged) is
-  -- proven in trial-session-v2-current-chain.integration.test.ts.
   SELECT public.complete_session(
     '00000000-0000-4000-8000-000000001299', 'completed', 'must not persist', 60, NULL
   ) INTO v_result;
