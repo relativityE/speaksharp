@@ -52,6 +52,7 @@ export async function runAttachProbe({memory,version,connect,origin,inspect,repo
     report.stage='CDP_CONNECT';
     const browser=await step(connect(websocket),5000,'CONNECT');
     report.browserVersion=browser.version();
+    if(report.browserVersion!==version.Browser.slice('Chrome/'.length)) throw Error('ATTACHED_BROWSER_VERSION_MISMATCH');
     report.stage='CREATE_OWNED_CONTEXT';
     report.ownedContextRequested=true;
     let contextTimedOut=false;

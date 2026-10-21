@@ -24,21 +24,22 @@
     "sdkImportMs": 3000,
     "attachTotalIncludingCleanupMs": 30000
   },
-  "negativeControls": "10 Node tests PASS incl actual HTTP redirect refusal/no destination fetch, one discovery/no refetch, hanging route timeout and owned cleanup",
+  "negativeControls": "12 Node tests PASS incl actual HTTP redirect/no-refetch, actual attached-version mismatch, hanging route and late context creation cleanup",
   "source": [
     {
       "path": "cli-cdp-attach-probe-20261021.mjs",
-      "sha256": "ffa452a6521984a4b5cf0e1cb208892dd9201c08e4180f0f9ce4ed5dac322cbb"
+      "sha256": "7b9b24f5e517b2978a03ca4ddc445d3d667238cfccf087a74d42af9768cd0e96"
     },
     {
       "path": "cli-cdp-attach-probe-20261021.test.mjs",
-      "sha256": "3d9f2bb90a72a2893f42285abb4a7150c44ac64bfde3f22e66afac3279c9eb25"
+      "sha256": "42b886cf03b7d084cd962428a9ce0577f981962ae24b0d2452888d0cb20a0055"
     }
   ],
-  "execution": "CHANGES_REQUIRED3993/4048 corrected; exact source re-review requested; NOT_RUN",
+  "execution": "3993/4048/4133 corrections addressed; NOT_RUN; final bounded re-review requested",
   "productRunnerChange": false,
   "modelRunAuthorizedByPlan": false,
   "ownership": "Fresh lsof sole127.0.0.1:9222 listener PID + exact dedicated profile ps command + matching SingletonLock verified before discovery and immediately before connect; provenance references PO chat + Slack4022",
   "discovery": "redirect:error; validate exact local websocket and connect directly to it; no second HTTP discovery",
-  "overallDeadlineMs": 45000
+  "overallDeadlineMs": 45000,
+  "attachedVersion": "browser.version must exactly equal validated Chrome discovery version before any context creation"
 }

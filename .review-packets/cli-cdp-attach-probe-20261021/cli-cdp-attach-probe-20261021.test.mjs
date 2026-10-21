@@ -9,7 +9,7 @@ function fixture() {
   const calls=[];
   const page={on(){},async goto(url){calls.push(['goto',url]);}};
   const context={async route(){},async newPage(){return page;},async close(){calls.push('owned-context-close');}};
-  const browser={version:()=>version.Browser,async newContext(){calls.push('new-owned-context');return context;},
+  const browser={version:()=>version.Browser.slice('Chrome/'.length),async newContext(){calls.push('new-owned-context');return context;},
     contexts(){throw Error('PERSONAL_CONTEXT_ENUMERATION');},async close(){throw Error('OWNER_BROWSER_CLOSE');}};
   return {calls,args:{memory,version,origin:'http://127.0.0.1:12345',report:{pageErrors:[]},
     connect:async url=>{assert.equal(url,version.webSocketDebuggerUrl);calls.push('connect');return browser;},
@@ -48,7 +48,7 @@ test('actual HTTP discovery happens once and its validated websocket is the conn
 test('hanging route setup consumes bounded overall budget and still closes owned context',async()=>{
   const f=fixture();let closed=false;
   f.args.timeoutMs=80;
-  f.args.connect=async()=>({version:()=>version.Browser,newContext:async()=>({route:()=>new Promise(()=>{}),close:async()=>{closed=true;}})});
+  f.args.connect=async()=>({version:()=>version.Browser.slice('Chrome/'.length),newContext:async()=>({route:()=>new Promise(()=>{}),close:async()=>{closed=true;}})});
   const start=Date.now();await assert.rejects(runAttachProbe(f.args),/TIMEOUT_ROUTE_SETUP/);
   assert.equal(closed,true);assert.ok(Date.now()-start<1000);
 });
@@ -83,7 +83,21 @@ test('fallback or missing f16 fails the relevant page/worker gate and cleans up'
   }
 });
 test('cleanup failure cannot be reported as success',async()=>{
-  const f=fixture();f.args.connect=async()=>({version:()=>version.Browser,newContext:async()=>({route:async()=>{},newPage:async()=>({on(){},goto:async()=>{}}),close:async()=>{throw Error('CONTEXT_CLOSE_FAILED');}})});
+  const f=fixture();f.args.connect=async()=>({version:()=>version.Browser.slice('Chrome/'.length),newContext:async()=>({route:async()=>{},newPage:async()=>({on(){},goto:async()=>{}}),close:async()=>{throw Error('CONTEXT_CLOSE_FAILED');}})});
   await assert.rejects(runAttachProbe(f.args),/CONTEXT_CLOSE_FAILED/);
   assert.notEqual(f.args.report.ownedContextClosed,true);
+});
+test('discovery version cannot mask actual attached browser mismatch',async()=>{
+  const f=fixture();let contextRequests=0;
+  f.args.connect=async()=>({version:()=> '155.0.0.0',newContext:async()=>{contextRequests++;throw Error('should not create');}});
+  await assert.rejects(runAttachProbe(f.args),/ATTACHED_BROWSER_VERSION_MISMATCH/);assert.equal(contextRequests,0);
+});
+test('late context is not a pass, and is closed if creation completes before probe disconnect',async()=>{
+  const f=fixture();f.args.timeoutMs=80;let closed=false;
+  f.args.connect=async()=>({version:()=>version.Browser.slice('Chrome/'.length),newContext:()=>new Promise(resolve=>setTimeout(()=>resolve({close:async()=>{closed=true;}}),150))});
+  const start=Date.now();await assert.rejects(runAttachProbe(f.args),/TIMEOUT_CONTEXT/);
+  assert.ok(Date.now()-start<1000);
+  assert.equal(f.args.report.contextCreationCleanup,'UNVERIFIED_IF_REQUEST_COMPLETES_AFTER_DISCONNECT');
+  assert.notEqual(f.args.report.stage,'MODEL_FREE_ATTACH_PASS');
+  await new Promise(resolve=>setTimeout(resolve,170));assert.equal(closed,true);
 });
