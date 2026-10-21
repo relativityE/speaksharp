@@ -12,6 +12,11 @@ const wf = yaml.load(readFileSync(resolve(process.cwd(), '.github/workflows/depl
 const jobs = wf.jobs;
 
 describe('deploy-supabase-migrations Edge deploy/readback job conditions', () => {
+  it('rechecks current qualified main before both drain invalidation and Edge mutation', () => {
+    for (const name of ['invalidate-account-closure-authority', 'deploy-edge-functions', 'deploy-production-db']) {
+      expect(jobs[name].steps.some((step) => step.run === 'node scripts/production-release-policy.mjs authorize')).toBe(true);
+    }
+  });
   it('deploy-production-db is intentionally skipped for an edge-functions-only operation', () => {
     expect(jobs['deploy-production-db'].if).toContain("inputs.operation != 'edge-functions'");
   });

@@ -10,11 +10,16 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   deploy-reviewed-edge-release:
+    # A normal merge validates through CI; it never authorizes production mutation.
+    if: ${{ false }}
     uses: ./.github/workflows/deploy-supabase-migrations.yml
     with:
+      deploy_production: false
+      expected_head_sha: ${{ github.sha }}
       deploy_edge_functions: true
       operation: edge-functions
     secrets: inherit

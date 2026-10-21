@@ -18,10 +18,10 @@ import { decideExitCode, PREVIEW_BRANCH_PREFIX, EXIT_BUILD, EXIT_SKIP } from '..
  * flag file (could be merged to `main` and inherited by every future branch).
  */
 describe('#1043 vercel ignore-build contract (exit 1 = BUILD, exit 0 = SKIP)', () => {
-    it('production ALWAYS builds — branch irrelevant', () => {
-        expect(decideExitCode('production', 'main')).toBe(EXIT_BUILD);
-        expect(decideExitCode('production', 'preview/anything')).toBe(EXIT_BUILD);
-        expect(decideExitCode('production', undefined)).toBe(EXIT_BUILD);
+    it('production Git builds stay off — deliberate releases use the guarded CLI route', () => {
+        expect(decideExitCode('production', 'main')).toBe(EXIT_SKIP);
+        expect(decideExitCode('production', 'preview/anything')).toBe(EXIT_SKIP);
+        expect(decideExitCode('production', undefined)).toBe(EXIT_SKIP);
     });
 
     it('preview on a `preview/*` branch builds (deliberate opt-in)', () => {

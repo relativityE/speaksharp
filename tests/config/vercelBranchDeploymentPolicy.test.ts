@@ -35,8 +35,9 @@ function allowsDeployment(branch: string, rules: DeploymentPolicy | undefined = 
   return matches.length === 0 || matches.some(([, enabled]) => enabled);
 }
 
-const allowed = ['main', 'preview/rc', 'preview/team/rc', 'preview/team/device/rc'];
+const allowed = ['preview/rc', 'preview/team/rc', 'preview/team/device/rc'];
 const denied = [
+  'main',
   'work', 'feature', 'fix/one', 'cli-dev/evaluator', 'cli-dev/team/task',
   'candidate/mvp-rc1-20261019', 'release/next', 'feature/team/topic',
   'preview', 'preview-rc', 'previews/rc', 'Preview/rc', 'feat/preview/rc',
@@ -75,13 +76,13 @@ describe('Vercel automatic Git deployment branch policy', () => {
     expect(allowsDeployment('preview/team/rc', { '**': false, main: true, 'preview/*': true })).toBe(false);
     expect(allowsDeployment('main', false)).toBe(false);
     expect(allowsDeployment('preview/team/rc')).toBe(true);
-    expect(allowsDeployment('main')).toBe(true);
+    expect(allowsDeployment('main')).toBe(false);
   });
 
   it('keeps allowed flat/nested previews aligned with the existing ignored-build step', () => {
     expect(config.ignoreCommand).toBe('node scripts/vercel-ignore-build.mjs');
     for (const branch of allowed) {
-      expect(decideExitCode(branch === 'main' ? 'production' : 'preview', branch)).toBe(EXIT_BUILD);
+      expect(decideExitCode('preview', branch)).toBe(EXIT_BUILD);
     }
     expect(config.github?.autoJobCancelation).not.toBe(false);
   });
