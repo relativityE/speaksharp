@@ -106,13 +106,15 @@ test('plan import and invalid arguments need no Docker, credentials, database or
   }
 });
 
-test('actual receiving-tree manifest is checked rather than replaced with a metadata fixture', () => {
+for (const profile of ['completion-n3', 'completion-n3-u1']) test(`${profile}: actual receiving-tree manifest is checked, not replaced with a metadata fixture`, () => {
   const dir = new URL('../../backend/supabase/migrations/', import.meta.url);
   const actual = readdirSync(dir).filter((name) => name.endsWith('.sql')).map((name) => ({ name,
     sha256: createHash('sha256').update(readFileSync(new URL(name, dir))).digest('hex') }));
   // Current base may lack accepted successor source. Report HOLD; do not erase that precondition.
-  const expected = new Map(REVIEWED_MIGRATION_SNAPSHOT.map((r) => [r.name, r.sha256]));
-  const missing = [...expected.keys()].filter((name) => !actual.some((r) => r.name === name));
-  if (missing.length) assert.throws(() => buildAccountReplayPlan(actual), /reviewed migration missing|unreviewed migration|digest changed/);
-  else assert.equal(buildAccountReplayPlan(actual).executed, false);
+  const expected = new Map([...REVIEWED_MIGRATION_SNAPSHOT,
+    ...(profile === 'completion-n3-u1' ? [HEARTBEAT_PREREQUISITE] : [])].map((r) => [r.name, r.sha256]));
+  const missing = [...expected.keys()].some((name) => !actual.some((r) => r.name === name));
+  const changedOrUnknown = actual.some((r) => expected.get(r.name) !== r.sha256);
+  if (missing || changedOrUnknown) assert.throws(() => buildAccountReplayPlan(actual, profile), /reviewed migration missing|unreviewed migration|digest changed/);
+  else assert.equal(buildAccountReplayPlan(actual, profile).executed, false);
 });
