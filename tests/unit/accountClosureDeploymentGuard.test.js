@@ -67,6 +67,8 @@ describe('deployment invalidates deletion authority before any worker change', (
         expect(guard, 'guard must run before schema/secrets as well as functions').toBeDefined();
         expect(guard.needs).toBe('validate-edge-configuration');
         expect(guard.environment).toBe('production-db');
+        expect(guard.if).toContain("inputs.deploy_production == true");
+        expect(guard.if).toContain("needs.validate-edge-configuration.outputs.allowed == 'true'");
         const invalidations = Object.values(workflow.jobs).flatMap((job) => job.steps ?? [])
             .filter((step) => step.run === 'node scripts/account-closure-invalidate.mjs');
         expect(invalidations).toHaveLength(1);

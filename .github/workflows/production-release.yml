@@ -1,0 +1,144 @@
+name: Deliberate production release
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: 'Separate explicit authorization to mutate production'
+        type: boolean
+        default: false
+      expected_head_sha:
+        description: 'Exact qualified current main SHA'
+        type: string
+        required: true
+      operation:
+        description: 'One separately authorized release operation'
+        type: choice
+        options: [frontend, edge-functions]
+        required: true
+      confirm:
+        description: 'Type RELEASE <operation> AT <exact SHA>'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deliberate-production-release
+  cancel-in-progress: false
+
+jobs:
+  production-policy:
+    if: ${{ inputs.deploy_production == true && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.policy.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - id: policy
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
+
+  validate-release:
+    needs: production-policy
+    if: ${{ inputs.deploy_production == true && needs.production-policy.outputs.allowed == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require exact operation confirmation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          case "$OPERATION" in frontend|edge-functions) ;; *) exit 1 ;; esac
+          [ "$CONFIRM" = "RELEASE $OPERATION AT $EXPECTED_HEAD_SHA" ]
+
+  release-edge:
+    needs: [production-policy, validate-release]
+    if: ${{ inputs.deploy_production == true && needs.production-policy.outputs.allowed == 'true' && inputs.operation == 'edge-functions' }}
+    uses: ./.github/workflows/deploy-supabase-migrations.yml
+    with:
+      deploy_production: true
+      expected_head_sha: ${{ inputs.expected_head_sha }}
+      deploy_edge_functions: true
+      operation: edge-functions
+    secrets: inherit
+
+  release-frontend:
+    needs: [production-policy, validate-release]
+    if: ${{ inputs.deploy_production == true && needs.production-policy.outputs.allowed == 'true' && inputs.operation == 'frontend' }}
+    # Reuse the existing protected mutation environment; do not create an unprotected release environment.
+    environment: production-db
+    concurrency:
+      group: production-database-migrations
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.expected_head_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-environment
+        with:
+          install-dependencies: 'false'
+      - name: Prepare the exact production build (no upload)
+        env:
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_GIT_COMMIT_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          set -euo pipefail
+          [ -n "$VERCEL_ACCESS_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]
+          npx --yes vercel@48.2.0 pull --yes --environment=production --token "$VERCEL_ACCESS_TOKEN"
+          npx --yes vercel@48.2.0 build --prod --token "$VERCEL_ACCESS_TOKEN"
+      - name: Recheck exact green main immediately before upload
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
+      - name: Upload one prebuilt production release
+        env:
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes vercel@48.2.0 deploy --prebuilt --prod --yes --token "$VERCEL_ACCESS_TOKEN"
+      - name: Verify the canonical served identity
+        env:
+          EXPECTED_RELEASE_SHA: ${{ inputs.expected_head_sha }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 24); do
+            if node scripts/production-release-policy.mjs served > "$RUNNER_TEMP/production-release-receipt.json"; then
+              cat "$RUNNER_TEMP/production-release-receipt.json"
+              echo "Verified served SHA: $EXPECTED_RELEASE_SHA" >> "$GITHUB_STEP_SUMMARY"
+              echo 'Operator must reconcile the separately controlled PRODUCTION_RELEASE_SHA binding; no variable is automatically changed.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo '::error::HOLD — production upload attempted but served identity is unverified; do not repeat deployment blindly.'
+          exit 1
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: production-release-receipt
+          path: ${{ runner.temp }}/production-release-receipt.json
+          if-no-files-found: warn
+          retention-days: 1

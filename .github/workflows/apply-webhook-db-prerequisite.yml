@@ -5,6 +5,10 @@ name: Apply webhook DB prerequisite (exact migration)
 on:
   workflow_dispatch:
     inputs:
+      deploy_production:
+        description: 'Explicit separately authorized production operation; defaults off'
+        type: boolean
+        default: false
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
         required: true
@@ -23,7 +27,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  production-policy:
+    if: ${{ inputs.deploy_production == true && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.policy.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - id: policy
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
+
   apply-exact-webhook-prerequisite:
+    needs: production-policy
+    if: ${{ inputs.deploy_production == true && needs.production-policy.outputs.allowed == 'true' }}
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -113,6 +139,13 @@ jobs:
           set -euo pipefail
           current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
           [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced after dry-run'; exit 1; }
+
+      - name: Recheck exact green main before mutation
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
 
       - name: Apply the exact reviewed migration
         id: apply
