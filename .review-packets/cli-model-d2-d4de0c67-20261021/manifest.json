@@ -1,0 +1,73 @@
+{
+  "updatedUtc": "2026-10-21T11:42:26.478683+00:00",
+  "disposition": "Not ready to land; source review requested, full quality pending shared heavy slot",
+  "sourceHead": "d4de0c674771318704f2a45a9fbe99da66bf5868",
+  "sourceParent": "dfd218f4166facac97026f13c76bd03706e1586c",
+  "sourceTree": "8a6dd1421f96ad86028af577a1c5d621a3439959",
+  "branch": "cli-dev/1304-consent-lifecycle-20261021",
+  "ownership": "App1792582572.551999 explicitly cleared additional consent-render/pre-request slot including published/unpublished/queued overlap; five paths2272",
+  "paths": [
+    "frontend/src/components/session/AISuggestions.tsx",
+    "frontend/src/services/coaching/productProvider.ts",
+    "frontend/src/services/modelAssetLoader.ts",
+    "frontend/src/components/session/__tests__/AISuggestions.localConsent.test.tsx",
+    "frontend/src/components/session/__tests__/AISuggestions.localProviderRoute.test.tsx"
+  ],
+  "causalRed": {
+    "session": 89010,
+    "pass": 2,
+    "fail": 2,
+    "exitCode": 1,
+    "finding": "Clean storage cannot grant local model download consent through product UI; preexisting exact-consent and Gemini controls pass"
+  },
+  "finalFocused": {
+    "session": 57084,
+    "pass": 229,
+    "fail": 0,
+    "exitCode": 0,
+    "files": {
+      "AISuggestions.localConsent": 14,
+      "AISuggestions.localProviderRoute": 6,
+      "AISuggestions.component": 171,
+      "provider": 38
+    }
+  },
+  "quality": {
+    "session": 69679,
+    "exitCode": 143,
+    "status": "Interrupted to yield App heavy slot1792582630.072619; NOT PASS, rerun after addressed release"
+  },
+  "retainedProbeFailure": {
+    "session": 16995,
+    "fail": 2,
+    "pass": 7,
+    "skipped": 4,
+    "unhandled": 1,
+    "cause": "Test history API did not change mocked location and restored observer mock was unusable; corrected probe setup only"
+  },
+  "lifecycleComposition": {
+    "routeExit": "Late worker is disposed without inference after abort; cancel_local sent",
+    "samePageUnmount": "Accepted work completes commit and disposes runtime; no abort",
+    "uncertainCommit": "Same generation prepared/committed twice, exactly one acquisition/inference",
+    "D3SourceCleanupChange": "NONE; unconditional disposal proposal would violate accepted work",
+    "ownerChange": "Still queued; not proved by these new cases"
+  },
+  "changes": {
+    "consent": "Exact unchanged pin bytes/digest/runtime shown; explicit grant reuses existing writer",
+    "privacy": "No unconsented preparation/Auth/model acquisition; blocked storage remains actionable",
+    "selection": "Gemini default and internal/not-production-ready qualification unchanged"
+  },
+  "actualModelProviderCalls": 0,
+  "remaining": [
+    "Full quality after App heavy slot release",
+    "Independent source/test disposition",
+    "Receiving integration and exact-head CI",
+    "Saved Focus/token-template/owner-change/STT controls and scoped real-session/device proof"
+  ],
+  "patchSha256": "d2c9e531bff3e2facfe65bce5e35b7b1184853d4f652698315077003780e19a1",
+  "patchBytes": 27782,
+  "patchReconstruction": "Temporary Git index from parent to exact source tree PASS",
+  "reconstruct": "Reconstruct accepted D1 from complete existing base packet, decode delta-from-dfd.patch.b64, verify patchSha256, git apply --index, git write-tree must equal sourceTree",
+  "completeParentEvidence": "a6c2b88139dbc2b06ebdc031d6a0eeb8f4e9c8ea",
+  "transportOnlyNotLandingBranch": true
+}
