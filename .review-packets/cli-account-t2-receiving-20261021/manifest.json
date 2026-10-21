@@ -1,0 +1,325 @@
+{
+  "preparedUtc": "2026-10-21T18:22:06.705410+00:00",
+  "purpose": "PO requests removal of CLI account-backend receiving dependency; exact accepted source composition only",
+  "receivingBranch": "app-dev/1593-u1-heartbeat",
+  "receivingHead": "462a915696c287810a874e16260511185e70f023",
+  "receivingStagedPatchSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "receivingSnapshotTree": "47922f6bb86145055f33d79edf00e6d10fffd2e1",
+  "integratedTree": "0e4b3fd8b4301c1af4b722a617cf69943b4a4836",
+  "receivingFilesChangedByCLI": false,
+  "candidateBranchCreated": false,
+  "proofSource": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+  "preserved122Source": "95a78455ce889eea1c4616c25aa19f7b865360f1",
+  "backendSource": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+  "composition": "EXACT_TEMP_INDEX_APPLY_PASS; all changed blobs match selected accepted sources; staged Analytics files preserved",
+  "versionedMigrations": 126,
+  "paths": [
+    {
+      "path": ".github/workflows/account-closure-full-chain-proof.yml",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "3214cc12b032170c73ab584d5e64c64f627ea80b",
+      "bytes": 4160,
+      "sha256": "e6144606c37423beb489d109991aeb9f6b10268c87d0633b322b0f890349a04e"
+    },
+    {
+      "path": "backend/supabase/functions/_shared/accountClosure.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "53d3db2bfde67735d74ee36acf97f98e1ef58e26",
+      "bytes": 6685,
+      "sha256": "b59b3ab169b2a48171de88d840705fcb77925baa532ba8ecd8a18aad745b4d54"
+    },
+    {
+      "path": "backend/supabase/functions/_shared/accountClosureCompletion.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "646d4817253a31c9c9ea53cea4abb41f3b9f8c34",
+      "bytes": 10637,
+      "sha256": "5ccff2c3aa4a1d27a45cc4d20d842289e9ee1424868b2b141beaf01a2fb7833d"
+    },
+    {
+      "path": "backend/supabase/functions/_shared/accountClosureCompletionAdapter.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "c4126ffe8bb0942853e12a966700cbf262ba8929",
+      "bytes": 5981,
+      "sha256": "66fd21f378ae57deff714a8666f532a6f7fe33654f2f967a396eb7d312634a5a"
+    },
+    {
+      "path": "backend/supabase/functions/_shared/accountClosureCompletionRequest.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "7c6ca86f65447f49aab9dca43d80a2b1278da5ae",
+      "bytes": 4602,
+      "sha256": "ea0a6079c4a3846c1930636c506ac1be1d73edd2cffbfb4f5e8610cfade18028"
+    },
+    {
+      "path": "backend/supabase/functions/_shared/accountClosureCompletionRuntimeBinding.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "573db65a3ce89ae53377f4ea00113351f5674724",
+      "bytes": 3655,
+      "sha256": "f4c3d17f1b1fe288dc4e9b1d1bf2e73213bc0d849fb2adba2ff064e26291aaf1"
+    },
+    {
+      "path": "backend/supabase/functions/_shared/accountClosureCompletionStatus.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "a8c2b619efbf7bbf26b2e4768f307db4931083fe",
+      "bytes": 8223,
+      "sha256": "8657f693dc5b38dbddd884d1187ec37e3b8ade07dfb1091820329b42cb04bd54"
+    },
+    {
+      "path": "backend/supabase/functions/_shared/accountClosureRequest.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "e692b1f05f135a92aabcd74394e6633833b818d2",
+      "bytes": 5824,
+      "sha256": "2c65c61d98dcb023ab55b38af99e85ee21e2006ebffdddc4ac5c22a632111848"
+    },
+    {
+      "path": "backend/supabase/functions/account-closure/index.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "9008eb3d3c8a318a920fff50f6a8063748939688",
+      "bytes": 34561,
+      "sha256": "1116898b8942f42c866ebc55ed5462807e62f207d4f10b630f7d7a1fdc05ed1b"
+    },
+    {
+      "path": "backend/supabase/functions/account-closure/index.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "1f405f5360b2ac7e3bbf997b126604b76c6c662d",
+      "bytes": 21957,
+      "sha256": "fd600ca3030b951c74461c77a4c448927ff989ee0012bfd46f38449d4760b14e"
+    },
+    {
+      "path": "backend/supabase/functions/get-ai-suggestions/index.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "9ea99056ccaa787c97e67dc6c3f8426f06639361",
+      "bytes": 128162,
+      "sha256": "be3dcdc7d46e63d2b99ff06652a14a3b31617ae4734061c0191ee6fbedecc542"
+    },
+    {
+      "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "525a12c7fc407c5482c1b7faf3cb6e69da0125a1",
+      "bytes": 61183,
+      "sha256": "b23be40f0a94fbbb82620a182ad38c3e2b5fa9a686062e8ff571d09740864b34"
+    },
+    {
+      "path": "backend/supabase/functions/stripe-webhook/index.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "72cc7a3a16412595916a06d267aac3dacacc044c",
+      "bytes": 14893,
+      "sha256": "f0d856bb7797cb8c0473c8b9c9a4f082c4febabacbeb7470cdb65063e7ceb065"
+    },
+    {
+      "path": "backend/supabase/functions/stripe-webhook/index.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "72e8d731cf32aba940ee73afe0fddd5319bbf629",
+      "bytes": 14781,
+      "sha256": "f1de08e17a395ac0ac9d7f5d41c5fcd9891d3c215ba072880cbde4228dab4db6"
+    },
+    {
+      "path": "backend/supabase/migrations/20261018170000_account_closure_pending_checkout.sql",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "566a53f42babd90d5cd20d3a9a932527dacf4ae7",
+      "bytes": 19434,
+      "sha256": "68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19"
+    },
+    {
+      "path": "backend/supabase/migrations/20261019055102_account_pending_recording_admission_1643.sql",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "54a7b689602a4a9d0df8dd073480c0e5c50de40a",
+      "bytes": 3941,
+      "sha256": "e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4"
+    },
+    {
+      "path": "backend/supabase/migrations/20261019202856_account_coaching_admission_1643.sql",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "2aea857b7915a8417ceb22155278ef715f3c7a02",
+      "bytes": 8282,
+      "sha256": "f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e"
+    },
+    {
+      "path": "backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "0ca93a9e8ec2ef705895fe2620ac7d419c71602a",
+      "bytes": 27840,
+      "sha256": "955d829bdcc9649dadfd23e9ebef2839d56b31bddd87cd77fd2122df3ba87a1c"
+    },
+    {
+      "path": "tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "9063c77a6dde6c8648f0eaf06c1806f70c9ddd3d",
+      "bytes": 18425,
+      "sha256": "5eb9db159a8c686f8f71be89ef4ab54e67aa1dbe1bfa5767b9ab4377c06d1321"
+    },
+    {
+      "path": "tests/db/account-closure-full-chain.mjs",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "84acfd5ee09d0772b3c4b575d9a686dbded6e634",
+      "bytes": 51637,
+      "sha256": "17f502c7d5c00a49b6b853a0964ce59d33a1644c63e77c900641b1113c45811d"
+    },
+    {
+      "path": "tests/db/account-closure-pending-fixture.mjs",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "6887c23fdb24e67c49dd677842aeb0447c98dd16",
+      "bytes": 1598,
+      "sha256": "d89d62d21b97e481ed874b0e77500e4b63b5e71c7a49b742b365d11f4d689f72"
+    },
+    {
+      "path": "tests/db/account-closure-pending-invariants.sql",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "6f6b556928897a5c63f3b2da1400f70e907a5580",
+      "bytes": 6131,
+      "sha256": "e5224ecfb1009f244becac340486fe5ffeb545c21d2478df9f4c9f5f4040435f"
+    },
+    {
+      "path": "tests/db/account-closure-pending-realpg.mjs",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "23721b95a7de1f8786648a77494cbc4ce67174e2",
+      "bytes": 7552,
+      "sha256": "17d268bf28dad7785f85baccc0902888b682c90edf65c886bd328a4913a166b0"
+    },
+    {
+      "path": "tests/db/account-closure-pending.integration.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "55311ddc5edf936540a3d421188e64b2f8b37d85",
+      "bytes": 15559,
+      "sha256": "bfb33241bb2f3de61118b10c8acd96e36815303a81134e98bc4075b5c3a7732c"
+    },
+    {
+      "path": "tests/db/account-coaching-admission-invariants.sql",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "2290b4de8338fc179246c69b7f9aff2d413c8e61",
+      "bytes": 2130,
+      "sha256": "b12464b760b6f6206f6f4449bc8cb5b0991ee59ee6771c6ca09b16c1d84f88e9"
+    },
+    {
+      "path": "tests/db/account-coaching-admission-realpg.mjs",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "f216a2898fd9736e03395b3db2ee1411793613b2",
+      "bytes": 21468,
+      "sha256": "7b37423021b324090f31fcccf1b6ec5daf3c6c262de242258b1308fb76c6f5e5"
+    },
+    {
+      "path": "tests/db/account-completion-fixture.mjs",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "61b24a4c4a7d28893129c794bf7529ff4fc6343a",
+      "bytes": 3157,
+      "sha256": "037d6c604307829c4c1a355dbd6dba699b0510d5df53edcd384bbd0a9eed6b92"
+    },
+    {
+      "path": "tests/db/account-completion-full-chain-invariants.sql",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "db7a9ac959e5235776d234e48ce240055729fdab",
+      "bytes": 18394,
+      "sha256": "cff4aa7309c38ca80f192746b73f4552ba9ef567e03b7faa3882671c02e0e2de"
+    },
+    {
+      "path": "tests/db/account-completion-realpg.mjs",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "e3689df6c81030ac5ad4db12caddfee22e2562cd",
+      "bytes": 17516,
+      "sha256": "4756875c1a09a62033c9b8a3f61f15429caac17ccb8e826d8a82195b933293bd"
+    },
+    {
+      "path": "tests/db/account-completion.integration.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "becb654684d2275f17f0770518b8c18366c6464d",
+      "bytes": 34892,
+      "sha256": "4a7adef9ab4ad1979cc4005a2b3c0781bae5c85c7a124f9a3650964910e26192"
+    },
+    {
+      "path": "tests/db/account-recording-admission-invariants.sql",
+      "source": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "blob": "e6604ea43c57b8fed88206fed1b9507383a1298d",
+      "bytes": 2895,
+      "sha256": "5f919425355e10b6c06470ff78538e6929b5fc733f34ee72eae7b53fde2cda14"
+    },
+    {
+      "path": "tests/db/account-recording-admission-realpg.mjs",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "da38cfc9751a6f78ab3622b23f3789f6d4fbbf59",
+      "bytes": 14633,
+      "sha256": "8e3be0498dc40d9ca59dd714a3c581ed5eb4e5eb974becfa75a2dce0287a7043"
+    },
+    {
+      "path": "tests/unit/accountClosureCompletion.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "cf2b7380270e378fae928ab8a4feedf1a49d8003",
+      "bytes": 16553,
+      "sha256": "68a3e9a4e4f2381e5a2b413696e274dffa2a8a37263938dd4c2a9b569710f16a"
+    },
+    {
+      "path": "tests/unit/accountClosureCompletionAdapter.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "0b108821e74cc8cb8f73bbf8516deebf9047bd51",
+      "bytes": 11292,
+      "sha256": "7bca43f378771bfde58d80e4e3aa5ccc17a7d465fed936e3106c061a484ef385"
+    },
+    {
+      "path": "tests/unit/accountClosureCompletionRequest.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "5f56b23d01074f14e90e5cb1aac98ca86ba4f850",
+      "bytes": 9731,
+      "sha256": "c6b3800fada69407effe25bd66c14aa8fda2a2f3817e11ed72cf8f4d931e2de2"
+    },
+    {
+      "path": "tests/unit/accountClosureCompletionRuntimeBinding.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "7e88c2372f33386cfa5c0c7462a040eca70f69c8",
+      "bytes": 6109,
+      "sha256": "1e77323686c6e9df70d2a88834008ca27ac44bdcd83cb65ba59db935e6ad7876"
+    },
+    {
+      "path": "tests/unit/accountClosureCompletionStatus.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "b2bffd8bd6454b027cbb4cd3b732c1afdf74f34a",
+      "bytes": 9199,
+      "sha256": "4cd40ec320265875f5156af358ef808593b45b2365406158a9aba7322edae6d7"
+    },
+    {
+      "path": "tests/unit/accountClosurePolicy.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "9ecd33225d1c71fbd0828d7245c1f05f24e010dd",
+      "bytes": 8505,
+      "sha256": "41f3f930c372cfdcb33122bc3404f797a35be8b9a52c59e40311ecfcd6d516c8"
+    },
+    {
+      "path": "tests/unit/accountClosureRequest.test.ts",
+      "source": "6fabe3f13d1f080e79221cdc98f06603381b1779",
+      "blob": "514198b3b17b5dec9feb229df3b0056308cc044e",
+      "bytes": 8913,
+      "sha256": "4b822b20c63568fa7664dc4ee852561434dd72fdc71733f3bbd93b173fc9ff84"
+    }
+  ],
+  "patchBytes": 392324,
+  "patchSha256": "07f248230523db74adc976e1b0737165ea497bf668fd7c3e2949afa9210d46c1",
+  "proofSourceReview": "Sam1792602140.559099 bounded CODE+TEST+identity PASS; receiving ACK App1792604245.012359",
+  "backendSourceReview": "Sam1792548213.391389 accepted completion runtime source; exact complete backend packet6309008247+6309008505",
+  "sourceQualifications": {
+    "proof": "777 offline controls + fullquality77948 PASS; physical126 PLAN_ONLY, not native execution",
+    "backend": "332 focused +55 offline Deno +fullquality41057 PASS on6fabe3f1; historical source evidence, not combined receiving qualification"
+  },
+  "runtimeEntryPointsChanged": [
+    "account-closure",
+    "get-ai-suggestions",
+    "stripe-webhook"
+  ],
+  "accountMigrations": [
+    "backend/supabase/migrations/20261018170000_account_closure_pending_checkout.sql",
+    "backend/supabase/migrations/20261019055102_account_pending_recording_admission_1643.sql",
+    "backend/supabase/migrations/20261019202856_account_coaching_admission_1643.sql",
+    "backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql"
+  ],
+  "receivingSteps": [
+    "App remains integration writer. On captured receiving snapshot, git apply --check then git apply --index account-on-receiving.patch. If main or any preimage moved, reconcile instead of forcing.",
+    "Do not cherry-pick the whole old account branch or replace the new126 harness with the old6fabe full-chain driver. Apply net path delta only.",
+    "Preserve staged Analytics five files. Commit the combined receiving source and run focused account unit/Edge tests +fullquality +ordinary full CI on exact head.",
+    "Existing Account closure full Supabase chain disposable PR workflow must replay AND clean main-t2-account-126 on requested exact head; retain native concurrency, catalog, residue and disabled-rollout receipts.",
+    "Send exact qualified receiving head to Sam; independent review and protected merge checks remain mandatory."
+  ],
+  "operationalDependencies": [
+    "Schema order: existing120 -> Analytics121 -> pending122 -> U1 heartbeat123 -> recording124 -> coaching125 -> completion126. Four account files are not a standalone from-empty migration chain.",
+    "CLI exact-migration allowlist/workflow/postflight six-target correction remains OPEN; this handoff is source integration, not permission to apply unsupported targets.",
+    "Before approved production Edge publication: reviewed schema installed/postflight on exact target and stale closure authority invalidated. Deployment workflow publishes its full reviewed ten-function list, not only the three edited entrypoints.",
+    "Completion status remains default-disabled until separately approved worker/config/installed-schema/SQL-scope binding. ACCOUNT_COMPLETION_RUNTIME_BINDING is independent of ACCOUNT_CLOSURE_RUNTIME_BINDING; no values acquired or configured.",
+    "No production migration/deployment/activation/account deletion authorized or executed here. Account page/served completion/recovery and live account outcomes remain open."
+  ],
+  "disposition": "SOURCE COMPOSITION READY FOR APP RECEIVING; combined runtime/native/CI acceptance NOT RUN; Not ready to land"
+}
