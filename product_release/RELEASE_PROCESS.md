@@ -147,6 +147,76 @@ The test files that each gate/workflow enforces (RC-counted ledgers) and the scr
 
 ---
 
+### 5.1 Default-off integration and served-release binding
+
+The selected release policy separates serial source integration from production promotion.
+This procedure defines its required behavior; it does not certify that the gate, provider
+settings or served-release variable are installed. The workflow mechanics in §5 describe
+the pre-gate route and must not be treated as permission to merge through an automatic
+production deployment. Verify actual source and provider trigger posture before landing
+the gate itself or any later PR. Until the bootstrap is safe, keep landings **HOLD** and
+continue independent source/tests/documentation work.
+
+**Integration order.** Finish the increment and its new feature/regression tests; obtain
+applicable runtime/test/full-evidence PASS on the exact head with `deploy_production=false`;
+then obtain independent review of that head. Review-dependent qualification follows the
+review and must also be green before merge. Land one protected, latest-main PR at a time,
+verify main green, then advance the queue. A changed, rebased or conflict-resolved head
+requires renewed tests and review. Documentation-only work needs applicable documentation
+checks and independent review; workflow/configuration behavior is not a documentation-only
+exception. A no-deploy merge is source integration, not a production release or live proof.
+
+**Bootstrap prerequisite.** Before the first gate landing, the responsible operator must
+establish an explicitly authorized way to prevent unintended production deployment under
+the *existing* Actions and Vercel Git/build triggers. Adding a false-default workflow input
+does not itself control Vercel's separate Git integration. Identify the exact settings or
+bootstrap operation, its operator, authority and readback; missing evidence keeps landing
+**HOLD**. This procedure grants no settings or production permission.
+
+The scheduled-monitor binding is the non-secret repository Actions Variable
+`PRODUCTION_RELEASE_SHA`, catalogued in
+[OPERATIONS_AND_SECURITY.md §2.3](./OPERATIONS_AND_SECURITY.md#23-github-actions-env-home-d--secrets-vs-variables).
+Bootstrap requires a fresh observation of production's `window.__APP_RELEASE__`, reconciled
+with the last successful authorized release and its required qualification/readback evidence.
+Use the full 40-character SHA; do not infer it from repository `main`, a merge receipt or a
+successful build alone. Verify the selected workflow consumes this variable and obtain
+separate authority for its initial write. If identity or release evidence cannot be reconciled,
+leave bootstrap unverified and **HOLD** rather than inventing a value.
+
+**Promotion and advancement.** App is the selected production release operator. For an
+explicitly authorized promotion, select one exact qualified, independently reviewed,
+main-green SHA and the bounded operation. `deploy_production=true` expresses that selection;
+it does not replace separate frontend/Edge/migration/secrets/provider/account permissions,
+existing confirmations, drain invalidation or mandatory operation readbacks.
+
+1. Record the intended candidate SHA, operation, authorizations and prior verified binding.
+   Check current main/qualification and reject drift before any production action.
+2. Execute only the separately authorized promotion scope through the installed gated route.
+   Preserve the workflow/run attempt, source identity and terminal results.
+3. For a frontend promotion, independently observe the served frontend identity; require exact
+   equality to the intended SHA and successful readbacks for every selected operation. A frontend
+   SHA alone does not prove Edge generation/configuration, database state or account outcomes.
+   A backend-only operation requires its own exact-source/runtime readbacks and does not advance
+   the frontend binding to an unserved commit.
+4. Only after all required promotion/readback checks succeed, have the operator with separately
+   authorized repository-variable access advance `PRODUCTION_RELEASE_SHA` to that verified
+   served SHA and read the variable back. Retain its previous value until this point.
+5. Record the UTC observations, intended/observed SHA, variable readback and linked run/receipts
+   in `RELEASE_STATUS.md`. Scheduled monitoring binds to the verified served release; unserved
+   later main commits retain their own CI evidence and cannot replace this binding.
+
+**Failure and recovery.** Failed, cancelled, partial or uncertain promotion, or a failed/mismatched
+served readback, retains the prior variable and yields **HOLD**. This does not prove that a
+partially changed production environment still matches the old value. If deployment succeeds
+but the variable update/readback fails, keep the discrepancy visible as **HOLD**; do not claim
+monitoring is bound to the new release. Preserve failure history and request the precise
+authorized recovery step; no automatic retry, rollback or permission bypass is implied.
+Missing/malformed binding or served-identity drift must never silently use latest main or
+produce green qualification. Preserve daily/weekly health visibility and mark unavailable
+product evidence unexecuted. Serving the expected SHA does not close live/human acceptance.
+
+---
+
 ## 6. Evidence freshness & Same-SHA rules
 
 Each release gate is green only when its definition of green is backed by a **named artifact a reviewer can inspect without relying on operator memory**. The active artifact is always the latest complete passing run; if a newer run fails any required criterion, the parent gate returns to red until a later complete run passes every criterion. Every artifact update must record `Last updated by: [initials] [date] [artifact path]`. Combined with the same-SHA rule (§2), the practical release rule is: the latest evidence for each blocking gate must be green on the same commit SHA, and **every merge to `main` resets the signoff clock** (final-SHA freshness).
