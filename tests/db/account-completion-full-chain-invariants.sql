@@ -140,8 +140,24 @@ BEGIN
     IF SQLERRM<>'account admitted save unsettled' THEN RAISE; END IF;
   END;
   SET LOCAL ROLE authenticated;
+  -- Keep the original hosted126 casualty as a negative control against the
+  -- shipped #1306 trigger. Its failed save must leave the admitted take intact.
+  BEGIN
+    PERFORM public.complete_session_v2(session_a,'completed',CASE WHEN heartbeat_profile THEN 600 ELSE 30 END,NULL,
+      '{"kind":"synthetic-control"}'::jsonb,3,70,6,'{}'::jsonb,'{}'::jsonb,'saved synthetic take');
+    RAISE EXCEPTION 'invalid next-action shape bypassed shipped validator';
+  EXCEPTION WHEN SQLSTATE '23514' THEN
+    IF SQLERRM<>'#1306: next_action_signal must be the strict enum/numeric shape (no free-form recommendation text)' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+  IF NOT EXISTS(SELECT 1 FROM public.sessions WHERE id=session_a AND status='active' AND next_action_signal IS NULL)
+    OR NOT EXISTS(SELECT 1 FROM public.account_save_obligations WHERE user_id=a AND session_id=session_a AND phase='admitted') THEN
+    RAISE EXCEPTION 'invalid next-action save changed admitted take or settled its obligation';
+  END IF;
+  SET LOCAL ROLE authenticated;
   receipt:=public.complete_session_v2(session_a,'completed',CASE WHEN heartbeat_profile THEN 600 ELSE 30 END,NULL,
-    '{"kind":"synthetic-control"}'::jsonb,3,70,6,'{}'::jsonb,'{}'::jsonb,'saved synthetic take');
+    '{"reasonCode":"ON_TRACK","actionCode":"MAINTAIN","metric":"none","value":0,"comparator":"within_target","templateVersion":"rec_v1"}'::jsonb,
+    3,70,6,'{}'::jsonb,'{}'::jsonb,'saved synthetic take');
   IF receipt->>'success' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'pending blocked genuine admitted atomic save'; END IF;
   RESET ROLE;
   IF NOT EXISTS(SELECT 1 FROM public.account_save_obligations WHERE user_id=a AND session_id=session_a AND phase='completed') THEN

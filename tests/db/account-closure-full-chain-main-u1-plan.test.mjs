@@ -267,9 +267,12 @@ const accountProofs=[
   ['account-closure-pending-invariants.sql','e5224ecfb1009f244becac340486fe5ffeb545c21d2478df9f4c9f5f4040435f'],
   ['account-recording-admission-invariants.sql','5f919425355e10b6c06470ff78538e6929b5fc733f34ee72eae7b53fde2cda14'],
   ['account-coaching-admission-invariants.sql','b12464b760b6f6206f6f4449bc8cb5b0991ee59ee6771c6ca09b16c1d84f88e9'],
-  ['account-completion-full-chain-invariants.sql','cff4aa7309c38ca80f192746b73f4552ba9ef567e03b7faa3882671c02e0e2de'],
+  // Hosted126 run39653894287 rejected the old synthetic-control next action.
+  // Preserve that casualty as a negative control; use a valid structured action
+  // for the positive save. Migration bytes and all other oracle pins are unchanged.
+  ['account-completion-full-chain-invariants.sql','51c555cb4333ff2229a4f5d92327b5dd699886a21858c1e7a4c21d7557a41f58'],
 ];
-for(const [file,sha] of accountProofs) test('reuses exact accepted account oracle: '+file,()=>{
+for(const [file,sha] of accountProofs) test('pins exact reviewed account oracle or bounded fixture successor: '+file,()=>{
   assert.equal(hash(readFileSync(join(root,'tests/db',file))),sha);
   assert.ok(read('.github/workflows/account-closure-full-chain-proof.yml').includes("'tests/db/"+file+"'"));
 });
