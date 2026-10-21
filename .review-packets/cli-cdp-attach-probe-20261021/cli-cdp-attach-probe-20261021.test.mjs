@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {runAttachProbe,availableMemory,validateEndpoint,ENDPOINT,FLOOR} from './cli-cdp-attach-probe-20261021.mjs';
+import {createServer} from 'node:http';
+import {runAttachProbe,availableMemory,validateEndpoint,discoverBrowser,ENDPOINT,FLOOR} from './cli-cdp-attach-probe-20261021.mjs';
 const memory='The system has 8589934592\nSystem-wide memory free percentage: 27%';
 const version={Browser:'Chrome/156.0.8078.47',webSocketDebuggerUrl:'ws://127.0.0.1:9222/devtools/browser/owned'};
 const good={available:true,fallback:false,f16:true};
@@ -11,12 +12,45 @@ function fixture() {
   const browser={version:()=>version.Browser,async newContext(){calls.push('new-owned-context');return context;},
     contexts(){throw Error('PERSONAL_CONTEXT_ENUMERATION');},async close(){throw Error('OWNER_BROWSER_CLOSE');}};
   return {calls,args:{memory,version,origin:'http://127.0.0.1:12345',report:{pageErrors:[]},
-    connect:async url=>{assert.equal(url,ENDPOINT);calls.push('connect');return browser;},
+    connect:async url=>{assert.equal(url,version.webSocketDebuggerUrl);calls.push('connect');return browser;},
     inspect:async()=>({page:good,worker:good})}};
 }
 test('retains existing memory-pressure accounting and2GiB floor',()=>{
   assert.equal(FLOOR,2147483648);assert.equal(availableMemory(memory),8589934592*.27);
   assert.throws(()=>availableMemory('unknown'),/MEMORY_ACCOUNTING/);
+});
+test('actual HTTP redirect is refused and destination is never fetched',async()=>{
+  let destinationHits=0;
+  const server=createServer((req,res)=>{
+    if(req.url==='/redirect'){res.writeHead(302,{Location:'/destination'});res.end();}
+    else{destinationHits++;res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(version));}
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    await assert.rejects(discoverBrowser((url,options)=>{
+      assert.equal(url,ENDPOINT+'/json/version');
+      return fetch('http://127.0.0.1:'+server.address().port+'/redirect',options);
+    }));
+    assert.equal(destinationHits,0);
+  } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+test('actual HTTP discovery happens once and its validated websocket is the connection target',async()=>{
+  let hits=0;
+  const server=createServer((req,res)=>{hits++;res.writeHead(200,{'Content-Type':'application/json'});
+    res.end(JSON.stringify(hits===1?version:{...version,webSocketDebuggerUrl:'ws://example.com:9222/devtools/browser/replaced'}));});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try {
+    const found=await discoverBrowser((_,options)=>fetch('http://127.0.0.1:'+server.address().port,options));
+    const f=fixture();f.args.version=found.version;await runAttachProbe(f.args);
+    assert.equal(hits,1);assert.equal(found.webSocketUrl,version.webSocketDebuggerUrl);
+  } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
+test('hanging route setup consumes bounded overall budget and still closes owned context',async()=>{
+  const f=fixture();let closed=false;
+  f.args.timeoutMs=80;
+  f.args.connect=async()=>({version:()=>version.Browser,newContext:async()=>({route:()=>new Promise(()=>{}),close:async()=>{closed=true;}})});
+  const start=Date.now();await assert.rejects(runAttachProbe(f.args),/TIMEOUT_ROUTE_SETUP/);
+  assert.equal(closed,true);assert.ok(Date.now()-start<1000);
 });
 test('memory hold happens before browser control',async()=>{
   const f=fixture();f.args.memory=memory.replace('27%','22%');

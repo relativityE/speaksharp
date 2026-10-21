@@ -18,20 +18,27 @@
     "contextMs": 5000,
     "pageMs": 5000,
     "adapterWorkerMs": 8000,
-    "contextCloseMs": 3000
+    "contextCloseMs": 3000,
+    "routeSetupMs": 5000,
+    "serverSetupMs": 3000,
+    "sdkImportMs": 3000,
+    "attachTotalIncludingCleanupMs": 30000
   },
-  "negativeControls": "7 Node tests PASS:memory hold before connect,wrong endpoint/version,owned-only cleanup,worker failure,fallback/f16 refusal,cleanup failure",
+  "negativeControls": "10 Node tests PASS incl actual HTTP redirect refusal/no destination fetch, one discovery/no refetch, hanging route timeout and owned cleanup",
   "source": [
     {
       "path": "cli-cdp-attach-probe-20261021.mjs",
-      "sha256": "5d1afabee3c7d09607f7bddf394f75ebfdfde9603fea3d257bd13063a583822e"
+      "sha256": "ffa452a6521984a4b5cf0e1cb208892dd9201c08e4180f0f9ce4ed5dac322cbb"
     },
     {
       "path": "cli-cdp-attach-probe-20261021.test.mjs",
-      "sha256": "0e8780939be5091746e3371ea1bd37478b7f47b96797e07b0561d5581831bf99"
+      "sha256": "3d9f2bb90a72a2893f42285abb4a7150c44ac64bfde3f22e66afac3279c9eb25"
     }
   ],
-  "execution": "NOT_RUN; exact standalone source/plan review requested before control",
+  "execution": "CHANGES_REQUIRED3993/4048 corrected; exact source re-review requested; NOT_RUN",
   "productRunnerChange": false,
-  "modelRunAuthorizedByPlan": false
+  "modelRunAuthorizedByPlan": false,
+  "ownership": "Fresh lsof sole127.0.0.1:9222 listener PID + exact dedicated profile ps command + matching SingletonLock verified before discovery and immediately before connect; provenance references PO chat + Slack4022",
+  "discovery": "redirect:error; validate exact local websocket and connect directly to it; no second HTTP discovery",
+  "overallDeadlineMs": 45000
 }
