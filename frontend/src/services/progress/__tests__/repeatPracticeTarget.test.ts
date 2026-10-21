@@ -31,6 +31,41 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); clearOpenAttempt(); setCurrentLogin(null, null); });
 
+describe('#1548 legacy Focus sessions without a product marker (Codex P1 r4340455532)', () => {
+    // Focus sessions saved before sessions.product existed: the saved review already resolves them as Focus from durable
+    // coverage, so Practice again must too, and only from complete durable Focus identity with Focus-specific coaching.
+    const legacy = (aiSuggestions: unknown = raw('Name the price first.', 'gemini_coaching_focus_v1')) =>
+        rowRead.mockResolvedValue({ data: { product: null, ai_suggestions: aiSuggestions }, error: null });
+
+    it('CASUALTY: markerless row + complete durable Focus set + Focus coaching validates and resolves as Focus', async () => {
+        legacy();
+        const reference = await validateDisplayedTarget(snapshot({ product: 'focus_points', focus }));
+        expect(reference).toMatchObject({ product: 'focus_points', focus: { projectId: 'p1', briefId: 'b1' } });
+        await expect(resolveRepeatTarget('owner-1', 'source-1', reference, () => true))
+            .resolves.toEqual({ instruction: 'Name the price first.', focus });
+    });
+    it.each([
+        ['no durable coverage', () => focusRead.mockResolvedValue({ kind: 'none' })],
+        ['failed coverage read', () => focusRead.mockResolvedValue({ kind: 'error' })],
+        ['point set failed to read', () => focusRead.mockResolvedValue({ ...coverage(), briefReadFailed: true })],
+        ['missing brief', () => focusRead.mockResolvedValue({ ...coverage(), brief: null })],
+        ['no points', () => focusRead.mockResolvedValue({ ...coverage(), points: [] })],
+    ])('CONTROL: markerless row with %s fails closed', async (_label, arrange) => {
+        legacy(); arrange();
+        await expect(validateDisplayedTarget(snapshot({ product: 'focus_points', focus }))).rejects.toThrow('repeat-target-unavailable');
+    });
+    it('CONTROL: markerless row with generic (non-Focus) coaching is never qualified as a Focus repeat', async () => {
+        legacy(raw());
+        await expect(validateDisplayedTarget(snapshot({ product: 'focus_points', focus }))).rejects.toThrow('repeat-target-unavailable');
+    });
+    it('CONTROL: a markerless row is never guessed as Open Mic', async () => {
+        legacy(raw());
+        await expect(validateDisplayedTarget(snapshot())).rejects.toThrow('repeat-target-unavailable');
+        legacy();
+        await expect(validateDisplayedTarget(snapshot())).rejects.toThrow('repeat-target-unavailable');
+    });
+});
+
 describe('#1548 displayed source, canonicalization and exact retry reference', () => {
     it('rejects hidden newer advice before acceptance; server query explicitly binds owner and source', async () => {
         rowRead.mockResolvedValue({ data: { product: 'open_mic', ai_suggestions: raw('Different advice.') }, error: null });

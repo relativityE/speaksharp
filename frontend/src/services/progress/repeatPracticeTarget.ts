@@ -44,17 +44,26 @@ async function source(ownerId: string, sessionId: string, current: () => boolean
     const row = data as { ai_suggestions?: unknown; product?: unknown };
     const review = readSavedReview(row.ai_suggestions);
     const version = savedReviewVersion(row.ai_suggestions);
-    if (!review || !version || (row.product !== 'open_mic' && row.product !== 'focus_points')) throw unavailable();
+    const marker = row.product === 'open_mic' || row.product === 'focus_points' ? row.product : null;
+    if (!review || !version || (marker === null && row.product != null)) throw unavailable();
+    // A Focus repeat needs Focus-specific cached coaching and the complete durable point set. A legacy row saved before
+    // sessions.product existed carries no marker; like the saved review, it is Focus only when that durable record
+    // exists, and it is never guessed as Open Mic.
+    let coverage: Awaited<ReturnType<typeof loadSavedFocusPointsCoverage>> | null = null;
+    if (marker !== 'open_mic') {
+        if (version !== 'gemini_coaching_focus_v1') throw unavailable();
+        coverage = await loadSavedFocusPointsCoverage(sessionId);
+        check();
+        if (coverage.kind !== 'coverage' || coverage.briefReadFailed || !coverage.brief) throw unavailable();
+    }
+    const product = marker ?? 'focus_points';
     const instructionHash = await hash(['repeat_cached_instruction_v1', version, review.whatToTryNext]);
     check();
     let focus: Required<FocusTargetSelection> | null = null;
-    const reference: RepeatTargetReference = { version: 1, criterion: 'repeat_cached_instruction_v1', product: row.product, instructionHash };
-    if (row.product === 'focus_points') {
-        if (version !== 'gemini_coaching_focus_v1') throw unavailable();
-        const saved = await loadSavedFocusPointsCoverage(sessionId);
-        check();
-        if (saved.kind !== 'coverage' || saved.briefReadFailed || !saved.brief) throw unavailable();
-        focus = { projectId: saved.brief.projectId, briefId: saved.brief.briefId, topic: saved.brief.topic, points: saved.points.map(p => p.label) };
+    const reference: RepeatTargetReference = { version: 1, criterion: 'repeat_cached_instruction_v1', product, instructionHash };
+    if (product === 'focus_points' && coverage?.kind === 'coverage' && coverage.brief) {
+        const brief = coverage.brief;
+        focus = { projectId: brief.projectId, briefId: brief.briefId, topic: brief.topic, points: coverage.points.map(p => p.label) };
         if (!validFocus(focus)) throw unavailable();
         const setHash = await hash(['focus_set_v1', focus.projectId, focus.briefId, focus.topic, focus.points]);
         check();
