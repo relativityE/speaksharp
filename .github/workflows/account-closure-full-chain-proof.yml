@@ -46,6 +46,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      - name: Prove reviewed account replay planner offline
+        run: node --test tests/db/account-closure-full-chain-plan.test.mjs
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
