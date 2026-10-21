@@ -1,0 +1,37 @@
+{
+  "kind": "MODEL_FREE_CDP_ATTACH_ONLY",
+  "endpoint": "http://127.0.0.1:9222",
+  "browser": "PO-started dedicated evaluation profile; do not enumerate owner tabs or acquire personal profile",
+  "command": "node scripts/host-interlock.mjs hold local -- node /Users/fibonacci/SW_Dev/delivery-support/cli-cdp-attach-probe-20261021.mjs /private/tmp/cli-cdp-attach-probe-20261021-attempt1.json",
+  "memory": "Existing memory_pressure -Q percent x physical;2GiB floor before connect",
+  "scope": [
+    "read version",
+    "create isolated owned browser context/page",
+    "serve only owned loopback HTML",
+    "create Blob worker",
+    "request hardware adapters and read shader-f16 in page+worker",
+    "no requestDevice, model, assets, provider or product change"
+  ],
+  "cleanup": "close only owned context/page/worker, process exit drops CDP socket; no browser.close, process kill or personal-context enumeration",
+  "budgets": {
+    "connectMs": 5000,
+    "contextMs": 5000,
+    "pageMs": 5000,
+    "adapterWorkerMs": 8000,
+    "contextCloseMs": 3000
+  },
+  "negativeControls": "7 Node tests PASS:memory hold before connect,wrong endpoint/version,owned-only cleanup,worker failure,fallback/f16 refusal,cleanup failure",
+  "source": [
+    {
+      "path": "cli-cdp-attach-probe-20261021.mjs",
+      "sha256": "5d1afabee3c7d09607f7bddf394f75ebfdfde9603fea3d257bd13063a583822e"
+    },
+    {
+      "path": "cli-cdp-attach-probe-20261021.test.mjs",
+      "sha256": "0e8780939be5091746e3371ea1bd37478b7f47b96797e07b0561d5581831bf99"
+    }
+  ],
+  "execution": "NOT_RUN; exact standalone source/plan review requested before control",
+  "productRunnerChange": false,
+  "modelRunAuthorizedByPlan": false
+}
