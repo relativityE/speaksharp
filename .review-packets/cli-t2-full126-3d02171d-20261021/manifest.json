@@ -1,0 +1,201 @@
+{
+  "sourceHead": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+  "sourceTree": "f76816467310fe939891eb2266183d2f5088e2c4",
+  "compositeBase": "99585c8a1fe892a282383e2381bdec429817c5da",
+  "preserved122": "95a78455ce889eea1c4616c25aa19f7b865360f1",
+  "expectedReceivingBase": "9ecf6794c41193423b54538e60e124a8c9297dbb",
+  "rawCommits": [
+    {
+      "sha": "e7729df08f7b3cb4f8385651793ab02a0e83cd7d",
+      "rawBase64": "dHJlZSAyOTA0NjA5OGZiMzNhODczZTkxMWQ5YjhmMTQ2ZDM1ZWE4NjgzMGZiCnBhcmVudCA5OTU4NWM4YTFmZTg5MmEyODIzODNlMjM4MWJkZWM0Mjk4MTdjNWRhCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTY2NDA3IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTgyNTg0IC0wNDAwCgpmaXgoIzE1OTMpOiBoZWFydGJlYXRfc2Vzc2lvbiBrZWVwcyBhIHRha2Ugb3BlbiBhdCB0aGUgNjAwIHMgY2FwIHNvIGl0cyBkZXZpY2UncyBzYXZlIGNvbXBsZXRlcyBpdAoKUmVjZWl2ZXMgdGhlIGFjY2VwdGVkIFUxIGhlYXJ0YmVhdCBmaXggKDk0NTRhODNhOyBTYW0gc291cmNlL3JlY2VpcHQgYWNjZXB0cyAxNzkyMzg4NTk3LCBQTyBzZWxlY3Rpb24KdmlhIFNhbSAxNzkyNTU4ODc1IGFuZCB0ZXN0IHNjb3BlICJBUFBST1ZFIEhFQVJUQkVBVCBURVNUIFNDT1BFIiAwNjo1NyBVVEMpIG9udG8gZnJlc2ggbWFpbiA3MjRjMmU5ZC4KRm91ciBwYXRocywgYnl0ZS1pZGVudGljYWwgdG8gOTQ1NGE4M2E6Ci0gYmFja2VuZC9zdXBhYmFzZS9taWdyYXRpb25zLzIwMjYxMDE5MDEwMDAwX2hlYXJ0YmVhdF9zZXNzaW9uX2NhcF9rZWVwc190YWtlX29wZW5fMTU5My5zcWwKICAoc2hhMjU2IGRmMDJiODY3ZjVhNGYyOWVlMjA3YThiNDM1OWE4MmJiM2IyN2FiZWZkOWVhYmUyZWI1Y2Q5OTYwYjRmMGZiNDUpCi0gdGVzdHMvZGIvaGVhcnRiZWF0LWNhcC1rZWVwcy10YWtlLW9wZW4tMTU5My5pbnRlZ3JhdGlvbi50ZXN0LnRzIChzaGEyNTYgZjkwOTRmZDMuLi4pCi0gdGVzdHMvZGIvcnVuLWhlYXJ0YmVhdC1jYXAtcmVhbHBnLnNoIChzaGEyNTYgYzdiMmExOWYuLi4sIDEwMDc1NSkKLSBzY3JpcHRzL3Bvc3RmbGlnaHQtZ2F0ZS0yMDI2MTAxOTAxMDAwMC5zaCAoc2hhMjU2IDZmNDhhNjFlLi4uLCAxMDA3NTU7IHJlYWQtb25seSBjaGVjayB3aG9zZSBwaW5uZWQKICBkaWdlc3RzIHRoZSB0ZXN0IGFzc2VydHM7IG5vdCB3aXJlZCBpbnRvIGFueSB3b3JrZmxvdyBhbmQgbm90IGV4ZWN1dGVkIGhlcmUpCgpMaXZlIFJXVCBjYXNlIDEyOiB0aGUgZGVwbG95ZWQgaGVhcnRiZWF0IGNsb3NlZCB0aGUgdGFrZSBhcyBjb21wbGV0ZWQvdGVjaG5pY2FsX2R1cmF0aW9uX2NhcCBhdCA2MDAgcywKc28gdGhlIGRldmljZSdzIG93biBjb21wbGV0aW9uIGhpdCBhbiBpZGVtcG90ZW5jeSBjb25mbGljdCBhbmQgdGhlIHNhdmUgd2FzIGxvc3Qgd2hlbiB0aGUgY2FwLWNsb3NpbmcKaGVhcnRiZWF0IHdvbiBiZWZvcmUgdGhlIGZpbmFsIHNhdmUuIFRoZSBtaWdyYXRpb24gcmVwbGFjZXMgaGVhcnRiZWF0X3Nlc3Npb24gb25seTogYmlsbGluZyBzdGlsbCBzdG9wcwphdCA2MDAgcyBhbmQgYXRfY2FwIGlzIHJlcG9ydGVkLCBidXQgYSBoZWFydGJlYXQgbmV2ZXIgZmluYWxpemVzIHRoZSB0YWtlLgoKTm8gd29ya2Zsb3csIGdhdGUsIGFsbG93bGlzdCBvciB3aXJpbmcgY2hhbmdlOyB0aGUgbWlncmF0aW9uIGlzIG5vdCBhcHBsaWVkLiBDb21iaW5lZC1jaGFpbiBjb21wb3NpdGlvbgppcyBwcm92ZWQgYnkgQ0xJJ3MgcmVhbC1zY2hlbWEgZnVsbC1jaGFpbiBjb250cm9scywgbm90IGhlcmUuCgooY2hlcnJ5IHBpY2tlZCBmcm9tIGNvbW1pdCBkNDk1MTE0MmNmNGJmMDYxNzUwYmFmNjMyYWE3ZGU4NTM5OTdhNTlkKQo="
+    },
+    {
+      "sha": "9b58f43bfdc2fe8617d3d166699ec0cda8252986",
+      "rawBase64": "dHJlZSAwMTdhZTgxYTY5ZWU2ZmU5MDk2ZjA5NTBiMTE3MzkyOTQ5MmQ1ZmRmCnBhcmVudCBlNzcyOWRmMDhmN2IzY2I0ZjgzODU2NTE3OTNhYjAyYTBlODNjZDdkCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTg0MTU4IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTg5NDA5IC0wNDAwCgpmaXgoYWNjb3VudC1wcm9vZik6IHF1YWxpZnkgdGhlIGV4cGxpY2l0IG1haW4gcGx1cyBoZWFydGJlYXQgcHJvZmlsZQoKUHJlc2VydmUgdGhlIG9yaWdpbmFsIDExOC8xMTkvMTIwIGNsb3N1cmUgcHJvb2YgYW5kIGFwcGx5IG9ubHkgcGlubmVkIFUxIGF0IHN0YWdlIDEyMS4gRnJlZXplIGV2ZXJ5IG1pZ3JhdGlvbiBuYW1lL3ZlcnNpb24vZGlnZXN0LCByZWplY3QgdW5leHBlY3RlZCBvciBpbmNvbXBsZXRlIHByb2ZpbGVzLCBhbmQgcmVwZWF0IGZpbmFsIHJlY292ZXJ5IGNhdGFsb2csIGVuZm9yY2VtZW50LCBTUUwsIHJlc2lkdWUgYW5kIHJvbGxvdXQgY2hlY2tzLiBLZWVwIG5hdGl2ZSBwcm9vZnMsIGltYWdlL25ldHdvcmsgaXNvbGF0aW9uLCBkaWFnbm9zdGljcyBhbmQgb3duZWQgY2xlYW51cCB1bmNoYW5nZWQuCgoyNjMgb2ZmbGluZSBjb250cm9scyBwYXNzOyBkZWZhdWx0IG1haW4tMTIwIHBsYW4tb25seSBwYXNzZXMuIE5vIFNRTC9uYXRpdmUvaG9zdGVkIGV4ZWN1dGlvbiBvciByZWNlaXZpbmctYnJhbmNoIGNoYW5nZS4gRnVsbCBxdWFsaXR5IHBlbmRpbmcuCgpSZWZzICMxNjQzCgooY2hlcnJ5IHBpY2tlZCBmcm9tIGNvbW1pdCA2ZjZkNzI2ODIxNDg5NzNlYzAwZTQxZTczZWI5YmNkOWE1MDZiMDYyKQo="
+    },
+    {
+      "sha": "afee60ba975aef683e2954a9846b2ee3448f2481",
+      "rawBase64": "dHJlZSA1YTM5ZDRlODdjYjhkMDYxNWUzZWViNGMyZDExMjVkZmE4YzU3ZTNlCnBhcmVudCA5YjU4ZjQzYmZkYzJmZTg2MTdkM2QxNjY2OTllYzBjZGE4MjUyOTg2CmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkxNTg0IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkxNTg0IC0wNDAwCgp0ZXN0KGFjY291bnQtcHJvb2YpOiBmcmVlemUgYWNjZXB0ZWQgQW5hbHl0aWNzIGlucHV0IG9uIFUxIHJlY2VpdmluZyBiYXNlCg=="
+    },
+    {
+      "sha": "95a78455ce889eea1c4616c25aa19f7b865360f1",
+      "rawBase64": "dHJlZSAwZjk0Y2EwZjUxNmRmMzBmN2NhNTQ4YjdjYTJmNjI2MjZjNDQxZGU3CnBhcmVudCBhZmVlNjBiYTk3NWFlZjY4M2UyOTU0YTk4NDZiMmVlMzQ0OGYyNDgxCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkyMDg0IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkyMDg0IC0wNDAwCgp0ZXN0KGFjY291bnQtcHJvb2YpOiBxdWFsaWZ5IHBpbm5lZCBBbmFseXRpY3MgYmVmb3JlIFUxIG9uIGZ1bGwgY2hhaW4K"
+    },
+    {
+      "sha": "95973288ce1f84eb08cfd63781bd81e1228c4d9e",
+      "rawBase64": "dHJlZSBiYmM0ZDc5ZjhhNjIyMGFiMWNjYTY4ZWJlNzBiZWEzYmQ4Y2M2NmFiCnBhcmVudCA5NWE3ODQ1NWNlODg5ZWVhMWM0NjE2YzI1YWExOWY3Yjg2NTM2MGYxCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkyMzQwIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNTkyMzQwIC0wNDAwCgp0ZXN0KGFjY291bnQtcHJvb2YpOiBmcmVlemUgYWNjZXB0ZWQgcGVuZGluZyBhbmQgY29tcGxldGlvbiBjaGFpbiBpbnB1dHMK"
+    },
+    {
+      "sha": "5730410b0e2d75294415f7f96d3139df52e3ce32",
+      "rawBase64": "dHJlZSA5YzdkM2Y1YzJjMGQ2ZWE2OGI2MjMyYmMzZGMxYzMzYmY1OTAxZWJiCnBhcmVudCA5NTk3MzI4OGNlMWY4NGViMDhjZmQ2Mzc4MWJkODFlMTIyOGM0ZDllCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjAwOTgzIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjAwOTgzIC0wNDAwCgp0ZXN0KGFjY291bnQtcHJvb2YpOiBwcmVzZXJ2ZSBleGlzdGluZyByZXZpZXdlZCBmdWxsLXNjaGVtYSBjb21wbGV0aW9uIGludmFyaWFudHMK"
+    },
+    {
+      "sha": "3d02171d2cd2b24c465ebb6119be945eeda5aa5a",
+      "rawBase64": "dHJlZSBmNzY4MTY0NjczMTBmZTkzOTg5MWViMjI2NjE4M2QyZjUwODhlMmM0CnBhcmVudCA1NzMwNDEwYjBlMmQ3NTI5NDQxNWY3Zjk2ZDMxMzlkZjUyZTNjZTMyCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjAxNDMwIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjAxNDMwIC0wNDAwCgp0ZXN0KGFjY291bnQpOiBwcm92ZSBleGFjdCBjaHJvbm9sb2dpY2FsIGZ1bGwxMjYgbWlncmF0aW9uIHByb2ZpbGUK"
+    }
+  ],
+  "composite": {
+    "bytes": 234666,
+    "sha256": "e84ad5c29efbddd3691ac14f4c8ad2122e2fe58d4346b0304859065c0c0440ed",
+    "paths": [
+      {
+        "path": ".github/workflows/account-closure-full-chain-proof.yml",
+        "bytes": 4160,
+        "sha256": "e6144606c37423beb489d109991aeb9f6b10268c87d0633b322b0f890349a04e",
+        "blob": "3214cc12b032170c73ab584d5e64c64f627ea80b"
+      },
+      {
+        "path": "backend/supabase/migrations/20261018090000_analytics_summary_observed_filler_rate_1472.sql",
+        "bytes": 11361,
+        "sha256": "72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f",
+        "blob": "5f7e8a1cbbc90d7e70201c0b0f0da00a91dda764"
+      },
+      {
+        "path": "backend/supabase/migrations/20261018170000_account_closure_pending_checkout.sql",
+        "bytes": 19434,
+        "sha256": "68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19",
+        "blob": "566a53f42babd90d5cd20d3a9a932527dacf4ae7"
+      },
+      {
+        "path": "backend/supabase/migrations/20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql",
+        "bytes": 5046,
+        "sha256": "df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45",
+        "blob": "2ea08a70cf4593e0bdafe3c83cd29eba03858537"
+      },
+      {
+        "path": "backend/supabase/migrations/20261019055102_account_pending_recording_admission_1643.sql",
+        "bytes": 3941,
+        "sha256": "e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4",
+        "blob": "54a7b689602a4a9d0df8dd073480c0e5c50de40a"
+      },
+      {
+        "path": "backend/supabase/migrations/20261019202856_account_coaching_admission_1643.sql",
+        "bytes": 8282,
+        "sha256": "f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e",
+        "blob": "2aea857b7915a8417ceb22155278ef715f3c7a02"
+      },
+      {
+        "path": "backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql",
+        "bytes": 27840,
+        "sha256": "955d829bdcc9649dadfd23e9ebef2839d56b31bddd87cd77fd2122df3ba87a1c",
+        "blob": "0ca93a9e8ec2ef705895fe2620ac7d419c71602a"
+      },
+      {
+        "path": "scripts/postflight-gate-20261019010000.sh",
+        "bytes": 3482,
+        "sha256": "6f48a61edce1ad4b6b893ce832070a11d9b0610d2ab4a832dab8531e4fbd7ce4",
+        "blob": "6cd9695fd686bc8827e8cb64611a837af60b3d10"
+      },
+      {
+        "path": "tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+        "bytes": 18425,
+        "sha256": "5eb9db159a8c686f8f71be89ef4ab54e67aa1dbe1bfa5767b9ab4377c06d1321",
+        "blob": "9063c77a6dde6c8648f0eaf06c1806f70c9ddd3d"
+      },
+      {
+        "path": "tests/db/account-closure-full-chain.mjs",
+        "bytes": 51637,
+        "sha256": "17f502c7d5c00a49b6b853a0964ce59d33a1644c63e77c900641b1113c45811d",
+        "blob": "84acfd5ee09d0772b3c4b575d9a686dbded6e634"
+      },
+      {
+        "path": "tests/db/account-closure-pending-invariants.sql",
+        "bytes": 6131,
+        "sha256": "e5224ecfb1009f244becac340486fe5ffeb545c21d2478df9f4c9f5f4040435f",
+        "blob": "6f6b556928897a5c63f3b2da1400f70e907a5580"
+      },
+      {
+        "path": "tests/db/account-coaching-admission-invariants.sql",
+        "bytes": 2130,
+        "sha256": "b12464b760b6f6206f6f4449bc8cb5b0991ee59ee6771c6ca09b16c1d84f88e9",
+        "blob": "2290b4de8338fc179246c69b7f9aff2d413c8e61"
+      },
+      {
+        "path": "tests/db/account-completion-full-chain-invariants.sql",
+        "bytes": 18394,
+        "sha256": "cff4aa7309c38ca80f192746b73f4552ba9ef567e03b7faa3882671c02e0e2de",
+        "blob": "db7a9ac959e5235776d234e48ce240055729fdab"
+      },
+      {
+        "path": "tests/db/account-recording-admission-invariants.sql",
+        "bytes": 2895,
+        "sha256": "5f919425355e10b6c06470ff78538e6929b5fc733f34ee72eae7b53fde2cda14",
+        "blob": "e6604ea43c57b8fed88206fed1b9507383a1298d"
+      },
+      {
+        "path": "tests/db/analytics-observed-rate-full-chain.integration.test.ts",
+        "bytes": 2053,
+        "sha256": "746a65fa76485bda5e95ac43b92f79bbb3a5cbc78ec821800a73310b3ac1a324",
+        "blob": "fa94f073bd037c2c38c47565934c6102cb180142"
+      },
+      {
+        "path": "tests/db/analytics-observed-rate-full-chain.sql",
+        "bytes": 1863,
+        "sha256": "4636fa87c37845eef48890819c728a06496097f7e73f4c88e2592d51dd3fe688",
+        "blob": "92a6651c32f2e0e898685e7c4dae1e75425a53e2"
+      },
+      {
+        "path": "tests/db/heartbeat-cap-keeps-take-open-1593.integration.test.ts",
+        "bytes": 15858,
+        "sha256": "f9094fd3dad00b7a1a0daf8c924c8f1dfd1339eb4bb19fdef55b98246fc02ab1",
+        "blob": "4112ee593ca495ab93e78b6046b6df0754058a6c"
+      },
+      {
+        "path": "tests/db/run-heartbeat-cap-realpg.sh",
+        "bytes": 11269,
+        "sha256": "c7b2a19f8b4ac8d979ea12814076909399dd982d3012eba548c10a95641f5983",
+        "blob": "1137ee06ecdbc153d907bafb3e6e3cbc63b7e38b"
+      }
+    ],
+    "exactTempIndexTreePass": true
+  },
+  "incrementFrom95a": {
+    "bytes": 119085,
+    "sha256": "e5c1293a7cbb6d7118627d24613fb9aff77cd0bb9c100814a0e5b6a9225443ba"
+  },
+  "profile": "main-t2-account-126",
+  "chronologicalCounts": [
+    118,
+    119,
+    120,
+    121,
+    122,
+    123,
+    124,
+    125,
+    126
+  ],
+  "qualification": {
+    "offlineControls": 777,
+    "offlineExitCode": 0,
+    "physicalPlan": {
+      "migrations": 126,
+      "executed": false
+    },
+    "quality": {
+      "session": 77948,
+      "exitCode": 0
+    },
+    "syntax": "PASS",
+    "diffCheck": "PASS"
+  },
+  "reusedCompletionOracle": {
+    "source": "69ac290392bc3d5c0fc46ce88f346bab3ff28119",
+    "path": "tests/db/account-completion-full-chain-invariants.sql",
+    "sha256": "cff4aa7309c38ca80f192746b73f4552ba9ef567e03b7faa3882671c02e0e2de"
+  },
+  "receivingInstructions": [
+    "Apply path delta only, never replace unrelated current-main files with old whole tree",
+    "Include Analytics and U1 once each, followed chronologically by exact account inputs; no version rename or include-all",
+    "Full126 preserves strict reviewed120/121/122 profiles on their exact inputs",
+    "Original119/120 catalog checks unchanged; pending replaces function bodies, so later126 uses existing substantive enforcement/recovery SQL rather than asserting superseded catalog digests",
+    "Existing disposable workflow now selects126 on replay AND cleanup; unchanged native concurrency/attestation layers retained"
+  ],
+  "limits": [
+    "Native complete126 Supabase/Docker chain NOT RUN locally; requires existing Ubuntu disposable workflow on actual receiving head",
+    "Native concurrency helpers unchanged, not new126 concurrency proof",
+    "No hosted migration application, production account/provider operation, deployment, activation, merge or secret acquisition",
+    "All unfinished assigned outcomes Not ready to land; source packet is not release completion"
+  ],
+  "disposition": "Independent bounded CODE+TEST review requested; receiving full CI/native qualification pending"
+}

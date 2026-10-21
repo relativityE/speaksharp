@@ -1,0 +1,63 @@
+CLI Dev Chrome startup blocker — reproducibility handoff, 2026-10-21
+
+Identity and execution environment
+Original CLI Dev Codex session 01a1471a-adc4-71d2-bedc-899e1a265af2 on PO's Mac. This is a local macOS process launched through Codex execution tools, not Consultant's Linux container. Shell bash; working workspace /Users/fibonacci/SW_Dev. Execution policy workspace-write, restricted network, separately approved elevated commands. A requested elevated execution does not itself prove that every enclosing runtime restriction disappeared.
+macOS26.5.2 build25F84; Darwin25.5.0 RELEASE_ARM64_T8112; arm64; reported physical memory8589934592 bytes (8GiB). Nodev22.12.0; Playwright1.57.0. CPU marketing name was NOT obtained: sysctl query returned Operation not permitted. Installed native Google Chrome156.0.8078.47, executable /Applications/Google Chrome.app/Contents/MacOS/Google Chrome. Existing user Chrome155 processes/frameworks were also observed earlier; no causal version mismatch is established. No user browser or unrelated process was killed.
+
+Source and assets
+Model test checkout /private/tmp/speaksharp-cli-product-models-20261020, qualified source c29baf256aeda2a7281e49a2739fa972a11b624c, tree049e8a3247a4822ef33eafb82b643317e174774b. Actual attempted arm: Llama3.2-1B-Instruct q4f16_1 MLC/WebLLM0.2.86; not wllama/GGUF. Manifest product_release/evidence/retained/moonshine-web-1304-plan.json SHA25659335daea2930b4425099404f09a4dcb54a324adaa6035e06622821d205e35e2. Cache /private/tmp/speaksharp-model-assets-1304. Llama28files710619226bytes verified, including6,099,798-byte WebGPU library. SmolLM2 official MLC44files966372794bytes plus6460459-byte runtime verified. wllama3.8.1 archive5829483bytes/npm integrity verified, extracted WASM available; no GGUF model or product integration/inference claimed. Downloads do not prove executable model compatibility. Transformers installed4.3.0 and onnxruntime-web1.30.0; 4.3.1 not qualified by this run.
+
+Observed failures in chronological order
+1. 13:41:07Z Llama product-contract attempt1: memory estimate2061584302.08bytes (1.92GiB), below2147483648-byte (2GiB) start floor. HOLD_RESOURCE_HEADROOM_BELOW_2GIB. No browser dispatch, model load, generation or cloud call. This is a resource-policy hold, not a model failure.
+2. 13:51:36Z attempt2: memory estimate2319282339.84bytes (2.16GiB), passes start guard; all28 cached assets hash-verified. Installed Chrome launched, PID56364, then SIGABRT during Browser.getVersion. Error: Protocol error (Browser.getVersion): Internal server error, session closed. Failed to launch browser. No page, adapter, cell dispatch or generation. Cleanup dispose/browser/server/terminate-owned-browser all recorded COMPLETE. Page errors/egress violations empty because no page was reached, not proof of healthy runtime.
+3. 14:28:54.513Z logging-only no-model probe: memory estimate2576980377.6bytes (2.40GiB), from memory_pressure reported30% of8GiB. Chrome PID9238 SIGABRT by14:28:54.944Z (~0.43s). Last stage BROWSER_LAUNCH_BEGIN. No page/worker/adapter request, asset request, model-cache write or engine creation. Stderr collection empty; no new matching DiagnosticReports files observed. Playwright's failure text includes kill EPERM while trying to terminate the owned child, followed by confirmed SIGABRT exit. EPERM is an observation, not established cause.
+4. 14:30:06Z native Chrome --version succeeded: Google Chrome156.0.8078.47. This only proves the version path runs, not GUI initialization or GPU access.
+5. 14:31:21.735Z native Chrome launched directly without Playwright, fresh isolated profile /private/tmp/cli-chrome-direct-profile-Vmn7Gy, PID10821, about:blank. SIGABRT by14:31:22.254Z (~0.52s); empty stdout/stderr and empty profile observed. No WebGPU or model code involved. The exact arguments are retained in cli-chrome-direct-launch-20261021.json. This reproduction uses NO --no-sandbox, SwiftShader, unsafe WebGPU or other added security override.
+
+Exact diagnostic commands and scripts
+Environment (read-only):
+  sw_vers
+  uname -srv
+  node --version
+  memory_pressure -Q
+  vm_stat
+  id -u
+  python3 -c 'import os,pwd; print(os.getuid()); print(pwd.getpwuid(os.getuid()))'
+  node -e 'console.log(require("node:os").userInfo())'
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+
+Original retained no-model reproductions (scripts included in the bundle):
+  node /private/tmp/cli-chrome-launch-signature-20261021.mjs /private/tmp/cli-chrome-launch-signature-20261021-attempt2.json
+  node /private/tmp/cli-chrome-native-signature-20261021.mjs
+  node /private/tmp/cli-chrome-direct-launch-20261021.mjs
+Do not overwrite retained outputs. launch-signature refuses existing output paths; a fresh run must use a fresh attempt number. The original direct-launch script has a fixed report filename; copy it and change that report path before rerunning. It creates a fresh profile automatically. Its Playwright import points to CLI's exact checkout; Consultant must resolve the same installed package in its own checkout if testing elsewhere. Do not mistake that changed environment for an exact Mac reproduction.
+
+Equivalent explicit native blank-page command (substitute a NEW empty owned profile directory):
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --dump-dom --timeout=3000 --no-first-run --no-default-browser-check --disable-background-networking --disable-component-update --disable-sync --disable-extensions --enable-logging=stderr --v=1 --user-data-dir=/private/tmp/NEW-OWNED-CHROME-PROFILE about:blank
+The supplied Node direct-launch script adds a10s outer timeout and captures exit signal; Chrome's --timeout=3000 alone is not an outer launch timeout.
+
+Playwright probe launch configuration:
+  chromium.launchServer({channel:'chrome',headless:true,args:['--enable-unsafe-webgpu','--enable-logging=stderr','--v=1'],timeout:15000})
+This uses installed full Chrome, not Playwright headless-shell. Full default Playwright arguments, including its own --no-sandbox and --enable-unsafe-swiftshader defaults, are in the error receipt. They were not newly selected as a repair. Product policy still rejects software/fallback GPU adapters. The independent native reproduction avoids those flags entirely. Page crash, pageerror and worker handlers are installed only after browser connection; startup dies earlier, so they cannot report this process-level abort. The native probe captures stderr from spawn, but it too received no text.
+
+Equivalent product attempt invocation, for source/protocol reconstruction ONLY:
+  node --import tsx scripts/model-investigation.mts --kind=llama --coaching-protocol=product-contract --assets=product_release/evidence/retained/moonshine-web-1304-plan.json --cache=/private/tmp/speaksharp-model-assets-1304 --out=/private/tmp/NEW-OWNED-LLAMA-REPORT.json
+Run from the c29 checkout. This WOULD run models if browser initialization succeeds; it is not a blank-browser diagnostic and this packet does not grant another run. Existing scope was6 synthetic canonical OpenMic/Focus inputs x3 trials=max18 generations, zero cloud calls. Start floor2GiB, running floor1GiB,5 consecutive low-memory samples,120s load/cell deadlines, software GPU disallowed. No guard was lowered.
+
+Identity and OS-log problems
+Observed UID/EUID501, but Python pwd.getpwuid(501) found no entry and Node os.userInfo() returned ERR_SYSTEM_ERROR. That is abnormal execution-context evidence, not a proven Chrome stack trace or proof that login credentials expired.
+Scoped log-read command shape (the original five-minute window was near the probes; use the fixed historical window for retrospective investigation):
+  /usr/bin/log show --start '2026-10-21 14:28:00+0000' --end '2026-10-21 14:33:00+0000' --style json --predicate 'processIdentifier == 9238 OR processIdentifier == 10821'
+Default execution failed exit64: log: Cannot run while sandboxed.
+The required separately approved elevated retry later failed exit65:
+  getpwuid_r did not find a match for uid501
+  log: Could not open local log store: Connection to logd failed
+Therefore no OS OOM-killer/crash-stack conclusion is available. Linux dmesg is not the relevant macOS log source. Approval wait paused the active turn roughly14:33–16:41UTC; no work/check-ins occurred during that pause. That delay is separate from Chrome's subsecond abort. /usr/bin/log show approval is now saved, but the log read itself still failed.
+
+What is established and what remains a hypothesis
+Established: native installed Chrome aborts before model code and also without Playwright; ordinary --version works. No Llama/SmolLM2/WebLLM/wllama quality comparison or new completed STT comparison came from these attempts. The pre-load abort is not a Llama-output/quantization result. Memory pressure is real but passing the start floor does not rule out every memory failure. No OOM evidence was obtained.
+Hypothesis: the Codex launch/identity/system-service context causes the Mac abort. Not yet proven by an identical normal-Terminal control. Log-access denial alone does not prove Chrome's cause. Normal user Chrome running does not establish that this fresh automated child has a working context. No normal-Terminal controlled fresh-profile result or hardware-adapter receipt was captured by CLI.
+Consultant's separate16:53UTC Slack receipt1792601594.577399: Linux, Chromium141,8GB,no GPU. Blank page launches; ordinary headless has no adapter, unsafe-WebGPU/forced-SwiftShader gets fallback adapter lacking shader-f16. Zero model runs. That workspace cannot substitute for a real hardware-WebGPU result and does not reproduce the Mac SIGABRT.
+
+Discriminating next control
+Same Mac, same installed executable, fresh isolated profile, blank page, no model/network download. Compare ordinary Terminal launch with explicitly approved host launch, recording exact mode and exit. If launch succeeds, inspect chrome://gpu and capture navigator.gpu.requestAdapter() identity, fallback status and shader-f16 before loading weights. A headed-success/headless-failure result alone isolates launch mode, not every sandbox difference; compare like-for-like modes as well. If ordinary Terminal also aborts, capture Console.app DiagnosticReports/stack and investigate Chrome/macOS rather than blaming the agent. Never loosen fallback rejection, use software evidence as hardware evidence, lower memory floors, disable protections as a permanent fix, or touch the user's existing profile. This is a model-free diagnosis proposal, not authorization for provider/model runs.
