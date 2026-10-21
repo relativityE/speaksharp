@@ -51,7 +51,9 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
     // when the covered count changes, so a time-only rerender leaves the dial, bar and "at this pace" projection where
     // the last detected point put them (they are one average, so they move together). `after` reads the real total.
     const [coverageEvent, setCoverageEvent] = useState({ covered, elapsedSec });
-    if (coverageEvent.covered !== covered) setCoverageEvent({ covered, elapsedSec });
+    // A point detected before the first heartbeat (0 s) has no usable reading yet; take it at the first positive elapsed
+    // time rather than freezing a zero that reads as "no pace" for the rest of the take.
+    if (coverageEvent.covered !== covered || (coverageEvent.elapsedSec <= 0 && elapsedSec > 0)) setCoverageEvent({ covered, elapsedSec });
     const paceElapsedSec = sessionState === 'during' && coverageEvent.covered === covered ? coverageEvent.elapsedSec : elapsedSec;
 
     if (isBefore) {

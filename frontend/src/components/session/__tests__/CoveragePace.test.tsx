@@ -69,6 +69,57 @@ describe('CoveragePace', () => {
             }
         });
 
+        it('CASUALTY: a point detected before the first heartbeat (0 s) takes its reading at the first positive elapsed time, not a frozen zero', () => {
+            // Codex P2 on 2ed4ad76: a 0 s coverage event froze the snapshot at 0, and a non-positive elapsed is "no pace",
+            // so a one-point brief read "— /point" for the whole live take although the point showed as detected.
+            const one = (covered: number, elapsedSec: number) =>
+                <CoveragePace covered={covered} total={1} elapsedSec={elapsedSec} guideSecPerPoint={60} sessionState="during" />;
+            const { rerender } = render(one(0, 0));
+            rerender(one(1, 0));
+            rerender(one(1, 1));
+            const dial = screen.getByTestId('coverage-pace-perpoint').textContent;
+            expect(dial).toContain('0:01 /point');
+            for (const t of [5, 30]) {
+                rerender(one(1, t));
+                expect(screen.getByTestId('coverage-pace-perpoint').textContent).toBe(dial);
+            }
+        });
+
+        it('after a 0 s first reading, a later point still refreshes the reading, and a new take (count reset) starts over', () => {
+            const three = (covered: number, elapsedSec: number) =>
+                <CoveragePace covered={covered} total={3} elapsedSec={elapsedSec} guideSecPerPoint={60} sessionState="during" />;
+            const dial = () => screen.getByTestId('coverage-pace-perpoint').textContent;
+            const { rerender } = render(three(1, 0));
+            rerender(three(1, 1));
+            expect(dial()).toContain('0:01 /point');
+            rerender(three(2, 40)); // a later coverage event refreshes from its own elapsed time
+            expect(dial()).toContain('0:20 /point');
+            rerender(three(2, 90));
+            expect(dial()).toContain('0:20 /point');
+            rerender(three(0, 0)); // a new take resets the count
+            expect(dial()).toContain('— /point');
+            rerender(three(1, 0));
+            rerender(three(1, 2));
+            expect(dial()).toContain('0:02 /point');
+        });
+
+        it('no detected point stays "— /point" as time passes, and no guide keeps the pace half absent', () => {
+            const { rerender } = render(<CoveragePace covered={0} total={3} elapsedSec={0} guideSecPerPoint={60} sessionState="during" />);
+            for (const t of [1, 30]) {
+                rerender(<CoveragePace covered={0} total={3} elapsedSec={t} guideSecPerPoint={60} sessionState="during" />);
+                expect(screen.getByTestId('coverage-pace-perpoint').textContent).toContain('— /point');
+            }
+            rerender(<CoveragePace covered={1} total={3} elapsedSec={0} guideSecPerPoint={null} sessionState="during" />);
+            rerender(<CoveragePace covered={1} total={3} elapsedSec={5} guideSecPerPoint={null} sessionState="during" />);
+            expect(screen.queryByTestId('coverage-pace-perpoint')).toBeNull();
+        });
+
+        it('after the take, the reading uses the real final duration, not a during snapshot', () => {
+            const { rerender } = render(<CoveragePace covered={1} total={3} elapsedSec={0} guideSecPerPoint={60} sessionState="during" />);
+            rerender(<CoveragePace covered={1} total={3} elapsedSec={90} guideSecPerPoint={60} sessionState="after" />);
+            expect(screen.getByTestId('coverage-pace-perpoint').textContent).toContain('1:30 /point');
+        });
+
         it('a NEW covered point updates the reading from the elapsed time at that event', () => {
             const { rerender } = render(during(2, 150));
             rerender(during(2, 200)); // time passes; nothing newly covered
