@@ -386,8 +386,22 @@ export async function runOwnedIdentityFailures(
  * fields only), the same server authority `three-session-retention-proof` reads. A new account must be allowed to
  * start and must have room for this journey's recordings; the decision reuses `evaluateThreeRecordingEntitlement`.
  */
+/**
+ * One `check-usage-limit` response as the page received it. #1593 Case 15 follow-up (Sam 1792503928): the HTTP status and
+ * whether the body was a JSON object are kept, because an error body, a non-JSON body or a missing field used to be read
+ * as `false` (`=== true`), which made an unavailable answer look like an account that cannot start.
+ */
+export interface EntitlementResponse {
+    http: number;
+    parsed: boolean;
+    can_start?: unknown;
+    is_pro?: unknown;
+    trial_active?: unknown;
+    trial_seconds_remaining?: unknown;
+}
+
 export class EntitlementTap {
-    readonly responses: Array<{ can_start?: unknown; is_pro?: unknown; trial_active?: unknown; trial_seconds_remaining?: unknown }> = [];
+    readonly responses: EntitlementResponse[] = [];
     private readonly pending: Array<Promise<void>> = [];
 
     attach(page: Page): void {
@@ -395,17 +409,62 @@ export class EntitlementTap {
             let fn = '';
             try { fn = new URL(res.url()).pathname.split('/').pop() ?? ''; } catch { fn = ''; }
             if (fn !== 'check-usage-limit') return;
-            this.pending.push(res.json().then((b) => {
-                const body = (b ?? {}) as Record<string, unknown>;
+            const http = res.status();
+            this.pending.push(res.json().then((b: unknown) => {
+                const parsed = b !== null && typeof b === 'object' && !Array.isArray(b);
+                const body = (parsed ? b : {}) as Record<string, unknown>;
                 this.responses.push({
+                    http, parsed,
                     can_start: body.can_start, is_pro: body.is_pro,
                     trial_active: body.trial_active, trial_seconds_remaining: body.trial_seconds_remaining,
                 });
-            }, () => undefined));
+            }, () => { this.responses.push({ http, parsed: false }); }));
         });
     }
 
     async settle(): Promise<void> { await Promise.all(this.pending); }
+}
+
+/**
+ * What one entitlement response PROVES. Only a 2xx JSON object with a boolean `can_start` is an observation; anything
+ * else is `unavailable` (with a content-free reason) and must never be reported as an explicit "cannot start".
+ */
+export type EntitlementObservation =
+    | { state: 'unobserved' }
+    | { state: 'unavailable'; reason: string }
+    | { state: 'observed'; canStart: boolean; trialActive: boolean | null; isPro: boolean | null };
+
+export function observeEntitlement(response: EntitlementResponse | undefined): EntitlementObservation {
+    if (!response) return { state: 'unobserved' };
+    if (!Number.isInteger(response.http) || response.http < 200 || response.http > 299) return { state: 'unavailable', reason: `http_${response.http}` };
+    if (!response.parsed) return { state: 'unavailable', reason: 'body_not_json_object' };
+    if (typeof response.can_start !== 'boolean') {
+        return { state: 'unavailable', reason: `can_start_${response.can_start === null ? 'null' : typeof response.can_start}` };
+    }
+    const flag = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
+    return { state: 'observed', canStart: response.can_start, trialActive: flag(response.trial_active), isPro: flag(response.is_pro) };
+}
+
+/** Receipt evidence for an observation: tri-state (`null` = not observed), never a coerced `false`. */
+export function entitlementEvidence(o: EntitlementObservation): Record<string, string | boolean | null> {
+    return o.state === 'observed'
+        ? { entitlement: 'observed', canStart: o.canStart, trialActive: o.trialActive, isPro: o.isPro }
+        : { entitlement: o.state, canStart: null, trialActive: null, isPro: null, ...(o.state === 'unavailable' ? { reason: o.reason } : {}) };
+}
+
+/**
+ * The returning user's access as the session page received it (Case 15). The journey records nothing, so every outcome
+ * other than an observed `can_start: true` is a HOLD — but an unusable answer says eligibility is UNVERIFIED, distinct
+ * from an observed account that cannot start.
+ */
+export async function returningAccessRow(receipt: { row: RwtReceipt['row'] }, tap: EntitlementTap): Promise<void> {
+    await tap.settle();
+    const o = observeEntitlement(tap.responses[0]);
+    const detail = o.state === 'unobserved' ? 'no check-usage-limit response was observed'
+        : o.state === 'unavailable' ? `eligibility unverified: the check-usage-limit response was unusable (${o.reason})`
+            : o.canStart ? 'the server lets this returning user start a recording'
+                : 'this account cannot start a recording (expired or unentitled); not used for a recording journey';
+    receipt.row('returning-user access', o.state === 'observed' && o.canStart ? 'PASS' : 'HOLD', detail, entitlementEvidence(o));
 }
 
 /**
@@ -1354,13 +1413,19 @@ export function stopIfPageTornDown(receipt: RwtReceipt, page: Page, afterStep: s
 export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, requiredSeconds: number): Promise<void> {
     await tap.settle();
     const first = tap.responses[0];
-    if (!first) { receipt.row('new-account entitlement', 'HOLD', 'no check-usage-limit response was observed'); return; }
-    const verdict = evaluateThreeRecordingEntitlement(first, requiredSeconds);
-    const canStart = first.can_start === true;
+    const o = observeEntitlement(first);
+    if (o.state === 'unobserved') { receipt.row('new-account entitlement', 'HOLD', 'no check-usage-limit response was observed'); return; }
+    // #1593 (Sam 1792503928): an unusable answer proves nothing about the account, so it is a HOLD, never "not entitled".
+    if (o.state === 'unavailable') {
+        receipt.row('new-account entitlement', 'HOLD', `entitlement unverified: the check-usage-limit response was unusable (${o.reason})`, entitlementEvidence(o));
+        return;
+    }
+    const verdict = evaluateThreeRecordingEntitlement(first as EntitlementResponse, requiredSeconds);
+    const canStart = o.canStart;
     receipt.row('new-account entitlement', canStart && verdict.ok ? 'PASS' : 'FAIL',
         canStart && verdict.ok ? 'the server let the new account start, with room for this journey'
             : `the server did not entitle the new account (${verdict.ok ? 'can_start false' : verdict.reason})`,
-        { canStart, trialActive: first.trial_active === true, isPro: first.is_pro === true });
+        entitlementEvidence(o));
 }
 
 /**
