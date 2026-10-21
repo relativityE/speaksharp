@@ -1,0 +1,102 @@
+{
+  "observedUtc": "2026-10-21T14:00:12.006302+00:00",
+  "base": "99585c8a1fe892a282383e2381bdec429817c5da",
+  "mainVersioned": 120,
+  "extras": [
+    {
+      "path": "backend/supabase/migrations/20261018090000_analytics_summary_observed_filler_rate_1472.sql",
+      "name": "20261018090000_analytics_summary_observed_filler_rate_1472.sql",
+      "version": "20261018090000",
+      "sha256": "72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f",
+      "bytes": 11361,
+      "sources": [
+        "aff0268fb3e6137b8323423bd413666d0383fa4e",
+        "6fabe3f13d1f080e79221cdc98f06603381b1779"
+      ]
+    },
+    {
+      "path": "backend/supabase/migrations/20261018170000_account_closure_pending_checkout.sql",
+      "name": "20261018170000_account_closure_pending_checkout.sql",
+      "version": "20261018170000",
+      "sha256": "68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19",
+      "bytes": 19434,
+      "sources": [
+        "aff0268fb3e6137b8323423bd413666d0383fa4e",
+        "6fabe3f13d1f080e79221cdc98f06603381b1779"
+      ]
+    },
+    {
+      "path": "backend/supabase/migrations/20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql",
+      "name": "20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql",
+      "version": "20261019010000",
+      "sha256": "df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45",
+      "bytes": 5046,
+      "sources": [
+        "9b58f43bfdc2fe8617d3d166699ec0cda8252986"
+      ]
+    },
+    {
+      "path": "backend/supabase/migrations/20261019055102_account_pending_recording_admission_1643.sql",
+      "name": "20261019055102_account_pending_recording_admission_1643.sql",
+      "version": "20261019055102",
+      "sha256": "e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4",
+      "bytes": 3941,
+      "sources": [
+        "aff0268fb3e6137b8323423bd413666d0383fa4e",
+        "6fabe3f13d1f080e79221cdc98f06603381b1779"
+      ]
+    },
+    {
+      "path": "backend/supabase/migrations/20261019202856_account_coaching_admission_1643.sql",
+      "name": "20261019202856_account_coaching_admission_1643.sql",
+      "version": "20261019202856",
+      "sha256": "f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e",
+      "bytes": 8282,
+      "sources": [
+        "aff0268fb3e6137b8323423bd413666d0383fa4e",
+        "6fabe3f13d1f080e79221cdc98f06603381b1779"
+      ]
+    },
+    {
+      "path": "backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql",
+      "name": "20261020230653_account_pending_completion_journal_1643.sql",
+      "version": "20261020230653",
+      "sha256": "955d829bdcc9649dadfd23e9ebef2839d56b31bddd87cd77fd2122df3ba87a1c",
+      "bytes": 27840,
+      "sources": [
+        "6fabe3f13d1f080e79221cdc98f06603381b1779"
+      ]
+    }
+  ],
+  "proposedChronologicalStages": [
+    {
+      "name": "20261018090000_analytics_summary_observed_filler_rate_1472.sql",
+      "resultVersionedCount": 121
+    },
+    {
+      "name": "20261018170000_account_closure_pending_checkout.sql",
+      "resultVersionedCount": 122
+    },
+    {
+      "name": "20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql",
+      "resultVersionedCount": 123
+    },
+    {
+      "name": "20261019055102_account_pending_recording_admission_1643.sql",
+      "resultVersionedCount": 124
+    },
+    {
+      "name": "20261019202856_account_coaching_admission_1643.sql",
+      "resultVersionedCount": 125
+    },
+    {
+      "name": "20261020230653_account_pending_completion_journal_1643.sql",
+      "resultVersionedCount": 126
+    }
+  ],
+  "combinedVersioned": 126,
+  "productionApplied": false,
+  "rule": "Hold U1 production apply until complete reviewed older pending/Analytics migrations are available; one explicit exact sorted batch, not include-all",
+  "profileProposal": "main-t2-analytics-u1-122 then complete main-t2-account-126; retain main120/u1121 strict refusal",
+  "edgeCallerDefaultOff": true
+}

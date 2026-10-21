@@ -1,0 +1,175 @@
+{
+  "verifiedUtc": "2026-10-21T13:48:40.564800+00:00",
+  "files": [
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/mlc-chat-config.json",
+      "bytes": 2329,
+      "sha256": "0ec513b54b419ad471006430686bdcffaae7102b41f7b0246fbfcde2517acc7f",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/ndarray-cache.json",
+      "bytes": 67081,
+      "sha256": "cf7c1825a9e0d7111bca7f65d8d9de7789f9121579e9500150469543a2975c17",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_0.bin",
+      "bytes": 131334144,
+      "sha256": "17f0334f88adb9a6a23cc702b1fd895e6a159d164eae2520358c8c1d3fccc9ed",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_1.bin",
+      "bytes": 16777216,
+      "sha256": "76b9e11e8fdb82d6d3edbba334bbf59f6fd080e8138baf6bca956af9c886c956",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_10.bin",
+      "bytes": 16777216,
+      "sha256": "bf02d53bd89d7c7f46b2f64d9d851cdf1b4a4dd1b873369e633e97056307f8d5",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_11.bin",
+      "bytes": 25444352,
+      "sha256": "578a5f48dac3bc367c8ad2b3da30148686366f1b5d626de2e4083a115a985e67",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_12.bin",
+      "bytes": 31854592,
+      "sha256": "1237ea88c9640ad3498cb59222c2a3a1d5ec47fa91a52c409f1ad9b53a4ada59",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_13.bin",
+      "bytes": 30679040,
+      "sha256": "42e95969cf75ffce16661b77704cdb556dcc499070b026ce8f350235348e5584",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_14.bin",
+      "bytes": 32116736,
+      "sha256": "d7c96577cee90e7254a18af800480c249e0860b3b887e0497647032ea4eb1c59",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_15.bin",
+      "bytes": 16777216,
+      "sha256": "88cf9a9d4a903b765e17528be0462be1abd6b328de02b830b8d37e32deb55fbc",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_16.bin",
+      "bytes": 25444352,
+      "sha256": "aac1472bd13261a475c06e3aaa5fc87dd78b5a2c97a2cdac7ace244158e5035e",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_17.bin",
+      "bytes": 31854592,
+      "sha256": "e8b201b70ba99337c84fe9611e18f1e48564a273168cf5cdb6fcb173dfec749c",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_18.bin",
+      "bytes": 30679040,
+      "sha256": "ed30fdf696b521b2ed18d91933d965f9aaecf23601d1f5b0a215598cc2bfae69",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_19.bin",
+      "bytes": 32116736,
+      "sha256": "d93f253fdf638757eb0003d7d9b0f75ae7c9c4e36323c5df5f486dcde9790249",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_2.bin",
+      "bytes": 31498240,
+      "sha256": "203ba6b3283b604a8200a1f06051f85c5a9003a606ba89c2f5d47ce9d08ee2fa",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_20.bin",
+      "bytes": 16777216,
+      "sha256": "2bcd8a5d7a3841cc9ded6b3d46fe63adb845dbabf83ee08164b8676161e8cd6a",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_21.bin",
+      "bytes": 25444352,
+      "sha256": "2b0072e9cbdc7698cf2eefe9355e2281b1a817f58894f1b3b2f15e103de799c3",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_3.bin",
+      "bytes": 30679040,
+      "sha256": "e1bc66ba5102f6971c0ff430234405a3a5831f13ff88301f02094fe50cb0764a",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_4.bin",
+      "bytes": 32116736,
+      "sha256": "19d1b44307b23060f5f3acee5a0b5abf22fcfea4a3d2e8f4469d00aeec5a4ce3",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_5.bin",
+      "bytes": 16777216,
+      "sha256": "aa2a7f2ec3a7f3ac0c42e698bec4a3ce30e8ebfabe1f9d7f4bede1ddbb92e1e8",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_6.bin",
+      "bytes": 25444352,
+      "sha256": "2a2d03e4a918dbd3ac1899fb155147013959edbd5cf233947d6900936fc7a419",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_7.bin",
+      "bytes": 31854592,
+      "sha256": "0918287f31f10dd760ed405ca10571dce9fcb621f42978cd3b5c0d2dce6b4304",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_8.bin",
+      "bytes": 30679040,
+      "sha256": "a34bdd87a4d0ccb5baec1e5bfbd66bb407d04bb3d8d966d53c8bff9ebcae5093",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_9.bin",
+      "bytes": 32116736,
+      "sha256": "a9b2a284c794fc23919a74210ec5cda44f9068126e37ad33c7547c812954cd01",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/tensor-cache.json",
+      "bytes": 67081,
+      "sha256": "cf7c1825a9e0d7111bca7f65d8d9de7789f9121579e9500150469543a2975c17",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/tokenizer.json",
+      "bytes": 9085657,
+      "sha256": "79e3e522635f3171300913bb421464a87de6222182a0570b9b2ccba2a964b2b4",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/llama/tokenizer_config.json",
+      "bytes": 54528,
+      "sha256": "9823dcfdc1121869029da45192238e85cf44f0b232a6d9dc20e4fe6f4242a14e",
+      "passed": true
+    },
+    {
+      "path": "/private/tmp/speaksharp-model-assets-1304/Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+      "bytes": 6099798,
+      "sha256": "4aa19a3b4531cd223931adf4523ff45f6822503820a7d394b57f6864ae606024",
+      "passed": true
+    }
+  ],
+  "allPassed": true,
+  "bytes": 710619226
+}
