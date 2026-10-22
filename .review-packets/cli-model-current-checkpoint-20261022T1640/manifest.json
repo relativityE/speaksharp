@@ -5,8 +5,8 @@
   "retainedFailedLaunchCommit": "b621712f58a63e5d40609c6089d8266a5af7e65c",
   "files": {
     "matrix.json": {
-      "bytes": 27054,
-      "sha256": "084e01fcb97eaedafc2b9e26aee263d84a4edce86afa2eb6c2050117d4ee8138"
+      "bytes": 27561,
+      "sha256": "894e855a65a7c4f01e3c5e403af624326e22c035dd7f8cdadcb1c9c31d525bb8"
     },
     "launcher-environment.json": {
       "bytes": 2514,
@@ -19,8 +19,13 @@
     "not-ready-to-land.json": {
       "bytes": 7330,
       "sha256": "801be7ce6207eb8d8d9ed9ac58c35a439862718a35294e680f8827c6073ebb8a"
+    },
+    "stt-transfer-counter-semantics.json": {
+      "bytes": 642,
+      "sha256": "d9bb723fdec9d1af87f9b56a02e50e336305a30691c15789c3fc241dab434665"
     }
   },
-  "metadataCorrectedUtc": "2026-10-22T17:53:05.684724+00:00",
-  "correction": "Sam7932 source-qualified wording corrected; corrected finalizer handoff remains authorPASS/independentreviewPENDING; no measuredcounts changed"
+  "metadataCorrectedUtc": "2026-10-22T18:10:20.049077+00:00",
+  "correction": "Sam7932 source-qualified wording corrected; corrected finalizer handoff remains authorPASS/independentreviewPENDING; no measuredcounts changed",
+  "latestCorrection": "Asset-transfer counter qualifier: no proof of network failure; raw STT measurements unchanged; no new run"
 }

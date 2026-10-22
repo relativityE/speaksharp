@@ -1,5 +1,5 @@
 {
-  "updatedUtc": "2026-10-22T17:53:05.684724+00:00",
+  "updatedUtc": "2026-10-22T18:10:20.049077+00:00",
   "scope": "Measured STT smoke plus failed Llama acquisition and retained unexecuted configurations; no completed LLM comparison",
   "decision": "First matched STT smoke measured: v4WASM lowerWER on oneclip but slowerdecode; no STT selection or LLM/Gemini retirement decision supported.",
   "nullMeaning": "NOT MEASURED, never zero",
@@ -162,9 +162,18 @@
       },
       "observedBackend": "wasm",
       "rawReport": "stt-raw.json",
-      "baselineFailedAssetRequests": 1,
       "failedAssetUrl": "NOT_RETAINED_IN_REPORT",
-      "productPath": "NOT_RUN"
+      "productPath": "NOT_RUN",
+      "assetTransferFailureCounter": {
+        "baseline": 1,
+        "candidate": 0,
+        "meaning": "Conflates requestfailed events with request.sizes() rejection after requestfinished",
+        "actualNetworkFailure": "UNKNOWN",
+        "eventKind": "NOT_RETAINED",
+        "requestUrl": "NOT_RETAINED",
+        "source": "7216e35c scripts/model-evaluator/asset-transfer.ts:41-55"
+      },
+      "baselineFailedAssetRequestsHistoricalLabel": "Misleading historical label, preserved as raw report field only; not proof of a failed download"
     },
     {
       "lane": "STT",

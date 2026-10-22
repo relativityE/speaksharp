@@ -1,0 +1,16 @@
+{
+  "createdUtc": "2026-10-22T18:03:41.075101+00:00",
+  "finding": {
+    "baseline": 1,
+    "candidate": 0,
+    "meaning": "Counter conflates requestfailed with request.sizes() rejection after requestfinished",
+    "actualNetworkFailure": "UNKNOWN",
+    "eventKind": "NOT_RETAINED",
+    "requestUrl": "NOT_RETAINED",
+    "source": "7216e35c scripts/model-evaluator/asset-transfer.ts requestfinished catch and requestfailed branches"
+  },
+  "staticServerLogs": "No per-request/error logging; startup log only",
+  "rawResult": "UNCHANGED",
+  "newRuns": 0,
+  "futureInstrumentation": "Not selected; separate from current five-path correction"
+}
