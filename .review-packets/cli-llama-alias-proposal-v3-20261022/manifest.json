@@ -1,0 +1,158 @@
+{
+  "preparedUtc": "2026-10-22T02:19:49.734524+00:00",
+  "state": "UNAPPLIED_SOURCE_PROPOSAL_WITH_ACTUAL_HANDLER_CONTROLS",
+  "source": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+  "sourceTree": "bd53e4f5d33e402f85a32af7d34ad32848d934ed",
+  "originalSourceUnchanged": true,
+  "preimage": {
+    "path": "scripts/model-investigation.mts",
+    "sha256": "6200c11a96cd0243fd57ed32f50a0aa8d4aa0377cc60ec308a8d96d600414ee1",
+    "blob": "e9b9d4e0e52f0ca357968a551722df3afdb92b67"
+  },
+  "proposed": {
+    "sha256": "6c94303eb1924cef54cfd6291e4f0327414ae0e2d01843fbf5cdbae25c14b4b1",
+    "blob": "1712efa1a29da2514da080b74ce4403185160ddb"
+  },
+  "patchSha256": "a76ce5bbb1145e0be844de1e23bcb0854a322233918a84b370c731162ca9c122",
+  "relatedPreimages": [
+    {
+      "path": "frontend/src/services/coaching/llamaProvider.ts",
+      "gitBlob": "f929f65e314da0507fa5118f5034ec27db2a877d",
+      "sha256": "ad31227100e6a2642e3670a75d953ae1b77e47e58e00ff8826a5120a16223ad7"
+    },
+    {
+      "path": "frontend/src/benchmark/llamaBrowserCoach.ts",
+      "gitBlob": "512e2797e9a948b9ce63b0b52488f127740ecc6b",
+      "sha256": "661ce7cb3cbe0ea8618b8a8e4e5f2473ec305d5cd33112727cee57021be6dbef"
+    },
+    {
+      "path": "frontend/src/benchmark/model-investigation-local.ts",
+      "gitBlob": "b1c9e47d376308d4da7d3e7f2ac2aab8acd857c1",
+      "sha256": "8bda01b9606273a2c01fbeac76ac6b081e0bb043e059947d0417afe2e645060c"
+    },
+    {
+      "path": "scripts/model-evaluator/cdp-browser.ts",
+      "gitBlob": "416772e0ecf4f0ce347967029e1820d59302ac4c",
+      "sha256": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+    }
+  ],
+  "sdk": {
+    "moduleSha256": "ae2642e73a4a9896c21efb3a067c4666446f8b49cbe2012f4b576f5d83d5f206",
+    "moduleBytes": 6817339,
+    "cachedOfficialTgzSha256": "b104049691e1926c689109831887a3e7b2443df48ecb1e0f1a697e53564b5d4e",
+    "archiveMember": "package/lib/index.js",
+    "installedEqualsCachedArchive": true,
+    "registryArtifact": "https://registry.npmjs.org/@mlc-ai/web-llm/-/web-llm-0.2.86.tgz",
+    "scope": "Byte-linked call-site excerpts, not a claim that the complete SDK source tree is reproduced in this packet"
+  },
+  "actualControls": {
+    "sourceExtracted": true,
+    "hashVerifiedAssets": 28,
+    "exactModelAliases": 27,
+    "directRuntimeAssets": 1,
+    "HTTPResponsesHashed": 55,
+    "referenceCoverage": {
+      "config": 1,
+      "tokenizers": 2,
+      "weightManifest": 1,
+      "shards": 22,
+      "runtimeLibraries": 1
+    },
+    "builderNegatives": {
+      "duplicateRejected": true,
+      "digestDriftRejected": true
+    },
+    "rawPathNegatives": 7,
+    "POSTstatus": 405,
+    "browserCacheAndEgress": {
+      "normalizedCache": true,
+      "directCache": true,
+      "postBlocked": true,
+      "foreignBlocked": true
+    },
+    "validatedCacheFilesUnchanged": true,
+    "context": "CLOSED",
+    "engineLoads": 0,
+    "generationCalls": 0,
+    "providerCalls": 0
+  },
+  "limits": [
+    "No proposed source applied to frozen checkout, selected implementation, model acquisition or retry",
+    "Cached model bytes were read/hashed/served over loopback, but no engine was instantiated and no inference performed",
+    "Module404 during model-free root page is not acquisition evidence; tests explicitly exercise extracted handlers/Cache API only",
+    "Original run full URL/port not recovered; causal reconstruction remains distinct from original observation"
+  ],
+  "next": "Independent proposal/identity/control review, explicit source selection, then successor qualification before any separately selected acquisition retry.",
+  "files": [
+    {
+      "path": "actual-route-controls.json",
+      "bytes": 26289,
+      "sha256": "8facbbbdb4a13b87b4aa1e8aad5f66ca46286c41e2602b1d0ba0fcbcefbdec68"
+    },
+    {
+      "path": "actual-route-controls.mjs",
+      "bytes": 8713,
+      "sha256": "98d2b8485f0681ff4bfeb7637c30e7dce33ecc3e90a9af852e6ef4b6db74f558"
+    },
+    {
+      "path": "frozen-asset-manifest.json",
+      "bytes": 26462,
+      "sha256": "59335daea2930b4425099404f09a4dcb54a324adaa6035e06622821d205e35e2"
+    },
+    {
+      "path": "proposed-source.patch",
+      "bytes": 1829,
+      "sha256": "a76ce5bbb1145e0be844de1e23bcb0854a322233918a84b370c731162ca9c122"
+    },
+    {
+      "path": "raw-commit-00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930.b64",
+      "bytes": 413,
+      "sha256": "6385001ba727e8e80cf979c31f0914da4e7457cf3eaa2a2feb5d6ce87e8c1a8a"
+    },
+    {
+      "path": "raw-commit-b496cc03b8f31ca850206206f857c622cacfc69d.b64",
+      "bytes": 421,
+      "sha256": "e591456f4a3b5619a32e821ad71fcf4a4883a0b43819dbbe3671ea5d33a008c3"
+    },
+    {
+      "path": "runner-before.mts",
+      "bytes": 21669,
+      "sha256": "6200c11a96cd0243fd57ed32f50a0aa8d4aa0377cc60ec308a8d96d600414ee1"
+    },
+    {
+      "path": "runner-proposed.mts",
+      "bytes": 22366,
+      "sha256": "6c94303eb1924cef54cfd6291e4f0327414ae0e2d01843fbf5cdbae25c14b4b1"
+    },
+    {
+      "path": "sdk-call-site-linkage.json",
+      "bytes": 10037,
+      "sha256": "8f084dbef101fffaf887fa0fcf0cc7dd12d04eb7a8f80c228ad37f657d384705"
+    },
+    {
+      "path": "sdk-package.json",
+      "bytes": 2059,
+      "sha256": "4632d440f150db30ccd05e2378124ac26328cd6c479ef1ed8829c6468cb512c2"
+    },
+    {
+      "path": "source-before/frontend/src/benchmark/llamaBrowserCoach.ts",
+      "bytes": 1630,
+      "sha256": "661ce7cb3cbe0ea8618b8a8e4e5f2473ec305d5cd33112727cee57021be6dbef"
+    },
+    {
+      "path": "source-before/frontend/src/benchmark/model-investigation-local.ts",
+      "bytes": 2476,
+      "sha256": "8bda01b9606273a2c01fbeac76ac6b081e0bb043e059947d0417afe2e645060c"
+    },
+    {
+      "path": "source-before/frontend/src/services/coaching/llamaProvider.ts",
+      "bytes": 6098,
+      "sha256": "ad31227100e6a2642e3670a75d953ae1b77e47e58e00ff8826a5120a16223ad7"
+    },
+    {
+      "path": "source-before/scripts/model-evaluator/cdp-browser.ts",
+      "bytes": 5342,
+      "sha256": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+    }
+  ]
+}

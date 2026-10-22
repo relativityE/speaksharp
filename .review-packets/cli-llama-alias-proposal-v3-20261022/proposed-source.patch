@@ -1,0 +1,30 @@
+diff --git a/scripts/model-investigation.mts b/scripts/model-investigation.mts
+--- a/scripts/model-investigation.mts
++++ b/scripts/model-investigation.mts
+@@ -160,7 +160,14 @@
+     const data=await readFile(local);
+     const expected=asset.verified_sha256??asset.sha256;
+     if(!expected || data.length!==asset.bytes || sha(data)!==expected) throw new Error(`asset integrity mismatch: ${asset.group}/${asset.path}`);
+-    routes.set(`/assets/${asset.group}/${asset.path}`,local);
++    // WebLLM normalizes modelBase with resolve/main. Add only exact aliases to
++    // already-verified bytes; never rewrite an arbitrary request or fetch.
++    const assetRoutes=[`/assets/${asset.group}/${asset.path}`];
++    if(asset.group==='llama') assetRoutes.push(`/assets/llama/resolve/main/${asset.path}`);
++    for(const route of assetRoutes) {
++      if(routes.has(route)) throw new Error('verified asset route collision');
++      routes.set(route,local);
++    }
+     if(asset.group==='base') routes.set(`/models/moonshine-base/${asset.path}`,local);
+     if(asset.group==='vad') routes.set(`/models/silero-vad/${asset.path}`,local);
+     verified.push({group:asset.group,path:asset.path,bytes:asset.bytes,sha256:expected});
+@@ -182,6 +189,10 @@
+   routes.set('/bundle.mjs',bundle);
+   report.bundleSha256=sha(await readFile(bundle));
+   const server=createServer((req,res)=>{
++    const rawPath=(req.url??'/').split(/[?#]/,1)[0];
++    if(!rawPath.startsWith('/')||rawPath.startsWith('//')||rawPath.includes('%')||rawPath.includes('\\')||rawPath.split('/').some(part=>part==='.'||part==='..')) {
++      res.writeHead(400);res.end('noncanonical request path');return;
++    }
+     let path:string;
+     try { path=decodeURIComponent(new URL(req.url??'/', 'http://localhost').pathname); }
+     catch {res.writeHead(400);res.end();return;}

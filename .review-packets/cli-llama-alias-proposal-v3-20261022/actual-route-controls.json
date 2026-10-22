@@ -1,0 +1,749 @@
+{
+  "startedUtc": "2026-10-22T02:18:06.911Z",
+  "sourceSha256": "6c94303eb1924cef54cfd6291e4f0327414ae0e2d01843fbf5cdbae25c14b4b1",
+  "preimageSha256": "6200c11a96cd0243fd57ed32f50a0aa8d4aa0377cc60ec308a8d96d600414ee1",
+  "extracted": {
+    "loopSha256": "4bf3f8478fd46c04b3d3822b81c24e239dccf026b122f92c5acb6530e955a97d",
+    "serverSha256": "5f313ccbf59d45fb8545a5fc62f301f989ab11aa06a95771aad6488ef420486a",
+    "egressSha256": "0d91716009ecfaa67cf23aa00570ca22e0b345b5573d41af0cb2d50641ec64e7"
+  },
+  "engineLoads": 0,
+  "generationCalls": 0,
+  "providerCalls": 0,
+  "status": "ACTUAL_EXTRACTED_ROUTE_BUILDER_CONTROLS_PASS_NOT_ACQUISITION",
+  "http": [
+    {
+      "path": "/assets/llama/mlc-chat-config.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 2329,
+      "sha256": "0ec513b54b419ad471006430686bdcffaae7102b41f7b0246fbfcde2517acc7f"
+    },
+    {
+      "path": "/assets/llama/resolve/main/mlc-chat-config.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 2329,
+      "sha256": "0ec513b54b419ad471006430686bdcffaae7102b41f7b0246fbfcde2517acc7f"
+    },
+    {
+      "path": "/assets/llama/ndarray-cache.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 67081,
+      "sha256": "cf7c1825a9e0d7111bca7f65d8d9de7789f9121579e9500150469543a2975c17"
+    },
+    {
+      "path": "/assets/llama/resolve/main/ndarray-cache.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 67081,
+      "sha256": "cf7c1825a9e0d7111bca7f65d8d9de7789f9121579e9500150469543a2975c17"
+    },
+    {
+      "path": "/assets/llama/params_shard_0.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 131334144,
+      "sha256": "17f0334f88adb9a6a23cc702b1fd895e6a159d164eae2520358c8c1d3fccc9ed"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_0.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 131334144,
+      "sha256": "17f0334f88adb9a6a23cc702b1fd895e6a159d164eae2520358c8c1d3fccc9ed"
+    },
+    {
+      "path": "/assets/llama/params_shard_1.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "76b9e11e8fdb82d6d3edbba334bbf59f6fd080e8138baf6bca956af9c886c956"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_1.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "76b9e11e8fdb82d6d3edbba334bbf59f6fd080e8138baf6bca956af9c886c956"
+    },
+    {
+      "path": "/assets/llama/params_shard_10.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "bf02d53bd89d7c7f46b2f64d9d851cdf1b4a4dd1b873369e633e97056307f8d5"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_10.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "bf02d53bd89d7c7f46b2f64d9d851cdf1b4a4dd1b873369e633e97056307f8d5"
+    },
+    {
+      "path": "/assets/llama/params_shard_11.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 25444352,
+      "sha256": "578a5f48dac3bc367c8ad2b3da30148686366f1b5d626de2e4083a115a985e67"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_11.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 25444352,
+      "sha256": "578a5f48dac3bc367c8ad2b3da30148686366f1b5d626de2e4083a115a985e67"
+    },
+    {
+      "path": "/assets/llama/params_shard_12.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 31854592,
+      "sha256": "1237ea88c9640ad3498cb59222c2a3a1d5ec47fa91a52c409f1ad9b53a4ada59"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_12.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 31854592,
+      "sha256": "1237ea88c9640ad3498cb59222c2a3a1d5ec47fa91a52c409f1ad9b53a4ada59"
+    },
+    {
+      "path": "/assets/llama/params_shard_13.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 30679040,
+      "sha256": "42e95969cf75ffce16661b77704cdb556dcc499070b026ce8f350235348e5584"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_13.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 30679040,
+      "sha256": "42e95969cf75ffce16661b77704cdb556dcc499070b026ce8f350235348e5584"
+    },
+    {
+      "path": "/assets/llama/params_shard_14.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 32116736,
+      "sha256": "d7c96577cee90e7254a18af800480c249e0860b3b887e0497647032ea4eb1c59"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_14.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 32116736,
+      "sha256": "d7c96577cee90e7254a18af800480c249e0860b3b887e0497647032ea4eb1c59"
+    },
+    {
+      "path": "/assets/llama/params_shard_15.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "88cf9a9d4a903b765e17528be0462be1abd6b328de02b830b8d37e32deb55fbc"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_15.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "88cf9a9d4a903b765e17528be0462be1abd6b328de02b830b8d37e32deb55fbc"
+    },
+    {
+      "path": "/assets/llama/params_shard_16.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 25444352,
+      "sha256": "aac1472bd13261a475c06e3aaa5fc87dd78b5a2c97a2cdac7ace244158e5035e"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_16.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 25444352,
+      "sha256": "aac1472bd13261a475c06e3aaa5fc87dd78b5a2c97a2cdac7ace244158e5035e"
+    },
+    {
+      "path": "/assets/llama/params_shard_17.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 31854592,
+      "sha256": "e8b201b70ba99337c84fe9611e18f1e48564a273168cf5cdb6fcb173dfec749c"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_17.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 31854592,
+      "sha256": "e8b201b70ba99337c84fe9611e18f1e48564a273168cf5cdb6fcb173dfec749c"
+    },
+    {
+      "path": "/assets/llama/params_shard_18.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 30679040,
+      "sha256": "ed30fdf696b521b2ed18d91933d965f9aaecf23601d1f5b0a215598cc2bfae69"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_18.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 30679040,
+      "sha256": "ed30fdf696b521b2ed18d91933d965f9aaecf23601d1f5b0a215598cc2bfae69"
+    },
+    {
+      "path": "/assets/llama/params_shard_19.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 32116736,
+      "sha256": "d93f253fdf638757eb0003d7d9b0f75ae7c9c4e36323c5df5f486dcde9790249"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_19.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 32116736,
+      "sha256": "d93f253fdf638757eb0003d7d9b0f75ae7c9c4e36323c5df5f486dcde9790249"
+    },
+    {
+      "path": "/assets/llama/params_shard_2.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 31498240,
+      "sha256": "203ba6b3283b604a8200a1f06051f85c5a9003a606ba89c2f5d47ce9d08ee2fa"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_2.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 31498240,
+      "sha256": "203ba6b3283b604a8200a1f06051f85c5a9003a606ba89c2f5d47ce9d08ee2fa"
+    },
+    {
+      "path": "/assets/llama/params_shard_20.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "2bcd8a5d7a3841cc9ded6b3d46fe63adb845dbabf83ee08164b8676161e8cd6a"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_20.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "2bcd8a5d7a3841cc9ded6b3d46fe63adb845dbabf83ee08164b8676161e8cd6a"
+    },
+    {
+      "path": "/assets/llama/params_shard_21.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 25444352,
+      "sha256": "2b0072e9cbdc7698cf2eefe9355e2281b1a817f58894f1b3b2f15e103de799c3"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_21.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 25444352,
+      "sha256": "2b0072e9cbdc7698cf2eefe9355e2281b1a817f58894f1b3b2f15e103de799c3"
+    },
+    {
+      "path": "/assets/llama/params_shard_3.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 30679040,
+      "sha256": "e1bc66ba5102f6971c0ff430234405a3a5831f13ff88301f02094fe50cb0764a"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_3.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 30679040,
+      "sha256": "e1bc66ba5102f6971c0ff430234405a3a5831f13ff88301f02094fe50cb0764a"
+    },
+    {
+      "path": "/assets/llama/params_shard_4.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 32116736,
+      "sha256": "19d1b44307b23060f5f3acee5a0b5abf22fcfea4a3d2e8f4469d00aeec5a4ce3"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_4.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 32116736,
+      "sha256": "19d1b44307b23060f5f3acee5a0b5abf22fcfea4a3d2e8f4469d00aeec5a4ce3"
+    },
+    {
+      "path": "/assets/llama/params_shard_5.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "aa2a7f2ec3a7f3ac0c42e698bec4a3ce30e8ebfabe1f9d7f4bede1ddbb92e1e8"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_5.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 16777216,
+      "sha256": "aa2a7f2ec3a7f3ac0c42e698bec4a3ce30e8ebfabe1f9d7f4bede1ddbb92e1e8"
+    },
+    {
+      "path": "/assets/llama/params_shard_6.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 25444352,
+      "sha256": "2a2d03e4a918dbd3ac1899fb155147013959edbd5cf233947d6900936fc7a419"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_6.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 25444352,
+      "sha256": "2a2d03e4a918dbd3ac1899fb155147013959edbd5cf233947d6900936fc7a419"
+    },
+    {
+      "path": "/assets/llama/params_shard_7.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 31854592,
+      "sha256": "0918287f31f10dd760ed405ca10571dce9fcb621f42978cd3b5c0d2dce6b4304"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_7.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 31854592,
+      "sha256": "0918287f31f10dd760ed405ca10571dce9fcb621f42978cd3b5c0d2dce6b4304"
+    },
+    {
+      "path": "/assets/llama/params_shard_8.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 30679040,
+      "sha256": "a34bdd87a4d0ccb5baec1e5bfbd66bb407d04bb3d8d966d53c8bff9ebcae5093"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_8.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 30679040,
+      "sha256": "a34bdd87a4d0ccb5baec1e5bfbd66bb407d04bb3d8d966d53c8bff9ebcae5093"
+    },
+    {
+      "path": "/assets/llama/params_shard_9.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 32116736,
+      "sha256": "a9b2a284c794fc23919a74210ec5cda44f9068126e37ad33c7547c812954cd01"
+    },
+    {
+      "path": "/assets/llama/resolve/main/params_shard_9.bin",
+      "method": "GET",
+      "status": 200,
+      "bytes": 32116736,
+      "sha256": "a9b2a284c794fc23919a74210ec5cda44f9068126e37ad33c7547c812954cd01"
+    },
+    {
+      "path": "/assets/llama/tensor-cache.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 67081,
+      "sha256": "cf7c1825a9e0d7111bca7f65d8d9de7789f9121579e9500150469543a2975c17"
+    },
+    {
+      "path": "/assets/llama/resolve/main/tensor-cache.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 67081,
+      "sha256": "cf7c1825a9e0d7111bca7f65d8d9de7789f9121579e9500150469543a2975c17"
+    },
+    {
+      "path": "/assets/llama/tokenizer.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 9085657,
+      "sha256": "79e3e522635f3171300913bb421464a87de6222182a0570b9b2ccba2a964b2b4"
+    },
+    {
+      "path": "/assets/llama/resolve/main/tokenizer.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 9085657,
+      "sha256": "79e3e522635f3171300913bb421464a87de6222182a0570b9b2ccba2a964b2b4"
+    },
+    {
+      "path": "/assets/llama/tokenizer_config.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 54528,
+      "sha256": "9823dcfdc1121869029da45192238e85cf44f0b232a6d9dc20e4fe6f4242a14e"
+    },
+    {
+      "path": "/assets/llama/resolve/main/tokenizer_config.json",
+      "method": "GET",
+      "status": 200,
+      "bytes": 54528,
+      "sha256": "9823dcfdc1121869029da45192238e85cf44f0b232a6d9dc20e4fe6f4242a14e"
+    },
+    {
+      "path": "/assets/llama-runtime/Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+      "method": "GET",
+      "status": 200,
+      "bytes": 6099798,
+      "sha256": "4aa19a3b4531cd223931adf4523ff45f6822503820a7d394b57f6864ae606024"
+    }
+  ],
+  "bindings": [
+    {
+      "group": "llama",
+      "path": "mlc-chat-config.json",
+      "bytes": 2329,
+      "sha256": "0ec513b54b419ad471006430686bdcffaae7102b41f7b0246fbfcde2517acc7f",
+      "direct": "/assets/llama/mlc-chat-config.json",
+      "alias": "/assets/llama/resolve/main/mlc-chat-config.json",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/mlc-chat-config.json"
+    },
+    {
+      "group": "llama",
+      "path": "ndarray-cache.json",
+      "bytes": 67081,
+      "sha256": "cf7c1825a9e0d7111bca7f65d8d9de7789f9121579e9500150469543a2975c17",
+      "direct": "/assets/llama/ndarray-cache.json",
+      "alias": "/assets/llama/resolve/main/ndarray-cache.json",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/ndarray-cache.json"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_0.bin",
+      "bytes": 131334144,
+      "sha256": "17f0334f88adb9a6a23cc702b1fd895e6a159d164eae2520358c8c1d3fccc9ed",
+      "direct": "/assets/llama/params_shard_0.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_0.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_0.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_1.bin",
+      "bytes": 16777216,
+      "sha256": "76b9e11e8fdb82d6d3edbba334bbf59f6fd080e8138baf6bca956af9c886c956",
+      "direct": "/assets/llama/params_shard_1.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_1.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_1.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_10.bin",
+      "bytes": 16777216,
+      "sha256": "bf02d53bd89d7c7f46b2f64d9d851cdf1b4a4dd1b873369e633e97056307f8d5",
+      "direct": "/assets/llama/params_shard_10.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_10.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_10.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_11.bin",
+      "bytes": 25444352,
+      "sha256": "578a5f48dac3bc367c8ad2b3da30148686366f1b5d626de2e4083a115a985e67",
+      "direct": "/assets/llama/params_shard_11.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_11.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_11.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_12.bin",
+      "bytes": 31854592,
+      "sha256": "1237ea88c9640ad3498cb59222c2a3a1d5ec47fa91a52c409f1ad9b53a4ada59",
+      "direct": "/assets/llama/params_shard_12.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_12.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_12.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_13.bin",
+      "bytes": 30679040,
+      "sha256": "42e95969cf75ffce16661b77704cdb556dcc499070b026ce8f350235348e5584",
+      "direct": "/assets/llama/params_shard_13.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_13.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_13.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_14.bin",
+      "bytes": 32116736,
+      "sha256": "d7c96577cee90e7254a18af800480c249e0860b3b887e0497647032ea4eb1c59",
+      "direct": "/assets/llama/params_shard_14.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_14.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_14.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_15.bin",
+      "bytes": 16777216,
+      "sha256": "88cf9a9d4a903b765e17528be0462be1abd6b328de02b830b8d37e32deb55fbc",
+      "direct": "/assets/llama/params_shard_15.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_15.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_15.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_16.bin",
+      "bytes": 25444352,
+      "sha256": "aac1472bd13261a475c06e3aaa5fc87dd78b5a2c97a2cdac7ace244158e5035e",
+      "direct": "/assets/llama/params_shard_16.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_16.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_16.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_17.bin",
+      "bytes": 31854592,
+      "sha256": "e8b201b70ba99337c84fe9611e18f1e48564a273168cf5cdb6fcb173dfec749c",
+      "direct": "/assets/llama/params_shard_17.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_17.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_17.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_18.bin",
+      "bytes": 30679040,
+      "sha256": "ed30fdf696b521b2ed18d91933d965f9aaecf23601d1f5b0a215598cc2bfae69",
+      "direct": "/assets/llama/params_shard_18.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_18.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_18.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_19.bin",
+      "bytes": 32116736,
+      "sha256": "d93f253fdf638757eb0003d7d9b0f75ae7c9c4e36323c5df5f486dcde9790249",
+      "direct": "/assets/llama/params_shard_19.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_19.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_19.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_2.bin",
+      "bytes": 31498240,
+      "sha256": "203ba6b3283b604a8200a1f06051f85c5a9003a606ba89c2f5d47ce9d08ee2fa",
+      "direct": "/assets/llama/params_shard_2.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_2.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_2.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_20.bin",
+      "bytes": 16777216,
+      "sha256": "2bcd8a5d7a3841cc9ded6b3d46fe63adb845dbabf83ee08164b8676161e8cd6a",
+      "direct": "/assets/llama/params_shard_20.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_20.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_20.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_21.bin",
+      "bytes": 25444352,
+      "sha256": "2b0072e9cbdc7698cf2eefe9355e2281b1a817f58894f1b3b2f15e103de799c3",
+      "direct": "/assets/llama/params_shard_21.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_21.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_21.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_3.bin",
+      "bytes": 30679040,
+      "sha256": "e1bc66ba5102f6971c0ff430234405a3a5831f13ff88301f02094fe50cb0764a",
+      "direct": "/assets/llama/params_shard_3.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_3.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_3.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_4.bin",
+      "bytes": 32116736,
+      "sha256": "19d1b44307b23060f5f3acee5a0b5abf22fcfea4a3d2e8f4469d00aeec5a4ce3",
+      "direct": "/assets/llama/params_shard_4.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_4.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_4.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_5.bin",
+      "bytes": 16777216,
+      "sha256": "aa2a7f2ec3a7f3ac0c42e698bec4a3ce30e8ebfabe1f9d7f4bede1ddbb92e1e8",
+      "direct": "/assets/llama/params_shard_5.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_5.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_5.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_6.bin",
+      "bytes": 25444352,
+      "sha256": "2a2d03e4a918dbd3ac1899fb155147013959edbd5cf233947d6900936fc7a419",
+      "direct": "/assets/llama/params_shard_6.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_6.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_6.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_7.bin",
+      "bytes": 31854592,
+      "sha256": "0918287f31f10dd760ed405ca10571dce9fcb621f42978cd3b5c0d2dce6b4304",
+      "direct": "/assets/llama/params_shard_7.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_7.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_7.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_8.bin",
+      "bytes": 30679040,
+      "sha256": "a34bdd87a4d0ccb5baec1e5bfbd66bb407d04bb3d8d966d53c8bff9ebcae5093",
+      "direct": "/assets/llama/params_shard_8.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_8.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_8.bin"
+    },
+    {
+      "group": "llama",
+      "path": "params_shard_9.bin",
+      "bytes": 32116736,
+      "sha256": "a9b2a284c794fc23919a74210ec5cda44f9068126e37ad33c7547c812954cd01",
+      "direct": "/assets/llama/params_shard_9.bin",
+      "alias": "/assets/llama/resolve/main/params_shard_9.bin",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/params_shard_9.bin"
+    },
+    {
+      "group": "llama",
+      "path": "tensor-cache.json",
+      "bytes": 67081,
+      "sha256": "cf7c1825a9e0d7111bca7f65d8d9de7789f9121579e9500150469543a2975c17",
+      "direct": "/assets/llama/tensor-cache.json",
+      "alias": "/assets/llama/resolve/main/tensor-cache.json",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/tensor-cache.json"
+    },
+    {
+      "group": "llama",
+      "path": "tokenizer.json",
+      "bytes": 9085657,
+      "sha256": "79e3e522635f3171300913bb421464a87de6222182a0570b9b2ccba2a964b2b4",
+      "direct": "/assets/llama/tokenizer.json",
+      "alias": "/assets/llama/resolve/main/tokenizer.json",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/tokenizer.json"
+    },
+    {
+      "group": "llama",
+      "path": "tokenizer_config.json",
+      "bytes": 54528,
+      "sha256": "9823dcfdc1121869029da45192238e85cf44f0b232a6d9dc20e4fe6f4242a14e",
+      "direct": "/assets/llama/tokenizer_config.json",
+      "alias": "/assets/llama/resolve/main/tokenizer_config.json",
+      "local": "/private/tmp/speaksharp-model-assets-1304/llama/tokenizer_config.json"
+    },
+    {
+      "group": "llama-runtime",
+      "path": "Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+      "bytes": 6099798,
+      "sha256": "4aa19a3b4531cd223931adf4523ff45f6822503820a7d394b57f6864ae606024",
+      "direct": "/assets/llama-runtime/Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm",
+      "alias": null,
+      "local": "/private/tmp/speaksharp-model-assets-1304/Llama-3.2-1B-Instruct-q4f16_1_cs1k-webgpu.wasm"
+    }
+  ],
+  "hashVerifiedDiskBytes": 710619226,
+  "builderNegativeControls": {
+    "duplicateRejected": true,
+    "digestDriftRejected": true
+  },
+  "referenceCoverage": {
+    "config": 1,
+    "tokenizers": 2,
+    "weightManifest": 1,
+    "shards": 22,
+    "runtimeLibraries": 1
+  },
+  "rejected": [
+    {
+      "path": "/assets/llama/resolve/main/unknown.json",
+      "method": "GET",
+      "status": 404,
+      "bytes": 25,
+      "sha256": "ee00309423d49a60edad627bca1af24389e9bc1ca3e0b0a9fc1e53a5ba59f2f1"
+    },
+    {
+      "path": "/assets/llama/resolve/main/%6dlc-chat-config.json",
+      "method": "GET",
+      "status": 400,
+      "bytes": 25,
+      "sha256": "143242855ca389fa3489def4f36b68d46210aa95cf9e5f30877c5ef2b5656cf3"
+    },
+    {
+      "path": "/assets/llama/resolve/main/%2e%2e/mlc-chat-config.json",
+      "method": "GET",
+      "status": 400,
+      "bytes": 25,
+      "sha256": "143242855ca389fa3489def4f36b68d46210aa95cf9e5f30877c5ef2b5656cf3"
+    },
+    {
+      "path": "/assets/llama/resolve/main/../../mlc-chat-config.json",
+      "method": "GET",
+      "status": 400,
+      "bytes": 25,
+      "sha256": "143242855ca389fa3489def4f36b68d46210aa95cf9e5f30877c5ef2b5656cf3"
+    },
+    {
+      "path": "/assets/llama/resolve/main/%2Fetc%2Fpasswd",
+      "method": "GET",
+      "status": 400,
+      "bytes": 25,
+      "sha256": "143242855ca389fa3489def4f36b68d46210aa95cf9e5f30877c5ef2b5656cf3"
+    },
+    {
+      "path": "/assets/llama/resolve/main/..\\mlc-chat-config.json",
+      "method": "GET",
+      "status": 400,
+      "bytes": 25,
+      "sha256": "143242855ca389fa3489def4f36b68d46210aa95cf9e5f30877c5ef2b5656cf3"
+    },
+    {
+      "path": "/etc/passwd",
+      "method": "GET",
+      "status": 404,
+      "bytes": 25,
+      "sha256": "ee00309423d49a60edad627bca1af24389e9bc1ca3e0b0a9fc1e53a5ba59f2f1"
+    }
+  ],
+  "methodControl": {
+    "path": "/assets/llama/resolve/main/mlc-chat-config.json",
+    "method": "POST",
+    "status": 405,
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "owner": {
+    "pid": 42813,
+    "profile": "/Users/fibonacci/speaksharp-eval-profile",
+    "listener": "127.0.0.1:9222"
+  },
+  "browser": {
+    "normalizedCache": true,
+    "directCache": true,
+    "postBlocked": true,
+    "foreignBlocked": true
+  },
+  "egressNegativeControls": [
+    {
+      "method": "POST",
+      "origin": "http://127.0.0.1:53993"
+    },
+    {
+      "method": "GET",
+      "origin": "https://not-contacted.invalid"
+    }
+  ],
+  "validatedFilesUnchanged": true,
+  "ownedContext": "CLOSED",
+  "finishedUtc": "2026-10-22T02:18:13.561Z"
+}
