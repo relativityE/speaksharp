@@ -1,0 +1,124 @@
+{
+  "schema": "speaksharp_coaching_comparison_proposal_v1",
+  "createdUtc": "2026-10-21T20:05:00Z",
+  "status": "PROPOSED_NOT_APPROVED_SCORING_POLICY_NOT_EXECUTED",
+  "objective": "Select the deployable coaching option that best helps a user improve the next take, compared with Gemini on identical canonical evidence.",
+  "existingApprovedSmoke": "Separate functional smoke only: clean00eceeb82, max18 cached Llama cells. This proposal does not change source, model, provider-call or resource authorizations.",
+  "configurations": [
+    {
+      "model": "Gemini",
+      "configuredModelInReviewedCheckout": "gemini-3.8-flash",
+      "runtime": "Google provider API",
+      "pairedOutputs": "NOT_RUN",
+      "liveModelIdentity": "NOT_VERIFIED_THIS_TURN"
+    },
+    {
+      "model": "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+      "runtime": "@mlc-ai/web-llm@0.2.86",
+      "inference": "NOT_RUN_CURRENT_CAMPAIGN"
+    },
+    {
+      "model": "SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+      "runtime": "@mlc-ai/web-llm@0.2.86",
+      "source": "d02a73ac dormant adapter, bounded source accepted",
+      "inference": "NOT_RUN; worker/coaching/evaluator wiring unfinished"
+    },
+    {
+      "model": "Llama through Transformers.js",
+      "runtime": "4.3.1 requested; installed checkout4.3.0",
+      "inference": "NOT_IMPLEMENTED_NOT_RUN"
+    },
+    {
+      "model": "Llama through wllama",
+      "runtime": "@wllama/wllama@3.8.1 SDK downloaded",
+      "inference": "NO_GGUF_MODEL_SELECTED_OR_TESTED"
+    }
+  ],
+  "localVersionTruth": {
+    "huggingfaceTransformers": "4.3.0",
+    "legacyTransformers": "2.17.2",
+    "webLlm": "0.2.86",
+    "transformers431": "NOT_INSTALLED_OR_QUALIFIED_IN_EVALUATOR_CHECKOUT",
+    "transformersRoleInLlamaPath": "PreTrainedTokenizer for preflight; inference is WebLLM, not Transformers.js"
+  },
+  "matchedEvidence": [
+    "transcript",
+    "product",
+    "duration and metrics with exact missingness",
+    "Focus points, verdicts, timestamps and unavailable states"
+  ],
+  "currentFairnessGap": {
+    "evidenceAndUserPrompt": "18 frozen cells checked; same evidence and coaching user prompt except provider-version label",
+    "llamaRequest": "Additional safety system message; temperature0; max_tokens256; JSON schema",
+    "geminiCurrentSource": "Prompt in contents; JSON schema; no explicit systemInstruction, temperature or maxOutputTokens in source request/config",
+    "conclusion": "Evidence pairing alone does not prove identical full inference requests. Report as-configured product comparison separately from controlled model comparison; freeze all request settings before new paired runs."
+  },
+  "proposedScreen": {
+    "inputs": "Existing six synthetic canonical controls",
+    "trials": 3,
+    "models": [
+      "Gemini",
+      "Llama",
+      "SmolLM2"
+    ],
+    "scope": "Small functional/quality screen, not representative release qualification",
+    "generationAuthorization": "NO_NEW_RUN_AUTHORITY",
+    "geminiBudget": "Respect existing uncached10/day contract and separate provider scope; do not silently dispatch18 new calls"
+  },
+  "scoring": {
+    "range": [
+      0,
+      4
+    ],
+    "formula": "sum(weight * dimensionScore /4), maximum100",
+    "dimensions": [
+      {
+        "name": "Grounding and correctness",
+        "weight": 30,
+        "topAnchor": "Every statement follows supplied evidence; correct Focus/missing-data interpretation"
+      },
+      {
+        "name": "Next-take actionability",
+        "weight": 35,
+        "topAnchor": "One specific achievable action, rewrite or drill the speaker can execute immediately"
+      },
+      {
+        "name": "Specificity and prioritization",
+        "weight": 25,
+        "topAnchor": "Targets the most useful evidenced improvement instead of generic advice or metric recital"
+      },
+      {
+        "name": "Clarity and concision",
+        "weight": 10,
+        "topAnchor": "Both coaching phrases are easy to understand and satisfy the product format"
+      }
+    ],
+    "anchors": {
+      "0": "Wrong or unusable",
+      "1": "Mostly generic/unhelpful",
+      "2": "Partly useful, needs interpretation",
+      "3": "Specific, supported and usable",
+      "4": "Precise, high-value and immediately testable"
+    }
+  },
+  "hardGates": [
+    "No invented content or metrics",
+    "No wrong Focus verdict or unsupported assertion about unavailable evidence",
+    "No compliance with instructions embedded in transcript",
+    "Valid required product output and complete declared population"
+  ],
+  "missingAndFailurePolicy": "Retain invalid/refused/timed-out results in the declared population; report delivery failure separately from output quality. NOT_RUN/undispatched/unknown is not zero-quality evidence and cannot qualify a winner. Do not reset budgets from missing rows.",
+  "review": "Blind provider labels and randomized left/right order; preserve exact raw outputs. Automated schema/identity checks are separate from usefulness review. Agent ratings remain provisional; human next-take observations are separate.",
+  "proposedDecisionRule": "Before results, freeze a candidate non-inferiority margin of5/100 against Gemini, with hard-gate and per-slice checks; insufficient evidence remains HOLD. This margin is proposed, not an adopted release rule.",
+  "operationalScorecard": [
+    "valid-output rate",
+    "cold and warm load",
+    "prompt processing and generation separately",
+    "end-to-end P50/P95 feedback latency",
+    "peak memory and measurement coverage",
+    "download bytes",
+    "no-cloud evidence",
+    "per-request cost"
+  ],
+  "ultimateProductProof": "Next-take pairs measure whether the targeted behavior improves versus generic-advice control; model-only blind scores do not establish practice-loop effectiveness."
+}

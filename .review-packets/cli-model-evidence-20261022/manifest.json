@@ -1,0 +1,78 @@
+{
+  "preparedUtc": "2026-10-22T02:00:42.402937+00:00",
+  "state": "EVIDENCE_AND_PROPOSALS_NOT_MODEL_QUALITY_OR_RELEASE_ACCEPTANCE",
+  "requests": [
+    "Sam1792613185.374639",
+    "Sam1792613269.867789",
+    "Sam1792634268.339739"
+  ],
+  "source": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+  "sourceTree": "bd53e4f5d33e402f85a32af7d34ad32848d934ed",
+  "sourceChanged": false,
+  "files": [
+    {
+      "name": "rubric-original-v1.json",
+      "sha256": "fcb169afedc37f1bd878188412bc865dcaccac157230636179bc6c347cbf65bb",
+      "bytes": 5758
+    },
+    {
+      "name": "rubric-proposal-v2.json",
+      "sha256": "ad41e346d93a3239bbc6e4e4d7f530976a08fd50adb37352cb8231c1df28b2c6",
+      "bytes": 11036
+    },
+    {
+      "name": "original-llama-acquisition-failure.json",
+      "sha256": "225d7f9db44e755e5374a700e12be6690ea4a8f6bf2187c6baa75548b89f54e2",
+      "bytes": 40538
+    },
+    {
+      "name": "original-frozen-run-manifest.json",
+      "sha256": "c87c23210231c3c95917932d0975902ebb10d8d1ee0a20cf5574ebfb70621fc2",
+      "bytes": 27948
+    },
+    {
+      "name": "cache-url-reproducer.mjs",
+      "sha256": "5299d0eff5e31c9bb08b78041f77032b824abf8a20793e4e6459cbb2cbd5010d",
+      "bytes": 3956
+    },
+    {
+      "name": "cache-url-causal-result.json",
+      "sha256": "51784bf24e79965b6083d45bf4f3a3643ba04d97442c70db6eb7a071bda4829d",
+      "bytes": 1333
+    },
+    {
+      "name": "canonical-input-prompt-equality.json",
+      "sha256": "79671695d822219bda6df1b75375731c91bff23ddf81c69b070e5be476df3c47",
+      "bytes": 3965
+    }
+  ],
+  "environment": {
+    "os": "macOS arm64",
+    "physicalGiB": 8,
+    "Chrome": "156.0.8078.47 arm64",
+    "cdp": "http://127.0.0.1:9222 dedicated profile; no owner browser close/kill",
+    "sdk": "@mlc-ai/web-llm@0.2.86",
+    "transformers": "4.3.0 tokenizer/preflight, not Llama generation engine",
+    "gpu": "Apple Metal3, nonfallback, shader-f16 present",
+    "startAvailableBytes": 3092376453.12,
+    "minimumStartBytes": 2147483648
+  },
+  "execution": {
+    "runnerSession": 20278,
+    "exitCode": 1,
+    "cellDispatchesAttempted": 0,
+    "internalInferenceCount": "UNKNOWN; do not relabel zero",
+    "providerCalls": 0,
+    "declaredCellsNotExecuted": 18,
+    "cleanup": "4/4 COMPLETE, owned context CLOSED"
+  },
+  "causalFinding": {
+    "observedOriginal": "Cache.add Request failed during acquisition; original full URL/port not logged",
+    "reproduction": "Actual installed SDK normalizer appends resolve/main; first config URL misses exact local allowlist, returns404 and reproduces same browser Cache.add exception",
+    "negativeControl": "Direct allowlisted config returns200 and Cache.add succeeds on same origin/browser",
+    "notEstablished": "No model quality, successful inference, Gemini comparison, Smol result or engine winner"
+  },
+  "boundedFixProposal": "Extend only the diagnostic HTTP route map with exact /assets/llama/resolve/main/<already-hash-verified-file> aliases; retain original routes, fixed file map, immutable bytes, egress block, budgets and ownership. Reject unknown/traversal paths. No source edit or retry yet.",
+  "rubric": "Original exact JSON and v2 concrete anchors/eligibility/blinding/cluster-uncertainty are proposals. No weights or5-point margin adopted, no approval to change frozen smoke or issue provider/model calls.",
+  "next": "Review causal diagnosis and narrow harness-only correction; then qualify any selected successor before retry. Independently review rubric; preserve T2 App receiving/nativeCI priority."
+}
