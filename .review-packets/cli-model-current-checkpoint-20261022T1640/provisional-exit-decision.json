@@ -1,0 +1,116 @@
+{
+  "decision": "RETAIN_WORKING_BASELINE_FOR_RWT_MVP",
+  "charter": "Select a candidate only after better task quality and acceptable latency/memory in an ordinary browser. Infrastructure failures are blockers, not benchmark scores.",
+  "selection": {
+    "STT": "Retain current v2 baseline",
+    "coaching": "Retain Gemini; no local candidate earns selection",
+    "engine": "Retain current product runtime; no superior engine demonstrated"
+  },
+  "rows": [
+    {
+      "configuration": "Whisper-base.en / Xenova2.17.2 WASM",
+      "actualRuntime": "6 decodes:3 synthetic clips x2",
+      "wordErrorRate": 0.20,
+      "medianDecodeMs": 4368.2479165,
+      "observedInitializationMsApprox": 7950,
+      "peakModelMemoryBytes": null,
+      "decision": "RETAIN_BASELINE"
+    },
+    {
+      "configuration": "Whisper-base.en / HF4.3.0 WASM",
+      "actualRuntime": "6 decodes:same3 clips x2",
+      "wordErrorRate": 0.10,
+      "medianDecodeMs": 22899.1443545,
+      "observedInitializationMsApprox": 32150,
+      "peakModelMemoryBytes": null,
+      "decision": "DO_NOT_SELECT",
+      "limits": "5.24x slower decode; entire WER gap one filler-heavy clip; clear slice tied3.23%. No ordinary-product lifecycle/WebGPU proof."
+    },
+    {
+      "configuration": "Llama3.2-1B / WebLLM0.2.86",
+      "actualRuntime": "Initialization attempted;QuotaExceededError before declared cells",
+      "outputs": 0,
+      "taskQuality": null,
+      "latencyMs": null,
+      "peakModelMemoryBytes": null,
+      "decision": "UNSELECTED_INFRASTRUCTURE_BLOCKER"
+    },
+    {
+      "configuration": "SmolLM2-1.7B / WebLLM0.2.86",
+      "actualRuntime": "NOT RUN",
+      "outputs": 0,
+      "taskQuality": null,
+      "latencyMs": null,
+      "peakModelMemoryBytes": null,
+      "decision": "UNSELECTED_NO_INFERENCE_EVIDENCE",
+      "limits": "Assets and offline wiring/tokenizer accepted; not inference evidence"
+    },
+    {
+      "configuration": "Gemini current product baseline",
+      "actualRuntime": "Existing working baseline; matched current comparison NOT RUN",
+      "matchedOutputs": 0,
+      "taskQuality": null,
+      "latencyMs": null,
+      "cost": null,
+      "decision": "RETAIN_BASELINE_WITHOUT_CLAIMING_COMPARATIVE_SUPERIORITY"
+    },
+    {
+      "configuration": "wllama3.8.1 / compatible GGUF",
+      "actualRuntime": "NOT RUN",
+      "taskQuality": null,
+      "latencyMs": null,
+      "peakModelMemoryBytes": null,
+      "decision": "UNSELECTED_NO_RUNTIME_EVIDENCE",
+      "limits": "SDK acquired only; compatible model/reference arm not executed"
+    },
+    {
+      "configuration": "Llama or Smol / Transformers.js4.3.1",
+      "actualRuntime": "NOT RUN",
+      "taskQuality": null,
+      "latencyMs": null,
+      "peakModelMemoryBytes": null,
+      "decision": "UNSELECTED_NO_RUNTIME_EVIDENCE",
+      "limits": "Separate successor package verified; no install/model qualification; stableORT1.30 override retained"
+    },
+    {
+      "configuration": "Moonshine Base / Transformers +VAD",
+      "actualRuntime": "NOT RUN in current matched campaign",
+      "wordErrorRate": null,
+      "stopToFinalMs": null,
+      "decision": "UNSELECTED_NO_CURRENT_RUNTIME_COMPARISON"
+    },
+    {
+      "configuration": "Moonshine medium / moonshine-wasm0.1.5 streaming",
+      "actualRuntime": "Historical short-input success;95.3815s repetition failure;no current matched replay",
+      "wordErrorRate": null,
+      "stopToFinalMs": null,
+      "decision": "UNSELECTED_UNRESOLVED_HISTORICAL_FAILURE",
+      "limits": "Successful short durations not recovered; zero-finalizing claim not established"
+    }
+  ],
+  "measurementLimits": {
+    "STT": "3 single-voice clips,2.81-5.17s,40 unique reference words repeated twice. Cold/warm not isolated. Decode time is not product Stop-to-final.",
+    "host": "macOS26.5.2 arm64,8GiB;Chrome156.0.8078.47;AppleMetal3 nonfallback/shader-f16",
+    "memory": "STT start2.08GiB/min1.36GiB andLlama start2.56GiB are host headroom, NOT model peak memory",
+    "ordinaryBrowser": "Hardware capability verified; evaluator uses dedicated loopback/CDP. Successful local coaching/product lifecycle in ordinary browser NOT RUN."
+  },
+  "infrastructure": {
+    "quota": "Fresh evaluator ephemeral actual quota457689378bytes;Llama710619226/Smol972833253 assets exceed it. Public10GiB estimate masks actual quota.",
+    "persistentSource": "Sam SOURCE PASS1792691493.453939 for exact80c19b63;35 author tests plus TS/quality records. Not runtime qualification.",
+    "launcher": "Persistent launch fails pre-page bootstrap141/SIGABRT;cleanupEPERM. Sandbox explanation plausible,unproven;paired normal-Terminal comparison NOT RUN.",
+    "dependency": "App ordinary npm DNS/TLS works; exact frozen lockfile-only grant delivered1792693736.442979. Waiting exact App ACK/job/handback."
+  },
+  "decisionChangingEvidence": [
+    "Retained local coaching and observed matched baseline on same evidence; groundedness/actionability/specificity/clarity and explicit invalid/hallucination/Focus failures",
+    "Acceptable measured latency and model peak memory in ordinary browser; agree acceptance limits before selecting",
+    "Representative same-audio STT accuracy plus Stop-tail,streaming,repetition and product lifecycle evidence"
+  ],
+  "runtimeCoverageRequest": "PO requires bounded actual runtime evidence for every listed configuration;NOT RUN rows remain unfinished. Minimum smoke advances a candidate,not full selection.",
+  "executionLimits": "Sam runtime HOLD remains pending supported route selection. No new provider calls,activation,deployment,shared-profile adoption or guard changes inferred from source PASS.",
+  "evidence": {
+    "matrixCommit": "121703a6c49d869f78308bd58598562158b50082",
+    "rawMeasuredCommit": "6ee6bd2fe6f5e54b8091217209530ffab024a3fc",
+    "sourcePass": "1792691493.453939"
+  },
+  "unfinishedLedger": "Existing13-item Not ready to land ledger preserved"
+}
