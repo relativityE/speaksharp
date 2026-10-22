@@ -410,15 +410,19 @@ export class EntitlementTap {
             try { fn = new URL(res.url()).pathname.split('/').pop() ?? ''; } catch { fn = ''; }
             if (fn !== 'check-usage-limit') return;
             const http = res.status();
+            // The position is reserved when the page RECEIVES the response, so readers of responses[0] see the first
+            // response the page got, not whichever body finished parsing first. A body that fails to parse stays unusable.
+            const entry: EntitlementResponse = { http, parsed: false };
+            this.responses.push(entry);
             this.pending.push(res.json().then((b: unknown) => {
                 const parsed = b !== null && typeof b === 'object' && !Array.isArray(b);
                 const body = (parsed ? b : {}) as Record<string, unknown>;
-                this.responses.push({
-                    http, parsed,
+                Object.assign(entry, {
+                    parsed,
                     can_start: body.can_start, is_pro: body.is_pro,
                     trial_active: body.trial_active, trial_seconds_remaining: body.trial_seconds_remaining,
                 });
-            }, () => { this.responses.push({ http, parsed: false }); }));
+            }, () => undefined));
         });
     }
 

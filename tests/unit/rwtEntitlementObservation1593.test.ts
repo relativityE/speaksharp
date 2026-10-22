@@ -100,6 +100,26 @@ describe('#1593 Case 15 returning-user access row', () => {
     });
 });
 
+describe('#1593 EntitlementTap keeps the order the page RECEIVED responses (Codex P2 r4342116414)', () => {
+    it('CASUALTY: a slow-parsing valid first response stays first when a later response fails to parse sooner', async () => {
+        const page = new EventEmitter();
+        const tap = new EntitlementTap();
+        tap.attach(page as unknown as Page);
+        let releaseFirst: (body: unknown) => void = () => undefined;
+        const firstBody = new Promise<unknown>((resolve) => { releaseFirst = resolve; });
+        const response = (status: number, json: () => Promise<unknown>) =>
+            ({ url: () => 'https://project.supabase.co/functions/v1/check-usage-limit', status: () => status, json });
+        page.emit('response', response(200, () => firstBody));
+        page.emit('response', response(503, () => Promise.reject(new SyntaxError('Unexpected token <'))));
+        await Promise.resolve();
+        releaseFirst(TRIAL_OK);
+        const r = sink();
+        await returningAccessRow(r, tap);
+        expect(tap.responses.map((x) => x.http)).toEqual([200, 503]);
+        expect(r.rows[0]).toMatchObject({ verdict: 'PASS', evidence: { canStart: true } });
+    });
+});
+
 describe('#1593 new-account entitlement row (shared by the recording journeys)', () => {
     const receiptOf = (r: ReturnType<typeof sink>) => r as unknown as Parameters<typeof entitlementRow>[0];
 
