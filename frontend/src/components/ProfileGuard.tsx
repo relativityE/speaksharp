@@ -38,8 +38,13 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     // surface the error if the row never appears.
     const PROFILE_PROVISION_MAX_ATTEMPTS = 5;
     const PROFILE_PROVISION_RETRY_MS = 1500;
-    const provisioningAttemptsRef = React.useRef(0);
-    const [provisioningExhausted, setProvisioningExhausted] = React.useState(false);
+    // Attempts are state, keyed to the signed-in account: each re-read bumps the count, which re-arms the retry effect
+    // (a re-read that again returns null changes nothing else), and another account starts from zero.
+    const userId = session?.user?.id ?? null;
+    const [provisioning, setProvisioning] = React.useState<{ userId: string | null; attempts: number }>({ userId: null, attempts: 0 });
+    const provisioningAttempts = provisioning.userId === userId ? provisioning.attempts : 0;
+    const missingButNoError = !!session && !profileLoading && !profileError && !profile;
+    const provisioningExhausted = missingButNoError && provisioningAttempts >= PROFILE_PROVISION_MAX_ATTEMPTS;
 
     // Signal Profile Readiness for E2E stability
     React.useEffect(() => {
@@ -80,30 +85,26 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     // session, no error, null profile). Resets when the profile arrives or a real
     // error occurs; after MAX attempts we fall through to the error screen.
     React.useEffect(() => {
-        const missingButNoError = !!session && !profileLoading && !profileError && !profile;
         if (!missingButNoError) {
-            if (profile || profileError) {
-                provisioningAttemptsRef.current = 0;
-                if (provisioningExhausted) setProvisioningExhausted(false);
+            if ((profile || profileError) && provisioningAttempts !== 0) {
+                setProvisioning({ userId, attempts: 0 });
             }
             return;
         }
-        if (provisioningAttemptsRef.current >= PROFILE_PROVISION_MAX_ATTEMPTS) {
-            if (!provisioningExhausted) {
-                logger.warn(
-                    { userId: session?.user?.id, attempts: provisioningAttemptsRef.current },
-                    '[ProfileGuard] Profile row still missing after provisioning retries; showing error',
-                );
-                setProvisioningExhausted(true);
-            }
+        if (provisioningAttempts >= PROFILE_PROVISION_MAX_ATTEMPTS) {
+            logger.warn(
+                { userId, attempts: provisioningAttempts },
+                '[ProfileGuard] Profile row still missing after provisioning retries; showing error',
+            );
             return;
         }
+        // Cleared on unmount and whenever the account or profile state changes, so obsolete re-reads never fire.
         const timer = setTimeout(() => {
-            provisioningAttemptsRef.current += 1;
+            setProvisioning((prev) => ({ userId, attempts: (prev.userId === userId ? prev.attempts : 0) + 1 }));
             void refetch();
         }, PROFILE_PROVISION_RETRY_MS);
         return () => clearTimeout(timer);
-    }, [session, profileLoading, profileError, profile, refetch, provisioningExhausted]);
+    }, [missingButNoError, provisioningAttempts, profile, profileError, userId, refetch]);
 
     // 🧪 Ensure ProfileContext integrity for E2E System Probes
     // Provides a synthetic guest profile to satisfy the "Guaranteed Context" 
