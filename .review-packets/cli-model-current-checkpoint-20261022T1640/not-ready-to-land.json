@@ -1,7 +1,7 @@
 {
-  "updatedUtc": "2026-10-22T16:39:14.456755+00:00",
+  "updatedUtc": "2026-10-22T17:53:05.684724+00:00",
   "owner": "CLI Dev; original session01a1471a-adc4-71d2-bedc-899e1a265af2",
-  "priority": "STT12 smoke measured/accepted;0LLM outputs. Selected persistent-context correction source-qualified but real launch blocked; selected4.3.1 successor source-prepared but pnpm DNS blocks lock/install. No new model/provider/production execution selected.",
+  "priority": "STT12 smoke measured/accepted;0LLM outputs. Selected persistent-context correction author checks PASS / Sam source RETURN pending finalizer correction and exact unchanged helper review but real launch blocked; selected4.3.1 successor source-prepared but pnpm DNS blocks lock/install. No new model/provider/production execution selected.",
   "items": [
     {
       "task": "Six-target migration/Edge prerequisites",
@@ -86,7 +86,7 @@
       "state": "Not ready to land",
       "base": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
       "branch": "cli-dev/1304-owned-persistent-context-20261022",
-      "completedSubpart": "34focusedPASS, causalRED2onoldconsumer,runner+changedtestsTS/fullqualityPASS; exact5files source reviewF0CAXJPJC95",
+      "completedSubpart": "Author35focusedPASS, actualrunnerREDFalseCLOSED\u2192GREENNOT_CREATED, expandedTS/fullqualityPASS; exactunchangedhelperSam1299PASS; correctedsourceF0CBBNT9C5U awaitingindependentdisposition",
       "remaining": "Sam exact-source disposition; supported owned launcher; real persistentquota/profile-reuse validation; no relaunch/model/pushselected"
     },
     {

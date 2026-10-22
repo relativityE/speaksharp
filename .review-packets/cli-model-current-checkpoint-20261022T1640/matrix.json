@@ -1,5 +1,5 @@
 {
-  "updatedUtc": "2026-10-22T16:40:35.334620+00:00",
+  "updatedUtc": "2026-10-22T17:53:05.684724+00:00",
   "scope": "Measured STT smoke plus failed Llama acquisition and retained unexecuted configurations; no completed LLM comparison",
   "decision": "First matched STT smoke measured: v4WASM lowerWER on oneclip but slowerdecode; no STT selection or LLM/Gemini retirement decision supported.",
   "nullMeaning": "NOT MEASURED, never zero",
@@ -542,11 +542,12 @@
   },
   "persistentCorrection": {
     "base": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
-    "sourceReviewArtifact": "https://speaksharp.slack.com/files/U0CAL06QE80/F0CAXJPJC95/cli-persistent-context-source-review-20261022.json",
-    "sourceState": "Unpublished5pathWIP;34focused/fullquality/expandedTSauthorPASS",
+    "sourceReviewArtifact": "https://speaksharp.slack.com/files/U0CAL06QE80/F0CBBNT9C5U/cli-persistent-context-corrected-review-v2-20261022.json",
+    "sourceState": "Unpublished5pathWIP;author35focused/fullquality/expandedTS PASS; SamRETURN7004 corrected, independent disposition PENDING",
     "realLaunch": "FAILED beforepage; bootstrap141/SIGABRT/cleanupEPERM",
     "persistentQuota": "NOT_MEASURED",
-    "relaunch": "STOPPED perSam5108/6796"
+    "relaunch": "STOPPED perSam5108/6796",
+    "unchangedDependencyReview": "Sam1792691299.121159 PASS"
   },
   "transformers431Successor": {
     "base": "455c26624ca8ead2ea22694ab36c064e497738bb",
@@ -555,6 +556,7 @@
     "installed": false,
     "lockfile": "BLOCKED pnpm ENOTFOUND registry.npmjs.org normal+escalated",
     "modelCalls": 0,
-    "frozen430": "UNCHANGED"
+    "frozen430": "UNCHANGED",
+    "offlineLockAttempt": "Selected7392 EXIT1 ERR_PNPM_NO_OFFLINE_META; no furtherattemptselected"
   }
 }

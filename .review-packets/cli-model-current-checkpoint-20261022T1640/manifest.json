@@ -5,8 +5,8 @@
   "retainedFailedLaunchCommit": "b621712f58a63e5d40609c6089d8266a5af7e65c",
   "files": {
     "matrix.json": {
-      "bytes": 26827,
-      "sha256": "6f30a102038320a7e879c4cda60a3363788c485ae574b0076231046bb0758668"
+      "bytes": 27054,
+      "sha256": "084e01fcb97eaedafc2b9e26aee263d84a4edce86afa2eb6c2050117d4ee8138"
     },
     "launcher-environment.json": {
       "bytes": 2514,
@@ -17,8 +17,10 @@
       "sha256": "bd9d114a6e0c29b098537758214663ef399a9da2493c0d37705b8451b604fe23"
     },
     "not-ready-to-land.json": {
-      "bytes": 7170,
-      "sha256": "e25cce7372fd1223a9c66e3842bafdd7e305ef7e045ec27d248637ff075c1692"
+      "bytes": 7330,
+      "sha256": "801be7ce6207eb8d8d9ed9ac58c35a439862718a35294e680f8827c6073ebb8a"
     }
-  }
+  },
+  "metadataCorrectedUtc": "2026-10-22T17:53:05.684724+00:00",
+  "correction": "Sam7932 source-qualified wording corrected; corrected finalizer handoff remains authorPASS/independentreviewPENDING; no measuredcounts changed"
 }
