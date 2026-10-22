@@ -162,11 +162,14 @@ export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = (
         if (repeat.linkState === 'linked') {
             record('accept_linked');
             const source = review;
+            // A Focus review opts into target validation only with an exact saved point set; without one (results not
+            // saved) the press keeps the linked-then-Focus-setup flow rather than failing verification.
+            const exactFocusSet = source.product === 'focus_points' && source.focusBrief && source.focusPoints.length > 0;
             const target: DisplayedRepeatTarget | undefined = source.coaching.kind === 'review'
-                && repeat.userId && (source.product === 'open_mic' || source.product === 'focus_points') ? {
+                && repeat.userId && (source.product === 'open_mic' || (source.product === 'focus_points' && exactFocusSet)) ? {
                     ownerId: repeat.userId, epoch, sessionId, product: source.product,
                     instruction: source.coaching.review.whatToTryNext,
-                    focus: source.product === 'focus_points' && source.focusBrief ? {
+                    focus: exactFocusSet && source.focusBrief ? {
                         ...source.focusBrief, points: [...source.focusPoints],
                     } : null,
                     isCurrent: () => displayed.current === source,

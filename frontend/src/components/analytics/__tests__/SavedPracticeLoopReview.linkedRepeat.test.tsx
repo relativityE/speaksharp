@@ -131,6 +131,18 @@ describe('#1548 displayed instruction opt-in at the actual saved-review caller',
         expect(recoveryCopy).toContain('close the pending repeat in Progress');
         expect(recoveryCopy).toContain('start a new repeat');
     });
+    it('CASUALTY (Codex P2 r4342118259): a Focus review with no saved point set keeps the linked repeat and opens Focus setup', async () => {
+        // A marked Focus take whose results were not saved has coaching but nothing to restore; there is no exact set to
+        // validate against, so the press keeps the prior linked-then-setup flow instead of failing target verification.
+        loadReview.mockResolvedValue({ ...FOCUS, focusBrief: null, focusPoints: [] });
+        loadProgress.mockResolvedValue(ELIGIBLE);
+        renderReview();
+        await waitFor(() => expect(action()).toHaveAttribute('data-link-state', 'linked'));
+        fireEvent.click(action());
+        await waitFor(() => expect(navigate).toHaveBeenCalledWith('/practice?product=focus-points', PRACTICE_NAV));
+        expect(recordAttempt).toHaveBeenCalledExactlyOnceWith('rec-1');
+        expect(screen.queryByTestId('saved-review-practice-error')).toBeNull();
+    });
     it('does not accept or navigate when advice changes after display and before press', async () => {
         loadProgress.mockResolvedValue(ELIGIBLE);
         renderReview();
