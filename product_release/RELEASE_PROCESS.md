@@ -132,7 +132,8 @@ Current run IDs and pass/fail live only in `RELEASE_STATUS.md`.
 | Workflow | Trigger | RC role | Keep? |
 |---|---|---|---|
 | `ci.yml` / CI - Test Audit | Push, PR, manual | Everyday correctness: prepare, unit shards, unit coverage, Edge tests, build, health, E2E shards, Lighthouse advisory, report. | Required baseline. |
-| `deploy-supabase-edge-release.yml` → reusable `deploy-supabase-migrations.yml` | Push to `main` **only when Edge source/config paths change** | Deploys the complete reviewed Edge Function list after validating the push diff. A frontend- or docs-only merge does not trigger this caller. | Yes. |
+| `deploy-supabase-edge-release.yml` | Push to `main` **only when Edge source/config paths change** | The deployment job is disabled (`if: false`); an Edge-path merge does not deploy production. | Disabled deployment caller. |
+| `production-release.yml` → reusable `deploy-supabase-migrations.yml` for Edge | Deliberate manual dispatch on `main` | Separately authorized frontend or Edge promotion requires `deploy_production=true`, the exact qualified current-main SHA, passing release-policy checks, and `RELEASE <operation> AT <exact SHA>` confirmation. | Production promotion route. |
 | `deploy-supabase-migrations.yml` | Manual or reusable call | Separately confirmed migrations/secrets operations; migration apply remains forward-only and requires the confirmation input. | Yes. |
 | `canary.yml` | Push, manual, schedule | Production smoke against the deployed URL. | Yes. |
 | `rc-gates.yml` | Manual | Runs the five explicit RC gates. | Yes. |
@@ -143,18 +144,18 @@ Current run IDs and pass/fail live only in `RELEASE_STATUS.md`.
 | `stress-endurance.yml` | Schedule/manual | Backend stress / browser endurance. | Advisory unless investigating stability. |
 | `setup-test-users.yml` | Manual | Test-user provisioning. | Utility, not a gate. |
 
-The test files that each gate/workflow enforces (RC-counted ledgers) and the script inventory live in `QUALITY.md`. Deployment mechanics: a qualifying Edge-path push to `main` invokes `deploy-supabase-edge-release.yml`, which calls the reusable workflow and deploys every function in its reviewed list; disclose that full Edge deployment when the PR changes any trigger path. Backend migrations are **forward-only** through the separately dispatched exact allowlisted migration operation after a read-only preflight. **No down-migrations exist** — consistent with the Forward-Fix doctrine. Canary uses two stable operator-controlled identities supplied only through protected secrets: primary active trial and secondary paid continuation. It first reads production migration history; while the required runtime convergence migration is pending it publishes `HOLD — migration pending; canary not executed` and claims no product evidence. Once applied, both lanes run `pnpm test:deploy:prod` against the public site and fail closed. The deployed release identity is `window.__APP_RELEASE__` (injected from `VERCEL_GIT_COMMIT_SHA`; the `__BUILD_ID__` JS define was removed in #1027 so the volatile SHA never rotates chunk hashes) — verification detail is in `OPERATIONS_AND_SECURITY.md`.
+The test files that each gate/workflow enforces (RC-counted ledgers) and the script inventory live in `QUALITY.md`. Deployment mechanics: an Edge-path push to `main` can trigger `deploy-supabase-edge-release.yml`, but its deployment job is disabled; source integration does not authorize or perform an Edge deployment. Deliberate production promotion uses `production-release.yml` with separate Product Owner authorization, `deploy_production=true`, the exact qualified current-main SHA, passing release-policy checks, and the exact operation confirmation. For an authorized Edge operation, disclose the reusable workflow's complete reviewed function list and verify its live readbacks; a merge receipt is not deployment evidence. Backend migrations are **forward-only** through the separately dispatched exact allowlisted migration operation after a read-only preflight. **No down-migrations exist** — consistent with the Forward-Fix doctrine. Canary uses two stable operator-controlled identities supplied only through protected secrets: primary active trial and secondary paid continuation. It first reads production migration history; while the required runtime convergence migration is pending it publishes `HOLD — migration pending; canary not executed` and claims no product evidence. Once applied, both lanes run `pnpm test:deploy:prod` against the public site and fail closed. The deployed release identity is `window.__APP_RELEASE__` (injected from `VERCEL_GIT_COMMIT_SHA`; the `__BUILD_ID__` JS define was removed in #1027 so the volatile SHA never rotates chunk hashes) — verification detail is in `OPERATIONS_AND_SECURITY.md`.
 
 ---
 
 ### 5.1 Default-off integration and served-release binding
 
 The selected release policy separates serial source integration from production promotion.
-This procedure defines its required behavior; it does not certify that the gate, provider
-settings or served-release variable are installed. The workflow mechanics in §5 describe
-the pre-gate route and must not be treated as permission to merge through an automatic
-production deployment. Verify actual source and provider trigger posture before landing
-the gate itself or any later PR. Until the bootstrap is safe, keep landings **HOLD** and
+The workflow mechanics in §5 describe the installed default-off source controls and deliberate
+promotion route; they do not certify provider settings or the served-release variable.
+Verify actual source and provider trigger posture before landing any PR; source controls
+alone do not establish safe provider bootstrap or grant production permission.
+Until the bootstrap is safe, keep landings **HOLD** and
 continue independent source/tests/documentation work.
 
 **Integration order.** Finish the increment and its new feature/regression tests; obtain
@@ -358,7 +359,7 @@ effects, verification, abort condition, and owner authorization.
 | Lever | Preparation (read-only/source-only) | Authorized execution | Required readback |
 |---|---|---|---|
 | Frontend | resolve an immutable prior Vercel deployment already proven compatible; compare its commit and config contract | Product Owner authorizes Vercel rollback/redeployment | canonical host serves expected `window.__APP_RELEASE__`; auth and one Private setup→record→finalize→save smoke pass |
-| Edge | diff every affected function and shared dependency against the proposed target; disclose that a qualifying Edge-path merge triggers the path-filtered caller and redeploys all listed functions | Product Owner authorizes the exact deploy/merge; never bypass auth/JWT/CORS to restore service | function versions/logs, denied unauthenticated requests, exact-origin CORS, and affected Private/save contract pass |
+| Edge | diff every affected function and shared dependency against the exact qualified current-main target; disclose the complete reviewed function list; the push caller's deployment job is disabled | Product Owner separately authorizes the exact Edge operation through `production-release.yml` with `deploy_production=true`, `expected_head_sha`, passing release-policy checks, and `RELEASE edge-functions AT <exact SHA>` confirmation; never bypass auth/JWT/CORS to restore service | function versions/logs, denied unauthenticated requests, exact-origin CORS, and affected Private/save contract pass |
 | Migration/database | produce an additive corrective migration; run dry-run and PostgreSQL-version proofs; document data scope and rollback/containment SQL | Product Owner separately authorizes application; never use migration-history repair as data rollback | production migration history, definition/ACL/search-path checks, positive/negative behavior, scoped row-integrity proof |
 | Config/secret/flag | identify the authoritative storage home and exact old/new value class without printing a secret | Product Owner authorizes one named mutation; frontend build-time flags require a separately authorized deploy | runtime reports intended safe state; Private-only, billing-closed, v4-off, exact-origin behavior rechecked |
 | Billing | identify the authorized commercial phase; inspect sanitized checkout, price, identity, trial, subscription, and entitlement status/counts | before activation, keep checkout closed; after activation, repair only through an authorized Stripe-authoritative path; no charge, refund, entitlement edit, or activation without written Product Owner authorization | before activation the endpoint remains fail-closed; after activation exact $10/month identity, paid continuation, cancellation/lapse, trial expiry, and Private-only entitlement agree |
