@@ -1,0 +1,24 @@
+{
+  "amends": "da722b93a127b698c1b62f77b9593272b458a707",
+  "review": "1792636973.592739",
+  "scope": "Preserve unresolved taxonomy adoption limit and enforce frozen six-short-input preparer only",
+  "providerCalls": 0,
+  "negativeControl": "8001 UTF-16 units rejected;8000 passes length guard; frozen SHA restricts actual inputs to reviewed six",
+  "files": [
+    {
+      "file": "protocol-proposal-v3.json",
+      "sha256": "e0679aeacd0a12d40940c0d26d7e7b3280c0e294eb35e5a950acd7845e61ae04",
+      "bytes": 14994
+    },
+    {
+      "file": "paired-source-requests.json",
+      "sha256": "267bd219d59a17cfabdd2db45f7450c4424f56f373576c183c1a996b3cc8a2c3",
+      "bytes": 119068
+    },
+    {
+      "file": "cli-prepare-paired-requests-20261022.mts",
+      "sha256": "d7ed84d633d5c298267556c4945ab049ae764adf3de6516d8d4dd1a5cde552bf",
+      "bytes": 11282
+    }
+  ]
+}
