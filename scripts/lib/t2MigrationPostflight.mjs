@@ -145,7 +145,14 @@ export function t2CatalogQuery(inventory) {
           FROM aclexplode(a.attacl) x)) ORDER BY a.attnum)
         FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
         WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped),
-      'constraints',(SELECT jsonb_agg(jsonb_build_array(k.conname,k.contype,k.conkey,n.nspname,t.relname,k.confkey,
+      -- Key columns by ORDERED NAME on both sides, never physical attnums: the same logical reference must hash the
+      -- same whatever ordinal the column has (production auth.users stores id at a different position than fixtures).
+      'constraints',(SELECT jsonb_agg(jsonb_build_array(k.conname,k.contype,
+        (SELECT jsonb_agg(ka.attname ORDER BY kk.ord) FROM unnest(k.conkey) WITH ORDINALITY kk(attnum,ord)
+          JOIN pg_attribute ka ON ka.attrelid=k.conrelid AND ka.attnum=kk.attnum),
+        n.nspname,t.relname,
+        (SELECT jsonb_agg(fa.attname ORDER BY fk.ord) FROM unnest(k.confkey) WITH ORDINALITY fk(attnum,ord)
+          JOIN pg_attribute fa ON fa.attrelid=k.confrelid AND fa.attnum=fk.attnum),
         k.confupdtype,k.confdeltype,k.confmatchtype,k.condeferrable,k.condeferred,k.convalidated,
         CASE WHEN k.contype='c' THEN pg_get_expr(k.conbin,k.conrelid) ELSE NULL END) ORDER BY k.conname)
         FROM pg_constraint k LEFT JOIN pg_class t ON t.oid=k.confrelid LEFT JOIN pg_namespace n ON n.oid=t.relnamespace
@@ -228,16 +235,16 @@ const T2_CATALOG_DELTAS = Object.freeze([
     "function:public.persist_ai_suggestion_with_authority_v1(uuid, uuid, jsonb, text, text, text, date, integer, integer)": "b27043ba146090b17f08046f4d7a8287",
     "function:public.record_ai_suggestion_cache_read_v1(uuid, uuid)": "5fca643c381f527c86b768485a00c997",
     "function:public.acquire_recording_lease(uuid, text, boolean)": "0cb6965169d3e819f101dfb4f9954942",
-    "table:public.account_closure_tokens": "a87127bf99fd7f1286605a8a592822e3",
-    "table:public.account_closure_attempts": "6186710f6db3a5293827bcb554c9da0e",
-    "table:public.account_closure_billing_permits": "f3e338e45145d76a81ae752f6e978cc6",
-    "table:public.account_billing_fences": "601726db40f3e4a66309f5a653967ef7",
-    "table:public.account_checkout_operations": "aeed72d6aff542c2bdfdc29d67037ff2",
-    "table:public.account_billing_coordination": "5801d808e7cba558fea1a4b455cf6c4a",
-    "table:public.account_checkout_rejections": "d9bab768936aff1cb64bac9ac5280bb5",
-    "table:public.account_closure_attestation_state": "8308f36ce4ed517fce996208f5d0df8e",
-    "table:public.account_closure_drain_attestations": "074c73be10bf201804bbf1f2464f5875",
-    "table:public.ai_suggestion_authority_receipts": "6e2a3138acffa00465ae1455b8602fd5",
+    "table:public.account_closure_tokens": "bfdd168a1d52e50be94281fb6b711579",
+    "table:public.account_closure_attempts": "7969e4558754e8e60207fd1d969381e4",
+    "table:public.account_closure_billing_permits": "5fea88087fc5573c159020092cf92fe1",
+    "table:public.account_billing_fences": "700bdb1a54b786b57f2b64cad4d24dbb",
+    "table:public.account_checkout_operations": "da8ec4a6dac3b5bb952bcc9ae19f0164",
+    "table:public.account_billing_coordination": "7a16ec8a22aabe47653a435120b422da",
+    "table:public.account_checkout_rejections": "48d9ce6680a25d852d831dc3c083f5c1",
+    "table:public.account_closure_attestation_state": "63c485b47356e35836906773b898386e",
+    "table:public.account_closure_drain_attestations": "dedb393d92ce9f268d69a1e9632f5d61",
+    "table:public.ai_suggestion_authority_receipts": "f2255e021f0773c930bc75db91338373",
     "trigger:public.user_profiles.account_closure_billing_guard": "e025d20da3a872a23a7160a4c6373020"
   },
   {
@@ -254,10 +261,10 @@ const T2_CATALOG_DELTAS = Object.freeze([
     "function:public.inspect_account_closure_pending(uuid)": "d67254996971abb7ffd202a187d0ac25",
     "function:public.reconcile_account_checkout_expiry(uuid, uuid, text)": "afb30d394e397444b9596259a45e0754",
     "function:public.begin_account_closure_pending(uuid, text, boolean)": "36c64175b123523b29f396118c6953bd",
-    "table:public.account_closure_attempts": "caa06406e6b318d3a9d053efdc8c00ed",
-    "table:public.account_billing_fences": "4105e7550223059a0204ba6e900b9554",
-    "table:public.account_checkout_operations": "c989a87f8e996ff8bd52c56936bdcec2",
-    "table:public.account_checkout_snapshot_permits": "6f57e145d6ba1f8b9f23f223d69cfb51"
+    "table:public.account_closure_attempts": "66361c1bd3895ec778bad8ea37cca8c6",
+    "table:public.account_billing_fences": "3cf9fa34a4e6d68223c478cb91444800",
+    "table:public.account_checkout_operations": "c28318eb7ccf561720c67b1e01e8714b",
+    "table:public.account_checkout_snapshot_permits": "65e6b088fc4da28869cc88361fdb7cd8"
   },
   {
     "function:public.heartbeat_session(uuid, integer)": "c3f851ad796d006fe3d8002ecb79e896"
@@ -273,7 +280,7 @@ const T2_CATALOG_DELTAS = Object.freeze([
     "function:public.begin_account_coaching_v1(uuid, uuid, uuid)": "edcfc63cffbcbf73c4932749e0bcd6c8",
     "function:public.finish_account_coaching_failure_v1(uuid, uuid, uuid, text)": "80bfbd8b899a24865fc39af34af386e8",
     "function:public.persist_account_coaching_v1(uuid, boolean, uuid, uuid, jsonb, text, text, text, date, integer, integer)": "c9b2e77bade20b68263d529c99ea3711",
-    "table:public.account_coaching_operations": "84892bb7f57b498da1453aaea7adf28f",
+    "table:public.account_coaching_operations": "065ce7b1d5e5609fe233497bd28482cc",
     "trigger:public.account_coaching_operations.guard_unsettled_account_coaching_delete": "6910ba024693398b37f34ff137ce7ea2"
   },
   {
@@ -293,12 +300,12 @@ const T2_CATALOG_DELTAS = Object.freeze([
     "function:public.read_account_completion_status_v1(uuid, text, text)": "20e241ad3b8d4fa2d3a4c8a244865c8e",
     "function:public.issue_account_completion_status_v1(uuid, uuid, text, text)": "a46dd48fbcb37db8d578b9b5828fa2b0",
     "function:public.acknowledge_account_completion_status_v1(uuid, uuid, text, text)": "bc14b1410675fcede485c03a3627c2b3",
-    "table:public.account_completion_configuration": "dd9535a9f298b84d73c2304290f481cd",
-    "table:public.account_completion_coverage": "9f3f2599cb680d2ccd09f78ca6737929",
-    "table:public.account_save_obligations": "0afd0252927f10b55787c258f05c5d26",
-    "table:public.account_completion_executions": "c33b2c1c0ed1eb421e620e2ad83f342b",
-    "table:public.account_completion_stages": "2c4a2d08d25dc62555dfbe6bfb63e05e",
-    "table:public.account_completion_status_capabilities": "9b518d6f946d0cb4573516030395eb83",
+    "table:public.account_completion_configuration": "139e90a6afcd6964cecfdc24d0c29892",
+    "table:public.account_completion_coverage": "eec77da40c7255910d948711e93ffd56",
+    "table:public.account_save_obligations": "a2a5f712bb948f25cda83d0be4fcada9",
+    "table:public.account_completion_executions": "072e94be84ba323a1b5477950cce8b12",
+    "table:public.account_completion_stages": "c46341deacb4ae03e044c83f4b128abf",
+    "table:public.account_completion_status_capabilities": "a3409a44227495343149739d49856c83",
     "trigger:auth.users.account_save_delete_guard": "bdca1f67ec23b0d8c9c7e62ec303a023",
     "trigger:public.sessions.zz_account_save_session_obligation": "4412df75c096a907afcb0327544c0fb2",
     "trigger:public.active_recording_lease.zz_account_save_obligation": "c026b47e3c8d91ab48cb5bf5619b49f2"

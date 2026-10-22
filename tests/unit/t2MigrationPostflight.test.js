@@ -194,3 +194,33 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
     } finally { await db.close(); }
   }, 30_000);
 });
+
+// #1684 preflight (Sam 7555): a foreign key's identity is the ORDERED COLUMN NAMES on both sides, not physical
+// attribute numbers. Production auth.users stores id as physical column 2 while the fixture stores it as column 1.
+describe('T2 catalog digest of a foreign key is independent of physical column order', () => {
+  const inventory = { functions: ['__no_function__'], tables: ['fk_holder'], triggers: ['__no_trigger__'] };
+  const digestWith = async (authUsersDdl, foreignKey) => {
+    const db = new PGlite();
+    try {
+      await db.exec(`CREATE SCHEMA auth; ${authUsersDdl};
+        CREATE TABLE public.account_closure_attempts(id int);
+        CREATE TABLE public.fk_holder(id int PRIMARY KEY, user_id uuid NOT NULL ${foreignKey});`);
+      return JSON.parse(Object.values((await db.query(t2CatalogQuery(inventory))).rows[0])[0])['table:public.fk_holder'];
+    } finally {
+      await db.close();
+    }
+  };
+  const idFirst = 'CREATE TABLE auth.users(id uuid PRIMARY KEY, other_id uuid UNIQUE)';
+  const idSecond = 'CREATE TABLE auth.users(other_id uuid UNIQUE, id uuid PRIMARY KEY)';
+  const toId = 'REFERENCES auth.users(id) ON DELETE CASCADE';
+  const toOther = 'REFERENCES auth.users(other_id) ON DELETE CASCADE';
+
+  it('the same logical reference hashes identically whatever ordinal the referenced column has', async () => {
+    expect(await digestWith(idSecond, toId)).toBe(await digestWith(idFirst, toId));
+  });
+
+  it('a reference to a different column still changes the digest', async () => {
+    expect(await digestWith(idFirst, toOther)).not.toBe(await digestWith(idFirst, toId));
+    expect(await digestWith(idSecond, toOther)).not.toBe(await digestWith(idSecond, toId));
+  });
+});
