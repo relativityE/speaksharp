@@ -1,0 +1,41 @@
+{
+  "sourceAccepted": "ce315d1dd00a9de3e3b9d6010541c55ef512e151 SOURCE_PASS1792710613.876459",
+  "cwd": "/private/tmp/speaksharp-cli-smol-profile-20261021",
+  "config": "frontend/vitest.config.mjs",
+  "baseline": {
+    "command": "node scripts/host-interlock.mjs hold local -- pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false tests/unit/llamaTokenAccounting.test.ts tests/unit/webLlmProfiles.test.ts tests/unit/modelEvaluatorPersistentBrowser.test.ts",
+    "result": "11 RED /27 pass, unchanged source with corrected/new oracles"
+  },
+  "focused": {
+    "command": "node scripts/host-interlock.mjs hold local -- pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false tests/unit/llamaTokenAccounting.test.ts tests/unit/webLlmProfiles.test.ts tests/unit/modelEvaluatorPersistentBrowser.test.ts tests/unit/llamaRawOutputEvidence.test.ts tests/unit/smolDiagnosticDispatch.test.ts tests/unit/modelCdpBrowser.test.ts tests/unit/modelInvestigationSupervision.test.ts tests/unit/productCoachingInputs.test.ts frontend/src/services/coaching/provider.test.ts frontend/src/benchmark/__tests__/modelInvestigationContracts.test.ts",
+    "result": "144/144 pass, exact post-restoration source"
+  },
+  "persistentMutant": {
+    "command": "node scripts/host-interlock.mjs hold local -- pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false tests/unit/modelEvaluatorPersistentBrowser.test.ts -t acquires",
+    "filter": "acquires",
+    "edit": "Only receiving runner persistent branch if(persistentProfile) temporarily disabled; restored before final tests.",
+    "result": "2 RED /7 skipped"
+  },
+  "observer": {
+    "command": "node --test --import tsx /Users/fibonacci/SW_Dev/delivery-support/cli-smol-receiving-20261022/cli-owned-close-observer-20261022.test.mjs",
+    "result": "9/9 pass",
+    "binding": "process.cwd()/scripts/model-evaluator/cdp-browser.ts SHA1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+  },
+  "quality": {
+    "command": "node scripts/host-interlock.mjs hold local -- pnpm quality",
+    "exitCode": 0
+  },
+  "runnerTypecheck": {
+    "command": "node scripts/host-interlock.mjs hold local -- pnpm exec tsc --noEmit -p /Users/fibonacci/SW_Dev/delivery-support/cli-smol-runner-tsconfig-20261022.json",
+    "exitCode": 0
+  },
+  "postRestoration": {
+    "runnerSha256": "c8b7f398a6a0475f6f01df3ed46baa65fa2f48ae20d33e2fc74dee8bc5884890",
+    "sharedRuntimeSha256": "2dcbd6649583220b82d0af6fb961a05a99842b30ee7e7aa574937cdced8461b1",
+    "persistentHelperSha256": "b66b5120edecb7ddf41f11b19823cea6db2fc2a2100aad9666b73245657b8893",
+    "completePatchSha256": "e7fcd8956e4690241893e3b5b1cbb10fa491e73db2b9063554a41eb2b3101ff9",
+    "allSevenReverified": "2026-10-22T23:17Z"
+  },
+  "newModelCalls": 0,
+  "newFullTestCycle": false
+}

@@ -1,0 +1,66 @@
+{
+  "status": "READY_FOR_SAM_COMMAND_REVIEW_NOT_RUN_SELECTED",
+  "sourceAcceptance": "1792710613.876459",
+  "sourcePacket": "ce315d1dd00a9de3e3b9d6010541c55ef512e151",
+  "patchSha256": "e7fcd8956e4690241893e3b5b1cbb10fa491e73db2b9063554a41eb2b3101ff9",
+  "route": "PO/Consultant ordinary Mac Terminal, outside constrained agent launcher; source only verified, no constrained model launch",
+  "cwd": "/private/tmp/speaksharp-cli-smol-profile-20261021",
+  "commands": [
+    "cd /private/tmp/speaksharp-cli-smol-profile-20261021",
+    "node scripts/host-interlock.mjs check benchmark",
+    "/usr/bin/memory_pressure -Q",
+    "node scripts/host-interlock.mjs hold benchmark -- python3 /Users/fibonacci/SW_Dev/delivery-support/cli-smol-receiving-20261022/supported-host-preflight.py",
+    "node scripts/host-interlock.mjs hold benchmark -- node --import tsx scripts/model-investigation.mts --kind=smol --coaching-protocol=product-contract --assets=/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/assets-manifest.json --cache=/private/tmp/speaksharp-model-assets-1304 --persistent-profile=/private/tmp/speaksharp-eval-owned-smol-20261022T2330 --out=/private/tmp/cli-smol-minimum-smoke-20261022T2330.json"
+  ],
+  "prerequisites": [
+    "Sam reviews/selects this exact bounded command/host before user-run handoff.",
+    "App/T2 releases shared slot; skip/REFUSE if busy, no competing qualification.",
+    "Run each command in order; stop on any nonzero preflight, do not continue to model command.",
+    "Fresh model-run interlock and2GiB admission remain mechanical; the earlier memory print is not admission.",
+    "Preflight is model-free, streams SHA checks with8MiB buffer; syntax checked only here. The actual model runner re-verifies the manifest asset bytes itself.",
+    "New profile and output paths were absent at23:17UTC; refuse reuse, no deletion or retry."
+  ],
+  "identity": {
+    "model": "SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+    "modelRevision": "84f57f8580a9d8d623266b600ad4273bb9fd84c1",
+    "webllm": "0.2.86",
+    "libraryRevision": "00fe7a40e57e5e8eb9fef87526a4bf28ad5846c0",
+    "manifestSha256": "13e3c3e6b2729239d46c12cdfd4e84c1448e0a1532fb6cb3048a0692de893cf5",
+    "assetCount": 45,
+    "assetBytes": 972833253
+  },
+  "bounds": {
+    "inputs": 6,
+    "trials": 3,
+    "cells": 18,
+    "temperature": 0,
+    "maxOutputTokens": 256,
+    "contextTokens": 4096,
+    "maxLoadMs": 120000,
+    "maxCellMs": 120000,
+    "totalRunnerWatchdogMs": 2430000,
+    "minStartBytes": 2147483648,
+    "minRunningBytes": 1073741824,
+    "maxConsecutiveLowMemorySamples": 5,
+    "cleanupStepMs": 2000,
+    "providerCalls": 0,
+    "retries": 0,
+    "explicitWarmupCalls": 0,
+    "internalSdkWarmupCalls": "UNKNOWN"
+  },
+  "stopRules": [
+    "Any source/dependency/asset/profile/output drift or interlock refusal: stop, return exact error.",
+    "No real GPU/software fallback or runtime initialization failure: retained infrastructure result, not model quality score.",
+    "Memory guard or deadline: stop/no retry; preserve failures and remaining NOT_EXECUTED cells.",
+    "Cleanup timeout/failure remains FAIL/UNKNOWN; never promote generated output to qualified run."
+  ],
+  "expectedArtifacts": [
+    "/private/tmp/cli-smol-minimum-smoke-20261022T2330.json",
+    "/private/tmp/cli-smol-minimum-smoke-20261022T2330.json.manifest.json",
+    "/private/tmp/speaksharp-eval-owned-smol-20261022T2330/evaluator-owner.json",
+    "Terminal output and exit status, including any preflight refusal"
+  ],
+  "cleanup": "Runner closes only its new owned persistent context; profile is retained, never manually cleared. Existing CDP9222/default tabs are not adopted or closed.",
+  "interpretation": "Retain every raw output and contract/token/latency/memory/cleanup result; blind coaching scoring is a later evaluation.18 deterministic outputs are6distinct synthetic inputs, not18independent quality samples. No matched Gemini output or replacement decision follows.",
+  "modelCallsExecutedByThisHandoffPreparation": 0
+}
