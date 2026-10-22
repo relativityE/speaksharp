@@ -1028,6 +1028,11 @@ export async function handler(
       },
     );
 
+    // #1684 Codex P1 r4354653671: a returned check violation (SQLSTATE 23514) with no data is the atomic RPC's own
+    // definitive rejection before any write (e.g. the quota-ledger check), so the admission's uncertainty reverts to the
+    // provider's: a certain provider attempt settles `refused`. Any other code, a thrown error or returned data stays
+    // unknown, because an `unknown` admission can never settle again.
+    if (updateError?.code === '23514' && savedValue === null) coachingOutcomeUnknown = !providerSettled;
     const savedSuggestions = !updateError && savedValue
       ? parseSuggestions(JSON.stringify(savedValue))
       : null;

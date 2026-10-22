@@ -54,6 +54,10 @@ interface MockOptions {
   admissionError?: unknown;
   settlementError?: unknown;
   updateError?: unknown;
+  /** The persistence RPC's returned `data` (default: null with an error, else the readback). */
+  persistData?: unknown;
+  /** The persistence RPC rejects (throws) instead of returning a result. */
+  persistThrows?: unknown;
   legacyUpdateError?: unknown;
   readback?: unknown;
   authorityError?: unknown;
@@ -259,12 +263,14 @@ function mockSupabase(options: MockOptions = {}) {
       if (name === 'persist_ai_suggestion_with_authority_v1' || name === 'persist_account_coaching_v1') {
         state.authorityRpcCount++;
         state.authorityArgs = args ?? null;
+        if (options.persistThrows !== undefined) return Promise.reject(options.persistThrows);
         if (!options.updateError) {
           state.updated = { ai_suggestions: args?.p_suggestions };
           state.filters.push(['id', args?.p_session_id], ['user_id', args?.p_user_id]);
         }
         return Promise.resolve({
-          data: options.updateError ? null : (options.readback ?? args?.p_suggestions),
+          data: 'persistData' in options ? options.persistData
+            : options.updateError ? null : (options.readback ?? args?.p_suggestions),
           error: options.updateError ?? null,
         });
       }
@@ -893,6 +899,58 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const realFailure = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
     assertEquals((await handler(request(), realFailure.create)).status, 503);
     assertEquals(realFailure.state.filters, []);
+  });
+
+  // #1684 Codex P1 r4354653671: only the persistence RPC's own definitive rejection (a returned SQLSTATE 23514 with no
+  // data, e.g. the quota-ledger check) settles `refused`, and only when the provider attempt was itself certain. An
+  // `unknown` admission can never settle again, so classifying a definitive rejection as unknown blocked deletion forever.
+  await t.step('#1643 a returned 23514 persistence rejection settles refused only after a certain provider attempt', async () => {
+    resetProvider();
+    const rejected = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), rejected.create)).status, 503);
+    assertEquals(rejected.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(rejected.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(rejected.state.updated, null);
+
+    resetProvider();
+    fetchFailuresRemaining = 1;
+    const recovered = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), recovered.create)).status, 503);
+    assertEquals(fetchCount, 2);
+    assertEquals(recovered.state.authorityArgs?.p_provider_settled, false);
+    assertEquals(recovered.state.settlementArgs?.p_outcome, 'unknown', 'earlier provider uncertainty survives the rejection');
+  });
+
+  await t.step('#1643 every other persistence failure stays unknown and never succeeds', async () => {
+    const unknownCases: Array<[string, MockOptions]> = [
+      ['schema-cache PGRST202', { updateError: { code: 'PGRST202', message: 'function not in schema cache' } }],
+      ['connection 08006', { updateError: { code: '08006', message: 'connection failure' } }],
+      ['connection 08007', { updateError: { code: '08007', message: 'transaction resolution unknown' } }],
+      ['arbitrary 23505', { updateError: { code: '23505', message: 'duplicate key' } }],
+      ['code-less error', { updateError: { message: 'write failed' } }],
+      ['23514 with returned data', { updateError: { code: '23514', message: 'receipt rejected' }, persistData: suggestionA }],
+      ['thrown 23514', { persistThrows: { code: '23514', message: 'receipt rejected' } }],
+      ['mismatched saved value', { readback: suggestionB }],
+      ['malformed saved value', { readback: { unexpected: true } }],
+    ];
+    for (const [label, options] of unknownCases) {
+      resetProvider();
+      const mock = mockSupabase(options);
+      const status = (await handler(request(), mock.create)).status;
+      assertEquals(status >= 500, true, `${label}: never reported as success`);
+      assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown', label);
+    }
+
+    resetProvider();
+    const saved = mockSupabase();
+    assertEquals((await handler(request(), saved.create)).status, 200);
+    assertEquals(saved.state.settlementArgs, null, 'a verified save records no failure settlement');
+
+    resetProvider();
+    const unsettled = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' }, settlementError: { message: 'reply lost' } });
+    assertEquals((await handler(request(), unsettled.create)).status, 503, 'a failed settlement keeps the 503');
+    assertEquals(unsettled.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(unsettled.state.updated, null);
   });
 
   await t.step('materially different saved sessions produce different grounded coaching', async () => {
