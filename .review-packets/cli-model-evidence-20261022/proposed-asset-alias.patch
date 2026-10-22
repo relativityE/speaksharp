@@ -1,0 +1,13 @@
+diff --git a/scripts/model-investigation.mts b/scripts/model-investigation.mts
+--- a/scripts/model-investigation.mts
++++ b/scripts/model-investigation.mts
+@@ -158,5 +158,9 @@
+     if(!expected || data.length!==asset.bytes || sha(data)!==expected) throw new Error(`asset integrity mismatch: ${asset.group}/${asset.path}`);
+     routes.set(`/assets/${asset.group}/${asset.path}`,local);
++    // WebLLM0.2.86 normalizes modelBase with resolve/main. These exact aliases
++    // still serve only already-verified local bytes, never a wildcard or fetch.
++    if(asset.group==='llama') routes.set(`/assets/llama/resolve/main/${asset.path}`,local);
++
+     if(asset.group==='base') routes.set(`/models/moonshine-base/${asset.path}`,local);
+     if(asset.group==='vad') routes.set(`/models/silero-vad/${asset.path}`,local);
+     verified.push({group:asset.group,path:asset.path,bytes:asset.bytes,sha256:expected});

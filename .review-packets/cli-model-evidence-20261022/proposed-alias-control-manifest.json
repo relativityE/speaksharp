@@ -1,0 +1,48 @@
+{
+  "preparedUtc": "2026-10-22T02:05:42.840199+00:00",
+  "state": "PROPOSED_FIX_MODEL_FREE_CONTROL_ONLY_NOT_APPLIED",
+  "frozenSource": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+  "sourceUnchanged": true,
+  "proposedPaths": [
+    "scripts/model-investigation.mts"
+  ],
+  "applyCheck": "PASS against clean frozen source; not applied",
+  "files": [
+    {
+      "name": "cache-alias-model-free-control.mjs",
+      "bytes": 4312,
+      "sha256": "77bf3414e15cb1cf496a9732abbbd3f14ef5a9be7bd125f671ec01e06b35778d"
+    },
+    {
+      "name": "cache-alias-model-free-control.json",
+      "bytes": 1484,
+      "sha256": "389595ba32f9b5f4958ebe3ef00453ef14489698b666d56824e0789fa26d410a"
+    },
+    {
+      "name": "proposed-asset-alias.patch",
+      "bytes": 905,
+      "sha256": "5314c32905e24a74d667e8de9a18a25717dbf3d9c2f1545118a5e6ec2f4e1d10"
+    }
+  ],
+  "controls": {
+    "original": {
+      "SDKnormalizedConfig": 404,
+      "directVerifiedConfig": 200,
+      "cacheAddNormalized": "FAIL Request failed",
+      "cacheAddDirect": "PASS"
+    },
+    "proposed": {
+      "SDKnormalizedConfig": 200,
+      "directVerifiedConfig": 200,
+      "unknownAsset": 404,
+      "cacheAddNormalized": "PASS",
+      "cacheAddDirect": "PASS",
+      "cacheAddUnknown": "FAIL Request failed"
+    }
+  },
+  "modelCalls": 0,
+  "weightsRead": 0,
+  "providerCalls": 0,
+  "ownedContext": "CLOSED",
+  "limit": "Only config routing/cache mechanism proven; not full model acquisition, inference, coaching quality or product integration. No acceptance or retry clearance inferred."
+}

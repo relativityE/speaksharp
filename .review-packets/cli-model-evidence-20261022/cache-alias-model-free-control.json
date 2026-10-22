@@ -1,0 +1,52 @@
+{
+  "startedUtc": "2026-10-22T02:04:14.366Z",
+  "sdkPath": "/private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@mlc-ai/web-llm/lib/index.js",
+  "sdkSha256": "ae2642e73a4a9896c21efb3a067c4666446f8b49cbe2012f4b576f5d83d5f206",
+  "modelCalls": 0,
+  "weightsRead": 0,
+  "providerCalls": 0,
+  "requests": [
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/assets/llama/resolve/main/mlc-chat-config.json",
+      "status": 200
+    },
+    {
+      "path": "/assets/llama/mlc-chat-config.json",
+      "status": 200
+    },
+    {
+      "path": "/assets/llama/resolve/main/not-allowlisted.json",
+      "status": 404
+    }
+  ],
+  "status": "MODEL_FREE_ALIAS_CONTROL_PASS_NOT_MODEL_INFERENCE",
+  "urls": {
+    "declaredBase": "http://127.0.0.1:53892/assets/llama/",
+    "sdkNormalizedBase": "http://127.0.0.1:53892/assets/llama/resolve/main/",
+    "sdkConfig": "http://127.0.0.1:53892/assets/llama/resolve/main/mlc-chat-config.json",
+    "directConfig": "http://127.0.0.1:53892/assets/llama/mlc-chat-config.json"
+  },
+  "owner": {
+    "pid": 42813,
+    "profile": "/Users/fibonacci/speaksharp-eval-profile",
+    "listener": "127.0.0.1:9222"
+  },
+  "cache": {
+    "sdkNormalized": {
+      "ok": true
+    },
+    "directAllowlisted": {
+      "ok": true
+    },
+    "unknown": {
+      "ok": false,
+      "error": "TypeError: Failed to execute 'add' on 'Cache': Request failed"
+    }
+  },
+  "ownedContext": "CLOSED",
+  "finishedUtc": "2026-10-22T02:04:15.476Z"
+}
