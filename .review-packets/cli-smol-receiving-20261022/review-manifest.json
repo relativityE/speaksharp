@@ -1,0 +1,214 @@
+{
+  "scope": "Seven-path incremental receiving patch; NOT the full preexisting unmerged stack or a landable PR.",
+  "base": {
+    "head": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+    "tree": "3a65bae1c709bd7a4199cadb963be360850bf279",
+    "worktree": "/private/tmp/speaksharp-cli-smol-profile-20261021",
+    "branch": "cli-dev/1304-smol-profile-20261021"
+  },
+  "acceptedInputs": {
+    "accounting": "875f46bee4e298feab30e43b0140072df21ed764 SOURCE_PASS1792700149.993129",
+    "persistentHelper": "80c19b63 source acceptance; imported helper exact b66b5120edecb7ddf41f11b19823cea6db2fc2a2100aad9666b73245657b8893",
+    "observer": "581f089544eb64205c19f148d1592a682474a836 SOURCE_PASS1792699588.979349, separate external diagnostic only"
+  },
+  "sourceFiles": [
+    {
+      "name": "frontend/src/services/coaching/webLlmRuntime.ts",
+      "bytes": 4427,
+      "sha256": "2dcbd6649583220b82d0af6fb961a05a99842b30ee7e7aa574937cdced8461b1",
+      "new": false
+    },
+    {
+      "name": "scripts/model-investigation.mts",
+      "bytes": 24631,
+      "sha256": "c8b7f398a6a0475f6f01df3ed46baa65fa2f48ae20d33e2fc74dee8bc5884890",
+      "new": false
+    },
+    {
+      "name": "tests/unit/llamaRawOutputEvidence.test.ts",
+      "bytes": 3943,
+      "sha256": "e563c162c43a6df0e1270783073313b22b949dd699e4448bf653e71436b2487d",
+      "new": false
+    },
+    {
+      "name": "tests/unit/webLlmProfiles.test.ts",
+      "bytes": 6542,
+      "sha256": "bc8c20833b46d4ba48de79c36b21e5dfa4cccb24b587c09ad5ae0d7d0c547f9e",
+      "new": false
+    },
+    {
+      "name": "scripts/model-evaluator/persistent-browser.ts",
+      "bytes": 2071,
+      "sha256": "b66b5120edecb7ddf41f11b19823cea6db2fc2a2100aad9666b73245657b8893",
+      "new": true
+    },
+    {
+      "name": "tests/unit/llamaTokenAccounting.test.ts",
+      "bytes": 4844,
+      "sha256": "b0966c97d3dc6fa411733946e37990045f429d4bf0766b2524fe5e9c6734c0c7",
+      "new": true
+    },
+    {
+      "name": "tests/unit/modelEvaluatorPersistentBrowser.test.ts",
+      "bytes": 9431,
+      "sha256": "ec0e3db26cbbb7f671444532874f4d8d4d92b97718c1961fa29cc3c48be751e7",
+      "new": true
+    }
+  ],
+  "dependencies": {
+    "dependencies": [
+      {
+        "path": "package.json",
+        "sha256": "e2bbebde690bde40ffa63fc23e1e3908bdcdc9f6d653cb7acffba61cb6ac4e0f"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "27f76b7fc8a30c13431e0ac74da6fcd2587242b55f67d21ed2bb206e3ad60189"
+      },
+      {
+        "path": "pnpm-workspace.yaml",
+        "sha256": "e9c97468648a479d69977d098ac8e95a7ae08d2405aa61b394daa8bf04ee0bbc"
+      },
+      {
+        "path": "frontend/src/services/coaching/webLlmProfiles.ts",
+        "sha256": "eca7515b8d180e84e5286282bc3a074fee685c24a81ac0b1cd15b11e233cd26b"
+      },
+      {
+        "path": "scripts/model-evaluator/cdp-browser.ts",
+        "sha256": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+      },
+      {
+        "path": "scripts/model-evaluator/investigation-supervision.ts",
+        "sha256": "646d14ca2e3b28ba94aa39e114ad28438efb48a5010b2ed0c261f11ea8376e77"
+      }
+    ],
+    "installedVersions": {
+      "playwright": "1.57.0",
+      "esbuild": "0.25.12",
+      "tsx": "4.20.6",
+      "@mlc-ai/web-llm": "0.2.86",
+      "@huggingface/transformers": "4.3.0",
+      "onnxruntime-web": "1.30.0"
+    },
+    "assetManifests": [
+      {
+        "path": "/private/tmp/speaksharp-model-assets-1304/download-manifest.json",
+        "sha256": "9bd41a3f439cd5fe89a53e626982d6ea472b4ec11772556ed470f8701211f829",
+        "groups": {
+          "base": 157499295,
+          "vad": 2243022,
+          "llama": 704519428,
+          "llama-runtime": 6099798
+        }
+      },
+      {
+        "path": "/private/tmp/speaksharp-model-assets-1304/verified-manifest.json",
+        "sha256": "59335daea2930b4425099404f09a4dcb54a324adaa6035e06622821d205e35e2",
+        "groups": {
+          "base": 157499295,
+          "vad": 2243022,
+          "llama": 704519428,
+          "llama-runtime": 6099798
+        }
+      }
+    ],
+    "receivingPatchSha256": "e7fcd8956e4690241893e3b5b1cbb10fa491e73db2b9063554a41eb2b3101ff9",
+    "observerHelperSha256": "7473a25653a7ff31037b29fd3f5b482a73704dd3edea71c81851b1653fcb35cc"
+  },
+  "requirements": [
+    {
+      "id": "ACCT-01",
+      "status": "PASS",
+      "consumer": "createLlamaRuntime → createWebLlmRuntime",
+      "oracle": "Six retained expected context/SDK count pairs; strict message-only comparison, prefix retained in admission",
+      "evidence": "11 causal RED baseline; final llamaTokenAccounting and webLlmProfiles cases"
+    },
+    {
+      "id": "ACCT-02",
+      "status": "PASS",
+      "consumer": "createSmolRuntime → createWebLlmRuntime",
+      "oracle": "ChatML empty prefix unchanged; usage3 matches3, ±1/±2/missing/nonfinite/string refuse",
+      "evidence": "webLlmProfiles.test.ts and smolDiagnosticDispatch.test.ts"
+    },
+    {
+      "id": "LIFE-01",
+      "status": "PASS",
+      "consumer": "Actual CLI entry scripts/model-investigation.mts",
+      "oracle": "For llama and smol, fake transport must get exactly one persistent launch and one owned close; ephemeral/borrowed launch forbidden",
+      "evidence": "modelEvaluatorPersistentBrowser.test.ts; disabled-route mutant2RED; restored GREEN"
+    },
+    {
+      "id": "LIFE-02",
+      "status": "PASS",
+      "consumer": "Actual CLI pre-acquisition resource refusal",
+      "oracle": "0 cells, NOT_CREATED state and no CLOSED transport claim for both profiles",
+      "evidence": "modelEvaluatorPersistentBrowser.test.ts subprocesses with memory0 and spawn prohibition"
+    },
+    {
+      "id": "LIFE-03",
+      "status": "PASS",
+      "consumer": "Receiving evaluatorContext default 2000ms close",
+      "oracle": "Original timeout remains FAIL, bounded observer, retention isolation, failed current scan UNKNOWN",
+      "evidence": "External observer fixture9GREEN; only receiving-root import changed, not installed into runner"
+    },
+    {
+      "id": "DISPATCH-01",
+      "status": "PASS",
+      "consumer": "Smol browser coach and frozen product-coaching plan",
+      "oracle": "18 existing cell identities/evidence, exact Smol revision and diagnostic versions, invalid contracts/cancellation retained",
+      "evidence": "smolDiagnosticDispatch, productCoachingInputs, provider and raw-output controls"
+    },
+    {
+      "id": "QUALITY-01",
+      "status": "PASS",
+      "evidence": "144 focused tests,9 observer checks, full pnpm quality EXIT0, explicit runner TS EXIT0, diff and reverse-apply check0"
+    },
+    {
+      "id": "MODEL-RUNTIME",
+      "status": "NOT_RUN",
+      "reason": "Source acceptance and separately selected supported host route/run scope required"
+    },
+    {
+      "id": "COACHING-QUALITY",
+      "status": "NOT_RUN",
+      "reason": "No Smol inference outputs or blind/paired quality evaluation produced"
+    },
+    {
+      "id": "CURRENT-MAIN-LANDING",
+      "status": "NOT_RUN",
+      "reason": "This receiving increment remains on retained stack; no implementation push, CI, merge, deployment or activation"
+    }
+  ],
+  "limitations": [
+    "Browser/bundler transport mocked in acquisition checks; no real Chrome or model was launched.",
+    "External observer is support-only and not an installed runner feature.",
+    "Moonshine asyncify-route failure unchanged outside scope.",
+    "Frozen HF4.3.0/ORT1.30.0/WebLLM0.2.86 pins unchanged; no4.3.1 claim.",
+    "Original Llama18-output FAIL remains immutable; no corrected runtime result inferred.",
+    "Installed efficacy-gate V1 remains NOT RUN; this packet supplies explicit causal evidence, not a claim that gate executed."
+  ],
+  "nextRuntimeProposal": {
+    "status": "UNSELECTED",
+    "model": "SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+    "revision": "84f57f8580a9d8d623266b600ad4273bb9fd84c1",
+    "assetsManifest": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/assets-manifest.json",
+    "assetsManifestSha256": "13e3c3e6b2729239d46c12cdfd4e84c1448e0a1532fb6cb3048a0692de893cf5",
+    "assetBytes": 972833253,
+    "cells": 18,
+    "inputs": 6,
+    "trials": 3,
+    "maxOutputTokens": 256,
+    "maxLoadMs": 120000,
+    "maxCellMs": 120000,
+    "minStartBytes": 2147483648,
+    "minRunningBytes": 1073741824,
+    "maxConsecutiveLowSamples": 5,
+    "providerCalls": 0,
+    "retries": 0,
+    "profile": "NEW evaluator-owned persistent directory selected per run; never borrowed default/CDP+profile combination",
+    "route": "Must be explicitly selected; ordinary-Terminal route previously demonstrated; agent persistent launcher remains unproven/previously failed"
+  },
+  "readyToLand": false,
+  "modelInferenceCalls": 0,
+  "providerCalls": 0
+}

@@ -1,0 +1,173 @@
+{
+  "red": {
+    "start": {
+      "chunk_id": "6517c8",
+      "wall_time_seconds": 1.002144375,
+      "session_id": 46357,
+      "original_token_count": 92,
+      "output": "[VITEST-CONFIG] 🏁 Loading from /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/vitest.config.mjs\n[VITEST-CONFIG] 📍 __dirname: /private/tmp/speaksharp-cli-smol-profile-20261021/frontend\n[VITEST-CONFIG] 🗺️ Alias @ -> /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/src\n\n RUN  v3.2.4 /private/tmp/speaksharp-cli-smol-profile-20261021\n\n"
+    },
+    "terminal": {
+      "chunk_id": "9dcb6a",
+      "wall_time_seconds": 0.000021709,
+      "exit_code": 1,
+      "original_token_count": 3074,
+      "output": " ❯ tests/unit/modelEvaluatorPersistentBrowser.test.ts (7 tests | 2 failed) 1090ms\n   × exclusive evaluator disk-backed profile ownership > actual llama runner never reports CLOSED after a pre-acquisition resource refusal 707ms\n     → expected undefined to be 'NOT_CREATED' // Object.is equality\n   × exclusive evaluator disk-backed profile ownership > actual smol runner never reports CLOSED after a pre-acquisition resource refusal 377ms\n     → expected undefined to be 'NOT_CREATED' // Object.is equality\n   ✓ exclusive evaluator disk-backed profile ownership > records a fresh owned profile before launching and retains its files 2ms\n   ✓ exclusive evaluator disk-backed profile ownership > refuses an existing directory or symlink without launch or owner-marker writes 1ms\n   ✓ exclusive evaluator disk-backed profile ownership > does not launch after owner-marker creation fails 0ms\n   ✓ exclusive evaluator disk-backed profile ownership > preserves launch failure without falling back to another browser or profile 0ms\n   ✓ exclusive evaluator disk-backed profile ownership > rejects arbitrary user profiles and ambiguous modes before filesystem operations 1ms\n ❯ tests/unit/llamaTokenAccounting.test.ts (21 tests | 8 failed) 93ms\n   × pinned legacy SDK usage excludes the separately submitted BOS prefix > compares open-specific usage with message tokens while preserving full context count 83ms\n     → expected false to be true // Object.is equality\n   × pinned legacy SDK usage excludes the separately submitted BOS prefix > compares open-sparse usage with message tokens while preserving full context count 1ms\n     → expected false to be true // Object.is equality\n   × pinned legacy SDK usage excludes the separately submitted BOS prefix > compares open-untrusted usage with message tokens while preserving full context count 1ms\n     → expected false to be true // Object.is equality\n   × pinned legacy SDK usage excludes the separately submitted BOS prefix > compares focus-full usage with message tokens while preserving full context count 1ms\n     → expected false to be true // Object.is equality\n   × pinned legacy SDK usage excludes the separately submitted BOS prefix > compares focus-partial usage with message tokens while preserving full context count 1ms\n     → expected false to be true // Object.is equality\n   × pinned legacy SDK usage excludes the separately submitted BOS prefix > compares focus-unavailable usage with message tokens while preserving full context count 0ms\n     → expected false to be true // Object.is equality\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage 1 without tolerance 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage 2 without tolerance 0ms\n   × pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage 4 without tolerance 1ms\n     → expected true to be false // Object.is equality\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage 5 without tolerance 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage undefined without tolerance 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage NaN without tolerance 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage Infinity without tolerance 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage -Infinity without tolerance 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage 3.5 without tolerance 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage -1 without tolerance 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage 3 without tolerance 0ms\n   × pinned legacy SDK usage excludes the separately submitted BOS prefix > admits the exact full-context limit including BOS and reserved output 0ms\n     → expected false to be true // Object.is equality\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses one token beyond full context before dispatch, even when SDK usage alone would fit 1ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > retains invalid output as a contract failure even with explained usage 0ms\n   ✓ pinned legacy SDK usage excludes the separately submitted BOS prefix > the actual product boundary still refuses length termination before commit 1ms\n ❯ tests/unit/webLlmProfiles.test.ts (10 tests | 1 failed) 92ms\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > uses the pinned upstream ChatML separators and no Llama BOS for Smol 82ms\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > refuses an unknown profile before fetching or initializing a model 1ms\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > selects known profiles without the ES2022 Object.hasOwn API 1ms\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > rejects invalid/over-budget input count NaN without truncation 0ms\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > rejects invalid/over-budget input count -1 without truncation 0ms\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > rejects invalid/over-budget input count 0 without truncation 0ms\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > rejects invalid/over-budget input count 3841 without truncation 0ms\n   × shared WebLLM adapter profiles, with SDK and tokenizer mocked > keeps model identity, revision and prompt-prefix accounting distinct 4ms\n     → expected { raw: '{}', …(9) } to match object { predictedPromptTokens: 4, …(1) }\n(9 matching properties omitted from actual)\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > retains rejected Smol output without putting it in the product error message 1ms\n   ✓ shared WebLLM adapter profiles, with SDK and tokenizer mocked > shares cancellation and never dispatches a cancelled request 1ms\n\n⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  tests/unit/llamaTokenAccounting.test.ts > pinned legacy SDK usage excludes the separately submitted BOS prefix > compares open-specific usage with message tokens while preserving full context count\n FAIL  tests/unit/llamaTokenAccounting.test.ts > pinned legacy SDK usage excludes the separately submitted BOS prefix > compares open-sparse usage with message tokens while preserving full context count\n FAIL  tests/unit/llamaTokenAccounting.test.ts > pinned legacy SDK usage excludes the separately submitted BOS prefix > compares open-untrusted usage with message tokens while preserving full context count\n FAIL  tests/unit/llamaTokenAccounting.test.ts > pinned legacy SDK usage excludes the separately submitted BOS prefix > compares focus-full usage with message tokens while preserving full context count\n FAIL  tests/unit/llamaTokenAccounting.test.ts > pinned legacy SDK usage excludes the separately submitted BOS prefix > compares focus-partial usage with message tokens while preserving full context count\n FAIL  tests/unit/llamaTokenAccounting.test.ts > pinned legacy SDK usage excludes the separately submitted BOS prefix > compares focus-unavailable usage with message tokens while preserving full context count\nAssertionError: expected false to be true // Object.is equality\n\n- Expected\n+ Received\n\n- true\n+ false\n\n ❯ tests/unit/llamaTokenAccounting.test.ts:29:48\n     27|       const model=await runtime();const result=await model.generateCoa…\n     28|       expect(result.predictedPromptTokens).toBe(context);\n     29|       expect(result.observedPromptTokensMatch).toBe(true);\n       |                                                ^\n     30|       await model.dispose();\n     31|     });\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯\n\n FAIL  tests/unit/llamaTokenAccounting.test.ts > pinned legacy SDK usage excludes the separately submitted BOS prefix > refuses unexplained or invalid usage 4 without tolerance\nAssertionError: expected true to be false // Object.is equality\n\n- Expected\n+ Received\n\n- false\n+ true\n\n ❯ tests/unit/llamaTokenAccounting.test.ts:36:124\n     34|     'refuses unexplained or invalid usage %s without tolerance',async …\n     35|       mocks.create.mockResolvedValueOnce(response(usage===undefined?un…\n     36|       const model=await runtime();expect((await model.generateCoaching…\n       |                                                                                                                            ^\n     37|       await model.dispose();\n     38|     });\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯\n\n FAIL  tests/unit/llamaTokenAccounting.test.ts > pinned legacy SDK usage excludes the separately submitted BOS prefix > admits the exact full-context limit including BOS and reserved output\nAssertionError: expected false to be true // Object.is equality\n\n- Expected\n+ Received\n\n- true\n+ false\n\n ❯ tests/unit/llamaTokenAccounting.test.ts:43:94\n     41|     mocks.counts=[3837,1,1];mocks.create.mockResolvedValueOnce(respons…\n     42|     const model=await runtime();const result=await model.generateCoach…\n     43|     expect(result.predictedPromptTokens).toBe(3840);expect(result.obse…\n       |                                                                                              ^\n     44|     expect(mocks.create.mock.calls[0][0].max_tokens).toBe(256);await m…\n     45|   });\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯\n\n FAIL  tests/unit/modelEvaluatorPersistentBrowser.test.ts > exclusive evaluator disk-backed profile ownership > actual llama runner never reports CLOSED after a pre-acquisition resource refusal\n FAIL  tests/unit/modelEvaluatorPersistentBrowser.test.ts > exclusive evaluator disk-backed profile ownership > actual smol runner never reports CLOSED after a pre-acquisition resource refusal\nAssertionError: expected undefined to be 'NOT_CREATED' // Object.is equality\n\n- Expected: \n\"NOT_CREATED\"\n\n+ Received: \nundefined\n\n ❯ tests/unit/modelEvaluatorPersistentBrowser.test.ts:42:40\n     40|       expect(report.error).toContain('HOLD_RESOURCE_HEADROOM_BELOW_2GI…\n     41|       expect(report.cellDispatchesAttempted).toBe(0);\n     42|       expect(report.ownedContextState).toBe('NOT_CREATED');\n       |                                        ^\n     43|       expect(report.transportCleanup).not.toContain('CLOSED');\n     44|       expect(report.transportCleanup).toBe('OWNED_PERSISTENT_CONTEXT_N…\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯\n\n FAIL  tests/unit/webLlmProfiles.test.ts > shared WebLLM adapter profiles, with SDK and tokenizer mocked > keeps model identity, revision and prompt-prefix accounting distinct\nAssertionError: expected { raw: '{}', …(9) } to match object { predictedPromptTokens: 4, …(1) }\n(9 matching properties omitted from actual)\n\n- Expected\n+ Received\n\n  {\n-   \"observedPromptTokensMatch\": true,\n+   \"observedPromptTokensMatch\": false,\n    \"predictedPromptTokens\": 4,\n  }\n\n ❯ tests/unit/webLlmProfiles.test.ts:68:43\n     66|     const llama=await createLlamaRuntime(locations);\n     67|     expect(llama.identity.model).toBe('Llama-3.2-1B-Instruct-q4f16_1-M…\n     68|     expect(await llama.generate(request)).toMatchObject({predictedProm…\n       |                                           ^\n     69|     await llama.dispose();\n     70|   });\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯\n\n\n Test Files  3 failed (3)\n      Tests  11 failed | 27 passed (38)\n   Start at  18:52:04\n   Duration  3.50s (transform 194ms, setup 591ms, collect 224ms, tests 1.27s, environment 1.02s, prepare 91ms)\n\n"
+    },
+    "meaning": "Actual unchanged shared adapter and runner with corrected/additional oracles:11 failed,27 passed."
+  },
+  "firstGreen": {
+    "start": {
+      "chunk_id": "f4248e",
+      "wall_time_seconds": 1.002152084,
+      "session_id": 16710,
+      "original_token_count": 92,
+      "output": "[VITEST-CONFIG] 🏁 Loading from /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/vitest.config.mjs\n[VITEST-CONFIG] 📍 __dirname: /private/tmp/speaksharp-cli-smol-profile-20261021/frontend\n[VITEST-CONFIG] 🗺️ Alias @ -> /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/src\n\n RUN  v3.2.4 /private/tmp/speaksharp-cli-smol-profile-20261021\n\n"
+    },
+    "terminal": {
+      "chunk_id": "b86a21",
+      "wall_time_seconds": 0.000021708,
+      "exit_code": 0,
+      "original_token_count": 288,
+      "output": " ✓ tests/unit/modelEvaluatorPersistentBrowser.test.ts (7 tests) 1048ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual llama runner never reports CLOSED after a pre-acquisition resource refusal  650ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual smol runner never reports CLOSED after a pre-acquisition resource refusal  392ms\n ✓ tests/unit/llamaTokenAccounting.test.ts (21 tests) 98ms\n ✓ tests/unit/webLlmProfiles.test.ts (10 tests) 91ms\n ✓ tests/unit/modelInvestigationSupervision.test.ts (7 tests) 373ms\n ✓ tests/unit/smolDiagnosticDispatch.test.ts (9 tests) 94ms\n ✓ tests/unit/modelCdpBrowser.test.ts (13 tests) 121ms\n ✓ frontend/src/services/coaching/provider.test.ts (38 tests) 131ms\n ✓ tests/unit/llamaRawOutputEvidence.test.ts (7 tests) 89ms\n ✓ frontend/src/benchmark/__tests__/modelInvestigationContracts.test.ts (11 tests) 85ms\n ✓ tests/unit/productCoachingInputs.test.ts (11 tests) 87ms\n\n Test Files  10 passed (10)\n      Tests  134 passed (134)\n   Start at  18:52:37\n   Duration  8.47s (transform 296ms, setup 1.42s, collect 936ms, tests 2.22s, environment 2.68s, prepare 292ms)\n\n"
+    },
+    "meaning": "134 controls before stronger actual-runner acquisition tests."
+  },
+  "intermediateHarnessFailure": {
+    "start": {
+      "chunk_id": "b32519",
+      "wall_time_seconds": 1.002092083,
+      "session_id": 37751,
+      "original_token_count": 92,
+      "output": "[VITEST-CONFIG] 🏁 Loading from /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/vitest.config.mjs\n[VITEST-CONFIG] 📍 __dirname: /private/tmp/speaksharp-cli-smol-profile-20261021/frontend\n[VITEST-CONFIG] 🗺️ Alias @ -> /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/src\n\n RUN  v3.2.4 /private/tmp/speaksharp-cli-smol-profile-20261021\n\n"
+    },
+    "terminal": {
+      "chunk_id": "ac74b8",
+      "wall_time_seconds": 0.000016667,
+      "exit_code": 1,
+      "original_token_count": 726,
+      "output": " ❯ tests/unit/modelEvaluatorPersistentBrowser.test.ts (9 tests | 2 failed) 1462ms\n   × exclusive evaluator disk-backed profile ownership > actual llama runner acquires and closes only its persistent context 486ms\n     → expected 'Error: TEST_FORBIDS_REAL_BROWSER_OR_S…' to contain 'TEST_STOP_BEFORE_MODEL'\n   × exclusive evaluator disk-backed profile ownership > actual smol runner acquires and closes only its persistent context 200ms\n     → expected 'Error: TEST_FORBIDS_REAL_BROWSER_OR_S…' to contain 'TEST_STOP_BEFORE_MODEL'\n   ✓ exclusive evaluator disk-backed profile ownership > actual llama runner never reports CLOSED after a pre-acquisition resource refusal  392ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual smol runner never reports CLOSED after a pre-acquisition resource refusal  377ms\n   ✓ exclusive evaluator disk-backed profile ownership > records a fresh owned profile before launching and retains its files 2ms\n   ✓ exclusive evaluator disk-backed profile ownership > refuses an existing directory or symlink without launch or owner-marker writes 1ms\n   ✓ exclusive evaluator disk-backed profile ownership > does not launch after owner-marker creation fails 0ms\n   ✓ exclusive evaluator disk-backed profile ownership > preserves launch failure without falling back to another browser or profile 0ms\n   ✓ exclusive evaluator disk-backed profile ownership > rejects arbitrary user profiles and ambiguous modes before filesystem operations 1ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  tests/unit/modelEvaluatorPersistentBrowser.test.ts > exclusive evaluator disk-backed profile ownership > actual llama runner acquires and closes only its persistent context\n FAIL  tests/unit/modelEvaluatorPersistentBrowser.test.ts > exclusive evaluator disk-backed profile ownership > actual smol runner acquires and closes only its persistent context\nAssertionError: expected 'Error: TEST_FORBIDS_REAL_BROWSER_OR_S…' to contain 'TEST_STOP_BEFORE_MODEL'\n\nExpected: \"TEST_STOP_BEFORE_MODEL\"\nReceived: \"Error: TEST_FORBIDS_REAL_BROWSER_OR_SERVICE_SPAWN\"\n\n ❯ tests/unit/modelEvaluatorPersistentBrowser.test.ts:53:28\n     51|       expect(result.error).toBeUndefined();expect(result.status).toBe(…\n     52|       const report=JSON.parse(readFileSync(output,'utf8'));\n     53|       expect(report.error).toContain('TEST_STOP_BEFORE_MODEL');\n       |                            ^\n     54|       expect(report.protocol.kind).toBe(kind);expect(report.protocol.c…\n     55|       expect(report.protocol.cacheState).toBe('FRESH_PROFILE_REUSE_REF…\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯\n\n\n Test Files  1 failed (1)\n      Tests  2 failed | 7 passed (9)\n   Start at  18:53:49\n   Duration  2.62s (transform 160ms, setup 333ms, collect 170ms, tests 1.46s, environment 493ms, prepare 35ms)\n\n"
+    },
+    "meaning": "Test-only spawn prohibition also blocked esbuild; fixed by mocking browser AND bundler in the test loader. Not model-runtime evidence."
+  },
+  "actualRunner": {
+    "start": {
+      "chunk_id": "093264",
+      "wall_time_seconds": 1.001913167,
+      "session_id": 48650,
+      "original_token_count": 92,
+      "output": "[VITEST-CONFIG] 🏁 Loading from /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/vitest.config.mjs\n[VITEST-CONFIG] 📍 __dirname: /private/tmp/speaksharp-cli-smol-profile-20261021/frontend\n[VITEST-CONFIG] 🗺️ Alias @ -> /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/src\n\n RUN  v3.2.4 /private/tmp/speaksharp-cli-smol-profile-20261021\n\n"
+    },
+    "terminal": {
+      "chunk_id": "603dbb",
+      "wall_time_seconds": 0.000007,
+      "exit_code": 0,
+      "original_token_count": 173,
+      "output": " ✓ tests/unit/modelEvaluatorPersistentBrowser.test.ts (9 tests) 1409ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual llama runner acquires and closes only its persistent context  448ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual llama runner never reports CLOSED after a pre-acquisition resource refusal  373ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual smol runner never reports CLOSED after a pre-acquisition resource refusal  369ms\n\n Test Files  1 passed (1)\n      Tests  9 passed (9)\n   Start at  18:54:17\n   Duration  2.47s (transform 152ms, setup 299ms, collect 158ms, tests 1.41s, environment 453ms, prepare 32ms)\n\n"
+    }
+  },
+  "persistentMutant": {
+    "start": {
+      "chunk_id": "85c7f0",
+      "wall_time_seconds": 1.001762667,
+      "session_id": 20822,
+      "original_token_count": 92,
+      "output": "[VITEST-CONFIG] 🏁 Loading from /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/vitest.config.mjs\n[VITEST-CONFIG] 📍 __dirname: /private/tmp/speaksharp-cli-smol-profile-20261021/frontend\n[VITEST-CONFIG] 🗺️ Alias @ -> /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/src\n\n RUN  v3.2.4 /private/tmp/speaksharp-cli-smol-profile-20261021\n\n"
+    },
+    "terminal": {
+      "chunk_id": "5bb8a5",
+      "wall_time_seconds": 0.00012775,
+      "exit_code": 1,
+      "original_token_count": 720,
+      "output": " ❯ tests/unit/modelEvaluatorPersistentBrowser.test.ts (9 tests | 2 failed | 7 skipped) 797ms\n   × exclusive evaluator disk-backed profile ownership > actual llama runner acquires and closes only its persistent context 584ms\n     → expected 'Error: TEST_FORBIDS_EPHEMERAL_OR_BORR…' to contain 'TEST_STOP_BEFORE_MODEL'\n   × exclusive evaluator disk-backed profile ownership > actual smol runner acquires and closes only its persistent context 212ms\n     → expected 'Error: TEST_FORBIDS_EPHEMERAL_OR_BORR…' to contain 'TEST_STOP_BEFORE_MODEL'\n   ↓ exclusive evaluator disk-backed profile ownership > actual llama runner never reports CLOSED after a pre-acquisition resource refusal\n   ↓ exclusive evaluator disk-backed profile ownership > actual smol runner never reports CLOSED after a pre-acquisition resource refusal\n   ↓ exclusive evaluator disk-backed profile ownership > records a fresh owned profile before launching and retains its files\n   ↓ exclusive evaluator disk-backed profile ownership > refuses an existing directory or symlink without launch or owner-marker writes\n   ↓ exclusive evaluator disk-backed profile ownership > does not launch after owner-marker creation fails\n   ↓ exclusive evaluator disk-backed profile ownership > preserves launch failure without falling back to another browser or profile\n   ↓ exclusive evaluator disk-backed profile ownership > rejects arbitrary user profiles and ambiguous modes before filesystem operations\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  tests/unit/modelEvaluatorPersistentBrowser.test.ts > exclusive evaluator disk-backed profile ownership > actual llama runner acquires and closes only its persistent context\n FAIL  tests/unit/modelEvaluatorPersistentBrowser.test.ts > exclusive evaluator disk-backed profile ownership > actual smol runner acquires and closes only its persistent context\nAssertionError: expected 'Error: TEST_FORBIDS_EPHEMERAL_OR_BORR…' to contain 'TEST_STOP_BEFORE_MODEL'\n\nExpected: \"TEST_STOP_BEFORE_MODEL\"\nReceived: \"Error: TEST_FORBIDS_EPHEMERAL_OR_BORROWED_BROWSER\"\n\n ❯ tests/unit/modelEvaluatorPersistentBrowser.test.ts:54:28\n     52|       expect(result.error).toBeUndefined();expect(result.status).toBe(…\n     53|       const report=JSON.parse(readFileSync(output,'utf8'));\n     54|       expect(report.error).toContain('TEST_STOP_BEFORE_MODEL');\n       |                            ^\n     55|       expect(report.protocol.kind).toBe(kind);expect(report.protocol.c…\n     56|       expect(report.protocol.cacheState).toBe('FRESH_PROFILE_REUSE_REF…\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯\n\n\n Test Files  1 failed (1)\n      Tests  2 failed | 7 skipped (9)\n   Start at  18:54:59\n   Duration  2.00s (transform 166ms, setup 334ms, collect 169ms, tests 797ms, environment 523ms, prepare 58ms)\n\n"
+    },
+    "meaning": "Disable only receiving persistent branch; two actual CLI entry tests fail because forbidden ephemeral/borrowed launch is attempted. Restored before final qualification."
+  },
+  "finalGreen": {
+    "start": {
+      "chunk_id": "51f591",
+      "wall_time_seconds": 1.00238125,
+      "session_id": 85348,
+      "original_token_count": 92,
+      "output": "[VITEST-CONFIG] 🏁 Loading from /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/vitest.config.mjs\n[VITEST-CONFIG] 📍 __dirname: /private/tmp/speaksharp-cli-smol-profile-20261021/frontend\n[VITEST-CONFIG] 🗺️ Alias @ -> /private/tmp/speaksharp-cli-smol-profile-20261021/frontend/src\n\n RUN  v3.2.4 /private/tmp/speaksharp-cli-smol-profile-20261021\n\n"
+    },
+    "terminal": {
+      "chunk_id": "9e5458",
+      "wall_time_seconds": 0.000424625,
+      "exit_code": 0,
+      "original_token_count": 322,
+      "output": " ✓ tests/unit/modelEvaluatorPersistentBrowser.test.ts (9 tests) 1648ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual llama runner acquires and closes only its persistent context  560ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual llama runner never reports CLOSED after a pre-acquisition resource refusal  457ms\n   ✓ exclusive evaluator disk-backed profile ownership > actual smol runner never reports CLOSED after a pre-acquisition resource refusal  396ms\n ✓ tests/unit/modelInvestigationSupervision.test.ts (7 tests) 375ms\n ✓ frontend/src/services/coaching/provider.test.ts (38 tests) 117ms\n ✓ tests/unit/modelCdpBrowser.test.ts (13 tests) 123ms\n ✓ tests/unit/llamaTokenAccounting.test.ts (21 tests) 90ms\n ✓ tests/unit/smolDiagnosticDispatch.test.ts (9 tests) 92ms\n ✓ tests/unit/webLlmProfiles.test.ts (18 tests) 91ms\n ✓ tests/unit/llamaRawOutputEvidence.test.ts (7 tests) 87ms\n ✓ tests/unit/productCoachingInputs.test.ts (11 tests) 88ms\n ✓ frontend/src/benchmark/__tests__/modelInvestigationContracts.test.ts (11 tests) 83ms\n\n Test Files  10 passed (10)\n      Tests  144 passed (144)\n   Start at  18:55:08\n   Duration  9.17s (transform 261ms, setup 1.47s, collect 755ms, tests 2.79s, environment 2.89s, prepare 295ms)\n\n"
+    }
+  },
+  "observerReceiving": {
+    "result": {
+      "chunk_id": "ffd9c7",
+      "wall_time_seconds": 0.390893958,
+      "exit_code": 0,
+      "original_token_count": 581,
+      "output": "TAP version 13\n# (node:89648) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: retention failure at ACTUAL_CLOSE_STARTED cannot suppress or reject real close\nok 1 - retention failure at ACTUAL_CLOSE_STARTED cannot suppress or reject real close\n  ---\n  duration_ms: 1.976584\n  ...\n# Subtest: retention failure at ACTUAL_CLOSE_RESOLVED cannot suppress or reject real close\nok 2 - retention failure at ACTUAL_CLOSE_RESOLVED cannot suppress or reject real close\n  ---\n  duration_ms: 0.3605\n  ...\n# Subtest: a prior absent scan cannot certify exit when close resolves during a failed current scan\nok 3 - a prior absent scan cannot certify exit when close resolves during a failed current scan\n  ---\n  duration_ms: 1.004667\n  ...\n# Subtest: records real close start, preserves the actual 2000ms failure, then separately observes late resolution and exit\nok 4 - records real close start, preserves the actual 2000ms failure, then separately observes late resolution and exit\n  ---\n  duration_ms: 0.889458\n  ...\n# Subtest: never-resolving actual close terminates observation and retains UNKNOWN without a false CLOSED\nok 5 - never-resolving actual close terminates observation and retains UNKNOWN without a false CLOSED\n  ---\n  duration_ms: 0.8425\n  ...\n# Subtest: a resolved close with live owned processes is not verified exit\nok 6 - a resolved close with live owned processes is not verified exit\n  ---\n  duration_ms: 0.6765\n  ...\n# Subtest: incomplete process scans cannot prove absence and borrowed-owner errors are retained\nok 7 - incomplete process scans cannot prove absence and borrowed-owner errors are retained\n  ---\n  duration_ms: 0.596583\n  ...\n# Subtest: hanging metadata hooks have a bounded observer and separate borrowed-check deadline\nok 8 - hanging metadata hooks have a bounded observer and separate borrowed-check deadline\n  ---\n  duration_ms: 0.558458\n  ...\n# Subtest: actual close rejection remains a failure and original property shape is restored\nok 9 - actual close rejection remains a failure and original property shape is restored\n  ---\n  duration_ms: 0.678375\n  ...\n1..9\n# tests 9\n# suites 0\n# pass 9\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 149.462292\n"
+    },
+    "meaning": "Same9 accepted oracles, only import rebound to process.cwd() receiving cdp-browser.ts; observer support is external, not installed into runtime."
+  },
+  "quality": {
+    "start": {
+      "chunk_id": "4b1e38",
+      "wall_time_seconds": 1.001273416,
+      "session_id": 27737,
+      "original_token_count": 131,
+      "output": "\n> speaksharp@0.9.0-rc0 quality /private/tmp/speaksharp-cli-smol-profile-20261021\n> node scripts/host-interlock.mjs hold local -- pnpm quality:unguarded\n\n\n> speaksharp@0.9.0-rc0 quality:unguarded /private/tmp/speaksharp-cli-smol-profile-20261021\n> pnpm product:contract-check && pnpm lint && pnpm typecheck && pnpm typecheck:live && pnpm typecheck:evidence && pnpm eslint-disable\n\n\n> speaksharp@0.9.0-rc0 product:contract-check /private/tmp/speaksharp-cli-smol-profile-20261021\n> node scripts/product-contract-guard.mjs\n\n"
+    },
+    "chunks": [
+      {
+        "chunk_id": "9b2908",
+        "wall_time_seconds": 5.002869291,
+        "session_id": 27737,
+        "original_token_count": 256,
+        "output": "[product-contract] active customer/runtime/release surfaces match the locked launch contract\n\n> speaksharp@0.9.0-rc0 lint /private/tmp/speaksharp-cli-smol-profile-20261021\n> node scripts/lint-in-bounded-batches.mjs\n\n\n> eslint batch frontend/src/App.tsx #1 (1 files)\n\n> eslint batch frontend/src/__tests__ #1 (5 files)\n\n> eslint batch frontend/src/benchmark #1 (9 files)\n\n> eslint batch frontend/src/components #1 (243 files)\n\n> eslint batch frontend/src/config.ts #1 (1 files)\n\n> eslint batch frontend/src/config #1 (15 files)\n\n> eslint batch frontend/src/constants #1 (9 files)\n\n> eslint batch frontend/src/content #1 (2 files)\n\n> eslint batch frontend/src/contexts #1 (9 files)\n\n> eslint batch frontend/src/contracts #1 (11 files)\n\n> eslint batch frontend/src/e2e #1 (1 files)\n\n> eslint batch frontend/src/hooks #1 (72 files)\n\n> eslint batch frontend/src/lib #1 (57 files)\n\n> eslint batch frontend/src/main.tsx #1 (1 files)\n\n> eslint batch frontend/src/mocks #1 (4 files)\n\n> eslint batch frontend/src/pages #1 (42 files)\n"
+      },
+      {
+        "chunk_id": "747ffb",
+        "wall_time_seconds": 5.002475041,
+        "session_id": 27737,
+        "original_token_count": 76,
+        "output": "\n> eslint batch frontend/src/providers #1 (3 files)\n\n> eslint batch frontend/src/services #1 (250 files)\n\n> eslint batch frontend/src/services #2 (205 files)\n\n> eslint batch frontend/src/stores #1 (5 files)\n\n> eslint batch frontend/src/tests #1 (1 files)\n\n> eslint batch frontend/src/types #1 (11 files)\n"
+      },
+      {
+        "chunk_id": "1804e0",
+        "wall_time_seconds": 2.936636333,
+        "exit_code": 0,
+        "original_token_count": 231,
+        "output": "\n> eslint batch frontend/src/utils #1 (47 files)\n\n> eslint batch frontend/src/vite-env.d.ts #1 (1 files)\n\n> eslint batch tests and edge functions (2 files)\n\n> speaksharp@0.9.0-rc0 typecheck /private/tmp/speaksharp-cli-smol-profile-20261021\n> cd frontend && pnpm tsc --noEmit\n\n\n> speaksharp@0.9.0-rc0 typecheck:live /private/tmp/speaksharp-cli-smol-profile-20261021\n> node scripts/verify-live-typecheck-scope.mjs && pnpm tsc --noEmit -p tsconfig.live.json\n\nlive-typecheck-scope OK local_files=161 live_specs=41 live_helpers=49 shared_test_helpers=6 frontend_src=46\n\n> speaksharp@0.9.0-rc0 typecheck:evidence /private/tmp/speaksharp-cli-smol-profile-20261021\n> tsc --noEmit -p tsconfig.evidence.json\n\n\n> speaksharp@0.9.0-rc0 eslint-disable /private/tmp/speaksharp-cli-smol-profile-20261021\n> ./scripts/check-eslint-disable.sh\n\n🔍 Checking for banned 'eslint-disable' directives...\n✅ No 'eslint-disable' directives found.\n"
+      }
+    ],
+    "exitCode": 0
+  },
+  "patchCheck": {
+    "reverseApplyExit": 0,
+    "diffCheckExit": 0
+  },
+  "boundaries": {
+    "modelInferenceCalls": 0,
+    "providerCalls": 0,
+    "runtimeQualification": false,
+    "installedEfficacyGateV1": false
+  },
+  "runnerTypecheck": {
+    "start": {
+      "chunk_id": "2101cd",
+      "wall_time_seconds": 1.003263166,
+      "session_id": 93835,
+      "original_token_count": 0,
+      "output": ""
+    },
+    "terminal": {
+      "chunk_id": "0f4387",
+      "wall_time_seconds": 0.000018333,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    },
+    "config": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-runner-tsconfig-20261022.json",
+    "scope": "Receiving .mts runner and transitive persistent helper"
+  }
+}
