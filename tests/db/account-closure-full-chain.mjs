@@ -639,7 +639,7 @@ export const MAIN_T2_ACCOUNT_MIGRATIONS=Object.freeze([
   {name:'20261018170000_account_closure_pending_checkout.sql',version:'20261018170000',sha256:'68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19',stage:'account-pending'},
   {name:'20261019055102_account_pending_recording_admission_1643.sql',version:'20261019055102',sha256:'e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4',stage:'recording-admission'},
   {name:'20261019202856_account_coaching_admission_1643.sql',version:'20261019202856',sha256:'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e',stage:'coaching-admission'},
-  {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'fcaf3db2270887891edb3ee874394506c4dc265b20209dc65bdc04a64701b184',stage:'account-completion'},
+  {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'76bffe1f7dc15efe487cd33faffbfd8d1b6c654a7b09508d427e53b4b88d83cf',stage:'account-completion'},
 ].map(row=>Object.freeze(row)));
 const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126'];
 function selectedAdditions(profile) {

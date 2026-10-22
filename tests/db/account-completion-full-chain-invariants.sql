@@ -106,8 +106,8 @@ BEGIN
   SET LOCAL ROLE service_role;
   -- B holds its acknowledged capability (the selected claim prerequisite) so only the missing coverage can hold it; C stays
   -- the later status-handshake actor. A holds one before its save-debt checks.
-  IF public.issue_account_completion_status_v1(b,req_b,scope,repeat('d',64)) IS NULL
-    OR NOT public.acknowledge_account_completion_status_v1(b,req_b,scope,repeat('d',64))
+  IF public.issue_account_completion_status_v1(b,req_b,scope,repeat('b',64)) IS NULL
+    OR NOT public.acknowledge_account_completion_status_v1(b,req_b,scope,repeat('b',64))
     OR public.issue_account_completion_status_v1(a,req_a,scope,repeat('e',64)) IS NULL
     OR NOT public.acknowledge_account_completion_status_v1(a,req_a,scope,repeat('e',64)) THEN RAISE EXCEPTION 'status capability not acknowledged'; END IF;
   IF public.claim_account_pending_completion_v1(b,req_b,scope)->>'outcome' IS DISTINCT FROM 'pending' THEN

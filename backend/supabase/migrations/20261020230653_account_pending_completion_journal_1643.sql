@@ -44,9 +44,14 @@ REVOKE ALL ON public.account_completion_configuration,public.account_completion_
 -- coverage evidence; this backfill does not assert that the historical inventory is complete.
 INSERT INTO public.account_save_obligations(user_id,lease_id)
   SELECT user_id,lease_id FROM public.active_recording_lease ON CONFLICT DO NOTHING;
-INSERT INTO public.account_save_obligations(user_id,lease_id,session_id)
-  SELECT user_id,coalesce(lease_id,id),id FROM public.sessions WHERE status IS DISTINCT FROM 'completed'
-  ON CONFLICT(user_id,lease_id) DO UPDATE SET session_id=EXCLUDED.session_id;
+-- A leased or fenced take that already FAILED is terminal under the #1476 fence (never revivable or completable),
+-- so it holds no recoverable work and its obligation is settled; a revivable legacy failure stays debt.
+INSERT INTO public.account_save_obligations(user_id,lease_id,session_id,phase)
+  SELECT user_id,coalesce(lease_id,id),id,
+    CASE WHEN status='failed' AND (lease_id IS NOT NULL OR recording_fenced_at IS NOT NULL) THEN 'completed' ELSE 'admitted' END
+  FROM public.sessions WHERE status IS DISTINCT FROM 'completed'
+  ON CONFLICT(user_id,lease_id) DO UPDATE SET session_id=EXCLUDED.session_id,
+    phase=CASE WHEN EXCLUDED.phase='completed' THEN 'completed' ELSE account_save_obligations.phase END;
 
 CREATE FUNCTION public._account_save_lease_obligation_v1()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
@@ -66,10 +71,14 @@ CREATE FUNCTION public._account_save_session_obligation_v1()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE identity uuid:=coalesce(NEW.lease_id,NEW.id);
 BEGIN
-  -- Definite atomic completion is monotonic. Failed/fenced/expired rows retain debt;
-  -- they are not proof a recoverable take was saved or explicitly abandoned.
+  -- Definite atomic completion is monotonic. Failed/fenced/expired rows retain debt; they are not proof a recoverable
+  -- take was saved or explicitly abandoned. The exception is a leased or fenced take that has FAILED: the #1476 fence
+  -- makes it terminal (never revivable, completable or given a transcript), so its obligation is settled. The session
+  -- stays `failed`; settling the debt does not label the take as saved.
   INSERT INTO public.account_save_obligations(user_id,lease_id,session_id,phase)
-    VALUES(NEW.user_id,identity,NEW.id,CASE WHEN NEW.status='completed' THEN 'completed' ELSE 'admitted' END)
+    VALUES(NEW.user_id,identity,NEW.id,CASE WHEN NEW.status='completed' THEN 'completed'
+      WHEN NEW.status='failed' AND (NEW.lease_id IS NOT NULL OR NEW.recording_fenced_at IS NOT NULL) THEN 'completed'
+      ELSE 'admitted' END)
     ON CONFLICT(user_id,lease_id) DO UPDATE
       SET session_id=EXCLUDED.session_id,phase=CASE WHEN EXCLUDED.phase='completed' THEN 'completed' ELSE account_save_obligations.phase END
       WHERE account_save_obligations.session_id IS NULL OR account_save_obligations.session_id=EXCLUDED.session_id;

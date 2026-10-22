@@ -287,7 +287,7 @@ const T2_CATALOG_DELTAS = Object.freeze([
     "function:public._account_completion_receipt_v1(uuid, uuid, uuid, text, text, text)": "a21b5a51153619fcaaa599c703a9d954",
     "function:public._finish_account_closure_legacy_v1(uuid, uuid)": "e7a7a4d70cf51ccb349a4f7fcfeeb205",
     "function:public._account_save_lease_obligation_v1()": "063c8a132c6a1c6a83cfe8e04de57de0",
-    "function:public._account_save_session_obligation_v1()": "92599f3b7b14b193a6a1c84554fc9138",
+    "function:public._account_save_session_obligation_v1()": "3c7f65406f5112d79d7a9024fe732532",
     "function:public._account_save_delete_guard_v1()": "49d93c186e20f9f5574890af8142c428",
     "function:public._account_completion_lock_v1(uuid, uuid, uuid, text)": "589b7041cf7dd2443f573a09f654ccea",
     "function:public.inspect_account_pending_completion_v1(uuid, uuid, uuid, text)": "1f2386a05ece1485943e251a9086b168",

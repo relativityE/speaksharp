@@ -528,4 +528,84 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
     await sql(`DELETE FROM storage.objects WHERE owner='${a.user}'`);
     expect((await complete(a))?.phase).toBe('completed');
   });
+  it('a billing fence that is no longer pending for this request refuses the claim',async()=>{
+    const a=await seed();await ready(a);
+    await sql(`UPDATE account_billing_fences SET phase='open',request_id=NULL WHERE user_id='${a.user}'`);
+    expect((await claim(a))?.executionId,'no grant without the pending fence').toBeUndefined();
+    expect(await value(`SELECT count(*)::int FROM account_completion_executions WHERE user_id='${a.user}'`)).toBe(0);
+  });
+  // #1684 Codex P1 r4354390131: a leased or fenced take that has reached `failed` is terminal (the #1476 fence refuses any
+  // revival, completion or transcript change), so it holds no recoverable work. Its save obligation settles; the session
+  // itself stays `failed`, so nothing labels the take as saved. Revivable legacy failures and live work keep their debt.
+  const leasedTake=async(a:Account)=>{
+    expect(await value(as(a,`SELECT acquire_recording_lease('${a.lease}')`))).toMatchObject({acquired:true});
+    const row=await value<{new_session:{id:string}}>(as(a,`SELECT create_session_and_update_usage('{"title":"synthetic","duration":0,"lease_id":"${a.lease}"}'::jsonb,'private')`));
+    return row.new_session.id;
+  };
+  const obligation=(a:Account)=>value<string>(`SELECT phase FROM account_save_obligations WHERE user_id='${a.user}'`);
+  it('a discarded leased take is terminal: its obligation settles, the take stays failed, and the claim proceeds',async()=>{
+    const a=await seed(true,false);const session=await leasedTake(a);
+    expect(await value(as(a,`SELECT release_recording_lease('${a.lease}')`))).toMatchObject({released:true});
+    await sql(`UPDATE sessions SET status='failed' WHERE id='${session}'`);
+    await expect(sql(`UPDATE sessions SET status='completed' WHERE id='${session}'`),'the #1476 fence keeps it closed').rejects.toThrow('cannot be revived');
+    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));await ready(a);
+    expect(await obligation(a),'terminal discard settles the obligation').toBe('completed');
+    expect(await value(`SELECT status FROM sessions WHERE id='${session}'`),'the take is not relabelled as saved').toBe('failed');
+    expect((await claim(a))?.executionId).toBeTypeOf('string');
+  });
+  it('a fenced take that failed settles; a fenced take still active keeps its debt',async()=>{
+    const a=await seed(true,false);const session=await leasedTake(a);
+    await sql(`UPDATE sessions SET recording_fenced_at=now(),recording_fenced_reason='displaced' WHERE id='${session}'`);
+    expect(await obligation(a),'fenced but still active is unsettled').toBe('admitted');
+    await sql(`UPDATE sessions SET status='failed' WHERE id='${session}'`);
+    expect(await obligation(a)).toBe('completed');
+    // A fenced take without a lease (save-only) is equally terminal once failed: the fence alone must settle it.
+    const b=await seed(true,false),unleased=crypto.randomUUID();
+    await sql(`INSERT INTO sessions(id,user_id,status) VALUES('${unleased}','${b.user}',NULL)`);
+    await sql(`UPDATE sessions SET recording_fenced_at=now(),recording_fenced_reason='save_only' WHERE id='${unleased}'`);
+    expect(await obligation(b),'fenced, not yet failed').toBe('admitted');
+    await sql(`UPDATE sessions SET status='failed' WHERE id='${unleased}'`);
+    await expect(sql(`UPDATE sessions SET status='completed' WHERE id='${unleased}'`),'the fence keeps it closed').rejects.toThrow('lease_revoked');
+    expect(await obligation(b),'the fence alone settles a failed unleased take').toBe('completed');
+  });
+  it('legacy revivable failures, live leases and uncertain coaching keep blocking deletion',async()=>{
+    const legacy=await seed(true,false);
+    await sql(`INSERT INTO sessions(id,user_id,status) VALUES(gen_random_uuid(),'${legacy.user}','failed')`);
+    expect(await obligation(legacy),'a pre-fence failed row can still be revived, so it stays debt').toBe('admitted');
+    const live=await seed(true,false);const session=await leasedTake(live);
+    expect(await obligation(live),'an active leased take is unsettled').toBe('admitted');
+    await sql(`UPDATE sessions SET status='failed' WHERE id='${session}'`);
+    expect(await obligation(live),'its failed take settles').toBe('completed');
+    expect(await value(`SELECT count(*)::int FROM active_recording_lease WHERE user_id='${live.user}'`),'but the live lease remains').toBe(1);
+    const coaching=await seed(true,false);const take=await leasedTake(coaching);
+    await sql(as(coaching,`SELECT release_recording_lease('${coaching.lease}')`));await sql(`UPDATE sessions SET status='failed' WHERE id='${take}'`);
+    await sql(`INSERT INTO account_coaching_operations(operation_id,user_id,session_id,phase) VALUES(gen_random_uuid(),'${coaching.user}',gen_random_uuid(),'unknown')`);
+    for(const a of [legacy,live,coaching]){
+      await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));await ready(a);
+      expect({user:a.user,claim:await claim(a)}).toEqual({user:a.user,claim:{outcome:'pending'}});
+    }
+    await expect(sql(`DELETE FROM auth.users WHERE id='${legacy.user}'`)).rejects.toThrow('admitted save unsettled');
+  });
+});
+
+describe('session save-obligation backfill against the actual migration',()=>{
+  it('settles only pre-existing terminal leased/fenced failures; revivable and live work stays debt',async()=>{
+    const pre=new PGlite();
+    try{
+      await pre.exec(completionBootstrap());
+      const user='b9130000-0000-4000-8000-000000000001';
+      const ids={leased:'b9140000-0000-4000-8000-000000000001',fenced:'b9140000-0000-4000-8000-000000000002',
+        legacy:'b9140000-0000-4000-8000-000000000003',open:'b9140000-0000-4000-8000-000000000004'};
+      await pre.exec(`INSERT INTO auth.users VALUES('${user}','backfill@example.test',now());
+        INSERT INTO sessions(id,user_id,status,lease_id) VALUES('${ids.leased}','${user}','failed','b9150000-0000-4000-8000-000000000001');
+        INSERT INTO sessions(id,user_id,status,recording_fenced_at) VALUES('${ids.fenced}','${user}','failed',now());
+        INSERT INTO sessions(id,user_id,status) VALUES('${ids.legacy}','${user}','failed');
+        INSERT INTO active_recording_lease(user_id,lease_id) VALUES('${user}','b9150000-0000-4000-8000-000000000004');
+        INSERT INTO sessions(id,user_id,status,lease_id) VALUES('${ids.open}','${user}','active','b9150000-0000-4000-8000-000000000004');`);
+      await pre.exec(readFileSync(migration,'utf8'));
+      const phases=Object.fromEntries((await pre.query<{session_id:string;phase:string}>(
+        `SELECT session_id::text,phase FROM account_save_obligations WHERE user_id='${user}'`)).rows.map(r=>[r.session_id,r.phase]));
+      expect(phases).toEqual({[ids.leased]:'completed',[ids.fenced]:'completed',[ids.legacy]:'admitted',[ids.open]:'admitted'});
+    }finally{await pre.close();}
+  },60000);
 });
