@@ -1,0 +1,909 @@
+name: Apply one allowlisted migration (exact)
+
+# One target per dispatch. Checked-in ordering, hashes, and classification keep every unselected pending
+# migration apply-invisible. Source merge never authorizes a dispatch or production mutation.
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: 'Explicit separately authorized production operation; defaults off'
+        type: boolean
+        default: false
+      target_version:
+        description: 'One checked-in migration target'
+        required: true
+        type: choice
+        options:
+          - '20260811143000'
+          - '20260812030000'
+          - '20260812039500'
+          - '20260812040000'
+          - '20260812041000'
+          - '20260812041500'
+          - '20260812041600'
+          - '20260819120000'
+          - '20260829120000'
+          - '20260904150000'
+          - '20260910193000'
+          - '20260914214307'
+          - '20260923120000'
+          - '20260924150000'
+          - '20260926190000'
+          - '20260928120000'
+          - '20261013120000'
+          - '20261013140000'
+          - '20261013180000'
+          - '20261016090000'
+          - '20261016180000'
+          - '20261017200000'
+          - '20261018090000'
+          - '20261018170000'
+          - '20261019010000'
+          - '20261019055102'
+          - '20261019202856'
+          - '20261020230653'
+          - '20260812042000'
+      expected_head_sha:
+        description: 'Exact 40-character main SHA authorized by the Product Owner'
+        required: true
+        type: string
+      confirm:
+        description: 'Exact allowlist-derived phrase, including filename, SHA-256, and main SHA'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  production-policy:
+    if: ${{ inputs.deploy_production == true && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.policy.outputs.allowed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - id: policy
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
+
+  apply-one-allowlisted-migration:
+    needs: production-policy
+    if: ${{ inputs.deploy_production == true && needs.production-policy.outputs.allowed == 'true' }}
+    environment: production-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      SELECTED_TARGET_VERSION: ${{ inputs.target_version }}
+    steps:
+      - name: Checkout the dispatched commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate exact main identity and authorization phrase
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          CONFIRM: ${{ inputs.confirm }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RESOLVED_SHA: ${{ github.sha }}
+          RESOLVED_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          sha_re='^[0-9a-f]{40}$'
+          [[ "$EXPECTED_HEAD_SHA" =~ $sha_re ]] || { echo '::error::expected_head_sha must be a full lowercase SHA'; exit 1; }
+          [ "$RESOLVED_REF" = "$DEFAULT_BRANCH" ] || { echo '::error::workflow must be dispatched from the default branch'; exit 1; }
+          [ "$RESOLVED_SHA" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::dispatch resolved a different SHA'; exit 1; }
+          expected_phrase="$(node scripts/exact-migration-gate.mjs phrase "$EXPECTED_HEAD_SHA" | jq -r '.phrase')"
+          [ "$CONFIRM" = "$expected_phrase" ] || { echo '::error::exact allowlist-derived authorization phrase missing'; exit 1; }
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before execution'; exit 1; }
+
+          for status in in_progress queued waiting pending requested; do
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100")"
+            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Apply one allowlisted migration (exact)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
+            [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active or pending'; exit 1; }
+          done
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Verify checked-in allowlist and source identities
+        id: contract
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          contract="$(node ../../scripts/exact-migration-gate.mjs source .)"
+          echo "$contract"
+          echo "target_version=$(jq -r '.targetVersion' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "target_file=$(jq -r '.targetFile' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "target_sha256=$(jq -r '.targetSha256' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "classification=$(jq -r '.classification' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "requires_include_all=$(jq -r '.requiresIncludeAll' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "excluded_versions=$(jq -r '.excludedVersions | join(" ")' <<<"$contract")" >> "$GITHUB_OUTPUT"
+
+      - name: Establish exact pre-apply state
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-before.txt"
+          node ../../scripts/exact-migration-gate.mjs before "$RUNNER_TEMP/migrations-before.txt"
+
+      - name: Establish read-only production lint baseline
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase db lint --linked --schema public --level warning 2>&1 | tee "$RUNNER_TEMP/lint-before.txt"
+
+      - name: Build isolated target-only migration workspace
+        run: |
+          set -euo pipefail
+          # Exclusions come from the pre-apply ledger read above: only still-pending later allowlist entries.
+          node scripts/exact-migration-gate.mjs prepare-workspace backend/supabase "$RUNNER_TEMP" "$RUNNER_TEMP/migrations-before.txt"
+
+      - name: Prove dry-run is target-only
+        working-directory: ${{ runner.temp }}/exact-backend
+        run: |
+          set -euo pipefail
+          push_args=()
+          if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then
+            push_args+=(--include-all)
+          fi
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase db push --dry-run "${push_args[@]}" 2>&1 | tee "$RUNNER_TEMP/exact-dry-run.txt"
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" dry-run "$RUNNER_TEMP/exact-dry-run.txt"
+
+      - name: Preflight #1314 postflight credentials (before the irreversible apply)
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_URL:-}" ] || missing+=(SUPABASE_URL)
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || missing+=(SUPABASE_SERVICE_ROLE_KEY)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::#1314 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          echo "#1314 postflight credentials present"
+
+      - name: Prove verification path reachable and TLS-encrypted BEFORE the irreversible apply
+        id: connectivity_preflight
+        # Applies to every target whose postflight verifies through raw psql — currently #1314 and #1306
+        # Stage B. Still scoped deliberately: making every allowlisted migration depend on the Management
+        # API would broaden this recovery beyond its frozen scope. A general policy belongs in the catch-all.
+        # ONE resolution serves both. Stage B originally resolved the pooler a second time, which the
+        # SEC-002 contract rejects: two resolutions can drift, leaving this proof attesting to parameters
+        # the postflight never uses.
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') || contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') || contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') || contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') || contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') || contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') || contains(steps.contract.outputs.target_file, '20261016180000_account_closure_drain_enforcement') || contains(steps.contract.outputs.target_file, '20261017200000_checkout_rejection_recovery') || contains(steps.contract.outputs.target_file, '20261018090000_analytics_summary_observed_filler_rate_1472') || contains(steps.contract.outputs.target_file, '20261018170000_account_closure_pending_checkout') || contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') || contains(steps.contract.outputs.target_file, '20261019055102_account_pending_recording_admission_1643') || contains(steps.contract.outputs.target_file, '20261019202856_account_coaching_admission_1643') || contains(steps.contract.outputs.target_file, '20261020230653_account_pending_completion_journal_1643') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # SEC-002 — the ordering that makes this safe. A prior run applied a migration and only THEN
+          # discovered its verification path was unreachable, leaving a landed change that could not be
+          # confirmed. Proving reachability + real TLS here means an unusable verification path stops the
+          # apply instead of stranding it. Scoped to the same predicate as the postflight it protects.
+          # Resolve the pooler ONCE here; the postflight reuses this exact file. Re-resolving there
+          # could drift, leaving this proof attesting to parameters the postflight never uses.
+          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/pooler.env"
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          bash scripts/assert-db-connectivity-tls.sh
+
+      - name: Preflight #1306 Stage B credentials and BEFORE state (before the irreversible apply)
+        # SAME scoping discipline as #1314: only targets verified through raw psql need the pooler, and
+        # making every allowlisted migration depend on it would broaden this beyond its frozen scope.
+        if: ${{ contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_URL:-}" ] || missing+=(SUPABASE_URL)
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || missing+=(SUPABASE_SERVICE_ROLE_KEY)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::#1306 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # Reuse the pooler parameters resolved ONCE by the shared reachability proof above, which runs
+          # for this target too. Fails closed if that proof never ran, so this gate can never execute
+          # against parameters nothing proved reachable (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          # THE PREMISE. If v1 is already absent there is nothing to retire, and continuing would report a
+          # success this migration did not cause.
+          bash scripts/postflight-gate-1306.sh before
+
+      - name: Preflight #1416 storage-contract credentials and BEFORE state (before the irreversible apply)
+        # SAME scoping discipline as #1314 and #1306: only targets verified through raw psql need the
+        # pooler, and making every allowlisted migration depend on it would broaden this beyond its
+        # frozen scope.
+        if: ${{ contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::#1416 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # Reuse the pooler parameters resolved ONCE by the shared reachability proof above, which runs
+          # for this target too. Fails closed if that proof never ran, so this gate can never execute
+          # against parameters nothing proved reachable (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          # THE PREMISE. If the column and the exact pairing are already present there is nothing to
+          # apply, and continuing would report a success this migration did not cause.
+          bash scripts/postflight-gate-1416.sh before
+
+      - name: Preflight 20260926190000 product-marker postflight credentials and API path (before the irreversible apply)
+        # #1537 (Codex P1 r4112619095): the postflight reloads PostgREST through raw psql and then reads
+        # `sessions.product` through the client's REST API. Both paths are proven here, BEFORE the apply, so an unusable
+        # verification path stops the apply instead of stranding a change that cannot be confirmed (SEC-002).
+        if: ${{ contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_URL:-}" ] || missing+=(SUPABASE_URL)
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || missing+=(SUPABASE_SERVICE_ROLE_KEY)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::20260926190000 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          # The raw-psql reload path was proven by the shared reachability step above; fail closed if it did not run.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          # #1537 (Codex P1 r4115978885): the REST path must be the migrated project's, or a passing probe proves nothing.
+          bash scripts/assert-rest-url-bound.sh
+          # The REST path, with a column that already exists: a no-row read (nonexistent id, limit=0) must return
+          # exactly `[]`. No response body is ever printed.
+          code=$(curl -sS --max-time 10 -o "$RUNNER_TEMP/pre-product-probe.json" -w '%{http_code}' \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            "${SUPABASE_URL}/rest/v1/sessions?select=id&id=eq.00000000-0000-0000-0000-000000000000&limit=0") || code=000
+          if ! bash scripts/postgrest-column-readable.sh "$code" "$RUNNER_TEMP/pre-product-probe.json"; then
+            echo "::error::REST path to sessions is not usable BEFORE apply (http=$code) — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          echo "20260926190000 postflight credentials and both verification paths present"
+
+      - name: Preflight 20260928120000 trial-capability credentials and BEFORE function identity (before the irreversible apply)
+        # Function identity, not history identity: Production must still hold the REVIEWED live body (20260809000000).
+        # An out-of-band CREATE OR REPLACE would be invisible to the migration ledger; replacing an unreviewed body is
+        # refused here. Read-only catalog SELECTs through the pooler proven reachable above (SEC-002).
+        if: ${{ contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::20260928120000 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20260928120000.sh before
+
+      - name: Preflight 20261013120000 retention-expiry credentials and BEFORE function identity (before the irreversible apply)
+        # Function identity, not history identity: Production must still hold the REVIEWED live expiry (20260908120000) and
+        # derivation trigger (20260801000000), and no grants table. Replacing an unreviewed body is refused here.
+        # Read-only catalog SELECTs through the pooler proven reachable above (SEC-002).
+        if: ${{ contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::20261013120000 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20261013120000.sh before
+
+      - name: Preflight 20261013140000 typed-expiry credentials and BEFORE function identity (before the irreversible apply)
+        # Production must hold exactly what 20261013120000 deployed (run 38428832342); anything else is refused here.
+        # Read-only catalog SELECTs through the pooler proven reachable above (SEC-002).
+        if: ${{ contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::20261013140000 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20261013140000.sh before
+
+      - name: Preflight account closure baseline and absent schema (read-only)
+        if: ${{ contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || { echo '::error::closure verification credentials missing BEFORE apply'; exit 1; }
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler parameters absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/account-closure-rollout-gate.mjs before
+
+      - name: Preflight drain persistence against exact disabled closure schema (read-only)
+        if: ${{ contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || { echo '::error::drain verification credentials missing BEFORE apply'; exit 1; }
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler parameters absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/account-closure-drain-gate.mjs before
+
+      - name: Preflight drain enforcement against exact disabled prerequisites (read-only)
+        if: ${{ contains(steps.contract.outputs.target_file, '20261016180000_account_closure_drain_enforcement') }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || { echo '::error::enforcement credentials missing BEFORE apply'; exit 1; }
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/account-closure-enforcement-gate.mjs before
+
+      - name: Preflight checkout recovery against exact disabled enforcement prerequisites (read-only)
+        if: ${{ contains(steps.contract.outputs.target_file, '20261017200000_checkout_rejection_recovery') }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || { echo '::error::recovery credentials missing BEFORE apply'; exit 1; }
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/checkout-rejection-gate.mjs before
+
+      - name: Verify T2 target preimage and prerequisites before exact apply
+        if: ${{ contains(steps.contract.outputs.target_file, '20261018090000_analytics_summary_observed_filler_rate_1472') || contains(steps.contract.outputs.target_file, '20261018170000_account_closure_pending_checkout') || contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') || contains(steps.contract.outputs.target_file, '20261019055102_account_pending_recording_admission_1643') || contains(steps.contract.outputs.target_file, '20261019202856_account_coaching_admission_1643') || contains(steps.contract.outputs.target_file, '20261020230653_account_pending_completion_journal_1643') }}
+        env:
+          T2_TARGET: ${{ steps.contract.outputs.target_version }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs before "$T2_TARGET"
+
+      - name: Revalidate main IMMEDIATELY before the irreversible apply
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          node scripts/production-release-policy.mjs authorize
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced after dry-run'; exit 1; }
+
+      - name: Apply the exact reviewed migration
+        id: apply
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/exact-backend
+        run: |
+          set -euo pipefail
+          push_args=()
+          if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then
+            push_args+=(--include-all)
+          fi
+          supabase db push --yes "${push_args[@]}"
+
+      - name: Verify target applied and every unselected pending migration remained pending
+        id: verify
+        if: ${{ always() && steps.apply.outcome != 'skipped' }}
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-after.txt"
+          node ../../scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+
+      - name: Verify migration introduced no production lint change
+        id: lint_verify
+        if: ${{ always() && steps.apply.outcome != 'skipped' }}
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase db lint --linked --schema public --level warning 2>&1 | tee "$RUNNER_TEMP/lint-after.txt"
+          node ../../scripts/exact-migration-gate.mjs lint-delta "$RUNNER_TEMP/lint-before.txt" "$RUNNER_TEMP/lint-after.txt"
+
+      # #1314-KEYED POSTFLIGHT. The generic gate above verifies the migration LIST (which migrations are
+      # pending/applied); it does NOT verify the objects, ACLs, trigger or PostgREST resolution this migration is
+      # reviewed to produce. For the #1314 migration specifically, run the SAME mutation-proven postflight gate
+      # used by the disposable proof, then confirm the PostgREST reload, against the linked production database.
+      # Read-only: the gate issues SELECTs; the reload probe sends a full-args call with a NONEXISTENT session id
+      # (an empty {} cannot resolve an RPC that has no defaultable p_session_id — that was a false-green probe).
+      - name: Enforce reviewed #1314 operation (postflight gate + reload proof)
+        id: postflight_1314
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # CONNECTION — libpq environment, never a connection URI (SEC-001).
+          # Embedding a credential in a URI authority is unsafe in CI: the URI is re-parsed by the client,
+          # and a parse failure is reported by echoing the authority back into the job log. Secret masking
+          # cannot be relied on there, since it matches exact secret occurrences rather than transformed
+          # ones. libpq environment variables are never re-parsed and never re-emitted on error.
+          # SEC-002 — resolve the IPv4-reachable SESSION pooler at runtime. The direct endpoint
+          # (db.<ref>.supabase.co) is IPv6-only and unreachable from GitHub runners; no region or host
+          # is hardcoded, since a stale one would fail the same silent way. The env file is 0600 and is
+          # sourced, never printed.
+          # REUSE the parameters proven reachable before the apply — never re-resolve. Fail closed if
+          # the pre-apply proof did not run, since that means nothing established this path works.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
+          # 1) postflight gate (read-only SELECTs) against the linked production DB.
+          bash scripts/postflight-gate-1314.sh after
+          # 2) reload PostgREST and CONFIRM resolution — FAIL-CLOSED. `{}` cannot resolve an RPC that has no
+          #    defaultable p_session_id, so we send the FULL arg set with a nonexistent session id. A RESOLVED
+          #    function returns the frozen non-mutating contract: HTTP 200 with a body containing
+          #    "profile_not_found" (auth.uid() has no profile for the service-role token) OR "session_not_found".
+          #    Anything else — curl/network failure, non-200, PGRST202, malformed/empty body, any other error —
+          #    is a FAILURE. Absence-of-PGRST202 is NOT sufficient.
+          psql -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
+          BOGUS='{"p_session_id":"00000000-0000-0000-0000-000000000000","p_status":"completed","p_final_duration":1,"p_reason":null,"p_next_action":null,"p_total_words":null,"p_clarity_score":null,"p_wpm":null,"p_filler_counts":null,"p_pause_metrics":null,"p_final_transcript":null}'
+          ok=no
+          for i in $(seq 1 15); do
+            code=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H 'Content-Type: application/json' \
+              -X POST "${SUPABASE_URL}/rest/v1/rpc/complete_session_v2" -d "$BOGUS") || { sleep 2; continue; }
+            # Shared fail-closed decision (scripts/postgrest-reload-confirmed.sh), mutation-tested.
+            if bash scripts/postgrest-reload-confirmed.sh "$code" /tmp/probe.json; then ok=yes; break; fi
+            sleep 2
+          done
+          if [ "$ok" != yes ]; then
+            echo "::error::reload probe did not observe the frozen resolved-function response (last http=$code, body: $(head -c 200 /tmp/probe.json))"
+            exit 1
+          fi
+          echo "postflight gate + reload proof passed on production"
+
+      - name: Require #1314 postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_1314.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::#1314 applied but its postflight gate outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "#1314 postflight enforced: success"
+
+      - name: Enforce reviewed #1306 Stage B operation (postflight gate)
+        id: postflight_1306
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve, or the postflight
+          # could attest to a path the pre-apply proof never validated.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          # Both v1 signatures absent; v2 signature, grants and anon/PUBLIC denial retained.
+          bash scripts/postflight-gate-1306.sh after
+          # POSITIVE v2 READBACK. Absence of v1 is not proof the successor still works. A full-args call
+          # with a nonexistent session id resolves only if the function exists: HTTP 200 carrying
+          # profile_not_found or session_not_found. Anything else — non-200, PGRST202, empty or malformed
+          # body, transport failure — is a FAILURE. Absence-of-PGRST202 alone is NOT sufficient.
+          psql -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
+          BOGUS='{"p_session_id":"00000000-0000-0000-0000-000000000000","p_status":"completed","p_final_duration":1,"p_reason":null,"p_next_action":null,"p_total_words":null,"p_clarity_score":null,"p_wpm":null,"p_filler_counts":null,"p_pause_metrics":null,"p_final_transcript":null}'
+          ok=no
+          for i in $(seq 1 15); do
+            code=$(curl -sS -o /tmp/probe1306.json -w '%{http_code}' \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H 'Content-Type: application/json' \
+              -X POST "${SUPABASE_URL}/rest/v1/rpc/complete_session_v2" -d "$BOGUS") || { sleep 2; continue; }
+            if bash scripts/postgrest-reload-confirmed.sh "$code" /tmp/probe1306.json; then ok=yes; break; fi
+            sleep 2
+          done
+          if [ "$ok" != yes ]; then
+            echo "::error::v2 readback did not observe the frozen resolved-function response (last http=$code, body: $(head -c 200 /tmp/probe1306.json))"
+            exit 1
+          fi
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "#1306 Stage B postflight passed on production"
+
+      - name: Require #1306 postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_1306.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::#1306 applied but its postflight gate outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "#1306 postflight enforced: success"
+
+      - name: Enforce reviewed #1416 storage contract (postflight gate)
+        id: postflight_1416
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve, or the postflight
+          # could attest to a path the pre-apply proof never validated.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          # Column, UNCONDITIONAL unique index (a partial one is unusable as a PostgREST conflict
+          # target, so Send would fail on every normal submission), and the exact severity and
+          # type/kind pairing the reviewed constraint carries.
+          bash scripts/postflight-gate-1416.sh after
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "#1416 storage-contract postflight passed on production"
+
+      - name: Require #1416 postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_1416.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::#1416 applied but its postflight gate outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "#1416 postflight enforced: success"
+
+      # #1537-KEYED POSTFLIGHT (Codex P1 r4112619095). The generic history + lint proofs above can pass while PostgREST
+      # still cannot serve `sessions.product`, and the #1535 reader would then silently fall back to its legacy read.
+      # Reload PostgREST, then read the new column through the SAME REST API the client uses — a NO-ROW read (nonexistent
+      # id, limit=0), so no user session data is ever read or logged. Fail closed: only HTTP 200 with exactly `[]`.
+      - name: Enforce reviewed 20260926190000 product-marker operation (PostgREST reload + sessions.product read)
+        id: postflight_20260926190000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
+        run: |
+          set -euo pipefail
+          # #1537 (Codex P1 r4115978885): bind the REST read to the migrated project BEFORE the reload and any request.
+          bash scripts/assert-rest-url-bound.sh
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          psql -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
+          ok=no
+          code=000
+          for i in $(seq 1 15); do
+            code=$(curl -sS --max-time 10 -o "$RUNNER_TEMP/product-probe.json" -w '%{http_code}' \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              "${SUPABASE_URL}/rest/v1/sessions?select=id,product&id=eq.00000000-0000-0000-0000-000000000000&limit=0") || { code=000; sleep 2; continue; }
+            if bash scripts/postgrest-column-readable.sh "$code" "$RUNNER_TEMP/product-probe.json"; then ok=yes; break; fi
+            sleep 2
+          done
+          if [ "$ok" != yes ]; then
+            # Status and error code only — never the response body.
+            err=$(grep -oE '"code":"[A-Z0-9]{1,10}"' "$RUNNER_TEMP/product-probe.json" 2>/dev/null | head -n 1 || true)
+            echo "::error::sessions.product not readable through PostgREST after reload (last http=$code ${err})"
+            exit 1
+          fi
+          echo "20260926190000 postflight passed: PostgREST reloaded and sessions.product resolves through the REST API"
+
+      - name: Require 20260926190000 product-marker postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_20260926190000.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::20260926190000 applied but its postflight outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "20260926190000 postflight enforced: success"
+
+      # 20260928120000-KEYED POSTFLIGHT: the deployed has_objective_capability() is exactly the reviewed trial-aware body
+      # (md5 of pg_get_functiondef), SECURITY DEFINER, pinned search_path, STABLE, EXECUTE for authenticated only.
+      # Read-only catalog SELECTs; never calls the function or reads a profile row.
+      - name: Enforce reviewed 20260928120000 trial-capability definition (function identity + ACL)
+        id: postflight_20260928120000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20260928120000.sh after
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "20260928120000 postflight passed: the reviewed trial-aware definition and its ACL are deployed"
+
+      - name: Require 20260928120000 trial-capability postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_20260928120000.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::20260928120000 applied but its postflight outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "20260928120000 postflight enforced: success"
+
+      # 20261013120000-KEYED POSTFLIGHT: the deployed expiry and derivation trigger are exactly the reviewed bodies, the
+      # expiry's ACL is service_role-only, and the grants table is present, row-level secured, empty and closed to every
+      # client role. Read-only; never calls a function or reads a session.
+      - name: Enforce reviewed 20261013120000 retention-expiry definitions (function identity + ACL + grants table)
+        id: postflight_20261013120000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20261013120000.sh after
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "20261013120000 postflight passed: the reviewed retention-expiry definitions are deployed"
+
+      - name: Require 20261013120000 retention-expiry postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_20261013120000.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::20261013120000 applied but its postflight outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "20261013120000 postflight enforced: success"
+
+      # 20261013140000-KEYED POSTFLIGHT: the typed expiry body, the unchanged trigger, ACLs and the closed, empty grants
+      # table. Read-only; never calls a function or reads a session. The lint return-to-baseline is the lint-delta step.
+      - name: Enforce reviewed 20261013140000 typed-expiry definition (function identity + ACL + grants table)
+        id: postflight_20261013140000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/postflight-gate-20261013140000.sh after
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "20261013140000 postflight passed: the reviewed typed expiry definition is deployed"
+
+      - name: Require 20261013140000 typed-expiry postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_20261013140000.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::20261013140000 applied but its postflight outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "20261013140000 postflight enforced: success"
+
+      - name: Verify exact account closure schema with deletion still disabled
+        id: postflight_20261013180000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler parameters absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/account-closure-rollout-gate.mjs after
+          node scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+
+      - name: Verify exact drain persistence and initial disabled state
+        id: postflight_20261016090000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler parameters absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/account-closure-drain-gate.mjs after
+
+      - name: Verify exact drain enforcement and disabled historical state
+        id: postflight_20261016180000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261016180000_account_closure_drain_enforcement') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/account-closure-enforcement-gate.mjs after
+
+      - name: Verify exact checkout rejection recovery and initial empty private receipts
+        id: postflight_20261017200000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261017200000_checkout_rejection_recovery') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/checkout-rejection-gate.mjs after
+
+      - name: Verify reviewed T2 20261018090000 catalog and ACL
+        id: postflight_20261018090000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261018090000_analytics_summary_observed_filler_rate_1472') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261018090000'
+
+      - name: Verify reviewed T2 20261018170000 catalog and ACL
+        id: postflight_20261018170000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261018170000_account_closure_pending_checkout') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261018170000'
+
+      - name: Verify reviewed T2 20261019010000 catalog and ACL
+        id: postflight_20261019010000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261019010000'
+
+      - name: Verify reviewed T2 20261019055102 catalog and ACL
+        id: postflight_20261019055102
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261019055102_account_pending_recording_admission_1643') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261019055102'
+
+      - name: Verify reviewed T2 20261019202856 catalog and ACL
+        id: postflight_20261019202856
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261019202856_account_coaching_admission_1643') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261019202856'
+
+      - name: Verify reviewed T2 20261020230653 catalog and ACL
+        id: postflight_20261020230653
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261020230653_account_pending_completion_journal_1643') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261020230653'
+
+      - name: Require unambiguous exact-operation success
+        id: terminal
+        if: always()
+        # The applicable target-specific postflight is part of TERMINAL authority, passed by NAME. The
+        # previous invocation passed postflight_1314 as a trailing positional that the CLI discarded, and
+        # never passed postflight_1306 at all — so this step could report exact-operation success while the
+        # reviewed operation was unverified. An earlier step going red is not a substitute for that.
+        run: |
+          node scripts/exact-migration-gate.mjs final \
+            "${{ steps.apply.outcome }}" "${{ steps.verify.outcome }}" "${{ steps.lint_verify.outcome }}" \
+            "${{ steps.contract.outputs.target_file }}" \
+            "postflight_1314=${{ steps.postflight_1314.outcome }}" \
+            "postflight_1306=${{ steps.postflight_1306.outcome }}" \
+            "postflight_1416=${{ steps.postflight_1416.outcome }}" \
+            "postflight_20260926190000=${{ steps.postflight_20260926190000.outcome }}" \
+            "postflight_20260928120000=${{ steps.postflight_20260928120000.outcome }}" \
+            "postflight_20261013120000=${{ steps.postflight_20261013120000.outcome }}" \
+            "postflight_20261013140000=${{ steps.postflight_20261013140000.outcome }}" \
+            "postflight_20261013180000=${{ steps.postflight_20261013180000.outcome }}" \
+            "postflight_20261016090000=${{ steps.postflight_20261016090000.outcome }}" \
+            "postflight_20261016180000=${{ steps.postflight_20261016180000.outcome }}" \
+            "postflight_20261017200000=${{ steps.postflight_20261017200000.outcome }}" \
+            "postflight_20261018090000=${{ steps.postflight_20261018090000.outcome }}" \
+            "postflight_20261018170000=${{ steps.postflight_20261018170000.outcome }}" \
+            "postflight_20261019010000=${{ steps.postflight_20261019010000.outcome }}" \
+            "postflight_20261019055102=${{ steps.postflight_20261019055102.outcome }}" \
+            "postflight_20261019202856=${{ steps.postflight_20261019202856.outcome }}" \
+            "postflight_20261020230653=${{ steps.postflight_20261020230653.outcome }}"
+
+      - name: Publish sanitized result
+        if: always()
+        run: |
+          echo '## Exact allowlisted migration gate' >> "$GITHUB_STEP_SUMMARY"
+          echo "- Checked-out SHA: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Authorized target: \`${{ steps.contract.outputs.target_version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Filename: \`${{ steps.contract.outputs.target_file }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA-256: \`${{ steps.contract.outputs.target_sha256 }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Classification: \`${{ steps.contract.outputs.classification }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Isolated out-of-order flag required: \`${{ steps.contract.outputs.requires_include_all }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Later allowlist entries (excluded only while still pending in the pre-apply ledger; applied ones are kept): \`${{ steps.contract.outputs.excluded_versions }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- #1314 postflight outcome: \`${{ steps.postflight_1314.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- #1306 Stage B postflight outcome: \`${{ steps.postflight_1306.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 20260926190000 product-marker postflight outcome: \`${{ steps.postflight_20260926190000.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 20260928120000 trial-capability postflight outcome: \`${{ steps.postflight_20260928120000.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 20261013120000 retention-expiry postflight outcome: \`${{ steps.postflight_20261013120000.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 20261013140000 typed-expiry postflight outcome: \`${{ steps.postflight_20261013140000.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo '- The selected migration is the only authorized mutation. `--include-all` is permitted only for the isolated #1276 target and must be disclosed by its exact authorization phrase. No repair, broad-directory application, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"

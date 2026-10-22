@@ -1,0 +1,96 @@
+{
+  "preparedUtc": "2026-10-22T01:31:48.185905+00:00",
+  "branch": "cli-dev/t2-six-target-gates-20261022",
+  "head": "20f8986728d4f5c1796ac9da14c1ae7c3e4a2180",
+  "parent": "3e113fc4fd555d6d4d669d654f5d9d81fd0ea1c0",
+  "tree": "12f7a49598d3b1ee610acfd52ba244059f64d2e1",
+  "paths": [
+    {
+      "path": ".github/workflows/apply-exact-allowlisted-migration.yml",
+      "sha256": "92fbfce78c311e781d0b5052c41f30a89aec6c7b7bd2819992147bbe1b209d46",
+      "bytes": 59598,
+      "oldBlob": "bfebeb2f8afb3ea874e1cb0efda49de3c9366216",
+      "newBlob": "7b5affd1b3aeabda57278cd365603c2a0faeaea0"
+    },
+    {
+      "path": ".github/workflows/deploy-supabase-migrations.yml",
+      "sha256": "c00c5f94d49986da0d97d88bb1afeb99de2a5fcc2dc6c17cd7c868b8e4afaa88",
+      "bytes": 19287,
+      "oldBlob": "7b28ad9e20833ce412159dbbc34faa8bf5bbee8f",
+      "newBlob": "1b97b322152539b437ffba92f281200a50b2c453"
+    },
+    {
+      "path": "scripts/lib/exactMigrationGate.mjs",
+      "sha256": "ce1f2d721d6c6749e22691675458176d96b778963ae10362b1a5800b0a8f4d39",
+      "bytes": 41265,
+      "oldBlob": "c600c2d2503c891a94a9968441cd693df5d45219",
+      "newBlob": "6e8fa5b2a7868709e057d03a18aff7cc51162ba1"
+    },
+    {
+      "path": "scripts/lib/t2MigrationPostflight.mjs",
+      "sha256": "1c9ded7e61ff946bb9584c197669cd9f0c7751d0a8423dc091bda59aedd39fbe",
+      "bytes": 24636,
+      "oldBlob": null,
+      "newBlob": "fcac0e51515fd60c875000f08ff6628a2b53054f"
+    },
+    {
+      "path": "scripts/t2-migration-postflight.mjs",
+      "sha256": "e9339f51107eb3398bf6552c29aaf38b55aecd1d66a5e2d2e36849493acbffc9",
+      "bytes": 2636,
+      "oldBlob": null,
+      "newBlob": "16ef63c20773ad59d14925e577672eed0edb8d43"
+    },
+    {
+      "path": "tests/unit/edgeDeployWorkflowContract.test.js",
+      "sha256": "e62050d4c566757c5796132c374fd9dffefefaa6a80f2396fc9c693cac467ec0",
+      "bytes": 3601,
+      "oldBlob": "e1f2aaf280319bc8535b820d1b68da7e4f46819f",
+      "newBlob": "cf22ead26585b13925ff03ac7f2a8ea926aaa640"
+    },
+    {
+      "path": "tests/unit/exactApplyRealLedger.test.js",
+      "sha256": "cb810c34c5cd48df8efbc4c2dbb35ba2f20f00a62d8575db04e5520a6b41df50",
+      "bytes": 7198,
+      "oldBlob": "59688a1741e6fcb8b99c87761af8b6457fa46b85",
+      "newBlob": "6e66f2d69be5b8ea1fde85111e76b2a866df6f63"
+    },
+    {
+      "path": "tests/unit/exactMigrationGate.test.js",
+      "sha256": "14cfc441f42ca0a9ff7b68bc357b36f74b9ae37de204777305429d196813ebfa",
+      "bytes": 28961,
+      "oldBlob": "796ad1241b70c6245b9953310068b41ca05e7a0f",
+      "newBlob": "ed46e29f9b1d4c64211fda45e8f4257da97340dc"
+    },
+    {
+      "path": "tests/unit/t2MigrationPostflight.test.js",
+      "sha256": "748ea80b59f80881248155269fc1b7d1274069b42423295901a8be4c8dfd7ca5",
+      "bytes": 10473,
+      "oldBlob": null,
+      "newBlob": "69a5b3f2cb8595a9ac3297a5247ba09c969aa11e"
+    }
+  ],
+  "patchSha256": "08a408092d0caf9304ea37c16228665664b40daf793183a2d6eaa13c4575ead0",
+  "patchBytes": 65887,
+  "remoteMainVerified": "1090476674d1321d08ef7d39a90f3d56dbb890db",
+  "receivingPreimages": "Six existing gate paths identical to verified remote main; three new paths. App owns receiving/landing.",
+  "tests": {
+    "command": "pnpm test:unit tests/unit/t2MigrationPostflight.test.js tests/unit/exactMigrationGate.test.js tests/unit/exactApplyRealLedger.test.js tests/unit/edgeDeployWorkflowContract.test.js --coverage.enabled=false",
+    "passed": 46,
+    "exitCode": 0,
+    "durationSeconds": 4.82,
+    "fullQuality": "RUNNING session66572; not yet claimed PASS",
+    "database": "Bounded PGlite SQL/catalog controls; NOT native126, hosted or Storage API proof"
+  },
+  "catalog": {
+    "finalObjects": 90,
+    "states": 7,
+    "scope": "Pinned function identities/ACL, logical tables/constraints/indexes/policies/triggers and private rights; final composed state, not obsolete intermediate bodies"
+  },
+  "limits": [
+    "NOT READY TO LAND until independent review, final quality and receiving exact-head CI/native qualification",
+    "No production migration/deployment/activation/model run; default-off and exact authorization retained",
+    "Initial disabled schema required; no activation procedure included",
+    "Native platform defaults/catalog compatibility must be established on App receiving126, not inferred from PGlite"
+  ],
+  "next": "Sam independent source review; App receive after Storage; receiving tests and exact-head qualification; protected landing only after required checks and Sam authorization"
+}
