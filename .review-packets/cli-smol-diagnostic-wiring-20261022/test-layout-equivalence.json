@@ -1,0 +1,12 @@
+{
+  "parent": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+  "successor": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+  "test": "tests/unit/smolDiagnosticDispatch.test.ts",
+  "previousSourceSha256": "0a39c40335e9cecee07c99b8fe92812832841d44e4fefdc3caa74817078d7abc",
+  "finalSourceSha256": "c4fd25f44326a24402290fd33b6c4ff5726e42b06e0bcbb4ff2647142a4f9ede",
+  "previousEmittedJsSha256": "e8f282b4fa579a00d68baf0c5d1c85e1a4014f612d74f04c108b92383014cfba",
+  "finalEmittedJsSha256": "e8f282b4fa579a00d68baf0c5d1c85e1a4014f612d74f04c108b92383014cfba",
+  "emittedJsByteIdentical": true,
+  "typescriptVersion": "5.9.3",
+  "scope": "Only call-layout correction; consumer code and test runtime JS unchanged. Retained mutant RED results belong to parent; final focused GREEN belongs to successor."
+}

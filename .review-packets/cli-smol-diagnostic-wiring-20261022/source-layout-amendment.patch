@@ -1,0 +1,15 @@
+diff --git a/tests/unit/smolDiagnosticDispatch.test.ts b/tests/unit/smolDiagnosticDispatch.test.ts
+index 4d671f1f2..d3d102bc8 100644
+--- a/tests/unit/smolDiagnosticDispatch.test.ts
++++ b/tests/unit/smolDiagnosticDispatch.test.ts
+@@ -69,8 +69,8 @@ describe('Smol diagnostic dispatch uses the same frozen evidence without a saved
+     await coach.dispose();expect(engine.unload).toHaveBeenCalledTimes(1);
+   });
+ 
+-  it.each(['{}','not JSON','{"version":"llama_coaching_v1","what_worked":"Owner","what_to_try_next":"Cost"}'])
+-  ('retains invalid raw output %j without relabeling it or retrying',async raw=>{
++  it.each(['{}','not JSON','{"version":"llama_coaching_v1","what_worked":"Owner","what_to_try_next":"Cost"}'])(
++  'retains invalid raw output %j without relabeling it or retrying',async raw=>{
+     engine.chat.completions.create.mockResolvedValueOnce({choices:[{message:{content:raw},finish_reason:'stop'}],
+       usage:{prompt_tokens:3}});
+     const coach=await createSmolCoach('http://127.0.0.1:1234');

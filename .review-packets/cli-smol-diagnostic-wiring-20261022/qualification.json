@@ -1,0 +1,254 @@
+{
+  "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+  "tree": "26552c2f85043fdcffb86a1f7334494c6d5dd6fe",
+  "updatedUtc": "2026-10-22T14:20:01.435202+00:00",
+  "scope": "Offline diagnostic dispatch; external engine/tokenizer/fetch mocked. No inference or model-quality results.",
+  "focused": {
+    "report": "/private/tmp/cli-smol-focused-20261022T1404.json",
+    "passed": 75,
+    "failed": 0,
+    "files": [
+      "/private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/llamaRawOutputEvidence.test.ts",
+      "/private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/productCoachingInputs.test.ts",
+      "/private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts",
+      "/private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/webLlmProfiles.test.ts",
+      "/private/tmp/speaksharp-cli-smol-profile-20261021/frontend/src/services/coaching/provider.test.ts"
+    ]
+  },
+  "mutationControls": {
+    "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+    "records": [
+      {
+        "id": "wrong-model",
+        "exitCode": 1,
+        "report": "/private/tmp/cli-smol-mutant-wrong-model-20261022T1406.json",
+        "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+        "failedTests": 2,
+        "passedTests": 0,
+        "targetedAssertionFailures": [
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim uses the shared Smol engine and honest open_mic diagnostic output identity",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected \"spy\" to be called with arguments: [ \u2026(2) ]\n\nReceived: \n\n  1st spy call:\n\n  [\n-   \"SmolLM2-1.7B-Instruct-q4f16_1-MLC\",\n-   Any<Object>,\n+   \"Llama-3.2-1B-Instruct-q4f16_1-MLC\",\n+   {\n+     \"appConfig\": {\n+       \"cacheBackend\": \"cache\",\n+       \"model_list\": [\n+         {\n+           \"model\": \"http://127.0.0.1:1234/assets/smollm2/\",\n+           \"model_id\": \"Llama-3.2-1B-Instruct-q4f16_1-MLC\",\n+           \"model_lib\": \"http://127.0.0.1:1234/assets/smollm2-runtime/SmolLM2-1.7B-Instruct-q4f16_1_cs1k-webgpu.wasm\",\n+           \"overrides\": {\n+             \"context_window_size\": 4096,\n+           },\n+         },\n+       ],\n+     },\n+     \"logLevel\": \"WARN\",\n+   },\n  ]\n\n\nNumber of calls: 1\n\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1355:10)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:59:29\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ]
+          },
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim uses the shared Smol engine and honest focus_points diagnostic output identity",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected \"spy\" to be called with arguments: [ \u2026(2) ]\n\nReceived: \n\n  1st spy call:\n\n  [\n-   \"SmolLM2-1.7B-Instruct-q4f16_1-MLC\",\n-   Any<Object>,\n+   \"Llama-3.2-1B-Instruct-q4f16_1-MLC\",\n+   {\n+     \"appConfig\": {\n+       \"cacheBackend\": \"cache\",\n+       \"model_list\": [\n+         {\n+           \"model\": \"http://127.0.0.1:1234/assets/smollm2/\",\n+           \"model_id\": \"Llama-3.2-1B-Instruct-q4f16_1-MLC\",\n+           \"model_lib\": \"http://127.0.0.1:1234/assets/smollm2-runtime/SmolLM2-1.7B-Instruct-q4f16_1_cs1k-webgpu.wasm\",\n+           \"overrides\": {\n+             \"context_window_size\": 4096,\n+           },\n+         },\n+       ],\n+     },\n+     \"logLevel\": \"WARN\",\n+   },\n  ]\n\n\nNumber of calls: 1\n\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1355:10)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:59:29\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ]
+          }
+        ],
+        "restoredByteExact": true,
+        "validNegativeControl": true
+      },
+      {
+        "id": "global-prompt-relabel",
+        "exitCode": 1,
+        "report": "/private/tmp/cli-smol-mutant-global-prompt-relabel-20261022T1406.json",
+        "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+        "failedTests": 1,
+        "passedTests": 0,
+        "targetedAssertionFailures": [
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim preserves version-like strings and fake template markers inside transcript and Focus evidence",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected [ Array(1) ] to have a length of 3 but got 1\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1257:20)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:44:37\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)"
+            ]
+          }
+        ],
+        "restoredByteExact": true,
+        "validNegativeControl": true
+      },
+      {
+        "id": "invalid-marked-valid",
+        "exitCode": 1,
+        "report": "/private/tmp/cli-smol-mutant-invalid-marked-valid-20261022T1406.json",
+        "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+        "failedTests": 3,
+        "passedTests": 0,
+        "targetedAssertionFailures": [
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim retains invalid raw output \"{}\" without relabeling it or retrying",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected { raw: '{}', \u2026(12) } to match object { \u2026(3) }\n(11 matching properties omitted from actual)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1155:10)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:77:71\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ]
+          },
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim retains invalid raw output \"not JSON\" without relabeling it or retrying",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected { raw: 'not JSON', \u2026(12) } to match object { \u2026(3) }\n(11 matching properties omitted from actual)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1155:10)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:77:71\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ]
+          },
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim retains invalid raw output \"{\\\"version\\\":\\\"llama_coaching_v1\\\",\\\"what_worked\\\":\\\"Owner\\\",\\\"what_to_try_next\\\":\\\"Cost\\\"}\" without relabeling it or retrying",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected { \u2026(13) } to match object { \u2026(3) }\n(11 matching properties omitted from actual)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1155:10)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:77:71\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ]
+          }
+        ],
+        "restoredByteExact": true,
+        "validNegativeControl": true
+      },
+      {
+        "id": "wrong-version-accepted",
+        "exitCode": 1,
+        "report": "/private/tmp/cli-smol-mutant-wrong-version-accepted-20261022T1406.json",
+        "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+        "failedTests": 2,
+        "passedTests": 2,
+        "targetedAssertionFailures": [
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim retains invalid raw output \"{\\\"version\\\":\\\"llama_coaching_v1\\\",\\\"what_worked\\\":\\\"Owner\\\",\\\"what_to_try_next\\\":\\\"Cost\\\"}\" without relabeling it or retrying",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected { \u2026(13) } to match object { \u2026(3) }\n(14 matching properties omitted from actual)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1155:10)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:77:71\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ]
+          },
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim refuses extra keys, empty/oversized phrases and wrong-product output under canonical limits",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected [Function] to throw an error\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1420:16)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:87:79\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)"
+            ]
+          }
+        ],
+        "restoredByteExact": true,
+        "validNegativeControl": true
+      },
+      {
+        "id": "cancel-admission-bypassed",
+        "exitCode": 1,
+        "report": "/private/tmp/cli-smol-mutant-cancel-admission-bypassed-20261022T1406.json",
+        "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+        "failedTests": 1,
+        "passedTests": 0,
+        "targetedAssertionFailures": [
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim honors cancellation before dispatch without a generation or fallback",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected [Function] to throw error including 'cancelled before dispatch' but got 'coaching cancelled; output retired'\n    at _Assertion.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1420:16)\n    at _Assertion.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at _Assertion.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1639:20\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:94:5\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ]
+          }
+        ],
+        "restoredByteExact": true,
+        "validNegativeControl": true
+      },
+      {
+        "id": "protocol-fence-removed",
+        "exitCode": 1,
+        "report": "/private/tmp/cli-smol-mutant-protocol-fence-removed-20261022T1406.json",
+        "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+        "failedTests": 1,
+        "passedTests": 0,
+        "targetedAssertionFailures": [
+          {
+            "name": "Smol diagnostic dispatch uses the same frozen evidence without a saved-provider claim keeps the original18 cell identities and admits only the same-evidence product protocol",
+            "status": "failed",
+            "messages": [
+              "AssertionError: expected [Function] to throw an error\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1420:16)\n    at Proxy.<anonymous> (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/chai/index.js:1686:25)\n    at /private/tmp/speaksharp-cli-smol-profile-20261021/tests/unit/smolDiagnosticDispatch.test.ts:24:62\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)"
+            ]
+          }
+        ],
+        "restoredByteExact": true,
+        "validNegativeControl": true
+      }
+    ],
+    "allValid": true
+  },
+  "quality": {
+    "state": "FAILED_RETAINED",
+    "session": 54302,
+    "exitCode": 1,
+    "error": "tests/unit/smolDiagnosticDispatch.test.ts:73:3 no-unexpected-multiline",
+    "successor": "7465ec93b: call-layout-only fix; assertions and consumer source unchanged"
+  },
+  "finalRestoredGreen": {
+    "report": "/private/tmp/cli-smol-focused-final-20261022T1415.json",
+    "passed": 75,
+    "failed": 0,
+    "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c"
+  },
+  "explicitRunnerTypecheck": {
+    "exitCode": 0,
+    "command": "node scripts/host-interlock.mjs hold local -- pnpm exec tsc --noEmit -p /Users/fibonacci/SW_Dev/delivery-support/cli-smol-runner-tsconfig-20261022.json",
+    "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c"
+  },
+  "CI": "NOT_RUN",
+  "readyToLand": false,
+  "modelComparisonOutputs": 0,
+  "finalSource": {
+    "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+    "tree": "3a65bae1c709bd7a4199cadb963be360850bf279",
+    "clean": true,
+    "base": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+    "qualifiedParent": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+    "paths": [
+      {
+        "path": "frontend/src/benchmark/model-investigation-local.ts",
+        "blob": "3371a1da6bfcb02579ce7f9373cb2d1943ea3edb",
+        "sha256": "86e5276cc1c7a57e7d0dee0a201fb733fbae04e1159a2fd40cf303acdf3a5c27"
+      },
+      {
+        "path": "frontend/src/benchmark/smolBrowserCoach.ts",
+        "blob": "c8c860d50e19091884671b01a1bd1f270dda3353",
+        "sha256": "0fb822f709c60b543fdd2d6feeed6b84f74240ab6e6f8c4cd3d163741b58d9a9"
+      },
+      {
+        "path": "frontend/src/benchmark/smolCoachingContract.ts",
+        "blob": "8737634d637eef14418b9ab449eb676791c4c835",
+        "sha256": "3200d7fb0833445bd90cdd20e00994df621bddca3055740f8585383412d6c09b"
+      },
+      {
+        "path": "scripts/model-evaluator/product-coaching-inputs.ts",
+        "blob": "29e10506837c2f31e64f8004a05010401e578701",
+        "sha256": "1c6294307c72f0fdc731bca60c85987cf1ac217a6e1cdc14f407880b381edd58"
+      },
+      {
+        "path": "scripts/model-investigation.mts",
+        "blob": "bca790a703ef75ceff8bb3a333782b31894a1251",
+        "sha256": "4f2b2fac10f87730c02fa61abeeb30d37a33af75c7a1b4d1987b487f126008c2"
+      },
+      {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "blob": "d3d102bc87fde074d7b351e3e32774f2f895a5b4",
+        "sha256": "c4fd25f44326a24402290fd33b6c4ff5726e42b06e0bcbb4ff2647142a4f9ede"
+      }
+    ],
+    "amendment": "Test call layout only; runtime JS byte-identical; see test-layout-equivalence.json"
+  },
+  "successorQuality": {
+    "state": "PASS",
+    "exitCode": 0,
+    "session": 74985,
+    "command": "node scripts/host-interlock.mjs hold local -- pnpm quality",
+    "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+    "gates": [
+      "product:contract-check",
+      "lint",
+      "typecheck",
+      "typecheck:live",
+      "typecheck:evidence",
+      "eslint-disable"
+    ],
+    "liveScope": {
+      "localFiles": 161,
+      "liveSpecs": 41,
+      "liveHelpers": 49,
+      "sharedTestHelpers": 6,
+      "frontendSrc": 46
+    }
+  },
+  "notReadyReasons": [
+    "Independent review of final source/test amendment pending",
+    "No current-main exact-head CI/release qualification",
+    "No real inference or observed model-quality results"
+  ]
+}

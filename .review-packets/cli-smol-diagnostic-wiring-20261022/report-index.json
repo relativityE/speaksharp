@@ -1,0 +1,55 @@
+{
+  "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+  "reports": [
+    {
+      "path": "reports/cli-smol-focused-20261022T1404.json",
+      "sourcePath": "/private/tmp/cli-smol-focused-20261022T1404.json",
+      "bytes": 30308,
+      "sha256": "adbdcc96d35bdaed6255340dd3559e38b65fcdd80d6611917722fc2bea0459a7"
+    },
+    {
+      "path": "reports/cli-smol-focused-final-20261022T1415.json",
+      "sourcePath": "/private/tmp/cli-smol-focused-final-20261022T1415.json",
+      "bytes": 30321,
+      "sha256": "dca3b4d2a97c9595d89c3ae5a065218808286cc68e717abe4fb46bc225bb83ce"
+    },
+    {
+      "path": "reports/cli-smol-mutant-wrong-model-20261022T1406.json",
+      "sourcePath": "/private/tmp/cli-smol-mutant-wrong-model-20261022T1406.json",
+      "bytes": 7835,
+      "sha256": "9dff08c1e749c5d9b1c4303b4f8ffc46cfa59cc57ef9bf9dd6039b2089eb971e"
+    },
+    {
+      "path": "reports/cli-smol-mutant-global-prompt-relabel-20261022T1406.json",
+      "sourcePath": "/private/tmp/cli-smol-mutant-global-prompt-relabel-20261022T1406.json",
+      "bytes": 6063,
+      "sha256": "bae35da6607cec420bb7e7b56394ae379d702960dbb7038f69c8ef8811c7af47"
+    },
+    {
+      "path": "reports/cli-smol-mutant-invalid-marked-valid-20261022T1406.json",
+      "sourcePath": "/private/tmp/cli-smol-mutant-invalid-marked-valid-20261022T1406.json",
+      "bytes": 7387,
+      "sha256": "072fc3de5c80661891ab207d5125ff9bc1647e3799622d28c056b2c7a1047337"
+    },
+    {
+      "path": "reports/cli-smol-mutant-wrong-version-accepted-20261022T1406.json",
+      "sourcePath": "/private/tmp/cli-smol-mutant-wrong-version-accepted-20261022T1406.json",
+      "bytes": 7014,
+      "sha256": "d0b0d8c6ecbc886bbe8386bdbedeb6236630be3cc8f3c691468c0a1439ddd15e"
+    },
+    {
+      "path": "reports/cli-smol-mutant-cancel-admission-bypassed-20261022T1406.json",
+      "sourcePath": "/private/tmp/cli-smol-mutant-cancel-admission-bypassed-20261022T1406.json",
+      "bytes": 5774,
+      "sha256": "da90bb8d259dd8e85dbc8c6e74b75eb2378e2d03bd22373f13a1fd653fbde76c"
+    },
+    {
+      "path": "reports/cli-smol-mutant-protocol-fence-removed-20261022T1406.json",
+      "sourcePath": "/private/tmp/cli-smol-mutant-protocol-fence-removed-20261022T1406.json",
+      "bytes": 6048,
+      "sha256": "7db12a024cad249cc95250d49e7b1677d6beb273a1f6bf7c751a274a72a7d82d"
+    }
+  ],
+  "negativeControlsSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+  "scope": "Parent test and final test emitted JS identical; all consumers unchanged. Final focused result separately retained."
+}

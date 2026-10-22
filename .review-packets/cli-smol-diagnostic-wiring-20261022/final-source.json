@@ -1,0 +1,40 @@
+{
+  "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+  "tree": "3a65bae1c709bd7a4199cadb963be360850bf279",
+  "clean": true,
+  "base": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+  "qualifiedParent": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+  "paths": [
+    {
+      "path": "frontend/src/benchmark/model-investigation-local.ts",
+      "blob": "3371a1da6bfcb02579ce7f9373cb2d1943ea3edb",
+      "sha256": "86e5276cc1c7a57e7d0dee0a201fb733fbae04e1159a2fd40cf303acdf3a5c27"
+    },
+    {
+      "path": "frontend/src/benchmark/smolBrowserCoach.ts",
+      "blob": "c8c860d50e19091884671b01a1bd1f270dda3353",
+      "sha256": "0fb822f709c60b543fdd2d6feeed6b84f74240ab6e6f8c4cd3d163741b58d9a9"
+    },
+    {
+      "path": "frontend/src/benchmark/smolCoachingContract.ts",
+      "blob": "8737634d637eef14418b9ab449eb676791c4c835",
+      "sha256": "3200d7fb0833445bd90cdd20e00994df621bddca3055740f8585383412d6c09b"
+    },
+    {
+      "path": "scripts/model-evaluator/product-coaching-inputs.ts",
+      "blob": "29e10506837c2f31e64f8004a05010401e578701",
+      "sha256": "1c6294307c72f0fdc731bca60c85987cf1ac217a6e1cdc14f407880b381edd58"
+    },
+    {
+      "path": "scripts/model-investigation.mts",
+      "blob": "bca790a703ef75ceff8bb3a333782b31894a1251",
+      "sha256": "4f2b2fac10f87730c02fa61abeeb30d37a33af75c7a1b4d1987b487f126008c2"
+    },
+    {
+      "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+      "blob": "d3d102bc87fde074d7b351e3e32774f2f895a5b4",
+      "sha256": "c4fd25f44326a24402290fd33b6c4ff5726e42b06e0bcbb4ff2647142a4f9ede"
+    }
+  ],
+  "amendment": "Test call layout only; runtime JS byte-identical; see test-layout-equivalence.json"
+}
