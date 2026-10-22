@@ -1,0 +1,11 @@
+--- a/frontend/src/benchmark/smolCoachingContract.ts
++++ b/frontend/src/benchmark/smolCoachingContract.ts
+@@ -19,7 +19,7 @@
+   if(!tail.includes(contract.version))throw new Error('canonical coaching version is outside trusted suffix');
+   const expected=tail.split(contract.version).join(versionForProvider('llama:3.2-1b',product));
+   if(!canonicalPrompt.endsWith(expected))throw new Error('canonical coaching prompt suffix mismatch');
+-  return canonicalPrompt.slice(0,-expected.length)+tail.split(contract.version).join(version);
++  return canonicalPrompt.split(versionForProvider('llama:3.2-1b',product)).join(version);
+ }
+ 
+ export function smolCoachingSchema(product:CoachingProduct) {

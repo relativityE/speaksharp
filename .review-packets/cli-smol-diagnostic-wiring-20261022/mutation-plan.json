@@ -1,0 +1,244 @@
+{
+  "createdUtc": "2026-10-22T13:48:55.013327+00:00",
+  "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+  "worktree": "/private/tmp/speaksharp-cli-smol-profile-20261021",
+  "serialOnly": true,
+  "noRealModels": "External SDK/tokenizer/fetch are mocked by the test; real diagnostic adapter/contract/runtime logic is exercised.",
+  "precondition": "Clean exact source and accepted offline compute slot. Preserve original passing suite then apply ONE patch, run targeted test, retain RED, restore byte-exact and git-clean before next.",
+  "mutations": [
+    {
+      "id": "wrong-model",
+      "path": "frontend/src/services/coaching/smolProvider.ts",
+      "patch": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/wrong-model.patch",
+      "beforeSha256": "f20ea0c5cdd4aa882b8ab49b1a23e7dd7bf676ee50772b533d6b4c686600aa42",
+      "mutantSha256": "9e354589fc423db12239663caa2ce395843d4b255f5d7f57c46c5fd36dac8eca",
+      "applyCommand": [
+        "git",
+        "apply",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/wrong-model.patch"
+      ],
+      "testCommand": [
+        "node",
+        "scripts/host-interlock.mjs",
+        "hold",
+        "local",
+        "--",
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "frontend/vitest.config.mjs",
+        "--coverage.enabled=false",
+        "--maxWorkers=1",
+        "tests/unit/smolDiagnosticDispatch.test.ts",
+        "-t",
+        "uses the shared Smol engine and honest"
+      ],
+      "restoreCommand": [
+        "git",
+        "apply",
+        "-R",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/wrong-model.patch"
+      ],
+      "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+      "observedRed": "NOT_RUN",
+      "restoration": "NOT_RUN; must equal beforeSha256 before next mutation or final qualification"
+    },
+    {
+      "id": "global-prompt-relabel",
+      "path": "frontend/src/benchmark/smolCoachingContract.ts",
+      "patch": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/global-prompt-relabel.patch",
+      "beforeSha256": "3200d7fb0833445bd90cdd20e00994df621bddca3055740f8585383412d6c09b",
+      "mutantSha256": "29158b90b12bd7adafa5131d49ec166ba8e59dfa3b2e25411e1e18588e211ab4",
+      "applyCommand": [
+        "git",
+        "apply",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/global-prompt-relabel.patch"
+      ],
+      "testCommand": [
+        "node",
+        "scripts/host-interlock.mjs",
+        "hold",
+        "local",
+        "--",
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "frontend/vitest.config.mjs",
+        "--coverage.enabled=false",
+        "--maxWorkers=1",
+        "tests/unit/smolDiagnosticDispatch.test.ts",
+        "-t",
+        "preserves version-like strings"
+      ],
+      "restoreCommand": [
+        "git",
+        "apply",
+        "-R",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/global-prompt-relabel.patch"
+      ],
+      "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+      "observedRed": "NOT_RUN",
+      "restoration": "NOT_RUN; must equal beforeSha256 before next mutation or final qualification"
+    },
+    {
+      "id": "invalid-marked-valid",
+      "path": "frontend/src/benchmark/smolBrowserCoach.ts",
+      "patch": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/invalid-marked-valid.patch",
+      "beforeSha256": "0fb822f709c60b543fdd2d6feeed6b84f74240ab6e6f8c4cd3d163741b58d9a9",
+      "mutantSha256": "d107c064607b7975240eafd362865eb9178b36a5076befc7d58193690671a2f5",
+      "applyCommand": [
+        "git",
+        "apply",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/invalid-marked-valid.patch"
+      ],
+      "testCommand": [
+        "node",
+        "scripts/host-interlock.mjs",
+        "hold",
+        "local",
+        "--",
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "frontend/vitest.config.mjs",
+        "--coverage.enabled=false",
+        "--maxWorkers=1",
+        "tests/unit/smolDiagnosticDispatch.test.ts",
+        "-t",
+        "retains invalid raw output"
+      ],
+      "restoreCommand": [
+        "git",
+        "apply",
+        "-R",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/invalid-marked-valid.patch"
+      ],
+      "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+      "observedRed": "NOT_RUN",
+      "restoration": "NOT_RUN; must equal beforeSha256 before next mutation or final qualification"
+    },
+    {
+      "id": "wrong-version-accepted",
+      "path": "frontend/src/benchmark/smolCoachingContract.ts",
+      "patch": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/wrong-version-accepted.patch",
+      "beforeSha256": "3200d7fb0833445bd90cdd20e00994df621bddca3055740f8585383412d6c09b",
+      "mutantSha256": "48d099031b09dd28825aac3411e3dff58f36c0f9842d82c80d5673e142e98452",
+      "applyCommand": [
+        "git",
+        "apply",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/wrong-version-accepted.patch"
+      ],
+      "testCommand": [
+        "node",
+        "scripts/host-interlock.mjs",
+        "hold",
+        "local",
+        "--",
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "frontend/vitest.config.mjs",
+        "--coverage.enabled=false",
+        "--maxWorkers=1",
+        "tests/unit/smolDiagnosticDispatch.test.ts",
+        "-t",
+        "retains invalid raw output|refuses extra keys"
+      ],
+      "restoreCommand": [
+        "git",
+        "apply",
+        "-R",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/wrong-version-accepted.patch"
+      ],
+      "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+      "observedRed": "NOT_RUN",
+      "restoration": "NOT_RUN; must equal beforeSha256 before next mutation or final qualification"
+    },
+    {
+      "id": "cancel-admission-bypassed",
+      "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+      "patch": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/cancel-admission-bypassed.patch",
+      "beforeSha256": "a8be009ecd627c23068448b4a2f9215c5e9f741ff47fe9d3afbe2de1c1a9f3af",
+      "mutantSha256": "a306725ab880bb37ef7f18cfced2f6a36fbda16ffcb2eafe72321757cabf4457",
+      "applyCommand": [
+        "git",
+        "apply",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/cancel-admission-bypassed.patch"
+      ],
+      "testCommand": [
+        "node",
+        "scripts/host-interlock.mjs",
+        "hold",
+        "local",
+        "--",
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "frontend/vitest.config.mjs",
+        "--coverage.enabled=false",
+        "--maxWorkers=1",
+        "tests/unit/smolDiagnosticDispatch.test.ts",
+        "-t",
+        "honors cancellation before dispatch"
+      ],
+      "restoreCommand": [
+        "git",
+        "apply",
+        "-R",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/cancel-admission-bypassed.patch"
+      ],
+      "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+      "observedRed": "NOT_RUN",
+      "restoration": "NOT_RUN; must equal beforeSha256 before next mutation or final qualification"
+    },
+    {
+      "id": "protocol-fence-removed",
+      "path": "scripts/model-evaluator/product-coaching-inputs.ts",
+      "patch": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/protocol-fence-removed.patch",
+      "beforeSha256": "1c6294307c72f0fdc731bca60c85987cf1ac217a6e1cdc14f407880b381edd58",
+      "mutantSha256": "c92c2a793b53b9b3205ca3be354a687345b8a2188a177f1fa0636b4106672e9d",
+      "applyCommand": [
+        "git",
+        "apply",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/protocol-fence-removed.patch"
+      ],
+      "testCommand": [
+        "node",
+        "scripts/host-interlock.mjs",
+        "hold",
+        "local",
+        "--",
+        "pnpm",
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        "frontend/vitest.config.mjs",
+        "--coverage.enabled=false",
+        "--maxWorkers=1",
+        "tests/unit/smolDiagnosticDispatch.test.ts",
+        "-t",
+        "keeps the original18 cell identities"
+      ],
+      "restoreCommand": [
+        "git",
+        "apply",
+        "-R",
+        "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-diagnostic-wiring-20261022/mutations/protocol-fence-removed.patch"
+      ],
+      "expected": "Nonzero test exit with targeted assertion failures, NOT collection/import/tool error",
+      "observedRed": "NOT_RUN",
+      "restoration": "NOT_RUN; must equal beforeSha256 before next mutation or final qualification"
+    }
+  ]
+}

@@ -1,0 +1,286 @@
+{
+  "createdUtc": "2026-10-22T13:46:12.540679+00:00",
+  "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+  "rows": [
+    {
+      "id": "SMOL-01",
+      "requirementOrFailure": "Original6inputs\u00d73trials remain the only declared Smol population; no diagnostic-only fallback",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "scripts/model-evaluator/product-coaching-inputs.ts",
+        "blob": "29e10506837c2f31e64f8004a05010401e578701",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "keeps the original18 cell identities",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "Original6inputs\u00d73trials remain the only declared Smol population; no diagnostic-only fallback",
+      "brokenBehaviorControl": "Allow Smol diagnostic protocol or change frozen population; rejection/count assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    },
+    {
+      "id": "SMOL-02",
+      "requirementOrFailure": "Version substitution must not alter transcript or Focus evidence",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "frontend/src/benchmark/smolCoachingContract.ts",
+        "blob": "8737634d637eef14418b9ab449eb676791c4c835",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "preserves version-like strings",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "Version substitution must not alter transcript or Focus evidence",
+      "brokenBehaviorControl": "Replace version globally through user evidence; literal-preservation assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    },
+    {
+      "id": "SMOL-03",
+      "requirementOrFailure": "Open Mic dispatch reaches the selected real shared Smol factory/model profile",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "frontend/src/benchmark/smolBrowserCoach.ts",
+        "blob": "c8c860d50e19091884671b01a1bd1f270dda3353",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "uses the shared Smol engine and honest open_mic",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "Open Mic dispatch reaches the selected real shared Smol factory/model profile",
+      "brokenBehaviorControl": "Change createSmolRuntime to select Llama; model identity/token-count assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    },
+    {
+      "id": "SMOL-04",
+      "requirementOrFailure": "Focus dispatch carries correct same-input shape and truthful Smol diagnostic identity",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "frontend/src/benchmark/smolBrowserCoach.ts",
+        "blob": "c8c860d50e19091884671b01a1bd1f270dda3353",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "uses the shared Smol engine and honest focus_points",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "Focus dispatch carries correct same-input shape and truthful Smol diagnostic identity",
+      "brokenBehaviorControl": "Change createSmolRuntime to select Llama; model identity/token-count assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    },
+    {
+      "id": "SMOL-05",
+      "requirementOrFailure": "Empty object remains invalid and raw output retained once",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "frontend/src/benchmark/smolBrowserCoach.ts",
+        "blob": "c8c860d50e19091884671b01a1bd1f270dda3353",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "retains invalid raw output {}",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "Empty object remains invalid and raw output retained once",
+      "brokenBehaviorControl": "Convert output-contract error to VALID; retained-invalid assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    },
+    {
+      "id": "SMOL-06",
+      "requirementOrFailure": "Malformed JSON remains invalid and raw output retained once",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "frontend/src/benchmark/smolBrowserCoach.ts",
+        "blob": "c8c860d50e19091884671b01a1bd1f270dda3353",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "retains invalid raw output not JSON",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "Malformed JSON remains invalid and raw output retained once",
+      "brokenBehaviorControl": "Convert output-contract error to VALID; retained-invalid assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    },
+    {
+      "id": "SMOL-07",
+      "requirementOrFailure": "A Llama-labelled response cannot be attributed to Smol",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "frontend/src/benchmark/smolCoachingContract.ts",
+        "blob": "8737634d637eef14418b9ab449eb676791c4c835",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "retains invalid raw output with llama_coaching_v1",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "A Llama-labelled response cannot be attributed to Smol",
+      "brokenBehaviorControl": "Skip model/product diagnostic version guard; wrong-label assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    },
+    {
+      "id": "SMOL-08",
+      "requirementOrFailure": "Exact keys/nonempty/ceiling and product identity reuse canonical validator; never truncate",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "frontend/src/benchmark/smolCoachingContract.ts",
+        "blob": "8737634d637eef14418b9ab449eb676791c4c835",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "refuses extra keys, empty/oversized phrases",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "Exact keys/nonempty/ceiling and product identity reuse canonical validator; never truncate",
+      "brokenBehaviorControl": "Bypass canonical parse failure or product version check; refusal assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    },
+    {
+      "id": "SMOL-09",
+      "requirementOrFailure": "Already-aborted signal never issues generation or cloud fallback",
+      "consumer": {
+        "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89",
+        "shippingState": "New diagnostic source; NOT shipped product selection"
+      },
+      "unchangedSharedRuntime": {
+        "source": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+        "path": "frontend/src/services/coaching/webLlmRuntime.ts",
+        "blob": "eea3ce587f25769395c46531aabd36520f2f4e89"
+      },
+      "actualShippedReference": {
+        "source": "d160e907e166b5f9e499e27b23df819764b23d4c",
+        "path": "backend/supabase/functions/get-ai-suggestions/index.ts",
+        "scope": "Gemini reference endpoint; separate source from dormant prepared shared coaching helper. Shared coachingContract.ts does NOT exist on this main; no claimed shipped helper."
+      },
+      "test": {
+        "path": "tests/unit/smolDiagnosticDispatch.test.ts",
+        "case": "honors cancellation before dispatch",
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+      },
+      "independentExpectedResult": "Already-aborted signal never issues generation or cloud fallback",
+      "brokenBehaviorControl": "Ignore signal and allow generation; rejection/zero-call assertion must fail",
+      "observedRed": "NOT_RUN; waiting offline qualification slot after App CO006",
+      "correctedGreen": "NOT_RUN; same dependency",
+      "actualCollection": "NOT_RUN",
+      "CI": "NOT_RUN; no implementation PR/current-main release qualification asserted"
+    }
+  ],
+  "boundary": "Prepared paired evidence rows, not executed proof. New diagnostic path is not shipped local-model/product integration."
+}

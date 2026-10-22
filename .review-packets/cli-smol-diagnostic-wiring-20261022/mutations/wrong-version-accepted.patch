@@ -1,0 +1,11 @@
+--- a/frontend/src/benchmark/smolCoachingContract.ts
++++ b/frontend/src/benchmark/smolCoachingContract.ts
+@@ -32,7 +32,7 @@
+   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('diagnostic coaching must be an object');
+   const row=value as Record<string,unknown>;
+   const version=smolCoachingVersion(product);
+-  if(row.version!==version)throw new Error('diagnostic coaching model/product version mismatch');
++  // MUTANT: accepts the wrong model/product version.
+   // Reuse the product's exact key/string/ceiling checks. The temporary label is
+   // only an input to that validator; it is never returned or retained as output.
+   const parsed=parseProviderSuggestions(JSON.stringify({...row,version:versionForProvider('llama:3.2-1b',product)}),

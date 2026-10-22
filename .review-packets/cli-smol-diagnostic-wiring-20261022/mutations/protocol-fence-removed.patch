@@ -1,0 +1,11 @@
+--- a/scripts/model-evaluator/product-coaching-inputs.ts
++++ b/scripts/model-evaluator/product-coaching-inputs.ts
+@@ -56,7 +56,7 @@
+ export function resolveCoachingProtocol(kind:string,protocol:string):'diagnostic'|'product-contract' {
+   if(protocol!=='diagnostic'&&protocol!=='product-contract') throw new Error('unknown coaching protocol');
+   if(protocol==='product-contract'&&kind!=='llama'&&kind!=='smol') throw new Error('product coaching protocol requires a declared local coaching model');
+-  if(kind==='smol'&&protocol!=='product-contract')throw new Error('Smol requires the frozen same-evidence product protocol');
++  // MUTANT: permits a different Smol diagnostic population.
+   return protocol;
+ }
+ 

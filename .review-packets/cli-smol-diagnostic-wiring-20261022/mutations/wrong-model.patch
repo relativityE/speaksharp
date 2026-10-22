@@ -1,0 +1,9 @@
+--- a/frontend/src/services/coaching/smolProvider.ts
++++ b/frontend/src/services/coaching/smolProvider.ts
+@@ -1,5 +1,5 @@
+ import { createWebLlmRuntime,type WebLlmLocations } from './webLlmRuntime';
+ /** Dormant adapter: no product selection, worker admission or coaching-schema claim. */
+ export function createSmolRuntime(locations:WebLlmLocations) {
+-  return createWebLlmRuntime('smollm2:1.7b',locations);
++  return createWebLlmRuntime('llama:3.2-1b',locations);
+ }

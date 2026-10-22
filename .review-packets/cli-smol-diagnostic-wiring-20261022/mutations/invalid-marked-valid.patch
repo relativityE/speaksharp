@@ -1,0 +1,11 @@
+--- a/frontend/src/benchmark/smolBrowserCoach.ts
++++ b/frontend/src/benchmark/smolBrowserCoach.ts
+@@ -17,7 +17,7 @@
+       value=>({...value,outputContractStatus:'VALID' as const}),
+       (error:unknown)=>{
+         if(!(error instanceof LocalLlmOutputContractError))throw error;
+-        return {...error.evidence,outputContractStatus:'INVALID' as const,contractError:error.message};
++        return {...error.evidence,outputContractStatus:'VALID' as const,contractError:error.message};
+       });
+     return {...result,productContractCompatibility:'CANONICAL_EVIDENCE_AND_SHAPE_DIAGNOSTIC_VERSION',
+       savedLifecycleCompatibility:'NOT_ESTABLISHED',humanUsefulness:'UNREVIEWED'};
