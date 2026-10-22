@@ -1,0 +1,48 @@
+{
+  "mutants": [
+    {
+      "name": "M1_late_resolution_rewrites_deadline",
+      "pattern": "records",
+      "mutantSha256": "6403822b9392b103eb19e17d0670632c1bca3090ba89665b179008cce17509ee",
+      "testSha256": "f4f386bfdb3751ea507605de7f7d44ecc881da0981081bab946ca45cb6442dcc",
+      "result": {
+        "chunk_id": "7724fe",
+        "wall_time_seconds": 0.395813375,
+        "exit_code": 1,
+        "original_token_count": 300,
+        "output": "TAP version 13\n# (node:77770) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: records real close start, preserves the actual 2000ms failure, then separately observes late resolution and exit\nnot ok 1 - records real close start, preserves the actual 2000ms failure, then separately observes late resolution and exit\n  ---\n  duration_ms: 2.541083\n  location: '/Users/fibonacci/SW_Dev/delivery-support/cli-owned-close-observer-20261022.test.mjs:10:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly equal:\n    \n    'PASS' !== 'FAIL'\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: 'FAIL'\n  actual: 'PASS'\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///Users/fibonacci/SW_Dev/delivery-support/cli-owned-close-observer-20261022.test.mjs:30:12)\n    async Test.run (node:internal/test_runner/test:935:9)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 166.466917\n"
+      }
+    },
+    {
+      "name": "M2_hanging_close_false_complete",
+      "pattern": "never-resolving",
+      "mutantSha256": "3fa11eaad1155ed8edb8e40857388f3f5c54df7dfc32457146d5542458410435",
+      "testSha256": "f4f386bfdb3751ea507605de7f7d44ecc881da0981081bab946ca45cb6442dcc",
+      "result": {
+        "chunk_id": "2a2fa7",
+        "wall_time_seconds": 0.317098333,
+        "exit_code": 1,
+        "original_token_count": 312,
+        "output": "TAP version 13\n# (node:78113) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: never-resolving actual close terminates observation and retains UNKNOWN without a false CLOSED\nnot ok 1 - never-resolving actual close terminates observation and retains UNKNOWN without a false CLOSED\n  ---\n  duration_ms: 2.163792\n  location: '/Users/fibonacci/SW_Dev/delivery-support/cli-owned-close-observer-20261022.test.mjs:39:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    semantic oracle: hanging close cannot become a complete observation\n    + actual - expected\n    \n    + 'COMPLETE'\n    - 'LIMIT_REACHED'\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: 'LIMIT_REACHED'\n  actual: 'COMPLETE'\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///Users/fibonacci/SW_Dev/delivery-support/cli-owned-close-observer-20261022.test.mjs:51:57)\n    async Test.run (node:internal/test_runner/test:935:9)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 127.825375\n"
+      }
+    },
+    {
+      "name": "M3_incomplete_scan_certifies_absence",
+      "pattern": "incomplete",
+      "mutantSha256": "b76b8e20f6bfa5a064063e8c5cf380dce74d51d4bf9dbe97987b259a180e0b4f",
+      "testSha256": "f4f386bfdb3751ea507605de7f7d44ecc881da0981081bab946ca45cb6442dcc",
+      "result": {
+        "chunk_id": "8fbf75",
+        "wall_time_seconds": 0.440925208,
+        "exit_code": 1,
+        "original_token_count": 303,
+        "output": "TAP version 13\n# (node:78459) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: incomplete process scans cannot prove absence and borrowed-owner errors are retained\nnot ok 1 - incomplete process scans cannot prove absence and borrowed-owner errors are retained\n  ---\n  duration_ms: 2.275834\n  location: '/Users/fibonacci/SW_Dev/delivery-support/cli-owned-close-observer-20261022.test.mjs:72:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    semantic oracle: incomplete scan cannot certify owned process absence\n    + actual - expected\n    \n    + 'ABSENT'\n    - 'UNKNOWN'\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: 'UNKNOWN'\n  actual: 'ABSENT'\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///Users/fibonacci/SW_Dev/delivery-support/cli-owned-close-observer-20261022.test.mjs:80:12)\n    async Test.run (node:internal/test_runner/test:935:9)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 143.464333\n"
+      }
+    }
+  ],
+  "restoration": {
+    "expected": "e31d0da67cfb0c06add07102d5039c1f60f992462f3984b9e7ba155a81d485c9",
+    "actual": "e31d0da67cfb0c06add07102d5039c1f60f992462f3984b9e7ba155a81d485c9",
+    "exact": true
+  }
+}

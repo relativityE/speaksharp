@@ -1,0 +1,16 @@
+{
+  "requirement": "Observe actual owned context close without erasing existing2s failure;bound observation;separate realclose and ownedprocess exit from borrowed identity",
+  "consumer": "ExistingordinaryTerminaldiagnostic closePersistent -> observeOwnedClose -> real evaluatorContext2000ms close",
+  "subjectScope": "Diagnostic instrument,notshippedproduct/modelqualityproof",
+  "externalBoundaryMocked": "BrowserContext.close promise and read-only process/borrowedmetadata;actual evaluatorContext code consumes them",
+  "independentOracle": "Controlled promise resolution and independently scheduled clock/process state; noCLOSEDbeforepromise/noABSENTwithoutcompleteemptyPID+profile snapshot/deadlineFAILimmutable",
+  "semanticRED": "Baselineclose-onlyextraction lackedactual-close-startreceipt;named assertion actual0 expected1,rawretained",
+  "GREEN": "6actual Node tests,0failed/skipped/cancelled/todo",
+  "negativeControls": "3targeted real observer mutations each faildesignatedsemanticassertion;sourcebyteexactrestoredthen6GREEN",
+  "commands": "node --test --import tsx ...cli-owned-close-observer-20261022.test.mjs;mutants additionally --test-name-pattern=records|never-resolving|incomplete",
+  "collection": "Node builtin test runner,notVitest/CI;tests consumeactualevaluatorContext via tsx",
+  "preservedDeadlineMs": 2000,
+  "observationBudgetMs": 5000,
+  "remaining": "Independent source review/newhostrun;no measuredshutdown duration or model inference;originalordinaryFAILretained",
+  "sourcePolicy": "Only3declareddiagnostic/testpaths changed;accepted80c19b63 runtime source remainsunchanged;noAppfiles/flags/kill/delete/defaultcontextadoption"
+}

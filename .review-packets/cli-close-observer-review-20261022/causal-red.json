@@ -1,0 +1,7 @@
+{
+  "chunk_id": "f87e9d",
+  "wall_time_seconds": 0.593139291,
+  "exit_code": 1,
+  "original_token_count": 301,
+  "output": "TAP version 13\n# (node:72440) ExperimentalWarning: The MockTimers API is an experimental feature and might change at any time\n# (Use `node --trace-warnings ...` to show where the warning was created)\n# Subtest: records real close start, preserves the actual 2000ms failure, then separately observes late resolution and exit\nnot ok 1 - records real close start, preserves the actual 2000ms failure, then separately observes late resolution and exit\n  ---\n  duration_ms: 2.385542\n  location: '/Users/fibonacci/SW_Dev/delivery-support/cli-owned-close-observer-20261022.test.mjs:9:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    semantic oracle: actual consumed context.close start is retained\n    \n    0 !== 1\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: 1\n  actual: 0\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///Users/fibonacci/SW_Dev/delivery-support/cli-owned-close-observer-20261022.test.mjs:28:12)\n    async Test.run (node:internal/test_runner/test:935:9)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 182.69175\n"
+}

@@ -1,0 +1,85 @@
+{
+  "status": "PROPOSAL_ONLY_NOT_EXECUTION_AUTHORITY",
+  "exitDecision": "Retain working baseline until better task quality plus acceptable ordinary-browser latency/memory are demonstrated",
+  "commonRules": "Serial guarded slot; unchanged2GiB start/1GiB running/five-low-sample guard; realGPU/f16 where required; exact source/assets/input/prompt identities; retain every output/failure; no automatic retries or model substitutions; inference and cleanup dispositions separate.",
+  "source": {
+    "persistentLlamaMoonshine": "7216e35c plus accepted80c19b63 five-path source; current exact hashes in30844d30",
+    "Smol": "7465ec93; accepted offline scope only; disk-backed receiving integration NOT DONE",
+    "diagnosticObserver": "Current three-path source increment; independent review and newhostrun NOT DONE"
+  },
+  "order": [
+    {
+      "priority": 1,
+      "arm": "Moonshine Base +VAD / HF4.3.0 stableORT1.30 WebGPU",
+      "existingAssetsBytes": 159742317,
+      "input": "Existing tests/fixtures/stt-isomorphic/audio/h1_1.wav;53808samples/16000Hz=3.363s",
+      "budget": "1declared decode cell;1warmupASRcall plus at most8cellASRcalls (9total);106cellVADframes;120sload/120scell;zero provider calls",
+      "command": "node scripts/host-interlock.mjs hold benchmark -- node --import tsx scripts/model-investigation.mts --kind=moonshine --fixture=tests/fixtures/stt-isomorphic/audio/h1_1.wav --assets=/private/tmp/speaksharp-model-assets-1304/verified-manifest.json --cache=/private/tmp/speaksharp-model-assets-1304 --cdp-endpoint=http://127.0.0.1:9222 --out=/private/tmp/cli-moonshine-minimum-smoke-SELECTED-UNIQUE.json",
+      "cwd": "/private/tmp/speaksharp-cli-persistent-context-20261022",
+      "route": "Existing borrowed dedicatedCDP +new owned ephemeral context;159.7MBassets below measured570.6MBquota, but fresh guard/capacity still required. No borrowed default adoption.",
+      "readyLimit": "Existing source/command available independently of Llama persistent mode; Sam must select modelbudget and freshPID/profilebinding. Asset size is not peak memory or guaranteed cache success.",
+      "retainedOutcome": "Actual transcript/fixturehash/ASR-VADcounts/initialization+decode+cleanup+device; shortfunctional smoke only, not streaming/zero-finalization/longtake proof"
+    },
+    {
+      "priority": 2,
+      "arm": "Llama3.2-1B / WebLLM0.2.86",
+      "existingAssetsBytes": 710619226,
+      "input": "Existing six frozen synthetic canonical coaching inputs x3; no corpus expansion",
+      "budget": "18generationcells,256maxoutputtokens each;120sload/120scell;zero provider calls. Existing runner has no single-cell selector; do not silently edit budget.",
+      "command": "node scripts/host-interlock.mjs hold benchmark -- node --import tsx scripts/model-investigation.mts --kind=llama --coaching-protocol=product-contract --assets=/private/tmp/speaksharp-model-assets-1304/verified-manifest.json --cache=/private/tmp/speaksharp-model-assets-1304 --persistent-profile=/private/tmp/speaksharp-eval-owned-llama-SELECTED-UNIQUE --out=/private/tmp/cli-llama-minimum-smoke-SELECTED-UNIQUE.json",
+      "cwd": "/private/tmp/speaksharp-cli-persistent-context-20261022",
+      "route": "Ordinary Terminal owned disk-backed profile; agent launcher remains unsupported. Fresh uniqueprofile required. Modelrunner cleanup remains its existing bounded policy; observer diagnostic does not change modelrunner.",
+      "readyLimit": "Sam selection of ordinary-host owner/budget and cleanup disposition; no claim observer alone fixes modelrunner lifecycle",
+      "retainedOutcome": "Actual coaching text/parsedJSON/invalidoutputs,prompt+evidencehashes,tokens,finishreason,load+generationlatency,hostheadroom vs unavailablepeakmemory,cleanup separately"
+    },
+    {
+      "priority": 3,
+      "arm": "SmolLM2-1.7B / WebLLM0.2.86",
+      "existingAssetsBytes": 972833253,
+      "input": "Same six coaching inputs x3,Smol ChatML delta explicit",
+      "budget": "Proposed18generationcells x256maxoutputtokens;no retries/provider calls",
+      "command": null,
+      "commandAvailability": "NOT READY:7465ec93 Smol runner has no owned persistent-profile mode; its CDP path creates quota-limited context. Do not pass an ignored --persistent-profile flag or relabel failed acquisition as inference.",
+      "nextSource": "Selected receiving integration of accepted persistent ownership into existingSmol writer tree; exact diff/tests/review, not a competing implementation",
+      "retainedOutcome": "Same text/tokens/contract/latency/cleanup measures asLlama;offline tokenizer PASS is not runtime proof"
+    },
+    {
+      "priority": 4,
+      "arm": "Gemini served baseline",
+      "input": "Same six canonical evidence inputs;actual served request identity observed,not reconstructed source",
+      "budget": "Proposed6paidcalls,1perinput for minimumscreen;18calls only if separately selected. ExistingUTCcap preserved.",
+      "command": null,
+      "commandAvailability": "NOT READY: no paid-call/account execution scope selected; use real served get-ai-suggestions route under exact selected account/cap,not secret acquisition",
+      "retainedOutcome": "Observed suggestions/requesthash/modelidentity/latency/failures/cost if measured;compare only genuinely matched evidence/controls"
+    },
+    {
+      "priority": 5,
+      "arm": "wllama3.8.1 / compatible GGUF",
+      "input": "Existing open-specific canonical coaching evidence,one generation",
+      "budget": "Proposed1generation x256outputtokens;120sload/120sgeneration;zero provider calls",
+      "command": null,
+      "commandAvailability": "NOT READY:SDK/WASM acquired,but verified cache contains noGGUF;MLCweights are incompatible. Need selected same-model GGUF artifact/revision/quantization and bounded harness before runtime.",
+      "engineComparisonLimit": "Different quantization/template cannot establish engine superiority; sameGGUF native reference remains separate/unrun"
+    },
+    {
+      "priority": 6,
+      "arm": "Llama or Smol / Transformers.js4.3.1 engine arm",
+      "input": "Existing open-specific canonical evidence,one generation per selected compatiblemodel",
+      "budget": "Proposed1generation x256tokens perselectedmodel;120sload/120sgeneration;zero provider calls",
+      "command": null,
+      "commandAvailability": "NOT READY:431package acquired butlock/install blocked;Apphelperwithdrawn. MLCWebLLM assets cannot substitute for ONNX artifacts. Need selected compatible ONNX model/pins/harness.",
+      "runtimePolicy": "Preserve stableORT1.30 override; upstreamdevORT not silently selected;frozen430STTresults unchanged"
+    },
+    {
+      "priority": 7,
+      "arm": "Moonshine medium / moonshine-wasm0.1.5 streaming historical replay",
+      "input": "Existing95.3815s composite,not newcorpus",
+      "budget": "One bounded replay,zero retries/provider calls; exact streamingASRcall bound must be recovered from preservedharness before any execution selection",
+      "command": null,
+      "commandAvailability": "NOT READY: historical source/runtime/fixture hash and call bound need receiving reconciliation; no current executable command qualified",
+      "retainedOutcome": "Actual streamed segments/repetition/boundary words/lastword/Stop-tail timing; historicalshortsuccess not current proof"
+    }
+  ],
+  "alreadyMeasured": "Whisper v2/Xenova2.17.2 andv4/HF4.3.0 WASM:12decodes,3uniqueclips x2 perarm. Credit existing smoke;no duplicate run just to fill table. Newbackend/version/longtake claims need separately selected matched run.",
+  "notSelectionProof": "Minimum functional output makes a candidate eligible for qualitycomparison;not automatic promotion orGemini sunset. Peakmodelmemory remainsNOTMEASURED unless actually instrumented."
+}
