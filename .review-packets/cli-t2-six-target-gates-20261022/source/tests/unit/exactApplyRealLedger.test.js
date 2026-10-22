@@ -57,9 +57,10 @@ describe('exact apply route — the ordered queue against the real 2026-09-23 le
             expect(assertAfterApply(before,appliedLedger(...previous,version),config).appliedDelta)
                 .toBe(`${version}:pending->applied`);
             const next = EXACT_MIGRATION_ALLOWLIST[index+1].version;
-            if (next !== ACTIVATION) {
-                expect(() => assertAfterApply(before,appliedLedger(...previous,version,next),config)).toThrow();
-            }
+            const wrongAfter = next === ACTIVATION
+                ? appliedLedger(...previous,version).replace(new RegExp(`(^\\s*${ACTIVATION}\\s*\\|)\\s*${ACTIVATION}(\\s*\\|)`, 'm'), '$1                $2')
+                : appliedLedger(...previous,version,next);
+            expect(() => assertAfterApply(before,wrongAfter,config)).toThrow();
             expect(() => assertBeforeApply(appliedLedger(...previous.slice(0,-1)),config)).toThrow();
         });
     it('the fixture is the real shape: #1432 and #1469 pending, activation recorded APPLIED', () => {

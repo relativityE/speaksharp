@@ -25,8 +25,14 @@ async function fixture() {
     SET ROLE closure_owner;`);
   for (const name of ['20260812041600_trial_commercial_grant_on_conflict_1294.sql',
     '20260812002000_webhook_lifecycle_completeness_1282.sql']) await db.exec(source(name));
-  await db.exec(source('20260812041500_flawless_launch_runtime_convergence_1290.sql')
-    .split('-- Usage counters remain content-free telemetry.')[0]);
+  const canonical = source('20260812041500_flawless_launch_runtime_convergence_1290.sql');
+  await db.exec(canonical.split('-- Usage counters remain content-free telemetry.')[0]);
+  // The earlier billing slice omits heartbeat_session. The real main baseline
+  // already has this routine: retain its exact body AND its stated API ACL.
+  const heartbeat = canonical.match(/CREATE OR REPLACE FUNCTION public\.heartbeat_session\([\s\S]*?\$\$;/);
+  const heartbeatAcl = canonical.match(/REVOKE EXECUTE ON FUNCTION public\.heartbeat_session\([\s\S]*?TO authenticated, service_role;/);
+  if (!heartbeat || !heartbeatAcl) throw new Error('historical heartbeat/ACL source absent');
+  await db.exec(heartbeat[0] + '\n' + heartbeatAcl[0]);
   for (const name of ['20261013180000_account_closure_tokens.sql',
     '20261016090000_account_closure_drain_persistence.sql',
     '20261016180000_account_closure_drain_enforcement.sql',
@@ -70,6 +76,35 @@ async function fixture() {
 // END BOUNDED FIXTURE.
 
 describe('T2 catalog gate rejects missing or changed evidence', () => {
+  it('retains the real heartbeat before Analytics/pending/U1 and rejects missing/body/ACL drift', async () => {
+    const db = await fixture();
+    const catalog = async () => {
+      await db.exec('SET search_path=public,pg_temp');
+      return JSON.parse(Object.values((await db.query(t2CatalogQuery(T2_INVENTORY))).rows[0])[0]);
+    };
+    try {
+      for (const version of T2_VERSIONS.slice(0,3)) {
+        const digest = (await db.query("SELECT md5(pg_get_functiondef('public.heartbeat_session(uuid,integer)'::regprocedure)) AS digest")).rows[0].digest;
+        expect(digest).toBe('e3226a816e3a03ac5251363b069e4cbe');
+        const expected = t2ExpectedCatalog('before',version);
+        expect(assertT2Catalog(await catalog(),expected).passed).toBe(true);
+        for (const mutation of [
+          'DROP FUNCTION public.heartbeat_session(uuid,integer)',
+          "CREATE OR REPLACE FUNCTION public.heartbeat_session(p_session_id uuid,p_incremental_seconds integer) RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path=public,pg_temp AS $$ SELECT '{}'::jsonb $$",
+          'GRANT EXECUTE ON FUNCTION public.heartbeat_session(uuid,integer) TO anon',
+          'REVOKE EXECUTE ON FUNCTION public.heartbeat_session(uuid,integer) FROM authenticated',
+        ]) {
+          await db.exec('BEGIN'); await db.exec(mutation);
+          const changed = await catalog();
+          expect(() => assertT2Catalog(changed,expected)).toThrow('catalog mismatch');
+          await db.exec('ROLLBACK');
+        }
+        await db.exec('SET ROLE closure_owner'); await db.exec(sources[version]); await db.exec('RESET ROLE');
+      }
+      const digest = (await db.query("SELECT md5(pg_get_functiondef('public.heartbeat_session(uuid,integer)'::regprocedure)) AS digest")).rows[0].digest;
+      expect(digest).toBe('1ba2759c5b17104f5501fe184646a211');
+    } finally { await db.close(); }
+  },30_000);
   it('binds all six reviewed migration files, including predecessors', () => {
     expect(() => assertT2Sources(sources)).not.toThrow();
     for (const version of T2_VERSIONS) {
@@ -133,7 +168,7 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
         await db.exec('BEGIN');
         await db.exec(mutation);
         const changed = await catalog();
-        expect(() => assertT2Catalog(changed, final), mutation).toThrow('catalog mismatch');
+        expect(() => assertT2Catalog(changed, final)).toThrow('catalog mismatch');
         await db.exec('ROLLBACK');
         expect(assertT2Catalog(await catalog(), final).passed).toBe(true);
       }
@@ -145,7 +180,7 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
       ]) {
         await db.exec('BEGIN'); await db.exec(mutation);
         const changed = await scalar(t2DisabledQuery(true));
-        expect(() => assertT2Disabled(changed, true), mutation).toThrow('inactive authority');
+        expect(() => assertT2Disabled(changed, true)).toThrow('inactive authority');
         await db.exec('ROLLBACK');
       }
       await db.exec('BEGIN; GRANT INSERT ON public.active_recording_lease TO authenticated');
