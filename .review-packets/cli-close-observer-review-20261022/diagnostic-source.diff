@@ -12,9 +12,12 @@
  import {openModelBrowser} from '/private/tmp/speaksharp-cli-persistent-context-20261022/scripts/model-evaluator/browser-session.ts';
  import {launchOwnedPersistent} from '/private/tmp/speaksharp-cli-persistent-context-20261022/scripts/model-evaluator/persistent-browser.ts';
  import {localCdpOwner} from '/private/tmp/speaksharp-cli-persistent-context-20261022/scripts/model-evaluator/cdp-browser.ts';
-@@ -15,6 +18,41 @@
+@@ -13,8 +16,43 @@
+ const retain=()=>writeFileSync(out,JSON.stringify(report,null,2)+'\n');
+ const server=createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Model-free evaluator storage validation</title>');});
  let active:Awaited<ReturnType<typeof openModelBrowser>>|undefined;
- const ownedPids=()=>execFileSync('ps',['-axo','pid=,command='],{encoding:'utf8'})
+-const ownedPids=()=>execFileSync('ps',['-axo','pid=,command='],{encoding:'utf8'})
++const ownedPids=()=>execFileSync('ps',['-axo','pid=,command='],{encoding:'utf8',timeout:1000,maxBuffer:4*1024*1024})
    .split('\n').filter(line=>line.includes('--user-data-dir='+profile)).map(line=>Number(line.trim().split(/\s/)[0]));
 +const execute=promisify(execFile);
 +const scanOwned=async(known:number[])=>{

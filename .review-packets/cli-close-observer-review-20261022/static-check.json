@@ -1,8 +1,9 @@
 {
   "command": "node scripts/host-interlock.mjs hold local -- node node_modules/typescript/bin/tsc --noEmit --allowJs --checkJs false --allowImportingTsExtensions --module esnext --moduleResolution bundler --target es2022 --skipLibCheck --esModuleInterop --types node --typeRoots /private/tmp/speaksharp-cli-persistent-context-20261022/node_modules/@types --lib es2022,dom /Users/fibonacci/SW_Dev/delivery-support/cli-persistent-quota-validation-20261022.e2e.mts",
   "cwd": "/private/tmp/speaksharp-cli-persistent-context-20261022",
-  "terminalChunk": "ad0bcf",
+  "terminalChunk": "67dc55",
   "exitCode": 0,
   "output": "",
-  "scope": "Exactfinaldiagnostic and consumed local observer/dependency TS graph;not fullrepoquality,hostedCI or browserexecution"
+  "scope": "Exactfinaldiagnostic and consumed local observer/dependency TS graph;not fullrepoquality,hostedCI or browserexecution",
+  "finalSupplement": "Inherited synchronous ps now timeout1000ms/maxBuffer4MiB; no close policy change"
 }

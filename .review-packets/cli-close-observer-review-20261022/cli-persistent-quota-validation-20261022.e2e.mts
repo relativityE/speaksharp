@@ -16,7 +16,7 @@ const report:any={startedUtc:new Date().toISOString(),modelCalls:0,providerCalls
 const retain=()=>writeFileSync(out,JSON.stringify(report,null,2)+'\n');
 const server=createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Model-free evaluator storage validation</title>');});
 let active:Awaited<ReturnType<typeof openModelBrowser>>|undefined;
-const ownedPids=()=>execFileSync('ps',['-axo','pid=,command='],{encoding:'utf8'})
+const ownedPids=()=>execFileSync('ps',['-axo','pid=,command='],{encoding:'utf8',timeout:1000,maxBuffer:4*1024*1024})
   .split('\n').filter(line=>line.includes('--user-data-dir='+profile)).map(line=>Number(line.trim().split(/\s/)[0]));
 const execute=promisify(execFile);
 const scanOwned=async(known:number[])=>{

@@ -4,8 +4,8 @@
   "authorOnly": "READY_FOR_INDEPENDENT_REVIEW_NOT_RUNTIME_QUALIFIED",
   "files": {
     "cli-persistent-quota-validation-20261022.e2e.mts": {
-      "bytes": 7227,
-      "sha256": "22746a26e059cf01037a78d043e8f94cc1604aa82b35872cdb41a1058b882f36"
+      "bytes": 7262,
+      "sha256": "0d90985bed225602da2986f3fe5ed0d896f9adcbd61f58a0cc0bcd4075b56d2e"
     },
     "cli-owned-close-observer-20261022.mjs": {
       "bytes": 4595,
@@ -20,8 +20,8 @@
       "sha256": "cb3cf872777789d1bbb652af0fceb0e02e40278ffbb109c68fe1b36a51af2ff8"
     },
     "diagnostic-source.diff": {
-      "bytes": 5400,
-      "sha256": "01cedcfef12e281196f0f6cf124c498c917fc041bdb919a980f91619e3edb24a"
+      "bytes": 5758,
+      "sha256": "256802fd1a8525bdcdace05a184b965755f88d97a6b8c81dc301b25c54c9af30"
     },
     "causal-red.json": {
       "bytes": 1363,
@@ -36,16 +36,18 @@
       "sha256": "6d7fb6ade59c9ae74ceb2cb0aadfb760e77c1b71831b77f4cd6552705c3e6dc5"
     },
     "minimum-smoke-order.json": {
-      "bytes": 7763,
-      "sha256": "bd44391f2345db256f83d3540c1f292e677a8ea215ad3d39e1dff6efc0722583"
+      "bytes": 7855,
+      "sha256": "0864596343c5a1db3fdd5e1665cd9667dc89edfe0ceb21d0317f8790dcf5a994"
     },
     "static-check.json": {
-      "bytes": 728,
-      "sha256": "e12761d14633de43d60308df06ec15a1279b331a66255b6f338a9e6f6db44508"
+      "bytes": 833,
+      "sha256": "0c3c14811667177e0b58c25b9ef3d12aeed80382e4270efc7f424988180b49c0"
     },
     "efficacy-requirement-row.json": {
       "bytes": 1664,
       "sha256": "e496db173acf9535b04b0aaf93eeb5f6f5bd86e19f9ebcc4928eb104045d8e30"
     }
-  }
+  },
+  "updatedUtc": "2026-10-22T19:26:47.338667+00:00",
+  "supplement": "Bound inherited ps reads; use frozen sharedfixture003 in proposedsmoke; observermodule/tests unchanged since6GREEN/3mutants"
 }

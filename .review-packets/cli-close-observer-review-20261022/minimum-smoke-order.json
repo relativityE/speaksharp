@@ -12,13 +12,14 @@
       "priority": 1,
       "arm": "Moonshine Base +VAD / HF4.3.0 stableORT1.30 WebGPU",
       "existingAssetsBytes": 159742317,
-      "input": "Existing tests/fixtures/stt-isomorphic/audio/h1_1.wav;53808samples/16000Hz=3.363s",
-      "budget": "1declared decode cell;1warmupASRcall plus at most8cellASRcalls (9total);106cellVADframes;120sload/120scell;zero provider calls",
-      "command": "node scripts/host-interlock.mjs hold benchmark -- node --import tsx scripts/model-investigation.mts --kind=moonshine --fixture=tests/fixtures/stt-isomorphic/audio/h1_1.wav --assets=/private/tmp/speaksharp-model-assets-1304/verified-manifest.json --cache=/private/tmp/speaksharp-model-assets-1304 --cdp-endpoint=http://127.0.0.1:9222 --out=/private/tmp/cli-moonshine-minimum-smoke-SELECTED-UNIQUE.json",
+      "input": "Existing pairedWhisper fixture-003,45000samples/16000Hz=2.8125s,filler slice",
+      "budget": "1cell;1warmupASR+max8cellASR(9total);88VADframes;120sload/120scell;zero provider calls",
+      "command": "node scripts/host-interlock.mjs hold benchmark -- node --import tsx scripts/model-investigation.mts --kind=moonshine --fixture=/private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/fixtures/corpus/fixture-003.wav --assets=/private/tmp/speaksharp-model-assets-1304/verified-manifest.json --cache=/private/tmp/speaksharp-model-assets-1304 --cdp-endpoint=http://127.0.0.1:9222 --out=/private/tmp/cli-moonshine-minimum-smoke-SELECTED-UNIQUE.json",
       "cwd": "/private/tmp/speaksharp-cli-persistent-context-20261022",
       "route": "Existing borrowed dedicatedCDP +new owned ephemeral context;159.7MBassets below measured570.6MBquota, but fresh guard/capacity still required. No borrowed default adoption.",
       "readyLimit": "Existing source/command available independently of Llama persistent mode; Sam must select modelbudget and freshPID/profilebinding. Asset size is not peak memory or guaranteed cache success.",
-      "retainedOutcome": "Actual transcript/fixturehash/ASR-VADcounts/initialization+decode+cleanup+device; shortfunctional smoke only, not streaming/zero-finalization/longtake proof"
+      "retainedOutcome": "Actual transcript/fixturehash/ASR-VADcounts/initialization+decode+cleanup+device; shortfunctional smoke only, not streaming/zero-finalization/longtake proof",
+      "wavSha256": "095b7fe19672a33b90fa7e696f37b96c0acfa0a2e9862758b851e24662d10150"
     },
     {
       "priority": 2,
