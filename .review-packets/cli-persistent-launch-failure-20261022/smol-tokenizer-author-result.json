@@ -1,0 +1,117 @@
+{
+  "createdUtc": "2026-10-22T15:43:21.022Z",
+  "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+  "model": "SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+  "revision": "84f57f8580a9d8d623266b600ad4273bb9fd84c1",
+  "pins": {
+    "mlc-chat-config.json": {
+      "gitBlob": "9d5a67508d9b4d800338221941fe6f9dca1251ed",
+      "sha256": "b246a0cdcbdc65d546b320c960555f505c4f061af919df9ac7d793895f3d48e5"
+    },
+    "tokenizer.json": {
+      "gitBlob": "f922b1797f0c88e71addc8393787831f2477a4bd",
+      "sha256": "9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c"
+    },
+    "tokenizer_config.json": {
+      "gitBlob": "76b6b266c3d0a53828e0fdd281dd9bb76d0bed78",
+      "sha256": "a27f638bd2831f5c3dea654a75838930f2b11fbe550c4d4e1d5d7bd07157b2ee"
+    }
+  },
+  "pairedRequestArtifactSha256": "267bd219d59a17cfabdd2db45f7450c4424f56f373576c183c1a996b3cc8a2c3",
+  "rows": [
+    {
+      "id": "open-specific",
+      "requestSha256": "e7982b7e8d7438813025598d76e4f64ae784072ad0bc252c8a9719cf33ef1d1c",
+      "partTokens": [
+        37,
+        416,
+        4
+      ],
+      "predictedPromptTokens": 457,
+      "reservedOutputTokens": 256,
+      "context": 4096,
+      "headroom": 3383,
+      "observedWebLlmPromptTokens": null
+    },
+    {
+      "id": "open-sparse",
+      "requestSha256": "eff7c5bd4533edd4eb59fd149a2d21b5d13489102661ed73a1a91c8e9e9ff01d",
+      "partTokens": [
+        37,
+        396,
+        4
+      ],
+      "predictedPromptTokens": 437,
+      "reservedOutputTokens": 256,
+      "context": 4096,
+      "headroom": 3403,
+      "observedWebLlmPromptTokens": null
+    },
+    {
+      "id": "open-untrusted",
+      "requestSha256": "cfe7e7f584636bb4bc0b2cff479bda33e673f3d6c90aae5291cc9a605fbd15f5",
+      "partTokens": [
+        37,
+        417,
+        4
+      ],
+      "predictedPromptTokens": 458,
+      "reservedOutputTokens": 256,
+      "context": 4096,
+      "headroom": 3382,
+      "observedWebLlmPromptTokens": null
+    },
+    {
+      "id": "focus-full",
+      "requestSha256": "6629dc9880e3fe6d51074b7c45342ccf58b8b2575a0ec5b683fb6c754ac9761d",
+      "partTokens": [
+        37,
+        598,
+        4
+      ],
+      "predictedPromptTokens": 639,
+      "reservedOutputTokens": 256,
+      "context": 4096,
+      "headroom": 3201,
+      "observedWebLlmPromptTokens": null
+    },
+    {
+      "id": "focus-partial",
+      "requestSha256": "15095899ce0967278d23806c8ad653cee35540019b5d7b42d8d3db11183f4290",
+      "partTokens": [
+        37,
+        580,
+        4
+      ],
+      "predictedPromptTokens": 621,
+      "reservedOutputTokens": 256,
+      "context": 4096,
+      "headroom": 3219,
+      "observedWebLlmPromptTokens": null
+    },
+    {
+      "id": "focus-unavailable",
+      "requestSha256": "ea8c251357db3044ee217f5255f9470ae1a7cbaea6daf2885a68d7143091d5c2",
+      "partTokens": [
+        37,
+        565,
+        4
+      ],
+      "predictedPromptTokens": 606,
+      "reservedOutputTokens": 256,
+      "context": 4096,
+      "headroom": 3234,
+      "observedWebLlmPromptTokens": null
+    }
+  ],
+  "networkAttempts": 0,
+  "modelInferenceCalls": 0,
+  "runtimeAcquisitionCalls": 0,
+  "providerCalls": 0,
+  "limitations": [
+    "Offline real-tokenizer input check only; no weights loaded",
+    "WebLLM-observed prompt-token equality NOT_RUN",
+    "No inference or coaching quality result",
+    "No real saved-session or device qualification; six synthetic prepared requests only"
+  ]
+}

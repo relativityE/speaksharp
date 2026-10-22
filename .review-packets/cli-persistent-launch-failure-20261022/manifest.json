@@ -1,0 +1,33 @@
+{
+  "createdUtc": "2026-10-22T16:08:16.152750+00:00",
+  "scope": "Raw failed MODEL-FREE persistent launch; independent process follow-up; metadata corrections. No source implementation publication or runtime success claim.",
+  "base": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "sourceState": "UNCOMMITTED_WIP five declared paths; launch source changes retained for pre-push review",
+  "modelCalls": 0,
+  "providerCalls": 0,
+  "persistentQuota": "NOT_MEASURED",
+  "profileReuseRuntimeControl": "NOT_RUN because persistent launch failed first",
+  "fullQuality": "IN_PROGRESS",
+  "files": {
+    "launch-failure-raw.json": {
+      "sha256": "0d98147d97424c9ce99479b347a1747d580caa2f66b5576a15925eabc8a2778d",
+      "bytes": 10929
+    },
+    "process-check.json": {
+      "sha256": "16642b15034d0c49b629eff2b42388807f90398cbd969c06f48aa653b93b088e",
+      "bytes": 370
+    },
+    "matrix-corrected.json": {
+      "sha256": "e34c85dfa46e17c3b1479c0edfb20755f6dea07f7a759b1e8cf519fccd7e18b4",
+      "bytes": 25879
+    },
+    "smol-tokenizer-author-result.json": {
+      "sha256": "8292f3416cfd5b8622fa53ec63dbe19c49ece0689f3b5918a86f50f02055dd86",
+      "bytes": 3414
+    },
+    "focused-author-report.json": {
+      "sha256": "ba45043f55871a8092edacb00f941d1b4fa167db3ca9733d08e824310791cc81",
+      "bytes": 14767
+    }
+  }
+}

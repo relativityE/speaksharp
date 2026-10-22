@@ -1,0 +1,8 @@
+{
+  "observedUtc": "2026-10-22T16:07:21.684Z",
+  "profile": "/private/tmp/speaksharp-eval-owned-quota-1792684984684",
+  "knownPidMatches": [],
+  "ownedProfileProcessMatches": [],
+  "scope": "Read-only snapshot; no kill/delete/relaunch. Historical launch SIGABRT and cleanup EPERM retained separately.",
+  "disposition": "NO_KNOWN_OWNED_PROCESS_REMAINS_AT_OBSERVATION"
+}

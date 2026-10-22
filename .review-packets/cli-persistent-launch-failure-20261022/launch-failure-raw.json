@@ -1,0 +1,76 @@
+{
+  "startedUtc": "2026-10-22T16:03:04.684Z",
+  "modelCalls": 0,
+  "providerCalls": 0,
+  "cacheApiWrites": 0,
+  "profile": "/private/tmp/speaksharp-eval-owned-quota-1792684984684",
+  "profileDisposition": "RETAINED",
+  "status": "FAIL",
+  "arms": [
+    {
+      "mode": "ephemeral",
+      "before": {
+        "browserVersion": "156.0.8078.47",
+        "ownership": "borrowed-dedicated-cdp",
+        "cdpOwner": {
+          "pid": 19004,
+          "profile": "/Users/fibonacci/speaksharp-eval-profile",
+          "listener": "127.0.0.1:9222"
+        },
+        "ownedContextState": "OPEN",
+        "borrowedBrowserCloseAttempted": false
+      },
+      "publicStorage": {
+        "origin": "http://127.0.0.1:58787",
+        "estimate": {
+          "quota": 10737418240,
+          "usage": 0,
+          "usageDetails": {}
+        },
+        "persisted": false
+      },
+      "actualStorage": {
+        "usage": 0,
+        "quota": 495527407,
+        "overrideActive": false,
+        "usageBreakdown": [
+          {
+            "storageType": "file_systems",
+            "usage": 0
+          },
+          {
+            "storageType": "indexeddb",
+            "usage": 0
+          },
+          {
+            "storageType": "cache_storage",
+            "usage": 0
+          },
+          {
+            "storageType": "service_workers",
+            "usage": 0
+          }
+        ]
+      },
+      "after": {
+        "browserVersion": "156.0.8078.47",
+        "ownership": "borrowed-dedicated-cdp",
+        "cdpOwner": {
+          "pid": 19004,
+          "profile": "/Users/fibonacci/speaksharp-eval-profile",
+          "listener": "127.0.0.1:9222"
+        },
+        "ownedContextState": "CLOSED",
+        "borrowedBrowserCloseAttempted": false
+      }
+    }
+  ],
+  "borrowedOwnerBefore": {
+    "pid": 19004,
+    "profile": "/Users/fibonacci/speaksharp-eval-profile",
+    "listener": "127.0.0.1:9222"
+  },
+  "origin": "http://127.0.0.1:58787",
+  "error": "Error: Error: browserType.launchPersistentContext: Target page, context or browser has been closed\nBrowser logs:\n\n<launching> /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --user-data-dir=/private/tmp/speaksharp-eval-owned-quota-1792684984684 --remote-debugging-pipe about:blank\n<launched> pid=2054\n[pid=2054][err] [1022/120307.549479:ERROR:third_party/crashpad/crashpad/util/mach/bootstrap.cc:65] bootstrap_check_in org.chromium.crashpad.child_port_handshake.2057.179864013.BRCYOGOCQAYCNFYN: unknown error code (141)\n[pid=2054][err] [1022/120307.550355:ERROR:third_party/crashpad/crashpad/util/file/file_io.cc:103] ReadExactly: expected 4, observed 0\nCall log:\n\u001b[2m  - <launching> /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --user-data-dir=/private/tmp/speaksharp-eval-owned-quota-1792684984684 --remote-debugging-pipe about:blank\u001b[22m\n\u001b[2m  - <launched> pid=2054\u001b[22m\n\u001b[2m  - [pid=2054][err] [1022/120307.549479:ERROR:third_party/crashpad/crashpad/util/mach/bootstrap.cc:65] bootstrap_check_in org.chromium.crashpad.child_port_handshake.2057.179864013.BRCYOGOCQAYCNFYN: unknown error code (141)\u001b[22m\n\u001b[2m  - [pid=2054][err] [1022/120307.550355:ERROR:third_party/crashpad/crashpad/util/file/file_io.cc:103] ReadExactly: expected 4, observed 0\u001b[22m\n\u001b[2m  - [pid=2054] <gracefully close start>\u001b[22m\n\u001b[2m  - [pid=2054] <kill>\u001b[22m\n\u001b[2m  - [pid=2054] <will force kill>\u001b[22m\n\u001b[2m  - [pid=2054] exception while trying to kill process: Error: kill EPERM\u001b[22m\n\u001b[2m  - [pid=2054] <process did exit: exitCode=null, signal=SIGABRT>\u001b[22m\n\u001b[2m  - [pid=2054] starting temporary directories cleanup\u001b[22m\n\u001b[2m  - [pid=2054] finished temporary directories cleanup\u001b[22m\n\u001b[2m  - [pid=2054] <gracefully close end>\u001b[22m\n; cleanup:Error: browserType.launchPersistentContext: Target page, context or browser has been closed\nBrowser logs:\n\n<launching> /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --user-data-dir=/private/tmp/speaksharp-eval-owned-quota-1792684984684 --remote-debugging-pipe about:blank\n<launched> pid=2054\n[pid=2054][err] [1022/120307.549479:ERROR:third_party/crashpad/crashpad/util/mach/bootstrap.cc:65] bootstrap_check_in org.chromium.crashpad.child_port_handshake.2057.179864013.BRCYOGOCQAYCNFYN: unknown error code (141)\n[pid=2054][err] [1022/120307.550355:ERROR:third_party/crashpad/crashpad/util/file/file_io.cc:103] ReadExactly: expected 4, observed 0\nCall log:\n\u001b[2m  - <launching> /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --disable-field-trial-config --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-back-forward-cache --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-component-update --no-default-browser-check --disable-default-apps --disable-dev-shm-usage --disable-extensions --disable-features=AcceptCHFrame,AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints --enable-features=CDPScreenshotNewSurface --allow-pre-commit-input --disable-hang-monitor --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --force-color-profile=srgb --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --no-service-autorun --export-tagged-pdf --disable-search-engine-choice-screen --unsafely-disable-devtools-self-xss-warnings --edge-skip-compat-layer-relaunch --enable-automation --disable-infobars --disable-search-engine-choice-screen --disable-sync --enable-unsafe-swiftshader --no-sandbox --user-data-dir=/private/tmp/speaksharp-eval-owned-quota-1792684984684 --remote-debugging-pipe about:blank\u001b[22m\n\u001b[2m  - <launched> pid=2054\u001b[22m\n\u001b[2m  - [pid=2054][err] [1022/120307.549479:ERROR:third_party/crashpad/crashpad/util/mach/bootstrap.cc:65] bootstrap_check_in org.chromium.crashpad.child_port_handshake.2057.179864013.BRCYOGOCQAYCNFYN: unknown error code (141)\u001b[22m\n\u001b[2m  - [pid=2054][err] [1022/120307.550355:ERROR:third_party/crashpad/crashpad/util/file/file_io.cc:103] ReadExactly: expected 4, observed 0\u001b[22m\n\u001b[2m  - [pid=2054] <gracefully close start>\u001b[22m\n\u001b[2m  - [pid=2054] <kill>\u001b[22m\n\u001b[2m  - [pid=2054] <will force kill>\u001b[22m\n\u001b[2m  - [pid=2054] exception while trying to kill process: Error: kill EPERM\u001b[22m\n\u001b[2m  - [pid=2054] <process did exit: exitCode=null, signal=SIGABRT>\u001b[22m\n\u001b[2m  - [pid=2054] starting temporary directories cleanup\u001b[22m\n\u001b[2m  - [pid=2054] finished temporary directories cleanup\u001b[22m\n\u001b[2m  - [pid=2054] <gracefully close end>\u001b[22m\n",
+  "finishedUtc": "2026-10-22T16:03:07.569Z"
+}
