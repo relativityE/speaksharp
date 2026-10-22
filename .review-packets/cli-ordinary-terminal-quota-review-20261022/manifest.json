@@ -1,0 +1,26 @@
+{
+  "createdUtc": "2026-10-22T19:01:06.984517+00:00",
+  "scope": "Existing PO runtime receipt plus read-only identity/process checks; no rerun or source change",
+  "files": {
+    "ordinary-terminal-raw.json": {
+      "bytes": 3468,
+      "sha256": "3b3781a95a1d224ca1b8ffa72bd1ccca5b4041f6a659030b322ef162b497adbe"
+    },
+    "quota-validation.e2e.mts": {
+      "bytes": 4381,
+      "sha256": "cb3cf872777789d1bbb652af0fceb0e02e40278ffbb109c68fe1b36a51af2ff8"
+    },
+    "eventual-process-check.json": {
+      "bytes": 595,
+      "sha256": "7da5f7e8862600c4b77f7d48fac74c60eccb0f86c4515d05e9965c1fb8fb66a9"
+    },
+    "app-overlap-receipt.json": {
+      "bytes": 4127,
+      "sha256": "ef735442d713ff73c0a4c57fc2e03ee2e591292a2434d131d3688dde5c2a35a8"
+    },
+    "identity-and-disposition.json": {
+      "bytes": 3081,
+      "sha256": "7409b0cdb4429880c98dfae45d57431928a1d5fee7a388ade07f923f08d06605"
+    }
+  }
+}

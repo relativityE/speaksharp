@@ -1,0 +1,124 @@
+{
+  "paths": [
+    "backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql",
+    "scripts/lib/exactMigrationGate.mjs",
+    "scripts/lib/t2MigrationPostflight.mjs",
+    "tests/db/account-closure-full-chain.mjs",
+    "tests/db/account-closure-full-chain-main-u1-plan.test.mjs",
+    "tests/db/account-completion.integration.test.ts",
+    "tests/db/account-completion-full-chain-invariants.sql",
+    "tests/db/account-completion-realpg.mjs"
+  ],
+  "worktrees": [
+    {
+      "worktree": "/private/tmp/speaksharp-cli-account-proof-20261020",
+      "HEAD": "ec451b7cc700924d6889e059d63d3006ef338f77",
+      "branch": "refs/heads/cli-dev/1643-proof-oracle-20261020",
+      "status": {
+        "chunk_id": "ee1085",
+        "wall_time_seconds": 0.526563333,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "worktree": "/private/tmp/speaksharp-cli-model-integration-20261020",
+      "HEAD": "48765e7746ca9a701fdd9e908521dbbb612035a9",
+      "branch": "refs/heads/cli-dev/1304-moonshine-llama-integration-20261020",
+      "status": {
+        "chunk_id": "cb44bf",
+        "wall_time_seconds": 0.841561209,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "worktree": "/private/tmp/speaksharp-cli-persistent-context-20261022",
+      "HEAD": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+      "branch": "refs/heads/cli-dev/1304-owned-persistent-context-20261022",
+      "status": {
+        "chunk_id": "6841e0",
+        "wall_time_seconds": 0.622491917,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "worktree": "/private/tmp/speaksharp-cli-product-models-20261020",
+      "HEAD": "c29baf256aeda2a7281e49a2739fa972a11b624c",
+      "branch": "refs/heads/cli-dev/1304-product-contract-probe-20261021",
+      "status": {
+        "chunk_id": "91f509",
+        "wall_time_seconds": 0.746379,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "worktree": "/private/tmp/speaksharp-cli-raw-output-20261021",
+      "HEAD": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+      "branch": "refs/heads/cli-dev/1304-1565-cdp-comparison-20261022",
+      "status": {
+        "chunk_id": "e0c9ec",
+        "wall_time_seconds": 0.92650425,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "worktree": "/private/tmp/speaksharp-cli-smol-profile-20261021",
+      "HEAD": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+      "branch": "refs/heads/cli-dev/1304-smol-profile-20261021",
+      "status": {
+        "chunk_id": "66dc30",
+        "wall_time_seconds": 1.306429041,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "worktree": "/private/tmp/speaksharp-cli-t2-chain-proof-20261021",
+      "HEAD": "3e113fc4fd555d6d4d669d654f5d9d81fd0ea1c0",
+      "branch": "refs/heads/cli-dev/1643-full-t2-proof-20261021",
+      "status": {
+        "chunk_id": "23951c",
+        "wall_time_seconds": 1.017262334,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "worktree": "/private/tmp/speaksharp-cli-transformers431-20261020",
+      "HEAD": "180636dcd777c911a11f9757c3d670c04c468cdc",
+      "detached": true,
+      "status": {
+        "chunk_id": "000da0",
+        "wall_time_seconds": 1.119209333,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    },
+    {
+      "worktree": "/private/tmp/speaksharp-cli-transformers431-successor-20261022",
+      "HEAD": "455c26624ca8ead2ea22694ab36c064e497738bb",
+      "branch": "refs/heads/cli-dev/1304-transformers431-successor-20261022",
+      "status": {
+        "chunk_id": "5c5db0",
+        "wall_time_seconds": 1.1780125,
+        "exit_code": 0,
+        "original_token_count": 0,
+        "output": ""
+      }
+    }
+  ],
+  "activeCliWritersOnPaths": 0,
+  "scope": "Committed historical overlaps retained; unpublished changes checked separately"
+}

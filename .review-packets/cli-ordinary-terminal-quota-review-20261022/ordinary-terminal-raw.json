@@ -1,0 +1,133 @@
+{
+  "startedUtc": "2026-10-22T18:42:48.951Z",
+  "modelCalls": 0,
+  "providerCalls": 0,
+  "cacheApiWrites": 0,
+  "profile": "/private/tmp/speaksharp-eval-owned-quota-1792694568951",
+  "profileDisposition": "RETAINED",
+  "status": "FAIL",
+  "arms": [
+    {
+      "mode": "ephemeral",
+      "before": {
+        "browserVersion": "156.0.8078.47",
+        "ownership": "borrowed-dedicated-cdp",
+        "cdpOwner": {
+          "pid": 19004,
+          "profile": "/Users/fibonacci/speaksharp-eval-profile",
+          "listener": "127.0.0.1:9222"
+        },
+        "ownedContextState": "OPEN",
+        "borrowedBrowserCloseAttempted": false
+      },
+      "publicStorage": {
+        "origin": "http://127.0.0.1:61384",
+        "estimate": {
+          "quota": 10737418240,
+          "usage": 0,
+          "usageDetails": {}
+        },
+        "persisted": false
+      },
+      "actualStorage": {
+        "usage": 0,
+        "quota": 570557564,
+        "overrideActive": false,
+        "usageBreakdown": [
+          {
+            "storageType": "file_systems",
+            "usage": 0
+          },
+          {
+            "storageType": "indexeddb",
+            "usage": 0
+          },
+          {
+            "storageType": "cache_storage",
+            "usage": 0
+          },
+          {
+            "storageType": "service_workers",
+            "usage": 0
+          }
+        ]
+      },
+      "after": {
+        "browserVersion": "156.0.8078.47",
+        "ownership": "borrowed-dedicated-cdp",
+        "cdpOwner": {
+          "pid": 19004,
+          "profile": "/Users/fibonacci/speaksharp-eval-profile",
+          "listener": "127.0.0.1:9222"
+        },
+        "ownedContextState": "CLOSED",
+        "borrowedBrowserCloseAttempted": false
+      }
+    },
+    {
+      "mode": "persistent",
+      "before": {
+        "browserVersion": "156.0.8078.47",
+        "profile": "/private/tmp/speaksharp-eval-owned-quota-1792694568951",
+        "cacheState": "FRESH_PROFILE",
+        "profileReuse": "REFUSED",
+        "browserOwnership": "owned-persistent-profile",
+        "profileDisposition": "RETAINED_NOT_DELETED",
+        "ownership": "owned-persistent-profile",
+        "cdpOwner": null,
+        "ownedContextState": "OPEN",
+        "borrowedBrowserCloseAttempted": false
+      },
+      "publicStorage": {
+        "origin": "http://127.0.0.1:61384",
+        "estimate": {
+          "quota": 10737418240,
+          "usage": 0,
+          "usageDetails": {}
+        },
+        "persisted": false
+      },
+      "actualStorage": {
+        "usage": 0,
+        "quota": 147064317542,
+        "overrideActive": false,
+        "usageBreakdown": [
+          {
+            "storageType": "file_systems",
+            "usage": 0
+          },
+          {
+            "storageType": "indexeddb",
+            "usage": 0
+          },
+          {
+            "storageType": "cache_storage",
+            "usage": 0
+          },
+          {
+            "storageType": "service_workers",
+            "usage": 0
+          }
+        ]
+      },
+      "ownedBrowserPidsBeforeClose": [
+        50023,
+        50031,
+        50032,
+        50037,
+        50042,
+        50044,
+        50045,
+        50065
+      ]
+    }
+  ],
+  "borrowedOwnerBefore": {
+    "pid": 19004,
+    "profile": "/Users/fibonacci/speaksharp-eval-profile",
+    "listener": "127.0.0.1:9222"
+  },
+  "origin": "http://127.0.0.1:61384",
+  "error": "Error: TIMEOUT_OWNED_CONTEXT_CLOSE",
+  "finishedUtc": "2026-10-22T18:42:58.959Z"
+}

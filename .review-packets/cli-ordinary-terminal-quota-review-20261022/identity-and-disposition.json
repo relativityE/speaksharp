@@ -1,0 +1,55 @@
+{
+  "checkedUtc": "2026-10-22T19:01:06.984517+00:00",
+  "base": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "sourceReviewPacket": "80c19b6372573c78a6e9c76a4e4867d9eefa0dea1e992de1cde55fae989017b7",
+  "reportedCommand": "node scripts/host-interlock.mjs hold benchmark -- node --import tsx /Users/fibonacci/SW_Dev/delivery-support/cli-persistent-quota-validation-20261022.e2e.mts /private/tmp/cli-persistent-quota-ordinary-terminal-20261022.json",
+  "reportedCwd": "/private/tmp/speaksharp-cli-persistent-context-20261022",
+  "sourceHashesNow": {
+    "scripts/model-evaluator/browser-session.ts": {
+      "bytes": 3138,
+      "sha256": "22d8bf2f39b000289cdf022cfa3cf371e5a66b08b776eccdd038b44f2f83905f"
+    },
+    "scripts/model-investigation.mts": {
+      "bytes": 23851,
+      "sha256": "6b8a8b5016d94309d29f92b68c0a7f4a4c7436d9540e88ae6145d8cf55c7a566"
+    },
+    "scripts/model-evaluator/persistent-browser.ts": {
+      "bytes": 2071,
+      "sha256": "b66b5120edecb7ddf41f11b19823cea6db2fc2a2100aad9666b73245657b8893"
+    },
+    "tests/unit/modelEvaluatorBrowserSession.test.ts": {
+      "bytes": 6157,
+      "sha256": "a1c86aab4e3a0219bd12fb28507cb05b478316a3856c979df485de02f34e5bbc"
+    },
+    "tests/unit/modelEvaluatorPersistentBrowser.test.ts": {
+      "bytes": 5338,
+      "sha256": "8ebdae489f16d938f14ba036732838cabc655750b2475266a9051852bd51442c"
+    },
+    "scripts/model-evaluator/cdp-browser.ts": {
+      "bytes": 5342,
+      "sha256": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+    },
+    "scripts/model-evaluator/investigation-supervision.ts": {
+      "bytes": 2014,
+      "sha256": "646d14ca2e3b28ba94aa39e114ad28438efb48a5010b2ed0c261f11ea8376e77"
+    },
+    "tests/unit/modelCdpBrowser.test.ts": {
+      "bytes": 8823,
+      "sha256": "e904df837fc2e8d253d5671a9616d3e6242c86a41d4c4ba3e96928298741d0d2"
+    }
+  },
+  "identityLimit": "Command reported by PO/Consultant; raw probe did not self-pin source hashes or executable versions at start. Current hashes retained; no intervening CLI source edits since accepted80c19b63.",
+  "closeDeadlineMs": 2000,
+  "totalRunElapsedMs": 10008,
+  "modelCalls": 0,
+  "providerCalls": 0,
+  "cacheApiWrites": 0,
+  "interpretation": {
+    "launch": "Persistent Chrome reached OPEN and page quota measurement in ordinary Terminal; prior agent launch failed before page. Supports execution-context effect; exact sandbox mechanism unproven.",
+    "capacity": "Observed quota minus usage147064317542bytes exceeds each model asset total. Not model allocation/cache-write/inference success.",
+    "cleanup": "Original FAIL/TIMEOUT_OWNED_CONTEXT_CLOSE retained. All8PIDs/exactprofile absent at18:58:46 snapshot closes eventual observed absence only; shutdown duration not measured.",
+    "publicEstimate": "Both arms report10GiB despite different actual CDP quotas; public estimate not a safe capacity oracle in these observations.",
+    "routeB": "Dedicated default-context attach NOT validated by this owned-launch result.",
+    "models": "Still0local coaching outputs; every NOT RUN row unfinished."
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "exit": 0,
+  "originalTokens": 27484,
+  "outputTruncated": false,
+  "matches": [],
+  "checkedUtc": "2026-10-22 18:58:46 UTC",
+  "checkedPids": [
+    50023,
+    50031,
+    50032,
+    50037,
+    50042,
+    50044,
+    50045,
+    50065
+  ],
+  "checkedProfile": "/private/tmp/speaksharp-eval-owned-quota-1792694568951",
+  "knownPidsExplicitCheck": {
+    "exit": 1,
+    "output": "",
+    "meaning": "None of eight PIDs exists at observation"
+  },
+  "effect": "READ_ONLY; no kill/delete/relaunch",
+  "limit": "Eventual absence at18:58:46 does not time shutdown or alter original TIMEOUT failure"
+}
