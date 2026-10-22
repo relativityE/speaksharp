@@ -1,5 +1,5 @@
 {
-  "updatedUtc": "2026-10-22T18:10:20.049077+00:00",
+  "updatedUtc": "2026-10-22T19:03:40.276655+00:00",
   "scope": "Measured STT smoke plus failed Llama acquisition and retained unexecuted configurations; no completed LLM comparison",
   "decision": "First matched STT smoke measured: v4WASM lowerWER on oneclip but slowerdecode; no STT selection or LLM/Gemini retirement decision supported.",
   "nullMeaning": "NOT MEASURED, never zero",
@@ -263,22 +263,22 @@
     "runtimeMeasurementsComplete": false,
     "scope": "Frozen STT/Llama source only; see separate Smol qualification"
   },
-  "currentExecutionDependency": "Llama initializationQuotaExceeded; evaluator-owned ephemeralcontext actualCDPquota457689378bytes below710619226Llama/972833253Smolassets. No furthermodelrun until narrowcontextfix reviewed/selected.",
+  "currentExecutionDependency": "Ordinary-Terminal persistent launch and realquota147064317542bytes verified; original cleanupFAIL/TIMEOUT2s preserved, eventual8PID/profileabsence18:58:46 observed. Sam supported next-runtime selection pending; no LLM output.",
   "executiveDecisionMatrix": [
     {
       "configuration": "Llama3.2-1B / WebLLM0.2.86",
       "yesterdayToThisMorning": "Causally isolated SDK resolve/main URL mismatch; exact allowlisted route repair accepted; original bounded retry cleared",
       "actualComparisonOutputs": 0,
       "decisionNow": "First executable local LLM candidate; NOT a quality winner",
-      "nextBoundedEvidence": "Reviewsmallestownership-safe disk-backedcontextcorrection;model-freequota/cleanupvalidationbeforeanyselectedrerun",
-      "currentEvidence": "ActualacquisitionQuotaExceeded after2.56GiBRAM+Metal3/f16PASS;0cells;freshcontextCDPquota457.7MB"
+      "nextBoundedEvidence": "Actualsame-inputcoaching through selectedordinarybrowserroute aftercleanupdisposition; no morestorage-repair claim",
+      "currentEvidence": "OriginalacquisitionQuotaExceeded; correctedpersistentlaunch+147GBquotaprovenoutsideagent;close2sTIMEOUT,eventualabsence;0outputs"
     },
     {
       "configuration": "SmolLM2-1.7B / WebLLM0.2.86",
       "yesterdayToThisMorning": "Official972833253-byte assets verified; shared ChatML/runtime profile build defect fixed;55tests and fullquality accepted; diagnostic wiring now committed2f3ec5430 and published",
       "actualComparisonOutputs": 0,
       "decisionNow": "Keep in two-model shortlist; no rejection or quality verdict",
-      "nextBoundedEvidence": "ActualChatML/tokenizerpreflightandquota-safeharness;noactualSmolinferencebudgetselected",
+      "nextBoundedEvidence": "Actualinference via selectedquota-safeordinarybrowserroute;realChatML/tokenizerpreflightalreadyaccepted",
       "currentEvidence": "7465ec93 final75/75 focused,6 mutants detected/restored,runnerTS/fullqualityPASS; independently accepted bounded offline scope by Sam1792679925.909229; CI and inference NOT_RUN"
     },
     {
@@ -320,26 +320,26 @@
   ],
   "convergenceRecommendation": {
     "status": "Recommended ordering; not new execution/activation authority",
-    "immediate": "PreservefirstSTTsmokeandreviewlimits;model-freequota diagnosis confirmedinsufficientfreshownedcontext. Submitownership-safecontextfixproposalbeforechanges;nonewloading/Geminicalls/backend/corpus.",
+    "immediate": "Select supportedordinarybrowser execution/cleanup route, obtainactualLlama/Smoloutputs, and boundedruntimeevidenceforremainingagreedrows. KeepAppT2independent; no anotherbroadreview.",
     "scoring": "Retain same-input suggestions side by side; report groundedness, actionable next-take advice, specificity and clarity separately. Invented facts/wrong Focus/invalid responses are explicit failures. Numeric aggregate weights remain unadopted.",
     "stop": "Each row returns measured evidence, explicit failure, or exact HOLD. Do not replace unrun cells with source-test success or wait for broad population research.",
     "releaseDecision": "Functional smoke supports only a shortlist; Gemini retirement requires matched actual outputs and product acceptance."
   },
   "blockingConditions": [
     {
-      "type": "HARNESS_STORAGE_QUOTA",
+      "type": "SUPPORTED_RUNTIME_EXECUTION_AND_CLEANUP",
       "owner": "CLI/Sam",
-      "condition": "Llama initializationQuotaExceeded; evaluator-owned ephemeralcontext actualCDPquota457689378bytes below710619226Llama/972833253Smolassets. No furthermodelrun until narrowcontextfix reviewed/selected."
+      "condition": "Ordinary-Terminal persistent launch and realquota147064317542bytes verified; original cleanupFAIL/TIMEOUT2s preserved, eventual8PID/profileabsence18:58:46 observed. Sam supported next-runtime selection pending; no LLM output."
     },
     {
       "type": "MISSING_LLM_RESULTS",
       "owner": "CLI/Sam",
-      "condition": "0local coaching outputs;0matched observedGemini outputs. NewGemini calls/caplift/Smol360M/lowerRAMfloor notselected."
+      "condition": "0local coaching outputs/0matchedGemini outputs. Runtimecoverage everyagreedrow remains unfinished. Paidcalls notselected."
     },
     {
-      "type": "LATER_INTEGRATION",
-      "owner": "CLI/App/Sam",
-      "condition": "Unmergedmodelstack matters for receiving/productintegration, not for crediting measuredsmoke. Native sourcepush-50; evidencepublicationworks."
+      "type": "TRANSFORMERS431_DEPENDENCY",
+      "owner": "CLI/Sam",
+      "condition": "CLI normalregistry DNS andoffline metadata missing; ApphelperWITHDRAWN underT2freeze. CLI retains5pathsource/lock; no alternative installroute selected."
     }
   ],
   "idleHostDisposition": {
@@ -399,9 +399,9 @@
     "supersededForCurrentStateBy": "latestMeasuredStt and llama-raw.json"
   },
   "currentSlotState": {
-    "CLI": "RELEASED1792682436.685549",
-    "nextOwner": "App",
-    "CLIHeavyJobRunning": false
+    "CLIHeavyJobRunning": false,
+    "CLI": "NONE_HELD",
+    "newClaim": "Freshslotrequiredforanyselectedheavyjob"
   },
   "smolCompletionClaim": "Offline Smol diagnostic wiring, six paths on the unmerged #1304 stack b81d12f8, is locally qualified. Not landable until receiving integration is selected, reconciled and reviewed against current main. CI NOT RUN; zero model outputs; no Gemini replacement conclusion.",
   "independentReview": {
@@ -552,11 +552,14 @@
   "persistentCorrection": {
     "base": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
     "sourceReviewArtifact": "https://speaksharp.slack.com/files/U0CAL06QE80/F0CBBNT9C5U/cli-persistent-context-corrected-review-v2-20261022.json",
-    "sourceState": "Unpublished5pathWIP;author35focused/fullquality/expandedTS PASS; SamRETURN7004 corrected, independent disposition PENDING",
-    "realLaunch": "FAILED beforepage; bootstrap141/SIGABRT/cleanupEPERM",
-    "persistentQuota": "NOT_MEASURED",
-    "relaunch": "STOPPED perSam5108/6796",
-    "unchangedDependencyReview": "Sam1792691299.121159 PASS"
+    "sourceState": "Exact80c19b63 SOURCE PASS Sam1493;35authorfocused/fullquality/expandedTS records; implementation unpublished",
+    "realLaunch": "Agent pre-page FAIL retained; unchanged ordinary-Terminal probe reached persistent OPEN/pagequota; Sam exactrawhash verified5735",
+    "persistentQuota": 147064317542,
+    "relaunch": "No CLI relaunch; PO ordinaryTerminalrun18:42:48 and reported dedicatedrelaunch18:59 are distinct",
+    "unchangedDependencyReview": "Sam1792691299.121159 PASS",
+    "persistentUsage": 0,
+    "cleanup": "Original FAIL/TIMEOUT_OWNED_CONTEXT_CLOSE; eventual8PIDs/exactprofileabsent18:58:46; shutdown duration unmeasured",
+    "closeDeadlineMs": 2000
   },
   "transformers431Successor": {
     "base": "455c26624ca8ead2ea22694ab36c064e497738bb",
@@ -566,6 +569,28 @@
     "lockfile": "BLOCKED pnpm ENOTFOUND registry.npmjs.org normal+escalated",
     "modelCalls": 0,
     "frozen430": "UNCHANGED",
-    "offlineLockAttempt": "Selected7392 EXIT1 ERR_PNPM_NO_OFFLINE_META; no furtherattemptselected"
+    "offlineLockAttempt": "Selected7392 EXIT1 ERR_PNPM_NO_OFFLINE_META; no furtherattemptselected",
+    "helper": "WITHDRAWN byApp3762/Sam3923; noAppjobpending;CLIownsallpaths"
+  },
+  "ordinaryTerminalQuotaCounterfactual": {
+    "exactRawSha256": "3b3781a95a1d224ca1b8ffa72bd1ccca5b4041f6a659030b322ef162b497adbe",
+    "evidence": "https://github.com/relativityE/speaksharp/tree/30844d306a09446a587b6089be1a8c15cf5fa58f/.review-packets/cli-ordinary-terminal-quota-review-20261022",
+    "ephemeralQuota": 570557564,
+    "persistentQuota": 147064317542,
+    "usageBoth": 0,
+    "publicEstimateBoth": 10737418240,
+    "modelCalls": 0,
+    "providerCalls": 0,
+    "cacheApiWrites": 0,
+    "rawVerdict": "FAIL/TIMEOUT_OWNED_CONTEXT_CLOSE",
+    "independentRawReview": "Sam1792695735.489759 exact3468bytes/SHA256 match",
+    "routeB": "NOT_VALIDATED",
+    "memoryAllocation": "NOT_RUN"
+  },
+  "provisionalExitDecision": {
+    "decision": "RETAIN_WORKING_BASELINE_FOR_RWT_MVP",
+    "packetCommit": "6725f5dc61f4e1d864000561028fb804498ba841",
+    "Sam": "1792693923.108819 ACCEPT provisionalonly",
+    "candidateSelection": "No candidate selected or permanently rejected without boundedruntimeevidence"
   }
 }
