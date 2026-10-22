@@ -30,6 +30,35 @@ describe('advanceNudge (#1046 §2)', () => {
         expect(s.activeText).toBeNull();
     });
 
+    // #1474 N1 — Sam 1792525677 precedence ruling: final-point completion clears an active nudge immediately; the 8 s
+    // minimum and the two-per-run cap apply only while points remain.
+    describe('N1 — final-point completion clears an active nudge at once', () => {
+        it('CASUALTY: onset 150 s, final point completed at 151 s → cleared at 151 s, inside the 8 s hold', () => {
+            let s = advanceNudge(initialNudgeState, during({ elapsedSec: 150, coveredCount: 2, nextPointNumber: 3 }));
+            expect(s.activeText).not.toBeNull();
+            s = advanceNudge(s, during({ elapsedSec: 151, coveredCount: 3, nextPointNumber: null }));
+            expect(s.activeText).toBeNull();
+            expect(s.activeSinceSec).toBeNull();
+            expect(s.shownCount, 'the shown nudge still counts toward the run').toBe(1);
+        });
+
+        it('CONTROL: without completion the hold still applies; the first eligible clear is 158 s, not 159 s', () => {
+            let s = advanceNudge(initialNudgeState, during({ elapsedSec: 150, coveredCount: 2, nextPointNumber: 3 }));
+            const recovered = { coveredCount: 2, nextPointNumber: 3, guideSecPerPoint: 600 };
+            s = advanceNudge(s, during({ elapsedSec: 157, ...recovered }));
+            expect(s.activeText, '7 s after onset: still held').not.toBeNull();
+            s = advanceNudge(s, during({ elapsedSec: 158, ...recovered }));
+            expect(s.activeText, '8 s after onset: first eligible expiry').toBeNull();
+        });
+
+        it('CONTROL: completing a NON-final point does not bypass the hold', () => {
+            let s = advanceNudge(initialNudgeState, during({ elapsedSec: 150, coveredCount: 1, totalPoints: 3, nextPointNumber: 2 }));
+            expect(s.activeText).not.toBeNull();
+            s = advanceNudge(s, during({ elapsedSec: 151, coveredCount: 2, totalPoints: 3, nextPointNumber: 3 }));
+            expect(s.activeText).not.toBeNull();
+        });
+    });
+
     it('never shows more than two nudges per run', () => {
         let s: NudgeState = initialNudgeState;
         // Nudge 1
