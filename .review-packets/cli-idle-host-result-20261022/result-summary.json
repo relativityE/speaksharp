@@ -1,0 +1,476 @@
+{
+  "createdUtc": "2026-10-22T13:38:58.589960+00:00",
+  "rawReports": [
+    {
+      "path": "/private/tmp/cli-stt-v2-v4-idle-slot-20261022T1337.json",
+      "sha256": "9c4916628119141d907beeb9212bde5b2b1c844eab5b51010f6863292eb48fdb"
+    },
+    {
+      "path": "/private/tmp/cli-llama-product-00eceeb8-cdp-20261022T0155.json",
+      "sha256": "225d7f9db44e755e5374a700e12be6690ea4a8f6bf2187c6baa75548b89f54e2"
+    }
+  ],
+  "configurations": [
+    {
+      "area": "STT",
+      "arm": "baseline",
+      "declared": {
+        "engine": "private-v2",
+        "modelId": "Xenova/whisper-base.en",
+        "revision": null,
+        "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+        "runtime": "@xenova/transformers@2.17.2",
+        "backend": "wasm"
+      },
+      "observed": null,
+      "state": "HOLD_RESOURCE_PREFLIGHT",
+      "comparisonWideExplicitDispatches": 0,
+      "returnedTranscripts": 0,
+      "declaredRows": 6,
+      "resourceHeadroom": {
+        "minStartBytes": 2147483648,
+        "minRunningBytes": 1073741824,
+        "maxConsecutiveLowSamples": 5,
+        "startAvailableBytes": 1803886264.32,
+        "minimumObservedAvailableBytes": 1803886264.32,
+        "lowSamples": 0,
+        "error": "HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+        "method": "Host available headroom; NOT model peak memory"
+      },
+      "initializeMs": null,
+      "metrics": {
+        "wer": null,
+        "referenceWords": 0,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "scoredCount": 0,
+        "invalidCount": 6,
+        "invalidReasons": {
+          "empty_hypothesis": 6
+        },
+        "armInvalidReason": "incomplete_corpus"
+      },
+      "rawComparatorVerdict": "FAIL",
+      "rows": [
+        {
+          "clipId": "fixture-001",
+          "trial": 0,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 5166.9375,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-001",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+            "referenceWords": 19
+          }
+        },
+        {
+          "clipId": "fixture-002",
+          "trial": 0,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 4110.375,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-002",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+            "referenceWords": 12
+          }
+        },
+        {
+          "clipId": "fixture-003",
+          "trial": 0,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 2812.5,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-003",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+            "referenceWords": 9
+          }
+        },
+        {
+          "clipId": "fixture-001",
+          "trial": 1,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 5166.9375,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-001",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+            "referenceWords": 19
+          }
+        },
+        {
+          "clipId": "fixture-002",
+          "trial": 1,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 4110.375,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-002",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+            "referenceWords": 12
+          }
+        },
+        {
+          "clipId": "fixture-003",
+          "trial": 1,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 2812.5,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-003",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+            "referenceWords": 9
+          }
+        }
+      ],
+      "unsupportedMetrics": [
+        "first_useful_partial",
+        "cold_model_load_isolated",
+        "persistent_cache_size",
+        "browser_worker_memory",
+        "product_start_stop_next_take",
+        "focus_keyword_coverage",
+        "acoustic_filler_reference_validation",
+        "expected_silence_scoring_policy"
+      ]
+    },
+    {
+      "area": "STT",
+      "arm": "candidate",
+      "declared": {
+        "engine": "private-v4",
+        "modelId": "onnx-community/whisper-base.en",
+        "revision": null,
+        "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+        "runtime": "@huggingface/transformers@4.3.0",
+        "backend": "wasm"
+      },
+      "observed": null,
+      "state": "HOLD_RESOURCE_PREFLIGHT",
+      "comparisonWideExplicitDispatches": 0,
+      "returnedTranscripts": 0,
+      "declaredRows": 6,
+      "resourceHeadroom": {
+        "minStartBytes": 2147483648,
+        "minRunningBytes": 1073741824,
+        "maxConsecutiveLowSamples": 5,
+        "startAvailableBytes": 1803886264.32,
+        "minimumObservedAvailableBytes": 1803886264.32,
+        "lowSamples": 0,
+        "error": "HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+        "method": "Host available headroom; NOT model peak memory"
+      },
+      "initializeMs": null,
+      "metrics": {
+        "wer": null,
+        "referenceWords": 0,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "scoredCount": 0,
+        "invalidCount": 6,
+        "invalidReasons": {
+          "empty_hypothesis": 6
+        },
+        "armInvalidReason": "incomplete_corpus"
+      },
+      "rawComparatorVerdict": "FAIL",
+      "rows": [
+        {
+          "clipId": "fixture-001",
+          "trial": 0,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 5166.9375,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-001",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+            "referenceWords": 19
+          }
+        },
+        {
+          "clipId": "fixture-002",
+          "trial": 0,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 4110.375,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-002",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+            "referenceWords": 12
+          }
+        },
+        {
+          "clipId": "fixture-003",
+          "trial": 0,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 2812.5,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-003",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+            "referenceWords": 9
+          }
+        },
+        {
+          "clipId": "fixture-001",
+          "trial": 1,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 5166.9375,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-001",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+            "referenceWords": 19
+          }
+        },
+        {
+          "clipId": "fixture-002",
+          "trial": 1,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 4110.375,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-002",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+            "referenceWords": 12
+          }
+        },
+        {
+          "clipId": "fixture-003",
+          "trial": 1,
+          "transcript": null,
+          "inputSha256": "",
+          "audioDurationMs": 2812.5,
+          "finalLatencyMs": null,
+          "realTimeFactor": null,
+          "fillerDetection": null,
+          "error": "adapter_initialization_failed",
+          "evidence": {
+            "utteranceId": "fixture-003",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+            "referenceWords": 9
+          }
+        }
+      ],
+      "unsupportedMetrics": [
+        "first_useful_partial",
+        "cold_model_load_isolated",
+        "persistent_cache_size",
+        "browser_worker_memory",
+        "product_start_stop_next_take",
+        "focus_keyword_coverage",
+        "acoustic_filler_reference_validation",
+        "expected_silence_scoring_policy"
+      ]
+    },
+    {
+      "area": "LLM",
+      "arm": "llama",
+      "source": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+      "state": "FAIL",
+      "error": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed",
+      "explicitCellDispatches": 0,
+      "internalInferenceCount": "UNKNOWN",
+      "returnedRawOutputs": 0,
+      "validOutputs": 0,
+      "acquisition": null,
+      "browser": "156.0.8078.47",
+      "hardware": {
+        "available": true,
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "description": "",
+        "isFallbackAdapter": false,
+        "shaderF16": true
+      },
+      "startAvailableBytes": 3092376453.12,
+      "rows": [],
+      "notExecutedCells": [
+        {
+          "id": "PRODUCT-open-specific-1",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-open-specific-2",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-open-specific-3",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-open-sparse-1",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-open-sparse-2",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-open-sparse-3",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-open-untrusted-1",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-open-untrusted-2",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-open-untrusted-3",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-full-1",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-full-2",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-full-3",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-partial-1",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-partial-2",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-partial-3",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-unavailable-1",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-unavailable-2",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        },
+        {
+          "id": "PRODUCT-focus-unavailable-3",
+          "status": "NOT_EXECUTED",
+          "reason": "Error: page.evaluate: TypeError: Failed to execute 'add' on 'Cache': Request failed"
+        }
+      ],
+      "cleanup": [
+        {
+          "name": "dispose",
+          "status": "COMPLETE"
+        },
+        {
+          "name": "browser",
+          "status": "COMPLETE"
+        },
+        {
+          "name": "server",
+          "status": "COMPLETE"
+        },
+        {
+          "name": "terminate-owned-browser",
+          "status": "COMPLETE"
+        }
+      ],
+      "ownedContextState": "CLOSED"
+    }
+  ],
+  "qualityRating": "NOT_RATED; raw local outputs require matched observed Gemini and retained ratings",
+  "peakMemory": "UNKNOWN unless explicitly present in the raw measurement; available headroom is not model peak",
+  "decision": "NO_AUTOMATIC_PROMOTION; functional evidence is distinct from quality and product acceptance"
+}

@@ -1,0 +1,31 @@
+{
+  "createdUtc": "2026-10-22T13:39:43.291632+00:00",
+  "source": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "disposition": "IDLE_HOST_UNAVAILABLE_UNDER_REQUIRED_RESOURCE_CONDITIONS",
+  "availableBytes": 1803886264.32,
+  "requiredBytes": 2147483648,
+  "explicitModelDecodes": 0,
+  "sdkInternalInitialization": "UNKNOWN",
+  "processCheck": "No competing heavy job at13:37UTC",
+  "interlock": "PASS before; guarded run ended; PASS after",
+  "slot": "App released1792676042.120049; CLI accepted1792676266.170709; CLI released1792676337.681279",
+  "action": "One guarded idle-host attempt only. No Llama attempt or unchanged retry. Resource choice escalated1792676338.153669.",
+  "files": [
+    {
+      "name": "raw-stt-report.json",
+      "sha256": "9c4916628119141d907beeb9212bde5b2b1c844eab5b51010f6863292eb48fdb"
+    },
+    {
+      "name": "result-summary.json",
+      "sha256": "3496dce65ab311a80ea914fa6830c052ce5ba9d75f74492bb68bd13db9544cc9"
+    },
+    {
+      "name": "measurement-matrix.json",
+      "sha256": "dc4ee5431694196305b181d324fb7c11bafbcea2cd2b1f9ca7d24224352bcb1a"
+    },
+    {
+      "name": "build-readback.json",
+      "sha256": "60e4a76d13f8ad0e2b9becadd7b94feff7956ed9ad6d8736b3276a40e037777f"
+    }
+  ]
+}
