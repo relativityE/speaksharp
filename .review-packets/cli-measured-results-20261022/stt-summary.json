@@ -1,0 +1,359 @@
+{
+  "source": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "rawReport": "/private/tmp/cli-stt-v2-v4-po-go-20261022T1508.json",
+  "rawSha256": "03f229f4bad3a158dccf7a38aea3a5d8c49833e87f28f17c70d98a71fb0e34be",
+  "createdAt": "2026-10-22T15:11:24.343Z",
+  "pairedEvidence": {
+    "status": "COMPLETE",
+    "expectedRows": 6,
+    "validatedPairs": 6,
+    "error": null
+  },
+  "invocationEvidence": {
+    "plannedExplicitDecodes": 12,
+    "explicitDecodeDispatches": 12,
+    "initializationInternalCalls": "UNKNOWN",
+    "retryCount": 0
+  },
+  "resourceHeadroom": {
+    "minStartBytes": 2147483648,
+    "minRunningBytes": 1073741824,
+    "maxConsecutiveLowSamples": 5,
+    "startAvailableBytes": 2233382993.92,
+    "minimumObservedAvailableBytes": 1460288880.64,
+    "lowSamples": 0,
+    "error": null,
+    "method": "Host available headroom; NOT model peak memory"
+  },
+  "arms": {
+    "baseline": {
+      "observed": {
+        "engine": "private-v2",
+        "modelId": "Xenova/whisper-base.en",
+        "revision": null,
+        "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+        "runtime": "@xenova/transformers@2.17.2",
+        "backend": "wasm"
+      },
+      "completedDecodes": 6,
+      "medianDecodeMs": 4368.247916499997,
+      "meanDecodeMs": 5566.283173666667,
+      "reportedWER": {
+        "wer": 0.2,
+        "referenceWords": 80,
+        "substitutions": 4,
+        "deletions": 2,
+        "insertions": 10,
+        "scoredCount": 6,
+        "invalidCount": 0,
+        "invalidReasons": {}
+      },
+      "results": [
+        {
+          "clipId": "fixture-001",
+          "trial": 0,
+          "transcript": "The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+          "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+          "finalLatencyMs": 11852.224125,
+          "audioDurationMs": 5166.9375,
+          "realTimeFactor": 2.293858620314258,
+          "fillerDetection": {
+            "referenceCount": 0,
+            "detectedCount": 0,
+            "detectedByKey": {}
+          },
+          "evidence": {
+            "utteranceId": "fixture-001",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+            "referenceWords": 19
+          }
+        },
+        {
+          "clipId": "fixture-002",
+          "trial": 0,
+          "transcript": "meeting starts at 9. Please arrive early. Thank you very much.",
+          "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+          "finalLatencyMs": 4023.2475840000116,
+          "audioDurationMs": 4110.375,
+          "realTimeFactor": 0.9788030493568133,
+          "fillerDetection": {
+            "referenceCount": 0,
+            "detectedCount": 0,
+            "detectedByKey": {}
+          },
+          "evidence": {
+            "utteranceId": "fixture-002",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+            "referenceWords": 12
+          }
+        },
+        {
+          "clipId": "fixture-003",
+          "trial": 0,
+          "transcript": "So I'm I think I wish you a review of the plan today.",
+          "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+          "finalLatencyMs": 4181.391333000007,
+          "audioDurationMs": 2812.5,
+          "realTimeFactor": 1.4867169184000024,
+          "fillerDetection": {
+            "referenceCount": 3,
+            "detectedCount": 0,
+            "detectedByKey": {
+              "so": 1
+            }
+          },
+          "evidence": {
+            "utteranceId": "fixture-003",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+            "referenceWords": 9
+          }
+        },
+        {
+          "clipId": "fixture-001",
+          "trial": 1,
+          "transcript": "The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+          "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+          "finalLatencyMs": 4823.368374999991,
+          "audioDurationMs": 5166.9375,
+          "realTimeFactor": 0.9335062355602309,
+          "fillerDetection": {
+            "referenceCount": 0,
+            "detectedCount": 0,
+            "detectedByKey": {}
+          },
+          "evidence": {
+            "utteranceId": "fixture-001",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+            "referenceWords": 19
+          }
+        },
+        {
+          "clipId": "fixture-002",
+          "trial": 1,
+          "transcript": "meeting starts at 9. Please arrive early. Thank you very much.",
+          "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+          "finalLatencyMs": 3962.3631250000035,
+          "audioDurationMs": 4110.375,
+          "realTimeFactor": 0.9639906638688692,
+          "fillerDetection": {
+            "referenceCount": 0,
+            "detectedCount": 0,
+            "detectedByKey": {}
+          },
+          "evidence": {
+            "utteranceId": "fixture-002",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+            "referenceWords": 12
+          }
+        },
+        {
+          "clipId": "fixture-003",
+          "trial": 1,
+          "transcript": "So I'm I think I wish you a review of the plan today.",
+          "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+          "finalLatencyMs": 4555.104499999987,
+          "audioDurationMs": 2812.5,
+          "realTimeFactor": 1.6195927111111064,
+          "fillerDetection": {
+            "referenceCount": 3,
+            "detectedCount": 0,
+            "detectedByKey": {
+              "so": 1
+            }
+          },
+          "evidence": {
+            "utteranceId": "fixture-003",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+            "referenceWords": 9
+          }
+        }
+      ]
+    },
+    "candidate": {
+      "observed": {
+        "engine": "private-v4",
+        "modelId": "onnx-community/whisper-base.en",
+        "revision": null,
+        "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+        "runtime": "@huggingface/transformers@4.3.0",
+        "backend": "wasm"
+      },
+      "completedDecodes": 6,
+      "medianDecodeMs": 22899.1443545,
+      "meanDecodeMs": 24815.787062666666,
+      "reportedWER": {
+        "wer": 0.1,
+        "referenceWords": 80,
+        "substitutions": 2,
+        "deletions": 2,
+        "insertions": 4,
+        "scoredCount": 6,
+        "invalidCount": 0,
+        "invalidReasons": {}
+      },
+      "results": [
+        {
+          "clipId": "fixture-001",
+          "trial": 0,
+          "transcript": " The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+          "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+          "finalLatencyMs": 33486.20658399999,
+          "audioDurationMs": 5166.9375,
+          "realTimeFactor": 6.480861551741238,
+          "fillerDetection": {
+            "referenceCount": 0,
+            "detectedCount": 0,
+            "detectedByKey": {}
+          },
+          "evidence": {
+            "utteranceId": "fixture-001",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+            "referenceWords": 19
+          }
+        },
+        {
+          "clipId": "fixture-002",
+          "trial": 0,
+          "transcript": " meeting starts at 9. Please arrive early. Thank you very much.",
+          "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+          "finalLatencyMs": 27478.848375,
+          "audioDurationMs": 4110.375,
+          "realTimeFactor": 6.685241218866892,
+          "fillerDetection": {
+            "referenceCount": 0,
+            "detectedCount": 0,
+            "detectedByKey": {}
+          },
+          "evidence": {
+            "utteranceId": "fixture-002",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+            "referenceWords": 12
+          }
+        },
+        {
+          "clipId": "fixture-003",
+          "trial": 0,
+          "transcript": " So am I think I we should unreview the plan today.",
+          "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+          "finalLatencyMs": 22838.401041999998,
+          "audioDurationMs": 2812.5,
+          "realTimeFactor": 8.120320370488889,
+          "fillerDetection": {
+            "referenceCount": 3,
+            "detectedCount": 0,
+            "detectedByKey": {
+              "so": 1
+            }
+          },
+          "evidence": {
+            "utteranceId": "fixture-003",
+            "trialId": "0",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+            "referenceWords": 9
+          }
+        },
+        {
+          "clipId": "fixture-001",
+          "trial": 1,
+          "transcript": " The quick brown fox jumps over the lazy dog while a calm river flows past the Old Stone Bridge",
+          "inputSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+          "finalLatencyMs": 22959.887667000003,
+          "audioDurationMs": 5166.9375,
+          "realTimeFactor": 4.443616294371666,
+          "fillerDetection": {
+            "referenceCount": 0,
+            "detectedCount": 0,
+            "detectedByKey": {}
+          },
+          "evidence": {
+            "utteranceId": "fixture-001",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+            "referenceWords": 19
+          }
+        },
+        {
+          "clipId": "fixture-002",
+          "trial": 1,
+          "transcript": " meeting starts at 9. Please arrive early. Thank you very much.",
+          "inputSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+          "finalLatencyMs": 21175.541708000004,
+          "audioDurationMs": 4110.375,
+          "realTimeFactor": 5.151729880607002,
+          "fillerDetection": {
+            "referenceCount": 0,
+            "detectedCount": 0,
+            "detectedByKey": {}
+          },
+          "evidence": {
+            "utteranceId": "fixture-002",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+            "referenceWords": 12
+          }
+        },
+        {
+          "clipId": "fixture-003",
+          "trial": 1,
+          "transcript": " So am I think I we should unreview the plan today.",
+          "inputSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+          "finalLatencyMs": 20955.837,
+          "audioDurationMs": 2812.5,
+          "realTimeFactor": 7.4509642666666664,
+          "fillerDetection": {
+            "referenceCount": 3,
+            "detectedCount": 0,
+            "detectedByKey": {
+              "so": 1
+            }
+          },
+          "evidence": {
+            "utteranceId": "fixture-003",
+            "trialId": "1",
+            "clusterId": "samantha-synthetic",
+            "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+            "referenceWords": 9
+          }
+        }
+      ]
+    }
+  },
+  "medianLatencyRatio": 5.242180570384762,
+  "scope": "3short synthetic clips,2trials,40unique reference words,one synthetic speaker. Configuration comparison; not engine-only or streaming/product finalization proof.",
+  "acceptance": {
+    "verdict": "HOLD",
+    "reasons": [
+      "missing_or_invalid_predeclared_policy",
+      "product_path_and_required_metrics_not_run"
+    ]
+  },
+  "notMeasured": [
+    "first_useful_partial",
+    "cold_model_load_isolated",
+    "persistent_cache_size",
+    "browser_worker_memory",
+    "product_start_stop_next_take",
+    "focus_keyword_coverage",
+    "acoustic_filler_reference_validation",
+    "expected_silence_scoring_policy"
+  ]
+}

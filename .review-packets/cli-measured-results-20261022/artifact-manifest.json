@@ -1,0 +1,73 @@
+{
+  "createdUtc": "2026-10-22T15:40:03.419491+00:00",
+  "sourceHead": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "counts": {
+    "completedSttConfigurationComparisons": 1,
+    "observedSttTranscriptRows": 12,
+    "validatedSttClipTrialPairs": 6,
+    "uniqueAudioClips": 3,
+    "uniqueReferenceWords": 40,
+    "matchedLlmComparisons": 0,
+    "observedLlmSuggestions": 0
+  },
+  "files": {
+    "matrix.json": {
+      "sha256": "2f32a32e0773fbc409bb61cef91a16819ef6e14abc5544ef89fe6f04cf24646a",
+      "bytes": 25287,
+      "localSource": "/Users/fibonacci/SW_Dev/delivery-support/cli-model-engine-measurement-matrix-20261022.json"
+    },
+    "stt-raw.json": {
+      "sha256": "03f229f4bad3a158dccf7a38aea3a5d8c49833e87f28f17c70d98a71fb0e34be",
+      "bytes": 17761,
+      "localSource": "/private/tmp/cli-stt-v2-v4-po-go-20261022T1508.json"
+    },
+    "stt-summary.json": {
+      "sha256": "967baf99218122c151d07537d30a904521f58e06016e529dc990edd66c7d3ea4",
+      "bytes": 13037,
+      "localSource": "/Users/fibonacci/SW_Dev/delivery-support/cli-stt-measured-summary-20261022T1511.json"
+    },
+    "llama-raw.json": {
+      "sha256": "6760d501c3af3eef611efebfff650886f7f00f6e31105791efac6ff2af561b71",
+      "bytes": 40044,
+      "localSource": "/private/tmp/cli-llama-po-go-20261022T1515.json"
+    },
+    "llama-protocol.json": {
+      "sha256": "9459b821bbfdbfc0caf48193095b40735f3ece03cb5149df889f0a64a6700c7c",
+      "bytes": 27948,
+      "localSource": "/private/tmp/cli-llama-po-go-20261022T1515.json.manifest.json"
+    },
+    "llama-build-manifest.json": {
+      "sha256": "227d6276c13c78a81e577033c60858d276786fbcf734ea3a58a2c05a4e22f94e",
+      "bytes": 1610,
+      "localSource": "/private/tmp/speaksharp-cli-raw-output-20261021/test-results/llama-evaluator-node/build-manifest.json"
+    },
+    "quota-public-raw.json": {
+      "sha256": "8a0d549a762abf6b7dc4f700f9ecdba421ecd88cfaddb07908c0ba8d93f00945",
+      "bytes": 611,
+      "localSource": "/private/tmp/cli-storage-quota-probe-20261022.json"
+    },
+    "quota-cdp-raw.json": {
+      "sha256": "1f8f70b562227d7ed139f9e7cbe5e1fbc942e03be86956e346010ce410797a1e",
+      "bytes": 1038,
+      "localSource": "/private/tmp/cli-storage-quota-cdp-20261022.json"
+    },
+    "quota-diagnosis.json": {
+      "sha256": "30f918a62a013d41a1bc9dfae32e2279779617d5d517235954fe877fa52667b9",
+      "bytes": 2041,
+      "localSource": "/Users/fibonacci/SW_Dev/delivery-support/cli-llama-quota-diagnosis-20261022.json"
+    },
+    "smol-route-equivalence.json": {
+      "sha256": "14cbddcfa06686be003f4a68c2e4d71c17682b8b7c98b804bad72de359b1adc8",
+      "bytes": 321,
+      "localSource": "/Users/fibonacci/SW_Dev/delivery-support/cli-smol-route-cherrypick-equivalence-20261022.json"
+    }
+  },
+  "limitations": [
+    "STT smoke n=3, no predeclared promotion policy; product path NOT_RUN",
+    "No LLM suggestions;0 Gemini calls",
+    "Public storage estimate masked; actual CDP quota measured on fresh ephemeral context",
+    "Exact original cache operation and stack NOT_RETAINED",
+    "Persistent-context counterfactual NOT_RUN",
+    "Smol offline source separately accepted at3b94814c; no Smol inference"
+  ]
+}

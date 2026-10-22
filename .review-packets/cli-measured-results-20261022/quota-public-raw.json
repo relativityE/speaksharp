@@ -1,0 +1,25 @@
+{
+  "startedUtc": "2026-10-22T15:22:38.411Z",
+  "modelCalls": 0,
+  "storageWrites": 0,
+  "browserCloseOrKillAttempted": false,
+  "status": "PASS_METADATA_ONLY",
+  "browserVersion": "156.0.8078.47",
+  "owner": {
+    "pid": 19004,
+    "profile": "/Users/fibonacci/speaksharp-eval-profile",
+    "listener": "127.0.0.1:9222"
+  },
+  "ownedContextState": "CLOSED",
+  "storage": {
+    "origin": "http://127.0.0.1:58416",
+    "secureContext": true,
+    "estimate": {
+      "quota": 10737418240,
+      "usage": 0,
+      "usageDetails": {}
+    },
+    "persisted": false
+  },
+  "finishedUtc": "2026-10-22T15:22:39.613Z"
+}

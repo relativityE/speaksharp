@@ -1,0 +1,40 @@
+{
+  "source": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "entry": "scripts/model-investigation.mts",
+  "outputSha256": "cf77d03a5b56be188b21652625a2fce6978e76a783969cdca005b2801ddecdc9",
+  "sources": [
+    {
+      "path": "scripts/model-evaluator/wav.ts",
+      "sha256": "2aea5716e5be9aad1eaea1bcdcf28aab5af1f32d206acd0bca7487258a5a84fe"
+    },
+    {
+      "path": "scripts/model-evaluator/investigation-supervision.ts",
+      "sha256": "646d14ca2e3b28ba94aa39e114ad28438efb48a5010b2ed0c261f11ea8376e77"
+    },
+    {
+      "path": "backend/supabase/functions/get-ai-suggestions/contract.json",
+      "sha256": "2cc6f3988b2dd7abd2efd978cfd3c052325a8b8a044c829a5cdc297c5c9a70e3"
+    },
+    {
+      "path": "backend/supabase/functions/_shared/coachingContract.ts",
+      "sha256": "e7af59a9b790a76870f5cf989a17adda4f905283d60aa44b54b9a742aae278a6"
+    },
+    {
+      "path": "tests/evidence/certification/pairedEvidence.ts",
+      "sha256": "73a4bc30541043b170209d98852826884777dceeea8d2ccc0e4bb2ae4caf717b"
+    },
+    {
+      "path": "scripts/model-evaluator/product-coaching-inputs.ts",
+      "sha256": "305667f76308c9294409cf54d05a7628cccdf0669f18ab329e92e262d409069e"
+    },
+    {
+      "path": "scripts/model-evaluator/cdp-browser.ts",
+      "sha256": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+    },
+    {
+      "path": "scripts/model-investigation.mts",
+      "sha256": "6c94303eb1924cef54cfd6291e4f0327414ae0e2d01843fbf5cdbae25c14b4b1"
+    }
+  ],
+  "purpose": "Controller compilation only; exact source, profiles, inputs, trial cap, model/runtime pins and guards unchanged"
+}
