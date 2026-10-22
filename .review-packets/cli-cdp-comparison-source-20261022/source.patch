@@ -1,0 +1,538 @@
+diff --git a/scripts/model-evaluator/adapters/candidate-browser.ts b/scripts/model-evaluator/adapters/candidate-browser.ts
+index cf579286c..e29a110f2 100644
+--- a/scripts/model-evaluator/adapters/candidate-browser.ts
++++ b/scripts/model-evaluator/adapters/candidate-browser.ts
+@@ -1,10 +1,11 @@
+-import { chromium, type Browser, type Page } from 'playwright';
++import { type Page } from 'playwright';
+ import { createHash } from 'node:crypto';
+ import { readFile } from 'node:fs/promises';
+ import { join } from 'node:path';
+ import type { AdapterContext, ModelAdapter } from '../adapter';
+ import type { ModelIdentity } from '../../../tests/evidence/modelEvaluator';
+ import { AssetTransferRecorder } from '../asset-transfer';
++import {openModelBrowser} from '../browser-session';
+ 
+ type CandidateId = 'v4:base:q4' | 'v4:distil:q4' | 'moonshine:streaming-medium';
+ const v4Files = [
+@@ -61,7 +62,7 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
+       (candidateId === 'moonshine:streaming-medium' && backend !== 'wasm')) {
+     throw new Error('candidate-browser needs a supported declared backend');
+   }
+-  let browser: Browser | null = null;
++  let session: Awaited<ReturnType<typeof openModelBrowser>> | null = null;
+   let page: Page | null = null;
+   let pending: { transcript: string; inputSha256: string } | null = null;
+   let acquisition: unknown | null = null;
+@@ -79,8 +80,8 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
+         throw new Error(`PREREQUISITE_RUNTIME_VERSION_MISMATCH: expected ${context.expected.runtime}, installed ${runtime}`);
+       }
+       const digest = await configuredAssetDigest(context.repositoryRoot, candidateId, context.expected.modelId);
+-      browser = await chromium.launch({ headless: context.headless });
+-      page = await browser.newPage();
++      session = await openModelBrowser({headless:context.headless,cdpEndpoint:context.options.cdpEndpoint});
++      page = session.page;
+       page.setDefaultTimeout(180_000);
+       await transfer.attach(page);
+       if (candidateId === 'moonshine:streaming-medium') {
+@@ -165,10 +166,10 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
+     },
+     assetTransfer: () => transfer.snapshot(),
+     async workerAcquisition() { return acquisition; },
+-    async deviceEvidence() { return gpuAdapter; },
++    async deviceEvidence() { return {gpuAdapter,browser:session?.evidence()??null}; },
+     async dispose() {
+       try { await page?.evaluate(() => window.__MODEL_EVALUATOR__?.dispose()); }
+-      finally { await browser?.close(); browser = null; page = null; pending = null; }
++      finally { try {await session?.close();}finally {page = null; pending = null;} }
+     },
+   };
+ }
+diff --git a/scripts/model-evaluator/adapters/private-v2-browser.ts b/scripts/model-evaluator/adapters/private-v2-browser.ts
+index 2a661f57f..c1d79be89 100644
+--- a/scripts/model-evaluator/adapters/private-v2-browser.ts
++++ b/scripts/model-evaluator/adapters/private-v2-browser.ts
+@@ -1,4 +1,4 @@
+-import { chromium, type Browser, type Page } from 'playwright';
++import { type Page } from 'playwright';
+ import { createHash } from 'node:crypto';
+ import { createRequire } from 'node:module';
+ import { readFile, readdir } from 'node:fs/promises';
+@@ -6,6 +6,7 @@ import { join, relative } from 'node:path';
+ import type { AdapterContext, ModelAdapter } from '../adapter';
+ import type { ModelIdentity } from '../../../tests/evidence/modelEvaluator';
+ import { AssetTransferRecorder } from '../asset-transfer';
++import {openModelBrowser} from '../browser-session';
+ 
+ const require = createRequire(import.meta.url);
+ 
+@@ -31,7 +32,7 @@ async function assetDigest(root: string): Promise<string> {
+ 
+ /** Real shipping v2 worker through the existing PCM drop-in, without microphone timing. */
+ export function createAdapter(context: AdapterContext): ModelAdapter {
+-  let browser: Browser | null = null;
++  let session: Awaited<ReturnType<typeof openModelBrowser>> | null = null;
+   let page: Page | null = null;
+   let pending: { transcript: string; inputSha256: string } | null = null;
+   const transfer = new AssetTransferRecorder();
+@@ -40,8 +41,8 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
+       const source = join(context.repositoryRoot, 'frontend/public/models/whisper-base.en');
+       const digest = await assetDigest(source);
+       const installed = require('@xenova/transformers/package.json') as { version: string };
+-      browser = await chromium.launch({ headless: context.headless });
+-      page = await browser.newPage();
++      session = await openModelBrowser({headless:context.headless,cdpEndpoint:context.options.cdpEndpoint});
++      page = session.page;
+       page.setDefaultTimeout(180_000);
+       await transfer.attach(page);
+       const base = new URL(context.baseUrl);
+@@ -84,9 +85,10 @@ export function createAdapter(context: AdapterContext): ModelAdapter {
+       return result;
+     },
+     assetTransfer: () => transfer.snapshot(),
++    deviceEvidence: async()=>session?.evidence()??null,
+     async dispose() {
+-      await browser?.close();
+-      browser = null; page = null; pending = null;
++      try {await session?.close();}
++      finally {page = null; pending = null;}
+     },
+   };
+ }
+diff --git a/scripts/model-evaluator/browser-session.ts b/scripts/model-evaluator/browser-session.ts
+new file mode 100644
+index 000000000..2a5410c85
+--- /dev/null
++++ b/scripts/model-evaluator/browser-session.ts
+@@ -0,0 +1,41 @@
++import {chromium,type Browser,type BrowserContext,type Page} from 'playwright';
++import {connectLocalCdp,evaluatorContext,localCdpOwner,parseCdpEndpoint,type CdpOwner,type OwnedContextState} from './cdp-browser';
++import {deadline} from './investigation-supervision';
++
++type Dependencies={
++  launch:(headless:boolean)=>Promise<Browser>;
++  connect:(endpoint:string)=>Promise<{browser:Browser;owner:CdpOwner;browserVersion:string}>;
++};
++const dependencies:Dependencies={
++  launch:headless=>chromium.launch({headless}),
++  connect:endpoint=>connectLocalCdp({endpoint,owner:localCdpOwner,
++    connect:websocket=>chromium.connectOverCDP(websocket,{timeout:5000})}),
++};
++/** Own a fresh context; the dedicated CDP browser and its existing tabs are borrowed. */
++export async function openModelBrowser(options:{headless:boolean;cdpEndpoint?:unknown},deps:Dependencies=dependencies) {
++  if(options.cdpEndpoint!==undefined&&typeof options.cdpEndpoint!=='string')throw new Error('Invalid CDP endpoint');
++  const endpoint=parseCdpEndpoint(options.cdpEndpoint as string??'');
++  let contextState:OwnedContextState='NOT_CREATED';
++  let browser:Browser|undefined;
++  let page:Page|undefined;
++  let cdpOwner:CdpOwner|undefined;
++  const contextOwner=evaluatorContext<BrowserContext>({retain:state=>{contextState=state;},exitEvaluator:()=>{}});
++  const close=async()=>{
++    try {await contextOwner.close();}
++    finally {if(!endpoint)await browser?.close();}
++  };
++  try {
++    if(endpoint){
++      const attached=await deadline(deps.connect(endpoint),10000,'STT_CDP_CONNECT');
++      browser=attached.browser;cdpOwner=attached.owner;
++    }else browser=await deps.launch(options.headless);
++    const context=await contextOwner.acquire(()=>browser!.newContext(),10000);
++    page=await deadline(context.newPage(),10000,'STT_OWNED_PAGE');
++    return {page,close,evidence:()=>({browserVersion:browser!.version(),
++      ownership:endpoint?'borrowed-dedicated-cdp':'owned-launch',cdpOwner:cdpOwner??null,
++      ownedContextState:contextState,borrowedBrowserCloseAttempted:false})};
++  }catch(error){
++    try {await close();}catch(cleanup){throw new Error(`${String(error)}; cleanup:${String(cleanup)}`);}
++    throw error;
++  }
++}
+diff --git a/scripts/model-evaluator/resource-headroom.ts b/scripts/model-evaluator/resource-headroom.ts
+new file mode 100644
+index 000000000..999919e4f
+--- /dev/null
++++ b/scripts/model-evaluator/resource-headroom.ts
+@@ -0,0 +1,41 @@
++import {execFileSync} from 'node:child_process';
++import {totalmem} from 'node:os';
++
++/** Same available-memory method and floors as the existing local model diagnostic. */
++export function availableMemoryBytes():number {
++  if(process.platform==='darwin'){
++    const output=execFileSync('/usr/bin/memory_pressure',['-Q'],{encoding:'utf8',timeout:2000});
++    const match=/System-wide memory free percentage:\s*(\d+)%/.exec(output);
++    if(!match)throw new Error('available memory measure unavailable');
++    return totalmem()*Number(match[1])/100;
++  }
++  if(process.platform==='linux'){
++    const output=execFileSync('cat',['/proc/meminfo'],{encoding:'utf8',timeout:2000});
++    const match=/^MemAvailable:\s*(\d+) kB/m.exec(output);
++    if(!match)throw new Error('MemAvailable unavailable');
++    return Number(match[1])*1024;
++  }
++  throw new Error('memory policy unimplemented for this platform');
++}
++export function memoryGuard(read:()=>number=availableMemoryBytes){
++  const evidence={minStartBytes:2*1024**3,minRunningBytes:1024**3,maxConsecutiveLowSamples:5,
++    startAvailableBytes:null as number|null,minimumObservedAvailableBytes:null as number|null,
++    lowSamples:0,error:null as string|null,method:'Host available headroom; NOT model peak memory'};
++  const sample=()=>{
++    if(evidence.error)return;
++    try {
++      const bytes=read();if(!Number.isFinite(bytes)||bytes<0)throw new Error('memory sample invalid');
++      evidence.minimumObservedAvailableBytes=Math.min(evidence.minimumObservedAvailableBytes??Infinity,bytes);
++      evidence.lowSamples=bytes<evidence.minRunningBytes?evidence.lowSamples+1:0;
++      if(evidence.lowSamples>=evidence.maxConsecutiveLowSamples)evidence.error='HOLD_RESOURCE_HEADROOM_DURING_INFERENCE';
++      return bytes;
++    }catch(error){evidence.error=`HOLD_MEMORY_MEASUREMENT:${String(error)}`;}
++  };
++  return {evidence,sample,
++    assertSafe(){if(evidence.error)throw new Error(evidence.error);},
++    start(){
++      const bytes=sample();evidence.startAvailableBytes=bytes??null;
++      if(bytes!==undefined&&bytes<evidence.minStartBytes)evidence.error='HOLD_RESOURCE_HEADROOM_BELOW_2GIB';
++      if(evidence.error)throw new Error(evidence.error);
++    }};
++}
+diff --git a/scripts/model-evaluator/run.mts b/scripts/model-evaluator/run.mts
+index 50ebed1b5..b3530ae4e 100644
+--- a/scripts/model-evaluator/run.mts
++++ b/scripts/model-evaluator/run.mts
+@@ -11,6 +11,8 @@ import { decodeWav16kMono } from './wav';
+ import type { AdapterFactory, ModelAdapter } from './adapter';
+ import type { AssetTransfer } from './asset-transfer';
+ import { countFillerWords } from '../../frontend/src/utils/fillerWordUtils';
++import {deadline} from './investigation-supervision';
++import {memoryGuard} from './resource-headroom';
+ 
+ type ArmManifest = {
+   version: 1; identity: ModelIdentity; adapterModule: string;
+@@ -100,16 +102,35 @@ async function main(): Promise<void> {
+   const assetTransfers: [AssetTransfer | null, AssetTransfer | null] = [null, null];
+   const workerAcquisitions: [unknown | null, unknown | null] = [null, null];
+   const deviceEvidence: [unknown | null, unknown | null] = [null, null];
++  const guard=memoryGuard();
++  let monitor:ReturnType<typeof setInterval>|undefined;
++  let timedOut=false;
++  let resourceCleanupRequested=false;
++  let explicitDecodeDispatches=0;
+   try {
++    try {
++      guard.start();
++      monitor=setInterval(()=>{
++        guard.sample();
++        if(guard.evidence.error&&!resourceCleanupRequested){
++          resourceCleanupRequested=true;void Promise.allSettled(adapters.map(adapter=>adapter.dispose()));
++        }
++      },2000);
++    }catch(error){failures.push(`resource_preflight:${String(error)}`);}
+     for (let armIndex = 0; armIndex < 2; armIndex += 1) {
+       const started = performance.now();
+       try {
+-        arms[armIndex].observed = await adapters[armIndex].initialize();
++        guard.assertSafe();
++        if(timedOut)throw new Error('HOLD_NOT_DISPATCHED_AFTER_TIMEOUT');
++        arms[armIndex].observed = await deadline(adapters[armIndex].initialize(),180000,'STT_INITIALIZE');
+         adapterInitializeMs[armIndex ? 'candidate' : 'baseline'] = performance.now() - started;
+       }
+       catch (error) {
+         adapterInitializeMs[armIndex ? 'candidate' : 'baseline'] = performance.now() - started;
+         failures.push(`${armIndex ? 'candidate' : 'baseline'}_init:${String(error)}`);
++        if(String(error).includes('TIMEOUT_')){
++          timedOut=true;await Promise.allSettled(adapters.map(adapter=>adapter.dispose()));
++        }
+       }
+     }
+     const trials = pairedPlan.trials;
+@@ -124,16 +145,23 @@ async function main(): Promise<void> {
+           let inputSha256 = '';
+           let error: string | undefined;
+           let finalLatencyMs: number | null = null;
+-          if (arm.observed !== null) {
++          if (arm.observed !== null&&!timedOut) {
+             try {
++              guard.assertSafe();
+               const started = performance.now();
+-              await adapters[armIndex].decode(clip.pcm.slice());
+-              const result = await adapters[armIndex].finalize();
++              const result = await deadline((async()=>{
++                explicitDecodeDispatches++;
++                await adapters[armIndex].decode(clip.pcm.slice());
++                return adapters[armIndex].finalize();
++              })(),120000,'STT_DECODE');
+               finalLatencyMs = performance.now() - started;
+               transcript = result.transcript;
+               inputSha256 = result.inputSha256;
+-            } catch (caught) { error = String(caught); }
+-          } else error = 'adapter_initialization_failed';
++            } catch (caught) {
++              error = String(caught);
++              if(error.includes('TIMEOUT_')){timedOut=true;await Promise.allSettled(adapters.map(adapter=>adapter.dispose()));}
++            }
++          } else error = timedOut?'not_dispatched_after_timeout':'adapter_initialization_failed';
+           const expectedFillers = countFillerWords(clip.reference);
+           const detectedFillers = transcript === null ? null : countFillerWords(transcript);
+           const fillerDetection = detectedFillers === null ? null : {
+@@ -155,17 +183,18 @@ async function main(): Promise<void> {
+       }
+     }
+   } finally {
++    if(monitor)clearInterval(monitor);
+     for (let index = 0; index < adapters.length; index += 1) {
+       try { assetTransfers[index] = await adapters[index].assetTransfer?.() ?? null; }
+       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_asset_transfer:${String(error)}`); }
+       try { workerAcquisitions[index] = await adapters[index].workerAcquisition?.() ?? null; }
+       catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_worker_acquisition:${String(error)}`); }
+-      try { deviceEvidence[index] = await adapters[index].deviceEvidence?.() ?? null; }
+-      catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_device_evidence:${String(error)}`); }
+     }
+     const disposal=await Promise.allSettled(adapters.map((adapter) => adapter.dispose()));
+     for (const [index,result] of disposal.entries()) {
+       if (result.status==='rejected') failures.push(`${index?'candidate':'baseline'}_dispose:${String(result.reason)}`);
++      try { deviceEvidence[index] = await adapters[index].deviceEvidence?.() ?? null; }
++      catch (error) { failures.push(`${index ? 'candidate' : 'baseline'}_device_evidence:${String(error)}`); }
+     }
+   }
+   const {pairedEvidence,comparison}=evaluatePairedRun(pairedPlan,clips,baseline,candidate,policy);
+@@ -194,6 +223,9 @@ async function main(): Promise<void> {
+     modelAssetTransfer: { baseline: assetTransfers[0], candidate: assetTransfers[1] },
+     workerAcquisition: { baseline: workerAcquisitions[0], candidate: workerAcquisitions[1] },
+     deviceEvidence: { baseline: deviceEvidence[0], candidate: deviceEvidence[1] },
++    resourceHeadroom:guard.evidence,
++    invocationEvidence:{plannedExplicitDecodes:pairedPlan.expected.length*2,explicitDecodeDispatches,
++      initializationInternalCalls:'UNKNOWN',retryCount:0},
+     baseline, candidate, comparison, pairedEvidence,
+     declaredPopulation:pairedPlan,
+     acceptance,
+@@ -212,4 +244,5 @@ async function main(): Promise<void> {
+   process.exitCode = acceptance.verdict === 'FAIL' ? 1 : 2;
+ }
+ 
+-main().catch((error) => { console.error(error); process.exitCode = 1; });
++// Disconnect this evaluator's CDP transports after retained cleanup; never close borrowed Chrome.
++main().then(()=>process.exit(process.exitCode??0)).catch((error) => { console.error(error); process.exit(1); });
+diff --git a/scripts/model-investigation.mts b/scripts/model-investigation.mts
+index e9b9d4e0e..1712efa1a 100644
+--- a/scripts/model-investigation.mts
++++ b/scripts/model-investigation.mts
+@@ -160,7 +160,14 @@ try {
+     const data=await readFile(local);
+     const expected=asset.verified_sha256??asset.sha256;
+     if(!expected || data.length!==asset.bytes || sha(data)!==expected) throw new Error(`asset integrity mismatch: ${asset.group}/${asset.path}`);
+-    routes.set(`/assets/${asset.group}/${asset.path}`,local);
++    // WebLLM normalizes modelBase with resolve/main. Add only exact aliases to
++    // already-verified bytes; never rewrite an arbitrary request or fetch.
++    const assetRoutes=[`/assets/${asset.group}/${asset.path}`];
++    if(asset.group==='llama') assetRoutes.push(`/assets/llama/resolve/main/${asset.path}`);
++    for(const route of assetRoutes) {
++      if(routes.has(route)) throw new Error('verified asset route collision');
++      routes.set(route,local);
++    }
+     if(asset.group==='base') routes.set(`/models/moonshine-base/${asset.path}`,local);
+     if(asset.group==='vad') routes.set(`/models/silero-vad/${asset.path}`,local);
+     verified.push({group:asset.group,path:asset.path,bytes:asset.bytes,sha256:expected});
+@@ -182,6 +189,10 @@ try {
+   routes.set('/bundle.mjs',bundle);
+   report.bundleSha256=sha(await readFile(bundle));
+   const server=createServer((req,res)=>{
++    const rawPath=(req.url??'/').split(/[?#]/,1)[0];
++    if(!rawPath.startsWith('/')||rawPath.startsWith('//')||rawPath.includes('%')||rawPath.includes('\\')||rawPath.split('/').some(part=>part==='.'||part==='..')) {
++      res.writeHead(400);res.end('noncanonical request path');return;
++    }
+     let path:string;
+     try { path=decodeURIComponent(new URL(req.url??'/', 'http://localhost').pathname); }
+     catch {res.writeHead(400);res.end();return;}
+diff --git a/tests/evidence/__tests__/modelEvaluatorAdapters.test.ts b/tests/evidence/__tests__/modelEvaluatorAdapters.test.ts
+index b81b0f582..b01a1a861 100644
+--- a/tests/evidence/__tests__/modelEvaluatorAdapters.test.ts
++++ b/tests/evidence/__tests__/modelEvaluatorAdapters.test.ts
+@@ -18,13 +18,14 @@ describe('#1565 candidate asset binding', () => {
+       workerAcquisition: null,
+     }));
+     window.__MODEL_EVALUATOR__ = { initialize, decodePcmBase64: vi.fn(), dispose: vi.fn() };
+-    const context = { newCDPSession: async () => ({ send: vi.fn() }), on: vi.fn() };
++    const context = { newCDPSession: async () => ({ send: vi.fn() }), on: vi.fn(),
++      newPage:async()=>page,close:vi.fn() };
+     const page = {
+       context: () => context, setDefaultTimeout: vi.fn(), goto: vi.fn(), waitForFunction: vi.fn(),
+       evaluate: async (fn: (argument: unknown) => unknown, argument: unknown) => fn(argument),
+     };
+     const launch = vi.spyOn(chromium, 'launch').mockResolvedValue({
+-      newPage: async () => page, close: vi.fn(),
++      newContext: async () => context, close: vi.fn(),version:()=> '156.0.8078.47',
+     } as never);
+     const adapter = createAdapter({
+       baseUrl: 'http://unused.invalid', repositoryRoot: process.cwd(), headless: true, expectedGpuVendor: 'test-vendor',
+diff --git a/tests/evidence/__tests__/modelEvaluatorCommand.test.ts b/tests/evidence/__tests__/modelEvaluatorCommand.test.ts
+index fa47dd75c..75330e837 100644
+--- a/tests/evidence/__tests__/modelEvaluatorCommand.test.ts
++++ b/tests/evidence/__tests__/modelEvaluatorCommand.test.ts
+@@ -26,7 +26,20 @@ function runControl(options:Record<string,unknown>={}){
+       corpus:{version:1,trials:2,clips:['a','b'].map(id=>({id,clusterId:`synthetic-${id}`,reference:'hello world',slices:['control'],path:'control.wav',wavSha256:sha(wav),sha256:pcmHash}))},
+       device:{version:1,baseUrl:'http://unused.invalid',label:'offline command control',backend:'wasm'},
+     };
+-    const args=['--import','tsx','scripts/model-evaluator/run.mts'];
++    // These adapters never load a model. Freeze their host measurement so this
++    // command/retention test does not depend on the developer's current RAM.
++    // Separate controls below prove real runner refusal on invalid measurement.
++    const memoryPreload=join(directory,'memory-control.mjs');
++    writeFileSync(memoryPreload,`import childProcess from 'node:child_process';
++import {syncBuiltinESMExports} from 'node:module';
++const actual=childProcess.execFileSync;
++childProcess.execFileSync=function(command,args,options){
++  if(command==='/usr/bin/memory_pressure')return ${JSON.stringify(options.memoryMeasurementFailure?'invalid memory sample':'System-wide memory free percentage: 90%')};
++  if(command==='cat'&&args?.[0]==='/proc/meminfo')return ${JSON.stringify(options.memoryMeasurementFailure?'invalid memory sample':'MemAvailable: 16777216 kB')};
++  return actual.call(this,command,args,options);
++};
++syncBuiltinESMExports();`);
++    const args=['--import',memoryPreload,'--import','tsx','scripts/model-evaluator/run.mts'];
+     for(const [name,value]of Object.entries(files)){
+       const path=join(directory,`${name}.json`);writeFileSync(path,JSON.stringify(value));args.push(`--${name}`,relative(process.cwd(),path));
+     }
+@@ -58,3 +71,11 @@ it('retained CLI preserves wrong observed runtime identity rather than replacing
+   expect(report.candidate.observed.backend).toBe('cpu');expect(report.candidate.manifest.backend).toBe('wasm');
+   expect(report.comparison.reasons).toContain('candidate_identity_mismatch_or_fallback');
+ },25_000);
++it('retained CLI dispatches no decode when memory measurement is unavailable',()=>{
++  const {report}=runControl({memoryMeasurementFailure:true});
++  expect(report.resourceHeadroom.error).toContain('HOLD_MEMORY_MEASUREMENT');
++  expect(report.baseline.observed).toBeNull();expect(report.candidate.observed).toBeNull();
++  expect(report.invocationEvidence.explicitDecodeDispatches).toBe(0);
++  expect(report.inputFailures.some((failure:string)=>failure.startsWith('resource_preflight:'))).toBe(true);
++  expect(report.acceptance.verdict).not.toBe('PASS');
++},25_000);
+diff --git a/tests/evidence/fixtures/model-evaluator/baseline-v2-cdp-smoke.json b/tests/evidence/fixtures/model-evaluator/baseline-v2-cdp-smoke.json
+new file mode 100644
+index 000000000..154541d72
+--- /dev/null
++++ b/tests/evidence/fixtures/model-evaluator/baseline-v2-cdp-smoke.json
+@@ -0,0 +1,15 @@
++{
++  "version": 1,
++  "identity": {
++    "engine": "private-v2",
++    "modelId": "Xenova/whisper-base.en",
++    "revision": null,
++    "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
++    "runtime": "@xenova/transformers@2.17.2",
++    "backend": "wasm"
++  },
++  "adapterModule": "./scripts/model-evaluator/adapters/private-v2-browser.ts",
++  "adapterOptions": {
++    "cdpEndpoint": "http://127.0.0.1:9222"
++  }
++}
+diff --git a/tests/evidence/fixtures/model-evaluator/candidate-v4-base-q4-cdp-4.3.0.json b/tests/evidence/fixtures/model-evaluator/candidate-v4-base-q4-cdp-4.3.0.json
+new file mode 100644
+index 000000000..39584b375
+--- /dev/null
++++ b/tests/evidence/fixtures/model-evaluator/candidate-v4-base-q4-cdp-4.3.0.json
+@@ -0,0 +1,16 @@
++{
++  "version": 1,
++  "identity": {
++    "engine": "private-v4",
++    "modelId": "onnx-community/whisper-base.en",
++    "revision": null,
++    "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
++    "runtime": "@huggingface/transformers@4.3.0",
++    "backend": "wasm"
++  },
++  "adapterModule": "./scripts/model-evaluator/adapters/candidate-browser.ts",
++  "adapterOptions": {
++    "candidateId": "v4:base:q4",
++    "cdpEndpoint": "http://127.0.0.1:9222"
++  }
++}
+diff --git a/tests/evidence/fixtures/model-evaluator/device-local-wasm-cdp.json b/tests/evidence/fixtures/model-evaluator/device-local-wasm-cdp.json
+new file mode 100644
+index 000000000..32705d625
+--- /dev/null
++++ b/tests/evidence/fixtures/model-evaluator/device-local-wasm-cdp.json
+@@ -0,0 +1,7 @@
++{
++  "version": 1,
++  "label": "local-dedicated-chrome-cdp-wasm-smoke",
++  "backend": "wasm",
++  "baseUrl": "http://127.0.0.1:5173",
++  "headless": false
++}
+diff --git a/tests/unit/modelEvaluatorBrowserSession.test.ts b/tests/unit/modelEvaluatorBrowserSession.test.ts
+new file mode 100644
+index 000000000..b7ebf0d1a
+--- /dev/null
++++ b/tests/unit/modelEvaluatorBrowserSession.test.ts
+@@ -0,0 +1,47 @@
++import {describe,expect,it,vi} from 'vitest';
++import type {Browser,BrowserContext,Page} from 'playwright';
++import {openModelBrowser} from '../../scripts/model-evaluator/browser-session';
++const fixture=()=>{
++  const page={} as Page;
++  const context={newPage:vi.fn(async()=>page),close:vi.fn(async()=>{})};
++  const browser={newContext:vi.fn(async()=>context as unknown as BrowserContext),close:vi.fn(async()=>{}),version:()=> '156.0.8078.47'};
++  const deps={launch:vi.fn(async()=>browser as unknown as Browser),connect:vi.fn(async()=>({browser:browser as unknown as Browser,
++    owner:{pid:42,profile:'/dedicated',listener:'127.0.0.1:9222'},browserVersion:browser.version()}))};
++  return {page,context,browser,deps};
++};
++describe('STT evaluator owned context with dedicated borrowed Chrome',()=>{
++  it('attaches through the verified helper and never closes the borrowed browser',async()=>{
++    const f=fixture();const session=await openModelBrowser({headless:false,cdpEndpoint:'http://127.0.0.1:9222'},f.deps);
++    expect(f.deps.connect).toHaveBeenCalledWith('http://127.0.0.1:9222');expect(f.deps.launch).not.toHaveBeenCalled();
++    expect(session.page).toBe(f.page);await session.close();await session.close();
++    expect(f.context.close).toHaveBeenCalledOnce();expect(f.browser.close).not.toHaveBeenCalled();
++    expect(session.evidence()).toMatchObject({ownership:'borrowed-dedicated-cdp',ownedContextState:'CLOSED',borrowedBrowserCloseAttempted:false});
++  });
++  it('retains owned-launch behavior and closes only that owned browser',async()=>{
++    const f=fixture();const session=await openModelBrowser({headless:true},f.deps);await session.close();
++    expect(f.deps.launch).toHaveBeenCalledWith(true);expect(f.deps.connect).not.toHaveBeenCalled();
++    expect(f.context.close).toHaveBeenCalledOnce();expect(f.browser.close).toHaveBeenCalledOnce();
++  });
++  it('rejects unselected endpoints before any browser operation',async()=>{
++    for(const cdpEndpoint of ['http://localhost:9222','http://127.0.0.1:9223','https://example.com',42]){
++      const f=fixture();await expect(openModelBrowser({headless:true,cdpEndpoint},f.deps)).rejects.toThrow();
++      expect(f.deps.launch).not.toHaveBeenCalled();expect(f.deps.connect).not.toHaveBeenCalled();
++    }
++  });
++  it('propagates owner refusal without launching a replacement',async()=>{
++    const f=fixture();f.deps.connect.mockRejectedValue(new Error('owner mismatch'));
++    await expect(openModelBrowser({headless:false,cdpEndpoint:'http://127.0.0.1:9222'},f.deps)).rejects.toThrow('owner mismatch');
++    expect(f.browser.newContext).not.toHaveBeenCalled();expect(f.deps.launch).not.toHaveBeenCalled();
++  });
++  it('closes a partially acquired owned context after page creation fails',async()=>{
++    const f=fixture();f.context.newPage.mockRejectedValue(new Error('page failed'));
++    await expect(openModelBrowser({headless:false,cdpEndpoint:'http://127.0.0.1:9222'},f.deps)).rejects.toThrow('page failed');
++    expect(f.context.close).toHaveBeenCalledOnce();expect(f.browser.close).not.toHaveBeenCalled();
++  });
++  it('retains cleanup failure as UNKNOWN without closing borrowed Chrome',async()=>{
++    const f=fixture();f.context.close.mockRejectedValue(new Error('context failed'));
++    const session=await openModelBrowser({headless:false,cdpEndpoint:'http://127.0.0.1:9222'},f.deps);
++    await expect(session.close()).rejects.toThrow('context failed');
++    expect(session.evidence().ownedContextState).toBe('UNKNOWN');expect(f.browser.close).not.toHaveBeenCalled();
++  });
++});
+diff --git a/tests/unit/modelEvaluatorMemoryGuard.test.ts b/tests/unit/modelEvaluatorMemoryGuard.test.ts
+new file mode 100644
+index 000000000..fbc772a02
+--- /dev/null
++++ b/tests/unit/modelEvaluatorMemoryGuard.test.ts
+@@ -0,0 +1,21 @@
++import {describe,it,expect} from 'vitest';
++import {memoryGuard} from '../../scripts/model-evaluator/resource-headroom';
++describe('bounded local evaluator headroom',()=>{
++  it('refuses under2GiB before model initialization and accepts the exact floor',()=>{
++    expect(()=>memoryGuard(()=>2*1024**3-1).start()).toThrow('BELOW_2GIB');
++    expect(()=>memoryGuard(()=>2*1024**3).start()).not.toThrow();
++  });
++  it('requires five consecutive low running samples and resets on recovery',()=>{
++    let bytes=2*1024**3;const guard=memoryGuard(()=>bytes);guard.start();bytes=1024**3-1;
++    for(let i=0;i<4;i++)guard.sample();expect(()=>guard.assertSafe()).not.toThrow();
++    bytes=1024**3;guard.sample();expect(guard.evidence.lowSamples).toBe(0);
++    bytes=1024**3-1;for(let i=0;i<5;i++)guard.sample();
++    expect(()=>guard.assertSafe()).toThrow('DURING_INFERENCE');
++    bytes=3*1024**3;guard.sample();expect(()=>guard.assertSafe()).toThrow();
++  });
++  it('fails closed on absent, invalid or failed measurement',()=>{
++    for(const read of [()=>NaN,()=>-1,()=>{throw new Error('measurement unavailable');}]){
++      expect(()=>memoryGuard(read).start()).toThrow('HOLD_MEMORY_MEASUREMENT');
++    }
++  });
++});

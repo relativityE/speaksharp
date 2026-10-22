@@ -1,0 +1,134 @@
+{
+  "sourceHead": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "sourceTree": "6f00b2471371aa9473a890e273cba9488bb67677",
+  "base": "00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+  "branch": "cli-dev/1304-1565-cdp-comparison-20261022",
+  "rawCommits": [
+    {
+      "sha": "4a5684d49eaff247265d883200dcd3dd740d1adc",
+      "base64": "dHJlZSBiOGIxMTViYzMyMDRkZGM0YTMwMWY0MmE0Zjg5ZTEyZWQ5YjM0MGY4CnBhcmVudCAwMGVjZWViODJlNzBmOTQ4MWJiMWU5YjA4YTJlNGQxNGRkZjNjOTMwCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjcwODk2IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjcwODk2IC0wNDAwCgpmaXgoZXZhbHVhdG9yKTogc2VydmUgdmVyaWZpZWQgU0RLLW5vcm1hbGl6ZWQgbG9jYWwgTGxhbWEgYXNzZXQgcm91dGVzCg=="
+    },
+    {
+      "sha": "e4e867a3d3056ba6842dcd8bf1b40d2a4b47015c",
+      "base64": "dHJlZSAxOWQzZjNkNzMwZThiY2VkZGE5Yjg1YjQzZWY3ZjczNTNlNmI2ODcxCnBhcmVudCA0YTU2ODRkNDllYWZmMjQ3MjY1ZDg4MzIwMGRjZDNkZDc0MGQxYWRjCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjcwODgxIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjcxNTk4IC0wNDAwCgpmZWF0KGV2YWx1YXRvcik6IHJldXNlIHZlcmlmaWVkIENEUCBjb250ZXh0cyBmb3IgYm91bmRlZCBTVFQgY29tcGFyaXNvbnMK"
+    },
+    {
+      "sha": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+      "base64": "dHJlZSA2ZjAwYjI0NzEzNzFhYTk0NzNhODkwZTI3M2NiYTk0ODhiYjY3Njc3CnBhcmVudCBlNGU4NjdhM2QzMDU2YmE2ODQyZGNkOGJmMWI0MGQyYTRiNDcwMTVjCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjcxNzMyIC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjcxNzMyIC0wNDAwCgp0ZXN0KGV2YWx1YXRvcik6IHJldGFpbiBkZXRlcm1pbmlzdGljIGNvbW1hbmQgY29udHJvbHMgd2l0aCByZWFsLXJ1biBtZW1vcnkgcmVmdXNhbAo="
+    }
+  ],
+  "paths": [
+    {
+      "path": "scripts/model-evaluator/adapters/candidate-browser.ts",
+      "sha256": "bab9ceb78c525dc4c17c364c70339f19a4ea2fca88368efd576d796196f8af97",
+      "gitBlob": "e29a110f277e23e1993f94f197e369c250468e73"
+    },
+    {
+      "path": "scripts/model-evaluator/adapters/private-v2-browser.ts",
+      "sha256": "4a5c00e6fceec90e6f2785dd7725d24dafcc6fa5caf8a63d00570c14b4ad2042",
+      "gitBlob": "c1d79be8941927e9c2bc59c55753e9fa3f27aae2"
+    },
+    {
+      "path": "scripts/model-evaluator/browser-session.ts",
+      "sha256": "826d0c56d6d5adb5d568bd628cbcc751743af88a2faad3cc7dd3d35a20fba7aa",
+      "gitBlob": "2a5410c85fc1451cbf3004a8a2a70d101f71c5a4"
+    },
+    {
+      "path": "scripts/model-evaluator/resource-headroom.ts",
+      "sha256": "d2920c39d7f86870fe185c5a5ebcf6ebc34331b1ca947ac2f127cb110128aea8",
+      "gitBlob": "999919e4fe5e60aef732fc5ee7954f0e45a77265"
+    },
+    {
+      "path": "scripts/model-evaluator/run.mts",
+      "sha256": "3d842e6f1502901c1168c4dadf8cf4dfdc823f8704cbe6399f647d2d0de38a66",
+      "gitBlob": "b3530ae4e611c0d1745402e945b0982305dfe8b2"
+    },
+    {
+      "path": "scripts/model-investigation.mts",
+      "sha256": "6c94303eb1924cef54cfd6291e4f0327414ae0e2d01843fbf5cdbae25c14b4b1",
+      "gitBlob": "1712efa1a29da2514da080b74ce4403185160ddb"
+    },
+    {
+      "path": "tests/evidence/__tests__/modelEvaluatorAdapters.test.ts",
+      "sha256": "2c2b4efb2c1649a6d1ac9f6f5782f662aa7775053b706eaa4c20bb3b8424daf9",
+      "gitBlob": "b01a1a861770cd5b99839477f9eb876340dc6be1"
+    },
+    {
+      "path": "tests/evidence/__tests__/modelEvaluatorCommand.test.ts",
+      "sha256": "631c6eee3572464ac7119eca7a9e6940b60a2fba244ebedbd3f528a75841f9c1",
+      "gitBlob": "75330e837ef01580e121e375307fe933e669396d"
+    },
+    {
+      "path": "tests/evidence/fixtures/model-evaluator/baseline-v2-cdp-smoke.json",
+      "sha256": "a90ca1f216d4339770a397982e6d0648b546002fe693dd9d4f057a76e38a3d05",
+      "gitBlob": "154541d7233e48b55b5a4179d5231fca91edeef9"
+    },
+    {
+      "path": "tests/evidence/fixtures/model-evaluator/candidate-v4-base-q4-cdp-4.3.0.json",
+      "sha256": "4ef9f8284280300a3d405c0ab55bce045dff76c8ee2e71c3280d10f44cff669f",
+      "gitBlob": "39584b3758c175eb3a5b6c0fe23335e972d64ea2"
+    },
+    {
+      "path": "tests/evidence/fixtures/model-evaluator/device-local-wasm-cdp.json",
+      "sha256": "490bb87240669729d54cea657a93531d9ed44e7f8e2b5552b53157a31a718bf6",
+      "gitBlob": "32705d625cefb6c86f0fcfddba248b4f10f29da8"
+    },
+    {
+      "path": "tests/unit/modelEvaluatorBrowserSession.test.ts",
+      "sha256": "f233e164f039def055c93831115c4631474c20b59e07f6ebedb345c216adc9d6",
+      "gitBlob": "b7ebf0d1a1ff0572a63bf552accbe756a687467c"
+    },
+    {
+      "path": "tests/unit/modelEvaluatorMemoryGuard.test.ts",
+      "sha256": "9066e0eaa5cbc22b1d9ec3200d7cbaba6fa1580789543de28ef1a38637f9da23",
+      "gitBlob": "fbc772a0250d20cec127d1ed438abe9813379ec2"
+    }
+  ],
+  "patchSha256": "99b6078109c933164b7bcf8b8fd6ae2441ec3bf859184c7aa4688d5f3350c9d0",
+  "focused": {
+    "session": 70175,
+    "passed": 68,
+    "failed": 0,
+    "files": 9,
+    "report": "/private/tmp/cli-cdp-comparison-focused-final-20261022.json"
+  },
+  "retainedRed": {
+    "session": 10204,
+    "failed": 7,
+    "passed": 60,
+    "reason": "Preexisting browser-context mock and host-dependent no-model command fixtures; actual memory guard not weakened",
+    "report": "/private/tmp/cli-cdp-comparison-focused-20261022.json"
+  },
+  "explicitRunnerTsc": {
+    "session": 72183,
+    "exit": 0
+  },
+  "evidenceTsc": {
+    "session": 2651,
+    "exit": 0
+  },
+  "fullQuality": {
+    "session": 67416,
+    "state": "PASS",
+    "exitCode": 0
+  },
+  "runtime": "No model execution yet. STT bounded run authorized8393; Llama runtime selected separately after review.",
+  "resourcePolicy": "Same2GiB start/1GiB running/five-low-sample floor; actual run uses real host measurement, no unit-memory preload",
+  "ownership": "Fresh owned contexts only; borrowed dedicated Chrome never closed. Existing exact owner/endpoint guard unchanged.",
+  "scope": "Three frozen synthetic audio clips/two trials; same18 Llama declaration preserved; no provider/account/activation/deploy",
+  "remoteMembership": "Git push failed-50; packet is exact local source evidence, not full remote source-tree membership",
+  "exactCurrentSourceRouteControls": {
+    "session": 47144,
+    "status": "ACTUAL_EXTRACTED_ROUTE_BUILDER_CONTROLS_PASS_NOT_ACQUISITION",
+    "routes": 55,
+    "sourceSha256": "6c94303eb1924cef54cfd6291e4f0327414ae0e2d01843fbf5cdbae25c14b4b1",
+    "reportSha256": "6ca0ef457c16abde3aed02b59c2abead06ca3d3baddf2fbf0d1a2c35d0ad2019",
+    "engineLoads": 0,
+    "browser": {
+      "normalizedCache": true,
+      "directCache": true,
+      "postBlocked": true,
+      "foreignBlocked": true
+    }
+  }
+}

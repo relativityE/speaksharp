@@ -1,0 +1,707 @@
+{
+  "retainedRed": {
+    "file": "/private/tmp/cli-cdp-comparison-focused-20261022.json",
+    "sha256": "330d49c8b620141015a7c3f371222dab6fead237eebe7ac5eb2df4df924ffb9d",
+    "passed": 60,
+    "failed": 7,
+    "tests": [
+      {
+        "title": "isolated coaching evidence survives canonical output rejection retains exact rejected output \"{}\" with runtime usage and finish reason",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection retains exact rejected output \"not JSON\" with runtime usage and finish reason",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection retains exact rejected output \"\" with runtime usage and finish reason",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection never attributes an earlier raw output to a later dispatch failure",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection retains an absent message as null without inventing raw output or runtime usage",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection preserves valid canonical output and labels only its contract validity",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection keeps product runtime rejection fail-closed with no raw text in its error message",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment retains launch default, refuses every unselected endpoint",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment binds the actual connection to one validated discovery and version",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment refuses actual attached version drift",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment refuses remote, credentialed and page-scoped websocket URLs before connect",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment refuses owner replacement between discovery and connect",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment actual HTTP redirect does not reach its destination",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment cleanup only accepts the owned context and propagates failed cleanup",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort times out pending creation truthfully and closes a context arriving later",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort failed close during initialization exits only the evaluator and prevents the first dispatch",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort a hanging close disconnects the evaluator at the cleanup deadline",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort abort during pending creation never claims CLOSED and exits within the bound",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort blocks subsequent cells after abort, with exactly one close and one evaluator exit",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort normal completion closes its context without emergency exit; unstarted cleanup is NOT_CREATED",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome attaches through the verified helper and never closes the borrowed browser",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome retains owned-launch behavior and closes only that owned browser",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome rejects unselected endpoints before any browser operation",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome propagates owner refusal without launching a replacement",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome closes a partially acquired owned context after page creation fails",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome retains cleanup failure as UNKNOWN without closing borrowed Chrome",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "bounded local evaluator headroom refuses under2GiB before model initialization and accepts the exact floor",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "bounded local evaluator headroom requires five consecutive low running samples and resets on recovery",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "bounded local evaluator headroom fails closed on absent, invalid or failed measurement",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang retains an inference timeout before page access and never retries or snapshots it",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang writes the failed row and observed failures before a hanging optional snapshot",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang continues independent cleanup after hanging disposal/browser/server calls",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang retains successful actual counters without changing the model result",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang does not swallow a mandatory evidence-write failure",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang bounds an independently hanging operation",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang retains a timeout and exits an actual process despite a stuck cleanup handle",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding passes declared v4:base:q4/wasm through the browser callback",
+        "status": "failed",
+        "failureMessages": [
+          "Error: TypeError: browser.newContext is not a function; cleanup:TypeError: browser.newContext is not a function\n    at openModelBrowser (/private/tmp/speaksharp-cli-raw-output-20261021/scripts/model-evaluator/browser-session.ts:38:46)\n    at Object.initialize (/private/tmp/speaksharp-cli-raw-output-20261021/scripts/model-evaluator/adapters/candidate-browser.ts:83:17)\n    at /private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/__tests__/modelEvaluatorAdapters.test.ts:38:15\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+        ]
+      },
+      {
+        "title": "#1565 candidate asset binding passes declared v4:base:q4/webgpu through the browser callback",
+        "status": "failed",
+        "failureMessages": [
+          "Error: TypeError: browser.newContext is not a function; cleanup:TypeError: browser.newContext is not a function\n    at openModelBrowser (/private/tmp/speaksharp-cli-raw-output-20261021/scripts/model-evaluator/browser-session.ts:38:46)\n    at Object.initialize (/private/tmp/speaksharp-cli-raw-output-20261021/scripts/model-evaluator/adapters/candidate-browser.ts:83:17)\n    at /private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/__tests__/modelEvaluatorAdapters.test.ts:38:15\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+        ]
+      },
+      {
+        "title": "#1565 candidate asset binding passes declared v4:distil:q4/wasm through the browser callback",
+        "status": "failed",
+        "failureMessages": [
+          "Error: TypeError: browser.newContext is not a function; cleanup:TypeError: browser.newContext is not a function\n    at openModelBrowser (/private/tmp/speaksharp-cli-raw-output-20261021/scripts/model-evaluator/browser-session.ts:38:46)\n    at Object.initialize (/private/tmp/speaksharp-cli-raw-output-20261021/scripts/model-evaluator/adapters/candidate-browser.ts:83:17)\n    at /private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/__tests__/modelEvaluatorAdapters.test.ts:38:15\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+        ]
+      },
+      {
+        "title": "#1565 candidate asset binding passes declared v4:distil:q4/webgpu through the browser callback",
+        "status": "failed",
+        "failureMessages": [
+          "Error: TypeError: browser.newContext is not a function; cleanup:TypeError: browser.newContext is not a function\n    at openModelBrowser (/private/tmp/speaksharp-cli-raw-output-20261021/scripts/model-evaluator/browser-session.ts:38:46)\n    at Object.initialize (/private/tmp/speaksharp-cli-raw-output-20261021/scripts/model-evaluator/adapters/candidate-browser.ts:83:17)\n    at /private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/__tests__/modelEvaluatorAdapters.test.ts:38:15\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+        ]
+      },
+      {
+        "title": "#1565 candidate asset binding rejects unsupported backend cpu before browser initialization",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding rejects unsupported backend cuda before browser initialization",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding rejects unsupported backend  before browser initialization",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding rejects unsupported backend WASM before browser initialization",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding binds each selected model and decoder precision to its committed asset pins",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "retained CLI consumes independent declared pairs and writes raw rows/observed identities with honest HOLD",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected 1 to be 2 // Object.is equality\n    at /private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/__tests__/modelEvaluatorCommand.test.ts:41:53\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at runSuite (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runFiles (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1787:3)"
+        ]
+      },
+      {
+        "title": "retained CLI keeps every decode failure and rejected disposal in the immutable report",
+        "status": "failed",
+        "failureMessages": [
+          "AssertionError: expected false to be true // Object.is equality\n    at /private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/__tests__/modelEvaluatorCommand.test.ts:51:158\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at runSuite (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runFiles (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1787:3)"
+        ]
+      },
+      {
+        "title": "retained CLI preserves wrong observed runtime identity rather than replacing it with the manifest",
+        "status": "failed",
+        "failureMessages": [
+          "TypeError: Cannot read properties of null (reading 'backend')\n    at /private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/__tests__/modelEvaluatorCommand.test.ts:58:36\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at runSuite (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runFiles (file:///private/tmp/speaksharp-cli-model-integration-20261020/node_modules/@vitest/runner/dist/chunk-hooks.js:1787:3)"
+        ]
+      },
+      {
+        "title": "#1565 retained runner paired-population integration uses independent frozen corpus \u00d7 declared trials, not the intersection of observed arms",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration freezes the declared population before execution and rejects mutated references",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration rejects an entire declared trial omitted identically from both arms",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration retains failed trials and actual observed identity without replacing them from declarations",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration rejects mismatched, duplicate and absent result identity before statistics",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration preserves declared empty-reference rows; completeness alone grants no silence-quality PASS",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration requires declared trial count independently of policy or available outputs",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration counts raw coachable fillers before WER normalization and keeps all-key counts separate",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit labels diagnostic output distinctly from shipping Gemini/Focus provenance",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 0",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 1",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 2",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 3",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 4",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 5",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit leaves identical-phrase usefulness to review rather than inventing a shipping parser gate",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit reserves generated output inside the actual4096 context without truncation",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit avoids a model call for empty input and treats embedded placeholder text as data",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit counts the complete pinned role headers, prompt and pending assistant header",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ]
+  },
+  "finalGreen": {
+    "file": "/private/tmp/cli-cdp-comparison-focused-final-20261022.json",
+    "sha256": "ea1efb5a35c841a4b6459375e346bfc744719690323f06674b1d5536f2525861",
+    "passed": 68,
+    "failed": 0,
+    "tests": [
+      {
+        "title": "isolated coaching evidence survives canonical output rejection retains exact rejected output \"{}\" with runtime usage and finish reason",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection retains exact rejected output \"not JSON\" with runtime usage and finish reason",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection retains exact rejected output \"\" with runtime usage and finish reason",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection never attributes an earlier raw output to a later dispatch failure",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection retains an absent message as null without inventing raw output or runtime usage",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection preserves valid canonical output and labels only its contract validity",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "isolated coaching evidence survives canonical output rejection keeps product runtime rejection fail-closed with no raw text in its error message",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment retains launch default, refuses every unselected endpoint",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment binds the actual connection to one validated discovery and version",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment refuses actual attached version drift",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment refuses remote, credentialed and page-scoped websocket URLs before connect",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment refuses owner replacement between discovery and connect",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment actual HTTP redirect does not reach its destination",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "dedicated evaluator CDP attachment cleanup only accepts the owned context and propagates failed cleanup",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort times out pending creation truthfully and closes a context arriving later",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort failed close during initialization exits only the evaluator and prevents the first dispatch",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort a hanging close disconnects the evaluator at the cleanup deadline",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort abort during pending creation never claims CLOSED and exits within the bound",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort blocks subsequent cells after abort, with exactly one close and one evaluator exit",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "evaluator lifecycle across creation, initialization, dispatch and abort normal completion closes its context without emergency exit; unstarted cleanup is NOT_CREATED",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome attaches through the verified helper and never closes the borrowed browser",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome retains owned-launch behavior and closes only that owned browser",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome rejects unselected endpoints before any browser operation",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome propagates owner refusal without launching a replacement",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome closes a partially acquired owned context after page creation fails",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "STT evaluator owned context with dedicated borrowed Chrome retains cleanup failure as UNKNOWN without closing borrowed Chrome",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "bounded local evaluator headroom refuses under2GiB before model initialization and accepts the exact floor",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "bounded local evaluator headroom requires five consecutive low running samples and resets on recovery",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "bounded local evaluator headroom fails closed on absent, invalid or failed measurement",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang retains an inference timeout before page access and never retries or snapshots it",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang writes the failed row and observed failures before a hanging optional snapshot",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang continues independent cleanup after hanging disposal/browser/server calls",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang retains successful actual counters without changing the model result",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang does not swallow a mandatory evidence-write failure",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang bounds an independently hanging operation",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "model investigation preserves evidence when browser operations hang retains a timeout and exits an actual process despite a stuck cleanup handle",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding passes declared v4:base:q4/wasm through the browser callback",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding passes declared v4:base:q4/webgpu through the browser callback",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding passes declared v4:distil:q4/wasm through the browser callback",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding passes declared v4:distil:q4/webgpu through the browser callback",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding rejects unsupported backend cpu before browser initialization",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding rejects unsupported backend cuda before browser initialization",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding rejects unsupported backend  before browser initialization",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding rejects unsupported backend WASM before browser initialization",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 candidate asset binding binds each selected model and decoder precision to its committed asset pins",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "retained CLI consumes independent declared pairs and writes raw rows/observed identities with honest HOLD",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "retained CLI keeps every decode failure and rejected disposal in the immutable report",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "retained CLI preserves wrong observed runtime identity rather than replacing it with the manifest",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "retained CLI dispatches no decode when memory measurement is unavailable",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration uses independent frozen corpus \u00d7 declared trials, not the intersection of observed arms",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration freezes the declared population before execution and rejects mutated references",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration rejects an entire declared trial omitted identically from both arms",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration retains failed trials and actual observed identity without replacing them from declarations",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration rejects mismatched, duplicate and absent result identity before statistics",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration preserves declared empty-reference rows; completeness alone grants no silence-quality PASS",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration requires declared trial count independently of policy or available outputs",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "#1565 retained runner paired-population integration counts raw coachable fillers before WER normalization and keeps all-key counts separate",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit labels diagnostic output distinctly from shipping Gemini/Focus provenance",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 0",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 1",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 2",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 3",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 4",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit rejects incompatible or unusable model output 5",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit leaves identical-phrase usefulness to review rather than inventing a shipping parser gate",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit reserves generated output inside the actual4096 context without truncation",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit avoids a model call for empty input and treats embedded placeholder text as data",
+        "status": "passed",
+        "failureMessages": []
+      },
+      {
+        "title": "local Llama coaching contract and token limit counts the complete pinned role headers, prompt and pending assistant header",
+        "status": "passed",
+        "failureMessages": []
+      }
+    ]
+  }
+}
