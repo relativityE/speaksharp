@@ -1,0 +1,62 @@
+{
+  "observedUtc": "2026-10-22T16:37:16.860Z",
+  "macOS": "ProductName:\t\tmacOS\nProductVersion:\t\t26.5.2\nBuildVersion:\t\t25F84",
+  "node": "v22.12.0",
+  "playwright": "1.57.0",
+  "playwrightCore": "1.57.0",
+  "ChromeBundleVersion": "156.0.8078.47",
+  "profile": {
+    "path": "/private/tmp/speaksharp-eval-owned-quota-1792684984684",
+    "isSymlink": false,
+    "mode": "0o755",
+    "uid": 501,
+    "ownerMarker": {
+      "profile": "/private/tmp/speaksharp-eval-owned-quota-1792684984684",
+      "cacheState": "FRESH_PROFILE",
+      "profileReuse": "REFUSED",
+      "browserOwnership": "owned-persistent-profile",
+      "profileDisposition": "RETAINED_NOT_DELETED",
+      "createdUtc": "2026-10-22T16:03:06.777Z",
+      "controllerPid": 1870
+    },
+    "singletonLockExists": false,
+    "singletonLockTarget": null
+  },
+  "helperCustomOptions": {
+    "channel": "chrome",
+    "headless": false
+  },
+  "context": {
+    "requestedSandboxPermissions": "require_escalated",
+    "savedPrefix": [
+      "node",
+      "scripts/host-interlock.mjs"
+    ],
+    "declaredPolicy": "workspace-write; network restricted",
+    "effectiveOSIPCGrant": "NOT_ESTABLISHED by saved command approval; failure observed"
+  },
+  "launchFailure": {
+    "source": "b621712f/.review-packets/cli-persistent-launch-failure-20261022/launch-failure-raw.json",
+    "pid": 2054,
+    "signal": "SIGABRT",
+    "firstError": "crashpad bootstrap_check_in unknown error141; ReadExactly expected4 observed0",
+    "noPageReached": true
+  },
+  "cleanup": {
+    "source": "playwright-core/lib/server/utils/processLauncher.js:108-111,185-204",
+    "sourceIntendedTarget": {
+      "processGroup": -2054,
+      "signal": "SIGKILL"
+    },
+    "basis": "Playwright source uses detached:true on macOS and process.kill(-spawnedProcess.pid,'SIGKILL'); original log reports kill EPERM",
+    "processSnapshot": {
+      "observedUtc": "2026-10-22T16:07:21.684Z",
+      "profile": "/private/tmp/speaksharp-eval-owned-quota-1792684984684",
+      "knownPidMatches": [],
+      "ownedProfileProcessMatches": [],
+      "scope": "Read-only snapshot; no kill/delete/relaunch. Historical launch SIGABRT and cleanup EPERM retained separately.",
+      "disposition": "NO_KNOWN_OWNED_PROCESS_REMAINS_AT_OBSERVATION"
+    }
+  },
+  "conclusion": "No ordinary supported launcher-option mismatch established. Observed host capability failure includes process-group kill EPERM; cause of preceding Mach/bootstrap141 remains unproven. No fresh launch/permission change selected."
+}

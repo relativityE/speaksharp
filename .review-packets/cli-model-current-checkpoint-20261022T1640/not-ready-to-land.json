@@ -1,0 +1,102 @@
+{
+  "updatedUtc": "2026-10-22T16:39:14.456755+00:00",
+  "owner": "CLI Dev; original session01a1471a-adc4-71d2-bedc-899e1a265af2",
+  "priority": "STT12 smoke measured/accepted;0LLM outputs. Selected persistent-context correction source-qualified but real launch blocked; selected4.3.1 successor source-prepared but pnpm DNS blocks lock/install. No new model/provider/production execution selected.",
+  "items": [
+    {
+      "task": "Six-target migration/Edge prerequisites",
+      "state": "Not ready to land",
+      "source": "df167422e78c5270d4aaa1aeca47eb5f8db65393",
+      "remaining": "App published receiving head, required exact-head CI/reviews and native126/catalog compatibility; no operational permission implied",
+      "completedSubpart": "Ten-path gate source and receiving identity accepted3819,145/145 and full quality PASS"
+    },
+    {
+      "task": "Account full-flow proof #1643/#1658",
+      "state": "Not ready to land",
+      "completedSubpart": "Storage correction3e113fc4 source/receiving identity accepted; packet44465d2c delivered",
+      "remaining": "Reconcile current App receiving integration and native126/catalog/invariant receipts; lifecycle/status/recovery and scoped actualcustomer-exit acceptance remain distinct. Earlier receipt gaps are historical, not a fresh unread-Slack claim."
+    },
+    {
+      "task": "Model lifecycle and leaf integration",
+      "state": "Not ready to land",
+      "completedSubpart": "Bounded cleanup/source accepted",
+      "remaining": "Receiving integration/qualification and actual approved inference; shared file ownership and run limits retained"
+    },
+    {
+      "task": "Llama/Gemini same-input coaching comparison",
+      "state": "Not ready to land",
+      "source": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+      "remaining": "Separate persistent Chrome launch fails before page bootstrap141/SIGABRT/cleanupEPERM; real persistent quota NOT_MEASURED. Matched actual Gemini outputs absent; no new provider/model retry selected.",
+      "previousDisposition": {
+        "source": "00eceeb82 retained approved18-cell source; do not replace its budget with Smol successor",
+        "remaining": "Original actual cached run failed at Cache.add before declared dispatch. URL alias cause reproduced and proposed correction independently reviewed; source selection pending. Source-only full-request/protocol reconciliation delivered da722b93 for review, not adopted. No successful inference or quality winner."
+      },
+      "completedSubpart": "Actual RAM2.56GiB/Metal3/f16 passed; loading QuotaExceededError,0declaredcells. Fresh ephemeral CDPquota457689378<710619226Llama/972833253Smol. Acceptedraw6ee6bd2; cache-route fix accepted."
+    },
+    {
+      "task": "SmolLM2 and wllama qualification",
+      "state": "Not ready to land",
+      "completedSubpart": "Smol7465 offline75controls/6implementationmutants/quality accepted3b94814c; actual pinned-tokenizer1parent+4subtests acceptedSam5492,6inputs437\u2013639tokens; routeequivalencee89e/4a568verified.",
+      "remaining": "ObservedWebLLMtokenparity/inference/coachingquality/current-mainintegration NOT_RUN. wllamaSDKonly, no selectedmatchedGGUFcomparison.",
+      "previousDisposition": {
+        "completedSubpart": "Downloads verified; Smol d02a73ac bounded adapter source accepted",
+        "remaining": "Receiving wiring/full quality and separately scoped runtime/evaluator inference; wllama SDK download is not model/engine evidence"
+      }
+    },
+    {
+      "task": "STT v2/v4 evaluator #1565",
+      "state": "Not ready to land",
+      "completedSubpart": "7216 actual12decodes/6matchedpairs on3syntheticclips; v2WER20%v4WER10%, median4.37s/22.90s WASM. Raw6ee6bd2 independentlyacceptedSam4265.",
+      "remaining": "Smoke/HOLD: no predeclaredpolicy/productmetrics/streaming/Stop-to-final/WebGPU/representativecorpus qualification. No current selection winner. New runscope notselected.",
+      "previousDisposition": {
+        "completedSubpart": "Validator and bounded runner integration accepted",
+        "remaining": "Declared frozen corpus/trials, actual observed model identities/failures, qualification and retained comparative report"
+      }
+    },
+    {
+      "task": "Moonshine streaming/Stop orchestration",
+      "state": "Not ready to land",
+      "completedSubpart": "Historical short-input functional receipts and bounded Stop/source corrections retained",
+      "remaining": "Approximately95-second repetition diagnosis and longer/streaming acceptance; deferred behind T2, not a passing current campaign"
+    },
+    {
+      "task": "Case10 recovery/oracle receiving proof",
+      "state": "Not ready to land",
+      "completedSubpart": "Corrected independent oracle/regression packet supplied and accepted",
+      "remaining": "Final caller integration/current release recovery/fence evidence; App remains product-fix writer"
+    },
+    {
+      "task": "Received telemetry/fixture assurance #1259/#1495",
+      "state": "Not ready to land",
+      "remaining": "Reconcile exact received/private identities and retained caller evidence against final served release; source/receipt packets alone do not close acceptance"
+    },
+    {
+      "task": "Continuity #1548 and Products-menu diagnosis",
+      "state": "Not ready to land",
+      "completedSubpart": "Retained13-path continuity capsule reconciled; App owns current #1681 correction",
+      "remaining": "Receiving correction/qualification, final repeat-take acceptance; independent Products race diagnosis remains unclosed"
+    },
+    {
+      "task": "Retained/deferred maintenance and proof lane #1312/#1340/#1322/#1275/#1398; parked #1488",
+      "state": "Not ready to land",
+      "remaining": "Explicit deferred disposition/current-main residual reconciliation when selected; no new implementation started to fill a blocked queue"
+    },
+    {
+      "task": "Owned persistent evaluator context correction",
+      "state": "Not ready to land",
+      "base": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+      "branch": "cli-dev/1304-owned-persistent-context-20261022",
+      "completedSubpart": "34focusedPASS, causalRED2onoldconsumer,runner+changedtestsTS/fullqualityPASS; exact5files source reviewF0CAXJPJC95",
+      "remaining": "Sam exact-source disposition; supported owned launcher; real persistentquota/profile-reuse validation; no relaunch/model/pushselected"
+    },
+    {
+      "task": "Transformers.js4.3.1 current-main successor",
+      "state": "Not ready to land",
+      "base": "455c26624ca8ead2ea22694ab36c064e497738bb",
+      "branch": "cli-dev/1304-transformers431-successor-20261022",
+      "completedSubpart": "Historical8fileWIP preserved;5existingcurrentmain version/consumer/test edits;official4.3.1tarballSHA512/SHA1verified",
+      "remaining": "pnpm normal+escalatedregistryDNSENOTFOUND preventslock/install. Isolateddependencyinstall,exactreceivingcompatibility/tests/quality/review/CI notdone; no inference/pushselected"
+    }
+  ],
+  "operationalLimits": "No production migration, activation, deletion, merge or deployment implied; no new model/provider run or App-file takeover. Sam retains operational/release decisions."
+}

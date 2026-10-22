@@ -1,0 +1,23 @@
+{
+  "package": "@huggingface/transformers",
+  "version": "4.3.1",
+  "registry": "https://registry.npmjs.org/@huggingface%2Ftransformers/4.3.1",
+  "tarball": "https://registry.npmjs.org/@huggingface/transformers/-/transformers-4.3.1.tgz",
+  "bytes": 2268123,
+  "integrity": "sha512-5+voSeUCFK6PCKlY15dPhNOKq3/zOTxDN7oC+Wy9dFb1QZ0TSQomZRRy7URRK8YRuUoE9fGMQTTPC5d/pWBJhA==",
+  "sha256": "0325441d6bd7bc7697fccb32ee6e5febc7f89691e42402d071adc678237b8015",
+  "officialIntegrityMatch": true,
+  "officialSha1Match": true,
+  "installed": false,
+  "lockfileGenerated": false,
+  "qualified": false,
+  "inferenceCalls": 0,
+  "registryDependencies": {
+    "sharp": "^0.35.4",
+    "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
+    "onnxruntime-node": "1.30.0",
+    "@huggingface/jinja": "^0.5.10",
+    "@huggingface/tokenizers": "^0.2.0"
+  },
+  "frozenBaseline": "4.3.0 untouched"
+}

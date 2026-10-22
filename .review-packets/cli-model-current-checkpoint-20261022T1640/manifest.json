@@ -1,0 +1,24 @@
+{
+  "createdUtc": "2026-10-22T16:40:35.334620+00:00",
+  "scope": "Current metadata and read-only environment/acquisition findings; no new runtime measurements or implementation publication",
+  "retainedMeasuredCommit": "6ee6bd2fe6f5e54b8091217209530ffab024a3fc",
+  "retainedFailedLaunchCommit": "b621712f58a63e5d40609c6089d8266a5af7e65c",
+  "files": {
+    "matrix.json": {
+      "bytes": 26827,
+      "sha256": "6f30a102038320a7e879c4cda60a3363788c485ae574b0076231046bb0758668"
+    },
+    "launcher-environment.json": {
+      "bytes": 2514,
+      "sha256": "cdbd232504b1736b887a449e763db0a4002b80039a5e93868fe074ecc5fa1d2d"
+    },
+    "transformers431-acquisition.json": {
+      "bytes": 876,
+      "sha256": "bd9d114a6e0c29b098537758214663ef399a9da2493c0d37705b8451b604fe23"
+    },
+    "not-ready-to-land.json": {
+      "bytes": 7170,
+      "sha256": "e25cce7372fd1223a9c66e3842bafdd7e305ef7e045ec27d248637ff075c1692"
+    }
+  }
+}

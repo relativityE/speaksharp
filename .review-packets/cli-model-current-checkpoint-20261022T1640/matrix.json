@@ -1,0 +1,560 @@
+{
+  "updatedUtc": "2026-10-22T16:40:35.334620+00:00",
+  "scope": "Measured STT smoke plus failed Llama acquisition and retained unexecuted configurations; no completed LLM comparison",
+  "decision": "First matched STT smoke measured: v4WASM lowerWER on oneclip but slowerdecode; no STT selection or LLM/Gemini retirement decision supported.",
+  "nullMeaning": "NOT MEASURED, never zero",
+  "rows": [
+    {
+      "lane": "LLM",
+      "configuration": "Gemini3.8-flash product coaching, contract gemini_coaching_v1, source main109047",
+      "measured": "Actual main109047 provider request reconstructed for6 inputs;18 trial references",
+      "qualityScore": null,
+      "latencyMs": null,
+      "status": "No matched observed baseline outputs in current campaign",
+      "baseline": "Gemini product configuration at main109047",
+      "commonInput": "Six short synthetic coaching inputs x3 trials; same canonical evidence, unequal full request controls",
+      "sampleCount": "0 current matched observed Gemini outputs",
+      "qualityAccuracy": "NOT MEASURED for current comparison",
+      "latency": "NOT MEASURED",
+      "peakMemory": "UNKNOWN",
+      "coldWarmLoadMs": "NOT MEASURED",
+      "cost": "NOT MEASURED",
+      "evidenceLink": "https://github.com/relativityE/speaksharp/tree/da722b93a127b698c1b62f77b9593272b458a707/.review-packets/cli-rubric-protocol-v3-20261022",
+      "localEvidence": "cli-rubric-protocol-v3-20261022/paired-source-requests.json",
+      "decision": "NO SELECTION SUPPORTED; No matched observed baseline outputs in current campaign"
+    },
+    {
+      "lane": "LLM",
+      "configuration": "Llama3.2-1B / WebLLM0.2.86",
+      "measured": "Pinnedassetsverified;actualhardwarePASS;initializationQuotaExceeded;ownedcontextCLOSED",
+      "cellsDispatched": 0,
+      "plannedCells": 18,
+      "qualityScore": null,
+      "latencyMs": null,
+      "status": "ACTUAL_INITIALIZATION_FAIL_QUOTA;RAMadmission2.56GiB+hardwareMetal3/f16PASS;0/18cells",
+      "baseline": "Gemini same-evidence arm; no observed matched baseline yet",
+      "commonInput": "Same six short synthetic coaching inputs x3 trials declared",
+      "sampleCount": "0/18declaredcells;internalSDKinferenceUNKNOWN",
+      "qualityAccuracy": "NOT MEASURED for current comparison",
+      "latency": "NOT MEASURED",
+      "peakMemory": "UNKNOWN",
+      "coldWarmLoadMs": "NOT MEASURED",
+      "cost": "NOT MEASURED",
+      "evidenceLink": "https://github.com/relativityE/speaksharp/tree/93a837844ed4989d0bd02cb7a22eeb4c477cc601/.review-packets/cli-cdp-comparison-source-20261022",
+      "localEvidence": "llama-raw.json",
+      "decision": "Qualityunmeasured;repair evaluator-ownedstoragecontext without loweringmemoryguard",
+      "startAvailableMemoryBytes": 2748779069.44,
+      "memoryLimit": "Start available headroom, not measured peak model memory",
+      "rawReport": "llama-raw.json",
+      "quotaEvidence": "quota-cdp-raw.json"
+    },
+    {
+      "lane": "LLM",
+      "configuration": "SmolLM2-1.7B / WebLLM",
+      "measured": "44 model files plus runtime972833253bytes verified",
+      "qualityScore": null,
+      "latencyMs": null,
+      "status": "Offline75controls+6implementationmutants/fullqualityaccepted7465; real cached ChatML/tokenizer1parent+4subtests acceptedSam5492;0inference. Currentephemeralquota457.7MBbelow972.8MBassets.",
+      "baseline": "Gemini and Llama same-evidence arms; not executed",
+      "commonInput": "No completed shared-input arm",
+      "sampleCount": "0 actual inference reported",
+      "qualityAccuracy": "NOT MEASURED for current comparison",
+      "latency": "NOT MEASURED",
+      "peakMemory": "UNKNOWN",
+      "coldWarmLoadMs": "NOT MEASURED",
+      "cost": "NOT MEASURED",
+      "evidenceLink": "cli-smollm2-acquisition-20261021.json (co-published)",
+      "localEvidence": "cli-smollm2-acquisition-20261021.json",
+      "decision": "Keepselectedcandidate;noqualityverdict or newruntimebudget selected",
+      "sourceEvidenceLink": "https://github.com/relativityE/speaksharp/tree/3b94814c57a4c76fbece364fb00f9301db4b3e12/.review-packets/cli-smol-diagnostic-wiring-20261022",
+      "sourceQualification": {
+        "head": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "focusedPassed": 75,
+        "mutantsDetected": 6,
+        "runnerTypecheck": "PASS",
+        "fullQuality": "PASS",
+        "CI": "NOT_RUN"
+      },
+      "realTokenizerPreflight": {
+        "authorPassed": 5,
+        "inputs": 6,
+        "promptTokenRange": [
+          437,
+          639
+        ],
+        "minimumHeadroomAfter256OutputReservation": 3201,
+        "modelCalls": 0,
+        "observedWebLlmTokenEquality": "NOT_RUN",
+        "independentReview": "Sam1792685492.445379 PASS bounded offline",
+        "artifact": "cli-smol-token-template-preflight-20261022.json",
+        "testAccounting": "1parent+4subtests; sensitivitychecks not implementationmutants"
+      }
+    },
+    {
+      "lane": "LLM engine",
+      "configuration": "wllama3.8.1 / compatible GGUF arm",
+      "measured": "SDK download verified",
+      "qualityScore": null,
+      "latencyMs": null,
+      "status": "Not integrated or benchmarked; MLC download totals do not describe GGUF arm",
+      "baseline": "Same model and quantization native reference needed for engine isolation; no selected measured reference",
+      "commonInput": "No completed shared-model/shared-input arm",
+      "sampleCount": "0 actual inference reported",
+      "qualityAccuracy": "NOT MEASURED for current comparison",
+      "latency": "NOT MEASURED",
+      "peakMemory": "UNKNOWN",
+      "coldWarmLoadMs": "NOT MEASURED",
+      "cost": "NOT MEASURED",
+      "evidenceLink": "cli-wllama-acquisition-20261021.json (co-published)",
+      "localEvidence": "cli-wllama-acquisition-20261021.json",
+      "decision": "NO SELECTION SUPPORTED; Not integrated or benchmarked; MLC download totals do not describe GGUF arm"
+    },
+    {
+      "lane": "LLM engine",
+      "configuration": "Llama or Smol via Transformers.js4.3.1",
+      "measured": "No comparison receipt",
+      "qualityScore": null,
+      "latencyMs": null,
+      "status": "NOT RUN; frozen tested/prepared HF version4.3.0 is not4.3.1",
+      "baseline": "WebLLM Llama configuration; no matched Transformers arm",
+      "commonInput": "No completed shared-model/shared-input arm",
+      "sampleCount": "NOT RUN",
+      "qualityAccuracy": "NOT MEASURED for current comparison",
+      "latency": "NOT MEASURED",
+      "peakMemory": "UNKNOWN",
+      "coldWarmLoadMs": "NOT MEASURED",
+      "cost": "NOT MEASURED",
+      "evidenceLink": null,
+      "localEvidence": "cli-v2-v4-preflight-20261021.json",
+      "decision": "NO SELECTION SUPPORTED; NOT RUN; frozen tested/prepared HF version4.3.0 is not4.3.1"
+    },
+    {
+      "lane": "STT",
+      "configuration": "Whisper-base.en / Xenova2.17.2 WASM baseline vs HF4.3.0 candidate",
+      "measured": "12/12actualdecodes;6/6validatedpairs;3shortsyntheticclips repeatedtwice;40uniquereferencewords",
+      "wer": {
+        "v2": 0.2,
+        "v4": 0.1
+      },
+      "stopToFinalMs": null,
+      "status": "MEASURED_SMOKE_ONLY;rawHOLDmissingpredeclaredpolicy/productpathmetrics",
+      "baseline": "Xenova/whisper-base.en2.17.2 WASM vs onnx-community/whisper-base.en HF4.3.0 WASM configured preflight",
+      "commonInput": "Three synthetic single-speaker clips x2 trials x2 configurations;12 completed decode calls",
+      "sampleCount": "3uniqueclips,2trials,6rows/arm; deterministicrepeattranscripts identical",
+      "qualityAccuracy": "WER20%vs10% across80repeatedrefwords;clear-slice3.23%both;differenceonlyfillerclip,bothpoor",
+      "latency": "Median fullmodeldecode4.37svs22.90s onWASM;notStop-to-final orWebGPU,cold/warmnotisolated",
+      "peakMemory": "NOT_MEASURED;hostheadroomstart2.08GiB,min1.36GiB,notmodelmemory",
+      "coldWarmLoadMs": "NOT_ISOLATED;observedinit7.95svs32.15s/cacheconditionsnotmatched",
+      "cost": "NOT MEASURED",
+      "evidenceLink": "stt-raw.json",
+      "localEvidence": "stt-raw.json and stt-summary.json",
+      "decision": "No keep/replace decision;backend-specificsmoke withn=3,no uncertaintyestimate;do notretrofittingpolicy",
+      "localPreflightReports": [
+        "/private/tmp/cli-stt-v2-v4-cdp-20261022T1230.json",
+        "/private/tmp/cli-stt-v2-v4-static-cdp-20261022T1243.json",
+        "/private/tmp/cli-stt-v2-v4-compiled-cdp-20261022T1246.json",
+        "/private/tmp/cli-stt-v2-v4-idle-slot-20261022T1337.json",
+        "/private/tmp/cli-stt-v2-v4-tabclose-20261022T1423.json"
+      ],
+      "decodeMedianMs": {
+        "v2": 4368.247916499997,
+        "v4": 22899.1443545
+      },
+      "observedBackend": "wasm",
+      "rawReport": "stt-raw.json",
+      "baselineFailedAssetRequests": 1,
+      "failedAssetUrl": "NOT_RETAINED_IN_REPORT",
+      "productPath": "NOT_RUN"
+    },
+    {
+      "lane": "STT",
+      "configuration": "Moonshine Base / Transformers.js + VAD",
+      "measured": "Adapter/source controls only for current campaign",
+      "wer": null,
+      "stopToFinalMs": null,
+      "status": "No current same-corpus model comparison or zero-finalizing proof",
+      "baseline": "Whisper baseline/candidate; no common-corpus output pair",
+      "commonInput": "No completed common-corpus comparison",
+      "sampleCount": "NOT RUN in current common-corpus campaign",
+      "qualityAccuracy": "NOT MEASURED for current comparison",
+      "latency": "NOT MEASURED",
+      "peakMemory": "UNKNOWN",
+      "coldWarmLoadMs": "NOT MEASURED",
+      "cost": "NOT MEASURED",
+      "evidenceLink": null,
+      "localEvidence": "cli-model-product-test-matrix-20261020.json",
+      "decision": "NO SELECTION SUPPORTED; No current same-corpus model comparison or zero-finalizing proof"
+    },
+    {
+      "lane": "STT historical",
+      "configuration": "Moonshine medium streaming / moonshine-wasm0.1.5",
+      "measured": "Historical short-input functional successes reported;95.3815second composite repeats within segment; historicalStop tail correction3of3 author runs",
+      "wer": null,
+      "stopToFinalMs": null,
+      "status": "Historical failure unresolved; shorter successful durations not recovered here; not current candidate qualification",
+      "baseline": "No valid current baseline pairing",
+      "commonInput": "Historical95.3815second composite; successful short input durations not recovered in this summary",
+      "sampleCount": "Historical author reports; not a current comparable population",
+      "qualityAccuracy": "NOT MEASURED for current comparison",
+      "latency": "NOT MEASURED",
+      "peakMemory": "UNKNOWN",
+      "coldWarmLoadMs": "NOT MEASURED",
+      "cost": "NOT MEASURED",
+      "evidenceLink": "https://github.com/relativityE/speaksharp/issues/1263#issuecomment-5683573477",
+      "localEvidence": "cli-dev-1304-moonshine-llama-plan-20261020.txt",
+      "decision": "NO SELECTION SUPPORTED; Historical failure unresolved; shorter successful durations not recovered here; not current candidate qualification"
+    }
+  ],
+  "requiredMeasurements": {
+    "LLM": [
+      "same canonical evidence and full request identity",
+      "retained paired suggestions",
+      "grounding/actionability/specificity/clarity blind ratings",
+      "valid-output and safety failures",
+      "cold/warm prompt/generation latency",
+      "memory and bytes"
+    ],
+    "STT": [
+      "same original audio and reference hashes",
+      "WER and filler precision/recall",
+      "repetition and tail retention",
+      "Stop-to-final and Stop-to-review",
+      "cold/warm loading",
+      "memory/device identity"
+    ],
+    "engineHarness": [
+      "hold model/input/decoding settings constant where compatible",
+      "explicit quantization/template differences",
+      "acquisition/cache/cleanup correctness",
+      "latency/memory/responsiveness",
+      "failure and omission controls"
+    ]
+  },
+  "rubricWeightsProposalNotAdopted": {
+    "grounding": 30,
+    "actionability": 35,
+    "specificity": 25,
+    "clarity": 10
+  },
+  "currentLLMFixtureScope": "6 synthetic inputs x3 repeats; not representative quality qualification. Full requests remain unequal;9historical Focus-label mismatches retained.",
+  "sources": [
+    "cli-dev-current-checkpoint.json",
+    "cli-v2-v4-preflight-20261021.json",
+    "cli-rubric-protocol-v3-20261022/paired-source-requests.json",
+    "cli-dev-1304-moonshine-llama-plan-20261020.txt",
+    "cli-not-ready-to-land-20261022.json"
+  ],
+  "purpose": "Current canonical CLI measurement view requested by Sam1792667554.881529; earlier cli-model-product-test-matrix-20261020.json is an acceptance checklist, not comparable benchmark results.",
+  "versionTruth": "Frozen HF4.3.0;4.3.1 not installed/qualified in retained comparison. Llama inference arm WebLLM0.2.86, not Transformers. wllama3.8.1 download only.",
+  "latestSourceQualification": {
+    "head": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+    "focusedTestsPassed": 68,
+    "fullQuality": "PASS",
+    "actualAssetRoutes": 55,
+    "runtimeMeasurementsComplete": false,
+    "scope": "Frozen STT/Llama source only; see separate Smol qualification"
+  },
+  "currentExecutionDependency": "Llama initializationQuotaExceeded; evaluator-owned ephemeralcontext actualCDPquota457689378bytes below710619226Llama/972833253Smolassets. No furthermodelrun until narrowcontextfix reviewed/selected.",
+  "executiveDecisionMatrix": [
+    {
+      "configuration": "Llama3.2-1B / WebLLM0.2.86",
+      "yesterdayToThisMorning": "Causally isolated SDK resolve/main URL mismatch; exact allowlisted route repair accepted; original bounded retry cleared",
+      "actualComparisonOutputs": 0,
+      "decisionNow": "First executable local LLM candidate; NOT a quality winner",
+      "nextBoundedEvidence": "Reviewsmallestownership-safe disk-backedcontextcorrection;model-freequota/cleanupvalidationbeforeanyselectedrerun",
+      "currentEvidence": "ActualacquisitionQuotaExceeded after2.56GiBRAM+Metal3/f16PASS;0cells;freshcontextCDPquota457.7MB"
+    },
+    {
+      "configuration": "SmolLM2-1.7B / WebLLM0.2.86",
+      "yesterdayToThisMorning": "Official972833253-byte assets verified; shared ChatML/runtime profile build defect fixed;55tests and fullquality accepted; diagnostic wiring now committed2f3ec5430 and published",
+      "actualComparisonOutputs": 0,
+      "decisionNow": "Keep in two-model shortlist; no rejection or quality verdict",
+      "nextBoundedEvidence": "ActualChatML/tokenizerpreflightandquota-safeharness;noactualSmolinferencebudgetselected",
+      "currentEvidence": "7465ec93 final75/75 focused,6 mutants detected/restored,runnerTS/fullqualityPASS; independently accepted bounded offline scope by Sam1792679925.909229; CI and inference NOT_RUN"
+    },
+    {
+      "configuration": "Gemini current product baseline",
+      "yesterdayToThisMorning": "Six exact source requests reconstructed; full request controls differ from local; historical Focus version mismatch retained",
+      "actualComparisonOutputs": 0,
+      "decisionNow": "No replacement decision possible without matched observed suggestions",
+      "nextBoundedEvidence": "Obtain observed baseline for same6evidence inputs; retain prompt/schema/settings differences, no invented equivalence"
+    },
+    {
+      "configuration": "Whisper/Xenova2.17.2 vs HF4.3.0 WASM",
+      "yesterdayToThisMorning": "Verified dedicated Chrome CDP integrated; combined68tests/fullquality passed;3resource preflights refused before decode at1.76/1.84/1.92GiB",
+      "actualComparisonOutputs": 12,
+      "decisionNow": "Measuredsmoke only;no promotionpolicy/product/streamingproof;noWebGPUconclusion",
+      "nextBoundedEvidence": "Preserve/reviewactualresults;newcorpus/backendrunrequiresselectedscopeandpredeclaredpolicy",
+      "currentEvidence": "12decodes/6pairs completed;WASMv2WER20%v4WER10%,median4.37s/22.90s;allgaponefillerclip,n=3"
+    },
+    {
+      "configuration": "Moonshine streaming",
+      "yesterdayToThisMorning": "Historical95.3815s repetition remains unresolved; current adapter controls do not add comparable audio results",
+      "actualComparisonOutputs": 0,
+      "decisionNow": "Not ready for zero-finalizing promise or current STT replacement",
+      "nextBoundedEvidence": "Keep historical failure visible; narrow same-audio replay/cause correction only within selected scope"
+    },
+    {
+      "configuration": "wllama3.8.1 / GGUF",
+      "yesterdayToThisMorning": "SDK acquired; no equivalent GGUF run/integration completed",
+      "actualComparisonOutputs": 0,
+      "decisionNow": "No engine ranking supported; recommend reserve fallback rather than broaden immediate model grid",
+      "nextBoundedEvidence": "Only prioritize same-model GGUF/native comparison if selected or WebLLM blocks the shortlisted candidates"
+    },
+    {
+      "configuration": "Transformers.js4.3.1 LLM/engine arm",
+      "yesterdayToThisMorning": "Retained benchmark usesHF4.3.0;4.3.1WIP is uninstalled/unqualified",
+      "actualComparisonOutputs": 0,
+      "decisionNow": "Exclude from measured claims; no WebLLM-vs4.3.1 conclusion",
+      "nextBoundedEvidence": "Separate selected install/integration scope; do not block already-cleared runs"
+    }
+  ],
+  "convergenceRecommendation": {
+    "status": "Recommended ordering; not new execution/activation authority",
+    "immediate": "PreservefirstSTTsmokeandreviewlimits;model-freequota diagnosis confirmedinsufficientfreshownedcontext. Submitownership-safecontextfixproposalbeforechanges;nonewloading/Geminicalls/backend/corpus.",
+    "scoring": "Retain same-input suggestions side by side; report groundedness, actionable next-take advice, specificity and clarity separately. Invented facts/wrong Focus/invalid responses are explicit failures. Numeric aggregate weights remain unadopted.",
+    "stop": "Each row returns measured evidence, explicit failure, or exact HOLD. Do not replace unrun cells with source-test success or wait for broad population research.",
+    "releaseDecision": "Functional smoke supports only a shortlist; Gemini retirement requires matched actual outputs and product acceptance."
+  },
+  "blockingConditions": [
+    {
+      "type": "HARNESS_STORAGE_QUOTA",
+      "owner": "CLI/Sam",
+      "condition": "Llama initializationQuotaExceeded; evaluator-owned ephemeralcontext actualCDPquota457689378bytes below710619226Llama/972833253Smolassets. No furthermodelrun until narrowcontextfix reviewed/selected."
+    },
+    {
+      "type": "MISSING_LLM_RESULTS",
+      "owner": "CLI/Sam",
+      "condition": "0local coaching outputs;0matched observedGemini outputs. NewGemini calls/caplift/Smol360M/lowerRAMfloor notselected."
+    },
+    {
+      "type": "LATER_INTEGRATION",
+      "owner": "CLI/App/Sam",
+      "condition": "Unmergedmodelstack matters for receiving/productintegration, not for crediting measuredsmoke. Native sourcepush-50; evidencepublicationworks."
+    }
+  ],
+  "idleHostDisposition": {
+    "utc": "2026-10-22T13:37:47.369Z",
+    "report": "/private/tmp/cli-stt-v2-v4-idle-slot-20261022T1337.json",
+    "availableBytes": 1803886264.32,
+    "requiredBytes": 2147483648,
+    "explicitDecodes": 0,
+    "internalCalls": "UNKNOWN",
+    "lockReleasedCheck": "EXIT0",
+    "hostDisposition": "UNAVAILABLE_UNDER_CURRENT_CONDITIONS",
+    "noUnchangedRetry": true,
+    "subsequentMaterialChange": {
+      "utc": "2026-10-22T13:58:11Z",
+      "availableBytes": 2576980377.6,
+      "freePercent": 30,
+      "reason": "PO closed about4regularChrome tabs; fresh same-method reading above2GiB; causality not established",
+      "freshControllerGuardRequired": true,
+      "newModelOutputs": 0
+    }
+  },
+  "resourceChange": {
+    "utc": "2026-10-22T13:58:11Z",
+    "availableBytes": 2576980377.6,
+    "freePercent": 30,
+    "reason": "PO closed about4regularChrome tabs; fresh same-method reading above2GiB; causality not established",
+    "freshControllerGuardRequired": true,
+    "newModelOutputs": 0
+  },
+  "latestResourceAttempt": {
+    "source": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+    "report": "/private/tmp/cli-stt-v2-v4-tabclose-20261022T1423.json",
+    "reportSha256": "b1bcab962ddb5709249adf72ec8ccccdca14003b7499931c6574bf54022511c6",
+    "utc": "2026-10-22T14:22:42.188Z",
+    "status": "HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+    "rawComparatorVerdict": "FAIL",
+    "resourceHeadroom": {
+      "minStartBytes": 2147483648,
+      "minRunningBytes": 1073741824,
+      "maxConsecutiveLowSamples": 5,
+      "startAvailableBytes": 1889785610.24,
+      "minimumObservedAvailableBytes": 1889785610.24,
+      "lowSamples": 0,
+      "error": "HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+      "method": "Host available headroom; NOT model peak memory"
+    },
+    "invocationEvidence": {
+      "plannedExplicitDecodes": 12,
+      "explicitDecodeDispatches": 0,
+      "initializationInternalCalls": "UNKNOWN",
+      "retryCount": 0
+    },
+    "transport": "a6695fc2de55cce6c014a051c566b3a94ea11bc2/.review-packets/cli-matrix-resource-review-20261022/stt-admission-report.json",
+    "interlockAfter": "EXIT0",
+    "noUnchangedRetry": true,
+    "historical": true,
+    "supersededForCurrentStateBy": "latestMeasuredStt and llama-raw.json"
+  },
+  "currentSlotState": {
+    "CLI": "RELEASED1792682436.685549",
+    "nextOwner": "App",
+    "CLIHeavyJobRunning": false
+  },
+  "smolCompletionClaim": "Offline Smol diagnostic wiring, six paths on the unmerged #1304 stack b81d12f8, is locally qualified. Not landable until receiving integration is selected, reconciled and reviewed against current main. CI NOT RUN; zero model outputs; no Gemini replacement conclusion.",
+  "independentReview": {
+    "AppReceipt": "1792679270.460129",
+    "disposition": "Claim accurate within offline scope; NOT READY TO LAND; metadata corrections requested.",
+    "SamMatrixReceipt": "1792679218.164829",
+    "matrixDispositionHistorical": "Raw resource HOLD verified; current-status consistency RETURN.",
+    "currentMatrixDisposition": "Sam1792684265.207539 accepted6ee6bd2 bounded smoke/failed-acquisition after raw recomputation and10payloadhashes; runtime selection still HOLD"
+  },
+  "smolQualification": {
+    "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+    "offlineFocusedPassed": 75,
+    "realMutantsDetected": 6,
+    "runnerTypecheck": "PASS",
+    "fullQuality": "PASS",
+    "unmergedBase": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+    "CI": "NOT_RUN",
+    "modelsRun": 0,
+    "publication": "Evidence patch only; native implementation-branch push failed"
+  },
+  "observedResultCounts": {
+    "completedSttConfigurationComparisons": 1,
+    "observedSttTranscriptRows": 12,
+    "validatedSttClipTrialPairs": 6,
+    "uniqueAudioClips": 3,
+    "uniqueReferenceWords": 40,
+    "matchedLlmComparisons": 0,
+    "observedLlmSuggestions": 0
+  },
+  "latestMeasuredStt": {
+    "reportCreatedAt": "2026-10-22T15:11:24.343Z",
+    "inputFailures": [],
+    "pairedEvidence": {
+      "status": "COMPLETE",
+      "expectedRows": 6,
+      "validatedPairs": 6,
+      "error": null
+    },
+    "comparison": {
+      "verdict": "HOLD",
+      "reasons": [
+        "missing_or_invalid_predeclared_policy"
+      ],
+      "baseline": {
+        "wer": 0.2,
+        "referenceWords": 80,
+        "substitutions": 4,
+        "deletions": 2,
+        "insertions": 10,
+        "scoredCount": 6,
+        "invalidCount": 0,
+        "invalidReasons": {}
+      },
+      "candidate": {
+        "wer": 0.1,
+        "referenceWords": 80,
+        "substitutions": 2,
+        "deletions": 2,
+        "insertions": 4,
+        "scoredCount": 6,
+        "invalidCount": 0,
+        "invalidReasons": {}
+      },
+      "slices": {
+        "clear": {
+          "baseline": {
+            "wer": 0.03225806451612903,
+            "referenceWords": 62,
+            "substitutions": 0,
+            "deletions": 2,
+            "insertions": 0,
+            "scoredCount": 4,
+            "invalidCount": 0,
+            "invalidReasons": {}
+          },
+          "candidate": {
+            "wer": 0.03225806451612903,
+            "referenceWords": 62,
+            "substitutions": 0,
+            "deletions": 2,
+            "insertions": 0,
+            "scoredCount": 4,
+            "invalidCount": 0,
+            "invalidReasons": {}
+          }
+        },
+        "filler": {
+          "baseline": {
+            "wer": 0.7777777777777778,
+            "referenceWords": 18,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 10,
+            "scoredCount": 2,
+            "invalidCount": 0,
+            "invalidReasons": {}
+          },
+          "candidate": {
+            "wer": 0.3333333333333333,
+            "referenceWords": 18,
+            "substitutions": 2,
+            "deletions": 0,
+            "insertions": 4,
+            "scoredCount": 2,
+            "invalidCount": 0,
+            "invalidReasons": {}
+          }
+        }
+      },
+      "finalLatencyMs": {
+        "baseline": 4368.247916499997,
+        "candidate": 22899.1443545
+      }
+    },
+    "acceptance": {
+      "verdict": "HOLD",
+      "reasons": [
+        "missing_or_invalid_predeclared_policy",
+        "product_path_and_required_metrics_not_run"
+      ]
+    },
+    "unsupportedMetrics": [
+      "first_useful_partial",
+      "cold_model_load_isolated",
+      "persistent_cache_size",
+      "browser_worker_memory",
+      "product_start_stop_next_take",
+      "focus_keyword_coverage",
+      "acoustic_filler_reference_validation",
+      "expected_silence_scoring_policy"
+    ]
+  },
+  "quotaDiagnosis": {
+    "publicEstimateBytes": 10737418240,
+    "actualDevtoolsQuotaBytes": 457689378,
+    "usageBytes": 0,
+    "overrideActive": false,
+    "modelCalls": 0,
+    "storageWrites": 0,
+    "ownedContextState": "CLOSED",
+    "interpretation": "Insufficientephemeralcontextstorage stronglysupportsfailureboundary;exactoriginalCacheoperation/stacknotretained"
+  },
+  "latestExecution": {
+    "STT": "12 completed decodes; rawHOLD",
+    "Llama": "admitted2.56GiB; acquisition QuotaExceededError;0 declared cells",
+    "modelRetry": "NOT_SELECTED"
+  },
+  "persistentCorrection": {
+    "base": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+    "sourceReviewArtifact": "https://speaksharp.slack.com/files/U0CAL06QE80/F0CAXJPJC95/cli-persistent-context-source-review-20261022.json",
+    "sourceState": "Unpublished5pathWIP;34focused/fullquality/expandedTSauthorPASS",
+    "realLaunch": "FAILED beforepage; bootstrap141/SIGABRT/cleanupEPERM",
+    "persistentQuota": "NOT_MEASURED",
+    "relaunch": "STOPPED perSam5108/6796"
+  },
+  "transformers431Successor": {
+    "base": "455c26624ca8ead2ea22694ab36c064e497738bb",
+    "branch": "cli-dev/1304-transformers431-successor-20261022",
+    "officialPackageIntegrity": "SHA512/SHA1PASS",
+    "installed": false,
+    "lockfile": "BLOCKED pnpm ENOTFOUND registry.npmjs.org normal+escalated",
+    "modelCalls": 0,
+    "frozen430": "UNCHANGED"
+  }
+}
