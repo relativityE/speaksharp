@@ -200,6 +200,26 @@ test('inactive account completion: native readiness, journal, and concurrent cla
       const answer=w.stdout.trim();assert.equal(Boolean(answer),!commit);
       assert.equal(sql(`SELECT count(*) FROM account_completion_executions WHERE user_id='${a.user}'`),'1');
     });
+    // #1684 Codex P1 r4353335543: concurrent renewals of an expired capability serialize on the owner lock; exactly one
+    // fresh deadline is set and a second key can only recover that renewal's lost reply, never extend it.
+    for(const commit of [false,true])await t.test(`native concurrent renewal: first ${commit?'commits':'rolls back'}`,async()=>{
+      const a=ready(seed()),hname=`renew_holder_${index}`,wname=`renew_waiter_${index}`;
+      sql(`UPDATE account_completion_status_capabilities SET expires_at=clock_timestamp()-interval '1 second' WHERE user_id='${a.user}'`);
+      const renew=key=>service(`SELECT issue_account_completion_status_v1('${a.user}','${a.request}','${scope}','${key}')`);
+      const first='e'+a.hash.slice(1),second='f'+a.hash.slice(1);
+      const holder=client(hname,`BEGIN; ${renew(first)};`,true);await waitFor(()=>idle(hname));
+      const waiter=client(wname,renew(second)+';');await waitFor(()=>blocked(wname,hname));
+      holder.child.stdin.end(`${commit?'COMMIT':'ROLLBACK'};\n`);
+      const h=await holder.done,w=await waiter.done;receipts.push({renewal:true,commit,observedBlock:true,holder:h,waiter:w});
+      assert.equal(h.code,0,h.stderr);assert.equal(w.code,0,w.stderr);
+      const held=JSON.parse(h.stdout.trim().split('\n').at(-1)),waited=JSON.parse(w.stdout.trim().split('\n').at(-1));
+      const row=json(`SELECT row_to_json(c) FROM (SELECT token_hash,acknowledged_at,floor(extract(epoch FROM expires_at)*1000)::bigint AS expires_ms
+        FROM account_completion_status_capabilities WHERE user_id='${a.user}') c`);
+      assert.equal(row.token_hash,second);assert.equal(row.acknowledged_at,null);assert.equal(row.expires_ms,waited.expiresAt);
+      if(commit)assert.equal(waited.expiresAt,held.expiresAt,'the second key recovers the committed renewal without extending it');
+      assert.ok(waited.expiresAt>Date.now()+14*60_000);
+      assert.equal(sql(`SELECT count(*) FROM account_completion_executions WHERE user_id='${a.user}'`),'0');
+    });
   } finally {
     for(const c of clients)if(!c.child.stdin.destroyed)c.child.stdin.end();
     if(started)execFileSync('pg_ctl',['-D',data,'-w','stop','-m','immediate'],{encoding:'utf8'});
