@@ -524,6 +524,44 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     );
 
+    it('#1593 UX-1: the saved next action rates the headline\'s counted fillers, not discourse markers it never showed', async () => {
+        // so×3 + like×2 in a minute is 5/min by the per-key map but 0 counted (discourse markers, not opted in). The
+        // next action must follow the headline (no REDUCE_FILLERS) while the saved per-key map keeps every word.
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
+        vi.mocked(storage.updateSession).mockClear();
+        const mode = 'private' as const;
+        (controller as unknown as { service: unknown }).service = {
+            getMode: vi.fn().mockReturnValue(mode),
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getStartTime: vi.fn().mockReturnValue(Date.now() - 60_000),
+            stopTranscription: vi.fn().mockResolvedValue({
+                success: true, transcript: '',
+                stats: { total_words: 0, filler_words: {}, speaking_rate: 0, duration: 60, accuracy: 1 },
+            }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: mode, modelName: mode, deviceType: mode }),
+            setSessionId: vi.fn(),
+            isServiceDestroyed: () => false,
+        };
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string }).sessionId = 'sess-ux1';
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        useSessionStore.getState().setSTTMode(mode);
+        (controller as unknown as { handleTranscriptUpdate: (data: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+            transcript: { partial: 'so we planned the trip so the kids could see it like we said so it went like clockwork' },
+        });
+
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        const payload = vi.mocked(storage.completeSession).mock.calls[0]?.[1];
+        expect(payload?.metrics?.fillerCounts).toMatchObject({ so: 3, like: 2 });
+        expect(payload?.nextActionSignal).toBeTruthy();
+        expect(payload?.nextActionSignal?.reasonCode).not.toBe('HIGH_FILLER_RATE');
+        expect(payload?.nextActionSignal?.actionCode).not.toBe('REDUCE_FILLERS');
+    });
+
     // #1033: one recording = one engine → finalization persists a VERIFIED identity tuple +
     // attribution_status atomically (row is 'pending' by DB default until then).
     const driveStopWithService = async (

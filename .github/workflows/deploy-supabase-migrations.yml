@@ -3,6 +3,13 @@ name: Deploy Supabase
 on:
   workflow_call:
     inputs:
+      deploy_production:
+        description: 'Explicit separately authorized production operation; ordinary merges stay off'
+        type: boolean
+        default: false
+      expected_head_sha:
+        type: string
+        required: true
       deploy_edge_functions:
         description: 'Whether this use case is authorized to publish Edge Functions'
         type: boolean
@@ -18,6 +25,14 @@ on:
         default: ''
   workflow_dispatch:
     inputs:
+      deploy_production:
+        description: 'Explicit separately authorized production operation'
+        type: boolean
+        default: false
+      expected_head_sha:
+        description: 'Exact qualified current main SHA'
+        type: string
+        required: true
       operation:
         description: 'What to deploy'
         required: true
@@ -38,18 +53,35 @@ concurrency:
   group: production-database-migrations
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   validate-edge-configuration:
+    if: ${{ inputs.deploy_production == true && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     outputs:
+      allowed: ${{ steps.policy.outputs.allowed }}
       deploy_edge_functions: ${{ steps.resolve.outputs.deploy_edge_functions }}
     steps:
       - name: Checkout caller commit with comparison history
-        if: ${{ github.event_name != 'workflow_dispatch' }}
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - id: policy
+        name: Require explicit production intent and exact green main
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
 
       - id: resolve
         name: Resolve and validate Edge deployment configuration
@@ -94,7 +126,7 @@ jobs:
 
   invalidate-account-closure-authority:
     needs: validate-edge-configuration
-    if: ${{ needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' || inputs.operation != 'edge-functions' }}
+    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && (needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' || inputs.operation != 'edge-functions') }}
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -106,6 +138,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      - name: Recheck exact green main immediately before invalidation
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
       - name: Invalidate deletion drain authority before ANY backend context change
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -115,18 +153,28 @@ jobs:
 
   deploy-edge-functions:
     needs: [validate-edge-configuration, invalidate-account-closure-authority, deploy-production-db]
-    if: ${{ always() && needs.validate-edge-configuration.result == 'success' && needs.invalidate-account-closure-authority.result == 'success' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && (needs.deploy-production-db.result == 'success' || needs.deploy-production-db.result == 'skipped') }}
+    if: ${{ always() && inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.result == 'success' && needs.invalidate-account-closure-authority.result == 'success' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && (needs.deploy-production-db.result == 'success' || needs.deploy-production-db.result == 'skipped') }}
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
         with:
           version: 2.101.0
+
+      - name: Recheck exact green main before Edge publication
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
 
       - name: Deploy Edge Functions
         working-directory: backend/supabase
@@ -150,7 +198,7 @@ jobs:
     # required verification (the post-#1290 defect: deployment succeeded but readback was skipped). The
     # always() forces GitHub to evaluate the condition regardless, and it still runs ONLY when the Edge
     # deploy itself succeeded — mirroring the deploy-edge-functions gate above.
-    if: ${{ always() && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && needs.deploy-edge-functions.result == 'success' }}
+    if: ${{ always() && inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && needs.deploy-edge-functions.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -171,7 +219,7 @@ jobs:
 
   deploy-production-db:
     needs: [validate-edge-configuration, invalidate-account-closure-authority]
-    if: ${{ needs.invalidate-account-closure-authority.result == 'success' && inputs.operation != 'edge-functions' }}
+    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.invalidate-account-closure-authority.result == 'success' && inputs.operation != 'edge-functions' }}
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -179,10 +227,11 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
       OPERATION: ${{ inputs.operation }}
+      CONFIRM_INPUT: ${{ inputs.confirm }}
     steps:
       - name: Validate confirmation
         run: |
-          user_input="$(echo "${{ inputs.confirm }}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          user_input="$(printf '%s' "$CONFIRM_INPUT" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
           if [ "$user_input" != "DEPLOY" ]; then
             echo "❌ Deployment cancelled - confirmation not provided"
             exit 1
@@ -191,6 +240,10 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
 
       - uses: supabase/setup-cli@v2
         env:
@@ -211,6 +264,13 @@ jobs:
         run: |
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
           echo "✅ Linked to Supabase project"
+
+      - name: Recheck exact green main before database or configuration mutation
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
 
       - name: Push migrations to production
         if: ${{ inputs.operation == 'migrations' || inputs.operation == 'migrations-and-edge-functions' || inputs.operation == 'all' }}
@@ -233,6 +293,14 @@ jobs:
           echo "🔎 Linting production public schema..."
           supabase db lint --linked --schema public --fail-on warning
           echo "✅ Production public schema lint passed"
+
+      - name: Recheck exact green main before secret synchronization
+        if: ${{ inputs.operation == 'secrets' || inputs.operation == 'all' }}
+        env:
+          DEPLOY_PRODUCTION: ${{ inputs.deploy_production }}
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/production-release-policy.mjs authorize
 
       - name: Set Supabase secrets
         if: ${{ inputs.operation == 'secrets' || inputs.operation == 'all' }}

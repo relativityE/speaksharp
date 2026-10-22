@@ -52,10 +52,9 @@ export function fillerEvidenceKind(input: { available: boolean; total: number; w
  * breakdown) must gate on THAT tier's total with `fillerEvidenceKind` (as `getSessionAnalysisMetrics` does), so a
  * discourse marker excluded from the tier never authorizes a zero claim.
  *
- * NOT YET APPLIED (#1472 increment 3, Browser PM 6102769181): the all-key Analytics average / contributor / chart
- * eligibility (`lib/analyticsUtils.ts`) still counts an empty map as a measured zero, because the user-visible value
- * comes from the server RPC `get_analytics_summary`, which does the same. Fixing it needs the RPC and its client
- * fallback changed together (a migration), so client↔RPC parity is preserved until then.
+ * #1472 increment 3: the all-key Analytics average and chart (`lib/analyticsUtils.ts`) and the server RPC
+ * `get_analytics_summary` count a session toward the filler RATE only with OBSERVED evidence (`measuredFillerTotal`
+ * of this), changed together so client↔RPC parity holds. Trend windows and top filler words keep their existing gate.
  */
 export function persistedFillerEvidence(session: { filler_counts?: unknown; total_words?: unknown }): FillerEvidence {
     const counts = readPersistedFillerCounts(session.filler_counts);

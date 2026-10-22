@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { flattenToFillerCounts, deriveNextActionSignal, CANONICAL_FILLER_KEYS } from '@/utils/nextAction';
 import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import { countedFillerTotal } from '@/utils/fillerTiers';
 
 const fc = (o: Record<string, number>): FillerCounts => {
   const out: FillerCounts = { total: { count: 0, color: '' } } as FillerCounts;
@@ -29,7 +30,7 @@ describe('#1306 flattenToFillerCounts — strict flat standard-key map', () => {
 });
 
 describe('#1306 deriveNextActionSignal — one valid, contract-conformant action', () => {
-  const base = { durationSeconds: 120, wordCount: 200, wpm: 140, fillerCounts: {}, clarityScore: 80 };
+  const base = { durationSeconds: 120, wordCount: 200, wpm: 140, countedFillerTotal: 0, clarityScore: 80 };
 
   it('too little speech → establish baseline', () => {
     const s = deriveNextActionSignal({ ...base, wordCount: 2 });
@@ -38,7 +39,7 @@ describe('#1306 deriveNextActionSignal — one valid, contract-conformant action
   });
 
   it('high filler rate (>= 3/min) → reduce fillers', () => {
-    const s = deriveNextActionSignal({ ...base, fillerCounts: { um: 5, uh: 3 } }); // 8 / 2min = 4/min
+    const s = deriveNextActionSignal({ ...base, countedFillerTotal: 8 }); // 8 / 2min = 4/min
     expect(s.reasonCode).toBe('HIGH_FILLER_RATE');
     expect(s.metric).toBe('filler_rate');
     expect(s.value).toBe(4);
@@ -56,23 +57,57 @@ describe('#1306 deriveNextActionSignal — one valid, contract-conformant action
     expect(deriveNextActionSignal(base).reasonCode).toBe('ON_TRACK');
   });
 
-  it('#1306: a measured-zero / empty filler count does NOT drive a filler-based next action', () => {
-    // {} (measured zero) and an absent filler map both mean "no fillers to reduce" — never HIGH_FILLER_RATE.
-    for (const fillerCounts of [{}, {} as Record<string, number>]) {
-      const s = deriveNextActionSignal({ ...base, fillerCounts });
-      expect(s.reasonCode).not.toBe('HIGH_FILLER_RATE');
-      expect(s.actionCode).not.toBe('REDUCE_FILLERS');
-    }
+  it('#1306: a measured-zero filler count does NOT drive a filler-based next action', () => {
+    const s = deriveNextActionSignal({ ...base, countedFillerTotal: 0 });
+    expect(s.reasonCode).not.toBe('HIGH_FILLER_RATE');
+    expect(s.actionCode).not.toBe('REDUCE_FILLERS');
   });
 
   it('every branch returns a signal that passes the strict contract validator', () => {
     const inputs = [
       { ...base, wordCount: 1 },
-      { ...base, fillerCounts: { um: 10 } },
+      { ...base, countedFillerTotal: 10 },
       { ...base, wpm: 200 },
       { ...base, wpm: 80 },
       base,
     ];
     for (const i of inputs) expect(validateNextActionSignal(deriveNextActionSignal(i)).ok).toBe(true);
+  });
+});
+
+describe('#1593 UX-1 — the next action rates the same counted fillers as the headline', () => {
+  // The counted total is fillerTiers.countedFillerTotal: true fillers + user words + custom words, and discourse
+  // markers only when opted in — the number the headline, chips and clarity already use. The per-key map below is
+  // what the session saved; only its counted total may drive the filler-rate decision.
+  const minute = { durationSeconds: 60, wordCount: 200, wpm: 140, clarityScore: 80 };
+  const discourseOnly = { so: 3, like: 2 }; // 5 per minute, but 0 counted unless opted in
+
+  it('discourse markers alone, not opted in: headline 0, so the next action is not REDUCE_FILLERS', () => {
+    const counted = countedFillerTotal(discourseOnly);
+    expect(counted).toBe(0);
+    const s = deriveNextActionSignal({ ...minute, countedFillerTotal: counted! });
+    expect(s.reasonCode).not.toBe('HIGH_FILLER_RATE');
+    expect(s.actionCode).not.toBe('REDUCE_FILLERS');
+    expect(s.reasonCode).toBe('ON_TRACK');
+  });
+
+  it('the same markers with discourse opted in: counted 5/min, so REDUCE_FILLERS (helper arithmetic only)', () => {
+    const counted = countedFillerTotal(discourseOnly, { includeDiscourseMarkers: true });
+    expect(counted).toBe(5);
+    const s = deriveNextActionSignal({ ...minute, countedFillerTotal: counted! });
+    expect(s).toMatchObject({ reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', value: 5 });
+  });
+
+  it('true fillers always count: um×3 in a minute → REDUCE_FILLERS at exactly the 3/min threshold', () => {
+    const counted = countedFillerTotal({ um: 3 });
+    expect(counted).toBe(3);
+    const s = deriveNextActionSignal({ ...minute, countedFillerTotal: counted! });
+    expect(s).toMatchObject({ reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', value: 3 });
+  });
+
+  it('a non-finite or negative counted total never fabricates a filler judgement', () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -4]) {
+      expect(deriveNextActionSignal({ ...minute, countedFillerTotal: bad }).reasonCode).not.toBe('HIGH_FILLER_RATE');
+    }
   });
 });
