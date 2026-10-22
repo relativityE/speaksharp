@@ -1,18 +1,22 @@
 {
-  "createdUtc": "2026-10-22T14:24:47.114241+00:00",
+  "updatedUtc": "2026-10-22T14:34:51.924076+00:00",
   "task": "Decision-ready matched-input STT/LLM/engine comparison against existing solutions",
-  "completionClaim": "Offline Smol diagnostic wiring/local qualification complete; entire measurement matrix INCOMPLETE",
+  "completionClaim": "Only six-path Smol offline diagnostic wiring/local qualification complete on unmerged b81d12f8 stack; full matrix INCOMPLETE",
   "actualMatchedComparisons": 0,
-  "smolQualifiedSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
-  "smolEvidence": "ea12697aef67e988a25f1e13e58a7e10262ed3a3/.review-packets/cli-smol-diagnostic-wiring-20261022",
-  "runtimeBlocker": "Actual fresh14:22controller1.76GiB<2GiB; no model init/decode",
-  "rawVerdictVsDisposition": "Raw comparator FAIL retained; responsible boundary is admission RESOURCE HOLD, not a model-quality failure",
-  "noUnchangedRetry": true,
+  "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+  "independentReview": {
+    "Sam": "1792679218.164829 matrix consistency RETURN; raw HOLD verified",
+    "App": "1792679270.460129 bounded offline claim accurate; NOT READY TO LAND; metadata corrections"
+  },
+  "corrections": "Stale status/manifest/transport corrected; unmerged stack+publication boundary; lockfile identity; exact TS config+portable aid; explicit targeted assertion messages",
+  "rawHistory": "Raw test/admission reports byte-preserved",
+  "runtimeBlocker": "Actual14:22controller1.76GiB<2GiB; no unchanged retry",
+  "sourcePublicationBlocker": "Native git push keychain -50; connector evidence/comments work, implementation branch not remote",
   "files": [
     {
       "path": "matrix.json",
-      "sha256": "10b7d71eab4fd85747d3548d8f28e155b4d0f61a7ba19d16f9dfdccda1dfc661",
-      "bytes": 19140
+      "sha256": "c87af51dfc3abb1fefe8b0ef482e5ce81cce466b8f67ba78ddb547a358daeeb9",
+      "bytes": 21177
     },
     {
       "path": "stt-admission-report.json",
@@ -21,8 +25,8 @@
     },
     {
       "path": "stt-disposition.json",
-      "sha256": "46c48cb66c2f22ac648a3b2687edc9228de040b6bc7387a85462c20217bb967a",
-      "bytes": 954
+      "sha256": "200c69e620947951912b1c16df4654ddebdaa45c292cc2207e14ab76337e9ffa",
+      "bytes": 1055
     }
   ]
 }

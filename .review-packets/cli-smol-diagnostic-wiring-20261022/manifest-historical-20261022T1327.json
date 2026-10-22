@@ -1,0 +1,29 @@
+{
+  "createdUtc": "2026-10-22T13:27:44.630716+00:00",
+  "state": "SOURCE_COMPLETE_TESTS_PREPARED_NOT_EXECUTED_NOT_READY_TO_LAND",
+  "base": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+  "head": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+  "tree": "26552c2f85043fdcffb86a1f7334494c6d5dd6fe",
+  "branch": "cli-dev/1304-smol-profile-20261021",
+  "paths": [
+    "frontend/src/benchmark/model-investigation-local.ts",
+    "frontend/src/benchmark/smolBrowserCoach.ts",
+    "frontend/src/benchmark/smolCoachingContract.ts",
+    "scripts/model-evaluator/product-coaching-inputs.ts",
+    "scripts/model-investigation.mts",
+    "tests/unit/smolDiagnosticDispatch.test.ts"
+  ],
+  "commits": [
+    "e89e111a68147c3b583c4196f8949860cc5e55ed",
+    "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
+  ],
+  "sourcePatchSha256": "6d488a2e2864d354fbaea6c7f63061cd2c0da531f69839ae470c34a103755038",
+  "diffCheck": "PASS",
+  "focusedTests": "NOT_RUN_SHARED_SLOT_APP",
+  "fullQuality": "NOT_RUN_SHARED_SLOT_APP",
+  "modelsRun": 0,
+  "providerCalls": 0,
+  "boundary": "Diagnostic route only. Reuses shared WebLLM runtime, canonical input/shape checks and original6\u00d73declaration. Truthful Smol diagnostic version is not admitted by product persistence. No backend/worker/App-file edit.",
+  "runtime": "No fresh Smol execution selected by this source packet. Original STT/Llama runs remain separate frozen source7216e35c7.",
+  "testCommand": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false --maxWorkers=1 tests/unit/smolDiagnosticDispatch.test.ts tests/unit/webLlmProfiles.test.ts tests/unit/llamaRawOutputEvidence.test.ts tests/unit/productCoachingInputs.test.ts frontend/src/services/coaching/provider.test.ts"
+}

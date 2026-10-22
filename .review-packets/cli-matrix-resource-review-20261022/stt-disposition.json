@@ -21,7 +21,7 @@
     "initializationInternalCalls": "UNKNOWN",
     "retryCount": 0
   },
-  "transport": "NOT_PUBLISHED_YET",
+  "transport": "a6695fc2de55cce6c014a051c566b3a94ea11bc2/.review-packets/cli-matrix-resource-review-20261022/stt-admission-report.json",
   "interlockAfter": "EXIT0",
   "noUnchangedRetry": true
 }

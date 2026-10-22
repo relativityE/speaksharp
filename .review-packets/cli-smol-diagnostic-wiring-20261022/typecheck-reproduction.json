@@ -1,0 +1,12 @@
+{
+  "exactExecutedCommand": "node scripts/host-interlock.mjs hold local -- pnpm exec tsc --noEmit -p /Users/fibonacci/SW_Dev/delivery-support/cli-smol-runner-tsconfig-20261022.json",
+  "exactExecutedConfigCopy": "cli-smol-runner-tsconfig-20261022.json",
+  "originalConfigSha256": "8678bf4ac0b18f4d2c71dea02eb6691111d5c2a389129a03cb151195fb6c5497",
+  "publishedExactCopySha256": "8678bf4ac0b18f4d2c71dea02eb6691111d5c2a389129a03cb151195fb6c5497",
+  "copyByteIdentical": true,
+  "portableConfig": "tsconfig.runner.portable.json",
+  "portableInstallLocationRelativeToSourceCheckout": ".review-packets/cli-smol-diagnostic-wiring-20261022/tsconfig.runner.portable.json",
+  "portableCommand": "pnpm exec tsc --noEmit -p .review-packets/cli-smol-diagnostic-wiring-20261022/tsconfig.runner.portable.json",
+  "portableExecution": "NOT RUN; path-rebased reviewer aid, not an additional claimed test result",
+  "precondition": "Reconstruct the exact unmerged base plus final-source.patch; cannot apply only six paths to main and assume dependencies exist."
+}

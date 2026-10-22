@@ -1,0 +1,15 @@
+{
+  "updatedUtc": "2026-10-22T14:33:00.699486+00:00",
+  "SamReturn": "1792679218.164829",
+  "AppReview": "1792679270.460129",
+  "changes": [
+    "Current matrix slot/resource/Smol fields reconciled; raw historical reports unchanged.",
+    "Current manifest updated; original preserved as explicitly historical.",
+    "Unmerged stack ancestry and failed native branch publication disclosed.",
+    "Explicit failureMessages index published for all six targeted mutants.",
+    "Shared node_modules owner plus matching lockfile/package hashes verified.",
+    "Exact executed config published under its original basename; portable aid labeled NOT RUN."
+  ],
+  "failureListClarification": "Existing qualification.json did contain 2/1/3/2/1/1 failure objects under .messages, not empty lists. Added explicit .failureMessages and a standalone index to remove ambiguity; raw reports unchanged.",
+  "completionClaim": "Offline Smol diagnostic wiring, six paths on the unmerged #1304 stack b81d12f8, is locally qualified. Not landable until receiving integration is selected, reconciled and reviewed against current main. CI NOT RUN; zero model outputs; no Gemini replacement conclusion."
+}

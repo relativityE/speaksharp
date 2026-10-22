@@ -1,0 +1,13 @@
+{
+  "extends": "/private/tmp/speaksharp-cli-smol-profile-20261021/tsconfig.evidence.json",
+  "compilerOptions": {
+    "typeRoots": [
+      "/private/tmp/speaksharp-cli-smol-profile-20261021/node_modules/@types",
+      "/private/tmp/speaksharp-cli-smol-profile-20261021/node_modules"
+    ]
+  },
+  "include": [
+    "/private/tmp/speaksharp-cli-smol-profile-20261021/scripts/model-investigation.mts",
+    "/private/tmp/speaksharp-cli-smol-profile-20261021/frontend/src/vite-env.d.ts"
+  ]
+}

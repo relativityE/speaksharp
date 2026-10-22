@@ -1,10 +1,11 @@
 {
   "createdUtc": "2026-10-22T13:27:44.630716+00:00",
-  "state": "SOURCE_COMPLETE_TESTS_PREPARED_NOT_EXECUTED_NOT_READY_TO_LAND",
+  "updatedUtc": "2026-10-22T14:33:00.699486+00:00",
+  "state": "OFFLINE_LOCALLY_QUALIFIED_UNMERGED_STACK_NOT_READY_TO_LAND",
+  "completionClaim": "Offline Smol diagnostic wiring, six paths on the unmerged #1304 stack b81d12f8, is locally qualified. Not landable until receiving integration is selected, reconciled and reviewed against current main. CI NOT RUN; zero model outputs; no Gemini replacement conclusion.",
+  "head": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
   "base": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
-  "head": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
-  "tree": "26552c2f85043fdcffb86a1f7334494c6d5dd6fe",
-  "branch": "cli-dev/1304-smol-profile-20261021",
+  "tree": "3a65bae1c709bd7a4199cadb963be360850bf279",
   "paths": [
     "frontend/src/benchmark/model-investigation-local.ts",
     "frontend/src/benchmark/smolBrowserCoach.ts",
@@ -13,17 +14,35 @@
     "scripts/model-investigation.mts",
     "tests/unit/smolDiagnosticDispatch.test.ts"
   ],
-  "commits": [
-    "e89e111a68147c3b583c4196f8949860cc5e55ed",
-    "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
-  ],
-  "sourcePatchSha256": "6d488a2e2864d354fbaea6c7f63061cd2c0da531f69839ae470c34a103755038",
-  "diffCheck": "PASS",
-  "focusedTests": "NOT_RUN_SHARED_SLOT_APP",
-  "fullQuality": "NOT_RUN_SHARED_SLOT_APP",
+  "focusedTests": {
+    "passed": 75,
+    "failed": 0,
+    "report": "reports/cli-smol-focused-final-20261022T1415.json"
+  },
+  "fullQuality": "PASS; earlier parent lint failure retained in qualification.json",
+  "runnerTypecheck": "PASS; exact executed config and path-rebased aid retained separately",
+  "mutantControls": "Six targeted real-seam mutations observed assertion RED; not whole-suite runs; parent receipts retained, successor emitted JS identical.",
   "modelsRun": 0,
-  "providerCalls": 0,
-  "boundary": "Diagnostic route only. Reuses shared WebLLM runtime, canonical input/shape checks and original6\u00d73declaration. Truthful Smol diagnostic version is not admitted by product persistence. No backend/worker/App-file edit.",
-  "runtime": "No fresh Smol execution selected by this source packet. Original STT/Llama runs remain separate frozen source7216e35c7.",
-  "testCommand": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false --maxWorkers=1 tests/unit/smolDiagnosticDispatch.test.ts tests/unit/webLlmProfiles.test.ts tests/unit/llamaRawOutputEvidence.test.ts tests/unit/productCoachingInputs.test.ts frontend/src/services/coaching/provider.test.ts"
+  "newCloudProviderCalls": 0,
+  "CI": "NOT RUN",
+  "sourcePatch": "final-source.patch",
+  "sourcePatchSha256": "c129e5678ec45e8c92945e3d1e41e166015ba6e3ae9619e5b35da47d47b2004d",
+  "publication": {
+    "branch": "cli-dev/1304-smol-profile-20261021",
+    "remoteRef": "NOT_PUBLISHED",
+    "nativePushExit": 128,
+    "nativePushError": "failed to get: -50; could not read Username for https://github.com: Device not configured",
+    "availableSource": "Immutable final-source.patch, final-source-files and final-source.json in ea12697a evidence packet",
+    "PR": "NONE",
+    "mergeOrDeployment": "NONE"
+  },
+  "previousManifestHistoricalOnly": "manifest-historical-20261022T1327.json",
+  "boundaries": [
+    "Six-path diagnostic delta only; base stack contains product wiring.",
+    "No product activation, merge, migration, deployment or model-quality conclusion."
+  ],
+  "historicalFiles": {
+    "source.patch": "Parent2f3 patch; use final-source.patch for current7465 source",
+    "sources.json": "Parent2f3 pre/postimage reference; use final-source.json and final-source-files for current7465"
+  }
 }

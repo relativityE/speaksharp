@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.evidence.json",
+  "compilerOptions": {
+    "typeRoots": [
+      "../../node_modules/@types",
+      "../../node_modules"
+    ]
+  },
+  "include": [
+    "../../scripts/model-investigation.mts",
+    "../../frontend/src/vite-env.d.ts"
+  ]
+}

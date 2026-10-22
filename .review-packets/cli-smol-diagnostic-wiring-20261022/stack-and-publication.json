@@ -1,0 +1,23 @@
+{
+  "observedUtc": "2026-10-22T14:33:00.699486+00:00",
+  "qualifiedSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+  "unmergedBase": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+  "localOriginMain": "20f1f112ef8d291cee1a160c6a80fb91e7bb6625",
+  "mergeBase": "c9d46b2d4ffef7530cb0cccaa533b5818d200320",
+  "baseStackOnlyCommits": 107,
+  "mainOnlyCommits": 8,
+  "baseIsAncestorOfMain": false,
+  "baseIncludesProductCoachingWiring": true,
+  "productWiringReference": "frontend/src/components/AISuggestions.tsx imports createProductCoachingProvider on b81d12f8",
+  "boundary": "No App-file edits describes only the six-path delta, NOT the full stack or landing scope.",
+  "integration": "NOT SELECTED OR EXECUTED by this metadata correction; do not land the whole stack.",
+  "sourcePublication": {
+    "branch": "cli-dev/1304-smol-profile-20261021",
+    "remoteRef": "NOT_PUBLISHED",
+    "nativePushExit": 128,
+    "nativePushError": "failed to get: -50; could not read Username for https://github.com: Device not configured",
+    "availableSource": "Immutable final-source.patch, final-source-files and final-source.json in ea12697a evidence packet",
+    "PR": "NONE",
+    "mergeOrDeployment": "NONE"
+  }
+}

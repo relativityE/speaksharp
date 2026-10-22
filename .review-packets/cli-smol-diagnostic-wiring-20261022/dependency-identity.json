@@ -1,0 +1,12 @@
+{
+  "observedUtc": "2026-10-22T14:33:00.699486+00:00",
+  "testWorktree": "/private/tmp/speaksharp-cli-smol-profile-20261021",
+  "nodeModulesRealpath": "/private/tmp/speaksharp-cli-model-integration-20261020/node_modules",
+  "currentLockfileSha256": "27f76b7fc8a30c13431e0ac74da6fcd2587242b55f67d21ed2bb206e3ad60189",
+  "dependencyOwnerLockfileSha256": "27f76b7fc8a30c13431e0ac74da6fcd2587242b55f67d21ed2bb206e3ad60189",
+  "currentPackageSha256": "e2bbebde690bde40ffa63fc23e1e3908bdcdc9f6d653cb7acffba61cb6ac4e0f",
+  "dependencyOwnerPackageSha256": "e2bbebde690bde40ffa63fc23e1e3908bdcdc9f6d653cb7acffba61cb6ac4e0f",
+  "boundary": "Matching declared lockfile/package identities, not a fresh install or full installed-file integrity proof.",
+  "lockfilesMatch": true,
+  "packageFilesMatch": true
+}

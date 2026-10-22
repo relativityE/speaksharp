@@ -1,5 +1,5 @@
 {
-  "updatedUtc": "2026-10-22T14:23:38.833364+00:00",
+  "updatedUtc": "2026-10-22T14:33:00.699486+00:00",
   "scope": "Retained comparison evidence and latest qualified source; no successful current benchmark yet",
   "decision": "No data-supported local coaching, STT or overall engine winner yet; Gemini retirement not supported by current comparison evidence",
   "nullMeaning": "NOT MEASURED, never zero",
@@ -223,9 +223,10 @@
     "focusedTestsPassed": 68,
     "fullQuality": "PASS",
     "actualAssetRoutes": 55,
-    "runtimeMeasurementsComplete": false
+    "runtimeMeasurementsComplete": false,
+    "scope": "Frozen STT/Llama source only; see separate Smol qualification"
   },
-  "currentExecutionDependency": "RESOURCE HOLD: actual14:22 controller1.76GiB below2GiB despite earlier2.40GiB reading. No unchanged retry. Host/resource disposition needed; no new inference.",
+  "currentExecutionDependency": "Actual14:22:42 controller1.76GiB<2GiB; no unchanged retry or guard weakening. No alternate host verified/authorized.",
   "executiveDecisionMatrix": [
     {
       "configuration": "Llama3.2-1B / WebLLM0.2.86",
@@ -239,7 +240,8 @@
       "yesterdayToThisMorning": "Official972833253-byte assets verified; shared ChatML/runtime profile build defect fixed;55tests and fullquality accepted; diagnostic wiring now committed2f3ec5430 and published",
       "actualComparisonOutputs": 0,
       "decisionNow": "Keep in two-model shortlist; no rejection or quality verdict",
-      "nextBoundedEvidence": "Run prepared focused/quality qualification after measurement priority; then reconcile bounded Smol runtime selection"
+      "nextBoundedEvidence": "Correct metadata and receiving/base disclosure; actual runtime remains unrun and requires selected conditions. No expanded model experiment.",
+      "currentEvidence": "7465ec93b final75/75focused,6parent mutants detected/restored,runnerTS/fullqualityPASS; independent App scope review accurate, metadata correction returned."
     },
     {
       "configuration": "Gemini current product baseline",
@@ -253,7 +255,8 @@
       "yesterdayToThisMorning": "Verified dedicated Chrome CDP integrated; combined68tests/fullquality passed;3resource preflights refused before decode at1.76/1.84/1.92GiB",
       "actualComparisonOutputs": 0,
       "decisionNow": "Run existing narrow pair; no v4 superiority claim; not4.3.1",
-      "nextBoundedEvidence": "3same pinned clips\u00d72trials\u00d72arms=12explicit decodes; retain text/WER/fillers/latency/failures"
+      "nextBoundedEvidence": "Concrete owner-selected material host/resource change or qualified host before original12decode comparison; no unchanged retry.",
+      "currentEvidence": "Latest14:22:42 fresh controller1.76GiB admission HOLD;0decodes. Prior preflights remain historical receipts."
     },
     {
       "configuration": "Moonshine streaming",
@@ -279,26 +282,31 @@
   ],
   "convergenceRecommendation": {
     "status": "Recommended ordering; not new execution/activation authority",
-    "immediate": "Complete already-cleared STT pair and Llama smoke without expanding models/corpus/trials; finish independent Smol wiring while slot occupied",
+    "immediate": "Offline Smol qualification done. Resolve concrete host/resource hold before original cleared STT12 and Llama18 runs; no new models/corpus/trials. Matrix remains incomplete.",
     "scoring": "Retain same-input suggestions side by side; report groundedness, actionable next-take advice, specificity and clarity separately. Invented facts/wrong Focus/invalid responses are explicit failures. Numeric aggregate weights remain unadopted.",
     "stop": "Each row returns measured evidence, explicit failure, or exact HOLD. Do not replace unrun cells with source-test success or wait for broad population research.",
     "releaseDecision": "Functional smoke supports only a shortlist; Gemini retirement requires matched actual outputs and product acceptance."
   },
   "blockingConditions": [
     {
-      "type": "BLOCKER",
-      "owner": "App Dev / CLI Dev",
-      "condition": "App owns current full-unit/quality heavy slot; explicit handback before any timing-sensitive run"
+      "type": "RESOURCE_HOLD",
+      "owner": "Sam / host owner",
+      "condition": "Actual14:22:42 controller1.76GiB<2GiB; no unchanged retry or guard weakening. No alternate host verified/authorized."
     },
     {
-      "type": "BLOCKER",
+      "type": "MISSING_MEASUREMENTS",
       "owner": "CLI Dev",
-      "condition": "Latest actual controller1.92GiB below unchanged2GiB startup floor; fresh process/resource check after slot handback"
+      "condition": "Zero matched STT/LLM outputs; observed matched Gemini suggestions remain absent. Offline tests are not model-quality scores."
     },
     {
-      "type": "MISSING_DELIVERABLE",
+      "type": "NOT_READY_TO_LAND",
+      "owner": "CLI Dev / Sam",
+      "condition": "Smol six-path diagnostic delta locally qualified on unmerged107-commit base stack. Current-main receiving integration/CI not complete."
+    },
+    {
+      "type": "SOURCE_PUBLICATION_BLOCKER",
       "owner": "CLI Dev",
-      "condition": "Smol diagnostic dispatch wiring and matched observed Gemini baseline remain undelivered"
+      "condition": "Native push still fails keychain -50/could not read Username. Connector evidence/comments work; source branch has no remote ref or PR."
     }
   ],
   "idleHostDisposition": {
@@ -351,8 +359,31 @@
       "initializationInternalCalls": "UNKNOWN",
       "retryCount": 0
     },
-    "transport": "NOT_PUBLISHED_YET",
+    "transport": "a6695fc2de55cce6c014a051c566b3a94ea11bc2/.review-packets/cli-matrix-resource-review-20261022/stt-admission-report.json",
     "interlockAfter": "EXIT0",
     "noUnchangedRetry": true
+  },
+  "currentSlotState": {
+    "CLI": "RELEASED1792679018.418599",
+    "nextOwner": "App for next ready authorized job",
+    "CLIHeavyJobRunning": false
+  },
+  "smolCompletionClaim": "Offline Smol diagnostic wiring, six paths on the unmerged #1304 stack b81d12f8, is locally qualified. Not landable until receiving integration is selected, reconciled and reviewed against current main. CI NOT RUN; zero model outputs; no Gemini replacement conclusion.",
+  "independentReview": {
+    "AppReceipt": "1792679270.460129",
+    "disposition": "Claim accurate within offline scope; NOT READY TO LAND; metadata corrections requested.",
+    "SamMatrixReceipt": "1792679218.164829",
+    "matrixDisposition": "Raw resource HOLD verified; current-status consistency RETURN."
+  },
+  "smolQualification": {
+    "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+    "offlineFocusedPassed": 75,
+    "realMutantsDetected": 6,
+    "runnerTypecheck": "PASS",
+    "fullQuality": "PASS",
+    "unmergedBase": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+    "CI": "NOT_RUN",
+    "modelsRun": 0,
+    "publication": "Evidence patch only; native implementation-branch push failed"
   }
 }

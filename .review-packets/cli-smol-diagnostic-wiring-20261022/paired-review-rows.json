@@ -1,6 +1,6 @@
 {
   "createdUtc": "2026-10-22T13:46:12.540679+00:00",
-  "source": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb",
+  "source": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
   "rows": [
     {
       "id": "SMOL-01",
@@ -24,7 +24,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "keeps the original18 cell identities",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "Original6inputs\u00d73trials remain the only declared Smol population; no diagnostic-only fallback",
       "brokenBehaviorControl": "Allow Smol diagnostic protocol or change frozen population; rejection/count assertion must fail",
@@ -77,7 +79,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "preserves version-like strings",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "Version substitution must not alter transcript or Focus evidence",
       "brokenBehaviorControl": "Replace version globally through user evidence; literal-preservation assertion must fail",
@@ -130,7 +134,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "uses the shared Smol engine and honest open_mic",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "Open Mic dispatch reaches the selected real shared Smol factory/model profile",
       "brokenBehaviorControl": "Change createSmolRuntime to select Llama; model identity/token-count assertion must fail",
@@ -190,7 +196,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "uses the shared Smol engine and honest focus_points",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "Focus dispatch carries correct same-input shape and truthful Smol diagnostic identity",
       "brokenBehaviorControl": "Change createSmolRuntime to select Llama; model identity/token-count assertion must fail",
@@ -250,7 +258,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "retains invalid raw output {}",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "Empty object remains invalid and raw output retained once",
       "brokenBehaviorControl": "Convert output-contract error to VALID; retained-invalid assertion must fail",
@@ -317,7 +327,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "retains invalid raw output not JSON",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "Malformed JSON remains invalid and raw output retained once",
       "brokenBehaviorControl": "Convert output-contract error to VALID; retained-invalid assertion must fail",
@@ -384,7 +396,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "retains invalid raw output with llama_coaching_v1",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "A Llama-labelled response cannot be attributed to Smol",
       "brokenBehaviorControl": "Skip model/product diagnostic version guard; wrong-label assertion must fail",
@@ -444,7 +458,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "refuses extra keys, empty/oversized phrases",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "Exact keys/nonempty/ceiling and product identity reuse canonical validator; never truncate",
       "brokenBehaviorControl": "Bypass canonical parse failure or product version check; refusal assertion must fail",
@@ -504,7 +520,9 @@
       "test": {
         "path": "tests/unit/smolDiagnosticDispatch.test.ts",
         "case": "honors cancellation before dispatch",
-        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute"
+        "mocks": "Only external WebLLM engine/tokenizer/fetch; actual shared runtime, adapter, prompt bridge and validators execute",
+        "greenSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+        "redSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
       },
       "independentExpectedResult": "Already-aborted signal never issues generation or cloud fallback",
       "brokenBehaviorControl": "Ignore signal and allow generation; rejection/zero-call assertion must fail",
@@ -577,5 +595,6 @@
       }
     ],
     "amendment": "Test call layout only; runtime JS byte-identical; see test-layout-equivalence.json"
-  }
+  },
+  "initialSource": "2f3ec5430a4c950a49dbe3e5f85812a338bab1eb"
 }
