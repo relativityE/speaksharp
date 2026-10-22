@@ -57,7 +57,9 @@ async function seed(coverage=true,pending=true):Promise<Account>{
     'synthetic WASM fixture legacy coverage','synthetic WASM fixture portal settlement')`);
   return a;
 }
-async function own(a:Account){const grant=await claim(a);expect(grant?.executionId).toBeTypeOf('string');return {...a,execution:grant!.executionId as string};}
+// The selected claim prerequisite: the owner holds an acknowledged, unexpired status capability for this request.
+async function ready(a:Account){expect(await issueStatus(a)).toBe(true);expect(await ackStatus(a)).toBe(true);}
+async function own(a:Account){await ready(a);const grant=await claim(a);expect(grant?.executionId).toBeTypeOf('string');return {...a,execution:grant!.executionId as string};}
 async function finishedEffects(a:Account){
   for(const key of ['retain_trial','remove_storage','delete_auth']){
     await begin(a,key);
@@ -245,21 +247,21 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
       'read_account_completion_status_v1(uuid,text,text)'])expect(await value(`SELECT has_function_privilege('${role}','${fn}','EXECUTE')`)).toBe(false);
   });
   it('composes the actual controller with canonical SQL cleanup before final residue proof',async()=>{
-    const a=await seed(),c=controller(a);
+    const a=await seed(),c=controller(a);await ready(a);
     expect(await completePendingAccount({userId:a.user,requestId:a.request},c.ports)).toMatchObject({outcome:'completed',result:{outcome:'deleted'}});
     expect(await value(`SELECT phase FROM account_completion_executions WHERE user_id='${a.user}'`)).toBe('completed');
     expect(await value(`SELECT count(*)::int FROM account_billing_fences WHERE user_id='${a.user}'`)).toBe(0);
     expect(c.authDeletes()).toBe(1);
   });
   it('actual controller plus SQL keeps residual storage and the closing fence unresolved',async()=>{
-    const a=await seed(),c=controller(a,{residue:true});
+    const a=await seed(),c=controller(a,{residue:true});await ready(a);
     expect((await completePendingAccount({userId:a.user,requestId:a.request},c.ports)).outcome).toBe('hold');
     expect(await value(`SELECT phase FROM account_completion_executions WHERE user_id='${a.user}'`)).toBe('processing');
     expect(await value(`SELECT phase FROM account_billing_fences WHERE user_id='${a.user}'`)).toBe('closing');
     expect(c.authDeletes()).toBe(1);
   });
   it('lost terminal SQL reply keeps durable completion and never repeats Auth deletion',async()=>{
-    const a=await seed(),c=controller(a,{lostTerminalReply:true});
+    const a=await seed(),c=controller(a,{lostTerminalReply:true});await ready(a);
     const request={userId:a.user,requestId:a.request};
     expect((await completePendingAccount(request,c.ports)).outcome).toBe('hold');
     expect(await value(`SELECT phase FROM account_completion_executions WHERE user_id='${a.user}'`)).toBe('completed');
@@ -284,11 +286,40 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
       expect(await value(`SELECT has_function_privilege('${role}','${fn}','EXECUTE')`)).toBe(false);
     await sql(`UPDATE account_completion_configuration SET enabled=true,scope_digest='${scope}'`);
   });
+  // #1684 Codex P1 r4352097795: a worker claim must not overtake the client's status acknowledgment, or the ACK is refused
+  // (an execution exists) and the unacknowledged capability can never read the deletion result after Auth deletion.
+  it('does not claim before the status capability is acknowledged; claims once it is, and the result stays readable',async()=>{
+    const a=await seed();
+    expect(await issueStatus(a)).toBe(true);
+    expect(await claim(a),'no claim while the status capability is unacknowledged').toEqual({outcome:'pending'});
+    expect(await value(`SELECT count(*)::int FROM account_completion_executions WHERE user_id='${a.user}'`)).toBe(0);
+    expect(await ackStatus(a),'the owner can still acknowledge').toBe(true);
+    expect((await claim(a))?.executionId).toBeTypeOf('string');
+    expect(await readStatus(a)).not.toBeNull();
+  });
+  it('without an acknowledged, unexpired capability for exactly this request and scope, claim stays pending',async()=>{
+    const pending={outcome:'pending'};
+    const none=await seed();
+    expect(await claim(none),'no capability').toEqual(pending);
+    const unacked=await seed();expect(await issueStatus(unacked)).toBe(true);
+    expect(await claim(unacked),'issued but unacknowledged').toEqual(pending);
+    const expired=await seed();await ready(expired);
+    await sql(`UPDATE account_completion_status_capabilities SET expires_at=now()-interval '1 second' WHERE user_id='${expired.user}'`);
+    expect(await claim(expired),'acknowledged but expired').toEqual(pending);
+    const scoped=await seed();await ready(scoped);
+    await sql(`UPDATE account_completion_status_capabilities SET scope_digest='${'b'.repeat(64)}' WHERE user_id='${scoped.user}'`);
+    expect(await claim(scoped),'acknowledged for another scope').toEqual(pending);
+    const other=await seed();await ready(other);
+    await sql(`UPDATE account_completion_status_capabilities SET request_id=gen_random_uuid() WHERE user_id='${other.user}'`);
+    expect(await claim(other),'acknowledged for another request').toEqual(pending);
+    expect(await value(`SELECT count(*)::int FROM account_completion_executions WHERE user_id IN
+      ('${none.user}','${unacked.user}','${expired.user}','${scoped.user}','${other.user}')`)).toBe(0);
+  });
   it('requires exact pending account/request, coverage and account-specific settled work',async()=>{
     const a=await seed(false),b=await seed();
     expect(await claim(a)).toEqual({outcome:'pending'});expect(await claim({...a,request:b.request})).toBeNull();
     await sql(`INSERT INTO account_save_obligations(user_id,lease_id) VALUES('${a.user}','${a.lease}')`);
-    expect((await claim(b))?.executionId).toBeTypeOf('string');expect(await claim(a)).toEqual({outcome:'pending'});
+    await ready(b);expect((await claim(b))?.executionId).toBeTypeOf('string');expect(await claim(a)).toEqual({outcome:'pending'});
   });
   it('requires checkout settlement and retains claim despite legacy finish/replay',async()=>{
     const a=await seed(true,false);
@@ -308,7 +339,7 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
   it('preserves a valid paid customer identity in the claimed proof',async()=>{
     const a=await seed(true,false);
     await sql(`UPDATE user_profiles SET subscription_status='pro',stripe_customer_id='cus_synthetic_control' WHERE id='${a.user}'`);
-    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));
+    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));await ready(a);
     expect(await claim(a)).toMatchObject({proof:{userId:a.user,requestId:a.request,customerId:'cus_synthetic_control'}});
   });
   it.each(['changed-email','unconfirmed-email','missing-auth'])('authority holds after %s identity drift',async mode=>{
@@ -323,7 +354,7 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
     const a=await seed(true,false);
     expect(await value(as(a,`SELECT acquire_recording_lease('${a.lease}')`))).toMatchObject({acquired:true});
     const row=await value<{new_session:{id:string}}>(as(a,`SELECT create_session_and_update_usage('{"title":"synthetic","duration":0,"lease_id":"${a.lease}"}'::jsonb,'private')`));
-    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));
+    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));await ready(a);
     expect(await claim(a)).toEqual({outcome:'pending'});
     expect(await value(as(a,`SELECT release_recording_lease('${a.lease}')`))).toMatchObject({released:true});
     expect(await value(`SELECT count(*)::int FROM active_recording_lease WHERE user_id='${a.user}'`)).toBe(0);

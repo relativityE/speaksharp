@@ -18,7 +18,7 @@ const ACCOUNT = [
   {name:'20261018170000_account_closure_pending_checkout.sql',version:'20261018170000',sha256:'68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19'},
   {name:'20261019055102_account_pending_recording_admission_1643.sql',version:'20261019055102',sha256:'e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4'},
   {name:'20261019202856_account_coaching_admission_1643.sql',version:'20261019202856',sha256:'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e'},
-  {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'955d829bdcc9649dadfd23e9ebef2839d56b31bddd87cd77fd2122df3ba87a1c'},
+  {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'0b7be558664b4ed1915be8a839400f4bc5bba8f8738ff32592f8480e26f41fe2'},
 ];
 const baseTuplesSha256 = '601403209858cc31dba0f9125b1feebd535827d7e4bed469e2458e6ff7cda2b0';
 const drain = '20261016180000_account_closure_drain_enforcement.sql';
@@ -272,7 +272,7 @@ const accountProofs=[
   // for the positive save. Migration bytes and all other oracle pins are unchanged.
   // Native126 run39667772634 reached the real Storage direct-delete guard.
   // Preserve its denial; exact synthetic cleanup temporarily uses Storage's local opt-in.
-  ['account-completion-full-chain-invariants.sql','5a289a2a14cfde092bc4a782afd39848d574052a9b0acfa4e936333e94423964'],
+  ['account-completion-full-chain-invariants.sql','43966d4bddcd50f7f473bba6ab934186141d63b596738255c8e9abcf502812f2'],
 ];
 for(const [file,sha] of accountProofs) test('pins exact reviewed account oracle or bounded fixture successor: '+file,()=>{
   assert.equal(hash(readFileSync(join(root,'tests/db',file))),sha);

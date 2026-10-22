@@ -241,7 +241,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
         version: '20261020230653',
         file: '20261020230653_account_pending_completion_journal_1643.sql',
-        sha256: '955d829bdcc9649dadfd23e9ebef2839d56b31bddd87cd77fd2122df3ba87a1c',
+        sha256: '0b7be558664b4ed1915be8a839400f4bc5bba8f8738ff32592f8480e26f41fe2',
         classification: 'staged',
     }),
     Object.freeze({

@@ -121,6 +121,11 @@ BEGIN
     OR EXISTS(SELECT 1 FROM public.account_save_obligations WHERE user_id=p_user_id AND phase<>'completed')
     OR EXISTS(SELECT 1 FROM public.active_recording_lease WHERE user_id=p_user_id)
     OR NOT EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND request_id=p_request_id AND phase='pending')
+    -- The owner must already hold an ACKNOWLEDGED, unexpired status capability for exactly this request and scope.
+    -- Claiming first would refuse a later acknowledgment (an execution would exist) and leave the result unreadable
+    -- after Auth deletion.
+    OR NOT EXISTS(SELECT 1 FROM public.account_completion_status_capabilities WHERE user_id=p_user_id AND request_id=p_request_id
+      AND scope_digest=p_scope_digest AND acknowledged_at IS NOT NULL AND expires_at>clock_timestamp())
     THEN RETURN jsonb_build_object('outcome','pending'); END IF;
   INSERT INTO public.account_completion_executions(user_id,request_id,execution_id,scope_digest,expires_at,customer_id)
     VALUES(p_user_id,p_request_id,gen_random_uuid(),p_scope_digest,clock_timestamp()+interval '5 minutes',customer) RETURNING * INTO e;

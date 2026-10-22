@@ -167,6 +167,9 @@ BEGIN
 
   -- B's unknown effect stays unknown on retry, independently of C's positive path.
   SET LOCAL ROLE service_role;
+  -- The selected claim prerequisite: B holds an acknowledged, unexpired status capability for exactly this request/scope.
+  IF public.issue_account_completion_status_v1(b,req_b,scope,repeat('d',64)) IS NULL
+    OR NOT public.acknowledge_account_completion_status_v1(b,req_b,scope,repeat('d',64)) THEN RAISE EXCEPTION 'B status capability not acknowledged'; END IF;
   receipt:=public.claim_account_pending_completion_v1(b,req_b,scope); exec_b:=(receipt->>'executionId')::uuid;
   IF exec_b IS NULL THEN RAISE EXCEPTION 'unrelated account blocked by A save'; END IF;
   IF public.begin_account_completion_stage_v1(b,req_b,exec_b,scope,'retain_trial')->>'phase' IS DISTINCT FROM 'dispatch' THEN RAISE EXCEPTION 'stage did not dispatch once'; END IF;

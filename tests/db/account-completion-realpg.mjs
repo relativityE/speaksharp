@@ -41,7 +41,11 @@ test('inactive account completion: native readiness, journal, and concurrent cla
       'synthetic fixture legacy coverage; not production proof','synthetic fixture portal settlement; not provider proof')`);
     return a;
   }
-  const own = a => {const g=json(claim(a));assert.ok(g?.executionId,JSON.stringify(g));return {...a,execution:g.executionId};};
+  // The selected claim prerequisite: an acknowledged, unexpired status capability for exactly this request/scope.
+  const ready = a => {const h='c'+a.hash.slice(1);
+    assert.ok(json(service(`SELECT issue_account_completion_status_v1('${a.user}','${a.request}','${scope}','${h}')`))?.requestId);
+    assert.equal(sql(service(`SELECT acknowledge_account_completion_status_v1('${a.user}','${a.request}','${scope}','${h}')`)),'t');return a;};
+  const own = a => {ready(a);const g=json(claim(a));assert.ok(g?.executionId,JSON.stringify(g));return {...a,execution:g.executionId};};
   function client(name,text,hold=false) {
     const child=spawn('psql',args,{env:{...env,PGAPPNAME:name},stdio:['pipe','pipe','pipe']});
     const c={child,stdout:'',stderr:'',exited:false};clients.push(c);
@@ -185,7 +189,7 @@ test('inactive account completion: native readiness, journal, and concurrent cla
       assert.equal(json(claim(a)),null);
     });
     for(const commit of [false,true])await t.test(`native concurrent claim: first ${commit?'commits':'rolls back'}`,async()=>{
-      const a=seed(),b=seed(),hname=`claim_holder_${index}`,wname=`claim_waiter_${index}`;
+      const a=ready(seed()),b=ready(seed()),hname=`claim_holder_${index}`,wname=`claim_waiter_${index}`;
       const holder=client(hname,`BEGIN; ${claim(a)};`,true);await waitFor(()=>idle(hname));
       const waiter=client(wname,claim(a)+';');await waitFor(()=>blocked(wname,hname));
       const other=client(`unrelated_${index}`,claim(b)+';');await waitFor(()=>other.exited);
