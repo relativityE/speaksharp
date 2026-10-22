@@ -284,19 +284,30 @@ END $$;
 
 CREATE FUNCTION public.issue_account_completion_status_v1(p_user_id uuid,p_request_id uuid,p_scope_digest text,p_token_hash text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE deadline timestamptz;
+DECLARE deadline timestamptz; issued_at timestamptz;
 BEGIN
   IF p_token_hash IS NULL OR p_token_hash !~ '^[a-f0-9]{64}$'
     OR NOT public._account_completion_status_owner_v1(p_user_id,p_request_id,p_scope_digest) THEN RETURN NULL; END IF;
+  issued_at:=clock_timestamp();
   INSERT INTO public.account_completion_status_capabilities(user_id,request_id,scope_digest,token_hash,expires_at)
-    VALUES(p_user_id,p_request_id,p_scope_digest,p_token_hash,clock_timestamp()+interval '15 minutes')
-    ON CONFLICT(user_id,request_id) DO UPDATE SET token_hash=EXCLUDED.token_hash
-      WHERE account_completion_status_capabilities.acknowledged_at IS NULL
-        AND account_completion_status_capabilities.scope_digest=EXCLUDED.scope_digest
-        AND account_completion_status_capabilities.expires_at>clock_timestamp();
+    VALUES(p_user_id,p_request_id,p_scope_digest,p_token_hash,issued_at+interval '15 minutes')
+    ON CONFLICT(user_id,request_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,
+      acknowledged_at=CASE WHEN account_completion_status_capabilities.expires_at<=issued_at THEN NULL
+        ELSE account_completion_status_capabilities.acknowledged_at END,
+      expires_at=CASE WHEN account_completion_status_capabilities.expires_at<=issued_at THEN EXCLUDED.expires_at
+        ELSE account_completion_status_capabilities.expires_at END
+      WHERE account_completion_status_capabilities.scope_digest=EXCLUDED.scope_digest
+        AND ((account_completion_status_capabilities.acknowledged_at IS NULL
+            AND account_completion_status_capabilities.expires_at>issued_at)
+          OR (account_completion_status_capabilities.expires_at<=issued_at
+            AND account_completion_status_capabilities.token_hash<>EXCLUDED.token_hash));
   -- A lost issuance reply can be recovered only before acknowledgment, while
-  -- the exact confirmed owner is live/pending. Never extend the original
-  -- deadline or replace an acknowledged key, including after Auth loss.
+  -- the exact confirmed owner is live/pending. Never extend an unexpired
+  -- deadline or replace an unexpired acknowledged key, including after Auth loss.
+  -- An EXPIRED capability (acknowledged or not) is rotated for the same live owner,
+  -- request and scope before any execution exists: a genuinely different key, the
+  -- acknowledgment cleared and a fresh deadline. Otherwise a request whose claim never
+  -- arrived in time would stay pending forever, since claim needs an unexpired ACK.
   SELECT expires_at INTO deadline FROM public.account_completion_status_capabilities WHERE user_id=p_user_id AND request_id=p_request_id
     AND scope_digest=p_scope_digest AND token_hash=p_token_hash AND expires_at>clock_timestamp();
   IF NOT FOUND THEN RETURN NULL; END IF;

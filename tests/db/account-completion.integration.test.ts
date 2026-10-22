@@ -166,7 +166,8 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
     expect(await readStatus(a,statusHash(a),'d'.repeat(64))).toBeNull();
     await sql('UPDATE account_completion_configuration SET enabled=false');expect(await readStatus(a)).toBeNull();
     await sql(`UPDATE account_completion_configuration SET enabled=true; UPDATE account_completion_status_capabilities SET expires_at=clock_timestamp()-interval '1 second' WHERE user_id='${a.user}'`);
-    expect(await readStatus(a)).toBeNull();expect(await issueStatus(a)).toBe(false);
+    expect(await readStatus(a)).toBeNull();
+    expect(await issueStatus(a),'an expired key is never re-issued as itself').toBe(false);
   });
   it('read capability issuance and acknowledgment preserve the original deadline',async()=>{
     const a=await seed();await issueStatus(a);
@@ -314,6 +315,53 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
     expect(await claim(other),'acknowledged for another request').toEqual(pending);
     expect(await value(`SELECT count(*)::int FROM account_completion_executions WHERE user_id IN
       ('${none.user}','${unacked.user}','${expired.user}','${scoped.user}','${other.user}')`)).toBe(0);
+  });
+  // #1684 Codex P1 r4353335543: once claim requires an unexpired acknowledged capability, an expired one must be renewable
+  // by the live owner while no execution exists, or the request stays pending forever.
+  it('the live owner renews an expired acknowledged capability with a fresh key, then the claim proceeds',async()=>{
+    const a=await seed();await ready(a);
+    await sql(`UPDATE account_completion_status_capabilities SET expires_at=clock_timestamp()-interval '1 second' WHERE user_id='${a.user}'`);
+    const renewed='c'.repeat(64);
+    expect(await issueStatus(a,renewed),'expired capability is renewed').toBe(true);
+    expect(await value(`SELECT acknowledged_at IS NULL AND expires_at>clock_timestamp()+interval '14 minutes'
+      FROM account_completion_status_capabilities WHERE user_id='${a.user}'`),'acknowledgment cleared, fresh deadline').toBe(true);
+    expect(await ackStatus(a,statusHash(a)),'the expired key cannot be acknowledged').toBe(false);
+    expect(await ackStatus(a,renewed)).toBe(true);
+    expect((await claim(a))?.executionId).toBeTypeOf('string');
+    expect(await readStatus(a,statusHash(a)),'the expired key reads nothing').toBeNull();
+    expect(await readStatus(a,renewed)).not.toBeNull();
+  });
+  it('renewal never touches an unexpired acknowledged key, an execution, a deleted owner, or a foreign request or scope',async()=>{
+    const fresh=(n:number)=>String(n).padStart(64,'e');
+    const expire=(a:Account)=>sql(`UPDATE account_completion_status_capabilities SET expires_at=clock_timestamp()-interval '1 second' WHERE user_id='${a.user}'`);
+    const deadline=(a:Account)=>value<string>(`SELECT expires_at::text FROM account_completion_status_capabilities WHERE user_id='${a.user}'`);
+    const live=await seed();await ready(live);const liveDeadline=await deadline(live);
+    expect(await issueStatus(live,fresh(1)),'unexpired acknowledged key is not replaced').toBe(false);
+    expect(await deadline(live),'nor extended').toBe(liveDeadline);
+    const executing=await own(await seed());await expire(executing);
+    expect(await issueStatus(executing,fresh(2)),'no renewal once an execution exists').toBe(false);
+    const deleted=await seed();await ready(deleted);await expire(deleted);
+    await sql(`DELETE FROM auth.users WHERE id='${deleted.user}'`);
+    expect(await issueStatus(deleted,fresh(3)),'no renewal after Auth deletion').toBe(false);
+    const scoped=await seed();await ready(scoped);await expire(scoped);
+    await sql(`UPDATE account_completion_status_capabilities SET scope_digest='${'b'.repeat(64)}' WHERE user_id='${scoped.user}'`);
+    expect(await issueStatus(scoped,fresh(4)),'an expired capability for another scope is not rotated').toBe(false);
+    const owner=await seed(),stranger=await seed();await ready(owner);await expire(owner);
+    expect(await issueStatus({...owner,request:stranger.request},fresh(5)),'not for another request').toBe(false);
+    for(const a of [executing,deleted,scoped,owner])
+      expect(await value(`SELECT token_hash FROM account_completion_status_capabilities WHERE user_id='${a.user}'`)).toBe(statusHash(a));
+  });
+  it('serialized renewals set one fresh deadline; a second key only recovers the lost reply until acknowledged',async()=>{
+    const a=await seed();await ready(a);
+    await sql(`UPDATE account_completion_status_capabilities SET expires_at=clock_timestamp()-interval '1 second' WHERE user_id='${a.user}'`);
+    const first='f'.repeat(64),second='e'.repeat(64),third='d'.repeat(64);
+    expect(await issueStatus(a,first)).toBe(true);
+    const renewedDeadline=await value(`SELECT expires_at::text FROM account_completion_status_capabilities WHERE user_id='${a.user}'`);
+    expect(await issueStatus(a,second),'lost-reply recovery of the renewed capability').toBe(true);
+    expect(await value(`SELECT expires_at::text FROM account_completion_status_capabilities WHERE user_id='${a.user}'`),'deadline not extended again').toBe(renewedDeadline);
+    expect(await ackStatus(a,first),'the replaced key is dead').toBe(false);
+    expect(await ackStatus(a,second)).toBe(true);
+    expect(await issueStatus(a,third),'acknowledged renewal is not replaced').toBe(false);
   });
   it('requires exact pending account/request, coverage and account-specific settled work',async()=>{
     const a=await seed(false),b=await seed();await ready(a);
