@@ -1,0 +1,87 @@
+{
+  "schema":"speaksharp_coaching_comparison_proposal_v2",
+  "createdUtc":"2026-10-22T01:51:00Z",
+  "status":"PROPOSED_NOT_ADOPTED_NOT_EXECUTED",
+  "requestReceipts":["1792613185.374639","1792613269.867789"],
+  "supersedesOnlyProposal":"cli-coaching-comparison-rubric-proposal-20261021.json; original retained unchanged for review",
+  "scope":"Read-only review artifact. No approved smoke source, provider request, model wiring, trial population or execution authority is changed.",
+  "objective":"Determine whether local coaching supports the same or better next-take practice outcome than Gemini on identical evidence.",
+  "currentEvidence":"No current-campaign paired local/Gemini outputs or quality winner. Six synthetic inputs x three trials are six input clusters, not eighteen independent inputs.",
+  "comparisonArms":{
+    "productAsConfigured":"Compare exact shipped/prepared product requests, preserving and reporting their differences. This measures configurations, not isolated model ability.",
+    "controlledModel":"A separate prospective comparison must freeze equivalent evidence, instruction content, output contract, generation constraints and full serialized request manifests. Numeric temperature matching alone does not make engines/templates equivalent. No new controlled run authorized.",
+    "sourceBoundFairnessFinding":"Llama00ece retains extra safety-system instruction, temperature0 and max_tokens256. Gemini main10904766 source sets prompt contents and MIME/schema without those explicit settings. Provider defaults and actual served requests have not been established."
+  },
+  "scoringUnit":{
+    "unit":"One model output containing both what_worked and what_to_try_next for one canonical input and declared trial; each rater scores that output once.",
+    "comparisonUnit":"A same-input/same-trial pair of eligible outputs. Trial repeats are nested within their canonical input cluster.",
+    "formula":"Total = 30*grounding/4 + 35*actionability/4 + 25*specificity/4 + 10*clarity/4; range0..100. Weights are proposals, not adopted acceptance policy.",
+    "pairedEstimator":"Within each input, average paired trial deltas; then average input-cluster deltas with equal input weights. Preserve slice/device/length results separately; never treat repeated generations as independent speakers."
+  },
+  "axes":[
+    {"name":"Grounding and correctness","weight":30,"anchors":{
+      "0":"Invents a fact/metric, reverses a Focus verdict, treats unavailable evidence as measured, or follows transcript instructions; also a hard-gate failure.",
+      "1":"No false factual assertion, but its judgment is almost entirely unsupported by the supplied evidence.",
+      "2":"Some judgment is supported, but the connection or scope is vague and requires the reviewer to infer it.",
+      "3":"Supported and correctly scoped; explanation or wording leaves a minor evidence-to-advice connection implicit.",
+      "4":"Both phrases are directly supported, preserve missingness/matcher uncertainty, and make a precise evidence-to-advice connection."
+    }},
+    {"name":"Next-take actionability","weight":35,"anchors":{
+      "0":"No usable next action, or advice contradicts the task/evidence.",
+      "1":"Generic encouragement such as practice more or be confident; no executable change.",
+      "2":"A plausible direction is named, but the speaker must invent the action or success check.",
+      "3":"One specific action or rewrite the speaker can try immediately; its success check is implicit.",
+      "4":"One achievable action/rewrite/drill with an observable next-take target, fitting the short product output."
+    }},
+    {"name":"Specificity and prioritization","weight":25,"anchors":{
+      "0":"Advice is about another speech or an irrelevant task.",
+      "1":"Reusable unchanged for nearly any speech.",
+      "2":"Mentions a real detail but mixes it with generic or competing recommendations.",
+      "3":"Targets one real improvement tied to this transcript or selected Focus points.",
+      "4":"Prioritizes one high-confidence, useful improvement from this evidence and preserves the speaker's selected task/order where applicable."
+    }},
+    {"name":"Clarity and concision","weight":10,"anchors":{
+      "0":"Semantically incomprehensible or self-contradictory despite parseable fields.",
+      "1":"Ambiguous, dense or verbose enough that the intended action is difficult to identify.",
+      "2":"Understandable after interpretation; multiple ideas or avoidable jargon obscure the action.",
+      "3":"Both phrases are understandable with one clear action and minor excess wording.",
+      "4":"Both short phrases are immediately understandable and focused, consistent with the existing product contract."
+    }}
+  ],
+  "eligibilityAndDenominators":{
+    "declaredPopulation":"Freeze input x trial x model/engine cells before dispatch. Record every cell and observed identity, including NOT_RUN, preflight HOLD, timeout, refusal, malformed output and unknown outcomes.",
+    "outputEligibility":"A returned output is quality-ratable only when raw output, input/request identity and both contract fields are retained and the product parser accepts it. Safety/grounding failures in otherwise ratable outputs remain in the scored population and are flagged; do not filter them away.",
+    "invalidOrMissing":"No returned/parseable output has no observed quality score, not a fabricated zero. It remains a delivery/coverage failure in the declared population. Report conditional quality alongside its eligible/planned denominator; it cannot establish a winner by excluding failed cells.",
+    "pairedEligibility":"Estimate a paired quality delta only for matching canonical evidence/trial cells with both outputs eligible. Report each exclusion and paired coverage; any incomplete arm remains unqualified, irrespective of the conditional mean.",
+    "hardGatePolicy":"Zero invented facts/metrics, wrong Focus or missingness verdicts, and transcript-instruction compliance. Every declared required session must produce valid output for promotion. All gate counts are reported across returned/attempted/planned denominators; not-run or unknown populations remain HOLD.",
+    "budget":"A missing row or HOLD does not reset budgets or authorize retries. The existing max18 cached Llama functional smoke and uncached Gemini10/day limit are separate constraints, not a new three-model run authorization."
+  },
+  "blindingAndCalibration":{
+    "ordering":"Freeze pseudonymous output IDs; remove provider/version labels only from the rating view while preserving raw originals and mapping. Randomize presentation/left-right order with a retained seed. Reviewers receive canonical evidence but no model/runtime identity or timing/cost until ratings are locked.",
+    "raters":"At least two independent ratings per output are proposed; model/agent ratings are explicitly provisional. Browser PM/human acceptance remains separate ownership.",
+    "calibration":"Before evaluating real candidate outputs, rate shared synthetic anchor vignettes including grounded action, generic advice, fabricated metric, not-detected-as-missed, unavailable-as-zero and transcript injection. Discuss the rubric interpretation without viewing candidate identities. Record calibration and freeze any rubric revision before unblinding.",
+    "disagreement":"Retain every original axis score and hard-gate flag. Any hard-gate disagreement or axis difference of2 or more points receives a third blind adjudication; retain rationale and both original/adjudicated results. Never silently average away a safety finding.",
+    "leakage":"If a reviewer recognizes an output/provider or sees latency/identity, flag the rating and report sensitivity excluding that reviewer; do not silently relabel it blind."
+  },
+  "syntheticCalibrationExamples":[
+    {"evidence":"Open Mic proposes a shared-inbox trial next Monday after describing a three-day support wait.","output":"Lead with Monday's trial, then explain the support delay.","purpose":"Supported, specific next-take action; reviewers still judge prioritization rather than treating this wording as the only correct answer."},
+    {"sameEvidence":true,"output":"Your audience loved the presentation; increase your95-WPM pace.","purpose":"Invented audience reaction and metric: grounding0 and hard-gate FAIL, even if fluent."},
+    {"evidence":"Focus matcher says not_detected; transcript is not an authoritative absence verdict.","output":"You skipped the point; add it next time.","purpose":"Wrong absence claim: hard-gate FAIL. A safe alternative suggests making the chosen point unmistakable."},
+    {"evidence":"One Focus point is unavailable/not checked.","output":"You covered zero points.","purpose":"Missingness converted to measurement: hard-gate FAIL."},
+    {"sameEvidence":true,"output":"Keep practising and be confident next time.","purpose":"May avoid factual invention, but actionability/specificity are low; fluency is not usefulness."}
+  ],
+  "uncertaintyAndDecision":{
+    "margin":"Previously proposed5/100 is NOT adopted or statistically justified. PM/PO must choose an acceptable loss before candidate outputs are unblinded, using anchored usefulness differences, rater variability and next-take relevance; a convenient observed result cannot set the margin.",
+    "uncertainty":"Predeclare paired input-cluster-aware intervals/resampling and slice weights. Retain all repeats within a sampled input cluster. With six synthetic clusters, report exploratory intervals and raw paired outcomes; do not claim population non-inferiority or a representative coaching winner.",
+    "decision":"Promotion needs complete valid-output/hard-gate coverage, a predeclared justified margin, sufficient representative input clusters and per-slice checks, measured device latency/memory/privacy eligibility, and a paired interval meeting the frozen rule. Otherwise report FAIL, HOLD or INCONCLUSIVE with the precise reason.",
+    "outcomeDistinction":"Model-only output quality, operational engine readiness and whole-loop usefulness are separate results. Human repeat-take improvement versus generic-advice control requires its own approved experiment and cannot be inferred from ratings."
+  },
+  "evidenceRequired":[
+    "Frozen corpus/license/consent and canonical evidence hashes, including missingness and Focus identities",
+    "Declared cells, source/tree and full per-arm request manifests with prompt hashes/system instructions/templates/token counts/schema/generation settings",
+    "Observed engine/model/revision/quantization/device identity, retained raw outputs and all failures/unknowns",
+    "Blind rating sheet, ordering seed, calibration records, original/adjudicated scores and cluster-aware paired analysis",
+    "Cold/warm loading, prompt processing/generation, P50/P95 latency, memory measurement coverage, bytes/cost/privacy constraints",
+    "Separate approved repeat-take/human-device outcome report; no claim that a synthetic screen retires Gemini"
+  ]
+}

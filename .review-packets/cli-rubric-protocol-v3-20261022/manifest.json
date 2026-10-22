@@ -1,0 +1,60 @@
+{
+  "status": "PROPOSAL_NOT_ADOPTED_NO_PROVIDER_CALLS",
+  "files": [
+    {
+      "file": "llama-provider-00ece.ts",
+      "bytes": 6098,
+      "sha256": "ad31227100e6a2642e3670a75d953ae1b77e47e58e00ff8826a5120a16223ad7"
+    },
+    {
+      "file": "gemini-main109047-contract.json",
+      "bytes": 2598,
+      "sha256": "2cc6f3988b2dd7abd2efd978cfd3c052325a8b8a044c829a5cdc297c5c9a70e3"
+    },
+    {
+      "file": "protocol-proposal-v3.json",
+      "bytes": 13034,
+      "sha256": "9943411e40367d414c012c528df1bbad0ed3119f699b9d0200310ff0b5e2284b"
+    },
+    {
+      "file": "paired-source-requests.json",
+      "bytes": 118825,
+      "sha256": "26f7d0a71894ae1d992b06527a9a059313dfbee2fb8d972c2c3d01f2b1b9d316"
+    },
+    {
+      "file": "gemini-prompt-helper-extract.ts",
+      "bytes": 3060,
+      "sha256": "6c7609f2593bbb3cad418d670f4d4780f66f0b68bb356e149c7ad386d84ab303"
+    },
+    {
+      "file": "gemini-main109047-index.ts",
+      "bytes": 60043,
+      "sha256": "9842fbce7e372aac2a92dc0d2b0378c533f69c96fbec1dc280a92059dcd078ef"
+    },
+    {
+      "file": "cli-prepare-paired-requests-20261022.mts",
+      "bytes": 10474,
+      "sha256": "a8c0fbc17cd28ddc0b3b2396ebb18805ca87055522952b6adcdf2945c6b069fc"
+    },
+    {
+      "file": "cli-product-smoke-inputs-00eceeb8-20261021.json",
+      "bytes": 116806,
+      "sha256": "2fabf69665413b6e27a833b7f1fb65e0b7f87f26db540292c6e09ef4033c608c"
+    },
+    {
+      "file": "cli-coaching-comparison-rubric-v2-20261022.json",
+      "bytes": 11036,
+      "sha256": "ad41e346d93a3239bbc6e4e4d7f530976a08fd50adb37352cb8231c1df28b2c6"
+    },
+    {
+      "file": "cli-llama-successor-scope-20261022.json",
+      "bytes": 2826,
+      "sha256": "a566bd682999b999a17d00b647421501b3cdf6fc87d321262fd381eed3236e07"
+    },
+    {
+      "file": "coachingContract.ts",
+      "bytes": 13718,
+      "sha256": "e7af59a9b790a76870f5cf989a17adda4f905283d60aa44b54b9a742aae278a6"
+    }
+  ]
+}

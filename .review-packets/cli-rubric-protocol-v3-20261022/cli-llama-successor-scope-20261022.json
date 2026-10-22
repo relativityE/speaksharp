@@ -1,0 +1,29 @@
+{
+  "preparedUtc":"2026-10-22T02:30:00Z",
+  "state":"PROPOSED_OWNER_SELECTION_AND_SOURCE_QUALIFICATION_ONLY",
+  "review":"Sam1792635843.127329 accepts bounded225cfe57 proposal; source selection and retry explicitly separate",
+  "writer":"Existing CLI Dev session01a1471a-adc4-71d2-bedc-899e1a265af2; no new agent/writer or App-file transfer",
+  "worktree":"Reuse /private/tmp/speaksharp-cli-raw-output-20261021 after verifying clean",
+  "preservedBranch":"cli-dev/1304-cdp-evaluator-20261021 at00eceeb82 remains unchanged",
+  "successorBranch":"cli-dev/1304-llama-verified-route-fix-20261022",
+  "base":"00eceeb82e70f9481bb1e9b08a2e4d14ddf3c930",
+  "baseReason":"Diagnostic successor deliberately retains the independently accepted frozen runtime/prompt/corpus/guards. It is not a new main-based product or merge candidate.",
+  "paths":["scripts/model-investigation.mts"],
+  "patch":".review-packets/cli-llama-alias-proposal-v3-20261022/proposed-source.patch at225cfe57483ba515b86f7d9eed5430746c5dbacd",
+  "patchSha256":"a76ce5bbb1145e0be844de1e23bcb0854a322233918a84b370c731162ca9c122",
+  "expectedPostimageBlob":"1712efa1a29da2514da080b74ce4403185160ddb",
+  "change":"Exactly12 additions/1 removal: verified local Llama aliases, duplicate rejection and raw noncanonical-path rejection",
+  "qualification":[
+    "Verify source/manifest identity and exact patch application; frozen source preserved; no edits to model/provider/prompt/token/corpus/budget/ownership logic",
+    "Run current modelCdpBrowser, modelInvestigationSupervision, llamaRawOutputEvidence and modelInvestigationContracts focused suites without global coverage; retain original failures",
+    "Re-execute actual-source extracted map/HTTP/egress controls against exact successor bytes, including55 response hashes and negatives",
+    "Run explicit runner TypeScript check and full pnpm quality under fresh claimed local slot/interlock; no model during qualification",
+    "Publish source/tree/raw commit, complete pre/post bytes and exact test receipts for independent source disposition"
+  ],
+  "operationalLimits":[
+    "No model load/acquisition/generation or provider/account call selected by this source phase",
+    "No merge, deploy, migration, activation, package upgrade, remote fallback, wildcard serving or shared-file takeover",
+    "No change to original18-cell population or budget; retain prior0 declared dispatches and UNKNOWN internal inference separately"
+  ],
+  "futureRuntimeBoundary":"Only after qualified exact successor and separate Sam selection: one bounded previously approved cached Llama functional attempt, original6x3 cells/max18 explicit generations, same hash-verified assets, dedicated verifiedCDP, real GPU only, >=2GiB start and >=1GiB running guards, same egress/timeouts/cleanup. No retry is assumed by this proposal."
+}
