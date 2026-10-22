@@ -21,6 +21,7 @@ const row = (over: Record<string, unknown> = {}) => ({
     id: TAKE, user_id: OWNER, total_words: 42, duration: 30, created_at: '2026-10-22T12:00:00Z', engine: 'private',
     status: 'completed', ...over,
 });
+const withoutStatus = () => Object.fromEntries(Object.entries(row()).filter(([key]) => key !== 'status'));
 const never = <T>() => new Promise<T>(() => undefined);
 const after = <T>(ms: number, value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
 const rejectAfter = (ms: number) => new Promise<never>((_, reject) => setTimeout(() => reject(new Error('locator timeout')), ms));
@@ -95,6 +96,10 @@ describe('CO006 verifySavedReadback — the exact row, by id and owner, never ro
         ['single row for another take', row({ id: 'old-take' }), 'row_missing'],
         ['wrong owner', [row({ user_id: 'someone-else' })], 'wrong_owner'],
         ['not completed', [row({ status: 'active' })], 'not_completed'],
+        // Sam RETURN on 7efacb7c: the shipped detail select always reads `status`, so a row without it is not a completed take.
+        ['status omitted, list readback', [withoutStatus()], 'not_completed'],
+        ['status omitted, single-object readback', withoutStatus(), 'not_completed'],
+        ['status undefined, list readback', [row({ status: undefined })], 'not_completed'],
         ['no words', [row({ total_words: 0 })], 'no_words'],
         ['missing schema field', [row({ engine: undefined })], 'missing_engine'],
     ] as const)('CASUALTY: %s fails', (_label, rows, reason) => {

@@ -95,7 +95,8 @@ export function verifySavedReadback(
     if (!isObject(row)) return { ok: false, reason: 'row_missing' };
     for (const field of REQUIRED_FIELDS) if (row[field] === undefined) return { ok: false, reason: `missing_${field}` };
     if (ownerId === null || row.user_id !== ownerId) return { ok: false, reason: 'wrong_owner' };
-    if (row.status !== undefined && row.status !== 'completed') return { ok: false, reason: 'not_completed' };
+    // The shipped detail select (current and legacy) always reads `status`, so a missing status is not a completed take.
+    if (row.status !== 'completed') return { ok: false, reason: 'not_completed' };
     if (typeof row.total_words !== 'number' || row.total_words <= 0) return { ok: false, reason: 'no_words' };
     return { ok: true };
 }
