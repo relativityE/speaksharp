@@ -1,0 +1,28 @@
+{
+  "createdUtc": "2026-10-22T14:24:47.114241+00:00",
+  "task": "Decision-ready matched-input STT/LLM/engine comparison against existing solutions",
+  "completionClaim": "Offline Smol diagnostic wiring/local qualification complete; entire measurement matrix INCOMPLETE",
+  "actualMatchedComparisons": 0,
+  "smolQualifiedSource": "7465ec93bf3dd2157e2da1c7b65ad893cc5ca41c",
+  "smolEvidence": "ea12697aef67e988a25f1e13e58a7e10262ed3a3/.review-packets/cli-smol-diagnostic-wiring-20261022",
+  "runtimeBlocker": "Actual fresh14:22controller1.76GiB<2GiB; no model init/decode",
+  "rawVerdictVsDisposition": "Raw comparator FAIL retained; responsible boundary is admission RESOURCE HOLD, not a model-quality failure",
+  "noUnchangedRetry": true,
+  "files": [
+    {
+      "path": "matrix.json",
+      "sha256": "10b7d71eab4fd85747d3548d8f28e155b4d0f61a7ba19d16f9dfdccda1dfc661",
+      "bytes": 19140
+    },
+    {
+      "path": "stt-admission-report.json",
+      "sha256": "b1bcab962ddb5709249adf72ec8ccccdca14003b7499931c6574bf54022511c6",
+      "bytes": 18176
+    },
+    {
+      "path": "stt-disposition.json",
+      "sha256": "46c48cb66c2f22ac648a3b2687edc9228de040b6bc7387a85462c20217bb967a",
+      "bytes": 954
+    }
+  ]
+}

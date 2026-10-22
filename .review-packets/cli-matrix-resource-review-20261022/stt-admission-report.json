@@ -1,0 +1,562 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-22T14:22:42.188Z",
+  "lane": "model_only_corpus",
+  "productPath": "NOT_RUN",
+  "device": {
+    "version": 1,
+    "label": "local-dedicated-chrome-cdp-wasm-smoke",
+    "backend": "wasm",
+    "baseUrl": "http://127.0.0.1:5173",
+    "headless": false
+  },
+  "inputManifestSha256": {
+    "baseline": "f47ec5e32af773541bf5dd9e93e69f11599a982d66a2e75ccb8f2862bfc49afe",
+    "candidate": "06de70ce91b51717f0ff301bfd2818102026814262c6687c874ebffb45e2bdb8",
+    "corpus": "d86fb59a061e84917845b0595279601e3303dcb1daa7f0bd4b19c9c8afaf4497",
+    "device": "490bb87240669729d54cea657a93531d9ed44e7f8e2b5552b53157a31a718bf6",
+    "policy": null
+  },
+  "inputFailures": [
+    "resource_preflight:Error: HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+    "baseline_init:Error: HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+    "candidate_init:Error: HOLD_RESOURCE_HEADROOM_BELOW_2GIB"
+  ],
+  "adapterInitializeMs": {
+    "baseline": 0.009291999999959444,
+    "candidate": 0.0014579999999568827
+  },
+  "modelAssetTransfer": {
+    "baseline": {
+      "requestCount": 0,
+      "failedRequests": 0,
+      "responseBodyBytes": 0,
+      "requestWindowMs": null,
+      "pageCacheDisabled": true
+    },
+    "candidate": {
+      "requestCount": 0,
+      "failedRequests": 0,
+      "responseBodyBytes": 0,
+      "requestWindowMs": null,
+      "pageCacheDisabled": true
+    }
+  },
+  "workerAcquisition": {
+    "baseline": null,
+    "candidate": null
+  },
+  "deviceEvidence": {
+    "baseline": null,
+    "candidate": {
+      "gpuAdapter": null,
+      "browser": null
+    }
+  },
+  "resourceHeadroom": {
+    "minStartBytes": 2147483648,
+    "minRunningBytes": 1073741824,
+    "maxConsecutiveLowSamples": 5,
+    "startAvailableBytes": 1889785610.24,
+    "minimumObservedAvailableBytes": 1889785610.24,
+    "lowSamples": 0,
+    "error": "HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+    "method": "Host available headroom; NOT model peak memory"
+  },
+  "invocationEvidence": {
+    "plannedExplicitDecodes": 12,
+    "explicitDecodeDispatches": 0,
+    "initializationInternalCalls": "UNKNOWN",
+    "retryCount": 0
+  },
+  "baseline": {
+    "manifest": {
+      "engine": "private-v2",
+      "modelId": "Xenova/whisper-base.en",
+      "revision": null,
+      "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+      "runtime": "@xenova/transformers@2.17.2",
+      "backend": "wasm"
+    },
+    "observed": null,
+    "results": [
+      {
+        "clipId": "fixture-001",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-001",
+          "trialId": "0",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+          "referenceWords": 19
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-002",
+          "trialId": "0",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+          "referenceWords": 12
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-003",
+          "trialId": "0",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+          "referenceWords": 9
+        }
+      },
+      {
+        "clipId": "fixture-001",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-001",
+          "trialId": "1",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+          "referenceWords": 19
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-002",
+          "trialId": "1",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+          "referenceWords": 12
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-003",
+          "trialId": "1",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+          "referenceWords": 9
+        }
+      }
+    ]
+  },
+  "candidate": {
+    "manifest": {
+      "engine": "private-v4",
+      "modelId": "onnx-community/whisper-base.en",
+      "revision": null,
+      "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+      "runtime": "@huggingface/transformers@4.3.0",
+      "backend": "wasm"
+    },
+    "observed": null,
+    "results": [
+      {
+        "clipId": "fixture-001",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-001",
+          "trialId": "0",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+          "referenceWords": 19
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-002",
+          "trialId": "0",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+          "referenceWords": 12
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 0,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-003",
+          "trialId": "0",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+          "referenceWords": 9
+        }
+      },
+      {
+        "clipId": "fixture-001",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 5166.9375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-001",
+          "trialId": "1",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+          "referenceWords": 19
+        }
+      },
+      {
+        "clipId": "fixture-002",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 4110.375,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-002",
+          "trialId": "1",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+          "referenceWords": 12
+        }
+      },
+      {
+        "clipId": "fixture-003",
+        "trial": 1,
+        "transcript": null,
+        "inputSha256": "",
+        "finalLatencyMs": null,
+        "audioDurationMs": 2812.5,
+        "realTimeFactor": null,
+        "fillerDetection": null,
+        "error": "adapter_initialization_failed",
+        "evidence": {
+          "utteranceId": "fixture-003",
+          "trialId": "1",
+          "clusterId": "samantha-synthetic",
+          "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+          "referenceWords": 9
+        }
+      }
+    ]
+  },
+  "comparison": {
+    "verdict": "FAIL",
+    "reasons": [
+      "baseline_identity_mismatch_or_fallback",
+      "candidate_identity_mismatch_or_fallback",
+      "baseline_input_mismatch:fixture-001:0",
+      "baseline_decode_error:fixture-001:0",
+      "baseline_input_mismatch:fixture-002:0",
+      "baseline_decode_error:fixture-002:0",
+      "baseline_input_mismatch:fixture-003:0",
+      "baseline_decode_error:fixture-003:0",
+      "baseline_input_mismatch:fixture-001:1",
+      "baseline_decode_error:fixture-001:1",
+      "baseline_input_mismatch:fixture-002:1",
+      "baseline_decode_error:fixture-002:1",
+      "baseline_input_mismatch:fixture-003:1",
+      "baseline_decode_error:fixture-003:1",
+      "baseline_unscoreable:incomplete_corpus",
+      "candidate_input_mismatch:fixture-001:0",
+      "candidate_decode_error:fixture-001:0",
+      "candidate_input_mismatch:fixture-002:0",
+      "candidate_decode_error:fixture-002:0",
+      "candidate_input_mismatch:fixture-003:0",
+      "candidate_decode_error:fixture-003:0",
+      "candidate_input_mismatch:fixture-001:1",
+      "candidate_decode_error:fixture-001:1",
+      "candidate_input_mismatch:fixture-002:1",
+      "candidate_decode_error:fixture-002:1",
+      "candidate_input_mismatch:fixture-003:1",
+      "candidate_decode_error:fixture-003:1",
+      "candidate_unscoreable:incomplete_corpus",
+      "unscoreable_slice:clear",
+      "unscoreable_slice:filler",
+      "missing_or_invalid_predeclared_policy",
+      "baseline_latency_unavailable:fixture-001:0",
+      "baseline_latency_unavailable:fixture-002:0",
+      "baseline_latency_unavailable:fixture-003:0",
+      "baseline_latency_unavailable:fixture-001:1",
+      "baseline_latency_unavailable:fixture-002:1",
+      "baseline_latency_unavailable:fixture-003:1",
+      "candidate_latency_unavailable:fixture-001:0",
+      "candidate_latency_unavailable:fixture-002:0",
+      "candidate_latency_unavailable:fixture-003:0",
+      "candidate_latency_unavailable:fixture-001:1",
+      "candidate_latency_unavailable:fixture-002:1",
+      "candidate_latency_unavailable:fixture-003:1"
+    ],
+    "baseline": {
+      "wer": null,
+      "referenceWords": 0,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "scoredCount": 0,
+      "invalidCount": 6,
+      "invalidReasons": {
+        "empty_hypothesis": 6
+      },
+      "armInvalidReason": "incomplete_corpus"
+    },
+    "candidate": {
+      "wer": null,
+      "referenceWords": 0,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "scoredCount": 0,
+      "invalidCount": 6,
+      "invalidReasons": {
+        "empty_hypothesis": 6
+      },
+      "armInvalidReason": "incomplete_corpus"
+    },
+    "slices": {
+      "clear": {
+        "baseline": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 4,
+          "invalidReasons": {
+            "empty_hypothesis": 4
+          },
+          "armInvalidReason": "incomplete_corpus"
+        },
+        "candidate": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 4,
+          "invalidReasons": {
+            "empty_hypothesis": 4
+          },
+          "armInvalidReason": "incomplete_corpus"
+        }
+      },
+      "filler": {
+        "baseline": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 2,
+          "invalidReasons": {
+            "empty_hypothesis": 2
+          },
+          "armInvalidReason": "incomplete_corpus"
+        },
+        "candidate": {
+          "wer": null,
+          "referenceWords": 0,
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "scoredCount": 0,
+          "invalidCount": 2,
+          "invalidReasons": {
+            "empty_hypothesis": 2
+          },
+          "armInvalidReason": "incomplete_corpus"
+        }
+      }
+    },
+    "finalLatencyMs": {
+      "baseline": null,
+      "candidate": null
+    }
+  },
+  "pairedEvidence": {
+    "status": "COMPLETE",
+    "expectedRows": 6,
+    "validatedPairs": 6,
+    "error": null
+  },
+  "declaredPopulation": {
+    "trials": 2,
+    "expected": [
+      {
+        "utteranceId": "fixture-001",
+        "trialId": "0",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+        "referenceWords": 19
+      },
+      {
+        "utteranceId": "fixture-001",
+        "trialId": "1",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+        "referenceWords": 19
+      },
+      {
+        "utteranceId": "fixture-002",
+        "trialId": "0",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+        "referenceWords": 12
+      },
+      {
+        "utteranceId": "fixture-002",
+        "trialId": "1",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+        "referenceWords": 12
+      },
+      {
+        "utteranceId": "fixture-003",
+        "trialId": "0",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+        "referenceWords": 9
+      },
+      {
+        "utteranceId": "fixture-003",
+        "trialId": "1",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+        "referenceWords": 9
+      }
+    ]
+  },
+  "acceptance": {
+    "verdict": "FAIL",
+    "reasons": [
+      "baseline_identity_mismatch_or_fallback",
+      "candidate_identity_mismatch_or_fallback",
+      "baseline_input_mismatch:fixture-001:0",
+      "baseline_decode_error:fixture-001:0",
+      "baseline_input_mismatch:fixture-002:0",
+      "baseline_decode_error:fixture-002:0",
+      "baseline_input_mismatch:fixture-003:0",
+      "baseline_decode_error:fixture-003:0",
+      "baseline_input_mismatch:fixture-001:1",
+      "baseline_decode_error:fixture-001:1",
+      "baseline_input_mismatch:fixture-002:1",
+      "baseline_decode_error:fixture-002:1",
+      "baseline_input_mismatch:fixture-003:1",
+      "baseline_decode_error:fixture-003:1",
+      "baseline_unscoreable:incomplete_corpus",
+      "candidate_input_mismatch:fixture-001:0",
+      "candidate_decode_error:fixture-001:0",
+      "candidate_input_mismatch:fixture-002:0",
+      "candidate_decode_error:fixture-002:0",
+      "candidate_input_mismatch:fixture-003:0",
+      "candidate_decode_error:fixture-003:0",
+      "candidate_input_mismatch:fixture-001:1",
+      "candidate_decode_error:fixture-001:1",
+      "candidate_input_mismatch:fixture-002:1",
+      "candidate_decode_error:fixture-002:1",
+      "candidate_input_mismatch:fixture-003:1",
+      "candidate_decode_error:fixture-003:1",
+      "candidate_unscoreable:incomplete_corpus",
+      "unscoreable_slice:clear",
+      "unscoreable_slice:filler",
+      "missing_or_invalid_predeclared_policy",
+      "baseline_latency_unavailable:fixture-001:0",
+      "baseline_latency_unavailable:fixture-002:0",
+      "baseline_latency_unavailable:fixture-003:0",
+      "baseline_latency_unavailable:fixture-001:1",
+      "baseline_latency_unavailable:fixture-002:1",
+      "baseline_latency_unavailable:fixture-003:1",
+      "candidate_latency_unavailable:fixture-001:0",
+      "candidate_latency_unavailable:fixture-002:0",
+      "candidate_latency_unavailable:fixture-003:0",
+      "candidate_latency_unavailable:fixture-001:1",
+      "candidate_latency_unavailable:fixture-002:1",
+      "candidate_latency_unavailable:fixture-003:1"
+    ]
+  },
+  "identityLimitations": [],
+  "unsupportedMetrics": [
+    "first_useful_partial",
+    "cold_model_load_isolated",
+    "persistent_cache_size",
+    "browser_worker_memory",
+    "product_start_stop_next_take",
+    "focus_keyword_coverage",
+    "acoustic_filler_reference_validation",
+    "expected_silence_scoring_policy"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "source": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "report": "/private/tmp/cli-stt-v2-v4-tabclose-20261022T1423.json",
+  "reportSha256": "b1bcab962ddb5709249adf72ec8ccccdca14003b7499931c6574bf54022511c6",
+  "utc": "2026-10-22T14:22:42.188Z",
+  "status": "HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+  "rawComparatorVerdict": "FAIL",
+  "resourceHeadroom": {
+    "minStartBytes": 2147483648,
+    "minRunningBytes": 1073741824,
+    "maxConsecutiveLowSamples": 5,
+    "startAvailableBytes": 1889785610.24,
+    "minimumObservedAvailableBytes": 1889785610.24,
+    "lowSamples": 0,
+    "error": "HOLD_RESOURCE_HEADROOM_BELOW_2GIB",
+    "method": "Host available headroom; NOT model peak memory"
+  },
+  "invocationEvidence": {
+    "plannedExplicitDecodes": 12,
+    "explicitDecodeDispatches": 0,
+    "initializationInternalCalls": "UNKNOWN",
+    "retryCount": 0
+  },
+  "transport": "NOT_PUBLISHED_YET",
+  "interlockAfter": "EXIT0",
+  "noUnchangedRetry": true
+}
