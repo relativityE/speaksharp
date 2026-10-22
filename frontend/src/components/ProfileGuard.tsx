@@ -38,12 +38,19 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     // surface the error if the row never appears.
     const PROFILE_PROVISION_MAX_ATTEMPTS = 5;
     const PROFILE_PROVISION_RETRY_MS = 1500;
-    // Attempts are state, keyed to the signed-in account: each re-read bumps the count, which re-arms the retry effect
-    // (a re-read that again returns null changes nothing else), and another account starts from zero.
+    // Attempts are state, so each settled re-read re-arms the retry effect (a re-read that again returns null changes
+    // nothing else). An attempt counts only when its re-read SETTLES, and no new one starts while a read is in flight.
+    // Every identity transition (another account, sign-out, the same account again) starts a fresh cycle under a new
+    // generation; a read still in flight for an older generation is ignored when it settles.
     const userId = session?.user?.id ?? null;
-    const [provisioning, setProvisioning] = React.useState<{ userId: string | null; attempts: number }>({ userId: null, attempts: 0 });
-    const provisioningAttempts = provisioning.userId === userId ? provisioning.attempts : 0;
+    const [provisioning, setProvisioning] = React.useState({ userId, attempts: 0, inFlight: false, generation: 0 });
+    if (provisioning.userId !== userId) {
+        setProvisioning((prev) => ({ userId, attempts: 0, inFlight: false, generation: prev.generation + 1 }));
+    }
+    const current = provisioning.userId === userId ? provisioning : { ...provisioning, attempts: 0, inFlight: false };
+    const { attempts: provisioningAttempts, inFlight: provisioningInFlight, generation: provisioningGeneration } = current;
     const missingButNoError = !!session && !profileLoading && !profileError && !profile;
+    // An attempt only counts once its read settles (which also clears inFlight), so the bound is never reached mid-read.
     const provisioningExhausted = missingButNoError && provisioningAttempts >= PROFILE_PROVISION_MAX_ATTEMPTS;
 
     // Signal Profile Readiness for E2E stability
@@ -85,12 +92,14 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     // session, no error, null profile). Resets when the profile arrives or a real
     // error occurs; after MAX attempts we fall through to the error screen.
     React.useEffect(() => {
+        const sameCycle = (prev: typeof provisioning) => prev.generation === provisioningGeneration;
         if (!missingButNoError) {
             if ((profile || profileError) && provisioningAttempts !== 0) {
-                setProvisioning({ userId, attempts: 0 });
+                setProvisioning((prev) => (sameCycle(prev) ? { ...prev, attempts: 0 } : prev));
             }
             return;
         }
+        if (provisioningInFlight) return;
         if (provisioningAttempts >= PROFILE_PROVISION_MAX_ATTEMPTS) {
             logger.warn(
                 { userId, attempts: provisioningAttempts },
@@ -98,13 +107,16 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
             );
             return;
         }
-        // Cleared on unmount and whenever the account or profile state changes, so obsolete re-reads never fire.
+        // Cleared on unmount and whenever the account or profile state changes, so obsolete re-reads never start.
         const timer = setTimeout(() => {
-            setProvisioning((prev) => ({ userId, attempts: (prev.userId === userId ? prev.attempts : 0) + 1 }));
-            void refetch();
+            setProvisioning((prev) => (sameCycle(prev) ? { ...prev, inFlight: true } : prev));
+            const settle = () => setProvisioning((prev) => (sameCycle(prev) && prev.inFlight
+                ? { ...prev, attempts: prev.attempts + 1, inFlight: false }
+                : prev));
+            void Promise.resolve().then(() => refetch()).then(settle, settle);
         }, PROFILE_PROVISION_RETRY_MS);
         return () => clearTimeout(timer);
-    }, [missingButNoError, provisioningAttempts, profile, profileError, userId, refetch]);
+    }, [missingButNoError, provisioningAttempts, provisioningInFlight, provisioningGeneration, profile, profileError, userId, refetch]);
 
     // 🧪 Ensure ProfileContext integrity for E2E System Probes
     // Provides a synthetic guest profile to satisfy the "Guaranteed Context" 

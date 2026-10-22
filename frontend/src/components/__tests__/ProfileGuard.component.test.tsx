@@ -121,6 +121,7 @@ describe('ProfileGuard', () => {
 
         beforeEach(() => {
             vi.useFakeTimers();
+            refetch.mockReset();
             mockUseUserProfile.mockReturnValue(missingRow());
         });
         afterEach(() => {
@@ -194,6 +195,102 @@ describe('ProfileGuard', () => {
             unmount();
             await advanceAttempts(ATTEMPTS);
             expect(refetch).not.toHaveBeenCalled();
+        });
+
+        // Sam RETURN on 24d5a9ac, gap 1: an exhausted account must not come back exhausted after an identity change.
+        it('A exhausted, then B, then A again before B re-reads: A starts a fresh provisioning, not the old failure', async () => {
+            signedInAs('user-1');
+            const { rerender } = render(guarded());
+            await advanceAttempts(ATTEMPTS);
+            expect(screen.getByTestId('app-error')).toBeInTheDocument();
+
+            signedInAs('user-2');
+            rerender(guarded());
+            signedInAs('user-1');
+            rerender(guarded());
+
+            expect(screen.queryByTestId('app-error')).not.toBeInTheDocument();
+            expect(screen.getByTestId('profile-provisioning')).toBeInTheDocument();
+        });
+
+        it('A exhausted, signed out, then A signs back in: A starts a fresh provisioning, not the old failure', async () => {
+            signedInAs('user-1');
+            const { rerender } = render(guarded());
+            await advanceAttempts(ATTEMPTS);
+            expect(screen.getByTestId('app-error')).toBeInTheDocument();
+
+            mockUseAuthProvider.mockReturnValue({ session: null, loading: false, signOut } as unknown as AuthProvider.AuthContextType);
+            rerender(guarded());
+            signedInAs('user-1');
+            rerender(guarded());
+
+            expect(screen.queryByTestId('app-error')).not.toBeInTheDocument();
+            expect(screen.getByTestId('profile-provisioning')).toBeInTheDocument();
+        });
+
+        // Sam RETURN on 24d5a9ac, gap 2: an attempt counts only once its re-read settles, and reads never overlap.
+        const SLOW_READ_MS = 4000;
+        const slowRead = () => new Promise<void>((resolve) => { setTimeout(resolve, SLOW_READ_MS); });
+
+        it('a slow re-read is never overlapped by another automatic re-read', async () => {
+            refetch.mockImplementation(slowRead);
+            render(guarded());
+
+            await advanceAttempts(1);
+            expect(refetch).toHaveBeenCalledTimes(1);
+            // Well past another retry interval while the first read is still outstanding.
+            await act(async () => { vi.advanceTimersByTime(SLOW_READ_MS - 500); });
+            expect(refetch, 'no second dispatch while the first read is in flight').toHaveBeenCalledTimes(1);
+            expect(screen.queryByTestId('app-error')).not.toBeInTheDocument();
+        });
+
+        it("a slow read from the previous account settling after a switch is ignored: it neither counts for the new account nor frees an overlapping read", async () => {
+            refetch.mockImplementation(slowRead);
+            signedInAs('user-1');
+            const { rerender } = render(guarded());
+            await act(async () => { vi.advanceTimersByTime(RETRY_MS); }); // t=1.5 s: user-1 read #1 dispatched, settles at 5.5 s
+            expect(refetch).toHaveBeenCalledTimes(1);
+
+            await act(async () => { vi.advanceTimersByTime(500); }); // t=2.0 s: switch accounts
+            signedInAs('user-2');
+            rerender(guarded());
+            await act(async () => { vi.advanceTimersByTime(RETRY_MS); }); // t=3.5 s: user-2 read #1 dispatched, settles at 7.5 s
+            expect(refetch).toHaveBeenCalledTimes(2);
+
+            // t=5.6 s: user-1's stale read has settled (5.5 s). Advancing in two steps lets React run any effect that settle
+            // would re-arm. Had it counted, user-2 would dispatch again at 7.0 s while its own read was still in flight.
+            await act(async () => { vi.advanceTimersByTime(2100); });
+            await act(async () => { vi.advanceTimersByTime(1600); }); // t=7.2 s
+            expect(refetch, 'no overlapping read for user-2 after the stale settle').toHaveBeenCalledTimes(2);
+            expect(screen.getByTestId('profile-provisioning')).toBeInTheDocument();
+        });
+
+        it('a successful fifth read that settles slowly renders the app without a premature failure screen', async () => {
+            let calls = 0;
+            refetch.mockImplementation(() => {
+                calls += 1;
+                if (calls < ATTEMPTS) return slowRead();
+                return new Promise<void>((resolve) => {
+                    setTimeout(() => {
+                        mockUseUserProfile.mockReturnValue({ data: profile, isLoading: false, error: null, refetch } as unknown as ReturnType<typeof UseUserProfile.useUserProfile>);
+                        resolve();
+                    }, SLOW_READ_MS);
+                });
+            });
+            render(guarded());
+
+            // Four reads dispatch and settle (interval + slow settle each), then the fifth dispatches.
+            for (let i = 0; i < ATTEMPTS; i += 1) {
+                await act(async () => { vi.advanceTimersByTime(RETRY_MS); });
+                expect(screen.queryByTestId('app-error'), `no failure screen while read ${i + 1} is outstanding`).not.toBeInTheDocument();
+                if (i < ATTEMPTS - 1) await act(async () => { vi.advanceTimersByTime(SLOW_READ_MS); });
+            }
+            expect(refetch).toHaveBeenCalledTimes(ATTEMPTS);
+            expect(screen.queryByTestId('app-error')).not.toBeInTheDocument();
+
+            await act(async () => { vi.advanceTimersByTime(SLOW_READ_MS); });
+            expect(screen.getByText('App content')).toBeInTheDocument();
+            expect(screen.queryByTestId('app-error')).not.toBeInTheDocument();
         });
     });
 });
