@@ -133,7 +133,7 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
         await db.exec('BEGIN');
         await db.exec(mutation);
         const changed = await catalog();
-        expect(() => assertT2Catalog(changed, final), mutation).toThrow('catalog mismatch');
+        expect(() => assertT2Catalog(changed, final)).toThrow('catalog mismatch');
         await db.exec('ROLLBACK');
         expect(assertT2Catalog(await catalog(), final).passed).toBe(true);
       }
@@ -145,7 +145,7 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
       ]) {
         await db.exec('BEGIN'); await db.exec(mutation);
         const changed = await scalar(t2DisabledQuery(true));
-        expect(() => assertT2Disabled(changed, true), mutation).toThrow('inactive authority');
+        expect(() => assertT2Disabled(changed, true)).toThrow('inactive authority');
         await db.exec('ROLLBACK');
       }
       await db.exec('BEGIN; GRANT INSERT ON public.active_recording_lease TO authenticated');
