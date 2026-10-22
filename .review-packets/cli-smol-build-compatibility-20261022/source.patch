@@ -1,0 +1,35 @@
+diff --git a/frontend/src/services/coaching/webLlmProfiles.ts b/frontend/src/services/coaching/webLlmProfiles.ts
+index 87f67330a..a78655a8c 100644
+--- a/frontend/src/services/coaching/webLlmProfiles.ts
++++ b/frontend/src/services/coaching/webLlmProfiles.ts
+@@ -28,7 +28,7 @@ const profiles:Readonly<Record<WebLlmModelKey,Readonly<WebLlmProfile>>>=Object.f
+   }),
+ });
+ export function webLlmProfile(key:WebLlmModelKey):Readonly<WebLlmProfile> {
+-  if(!Object.hasOwn(profiles,key))throw new Error('unreviewed local model profile');
++  if(!Object.prototype.hasOwnProperty.call(profiles,key))throw new Error('unreviewed local model profile');
+   return profiles[key];
+ }
+ /** WebLLM separately encodes these parts, plus the declared system prefix tokens. */
+diff --git a/tests/unit/webLlmProfiles.test.ts b/tests/unit/webLlmProfiles.test.ts
+index 954738994..7c0644e1c 100644
+--- a/tests/unit/webLlmProfiles.test.ts
++++ b/tests/unit/webLlmProfiles.test.ts
+@@ -41,6 +41,17 @@ describe('shared WebLLM adapter profiles, with SDK and tokenizer mocked',()=>{
+     await expect(createWebLlmRuntime('other' as WebLlmModelKey,locations)).rejects.toThrow('unreviewed');
+     expect(fetch).not.toHaveBeenCalled();expect(createEngine).not.toHaveBeenCalled();
+   });
++  it('selects known profiles without the ES2022 Object.hasOwn API',()=>{
++    const descriptor=Object.getOwnPropertyDescriptor(Object,'hasOwn');
++    if(!descriptor)throw new Error('test needs the original Object.hasOwn descriptor');
++    Object.defineProperty(Object,'hasOwn',{...descriptor,value:undefined});
++    try {
++      expect(webLlmProfile('smollm2:1.7b').model).toBe('SmolLM2-1.7B-Instruct-q4f16_1-MLC');
++      for(const key of ['__proto__','constructor','toString','other']) {
++        expect(()=>webLlmProfile(key as WebLlmModelKey)).toThrow('unreviewed');
++      }
++    }finally {Object.defineProperty(Object,'hasOwn',descriptor);}
++  });
+   it.each([NaN,-1,0,3841])('rejects invalid/over-budget input count %s without truncation',count=>{
+     expect(()=>checkWebLlmTokenBudget('smollm2:1.7b',count,256)).toThrow('no truncation');
+   });

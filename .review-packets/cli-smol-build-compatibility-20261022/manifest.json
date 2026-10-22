@@ -1,0 +1,42 @@
+{
+  "head": "b81d12f8cadf094d378bdac511242f6e7a73c5ee",
+  "tree": "e72b8209f1479c50b6596472f767fcb3cf2cbe30",
+  "parent": "d02a73ac7048ec72572e6463f45c51decb2d01a1",
+  "previousPacket": "0e85d1724feb8536559fdb5892c0ef663d50d828",
+  "rawCommitBase64": "dHJlZSBlNzJiODIwOWYxNDc5YzUwYjY1OTY0NzJmNzY3ZmNiM2NmMmNiZTMwCnBhcmVudCBkMDJhNzNhYzcwNDhlYzcyNTcyZTY0NjNmNDVjNTFkZWNiMmQwMWExCmF1dGhvciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjY4NTI5IC0wNDAwCmNvbW1pdHRlciByZWxhdGl2aXR5RSA8cmVsYXRpdml0eUVAdXNlcnMubm9yZXBseS5naXRodWIuY29tPiAxNzkyNjY4NTI5IC0wNDAwCgpmaXgoY29hY2hpbmcpOiBzZWxlY3QgcGlubmVkIHByb2ZpbGVzIHdpdGhvdXQgRVMyMDIyIGhhc093bgo=",
+  "scope": "One product API compatibility fix and causal regression; no activation/runtime selector/model change",
+  "failure": {
+    "qualitySession": 37740,
+    "error": "TS2550 Object.hasOwn unsupported TypeScript target",
+    "redSession": 6388,
+    "failed": 1,
+    "passed": 9,
+    "message": "Object.hasOwn is not a function"
+  },
+  "qualified": {
+    "focusedSession": 60473,
+    "files": 3,
+    "passed": 55,
+    "exitCode": 0,
+    "qualitySession": 68980,
+    "fullQuality": "PASS",
+    "productAndTestDiffTogether": true
+  },
+  "behavior": "Own-key profile allowlist still rejects __proto__/constructor/toString/unknown even when ES2022 Object.hasOwn is unavailable; no requests before rejection",
+  "limits": [
+    "SDK/tokenizer mocked in focused controls; not model inference",
+    "No quality/speed comparison with Gemini",
+    "Not integrated or current-main-qualified; parent outcome Not ready to land"
+  ],
+  "patchSha256": "b37f1007f77da77d4aa5dcc546ecf0cb4efac3fda13b157fedc877a07205690c",
+  "paths": [
+    {
+      "path": "frontend/src/services/coaching/webLlmProfiles.ts",
+      "sha256": "eca7515b8d180e84e5286282bc3a074fee685c24a81ac0b1cd15b11e233cd26b"
+    },
+    {
+      "path": "tests/unit/webLlmProfiles.test.ts",
+      "sha256": "9566deec5bba57e0e29d57d30b109bd5717621a41b4ebffbaeb759d96ae028b4"
+    }
+  ]
+}
