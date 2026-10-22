@@ -316,6 +316,19 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
     expect(await value(`SELECT count(*)::int FROM account_completion_executions WHERE user_id IN
       ('${none.user}','${unacked.user}','${expired.user}','${scoped.user}','${other.user}')`)).toBe(0);
   });
+  // #1684 Codex P1 r4353335553: the claim grants a five-minute execution, so a capability that would expire inside that
+  // window could not read the result after Auth deletion (the owner can no longer re-issue).
+  it('does not claim with a capability that would expire before the execution window ends',async()=>{
+    const a=await seed();await ready(a);
+    await sql(`UPDATE account_completion_status_capabilities SET expires_at=clock_timestamp()+interval '1 minute' WHERE user_id='${a.user}'`);
+    expect(await claim(a),'one minute left is shorter than the execution grant').toEqual({outcome:'pending'});
+    expect(await value(`SELECT count(*)::int FROM account_completion_executions WHERE user_id='${a.user}'`)).toBe(0);
+    const b=await seed();await ready(b);
+    await sql(`UPDATE account_completion_status_capabilities SET expires_at=clock_timestamp()+interval '6 minutes' WHERE user_id='${b.user}'`);
+    expect((await claim(b))?.executionId,'a capability outliving the grant claims').toBeTypeOf('string');
+    expect(await value(`SELECT e.expires_at<c.expires_at FROM account_completion_executions e JOIN account_completion_status_capabilities c
+      USING(user_id,request_id) WHERE e.user_id='${b.user}'`),'the stored execution deadline ends before the capability').toBe(true);
+  });
   // #1684 Codex P1 r4353335543: once claim requires an unexpired acknowledged capability, an expired one must be renewable
   // by the live owner while no execution exists, or the request stays pending forever.
   it('the live owner renews an expired acknowledged capability with a fresh key, then the claim proceeds',async()=>{

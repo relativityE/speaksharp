@@ -99,7 +99,7 @@ $$;
 CREATE FUNCTION public.claim_account_pending_completion_v1(p_user_id uuid,p_request_id uuid,p_scope_digest text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE a public.account_closure_attempts; t public.account_closure_tokens; e public.account_completion_executions;
-  customer text; billing_status text; expiry_ms bigint;
+  customer text; billing_status text; expiry_ms bigint; execution_deadline timestamptz;
 BEGIN
   SELECT stripe_customer_id,subscription_status INTO customer,billing_status FROM public.user_profiles WHERE id=p_user_id FOR UPDATE;
   IF NOT FOUND THEN RETURN NULL; END IF;
@@ -115,20 +115,22 @@ BEGIN
     AND phase='processing' AND consumed_at IS NOT NULL FOR UPDATE;
   IF NOT FOUND OR NOT EXISTS(SELECT 1 FROM auth.users WHERE id=p_user_id AND email_confirmed_at IS NOT NULL
     AND lower(btrim(email))=a.claimed_email AND a.claimed_email=t.email_normalized) THEN RETURN NULL; END IF;
+  -- One deadline, captured after every lock, bounds the execution grant and is what the status capability must outlive.
+  execution_deadline:=clock_timestamp()+interval '5 minutes';
   IF NOT EXISTS(SELECT 1 FROM public.account_completion_coverage WHERE user_id=p_user_id AND request_id=p_request_id AND scope_digest=p_scope_digest)
     OR EXISTS(SELECT 1 FROM public.account_checkout_operations WHERE user_id=p_user_id AND phase<>'settled')
     OR EXISTS(SELECT 1 FROM public.account_coaching_operations WHERE user_id=p_user_id AND phase NOT IN ('completed','refused'))
     OR EXISTS(SELECT 1 FROM public.account_save_obligations WHERE user_id=p_user_id AND phase<>'completed')
     OR EXISTS(SELECT 1 FROM public.active_recording_lease WHERE user_id=p_user_id)
     OR NOT EXISTS(SELECT 1 FROM public.account_billing_fences WHERE user_id=p_user_id AND request_id=p_request_id AND phase='pending')
-    -- The owner must already hold an ACKNOWLEDGED, unexpired status capability for exactly this request and scope.
-    -- Claiming first would refuse a later acknowledgment (an execution would exist) and leave the result unreadable
-    -- after Auth deletion.
+    -- The owner must already hold an ACKNOWLEDGED status capability for exactly this request and scope that outlives the
+    -- execution grant. Claiming first would refuse a later acknowledgment (an execution would exist), and a capability
+    -- expiring while the grant is live could not read the result after Auth deletion.
     OR NOT EXISTS(SELECT 1 FROM public.account_completion_status_capabilities WHERE user_id=p_user_id AND request_id=p_request_id
-      AND scope_digest=p_scope_digest AND acknowledged_at IS NOT NULL AND expires_at>clock_timestamp())
+      AND scope_digest=p_scope_digest AND acknowledged_at IS NOT NULL AND expires_at>execution_deadline)
     THEN RETURN jsonb_build_object('outcome','pending'); END IF;
   INSERT INTO public.account_completion_executions(user_id,request_id,execution_id,scope_digest,expires_at,customer_id)
-    VALUES(p_user_id,p_request_id,gen_random_uuid(),p_scope_digest,clock_timestamp()+interval '5 minutes',customer) RETURNING * INTO e;
+    VALUES(p_user_id,p_request_id,gen_random_uuid(),p_scope_digest,execution_deadline,customer) RETURNING * INTO e;
   UPDATE public.account_closure_attempts SET phase='processing',updated_at=clock_timestamp() WHERE user_id=p_user_id;
   UPDATE public.account_billing_fences SET phase='closing' WHERE user_id=p_user_id AND request_id=p_request_id;
   expiry_ms:=floor(extract(epoch FROM e.expires_at)*1000);

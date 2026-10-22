@@ -3,7 +3,7 @@ import type { CompletionBinding } from './accountClosureCompletionAdapter.ts';
 type Env = (name: string) => string | undefined;
 // Source identity of the ordered three account migrations plus completion SQL.
 // It is not a receipt that those migrations are installed on any database.
-export const ACCOUNT_COMPLETION_RUNTIME_SCHEMA_SHA256 = 'ea29eeed6eab67de97153c96c14b97d39c3dd9fd07fe836e58b58b43be56e2f8';
+export const ACCOUNT_COMPLETION_RUNTIME_SCHEMA_SHA256 = '8a296b12f777494d1903df2b4468808c7cd733d1107ff063215ceff236d86452';
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 const closed = (value: unknown, keys: string[]): value is Record<string, unknown> => object(value)
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
