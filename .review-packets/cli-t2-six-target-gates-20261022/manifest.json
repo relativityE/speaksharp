@@ -1,9 +1,10 @@
 {
-  "preparedUtc": "2026-10-22T01:41:45.684502+00:00",
+  "preparedUtc": "2026-10-22T01:46:53.901009+00:00",
   "branch": "cli-dev/t2-six-target-gates-20261022",
-  "head": "8d26b65974908de95912ad5ddda4a9366a1263ec",
-  "parent": "3e113fc4fd555d6d4d669d654f5d9d81fd0ea1c0",
-  "tree": "636ebfb0758a4f57a268d8752b84e7d19dfdcb0b",
+  "head": "df167422e78c5270d4aaa1aeca47eb5f8db65393",
+  "parent": "8d26b65974908de95912ad5ddda4a9366a1263ec",
+  "patchBase": "3e113fc4fd555d6d4d669d654f5d9d81fd0ea1c0",
+  "tree": "f7b3298fe54d7c1b3b5a815085d94c073be69390",
   "paths": [
     {
       "path": ".github/workflows/apply-exact-allowlisted-migration.yml",
@@ -41,6 +42,13 @@
       "newBlob": "16ef63c20773ad59d14925e577672eed0edb8d43"
     },
     {
+      "path": "tests/unit/accountClosureDeploymentGuard.test.js",
+      "sha256": "208f247ec76a3c5a0ffe1c64f4d7afb29195c89ed6be2dd66dab83bd726ce38f",
+      "bytes": 8108,
+      "oldBlob": "9500fc81fe236314726541a6cf20a9526cfba3fc",
+      "newBlob": "f27d7976c99c1fdb37d42bf37fb81af39303dd82"
+    },
+    {
       "path": "tests/unit/edgeDeployWorkflowContract.test.js",
       "sha256": "e62050d4c566757c5796132c374fd9dffefefaa6a80f2396fc9c693cac467ec0",
       "bytes": 3601,
@@ -69,15 +77,16 @@
       "newBlob": "4a6e2d84df1ef74d62ab7eec21f5e3e33447e2ff"
     }
   ],
-  "patchSha256": "71f93042c007da9ae14d32d642a7d24b43c0d9bf49bcfc74a862489bb2d6950c",
-  "patchBytes": 68653,
+  "patchSha256": "ed6ea3f53cc63eb17dbc19fd3279b5c1701def92440dced6902b1697730881f1",
+  "patchBytes": 69872,
   "remoteMainVerified": "1090476674d1321d08ef7d39a90f3d56dbb890db",
-  "receivingPreimages": "Six existing gate paths identical to verified remote main; three new paths. App owns receiving/landing.",
+  "receivingPreimages": "Seven existing gate/contract paths identical to verified remote main; three new paths. App owns receiving/landing.",
   "rawCommits": [
     "3e113fc4fd555d6d4d669d654f5d9d81fd0ea1c0",
     "20f8986728d4f5c1796ac9da14c1ae7c3e4a2180",
     "d3c90169d4d1282e8916c84ec2600927413f5ec8",
-    "8d26b65974908de95912ad5ddda4a9366a1263ec"
+    "8d26b65974908de95912ad5ddda4a9366a1263ec",
+    "df167422e78c5270d4aaa1aeca47eb5f8db65393"
   ],
   "receivingReconstruction": {
     "base": "aeb65701e51ae43d191440baaaaece0394cadcd5",
@@ -94,16 +103,17 @@
       "scripts/lib/exactMigrationGate.mjs",
       "scripts/lib/t2MigrationPostflight.mjs",
       "scripts/t2-migration-postflight.mjs",
+      "tests/unit/accountClosureDeploymentGuard.test.js",
       "tests/unit/edgeDeployWorkflowContract.test.js",
       "tests/unit/exactApplyRealLedger.test.js",
       "tests/unit/exactMigrationGate.test.js",
       "tests/unit/t2MigrationPostflight.test.js"
     ],
-    "expectedTree": "b11b32e72c88a4aad2d84d0e4273d4f1d83b2607",
+    "expectedTree": "82ca115650dc3f3399b83d38d66ec53bd0e33bf1",
     "method": "Separate temporary index: receiving base + accepted three Storage blobs, then git apply --cached --check and apply of exact gate patch. Every resulting gate blob checked. No App worktree or branch changed."
   },
   "tests": {
-    "source": "8d26b65974908de95912ad5ddda4a9366a1263ec",
+    "source": "df167422e78c5270d4aaa1aeca47eb5f8db65393",
     "disposition": "NOT READY TO LAND",
     "p1": {
       "review": "1792632940.798379",
@@ -124,17 +134,17 @@
     },
     "focused": {
       "command": "pnpm test:unit tests/unit/t2MigrationPostflight.test.js tests/unit/exactMigrationGate.test.js tests/unit/exactApplyRealLedger.test.js tests/unit/edgeDeployWorkflowContract.test.js tests/unit/productionReleasePolicy.test.js tests/unit/accountClosureDeploymentGuard.test.js --coverage.enabled=false",
-      "session": 78242,
-      "exitCode": 1,
-      "passed": 144,
-      "failed": 1,
-      "durationSeconds": 6.63,
-      "remainingFailure": "Existing accountClosureDeploymentGuard.test.js:68 expects old single dependency; workflow now requires verified T2 schema as well",
-      "ownershipHold": "Sam1792633239.282929: additional test path must remain unchanged until explicit ownership/no-overlap; no earlier receipt claimed"
+      "session": 69145,
+      "exitCode": 0,
+      "passed": 145,
+      "failed": 0,
+      "durationSeconds": 6.69,
+      "remainingFailure": null,
+      "ownershipHold": "LIFTED by Sam1792633429.669779 using App2957/Sam3013 existing receipt"
     },
     "quality": {
-      "source": "8d26b65974908de95912ad5ddda4a9366a1263ec",
-      "session": 10324,
+      "source": "df167422e78c5270d4aaa1aeca47eb5f8db65393",
+      "session": 93811,
       "state": "RUNNING; not PASS"
     },
     "historicalQuality": {
@@ -144,13 +154,15 @@
       "scope": "Before P1 correction; not successor qualification"
     },
     "database": "Bounded PostgreSQL-WASM controls only. Native Supabase126 and receiving exact-head CI NOT RUN.",
-    "operationalEffects": "None. No migration application, deployment, activation, live account/model/provider run or App-file takeover."
+    "operationalEffects": "None. No migration application, deployment, activation, live account/model/provider run or App-file takeover.",
+    "ninePathSourceReview": "SOURCE + RECEIVING-IDENTITY PASS Sam1792633530.870979; tenth-path disposition pending"
   },
   "catalog": {
     "finalObjects": 90,
     "states": 7,
     "scope": "Pinned function identities/ACL, logical tables/constraints/indexes/policies/triggers and private rights; final composed state, not obsolete intermediate bodies"
   },
+  "boundedNinePathReview": "Sam1792633530.870979 SOURCE + RECEIVING-IDENTITY PASS8d26b659; current tenth-path successor still requires disposition",
   "limits": [
     "NOT READY TO LAND until independent review, final quality and receiving exact-head CI/native qualification",
     "No production migration/deployment/activation/model run; default-off and exact authorization retained",
