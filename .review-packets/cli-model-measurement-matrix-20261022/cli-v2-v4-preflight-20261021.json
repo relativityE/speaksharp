@@ -1,0 +1,189 @@
+{
+  "state": "OFFLINE_INPUT_PREFLIGHT_NOT_MODEL_EXECUTION",
+  "sourceHead": "c29baf256aeda2a7281e49a2739fa972a11b624c",
+  "arms": {
+    "baseline": {
+      "path": "/private/tmp/speaksharp-cli-product-models-20261020/tests/evidence/fixtures/model-evaluator/baseline-v2-smoke.json",
+      "sha256": "f32e752f3d39713c72b5c26fd3c3497af008a68760d0190efe5efdafd391a7e4",
+      "value": {
+        "version": 1,
+        "identity": {
+          "engine": "private-v2",
+          "modelId": "Xenova/whisper-base.en",
+          "revision": null,
+          "assetDigest": "c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110",
+          "runtime": "@xenova/transformers@2.17.2",
+          "backend": "wasm"
+        },
+        "adapterModule": "./scripts/model-evaluator/adapters/private-v2-browser.ts"
+      }
+    },
+    "candidate": {
+      "path": "/private/tmp/speaksharp-cli-product-models-20261020/tests/evidence/fixtures/model-evaluator/candidate-v4-base-q4-4.3.0.json",
+      "sha256": "0c3722bc5b66f35a4acca3aadb4fa9a7ac7fdc091d7307098990c6393f05b46c",
+      "value": {
+        "version": 1,
+        "identity": {
+          "engine": "private-v4",
+          "modelId": "onnx-community/whisper-base.en",
+          "revision": null,
+          "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+          "runtime": "@huggingface/transformers@4.3.0",
+          "backend": "wasm"
+        },
+        "adapterModule": "./scripts/model-evaluator/adapters/candidate-browser.ts",
+        "adapterOptions": {
+          "candidateId": "v4:base:q4"
+        }
+      }
+    }
+  },
+  "corpus": {
+    "path": "/private/tmp/speaksharp-cli-product-models-20261020/tests/evidence/fixtures/model-evaluator/corpus-synthetic-smoke.json",
+    "sha256": "d86fb59a061e84917845b0595279601e3303dcb1daa7f0bd4b19c9c8afaf4497",
+    "value": {
+      "version": 1,
+      "trials": 2,
+      "note": "Synthetic macOS Samantha fixtures; one speaker cluster, deliberately insufficient for model acceptance.",
+      "clips": [
+        {
+          "id": "fixture-001",
+          "clusterId": "samantha-synthetic",
+          "path": "../corpus/fixture-001.wav",
+          "wavSha256": "500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247",
+          "sha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d",
+          "reference": "the quick brown fox jumps over the lazy dog while a calm river flows past the old stone bridge",
+          "slices": [
+            "clear"
+          ]
+        },
+        {
+          "id": "fixture-002",
+          "clusterId": "samantha-synthetic",
+          "path": "../corpus/fixture-002.wav",
+          "wavSha256": "1441f3e970c91fdd4602c4419f1210e398ac46e09d7f553c9aea71e9b8eeb2ce",
+          "sha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277",
+          "reference": "The meeting starts at nine. Please arrive early. Thank you very much.",
+          "slices": [
+            "clear"
+          ]
+        },
+        {
+          "id": "fixture-003",
+          "clusterId": "samantha-synthetic",
+          "path": "../corpus/fixture-003.wav",
+          "wavSha256": "095b7fe19672a33b90fa7e696f37b96c0acfa0a2e9862758b851e24662d10150",
+          "sha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e",
+          "reference": "So um I think uh we should um review the plan today",
+          "slices": [
+            "filler"
+          ]
+        }
+      ]
+    }
+  },
+  "device": {
+    "path": "/private/tmp/speaksharp-cli-product-models-20261020/tests/evidence/fixtures/model-evaluator/device-local-wasm.json",
+    "sha256": "4e2e3d9002a63693e59c676542a03d687ab0236f9b26e8dffd480b50c865c088",
+    "value": {
+      "version": 1,
+      "label": "local-browser-wasm-smoke",
+      "backend": "wasm",
+      "baseUrl": "http://127.0.0.1:5173"
+    }
+  },
+  "observedPackageVersions": {
+    "v2": "2.17.2",
+    "v4": "4.3.0"
+  },
+  "clips": [
+    {
+      "id": "fixture-001",
+      "samples": 82671,
+      "durationSeconds": 5.1669375,
+      "wavSha256": "500dc7ab81937cab98f6b3ef4da9b29ee1093b583e1a677840ea8458b92ef247",
+      "pcmSha256": "c843148615209a698baa74ed5a93e16e4e778e328a20a3bb7b30a04dc648220d"
+    },
+    {
+      "id": "fixture-002",
+      "samples": 65766,
+      "durationSeconds": 4.110375,
+      "wavSha256": "1441f3e970c91fdd4602c4419f1210e398ac46e09d7f553c9aea71e9b8eeb2ce",
+      "pcmSha256": "f34da38b7e9875194c7e1ecf17b45277e649955ec5169e31786c3e68fe3f0277"
+    },
+    {
+      "id": "fixture-003",
+      "samples": 45000,
+      "durationSeconds": 2.8125,
+      "wavSha256": "095b7fe19672a33b90fa7e696f37b96c0acfa0a2e9862758b851e24662d10150",
+      "pcmSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e"
+    }
+  ],
+  "modelCalls": 0,
+  "providerCalls": 0,
+  "proposedExplicitDecodeCalls": 12,
+  "limitations": [
+    "3 synthetic clips / one speaker / two trials; no model-quality acceptance",
+    "Model-only decode/finalize latency is NOT product Stop-to-final or Stop-to-review",
+    "Actual v4 downloaded response-body integrity and cache readiness remain unverified",
+    "4.3.1 isolated WIP is uninstalled/unqualified; this frozen manifest is explicitly4.3.0",
+    "Two initialized adapters may coexist in current runner; no single-residency claim",
+    "Initialization/internal warm-up inference counts UNKNOWN; explicit12 decode calls only",
+    "No approved statistical policy or device/real-session qualification"
+  ],
+  "v2ActualAssetFilesVerified": 12,
+  "v4ConfiguredDigestVerified": true,
+  "frozenPopulation": {
+    "trials": 2,
+    "expected": [
+      {
+        "utteranceId": "fixture-001",
+        "trialId": "0",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+        "referenceWords": 19
+      },
+      {
+        "utteranceId": "fixture-001",
+        "trialId": "1",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "4decf5d9aac92d10ec01ff8b75fa7d4bf85d1473bee61094e563d6f2869b0b70",
+        "referenceWords": 19
+      },
+      {
+        "utteranceId": "fixture-002",
+        "trialId": "0",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+        "referenceWords": 12
+      },
+      {
+        "utteranceId": "fixture-002",
+        "trialId": "1",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "be366814029e3fe9823962f32fe0e3e9d98119d03852d6ced89e9f2339ccdbb5",
+        "referenceWords": 12
+      },
+      {
+        "utteranceId": "fixture-003",
+        "trialId": "0",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+        "referenceWords": 9
+      },
+      {
+        "utteranceId": "fixture-003",
+        "trialId": "1",
+        "clusterId": "samantha-synthetic",
+        "referenceSha256": "28d4c2aef5b939413181dec7c692bcbe5276ce94e28e7d93a6784730b345bd1a",
+        "referenceWords": 9
+      }
+    ]
+  },
+  "sourceHashes": {
+    "scripts/model-evaluator/run.mts": "c4618cf0a4eaf58f88bc49f66435bf03ba5655aa04254e3bfcf94767b6a5245d",
+    "scripts/model-evaluator/paired-run.ts": "fe6279b6f5d48ac7f8c5e4f491bfece9d5296e1e9f0a3677c96e4eb937d7cb1d",
+    "scripts/model-evaluator/adapters/candidate-browser.ts": "c594ef74cc15cad18826459d5bb31037ecab9a8d9755ec44202be1d5bd7599fc",
+    "scripts/model-evaluator/adapters/private-v2-browser.ts": "636768cf66f432732d04fdc95e17afa242ccda05dd012534c9387a27b2091c31"
+  }
+}
