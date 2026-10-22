@@ -81,7 +81,7 @@ test('inactive account completion: native readiness, journal, and concurrent cla
       sql(`UPDATE account_completion_configuration SET enabled=true,scope_digest='${scope}'`);
     });
     await t.test('wrong identity, missing coverage and other-account debt never become settled booleans',()=>{
-      const a=seed({coverage:false}), b=seed();
+      const a=ready(seed({coverage:false})), b=seed();
       assert.deepEqual(json(claim(a)),{outcome:'pending'});
       assert.equal(json(claim({...a,request:b.request})),null);
       sql(`INSERT INTO account_save_obligations(user_id,lease_id) VALUES('${a.user}','${a.lease}')`);
@@ -90,13 +90,13 @@ test('inactive account completion: native readiness, journal, and concurrent cla
     await t.test('checkout and unknown coaching debt hold; legacy finish cannot reopen a claimed executor',()=>{
       const a=seed({pending:false});
       const operation=sql(service(`SELECT begin_account_checkout('${a.user}')`));
-      json(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));
+      json(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));ready(a);
       assert.deepEqual(json(claim(a)),{outcome:'pending'});
       assert.equal(sql(service(`SELECT reconcile_rejected_account_checkout('${a.user}','${operation}','req_fixture','parameter_missing','line_items')`)),'t');
       const g=own(a);sql(service(`SELECT finish_account_closure_attempt('${a.user}','${a.request}')`));
       assert.equal(json(inspect(g)).phase,'processing');assert.equal(json(claim(a)),null);
       const b=seed();sql(`INSERT INTO account_coaching_operations(operation_id,user_id,session_id,phase)
-        VALUES(gen_random_uuid(),'${b.user}',gen_random_uuid(),'unknown')`);
+        VALUES(gen_random_uuid(),'${b.user}',gen_random_uuid(),'unknown')`);ready(b);
       assert.deepEqual(json(claim(b)),{outcome:'pending'});
     });
     await t.test('release and elapsed heartbeat cannot erase admitted save debt; actual atomic save settles it',()=>{
@@ -104,7 +104,7 @@ test('inactive account completion: native readiness, journal, and concurrent cla
       assert.equal(json(authenticated(a,`SELECT acquire_recording_lease('${a.lease}','synthetic',false)`)).acquired,true);
       const row=json(authenticated(a,`SELECT create_session_and_update_usage('{"title":"synthetic","duration":0,"lease_id":"${a.lease}"}'::jsonb,'private')`));
       a.session=row.new_session.id;
-      json(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));
+      json(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));ready(a);
       assert.deepEqual(json(claim(a)),{outcome:'pending'});
       assert.equal(json(authenticated(a,`SELECT release_recording_lease('${a.lease}')`)).released,true);
       assert.equal(sql(`SELECT count(*) FROM active_recording_lease WHERE user_id='${a.user}'`),'0');
@@ -119,7 +119,7 @@ test('inactive account completion: native readiness, journal, and concurrent cla
     await t.test('no-session lease debt survives release, client restart and owner-row absence',()=>{
       const a=seed({pending:false});json(authenticated(a,`SELECT acquire_recording_lease('${a.lease}')`));
       json(authenticated(a,`SELECT release_recording_lease('${a.lease}')`));
-      json(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));
+      json(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));ready(a);
       assert.deepEqual(json(claim(a)),{outcome:'pending'});
       assert.throws(()=>sql(`DELETE FROM auth.users WHERE id='${a.user}'`),/admitted save unsettled/);
       assert.equal(sql(`SELECT phase FROM account_save_obligations WHERE user_id='${a.user}'`),'admitted');

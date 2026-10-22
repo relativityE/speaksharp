@@ -272,7 +272,7 @@ const accountProofs=[
   // for the positive save. Migration bytes and all other oracle pins are unchanged.
   // Native126 run39667772634 reached the real Storage direct-delete guard.
   // Preserve its denial; exact synthetic cleanup temporarily uses Storage's local opt-in.
-  ['account-completion-full-chain-invariants.sql','43966d4bddcd50f7f473bba6ab934186141d63b596738255c8e9abcf502812f2'],
+  ['account-completion-full-chain-invariants.sql','bf3b99b03f9bd064c4a42e7662ad5ae33bbd992aab1dc75965a17776ea59daa4'],
 ];
 for(const [file,sha] of accountProofs) test('pins exact reviewed account oracle or bounded fixture successor: '+file,()=>{
   assert.equal(hash(readFileSync(join(root,'tests/db',file))),sha);

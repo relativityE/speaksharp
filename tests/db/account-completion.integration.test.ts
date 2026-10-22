@@ -316,7 +316,7 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
       ('${none.user}','${unacked.user}','${expired.user}','${scoped.user}','${other.user}')`)).toBe(0);
   });
   it('requires exact pending account/request, coverage and account-specific settled work',async()=>{
-    const a=await seed(false),b=await seed();
+    const a=await seed(false),b=await seed();await ready(a);
     expect(await claim(a)).toEqual({outcome:'pending'});expect(await claim({...a,request:b.request})).toBeNull();
     await sql(`INSERT INTO account_save_obligations(user_id,lease_id) VALUES('${a.user}','${a.lease}')`);
     await ready(b);expect((await claim(b))?.executionId).toBeTypeOf('string');expect(await claim(a)).toEqual({outcome:'pending'});
@@ -324,7 +324,7 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
   it('requires checkout settlement and retains claim despite legacy finish/replay',async()=>{
     const a=await seed(true,false);
     const operation=await value(service(`SELECT begin_account_checkout('${a.user}')`));
-    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));
+    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));await ready(a);
     expect(await claim(a)).toEqual({outcome:'pending'});
     expect(await value(service(`SELECT reconcile_rejected_account_checkout('${a.user}','${operation}','req_fixture','parameter_missing','line_items')`))).toBe(true);
     const g=await own(a);await sql(service(`SELECT finish_account_closure_attempt('${a.user}','${a.request}')`));
@@ -369,11 +369,11 @@ describe('inactive completion SQL: actual migration semantics in PGlite',()=>{
   it('unmaterialized lease and unknown coaching debt survive absence and cannot authorize Auth cleanup',async()=>{
     const a=await seed(true,false);await sql(as(a,`SELECT acquire_recording_lease('${a.lease}')`));
     await sql(as(a,`SELECT release_recording_lease('${a.lease}')`));
-    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));
+    await sql(service(`SELECT begin_account_closure_pending('${a.user}','${a.hash}',true)`));await ready(a);
     expect(await claim(a)).toEqual({outcome:'pending'});
     await expect(sql(`DELETE FROM auth.users WHERE id='${a.user}'`)).rejects.toThrow('admitted save unsettled');
     const b=await seed();await sql(`INSERT INTO account_coaching_operations(operation_id,user_id,session_id,phase)
-      VALUES(gen_random_uuid(),'${b.user}',gen_random_uuid(),'unknown')`);
+      VALUES(gen_random_uuid(),'${b.user}',gen_random_uuid(),'unknown')`);await ready(b);
     expect(await claim(b)).toEqual({outcome:'pending'});
   });
   it('dispatches a stage only once and never upgrades unknown to success',async()=>{

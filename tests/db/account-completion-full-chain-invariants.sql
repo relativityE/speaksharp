@@ -104,7 +104,13 @@ BEGIN
   RESET ROLE;
   UPDATE public.account_completion_configuration SET enabled=true,scope_digest=scope;
   SET LOCAL ROLE service_role;
-  IF public.claim_account_pending_completion_v1(c,req_c,scope)->>'outcome' IS DISTINCT FROM 'pending' THEN
+  -- B holds its acknowledged capability (the selected claim prerequisite) so only the missing coverage can hold it; C stays
+  -- the later status-handshake actor. A holds one before its save-debt checks.
+  IF public.issue_account_completion_status_v1(b,req_b,scope,repeat('d',64)) IS NULL
+    OR NOT public.acknowledge_account_completion_status_v1(b,req_b,scope,repeat('d',64))
+    OR public.issue_account_completion_status_v1(a,req_a,scope,repeat('e',64)) IS NULL
+    OR NOT public.acknowledge_account_completion_status_v1(a,req_a,scope,repeat('e',64)) THEN RAISE EXCEPTION 'status capability not acknowledged'; END IF;
+  IF public.claim_account_pending_completion_v1(b,req_b,scope)->>'outcome' IS DISTINCT FROM 'pending' THEN
     RAISE EXCEPTION 'missing coverage did not hold';
   END IF;
   RESET ROLE;
@@ -167,9 +173,6 @@ BEGIN
 
   -- B's unknown effect stays unknown on retry, independently of C's positive path.
   SET LOCAL ROLE service_role;
-  -- The selected claim prerequisite: B holds an acknowledged, unexpired status capability for exactly this request/scope.
-  IF public.issue_account_completion_status_v1(b,req_b,scope,repeat('d',64)) IS NULL
-    OR NOT public.acknowledge_account_completion_status_v1(b,req_b,scope,repeat('d',64)) THEN RAISE EXCEPTION 'B status capability not acknowledged'; END IF;
   receipt:=public.claim_account_pending_completion_v1(b,req_b,scope); exec_b:=(receipt->>'executionId')::uuid;
   IF exec_b IS NULL THEN RAISE EXCEPTION 'unrelated account blocked by A save'; END IF;
   IF public.begin_account_completion_stage_v1(b,req_b,exec_b,scope,'retain_trial')->>'phase' IS DISTINCT FROM 'dispatch' THEN RAISE EXCEPTION 'stage did not dispatch once'; END IF;
