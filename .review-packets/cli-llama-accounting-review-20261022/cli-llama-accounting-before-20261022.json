@@ -1,0 +1,37 @@
+[
+  {
+    "path": "frontend/src/services/coaching/llamaProvider.ts",
+    "bytes": 6098,
+    "sha256": "ad31227100e6a2642e3670a75d953ae1b77e47e58e00ff8826a5120a16223ad7"
+  },
+  {
+    "path": "tests/unit/llamaRawOutputEvidence.test.ts",
+    "bytes": 3943,
+    "sha256": "fbb52e68575a69dd3b4fc443aaf4e21752f85064a496321d0bc78caa9c0d3458"
+  },
+  {
+    "path": "frontend/src/services/coaching/provider.ts",
+    "bytes": 8779,
+    "sha256": "7b5e347de33c935212c0c92a85e079762984ef3457977365aab610b802775e73"
+  },
+  {
+    "path": "scripts/model-evaluator/product-coaching-inputs.ts",
+    "bytes": 5514,
+    "sha256": "305667f76308c9294409cf54d05a7628cccdf0669f18ab329e92e262d409069e"
+  },
+  {
+    "path": "backend/supabase/functions/_shared/coachingContract.ts",
+    "bytes": 13718,
+    "sha256": "e7af59a9b790a76870f5cf989a17adda4f905283d60aa44b54b9a742aae278a6"
+  },
+  {
+    "path": "node_modules/@mlc-ai/web-llm/lib/index.js",
+    "bytes": 6817339,
+    "sha256": "ae2642e73a4a9896c21efb3a067c4666446f8b49cbe2012f4b576f5d83d5f206"
+  },
+  {
+    "path": "node_modules/@mlc-ai/web-llm/package.json",
+    "bytes": 2059,
+    "sha256": "4632d440f150db30ccd05e2378124ac26328cd6c479ef1ed8829c6468cb512c2"
+  }
+]

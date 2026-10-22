@@ -1,0 +1,231 @@
+{
+  "base": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+  "originalBundleSha256": "f3d0be3c28236897cd717a671c95550f3623dc9bb02f021a35bfffa3399f53dd",
+  "rawLlamaSha256": "a7dfe932c1cdb30d817fec2d08371dc83df2b949de1e5eb6cebf472bf68d3acd",
+  "currentOwnedFiles": [
+    {
+      "path": "frontend/src/services/coaching/llamaProvider.ts",
+      "sha256": "617868db3e270cc3e3019e66cb0cf5df589f5ceb6287e517b4e684116c1c0aeb"
+    },
+    {
+      "path": "tests/unit/llamaRawOutputEvidence.test.ts",
+      "sha256": "e563c162c43a6df0e1270783073313b22b949dd699e4448bf653e71436b2487d"
+    },
+    {
+      "path": "tests/unit/llamaTokenAccounting.test.ts",
+      "sha256": "4ab6543f2a46d3ee4eb79bf79afd5c2de21c7c25b3b866ce3494f3e8834178ac"
+    }
+  ],
+  "preservedAccepted80cFiles": [
+    {
+      "path": "scripts/model-evaluator/browser-session.ts",
+      "expected": "22d8bf2f39b000289cdf022cfa3cf371e5a66b08b776eccdd038b44f2f83905f",
+      "actual": "22d8bf2f39b000289cdf022cfa3cf371e5a66b08b776eccdd038b44f2f83905f"
+    },
+    {
+      "path": "scripts/model-investigation.mts",
+      "expected": "6b8a8b5016d94309d29f92b68c0a7f4a4c7436d9540e88ae6145d8cf55c7a566",
+      "actual": "6b8a8b5016d94309d29f92b68c0a7f4a4c7436d9540e88ae6145d8cf55c7a566"
+    },
+    {
+      "path": "scripts/model-evaluator/persistent-browser.ts",
+      "expected": "b66b5120edecb7ddf41f11b19823cea6db2fc2a2100aad9666b73245657b8893",
+      "actual": "b66b5120edecb7ddf41f11b19823cea6db2fc2a2100aad9666b73245657b8893"
+    },
+    {
+      "path": "tests/unit/modelEvaluatorBrowserSession.test.ts",
+      "expected": "a1c86aab4e3a0219bd12fb28507cb05b478316a3856c979df485de02f34e5bbc",
+      "actual": "a1c86aab4e3a0219bd12fb28507cb05b478316a3856c979df485de02f34e5bbc"
+    },
+    {
+      "path": "tests/unit/modelEvaluatorPersistentBrowser.test.ts",
+      "expected": "8ebdae489f16d938f14ba036732838cabc655750b2475266a9051852bd51442c",
+      "actual": "8ebdae489f16d938f14ba036732838cabc655750b2475266a9051852bd51442c"
+    },
+    {
+      "path": "scripts/model-evaluator/cdp-browser.ts",
+      "expected": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3",
+      "actual": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+    },
+    {
+      "path": "scripts/model-evaluator/investigation-supervision.ts",
+      "expected": "646d14ca2e3b28ba94aa39e114ad28438efb48a5010b2ed0c261f11ea8376e77",
+      "actual": "646d14ca2e3b28ba94aa39e114ad28438efb48a5010b2ed0c261f11ea8376e77"
+    },
+    {
+      "path": "tests/unit/modelCdpBrowser.test.ts",
+      "expected": "e904df837fc2e8d253d5671a9616d3e6242c86a41d4c4ba3e96928298741d0d2",
+      "actual": "e904df837fc2e8d253d5671a9616d3e6242c86a41d4c4ba3e96928298741d0d2"
+    }
+  ],
+  "originalRunManifestWithoutDuplicatedCells": {
+    "kind": "llama",
+    "coachingProtocol": "product-contract",
+    "sourceSha": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+    "sourceTree": "6f00b2471371aa9473a890e273cba9488bb67677",
+    "dirtySource": "M scripts/model-evaluator/browser-session.ts\n M scripts/model-investigation.mts\n M tests/unit/modelEvaluatorBrowserSession.test.ts\n?? scripts/model-evaluator/persistent-browser.ts\n?? tests/unit/modelEvaluatorPersistentBrowser.test.ts",
+    "browserOwnership": "owned-persistent-profile",
+    "persistentProfile": "/private/tmp/speaksharp-eval-owned-llama-20261022T1925",
+    "cacheState": "FRESH_PROFILE_REUSE_REFUSED",
+    "executedSourceFiles": [
+      {
+        "file": "scripts/model-investigation.mts",
+        "sha256": "6b8a8b5016d94309d29f92b68c0a7f4a4c7436d9540e88ae6145d8cf55c7a566"
+      },
+      {
+        "file": "scripts/model-evaluator/cdp-browser.ts",
+        "sha256": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+      },
+      {
+        "file": "scripts/model-evaluator/persistent-browser.ts",
+        "sha256": "b66b5120edecb7ddf41f11b19823cea6db2fc2a2100aad9666b73245657b8893"
+      }
+    ],
+    "assetsManifestSha256": "59335daea2930b4425099404f09a4dcb54a324adaa6035e06622821d205e35e2",
+    "allowSoftwareGpu": false,
+    "minStartAvailableBytes": 2147483648,
+    "minRunningAvailableBytes": 1073741824,
+    "maxConsecutiveLowMemorySamples": 5,
+    "maxLoadMs": 120000,
+    "maxCellMs": 120000,
+    "modelWarmupCalls": 0,
+    "maxAsrCallsPerCell": 0,
+    "maxGenerationCalls": 18,
+    "maxVadCallsPerCell": 0,
+    "waveformPadding": "none; last VAD frame may zero-pad for VAD only, with exact padding count; ASR input unchanged",
+    "coachingContract": "canonical llama_coaching_v1/llama_coaching_focus_v1; synthetic saved-evidence shapes, NOT saved lifecycle proof",
+    "declaredCoachingPopulation": [
+      {
+        "utteranceId": "open-specific",
+        "trialId": "0",
+        "clusterId": "open-specific",
+        "referenceSha256": "b11dab6b32af1e43af579e2bc9452d2d18fc8dd4b0b45e70ae415344015832b5",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "open-specific",
+        "trialId": "1",
+        "clusterId": "open-specific",
+        "referenceSha256": "b11dab6b32af1e43af579e2bc9452d2d18fc8dd4b0b45e70ae415344015832b5",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "open-specific",
+        "trialId": "2",
+        "clusterId": "open-specific",
+        "referenceSha256": "b11dab6b32af1e43af579e2bc9452d2d18fc8dd4b0b45e70ae415344015832b5",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "open-sparse",
+        "trialId": "0",
+        "clusterId": "open-sparse",
+        "referenceSha256": "d97d82b1f35d8237eb2b04aa21d687b5e36d360fd1684ae03c1c4e47aa47a52d",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "open-sparse",
+        "trialId": "1",
+        "clusterId": "open-sparse",
+        "referenceSha256": "d97d82b1f35d8237eb2b04aa21d687b5e36d360fd1684ae03c1c4e47aa47a52d",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "open-sparse",
+        "trialId": "2",
+        "clusterId": "open-sparse",
+        "referenceSha256": "d97d82b1f35d8237eb2b04aa21d687b5e36d360fd1684ae03c1c4e47aa47a52d",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "open-untrusted",
+        "trialId": "0",
+        "clusterId": "open-untrusted",
+        "referenceSha256": "fe9a1b74855fb3f516876bd35b716fda04dc58527bd9cb3e9fa5370661358276",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "open-untrusted",
+        "trialId": "1",
+        "clusterId": "open-untrusted",
+        "referenceSha256": "fe9a1b74855fb3f516876bd35b716fda04dc58527bd9cb3e9fa5370661358276",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "open-untrusted",
+        "trialId": "2",
+        "clusterId": "open-untrusted",
+        "referenceSha256": "fe9a1b74855fb3f516876bd35b716fda04dc58527bd9cb3e9fa5370661358276",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-full",
+        "trialId": "0",
+        "clusterId": "focus-full",
+        "referenceSha256": "dc3fdd11d6a97a71caac193206fbda6dd52dd50bfad6bc0bc43a58de2ace9604",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-full",
+        "trialId": "1",
+        "clusterId": "focus-full",
+        "referenceSha256": "dc3fdd11d6a97a71caac193206fbda6dd52dd50bfad6bc0bc43a58de2ace9604",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-full",
+        "trialId": "2",
+        "clusterId": "focus-full",
+        "referenceSha256": "dc3fdd11d6a97a71caac193206fbda6dd52dd50bfad6bc0bc43a58de2ace9604",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-partial",
+        "trialId": "0",
+        "clusterId": "focus-partial",
+        "referenceSha256": "8ee3d4f68b339fa24011e06e3a6536d3fb5a8ea7c572e803ff9fd51d3c5c07ea",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-partial",
+        "trialId": "1",
+        "clusterId": "focus-partial",
+        "referenceSha256": "8ee3d4f68b339fa24011e06e3a6536d3fb5a8ea7c572e803ff9fd51d3c5c07ea",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-partial",
+        "trialId": "2",
+        "clusterId": "focus-partial",
+        "referenceSha256": "8ee3d4f68b339fa24011e06e3a6536d3fb5a8ea7c572e803ff9fd51d3c5c07ea",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-unavailable",
+        "trialId": "0",
+        "clusterId": "focus-unavailable",
+        "referenceSha256": "8e1f70490546d85c14308aaaa44a835f26682fa69ada781d7bc564d2a6ecce4a",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-unavailable",
+        "trialId": "1",
+        "clusterId": "focus-unavailable",
+        "referenceSha256": "8e1f70490546d85c14308aaaa44a835f26682fa69ada781d7bc564d2a6ecce4a",
+        "referenceWords": 0
+      },
+      {
+        "utteranceId": "focus-unavailable",
+        "trialId": "2",
+        "clusterId": "focus-unavailable",
+        "referenceSha256": "8e1f70490546d85c14308aaaa44a835f26682fa69ada781d7bc564d2a6ecce4a",
+        "referenceWords": 0
+      }
+    ],
+    "acceptance": "local functional diagnostic only; no cloud comparison, human/device qualification, activation or release proof"
+  },
+  "sourceQualified": false,
+  "review": "PENDING",
+  "noPromptChange": true,
+  "modelRunsSinceCorrection": 0
+}

@@ -1,0 +1,27 @@
+{
+  "rawReceipt": "/private/tmp/cli-moonshine-fixture003-20261022T1927.json",
+  "runtimeVersion": "1.30.0",
+  "missingRoute": "/ort/ort-wasm-simd-threaded.asyncify.mjs",
+  "observedHttpStatus": "NOT_RETAINED",
+  "observedResponseContentType": "NOT_RETAINED",
+  "sourceDerivedMissingRouteResponse": {
+    "status": 404,
+    "contentTypeHeader": "NOT_SET",
+    "body": "not in verified allowlist",
+    "basis": "scripts/model-investigation.mts routes.get lookup and absent-route branch"
+  },
+  "locallyPresentUnservedFiles": [
+    {
+      "name": "ort-wasm-simd-threaded.asyncify.mjs",
+      "bytes": 53057,
+      "sha256": "3d1c85995364bb643302fc6fd877a0c3ba5ae72401815e0f24828a53d9191e28"
+    },
+    {
+      "name": "ort-wasm-simd-threaded.asyncify.wasm",
+      "bytes": 26781914,
+      "sha256": "39f9f0894d478800487ed9f7dbe92618498db320cf55c8e3d89adff8dce658da"
+    }
+  ],
+  "runtimeRetry": false,
+  "dependencyChanged": false
+}

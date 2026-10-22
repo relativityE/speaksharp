@@ -1,0 +1,187 @@
+{
+  "protocol": {
+    "kind": "moonshine",
+    "coachingProtocol": "diagnostic",
+    "sourceSha": "7216e35c7355f7b132b514cdea2cdfb8942d03f5",
+    "sourceTree": "6f00b2471371aa9473a890e273cba9488bb67677",
+    "dirtySource": "M scripts/model-evaluator/browser-session.ts\n M scripts/model-investigation.mts\n M tests/unit/modelEvaluatorBrowserSession.test.ts\n?? scripts/model-evaluator/persistent-browser.ts\n?? tests/unit/modelEvaluatorPersistentBrowser.test.ts",
+    "browserOwnership": "borrowed-dedicated-cdp",
+    "persistentProfile": null,
+    "cacheState": "EPHEMERAL_CONTEXT",
+    "executedSourceFiles": [
+      {
+        "file": "scripts/model-investigation.mts",
+        "sha256": "6b8a8b5016d94309d29f92b68c0a7f4a4c7436d9540e88ae6145d8cf55c7a566"
+      },
+      {
+        "file": "scripts/model-evaluator/cdp-browser.ts",
+        "sha256": "1279ebc7238713acfec87725fd23b16df23dfab46d63ad6408ad813ea1e45ed3"
+      },
+      {
+        "file": "scripts/model-evaluator/persistent-browser.ts",
+        "sha256": "b66b5120edecb7ddf41f11b19823cea6db2fc2a2100aad9666b73245657b8893"
+      }
+    ],
+    "assetsManifestSha256": "59335daea2930b4425099404f09a4dcb54a324adaa6035e06622821d205e35e2",
+    "allowSoftwareGpu": false,
+    "minStartAvailableBytes": 2147483648,
+    "minRunningAvailableBytes": 1073741824,
+    "maxConsecutiveLowMemorySamples": 5,
+    "maxLoadMs": 120000,
+    "maxCellMs": 120000,
+    "cells": [
+      {
+        "id": "BASE-S-C",
+        "fixture": "/private/tmp/speaksharp-cli-raw-output-20261021/tests/evidence/fixtures/corpus/fixture-003.wav",
+        "input": {
+          "wavSha256": "095b7fe19672a33b90fa7e696f37b96c0acfa0a2e9862758b851e24662d10150",
+          "sourceSamples": 45000,
+          "pcmSha256": "34e344bcead23f35895af7bb5c962a6254e9a9707f9407bf92afb8308b31019e"
+        },
+        "trial": 1
+      }
+    ],
+    "modelWarmupCalls": 1,
+    "maxAsrCallsPerCell": 8,
+    "maxGenerationCalls": 0,
+    "maxVadCallsPerCell": 88,
+    "waveformPadding": "none; last VAD frame may zero-pad for VAD only, with exact padding count; ASR input unchanged",
+    "coachingContract": "llama_coaching_diagnostic_v1; NOT equivalent to saved-session Open Mic/Focus coaching",
+    "declaredCoachingPopulation": null,
+    "acceptance": "local functional diagnostic only; no cloud comparison, human/device qualification, activation or release proof"
+  },
+  "startedUtc": "2026-10-22T19:58:45.084Z",
+  "cells": [],
+  "cellDispatchesAttempted": 0,
+  "internalInferenceCount": "UNKNOWN",
+  "hardware": {
+    "available": true,
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "description": "",
+    "isFallbackAdapter": false,
+    "shaderF16": true
+  },
+  "status": "FAIL",
+  "newCloudCalls": 0,
+  "sourceQualified": false,
+  "startAvailableBytes": 3006477107.2,
+  "verifiedAssets": [
+    {
+      "group": "base",
+      "path": "config.json",
+      "bytes": 922,
+      "sha256": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1"
+    },
+    {
+      "group": "base",
+      "path": "generation_config.json",
+      "bytes": 147,
+      "sha256": "f9b3f711b57be7def2e50a8942f64f36ee0a55fad5b84ff93a687b6c5bcc1d44"
+    },
+    {
+      "group": "base",
+      "path": "onnx/decoder_model_merged_q4.onnx",
+      "bytes": 72781828,
+      "sha256": "9f26db50c9f3b2eb1962ab93e9753f908c56367817d791032af58cbf7dba3803"
+    },
+    {
+      "group": "base",
+      "path": "onnx/encoder_model.onnx",
+      "bytes": 80818781,
+      "sha256": "153e128e7abd64a74ee47f2c3f585c3171c4d46cbb368b032827934c4e01e779"
+    },
+    {
+      "group": "base",
+      "path": "preprocessor_config.json",
+      "bytes": 128,
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679"
+    },
+    {
+      "group": "base",
+      "path": "tokenizer.json",
+      "bytes": 3761754,
+      "sha256": "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f"
+    },
+    {
+      "group": "base",
+      "path": "tokenizer_config.json",
+      "bytes": 135735,
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15"
+    },
+    {
+      "group": "vad",
+      "path": "onnx/model.onnx",
+      "bytes": 2243022,
+      "sha256": "a4a068cd6cf1ea8355b84327595838ca748ec29a25bc91fc82e6c299ccdc5808"
+    }
+  ],
+  "runtimeAssets": [
+    {
+      "file": "ort-wasm-simd-threaded.mjs",
+      "bytes": 24381,
+      "sha256": "e13f7f94fc51b4ca72b12faeb1ee95f4ace6dfbc8939bc718aabdc0a27c4299b",
+      "package": "onnxruntime-web@1.30.0"
+    },
+    {
+      "file": "ort-wasm-simd-threaded.wasm",
+      "bytes": 14239897,
+      "sha256": "3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2",
+      "package": "onnxruntime-web@1.30.0"
+    },
+    {
+      "file": "ort-wasm-simd-threaded.jsep.mjs",
+      "bytes": 46851,
+      "sha256": "709853412fd1ffc34247af1e73569227b5b79629c5ca3f59cc39cf7e500e4947",
+      "package": "onnxruntime-web@1.30.0"
+    },
+    {
+      "file": "ort-wasm-simd-threaded.jsep.wasm",
+      "bytes": 28312028,
+      "sha256": "3ad23231b5bd6d9dda55a7f84606315e0bf35b6750c28ee993c987c54cacab0f",
+      "package": "onnxruntime-web@1.30.0"
+    }
+  ],
+  "bundleSha256": "f3d0be3c28236897cd717a671c95550f3623dc9bb02f021a35bfffa3399f53dd",
+  "origin": "http://127.0.0.1:62555",
+  "cdpOwner": {
+    "pid": 62932,
+    "profile": "/Users/fibonacci/speaksharp-eval-profile",
+    "listener": "127.0.0.1:9222"
+  },
+  "ownerBrowserCloseOrKillAttempted": false,
+  "ownedContextState": "CLOSED",
+  "pageErrors": [],
+  "egressViolations": [],
+  "notExecutedCells": [
+    {
+      "id": "BASE-S-C",
+      "status": "NOT_EXECUTED",
+      "reason": "Error: page.evaluate: Error: no available backend found. ERR: [wasm] TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:62555/ort/ort-wasm-simd-threaded.asyncify.mjs\n    at Da (http://127.0.0.1:62555/bundle.mjs:99:19)\n    at async a.create (http://127.0.0.1:62555/bundle.mjs:561:20)\n    at async createInferenceSession (http://127.0.0.1:62555/bundle.mjs:13391:19)\n    at async http://127.0.0.1:62555/bundle.mjs:23927:25\n    at async Promise.all (index 0)\n    at async constructSessions (http://127.0.0.1:62555/bundle.mjs:23917:5)\n    at async Promise.all (index 0)\n    at async PreTrainedModel.from_pretrained (http://127.0.0.1:62555/bundle.mjs:25778:18)\n    at async AutoModel.from_pretrained (http://127.0.0.1:62555/bundle.mjs:32534:14)\n    at async createMoonshineWeb (http://127.0.0.1:62555/bundle.mjs:34456:15)"
+    }
+  ],
+  "updatedUtc": "2026-10-22T19:58:47.035Z",
+  "hardwareClass": "real-gpu-local-functional-only",
+  "browserVersion": "156.0.8078.47",
+  "error": "Error: page.evaluate: Error: no available backend found. ERR: [wasm] TypeError: Failed to fetch dynamically imported module: http://127.0.0.1:62555/ort/ort-wasm-simd-threaded.asyncify.mjs\n    at Da (http://127.0.0.1:62555/bundle.mjs:99:19)\n    at async a.create (http://127.0.0.1:62555/bundle.mjs:561:20)\n    at async createInferenceSession (http://127.0.0.1:62555/bundle.mjs:13391:19)\n    at async http://127.0.0.1:62555/bundle.mjs:23927:25\n    at async Promise.all (index 0)\n    at async constructSessions (http://127.0.0.1:62555/bundle.mjs:23917:5)\n    at async Promise.all (index 0)\n    at async PreTrainedModel.from_pretrained (http://127.0.0.1:62555/bundle.mjs:25778:18)\n    at async AutoModel.from_pretrained (http://127.0.0.1:62555/bundle.mjs:32534:14)\n    at async createMoonshineWeb (http://127.0.0.1:62555/bundle.mjs:34456:15)",
+  "finishedUtc": "2026-10-22T19:58:46.978Z",
+  "cleanup": [
+    {
+      "name": "dispose",
+      "status": "COMPLETE"
+    },
+    {
+      "name": "browser",
+      "status": "COMPLETE"
+    },
+    {
+      "name": "server",
+      "status": "COMPLETE"
+    },
+    {
+      "name": "terminate-owned-browser",
+      "status": "COMPLETE"
+    }
+  ],
+  "transportCleanup": "DISCONNECT_BY_STANDALONE_RUNNER_EXIT"
+}
