@@ -1,0 +1,54 @@
+{
+  "source": "df167422e78c5270d4aaa1aeca47eb5f8db65393",
+  "disposition": "NOT READY TO LAND",
+  "p1": {
+    "review": "1792632940.798379",
+    "red": {
+      "session": 33152,
+      "exitCode": 1,
+      "passed": 3,
+      "failed": 2,
+      "cause": "Faithful historical heartbeat is rejected by old stage0-2 catalog pins"
+    },
+    "green": {
+      "session": 78242,
+      "heartbeatRegressionPassed": true,
+      "catalogPrePostPassed": true,
+      "historicalFunctionDefMd5": "e3226a816e3a03ac5251363b069e4cbe",
+      "u1FunctionDefMd5": "1ba2759c5b17104f5501fe184646a211"
+    }
+  },
+  "focused": {
+    "command": "pnpm test:unit tests/unit/t2MigrationPostflight.test.js tests/unit/exactMigrationGate.test.js tests/unit/exactApplyRealLedger.test.js tests/unit/edgeDeployWorkflowContract.test.js tests/unit/productionReleasePolicy.test.js tests/unit/accountClosureDeploymentGuard.test.js --coverage.enabled=false",
+    "session": 69145,
+    "exitCode": 0,
+    "passed": 145,
+    "failed": 0,
+    "durationSeconds": 6.69,
+    "remainingFailure": null,
+    "ownershipHold": null,
+    "ownershipReceipt": "Sam1792633429.669779; App2957/Sam3013 prior explicit scope restored"
+  },
+  "quality": {
+    "source": "df167422e78c5270d4aaa1aeca47eb5f8db65393",
+    "session": 93811,
+    "state": "PASS",
+    "exitCode": 0,
+    "observedUtc": "2026-10-22T01:48:58.325871+00:00"
+  },
+  "historicalQuality": {
+    "source": "d3c90169d4d1282e8916c84ec2600927413f5ec8",
+    "session": 95359,
+    "exitCode": 0,
+    "scope": "Before P1 correction; not successor qualification"
+  },
+  "database": "Bounded PostgreSQL-WASM controls only. Native Supabase126 and receiving exact-head CI NOT RUN.",
+  "operationalEffects": "None. No migration application, deployment, activation, live account/model/provider run or App-file takeover.",
+  "ninePathSourceReview": "SOURCE + RECEIVING-IDENTITY PASS Sam1792633530.870979; tenth-path disposition pending",
+  "review": {
+    "ninePath": "SOURCE + RECEIVING-IDENTITY PASS Sam1792633530.870979",
+    "tenthPath": "ACK Sam1792633696.308369; disposition pending"
+  },
+  "worktreeClean": true,
+  "updatedUtc": "2026-10-22T01:48:58.325871+00:00"
+}
