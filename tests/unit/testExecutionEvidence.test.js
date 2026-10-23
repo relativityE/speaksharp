@@ -11,7 +11,7 @@ import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
-const root=fileURLToPath(new URL('../../',import.meta.url));
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const context=()=>executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
 const contract=TEST_EFFICACY_CONTRACTS[0];

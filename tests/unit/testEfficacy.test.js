@@ -12,7 +12,7 @@ import {randomUUID} from 'node:crypto';
 
 // The same dependency-free tests also participate in the existing Vitest unit lane.
 const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
-const root = fileURLToPath(new URL('../../', import.meta.url));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const contract = TEST_EFFICACY_CONTRACTS[0];
 const names = contract.mutants.map(mutant => mutant.assertion).sort();
 const baselineReport = () => ({ success: true,
