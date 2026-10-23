@@ -171,6 +171,34 @@ describe('take-bound marker observer (#1593 case 3)', () => {
         expect(markerTimingStatus(v)).not.toBe('PASS');
     });
 
+    it('Sam 6:09: a row replaced, then its parent LIST replaced (the outer rail survives) still keeps the pre-removal change; never PASS', async () => {
+        const outer = rail([]); // the rail survives; an inner list holds the rows
+        const list = document.createElement('div');
+        ['pending', 'pending'].forEach((s, i) => {
+            const r = document.createElement('div');
+            r.setAttribute('data-testid', `${MARKER_ROW_PREFIX}${i}`);
+            r.setAttribute('data-status', s);
+            list.appendChild(r);
+        });
+        outer.appendChild(list);
+        arm();
+        now = at(3);
+        const old = row(1);
+        old.setAttribute('data-status', 'partial'); // attached at mutation time
+        const rowClone = old.cloneNode(true) as HTMLElement;
+        rowClone.setAttribute('data-status', 'pending');
+        old.replaceWith(rowClone); // the row is replaced…
+        const listClone = list.cloneNode(true) as HTMLElement;
+        list.replaceWith(listClone); // …then its parent list, before the callback
+        await flush();
+        const sealed = freezeMarkerObserverInPage('mo-1')!;
+        expect(sealed.railGenerations).toBe(1);
+        expect(sealed.observations[0]).toEqual({ point: 1, status: 'unknown', afterMs: at(0), observedAtMs: at(3), seq: 0, railGeneration: 1 });
+        const v = verdict(sealed.observations, [[2, 6.21], null], [false, false]);
+        expect(v[1]).not.toBe('ok-unspoken');
+        expect(markerTimingStatus(v)).not.toBe('PASS');
+    });
+
     it('an expected rail replacement is followed (new generation); a change after the removal is refused as stale', async () => {
         const old = rail(['pending', 'pending']);
         arm();

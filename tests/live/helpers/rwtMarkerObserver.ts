@@ -122,13 +122,7 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
         // generation (the change happened while it was attached); a change recorded after the removal is stale.
         const removed: Node[] = [];
         let structural = false;
-        // Historical membership from the batch itself: a detached row that a LATER record in this batch removed from the
-        // rail (or from inside it) was a rail row when its earlier change was recorded, even if only the row was replaced.
-        const isRailNode = (n: Node | null): boolean => n instanceof Element
-            && (n === railAtStart || (railAtStart !== null && railAtStart.contains(n)) || n.closest(`[data-testid="${args.railTestId}"]`) !== null);
-        const removedFromRailLater = (index: number, el: Element): boolean => records.slice(index + 1).some((later) => later.type === 'childList'
-            && Array.from(later.removedNodes).some((n) => n === el || n.contains(el)) && isRailNode(later.target));
-        for (const [index, r] of records.entries()) {
+        for (const r of records) {
             if (r.type === 'childList') {
                 structural = true;
                 r.removedNodes.forEach((n) => removed.push(n));
@@ -147,7 +141,10 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
             const value = k + 1 < list.length ? list[k + 1].oldValue : el.isConnected ? el.getAttribute('data-status') : 'unknown';
             if (railAtStart && railAtStart.contains(el)) record(point, value, afterMs, at, generationAtStart);
             else if (rail && el.isConnected && rail.contains(el)) record(point, value, afterMs, at, s.railGenerations);
-            else if (!el.isConnected && removedFromRailLater(index, el)) record(point, value, afterMs, at, generationAtStart);
+            // Detached at delivery, yet NOT preceded by its removal in this batch: the change was recorded while the row was
+            // attached, however its row/list/rail ancestry was later replaced. Kept as evidence ('unknown' unless named, so
+            // never a PASS) without inferring membership from the now-detached ancestry.
+            else if (!el.isConnected) record(point, value, afterMs, at, generationAtStart);
             else s.rejected.push({ reason: 'detached', point });
         }
         if (structural && rail) readStatuses(rail).forEach((status, i) => record(i, status, afterMs, at, s.railGenerations));
