@@ -1,5 +1,7 @@
 import React from 'react';
 import type { SessionState } from './SessionShell';
+import type { RepeatPracticeTargetView } from '@/services/progress/repeatPracticeTarget';
+import { Link } from 'react-router-dom';
 
 /**
  * Slot B — coaching. ONE component in all three states and both products; it sits on the ink ground the
@@ -23,6 +25,7 @@ export interface CoachingCardProps {
     nudge?: string | null;
     /** after: the Practice Loop review and its actions. */
     verdict?: React.ReactNode;
+    practiceTarget?: RepeatPracticeTargetView;
 }
 
 const Eyebrow: React.FC<{ text: string }> = ({ text }) => (
@@ -39,11 +42,25 @@ const RestingLine: React.FC = () => (
     </div>
 );
 
-export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTip, nudge, verdict }) => {
+export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTip, nudge, verdict, practiceTarget }) => {
     const hasTip = liveTip != null && liveTip !== false;
     const hasNudge = typeof nudge === 'string' && nudge.trim() !== '';
     return (
         <div data-testid="coaching-card" data-coaching-state={sessionState} className="min-w-0">
+            {sessionState !== 'after' && practiceTarget && practiceTarget.kind !== 'none' && (
+                <div className="mb-4" data-testid="repeat-practice-target" role="status">
+                    <Eyebrow text="Your practice target" />
+                    {practiceTarget.kind === 'ready'
+                        ? <p className="mt-2 text-[15px] font-bold text-ink-text">{practiceTarget.instruction}</p>
+                        : practiceTarget.kind === 'pending'
+                            ? <p className="mt-2 text-[15px] text-ink-muted">Checking this review’s practice target…</p>
+                            : <>
+                                <p className="mt-2 text-[15px] text-ink-muted">This review’s target or Focus Points set couldn’t be matched. To start a new repeat, reopen the saved review, close the pending repeat in Progress, then choose “Practice again?”.</p>
+                                <button type="button" onClick={practiceTarget.retry} className="mr-4 mt-2 text-signature underline">Retry this target</button>
+                                <Link to={`/analytics/${encodeURIComponent(practiceTarget.sourceSessionId)}`} className="text-signature underline">Reopen saved review</Link>
+                            </>}
+                </div>
+            )}
             {sessionState === 'before' && <RestingLine />}
 
             {sessionState === 'during' && (
