@@ -153,6 +153,24 @@ describe('take-bound marker observer (#1593 case 3)', () => {
             .toBe('marked-though-never-spoken');
     });
 
+    it('Sam 3:42: a single ROW replaced before the callback keeps its pre-removal change (the rail survives); never ok-unspoken', async () => {
+        rail(['pending', 'pending']);
+        arm();
+        now = at(3);
+        const old = row(1);
+        old.setAttribute('data-status', 'partial'); // attached at mutation time
+        const clone = old.cloneNode(true) as HTMLElement;
+        clone.setAttribute('data-status', 'pending');
+        old.replaceWith(clone); // only this row is replaced; the rail survives
+        await flush();
+        const sealed = freezeMarkerObserverInPage('mo-1')!;
+        expect(sealed.railGenerations).toBe(1);
+        expect(sealed.observations[0]).toEqual({ point: 1, status: 'unknown', afterMs: at(0), observedAtMs: at(3), seq: 0, railGeneration: 1 });
+        const v = verdict(sealed.observations, [[2, 6.21], null], [false, false]);
+        expect(v[1]).not.toBe('ok-unspoken');
+        expect(markerTimingStatus(v)).not.toBe('PASS');
+    });
+
     it('an expected rail replacement is followed (new generation); a change after the removal is refused as stale', async () => {
         const old = rail(['pending', 'pending']);
         arm();
