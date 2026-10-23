@@ -271,7 +271,8 @@ export function classifyMarkerTiming(input: {
         const next = nextStart(i);
         const deadline = Math.min(window[1] + LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);
         if (hi < earliest) return `early@${bounds}`;
-        if (lo > deadline) return `late@${bounds}`;
+        // The interval is open below: a prior delivery AT the deadline puts every possible change after it (Codex P2 r4362921631).
+        if (lo >= deadline) return `late@${bounds}`;
         if (lo >= earliest && hi <= deadline) return `ok@${bounds}`;
         return lo < earliest ? `uncertain-early@${bounds}` : `uncertain-late@${bounds}`;
     });

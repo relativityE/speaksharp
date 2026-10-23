@@ -87,6 +87,30 @@ describe('take-bound marker observer (#1593 case 3)', () => {
         expect(markerTimingStatus(v)).toBe('FAIL');
     });
 
+    it('Codex P2 r4362921631: a prior delivery exactly AT the deadline makes the change definitely late, not uncertain', async () => {
+        rail(['pending', 'pending']);
+        arm();
+        await heartbeat(9.02); // the deadline itself: the change lies in (9.020, 9.300], all of it after 9.02
+        now = at(9.3);
+        row(0).setAttribute('data-status', 'covered');
+        await flush();
+        const v = verdict(freezeMarkerObserverInPage('mo-1')!.observations);
+        expect(v[0]).toBe('late@9.020..9.300');
+        expect(markerTimingStatus(v)).toBe('FAIL');
+    });
+
+    it('a change observed exactly AT the deadline is still on time (the upper bound is inclusive)', async () => {
+        rail(['pending', 'pending']);
+        arm();
+        await heartbeat(8.5);
+        now = at(9.02);
+        row(0).setAttribute('data-status', 'covered');
+        await flush();
+        const v = verdict(freezeMarkerObserverInPage('mo-1')!.observations);
+        expect(v[0]).toBe('ok@8.500..9.020');
+        expect(markerTimingStatus(v)).toBe('PASS');
+    });
+
     it('a delayed callback cannot manufacture a PASS: across the deadline the interval is uncertain, never ok', async () => {
         rail(['pending', 'pending']);
         arm();
