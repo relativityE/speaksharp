@@ -17,8 +17,9 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, type Page } from '@playwright/test';
-import type { CoachingExchange, CoachingSuggestionPair } from './coachingGenerationTap';
-import { EDGE_MAX_PROVIDER_ATTEMPTS, coachingContract, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from './rwtCoachingEvidence';
+import type { CoachingExchange, CoachingSentRequest, CoachingSuggestionPair } from './coachingGenerationTap';
+import { EDGE_MAX_PROVIDER_ATTEMPTS, buildRwtCoachingEvidenceArtifact, coachingContract, writeRwtCoachingEvidenceArtifact, type RwtCoachingTakeEvidence } from './rwtCoachingEvidence';
+import { takesDifferVerdict } from './rwtCoachingConsistency';
 
 type Verdict = 'PASS' | 'FAIL' | 'HOLD';
 type Product = 'open_mic' | 'focus_points';
@@ -190,33 +191,51 @@ export interface AdminClient {
 
 const PROMPT_METRIC_KEYS = ['wpm', 'filler_counts', 'filler_words', 'next_action_signal'] as const;
 
+export type SavedPromptObservation =
+    | { state: 'available'; saved: SavedPromptInputs; totalWords: number | null }
+    | { state: 'query_error' | 'missing' | 'expired' | 'malformed' | 'identity_mismatch' };
+
 /** The saved inputs the Edge function builds its prompt from, scoped to the run-owned account and session. */
 export async function readSavedPromptInputs(admin: AdminClient, userId: string, sessionId: string, product: Product): Promise<SavedPromptInputs | null> {
-    const { data: row, error } = await admin.from('sessions').select(`transcript, transcript_state, ${PROMPT_METRIC_KEYS.join(', ')}`)
+    const observed = await readSavedPromptObservation(admin, userId, sessionId, product);
+    return observed.state === 'available' ? observed.saved : null;
+}
+
+/** Expiry is an explicit state, never evidence that inputs or coaching were previously saved. */
+export async function readSavedPromptObservation(admin: AdminClient, userId: string, sessionId: string, product: Product): Promise<SavedPromptObservation> {
+    const { data: row, error } = await admin.from('sessions').select(`id, user_id, product, transcript, transcript_state, total_words, ${PROMPT_METRIC_KEYS.join(', ')}`)
         .eq('id', sessionId).eq('user_id', userId).maybeSingle();
-    if (error || !row || typeof row.transcript !== 'string') return null;
+    if (error) return { state: 'query_error' };
+    if (!row) return { state: 'missing' };
+    if (row.id !== sessionId || row.user_id !== userId || row.product !== product) return { state: 'identity_mismatch' };
+    if (row.transcript_state === 'expired' && row.transcript === null) return { state: 'expired' };
+    if (row.transcript_state !== 'available' || typeof row.transcript !== 'string' || !row.transcript.trim()) return { state: 'malformed' };
     const transcript = row.transcript;
     const metrics = Object.fromEntries(PROMPT_METRIC_KEYS.map((k) => [k, (row[k] ?? null) as Json])) as Record<string, Json>;
-    const transcriptState = typeof row.transcript_state === 'string' ? row.transcript_state : 'unknown';
-    if (product === 'open_mic') return { transcript, metrics, promptContext: { transcriptState, focusContext: { kind: 'none' } } };
+    const transcriptState = row.transcript_state;
+    // Evidence for the two-take consistency check only. total_words is NOT a provider prompt input.
+    const totalWords = Number.isSafeInteger(row.total_words) && Number(row.total_words) >= 0 ? Number(row.total_words) : null;
+    if (product === 'open_mic') return { state: 'available', totalWords, saved: { transcript, metrics, promptContext: { transcriptState, focusContext: { kind: 'none' } } } };
     // Mirrors the Edge function's loadFocusContext over the same tables, keyed by the run-owned session.
     const { data: objective, error: oErr } = await admin.from('objective_session').select('id, brief_id')
-        .eq('source_session_id', sessionId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    if (oErr || !objective) return null;
+        .eq('source_session_id', sessionId).eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (oErr) return { state: 'query_error' };
+    if (!objective) return { state: 'missing' };
     const [brief, points, evidence] = await Promise.all([
-        admin.from('objective_brief').select('event_goal').eq('id', objective.brief_id).maybeSingle(),
-        admin.from('objective_brief_point').select('id, label, sort_order').eq('brief_id', objective.brief_id).order('sort_order', { ascending: true }),
-        admin.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds').eq('session_id', objective.id),
+        admin.from('objective_brief').select('event_goal').eq('id', objective.brief_id).eq('user_id', userId).maybeSingle(),
+        admin.from('objective_brief_point').select('id, label, sort_order').eq('brief_id', objective.brief_id).eq('user_id', userId).order('sort_order', { ascending: true }),
+        admin.from('objective_evidence').select('brief_point_id, verdict, detected_at_seconds').eq('session_id', objective.id).eq('user_id', userId),
     ] as const);
-    if (brief.error || points.error || evidence.error) return null;
+    if (brief.error || points.error || evidence.error) return { state: 'query_error' };
     const pointRows = (points.data ?? []) as Array<{ id: string; label: string }>;
     const evidenceRows = (evidence.data ?? []) as Array<{ brief_point_id: string; verdict: string; detected_at_seconds: number | null }>;
-    if (pointRows.length === 0 || evidenceRows.length === 0) return null;
+    if (!brief.data || pointRows.length === 0 || evidenceRows.length !== pointRows.length) return { state: 'malformed' };
     const byPoint = new Map(evidenceRows.map((r) => [r.brief_point_id, r]));
     const verdicts = new Set(['detected', 'not_detected', 'unavailable']);
+    if (byPoint.size !== pointRows.length || pointRows.some((p) => typeof p.label !== 'string' || !verdicts.has(byPoint.get(p.id)?.verdict ?? ''))) return { state: 'malformed' };
     const goal = brief.data?.event_goal;
     const topic = typeof goal === 'string' ? goal : null;
-    return {
+    return { state: 'available', totalWords, saved: {
         transcript, metrics,
         promptContext: {
             transcriptState,
@@ -229,7 +248,7 @@ export async function readSavedPromptInputs(admin: AdminClient, userId: string, 
                 }),
             },
         },
-    };
+    } };
 }
 
 /** The trusted authority readback (service role), restricted to the run-owned account's row. */
@@ -238,6 +257,152 @@ export async function readAuthority(admin: AdminClient, userId: string, sessionI
     if (error || !Array.isArray(data)) return null;
     const row = (data as AuthorityReadback[]).find((r) => r.session_id === sessionId && r.user_id === userId);
     return row ?? null;
+}
+
+export type CapturedCoachingTake =
+    | { take: RwtCoachingTakeEvidence; totalWords: number | null }
+    | { hold: string }
+    | { fail: 'saved_identity_mismatch' | 'saved_evidence_changed' };
+
+/** Own every nested value: later tap/DB/DOM mutation must not rewrite an earlier observation. */
+function immutableCopy<T>(value: T): T {
+    const copy = structuredClone(value);
+    const freeze = (item: unknown): void => {
+        if (!item || typeof item !== 'object' || Object.isFrozen(item)) return;
+        Object.values(item).forEach(freeze);
+        Object.freeze(item);
+    };
+    freeze(copy);
+    return copy;
+}
+
+/** A positive witness requires an independently read SAVED pair, not the HTTP answer or the fact of expiry. */
+export function captureCoachingTake(input: {
+    identity: TakeIdentity;
+    exchanges: readonly CoachingExchange[];
+    observed: SavedPromptObservation;
+    authority: AuthorityReadback | null;
+    rendered: CoachingSuggestionPair | null;
+}): CapturedCoachingTake {
+    if (input.observed.state === 'identity_mismatch') return { fail: 'saved_identity_mismatch' };
+    if (input.observed.state !== 'available') return { hold: `saved_inputs_${input.observed.state}` };
+    const assembled = assembleTake({ ...input, saved: input.observed.saved });
+    return immutableCopy('take' in assembled ? { ...assembled, totalWords: input.observed.totalWords } : assembled);
+}
+
+/** Use the existing artifact validators for BOTH witnesses before a saved-word-count comparison can PASS. */
+export function capturedTakesDifferVerdict(first: CapturedCoachingTake, second: CapturedCoachingTake, releaseSha: string): ReturnType<typeof takesDifferVerdict> {
+    if ('fail' in first || 'fail' in second) return { status: 'FAIL', detail: 'a saved take changed or does not match its run-owned identity' };
+    if (!('take' in first) || !('take' in second)) return takesDifferVerdict(null, null, null);
+    try {
+        const artifact = buildRwtCoachingEvidenceArtifact({ releaseSha, firstTake: first.take, repeatTake: second.take });
+        const bindings = [artifact.firstTake.promptBinding.verdict, artifact.repeatTake.promptBinding.verdict];
+        if (bindings.includes('FAIL')) return { status: 'FAIL', detail: 'a captured take failed its saved-input generation binding' };
+        if (bindings.includes('HOLD')) return { status: 'HOLD', detail: 'a captured take lacks proven saved-input generation binding' };
+    } catch {
+        return { status: 'FAIL', detail: 'captured coaching failed the saved-pair or take-identity contract' };
+    }
+    const pair = (take: RwtCoachingTakeEvidence) => ({ well: take.authorityReceipt.ai_suggestions.what_worked, next: take.authorityReceipt.ai_suggestions.what_to_try_next });
+    return takesDifferVerdict(pair(first.take), pair(second.take),
+        first.totalWords === null || second.totalWords === null ? null : first.totalWords !== second.totalWords);
+}
+
+/** Read identity and visible content in ONE browser turn. A B/C transition cannot splice two different DOM states. */
+export async function readLiveCoachingPair(page: Pick<Page, 'evaluate'>, product: Product): Promise<{ sessionId: string; pair: CoachingSuggestionPair } | null> {
+    return page.evaluate((kind) => {
+        const root = document.documentElement;
+        const sessionId = root.getAttribute('data-session-persisted-id');
+        const card = document.querySelector('[data-testid="ai-suggestions-card"][data-review-state="ready"]');
+        const block = card?.querySelector('[data-testid="ai-suggestions-pair"]');
+        if (!sessionId || root.getAttribute('data-session-persisted') !== 'true' || !block || block.getClientRects().length === 0) return null;
+        const text = (id: string) => {
+            const el = block.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+            return el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' ? el.innerText.trim() : '';
+        };
+        const well = text('review-what-went-well');
+        const next = text('review-try-next');
+        return well && next ? { sessionId, pair: { version: kind === 'focus_points' ? 'gemini_coaching_focus_v1' as const : 'gemini_coaching_v1' as const, what_worked: well, what_to_try_next: next } } : null;
+    }, product);
+}
+
+/**
+ * Transient synthetic witnesses, keyed by exact session ID, not take order. Start alongside Practice again, never await
+ * a coaching result before its rapid Repeat press. An interrupted B with no positive saved/rendered witness stays HOLD;
+ * C can never stand in for B. No navigation, provider call, retry or durable write is performed by this observer.
+ */
+export function createCoachingTakeCapture(input: {
+    page: Page;
+    admin: AdminClient;
+    tap: { exchanges: readonly CoachingExchange[]; inFlight(): { sent: CoachingSentRequest }[] };
+    fixture: { key: string; kind: string; sha256?: string };
+    suiteId: string;
+    product: Product;
+    userId: string;
+    /** Injectable only for offline tests; production reads the page atomically above. */
+    readRendered?: () => Promise<{ sessionId: string; pair: CoachingSuggestionPair } | null>;
+}) {
+    const captures = new Map<string, CapturedCoachingTake>();
+    const witnesses = new Map<string, Extract<CapturedCoachingTake, { take: RwtCoachingTakeEvidence }>>();
+    const runId = `${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`;
+    const synthetic = input.fixture.kind === 'synthetic' && Boolean(input.fixture.sha256);
+    let stopped = false;
+    let disposed = false;
+    let started = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending: Promise<void> = Promise.resolve();
+    const get = (id: string | null): CapturedCoachingTake => disposed ? { hold: 'capture_disposed' }
+        : !synthetic ? { hold: 'collector_synthetic_only' }
+            : id ? captures.get(id) ?? { hold: 'saved_take_not_witnessed' } : { hold: 'saved_take_identity_unavailable' };
+    const sample = async (sessionId: string, rendered?: CoachingSuggestionPair | null): Promise<void> => {
+        if (disposed || !synthetic || ('fail' in get(sessionId))) return;
+        let captured: CapturedCoachingTake;
+        try {
+            const observed = await readSavedPromptObservation(input.admin, input.userId, sessionId, input.product);
+            const authority = observed.state === 'available' ? await readAuthority(input.admin, input.userId, sessionId) : null;
+            const previous = witnesses.get(sessionId);
+            if (previous && observed.state === 'expired') {
+                captured = previous; // Explicit, identity-checked expiry preserves only a prior positive witness.
+            } else if (previous && observed.state === 'malformed') {
+                captured = { fail: 'saved_evidence_changed' };
+            } else if (previous && observed.state === 'available') {
+                const savedBefore = previous.take.savedInputReadback;
+                const unchangedInputs = savedBefore.transcript === observed.saved.transcript && previous.totalWords === observed.totalWords
+                    && JSON.stringify(savedBefore.metrics) === JSON.stringify(observed.saved.metrics)
+                    && JSON.stringify(savedBefore.promptContext) === JSON.stringify(observed.saved.promptContext);
+                const before = previous.take.authorityReceipt;
+                const unchangedPair = authority && ['session_id', 'user_id', 'provider', 'model', 'provider_request_made', 'receipt_suggestion_sha256', 'current_suggestion_sha256', 'ai_suggestions']
+                    .every((key) => JSON.stringify(before[key as keyof typeof before]) === JSON.stringify(authority[key as keyof AuthorityReadback]));
+                captured = !unchangedInputs ? { fail: 'saved_evidence_changed' }
+                    : !authority?.ai_suggestions ? { hold: 'server_authority_readback_unavailable' }
+                        : unchangedPair ? previous : { fail: 'saved_evidence_changed' };
+            } else {
+                const shown = rendered === undefined ? await (input.readRendered?.() ?? readLiveCoachingPair(input.page, input.product)) : null;
+                captured = captureCoachingTake({
+                identity: { runId, suiteId: input.suiteId, product: input.product, fixtureName: input.fixture.key,
+                    fixtureSha256: input.fixture.sha256!, sessionId, userId: input.userId },
+                exchanges: input.tap.exchanges, observed, authority,
+                rendered: rendered === undefined ? (shown?.sessionId === sessionId ? shown.pair : null) : rendered,
+                });
+            }
+        } catch { captured = { hold: 'saved_evidence_query_error' }; }
+        if (!disposed) {
+            captures.set(sessionId, captured);
+            if ('take' in captured && !witnesses.has(sessionId)) witnesses.set(sessionId, captured);
+        }
+    };
+    const poll = (): void => {
+        if (stopped || disposed || !synthetic) return;
+        pending = (async () => {
+            const ids = new Set([...input.tap.exchanges.map((e) => e.sent.sessionId), ...input.tap.inFlight().map((e) => e.sent.sessionId)]);
+            for (const id of ids) if (id && !stopped && !disposed) await sample(id);
+        })().finally(() => { if (!stopped && !disposed) timer = setTimeout(poll, 250); });
+    };
+    return {
+        sample, get,
+        start: () => { if (!started && !stopped && !disposed) { started = true; poll(); } },
+        stop: async () => { stopped = true; clearTimeout(timer); await pending; },
+        dispose: async () => { disposed = true; stopped = true; clearTimeout(timer); captures.clear(); witnesses.clear(); await pending; },
+    };
 }
 
 export interface CoachingEvidenceOutcome {
@@ -326,6 +491,8 @@ export async function coachingPromptBindingRow(input: {
     firstRendered: CoachingSuggestionPair | null;
     releaseSha: string;
     outputDirs: readonly string[];
+    /** Prior positive witnesses; when supplied, NEVER fall back to late DB reads or another session. */
+    captured?: { get(sessionId: string | null): CapturedCoachingTake };
 }): Promise<void> {
     const { receipt, page, admin, product, userId } = input;
     if (input.fixture.kind !== 'synthetic' || !input.fixture.sha256) {
@@ -334,6 +501,20 @@ export async function coachingPromptBindingRow(input: {
     }
     const version: CoachingSuggestionPair['version'] = product === 'focus_points' ? 'gemini_coaching_focus_v1' : 'gemini_coaching_v1';
     const destination = resolvePrivateEvidenceDir(process.env.RWT_PRIVATE_EVIDENCE_DIR, forbiddenEvidenceRoots(input.outputDirs));
+    if (input.captured) {
+        const firstTake = input.captured.get(input.firstSessionId);
+        const repeatTake = input.captured.get(input.repeatSessionId);
+        if ('fail' in firstTake || 'fail' in repeatTake) {
+            receipt.row('coaching prompt binding', 'FAIL', 'a saved take changed or does not match its run-owned identity',
+                { reason: 'fail' in firstTake ? firstTake.fail : 'fail' in repeatTake ? repeatTake.fail : 'saved_identity_mismatch' });
+            return;
+        }
+        // totalWords is comparison-only evidence; it must never enter the strict artifact or provider-prompt shape.
+        const evidence = (captured: Exclude<CapturedCoachingTake, { fail: string }>) => 'take' in captured ? { take: captured.take } : captured;
+        const outcome = coachingEvidenceOutcome({ releaseSha: input.releaseSha, destination, firstTake: evidence(firstTake), repeatTake: evidence(repeatTake) });
+        receipt.row('coaching prompt binding', outcome.verdict, outcome.detail, outcome.evidence);
+        return;
+    }
     const runId = `${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`;
     const renderedFromAnalytics = async (sessionId: string) => {
         const tab = await page.context().newPage();
