@@ -125,6 +125,16 @@ test('ordinary assertion stacks and expected timeout text are not infrastructure
   }
 });
 
+test('a structured TimeoutError never qualifies as a semantic assertion', () => {
+  const report = killedReport();
+  const options = phaseFixture(report);
+  const task = options.envelope.finished.files[0].tasks.find(task => task.type === 'test' && task.result.state === 'fail');
+  task.result.errors[0].name = 'TimeoutError';
+  assert.throws(() => qualifyRawPhase(report, { status: 1 }, {
+    ...options, assertion: names[0], baselineNames: names,
+  }), /Raw collection or semantic failure mismatch/);
+});
+
 test('selects only affected registered contracts and follows transitive dependencies', () => {
   const dependencies = dependencyPaths(root, contract.testFile);
   assert.ok(dependencies.has('frontend/src/contracts/fillerEvidence.ts'));
@@ -436,7 +446,7 @@ if (process.env.TEST_EFFICACY_REAL_RUNTIME === '1') {
         if (scenario==='cleanup') setup+=`beforeEach(()=>()=>{${fail}});`;
         if (scenario==='import') setup+="import './missing-setup-dependency';";
         if (scenario==='unhandled') setup+="beforeAll(()=>{if(isValidMetric('')) process.emit('unhandledRejection',new Error('adversarial unhandled'));});";
-        if (scenario==='interruption') setup+="beforeAll(()=>{if(isValidMetric('')) process.kill(process.pid,'SIGTERM');});";
+        if (scenario==='interruption') setup+="import {writeSync} from 'node:fs';\nbeforeAll(()=>{if(isValidMetric('')) { writeSync(2,'EFFICACY_INJECTED_WORKER_SIGTERM\\n'); process.kill(process.pid,'SIGTERM'); }});";
         write('efficacy-setup.ts',setup);
         if (scenario==='ordinary') {
           const result=runTestEfficacy({root:directory,base:null});
@@ -463,7 +473,10 @@ if (process.env.TEST_EFFICACY_REAL_RUNTIME === '1') {
             const detail=JSON.stringify(error.diagnostics);
             if(scenario==='import') assert.match(detail,/missing-setup-dependency/);
             else if(scenario==='unhandled') assert.match(detail,/adversarial unhandled/);
-            else if(scenario==='interruption') assert.match(detail,/Worker exited unexpectedly|SIGTERM/);
+            else if(scenario==='interruption') {
+              assert.match(detail,/EFFICACY_INJECTED_WORKER_SIGTERM/,'the mutation must reach the intentional worker kill');
+              assert.match(detail,/Worker exited unexpectedly|SIGTERM|ERR_IPC_CHANNEL_CLOSED/,'worker interruption must be observed');
+            }
             else {
               assert.match(detail,/hook failure/);
               if(scenario==='cleanup') {
