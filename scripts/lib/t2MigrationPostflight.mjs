@@ -244,7 +244,7 @@ const T2_CATALOG_DELTAS = Object.freeze([
     "table:public.account_checkout_rejections": "48d9ce6680a25d852d831dc3c083f5c1",
     "table:public.account_closure_attestation_state": "63c485b47356e35836906773b898386e",
     "table:public.account_closure_drain_attestations": "dedb393d92ce9f268d69a1e9632f5d61",
-    "table:public.ai_suggestion_authority_receipts": "f2255e021f0773c930bc75db91338373",
+    "table:public.ai_suggestion_authority_receipts": "e594e3da4ed4bd3cb5c8bfb4b8c88c74",
     "trigger:public.user_profiles.account_closure_billing_guard": "e025d20da3a872a23a7160a4c6373020"
   },
   {
