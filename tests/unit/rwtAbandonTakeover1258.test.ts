@@ -6,11 +6,11 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     BLOCKED_COPY, CLOUD_STT_REQUEST, DISPLACED_COPY, LEAVE_PROMPT_COPY, SAME_BROWSER_TAB_COPY, STOP_FAILED_ALERT_COPY, type TabState,
     TWO_TAB_SUITE, RECOVERY_NOTICE_COPY, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, nextTakeOnlyItselfVerdict, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict, returnStartVerdict,
-    secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict, leaseRefusalWindowVerdict, modelWorkBeforeRefusal, type LeaseRefusalWindow, type ObservationClose,
+    secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict, leaseRefusalWindowVerdict, modelWorkBeforeRefusal, type LeaseRefusalWindow, type ObservationClose, pressPrivateStartForLease,
 } from '../live/helpers/rwtAbandonTakeover';
 import {
     ABANDON_CLOSE_TAB_SUITE, ABANDON_NAVIGATE_SUITE, finalizeReceipt, humanWorksheet, parseHumanWorksheet, receiptAcceptance,
@@ -21,6 +21,92 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const src = (f: string) => readFileSync(path.join(ROOT, f), 'utf8');
 const idle: TabState = { runtimeState: 'READY', recorderVisible: false, liveTracks: 0 };
 const live: TabState = { runtimeState: 'RECORDING', recorderVisible: true, liveTracks: 1 };
+
+describe('case 11 first activation waits for the cold/warm decision, never for a cold download', () => {
+    afterEach(() => vi.unstubAllGlobals());
+    function scheduledPage(states: Array<{ status: string | null; ready?: boolean; control?: string; disabled?: boolean; hidden?: boolean }>) {
+        let index = 0;
+        const clicks: string[] = [];
+        const current = () => states[index];
+        const control = () => ({
+            disabled: current().disabled === true,
+            getAttribute: (name: string) => name === 'aria-disabled' ? String(current().disabled === true) : null,
+            getClientRects: () => current().hidden ? [] : [{}],
+        });
+        vi.stubGlobal('document', {
+            documentElement: { getAttribute: (name: string) => name === 'data-model-status' ? current().status
+                : name === 'data-stt-ready' ? String(current().ready === true) : null },
+            querySelector: (selector: string) => selector === `[data-testid="${current().control}"]` ? control() : null,
+        });
+        vi.stubGlobal('getComputedStyle', () => ({ visibility: current().hidden ? 'hidden' : 'visible', display: current().hidden ? 'none' : 'block' }));
+        const page = {
+            evaluate: async (fn: () => unknown) => fn(),
+            waitForFunction: vi.fn(async (fn: () => unknown, _arg: unknown, options: { timeout: number }) => {
+                expect(options.timeout).toBe(30_000);
+                for (; index < states.length; index++) {
+                    const value = fn();
+                    if (value) return { jsonValue: async () => value, dispose: vi.fn() };
+                }
+                index = states.length - 1;
+                throw new Error('no actionable private control within the bound');
+            }),
+            getByTestId: (id: string) => ({ click: async () => {
+                expect(id).toBe(current().control);
+                expect(current().disabled).not.toBe(true);
+                clicks.push(id);
+            } }),
+        };
+        // Model readiness cannot happen on a cold device before its consent/Start press. This is the existing
+        // waitForPrivateEngineReady predicate; a readiness wait here reproduces the pre-press timeout deterministically.
+        const waitReady = vi.fn(async () => {
+            index = states.length - 1;
+            if (current().status !== 'ready' && !current().ready) throw new Error('cold model cannot become ready before Start');
+        });
+        return { page: page as never, waitReady, clicks };
+    }
+    it.each([null, 'idle'])('mode resolves before availability: %s then download-required still presses cold once', async (status) => {
+        const s = scheduledPage([{ status, control: 'mic-start' }, { status: 'download-required', control: 'mic-download' }]);
+        expect(await pressPrivateStartForLease(s.page, s.waitReady)).toBe(true);
+        expect(s.clicks).toEqual(['mic-download']);
+        expect(s.waitReady).not.toHaveBeenCalled();
+    });
+    it('a settled cold control does not wait for engine readiness', async () => {
+        const s = scheduledPage([{ status: 'download-required', control: 'mic-download' }]);
+        expect(await pressPrivateStartForLease(s.page, s.waitReady)).toBe(true);
+        expect(s.clicks).toEqual(['mic-download']); expect(s.waitReady).not.toHaveBeenCalled();
+    });
+    it('warm readiness still checks the engine then presses Start once', async () => {
+        const s = scheduledPage([{ status: 'loading', control: 'mic-start', disabled: true }, { status: 'ready', control: 'mic-start' }]);
+        expect(await pressPrivateStartForLease(s.page, s.waitReady)).toBe(false);
+        expect(s.clicks).toEqual(['mic-start']);
+        expect(s.waitReady).toHaveBeenCalledExactlyOnceWith(s.page, 30_000);
+    });
+    it.each([
+        { status: null, control: 'mic-start' }, { status: 'idle', control: 'mic-start' },
+        { status: 'error', control: 'mic-retry' }, { status: 'download-required', control: 'mic-download', disabled: true },
+        { status: 'download-required', control: 'mic-download', hidden: true }, { status: 'ready', control: 'mic-start', disabled: true },
+    ])('unresolved, failed, hidden or disabled state never starts: %j', async (state) => {
+        const s = scheduledPage([state]);
+        await expect(pressPrivateStartForLease(s.page, s.waitReady)).rejects.toThrow('no actionable private control within the bound');
+        expect(s.clicks).toEqual([]); expect(s.waitReady).not.toHaveBeenCalled();
+    });
+    it('the live caller supplies both observation windows to the first-press callback before checking refusal', () => {
+        const spec = src('tests/live/rwt-abandon-and-two-tabs.live.spec.ts');
+        const press = spec.indexOf('const coldB = await pressPrivateStartForLease(deviceB, waitForPrivateEngineReady, async () => {');
+        expect(press).toBeGreaterThan(-1);
+        expect(spec.indexOf('openedB = await deviceB.evaluate(openObservationWindow')).toBeGreaterThan(press);
+        expect(press).toBeLessThan(spec.indexOf('const refusalShownB = deviceB.getByText(BLOCKED_COPY)'));
+    });
+    it('opens observation after delayed availability settles, before the single actual cold press', async () => {
+        const s = scheduledPage([{ status: 'idle', control: 'mic-start' }, { status: 'download-required', control: 'mic-download' }]);
+        const open = vi.fn(async () => {
+            expect(document.documentElement.getAttribute('data-model-status')).toBe('download-required');
+            expect(s.clicks).toEqual([]);
+        });
+        await pressPrivateStartForLease(s.page, s.waitReady, open);
+        expect(open).toHaveBeenCalledOnce(); expect(s.clicks).toEqual(['mic-download']);
+    });
+});
 
 describe('releasedVerdict — leaving ends the recording and the microphone', () => {
     it('nothing records and no track is live → PASS', () => { expect(releasedVerdict(idle, 'after leaving').status).toBe('PASS'); });
@@ -346,7 +432,7 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
     it('#1593 case 11: on a cold device the first press IS the Start the lease decides — never the download-only setup helper', () => {
         const deviceStart = spec.indexOf('await owner.signInOn(deviceB);');
         const device = spec.slice(deviceStart, spec.indexOf("receipt.row('another device is refused by the account lease'", deviceStart));
-        expect(device, 'the cold control is pressed as the Start').toContain("await deviceB.getByTestId('mic-download').click();");
+        expect(device, 'the first control is selected at the bounded activation boundary').toContain('const coldB = await pressPrivateStartForLease(deviceB, waitForPrivateEngineReady, async () => {');
         expect(device, 'no download-only helper on device B').not.toContain('preparePrivateModelIfPrompted(deviceB');
         // Sam, #1662 RETURN: the first press is refused within a bounded window and BEFORE any model work.
         expect(device).toContain('const refusedInTime = await refusalShownB.waitFor({ timeout: 30_000 })');
@@ -354,7 +440,7 @@ describe('guards — the spec, the acceptance map and the product copy stay in s
         // the whole refused window (leaseRefusalWindowVerdict applies modelWorkBeforeRefusal to it), not a frozen snapshot.
         expect(device).toContain('const refusal = leaseRefusalWindowVerdict({');
         expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);'), 'history observed before the first press').toBeGreaterThan(-1);
-        expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);')).toBeLessThan(device.indexOf("await deviceB.getByTestId('mic-download').click();"));
+        expect(device.indexOf('await deviceB.evaluate(installModelStatusHistory);')).toBeGreaterThan(device.indexOf('const coldB = await pressPrivateStartForLease(deviceB, waitForPrivateEngineReady, async () => {'));
         expect(spec, 'a refusal after model work is never a PASS: the row is the whole-window verdict').toContain("receipt.row('another device is refused by the account lease', refusal.status, refusal.detail");
         expect(device, 'no 900 s wait for the first refusal').not.toMatch(/refusalShownB\.waitFor\(\{ timeout: coldB \? 900_000/);
         const takeOver = spec.slice(spec.indexOf("// The person's explicit second press is the take-over"));
@@ -477,7 +563,7 @@ describe('#1593 case 11 — the lease refusal is judged over its WHOLE window (S
         const spec = readFileSync(path.join(ROOT, 'tests/live/rwt-abandon-and-two-tabs.live.spec.ts'), 'utf8');
         const openA = spec.indexOf('await tabA.evaluate(openObservationWindow');
         const openB = spec.indexOf('await deviceB.evaluate(openObservationWindow');
-        const press = spec.indexOf("await deviceB.getByTestId('mic-download').click();");
+        const press = spec.indexOf('\n            });', openB); // completion of the awaited first-press helper
         const arm = spec.indexOf('await deviceB.evaluate(armTakeoverGesture');
         // The take-over's own click (the return retry earlier in the file has its own revocation).
         const takeover = spec.indexOf("await deviceB.locator('[data-testid=\"mic-start\"], [data-testid=\"mic-download\"]').first().click();");
