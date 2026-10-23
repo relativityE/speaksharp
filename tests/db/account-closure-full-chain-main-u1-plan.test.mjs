@@ -14,6 +14,12 @@ const U1 = Object.freeze({ name: '20261019010000_heartbeat_session_cap_keeps_tak
   version: '20261019010000', sha256: 'df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45' });
 const ANALYTICS=Object.freeze({name:'20261018090000_analytics_summary_observed_filler_rate_1472.sql',
   version:'20261018090000',sha256:'72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f'});
+const ACCOUNT = [
+  {name:'20261018170000_account_closure_pending_checkout.sql',version:'20261018170000',sha256:'68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19'},
+  {name:'20261019055102_account_pending_recording_admission_1643.sql',version:'20261019055102',sha256:'e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4'},
+  {name:'20261019202856_account_coaching_admission_1643.sql',version:'20261019202856',sha256:'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e'},
+  {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'76bffe1f7dc15efe487cd33faffbfd8d1b6c654a7b09508d427e53b4b88d83cf'},
+];
 const baseTuplesSha256 = '601403209858cc31dba0f9125b1feebd535827d7e4bed469e2458e6ff7cda2b0';
 const drain = '20261016180000_account_closure_drain_enforcement.sql';
 const recovery = '20261017200000_checkout_rejection_recovery.sql';
@@ -21,9 +27,10 @@ const physical = readdirSync(join(root, 'backend/supabase/migrations')).filter(n
   name, version: name.match(/^(\d{8}|\d{14})_.+\.sql$/)?.[1] ?? null,
   sha256: hash(readFileSync(join(root, 'backend/supabase/migrations', name))),
 }));
-const main = physical.filter(row => row.name !== U1.name && row.name !== ANALYTICS.name);
+const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name)].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
+const fullReceiving=[...analyticsReceiving,...ACCOUNT].sort((a,b)=>a.name.localeCompare(b.name,'en'));
 const versionsWithout = names => receiving.filter(row => row.version !== null && !names.includes(row.name)).map(row => row.version);
 
 test('frozen independent main identity and exact physical source count', () => {
@@ -78,7 +85,7 @@ test('Analytics explicit122 orders original118/119/120 then Analytics121 then U1
   ]);
   assert.equal(plan.stages[3].versions.at(-1),ANALYTICS.version);
   assert.equal(plan.stages[4].versions.at(-1),U1.version);
-  assert.deepEqual(physical,analyticsReceiving);
+  assert.deepEqual(plan.stages.at(-1).versions,analyticsReceiving.filter(r=>r.version!==null).map(r=>r.version));
 });
 test('Analytics bytes are independently pinned and legacy120/U1121 profiles refuse them',()=>{
   assert.equal(parseMainProofArguments(['--profile=main-analytics-u1-122']).profile,'main-analytics-u1-122');
@@ -89,12 +96,48 @@ test('Analytics bytes are independently pinned and legacy120/U1121 profiles refu
 });
 test('Analytics runtime staging and same SQL oracle run before AND after U1',()=>{
   const driver=read('tests/db/account-closure-full-chain.mjs');
-  const analytics=driver.indexOf("if(args.profile==='main-analytics-u1-122')");
+  const analytics=driver.indexOf('if(hasAnalytics) {');
   const u1=driver.indexOf("if (args.profile !== 'main-120')");
   assert.ok(analytics>driver.indexOf("console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED')"));
   assert.ok(u1>analytics);
   assert.ok(driver.slice(analytics,u1).includes('verifyAnalytics()'));
-  assert.ok(driver.slice(u1).includes("if(args.profile==='main-analytics-u1-122') verifyAnalytics()"));
+  assert.ok(driver.slice(u1).includes('if(hasAnalytics) verifyAnalytics()'));
+});
+test('complete126 pins actual source and orders pending before U1, completion last',()=>{
+  assert.deepEqual(physical,fullReceiving);
+  const plan=buildMainU1ReplayPlan(fullReceiving,'main-t2-account-126');
+  assert.equal(plan.migrations,126);
+  assert.equal(plan.executed,false);
+  assert.deepEqual(plan.stages.slice(0,3),buildMainU1ReplayPlan(main).stages);
+  assert.deepEqual(plan.stages.slice(3).map(s=>[s.name,s.versions.length,s.versions.at(-1)]),[
+    ['analytics-observed-rate',121,ANALYTICS.version],
+    ['account-pending',122,ACCOUNT[0].version],
+    ['heartbeat-u1',123,U1.version],
+    ['recording-admission',124,ACCOUNT[1].version],
+    ['coaching-admission',125,ACCOUNT[2].version],
+    ['account-completion',126,ACCOUNT[3].version],
+  ]);
+  for(let i=1;i<plan.stages.length;i++) {
+    const before=plan.stages[i-1].versions, after=plan.stages[i].versions;
+    assert.deepEqual(after.slice(0,-1),before,'each checkpoint adds exactly its next chronological migration');
+  }
+  assert.equal(parseMainProofArguments(['--profile=main-t2-account-126']).profile,'main-t2-account-126');
+  for(const profile of ['main-120','main-u1-121','main-analytics-u1-122'])
+    assert.throws(()=>buildMainU1ReplayPlan(fullReceiving,profile),/unreviewed migration/);
+});
+for(const member of fullReceiving) {
+  test('complete126 refuses missing reviewed member: '+member.name,()=>{
+    assert.throws(()=>buildMainU1ReplayPlan(fullReceiving.filter(r=>r.name!==member.name),'main-t2-account-126'),/reviewed migration missing/);
+  });
+  test('complete126 refuses changed reviewed digest: '+member.name,()=>{
+    assert.throws(()=>buildMainU1ReplayPlan(fullReceiving.map(r=>r.name===member.name?{...r,sha256:'0'.repeat(64)}:r),'main-t2-account-126'),/reviewed migration digest changed/);
+  });
+}
+test('complete126 refuses aliases, duplicate rows and unrelated additions',()=>{
+  const profile='main-t2-account-126';
+  assert.throws(()=>buildMainU1ReplayPlan([...fullReceiving,ACCOUNT[0]],profile),/duplicate migration name/);
+  assert.throws(()=>buildMainU1ReplayPlan([...fullReceiving,{...ACCOUNT[0],name:ACCOUNT[0].version+'_alias.sql'}],profile),/duplicate migration version/);
+  assert.throws(()=>buildMainU1ReplayPlan([...fullReceiving,{name:'20261022000000_unreviewed.sql',version:'20261022000000',sha256:'a'.repeat(64)}],profile),/unreviewed migration/);
 });
 for(const member of analyticsReceiving) {
   test('Analytics122 refuses missing reviewed member: '+member.name,()=>{
@@ -190,7 +233,7 @@ for (const { path, sha256 } of unchangedProofs) test('original proof/helper unch
 test('U1 is excluded from initial staging and all four final proof layers remain explicit', () => {
   const driver = read('tests/db/account-closure-full-chain.mjs');
   const replay = driver.indexOf("if (args.profile !== 'main-120')");
-  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name].includes(name)'));
+  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name)].includes(name)'));
   const final = driver.slice(replay, driver.indexOf('} catch (error)', replay));
   assert.ok(replay > driver.indexOf("console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED')"));
   for (const token of [
@@ -208,15 +251,56 @@ test('U1 is excluded from initial staging and all four final proof layers remain
   assert.ok(driver.includes('if (primaryError || cleanupError) throw primaryError ?? cleanupError'));
 });
 
-test('existing workflow collects new Node tests and explicitly selects Analytics/U1 on replay AND cleanup', () => {
+test('existing workflow collects new Node tests and explicitly selects complete126 on replay AND cleanup', () => {
   const workflow = read('.github/workflows/account-closure-full-chain-proof.yml');
   const collection = workflow.indexOf('run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs');
   assert.ok(collection > workflow.indexOf('actions/setup-node@v6'));
   assert.ok(collection < workflow.indexOf('supabase/setup-cli@v2'));
-  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=main-analytics-u1-122'));
-  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-analytics-u1-122'));
+  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=main-t2-account-126'));
+  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-t2-account-126'));
   assert.ok(workflow.includes('node tests/db/account-closure-concurrency-realpg.mjs'));
   assert.ok(workflow.includes('node tests/db/account-closure-attestation-realpg.mjs'));
   assert.ok(workflow.includes('if: always()'));
   assert.ok(workflow.includes('retention-days: 1'));
+});
+const accountProofs=[
+  ['account-closure-pending-invariants.sql','e5224ecfb1009f244becac340486fe5ffeb545c21d2478df9f4c9f5f4040435f'],
+  ['account-recording-admission-invariants.sql','5f919425355e10b6c06470ff78538e6929b5fc733f34ee72eae7b53fde2cda14'],
+  ['account-coaching-admission-invariants.sql','b12464b760b6f6206f6f4449bc8cb5b0991ee59ee6771c6ca09b16c1d84f88e9'],
+  // Hosted126 run39653894287 rejected the old synthetic-control next action.
+  // Preserve that casualty as a negative control; use a valid structured action
+  // for the positive save. Migration bytes and all other oracle pins are unchanged.
+  // Native126 run39667772634 reached the real Storage direct-delete guard.
+  // Preserve its denial; exact synthetic cleanup temporarily uses Storage's local opt-in.
+  ['account-completion-full-chain-invariants.sql','29f01cf2178fdf8ceafd512bbb5622ebcaa37b75ded65ae740373c76701c29b9'],
+];
+for(const [file,sha] of accountProofs) test('pins exact reviewed account oracle or bounded fixture successor: '+file,()=>{
+  assert.equal(hash(readFileSync(join(root,'tests/db',file))),sha);
+  assert.ok(read('.github/workflows/account-closure-full-chain-proof.yml').includes("'tests/db/"+file+"'"));
+});
+test('complete126 reuses existing substantive account proofs and verifies disabled rollout/residue',()=>{
+  const driver=read('tests/db/account-closure-full-chain.mjs');
+  const pending=driver.indexOf("applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[0]");
+  const u1=driver.indexOf("if (args.profile !== 'main-120')");
+  const recording=driver.indexOf("applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[1]");
+  const coaching=driver.indexOf("applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[2]");
+  const completion=driver.indexOf('const completion=MAIN_T2_ACCOUNT_MIGRATIONS[3]');
+  assert.ok(pending<u1 && u1<recording && recording<coaching && coaching<completion);
+  for(const [file] of accountProofs) assert.ok(driver.includes("'tests/db/"+file+"'"));
+  assert.ok(driver.includes("'-v', 'ON_ERROR_STOP=1'"));
+  for(const token of ['completion leaked into an earlier account checkpoint',
+    'completion proof must restore disabled configuration','synthetic coverage escaped rollback',
+    'completion fixture Auth residue','completion fixture storage residue','completion fixture table escaped rollback'])
+    assert.ok(driver.includes(token),token);
+});
+
+test('real Storage guard readback is retained with image and SQL identity before completion execution',()=>{
+  const driver=read('tests/db/account-closure-full-chain.mjs');
+  const receipt=driver.indexOf("writeFileSync(join(evidence,'storage-delete-guard.json')");
+  const execution=driver.indexOf('const completionProof=sql(');
+  assert.ok(receipt>driver.indexOf("'functionDefinition',pg_get_functiondef(p.oid)"));
+  assert.ok(receipt<execution);
+  const binding=driver.slice(receipt,execution);
+  for(const token of ["'database-image.json'",'completionSqlSha256','trigger.enabled',"trigger.type===10"])
+    assert.ok(binding.includes(token),token);
 });

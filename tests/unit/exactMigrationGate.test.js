@@ -19,7 +19,9 @@ import {
     validateExactMigrationAllowlist,
     verifyMigrationSourceIdentity,
     verifyExactMigrationWorkspace,
+    TARGET_POSTFLIGHT_GATES,
 } from '../../scripts/lib/exactMigrationGate.mjs';
+import yaml from 'js-yaml';
 
 const matched = ' 20260810120000 | 20260810120000 | 2026-08-10 12:00:00';
 const heldPending = ' 20260811143000 |                | 2026-08-11 14:30:00';
@@ -28,6 +30,39 @@ const targetApplied = ' 20260812002000 | 20260812002000 | 2026-08-12 00:20:00';
 const PRIOR_FILE = '20260810120000_prior.sql';
 const TARGET_BYTES = '-- target\n';
 const PRIOR_BYTES = '-- prior\n';
+
+const t2Versions = ['20261018090000','20261018170000','20261019010000',
+    '20261019055102','20261019202856','20261020230653'];
+describe('six-target T2 exact-operation enforcement', () => {
+    it.each(t2Versions)('requires the named %s postflight and refuses missing/skipped/wrong evidence', version => {
+        const targetFile = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file;
+        const outcomes = Object.fromEntries(TARGET_POSTFLIGHT_GATES.map(gate => [gate.id,'skipped']));
+        const base = { apply:'success',verify:'success',lint:'success',targetFile };
+        const key = `postflight_${version}`;
+        for (const value of [undefined, '', 'skipped', 'failure', 'cancelled']) {
+            expect(() => assertTerminalOutcome({ ...base, postflights:{ ...outcomes,[key]:value } })).toThrow();
+        }
+        expect(() => assertTerminalOutcome({ ...base,postflights:{ ...outcomes,[key]:'success' } })).not.toThrow();
+        const wrong = t2Versions.find(other => other !== version);
+        expect(() => assertTerminalOutcome({ ...base,postflights:{ ...outcomes,[key]:'success',[`postflight_${wrong}`]:'success' } })).toThrow();
+    });
+    it('wires all exact targets through pre-apply catalog checks, named after checks, and terminal outcomes', () => {
+        const workflow = yaml.load(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml','utf8'));
+        const steps = Object.values(workflow.jobs).find(job => job.steps?.some(step => step.id === 'apply')).steps;
+        const before = steps.findIndex(step => step.run?.includes('node scripts/t2-migration-postflight.mjs before'));
+        expect(before).toBeGreaterThan(-1);
+        expect(before).toBeLessThan(steps.findIndex(step => step.id === 'apply'));
+        expect(steps[before]['continue-on-error']).not.toBe(true);
+        const terminal = steps.find(step => step.id === 'terminal').run;
+        for (const version of t2Versions) {
+            expect(workflow.on.workflow_dispatch.inputs.target_version.options).toContain(version);
+            const after = steps.find(step => step.id === `postflight_${version}`);
+            expect(after.run).toContain(`node scripts/t2-migration-postflight.mjs after '${version}'`);
+            expect(after.if).toContain("steps.apply.outcome == 'success'");
+            expect(terminal).toContain(`postflight_${version}=`);
+        }
+    });
+});
 
 function createWorkspaceFixture() {
     const fixture = mkdtempSync(join(tmpdir(), 'exact-migration-workspace-'));
@@ -364,7 +399,7 @@ describe('exact migration gate', () => {
         });
     });
 
-    it('enforces staged dependency order, one-row history delta, and target-only visibility for all six targets', () => {
+    it('enforces staged dependency order, one-row history delta, and target-only visibility for every allowlisted target', () => {
         const appliedWebhook = ' 20260812002000 | 20260812002000 | applied';
         const dependencyViolations = [];
         for (const [targetIndex, target] of EXACT_MIGRATION_ALLOWLIST.entries()) {

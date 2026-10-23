@@ -40,11 +40,13 @@ const mkSupabase = (rpcResult: any = { data: { success: true, entitlement: "pro"
 const req = (event: any) => new Request("http://localhost", { method: "POST", headers: { "Stripe-Signature": "mock" }, body: JSON.stringify(event) });
 
 Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
-  await t.step('checkout completion retries unfinished operation settlement even on a duplicate snapshot',async()=>{
+  await t.step('reserved checkout completion atomically applies snapshot and settlement; failed duplicate stays retryable',async()=>{
     const names:string[]=[];
     const database={rpc:async(name:string,args:Record<string,unknown>)=>{names.push(name);
-      if(name==='settle_account_checkout') {
+      if(name==='apply_account_checkout_snapshot') {
         assertEquals(args.p_operation_id,'operation');
+        assertEquals(args.p_session_id,'cs');
+        assertEquals(args.p_user_id,'user_1');
         return {data:null,error:{message:'fenced'}};
       }
       return {data:{success:true,skipped:true},error:null};
@@ -53,7 +55,40 @@ Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
       client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
       mkStripe(),database,'secret',env);
     assertEquals(res.status,500);
-    assertEquals(names,['apply_stripe_subscription_snapshot','settle_account_checkout']);
+    assertEquals(names,['apply_account_checkout_snapshot']);
+  });
+  await t.step('reserved checkout duplicate succeeds through one atomic canonical wrapper',async()=>{
+    const names:string[]=[];
+    const database={rpc:async(name:string,args:Record<string,unknown>)=>{
+      names.push(name); assertEquals(args.p_customer_id,'cus_1'); assertEquals(args.p_subscription_id,'sub_1');
+      return {data:{success:true,skipped:true},error:null};
+    }};
+    const res=await handler(req({id:'duplicate',type:'checkout.session.completed',data:{object:{id:'cs',
+      client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
+      mkStripe(),database,'secret',env);
+    assertEquals(res.status,200); assertEquals(names,['apply_account_checkout_snapshot']);
+  });
+  await t.step('Edge deployed before successor schema preserves reserved checkout through the legacy RPCs',async()=>{
+    const names:string[]=[];
+    const database={rpc:async(name:string,args:Record<string,unknown>)=>{
+      names.push(name);
+      if(name==='apply_account_checkout_snapshot') return {data:null,error:{code:'PGRST202',message:'function absent from schema cache'}};
+      if(name==='settle_account_checkout') assertEquals(args.p_operation_id,'operation');
+      return {data:{success:true},error:null};
+    }};
+    const res=await handler(req({id:'pre_schema',type:'checkout.session.completed',data:{object:{id:'cs',
+      client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
+      mkStripe(),database,'secret',env);
+    assertEquals(res.status,200);
+    assertEquals(names,['apply_account_checkout_snapshot','apply_stripe_subscription_snapshot','settle_account_checkout']);
+  });
+  await t.step('ambiguous atomic RPC failure never retries through legacy mutations',async()=>{
+    const names:string[]=[];
+    const database={rpc:async(name:string)=>{names.push(name);return {data:null,error:{code:'08006',message:'reply lost'}};}};
+    const res=await handler(req({id:'lost_reply',type:'checkout.session.completed',data:{object:{id:'cs',
+      client_reference_id:'user_1',metadata:{userId:'user_1',billingOperationId:'operation'},subscription:'sub_1',customer:'cus_1'}}}),
+      mkStripe(),database,'secret',env);
+    assertEquals(res.status,500); assertEquals(names,['apply_account_checkout_snapshot']);
   });
   await t.step("checkout.session.completed with an active, correctly-priced sub → snapshot with user binding", async () => {
     const sb = mkSupabase();

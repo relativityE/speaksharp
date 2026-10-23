@@ -45,6 +45,24 @@ const appliedLedger = (...versions) => LEDGER.split('\n').map((line) => {
 const fileOf = (version) => readdirSync(resolve(SUPABASE, 'migrations')).find((f) => f.startsWith(`${version}_`));
 
 describe('exact apply route — the ordered queue against the real 2026-09-23 ledger', () => {
+    it.each(['20261018090000','20261018170000','20261019010000','20261019055102','20261019202856','20261020230653'])(
+        'T2 %s preserves applied activation and changes only its selected ledger row', version => {
+            const index = EXACT_MIGRATION_ALLOWLIST.findIndex(row => row.version === version);
+            const previous = EXACT_MIGRATION_ALLOWLIST.slice(0,index).map(row => row.version);
+            const before = appliedLedger(...previous);
+            const config = cfg(version);
+            expect(config.requiresIncludeAll).toBe(false);
+            expect(assertBeforeApply(before,config).pending).toContain(version);
+            expect(assertBeforeApply(before,config).excludedVersions).not.toContain(ACTIVATION);
+            expect(assertAfterApply(before,appliedLedger(...previous,version),config).appliedDelta)
+                .toBe(`${version}:pending->applied`);
+            const next = EXACT_MIGRATION_ALLOWLIST[index+1].version;
+            const wrongAfter = next === ACTIVATION
+                ? appliedLedger(...previous,version).replace(new RegExp(`(^\\s*${ACTIVATION}\\s*\\|)\\s*${ACTIVATION}(\\s*\\|)`, 'm'), '$1                $2')
+                : appliedLedger(...previous,version,next);
+            expect(() => assertAfterApply(before,wrongAfter,config)).toThrow();
+            expect(() => assertBeforeApply(appliedLedger(...previous.slice(0,-1)),config)).toThrow();
+        });
     it('the fixture is the real shape: #1432 and #1469 pending, activation recorded APPLIED', () => {
         expect(LEDGER).toMatch(new RegExp(`^\\s*${RECEIPT_1432}\\s*\\|\\s*\\|`, 'm'));
         expect(LEDGER).toMatch(new RegExp(`^\\s*${ELIGIBILITY_1469}\\s*\\|\\s*\\|`, 'm'));

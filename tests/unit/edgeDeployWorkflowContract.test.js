@@ -12,6 +12,23 @@ const wf = yaml.load(readFileSync(resolve(process.cwd(), '.github/workflows/depl
 const jobs = wf.jobs;
 
 describe('deploy-supabase-migrations Edge deploy/readback job conditions', () => {
+  it('fails closed on missing T2 schema before invalidation and publication', () => {
+    const prerequisite = jobs['verify-t2-database-prerequisites'];
+    expect(prerequisite.needs).toBe('validate-edge-configuration');
+    expect(prerequisite.if).toContain('inputs.deploy_production == true');
+    expect(prerequisite.steps.some(step => step.run?.includes('node scripts/t2-migration-postflight.mjs verify release'))).toBe(true);
+    for (const name of ['invalidate-account-closure-authority', 'deploy-edge-functions']) {
+      expect(jobs[name].needs).toContain('verify-t2-database-prerequisites');
+      expect(jobs[name].if).toContain("needs.verify-t2-database-prerequisites.result == 'success'");
+      expect(jobs[name].if).not.toContain("needs.verify-t2-database-prerequisites.result == 'skipped'");
+    }
+    const steps = jobs['deploy-edge-functions'].steps;
+    const check = steps.findIndex(step => step.run?.includes('node scripts/t2-migration-postflight.mjs verify release'));
+    const mutation = steps.findIndex(step => step.name === 'Deploy Edge Functions');
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(mutation);
+    expect(prerequisite.steps.find(step => step.run?.includes('t2-migration-postflight')).run).toContain('assert-db-connectivity-tls.sh');
+  });
   it('rechecks current qualified main before both drain invalidation and Edge mutation', () => {
     for (const name of ['invalidate-account-closure-authority', 'deploy-edge-functions', 'deploy-production-db']) {
       expect(jobs[name].steps.some((step) => step.run === 'node scripts/production-release-policy.mjs authorize')).toBe(true);
