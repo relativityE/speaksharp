@@ -12,6 +12,50 @@ import { checkoutRejectionQuery, assertCheckoutRejection } from '../../scripts/l
 import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage, proofPostgresVersion, proofSubprocessFailure } from './account-closure-full-chain-diagnostics.mjs';
 
 import { pathToFileURL } from 'node:url';
+import { createNativeT2CatalogProof } from './t2-native-catalog-proof.mjs';
+import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
+
+// P5 diagnostic: the same catalog query with its three per-object md5 wrappers removed, so a mismatched pin can be
+// compared field by field (names, types, constraints, policies, ACL roles; no rows). Diagnostic only — never a verdict.
+export function t2ExpandedCatalogQuery(inventory) {
+  const hashed = t2CatalogQuery(inventory);
+  const wrappers = hashed.split('md5(').length - 1;
+  assert.equal(wrappers, 3, `expected exactly 3 per-object md5 wrappers, found ${wrappers}`);
+  return hashed.replaceAll('md5(', '(');
+}
+
+// Wraps the proof's record: on a pin mismatch, retain the un-hashed object for that key, then rethrow the ORIGINAL
+// error. Neither a failing query nor a failing write may replace it (Sam RETURN on 40dfd6b7: the write sat outside
+// the guard). Anything other than a pin mismatch is rethrown untouched, with no diagnostic.
+export function withExpandedCatalogDiagnostic(record, { sql, write, inventory, warn = message => console.error(message) }) {
+  return stage => {
+    try {
+      return record(stage);
+    } catch (error) {
+      const key = /^T2 catalog mismatch: (.+)$/.exec(error instanceof Error ? error.message : '')?.[1];
+      if (key) {
+        let diagnostic;
+        try {
+          const expanded = JSON.parse(sql(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL search_path=public,pg_temp;
+${t2ExpandedCatalogQuery(inventory)}
+COMMIT;`));
+          diagnostic = { stage, key, object: key in expanded ? JSON.parse(expanded[key]) : null };
+        } catch (diagnosticError) {
+          diagnostic = { stage, key, object: null, diagnosticError: String(diagnosticError?.message ?? diagnosticError).slice(0, 300) };
+        }
+        try {
+          write(diagnostic);
+        } catch (writeError) {
+          try {
+            warn(`T2 expanded catalog diagnostic not retained: ${String(writeError?.message ?? writeError).slice(0, 200)}`);
+          } catch { /* A failing warning must not mask the mismatch either. */ }
+        }
+      }
+      throw error;
+    }
+  };
+}
 
 /** Frozen independently reviewed main99585 + optional U1 bytes. No directory-driven profile selection. */
 export const MAIN_MIGRATION_SNAPSHOT = Object.freeze([
@@ -781,6 +825,7 @@ export function runMainClosureProof() {
   let primaryError;
   let cleanupError;
   let realSupabaseSchema = false;
+  let nativeT2Catalog;
   let subnet;
   const cli = (args) => run('supabase', [...args, '--workdir', stage]);
   const sql = (text) => run('docker', ['exec', '-i', containerName, 'psql', '-X', '-qAt', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], {
@@ -838,6 +883,21 @@ export function runMainClosureProof() {
       'supautilsVersionSetting',current_setting('supautils.version',true),
       'extensions',(SELECT json_agg(json_build_object('name',extname,'version',extversion) ORDER BY extname) FROM pg_extension))::text;`));
     writeFileSync(join(evidence, 'database-version.json'), JSON.stringify(databaseVersion, null, 2));
+    if (completeT2) nativeT2Catalog = createNativeT2CatalogProof({ sql,
+      sources: Object.fromEntries(manifest.filter(row => T2_VERSIONS.includes(row.version))
+        .map(row => [row.version, readFileSync(join(root, row.name), 'utf8')])),
+      identity: { profile: args.profile, environment: 'disposable',
+        testedCommit: run('git', ['rev-parse', 'HEAD']), requestedHead: process.env.PROOF_HEAD_SHA,
+        treeClean: run('git', ['status', '--porcelain']) === '', selectedPostgresVersion: postgresVersion,
+        ownedContainer: containerName, imageDigest: proofPostgresImage(postgresVersion).repositoryDigest },
+      retain: receipt => writeFileSync(join(evidence, 't2-native-catalog.json'), JSON.stringify(receipt, null, 2)),
+    });
+    // On a pin mismatch, retain the un-hashed object for that key from this same disposable database; the run still
+    // fails exactly as before.
+    if (nativeT2Catalog) nativeT2Catalog.record = withExpandedCatalogDiagnostic(nativeT2Catalog.record.bind(nativeT2Catalog), {
+      sql, inventory: T2_INVENTORY,
+      write: diagnostic => writeFileSync(join(evidence, 't2-native-catalog-expanded.json'), JSON.stringify(diagnostic, null, 2)),
+    });
     assert.equal(Math.floor(Number(sql("SELECT current_setting('server_version_num');")) / 10000), 17);
     assert.deepEqual(history(), plan.stages[0].versions, 'baseline replay is incomplete');
     verifyEnforcement('before');
@@ -874,6 +934,7 @@ export function runMainClosureProof() {
     assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('c3333333-3333-4333-8333-333333333333','c4444444-4444-4444-8444-444444444444')"), '0', 'rejection fixture residue');
     verifyEnforcement('after');
     console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED');
+    nativeT2Catalog?.record(0); // Native main120, before any of the six T2 targets.
     const verifyAnalytics=()=>{
       const proof=sql(readFileSync('tests/db/analytics-observed-rate-full-chain.sql','utf8'));
       assert.ok(proof.includes('ANALYTICS OBSERVED RATE FULL-CHAIN INVARIANTS PASSED'),'Analytics proof marker absent');
@@ -892,6 +953,7 @@ export function runMainClosureProof() {
       cpSync(join(root,row.name),join(directory,'migrations',row.name));
       cli(['migration','up','--local']);
       assert.deepEqual(history(),plan.stages.find(stage=>stage.name===row.stage).versions,'account stage history is incomplete: '+row.stage);
+      nativeT2Catalog?.record(T2_VERSIONS.indexOf(row.version) + 1);
       if(row.stage!=='account-completion') assertCompletionAbsent();
       const output=sql(readFileSync(proofFile,'utf8')+"\nSELECT '"+marker+"';");
       assert.ok(output.includes(marker),'account stage proof marker absent: '+row.stage);
@@ -902,6 +964,7 @@ export function runMainClosureProof() {
       cpSync(join(root,MAIN_ANALYTICS_MIGRATION.name),join(directory,'migrations',MAIN_ANALYTICS_MIGRATION.name));
       cli(['migration','up','--local']);
       assert.deepEqual(history(),plan.stages.find(stage=>stage.name==='analytics-observed-rate').versions,'Analytics history is incomplete');
+      nativeT2Catalog?.record(1);
       verifyAnalytics();
       verifyEnforcement('after');
       assertCheckoutRejection(sql(checkoutRejectionQuery('after',readFileSync(join(root,recovery),'utf8'))),'after');
@@ -918,6 +981,7 @@ export function runMainClosureProof() {
       cpSync(join(root, MAIN_U1_MIGRATION.name), join(directory, 'migrations', MAIN_U1_MIGRATION.name));
       cli(['migration', 'up', '--local']);
       assert.deepEqual(history(), plan.stages.find(stage=>stage.name==='heartbeat-u1').versions, 'U1 history is incomplete');
+      nativeT2Catalog?.record(3);
       // Pending intentionally replaces checkout bodies. Preserve exact catalog
       // fingerprints on120/121/122;126 uses the same substantive recovery SQL below.
       if(!completeT2) {
@@ -944,6 +1008,7 @@ export function runMainClosureProof() {
       cpSync(join(root,completion.name),join(directory,'migrations',completion.name));
       cli(['migration','up','--local']);
       assert.deepEqual(history(),plan.stages.find(stage=>stage.name===completion.stage).versions,'completion history is incomplete');
+      nativeT2Catalog.record(6);
       // Catalog metadata only, bound to the immutable image already verified above.
       // Retain it before completion SQL, including when that SQL later fails.
       const storageGuard=JSON.parse(sql(`SELECT json_build_object(
@@ -968,6 +1033,7 @@ export function runMainClosureProof() {
       assert.equal(sql("SELECT count(*) FROM storage.buckets WHERE id='closure-completion-proof'"),'0','completion fixture storage residue');
       assert.equal(sql("SELECT to_regclass('public.completion_chain_residue_fixture') IS NULL"),'t','completion fixture table escaped rollback');
       verifyAnalytics();
+      nativeT2Catalog.finish(); // No PASS without all seven actual native readbacks.
       console.log('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED');
     }
   } catch (error) {
@@ -991,6 +1057,7 @@ export function runMainClosureProof() {
       candidate: migrations.at(-1), migrations: migrations.length, realSupabaseSchema,
       profile: args.profile, stagedVersions: plan.stages,
       testedCommit: run('git', ['rev-parse', 'HEAD']), requestedHead: process.env.PROOF_HEAD_SHA,
+      t2NativeCatalog: nativeT2Catalog?.report() ?? null,
       providerProof: false, cleanupVerified: !cleanupError,
       selectedPostgresVersion: postgresVersion, imageComparisonOnly: postgresVersion === '17.6.1.106', productionRepresentativenessVerified: false,
       error: primaryError?.message, cleanupError: cleanupError?.message,
