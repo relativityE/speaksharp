@@ -13,10 +13,10 @@
 
 **19 October receiving correction.** The [35-item owner/closure directive](https://app.slack.com/archives/C0C9RE8KNHG/p1792432639622239) supersedes older queue assignments: App owns11, CLI15, Browser PM3 and Sam6. RWT/Alpha and MVP/Beta overlap but remain separate milestones. Prepared source must pass integration, deployment and matching acceptance; a final human sitting cannot close branch-only or unapplied work. Routine account exit follows [account-scoped policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298); elapsed timeout or request acceptance is not deletion. This is routing, not release or operational approval. Dynamic source/deployment facts remain in RELEASE_STATUS.
 
-The fixed integration / qualification baseline is `5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf`, the reviewed #1650 mainline base integrated into #1648. The dated `bc1ea8ea` observation, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production or claim an evergreen current-main pointer.
+The fixed integration / qualification baseline is `5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf`, the reviewed #1650 mainline base integrated into #1648. The dated `bc1ea8ea` observation, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production or claim an evergreen current-main pointer. As a dated 23 October 2026 source-currency observation only, its `baseline` field records `origin/main` at `1c2932550de0a083f159df2f2fe7c9a3cfd27b82` (after #1686); this is not a qualification or deployment claim, and the #1650 base above is unchanged.
 
 <!-- CURRENCY-BLOCK
-baseline: 5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf
+baseline: 1c2932550de0a083f159df2f2fe7c9a3cfd27b82
 deployed-release: bc1ea8eaec3d410865b832319a0e855b299693e3
 verified-on: 2026-10-17
 release-blocker: production-journey-recovery
