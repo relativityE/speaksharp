@@ -478,11 +478,10 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
     expect(evidence, 'and must not publish qualified evidence').toBeNull();
   });
 
-  it('CONTROL: the same REAL chain qualifies when every shard reports an explicit empty array', () => {
+  it('CONTROL: the real metrics chain accepts explicit zero skips without claiming synthetic execution proof', () => {
     /**
-     * The casualty's mirror, and the reason it discriminates. `[]` is a measured zero and must travel
-     * the whole chain as one: if the refusal above came from the staged coverage, e2e, runtime or
-     * bundle inputs rather than from the skip, this case would refuse too.
+     * `[]` is a measured zero and must survive the real merge/serialization chain. It qualifies
+     * at the metrics boundary; synthetic counts still cannot qualify execution of the product.
      */
     const { serialized, writerRun, evidence } = runRealReportChain([
       shard(allRequired, []),
@@ -492,11 +491,12 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
     expect(Array.isArray(serialized.unit_tests.skippedTestFiles)).toBe(true);
     expect(serialized.unit_tests.skippedTestFiles, 'a measured zero, not a missing field').toEqual([]);
 
-    expect(writerRun.status,
-      `the evidence writer must ACCEPT this report: ${writerRun.stdout}${writerRun.stderr}`).toBe(0);
-    expect(evidence, 'qualified evidence was published').not.toBeNull();
-    expect(evidence.tests.unit.skippedTestFiles,
-      'and the empty array survived into the published evidence').toEqual([]);
-    expect(evidence.qualification.status).toBe('valid');
+    const metricsEvidence=evidenceFrom({});
+    metricsEvidence.tests.unit=serialized.unit_tests;
+    expect(validateSoftwareQualityEvidence(metricsEvidence).valid,
+      'the measured empty skip list still qualifies at the metrics boundary').toBe(true);
+    expect(`${writerRun.stdout}${writerRun.stderr}`).not.toContain('meaningful_coverage_path_skipped');
+    expect(writerRun.status, 'fixture counts and filenames are not exact-source execution proof').toBe(1);
+    expect(evidence, 'unbound synthetic metrics must not publish a qualified execution receipt').toBeNull();
   });
 });

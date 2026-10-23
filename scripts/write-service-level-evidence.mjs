@@ -237,8 +237,8 @@ function thresholdMetric(value, minimum) {
   };
 }
 
-function buildEvidence() {
-  const data = Object.fromEntries(Object.entries(inputs).map(([key, filePath]) => [key, readJson(filePath)]));
+function buildEvidence(quality) {
+  const data = Object.fromEntries(Object.entries(inputs).map(([key, filePath]) => [key, key==='quality'?quality:readJson(filePath)]));
   const checks = targets.map((target) => ({
     id: target.id,
     claim: target.claim,
@@ -318,7 +318,13 @@ Missing means the generator did not find the authoritative artifact in this run.
 `;
 }
 
-const evidence = buildEvidence();
+// Clear old outputs before loading candidate-owned validation modules or parsing any inputs.
+fs.rmSync(serviceJsonPath,{force:true});
+fs.rmSync(serviceMdPath,{force:true});
+const {executionContext,readCurrentQuality}=await import('./lib/testExecutionEvidence.mjs');
+const expected=executionContext(rootDir);
+const evidence = buildEvidence(readCurrentQuality(inputs.quality,expected));
+evidence.provenance=expected;
 fs.mkdirSync(evidenceDir, { recursive: true });
 fs.writeFileSync(serviceJsonPath, JSON.stringify(evidence, null, 2));
 fs.writeFileSync(serviceMdPath, renderMarkdown(evidence));
