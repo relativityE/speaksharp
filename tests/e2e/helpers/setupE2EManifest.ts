@@ -98,6 +98,16 @@ export interface E2EWindow {
 }
 
 /**
+ * CO016 — opt-in fault for the injected client's `user_profiles` read, armed per test through
+ * `programmaticLoginWithRoutes({ profileFault })`. `error` is a genuine fetch failure (a PostgREST-shaped
+ * error the profile service rethrows); `swallowed` is the negative control (no row and no error), which the
+ * app treats as a still-provisioning account, not a failure. Every `user_profiles` query is counted in
+ * `window.__E2E_PROFILE_QUERIES_CO016__`, and every injected error in `window.__E2E_PROFILE_FAILURES_CO016__`,
+ * so a spec can prove the failure it asserts on was actually consumed.
+ */
+export type ProfileFault = 'error' | 'swallowed';
+
+/**
  * setupE2EManifest — Atomic T=0 injection.
  */
 export async function setupE2EManifest(
@@ -370,6 +380,17 @@ export async function setupE2EManifest(
       options: { count?: string; head?: boolean; range?: [number, number]; ascending?: boolean } = {}
     ) => {
       if (table === 'user_profiles') {
+        const profileWin = window as unknown as {
+          __E2E_PROFILE_FAULT_CO016__?: string; __E2E_PROFILE_QUERIES_CO016__?: number; __E2E_PROFILE_FAILURES_CO016__?: number;
+        };
+        profileWin.__E2E_PROFILE_QUERIES_CO016__ = (profileWin.__E2E_PROFILE_QUERIES_CO016__ ?? 0) + 1;
+        if (profileWin.__E2E_PROFILE_FAULT_CO016__ === 'error') {
+          profileWin.__E2E_PROFILE_FAILURES_CO016__ = (profileWin.__E2E_PROFILE_FAILURES_CO016__ ?? 0) + 1;
+          return Promise.resolve({ data: null, error: { code: '08006', message: 'E2E injected profile fetch failure (CO016)', details: null, hint: null }, count: null });
+        }
+        if (profileWin.__E2E_PROFILE_FAULT_CO016__ === 'swallowed') {
+          return Promise.resolve({ data: null, error: null, count: 0 });
+        }
         return Promise.resolve({ data: single ? e2eProfile : [e2eProfile], error: null, count: 1 });
       }
       if (table === 'user_goals') {
