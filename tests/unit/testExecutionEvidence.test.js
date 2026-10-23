@@ -384,6 +384,43 @@ if(process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
   });
 }
 
+if(process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',()=>{
+    const {dir,write,git}=executionFixture(true);
+    const evidence=path.join(dir,'product_release/evidence/software-quality.latest.json');
+    const original="import {it,expect} from 'vitest';\nimport {isValidMetric} from '../../utils/metricValidity';\n"
+      +contract.mutants.map(mutant=>`it(${JSON.stringify(mutant.assertion)},()=>{\n${mutant.assertionAnchor}\n});`).join('\n');
+    const workflow=fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8');
+    const reportSection=workflow.split('\n  report:')[1].split('\n  review-qualification:')[0];
+    const reportScript=reportSection.split('        run: |\n')[1].trimEnd().split('\n').map(line=>line.slice(10)).join('\n');
+    const report=state=>spawnSync('/bin/bash',['-c',reportScript],{encoding:'utf8',env:{...process.env,
+      FULL_REQUIRED:'true',SCOPE_RESULT:'success',UNIT_RESULT:'success',EDGE_RESULT:'success',BUILD_RESULT:'success',
+      HEALTH_RESULT:'success',E2E_RESULT:'success',EVIDENCE_RESULT:state}});
+    const run=()=>{const head=git(['rev-parse','HEAD']);return spawnSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{
+      cwd:dir,encoding:'utf8',timeout:120000,env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,
+        GITHUB_RUN_ID:'902',GITHUB_RUN_ATTEMPT:'1',TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID()}});};
+    const green=()=>{const result=run();assert.equal(result.error,undefined);assert.equal(result.status,0,result.stderr);
+      assert.equal(JSON.parse(fs.readFileSync(evidence,'utf8')).testEfficacy.contracts[0].mutants.length,2);
+      assert.equal(report('success').status,0);};
+    try {
+      write('frontend/vitest.config.mjs',`export default {test:{environment:'node',include:[${JSON.stringify(contract.testFile)},'tests/unit/*.test.js'],pool:'forks',maxWorkers:1,minWorkers:1}};`);
+      write(contract.testFile,original);
+      green();
+      // Keep the registered anchor exactly once as a comment: the mutant must survive
+      // the weakened assertion, rather than failing merely because its anchor vanished.
+      write(contract.testFile,original.replace(contract.mutants[0].assertionAnchor,
+        `// ${contract.mutants[0].assertionAnchor}\nexpect(true).toBe(true);`));
+      const red=run();assert.equal(red.error,undefined);assert.equal(red.status,1,red.stderr);
+      assert.match(red.stderr,/\[blank-is-zero\] Efficacy process failed/);
+      assert.doesNotMatch(red.stderr,/NOT RUN|Unsupported|anchor missing|Cannot find module/);
+      assert.equal(fs.existsSync(evidence),false,'a weak test cannot leave a stale quality PASS');
+      assert.match(fs.readFileSync(path.join(dir,contract.testFile),'utf8'),/expect\(true\)\.toBe\(true\)/);
+      const blocked=report('failure');assert.equal(blocked.status,1);assert.match(blocked.stdout+blocked.stderr,/full lane failed/);
+      write(contract.testFile,original);green();
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  });
+}
+
 test('CI-invoked writer fails incomplete coverage and succeeds after valid evidence is restored',()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quality-ci-enforcement-'));
   try {
