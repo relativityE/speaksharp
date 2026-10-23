@@ -199,6 +199,44 @@ describe('take-bound marker observer (#1593 case 3)', () => {
         expect(markerTimingStatus(v)).not.toBe('PASS');
     });
 
+    it('Sam 4:46: a same-id row OUTSIDE the rail cannot mask a late in-rail marker, connected or removed before the callback', async () => {
+        const run = async (removeOutsider: boolean) => {
+            now = INVOKED;
+            document.body.innerHTML = '';
+            rail(['pending', 'pending']);
+            const outsider = document.createElement('div');
+            outsider.setAttribute('data-testid', `${MARKER_ROW_PREFIX}0`);
+            outsider.setAttribute('data-status', 'pending');
+            document.body.appendChild(outsider); // outside the selected rail
+            expect(arm()).toEqual({ ok: true });
+            now = at(3);
+            outsider.setAttribute('data-status', 'partial');
+            now = at(3.5);
+            outsider.setAttribute('data-status', 'covered');
+            if (removeOutsider) outsider.remove(); // before the callback: its next record's oldValue would name 'partial'
+            now = at(4);
+            await flush();
+            await heartbeat(9.1);
+            now = at(9.3);
+            (document.querySelector(`[data-testid="${MARKER_RAIL_TEST_ID}"] [data-testid="${MARKER_ROW_PREFIX}0"]`) as HTMLElement)
+                .setAttribute('data-status', 'partial'); // the real in-rail marker, late against the 9.02 s deadline
+            await flush();
+            const sealed = freezeMarkerObserverInPage('mo-1')!;
+            disposeMarkerObserverInPage('mo-1');
+            return { sealed, v: verdict(sealed.observations) };
+        };
+        const connected = await run(false);
+        expect(connected.sealed.observations.filter((o) => o.point === 0)).toEqual([
+            { point: 0, status: 'partial', afterMs: at(9.1), observedAtMs: at(9.3), seq: 0, railGeneration: 1 },
+        ]);
+        expect(connected.v[0]).toBe('late@9.100..9.300');
+        expect(markerTimingStatus(connected.v)).toBe('FAIL');
+        const removed = await run(true);
+        expect(removed.sealed.observations.filter((o) => o.point === 0 && o.status !== 'pending')[0].status).toBe('unknown');
+        expect(removed.v[0]).not.toMatch(/^ok@/);
+        expect(markerTimingStatus(removed.v)).not.toBe('PASS');
+    });
+
     it('an expected rail replacement is followed (new generation); a change after the removal is refused as stale', async () => {
         const old = rail(['pending', 'pending']);
         arm();

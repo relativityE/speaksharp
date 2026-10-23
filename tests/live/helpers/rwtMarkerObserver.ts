@@ -142,9 +142,10 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
             if (railAtStart && railAtStart.contains(el)) record(point, value, afterMs, at, generationAtStart);
             else if (rail && el.isConnected && rail.contains(el)) record(point, value, afterMs, at, s.railGenerations);
             // Detached at delivery, yet NOT preceded by its removal in this batch: the change was recorded while the row was
-            // attached, however its row/list/rail ancestry was later replaced. Kept as evidence ('unknown' unless named, so
-            // never a PASS) without inferring membership from the now-detached ancestry.
-            else if (!el.isConnected) record(point, value, afterMs, at, generationAtStart);
+            // attached, but its rail membership is unproved (the observer sees the whole document, and a same-id row
+            // outside the rail can be removed too). Kept as evidence that is ALWAYS 'unknown', never a recovered value:
+            // status knowledge is not membership proof, so it can never PASS.
+            else if (!el.isConnected) record(point, 'unknown', afterMs, at, generationAtStart);
             else s.rejected.push({ reason: 'detached', point });
         }
         if (structural && rail) readStatuses(rail).forEach((status, i) => record(i, status, afterMs, at, s.railGenerations));
