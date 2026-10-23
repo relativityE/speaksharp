@@ -134,8 +134,14 @@ export function qualifyEfficacyPhase(report, execution, { assertion, baselineNam
   } else {
     if (report.success !== false || !failures.some(test => test.fullName === assertion)
       || failures.some(test => !test.failureMessages?.length
-        || test.failureMessages.some(message => !/AssertionError|expected .* to /s.test(message)
-          || /timeout|timed out|Cannot find module|SyntaxError|ReferenceError/i.test(message)))) {
+        || test.failureMessages.some(message => {
+          // Runtime frames such as Vitest's runWithTimeout are present on ordinary
+          // assertion stacks. Classify the diagnostic heading, not helper names or
+          // expected application values mentioned later in the stack/message.
+          const heading = message.split(/\r?\n/, 1)[0];
+          return !/AssertionError|expected .* to /s.test(heading)
+            || /^(?:(?:Error|AssertionError):\s*)?(?:timeout\b|test timed out\b|timed out\b|Cannot find module\b|SyntaxError\b|ReferenceError\b)/i.test(heading);
+        }))) {
       throw new Error('Mutant survived or failed without designated semantic assertion');
     }
   }

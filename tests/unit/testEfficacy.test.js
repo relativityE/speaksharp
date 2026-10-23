@@ -112,6 +112,19 @@ test('rejects survival, wrong casualty, setup failure, crash and generic timeout
   }
 });
 
+test('ordinary assertion stacks and expected timeout text are not infrastructure timeouts', () => {
+  for (const message of [
+    'AssertionError: expected true to be false\n    at contract.test.ts:42:1\n    at runWithTimeout (runner/chunk-hooks.js:1863:10)',
+    "AssertionError: expected 'timeout' to be 'ready'\n    at contract.test.ts:42:1",
+  ]) {
+    const report = killedReport();
+    report.testResults[0].assertionResults[0].failureMessages = [message];
+    assert.deepEqual(qualifyEfficacyPhase(report, { status: 1 }, {
+      assertion: names[0], baselineNames: names,
+    }), names);
+  }
+});
+
 test('selects only affected registered contracts and follows transitive dependencies', () => {
   const dependencies = dependencyPaths(root, contract.testFile);
   assert.ok(dependencies.has('frontend/src/contracts/fillerEvidence.ts'));
