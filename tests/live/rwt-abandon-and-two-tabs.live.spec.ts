@@ -38,7 +38,7 @@ import {
 import {
     ABANDON_SUITE, type AbandonVariant, BLOCKED_COPY, DISPLACED_COPY, type RowFacts, SAME_BROWSER_TAB_COPY,
     TWO_TAB_SUITE, answerLeaveDialog, classifyRecoveryClaim, leavePromptVerdict, leftTakeSavedOnce, leftTakeSavedVerdict, newLeaveDialogs, newRowsSince, priorTakeSaved, noCloudVerdict, recoveryNoticeVerdict, releasedVerdict,
-    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, measureRealmClock, crossRealmBoundary, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict,
+    addCompletedTakeIds, installModelStatusHistory, leaseRefusalWindowVerdict, openObservationWindow, closeObservationWindow, armTakeoverGesture, measureRealmClock, crossRealmBoundary, type ObservationClose, refreshCompletedTakeIds, returnStartVerdict, secondTabBlockedVerdict, takeOverRowsVerdict, takeOverVerdict, pressPrivateStartForLease,
 } from './helpers/rwtAbandonTakeover';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -411,26 +411,25 @@ test.describe('RWT — leaving a recording, and two tabs @live', () => {
             // activation — consent, download AND start ("Download & start recording" = `onStart`). Under A's lease that
             // press is a Start the lease decides, so it is the person's first press here; the download-only setup helper
             // (which requires the status to leave `download-required`) asserted a control the product no longer has.
-            const coldB = await deviceB.evaluate(() => document.documentElement.getAttribute('data-model-status')) === 'download-required';
             // Sam, #1662 RETURN (lease-before-model): observe model work from BEFORE the first press through the refusal —
             // every model-asset request on device B, and every published model status (a final snapshot cannot prove no
             // prior work: loading → download-required would look clean).
             let modelRequestsB = 0;
             otherDevice.on('request', (r) => { if (/\/models\//.test(r.url())) modelRequestsB += 1; });
-            await deviceB.evaluate(installModelStatusHistory);
             // Case 11 window (Sam's 13:13 ACCEPT of PM 9fc69b51; RETURN on c8e5d59f): ONE continuous observation window in
             // each page, opened before the first press — A's runtime transitions and track continuity, B's model, microphone
             // and runtime history — closed by one synchronous read just before the take-over press. Bound to each page's
             // document by its token: a replaced document has no window, which is a lost observation, never zero activity.
             const windowToken = `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-            const openedA = await tabA.evaluate(openObservationWindow, { token: `${windowToken}-a`, recorderTestId: RECORDER_BAR }).catch(() => false);
-            const openedB = await deviceB.evaluate(openObservationWindow, { token: `${windowToken}-b`, recorderTestId: RECORDER_BAR }).catch(() => false);
-            if (coldB) {
-                await deviceB.getByTestId('mic-download').click();
-            } else {
-                await waitForPrivateEngineReady(deviceB, 600_000);
-                await deviceB.getByTestId('mic-start').click();
-            }
+            let openedA = false;
+            let openedB = false;
+            const coldB = await pressPrivateStartForLease(deviceB, waitForPrivateEngineReady, async () => {
+                // Do not count background idle→download-required availability as model work caused by Start.
+                // Both windows still open before the actual first press and remain open through take-over.
+                await deviceB.evaluate(installModelStatusHistory);
+                openedA = await tabA.evaluate(openObservationWindow, { token: `${windowToken}-a`, recorderTestId: RECORDER_BAR }).catch(() => false);
+                openedB = await deviceB.evaluate(openObservationWindow, { token: `${windowToken}-b`, recorderTestId: RECORDER_BAR }).catch(() => false);
+            });
             // Sam, #1662 RETURN (lease-before-model): the lease decides BEFORE any engine or model work — the start handler
             // acquires it first (useSessionLifecycle acquireTakeLease). So the first press must be refused within a bounded
             // window, and on a cold device the model must still be `download-required` when it is: a refusal that only
