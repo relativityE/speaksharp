@@ -48,6 +48,37 @@ function qualifyEfficacyPhase(report, execution, options = {}) {
   return qualifyRawPhase(report, execution, { ...phaseFixture(report), ...options });
 }
 
+function assertWorkerInterruption(diagnostics) {
+  const marker = 'EFFICACY_INJECTED_WORKER_SIGTERM';
+  const detail = JSON.stringify(diagnostics);
+  assert.match(detail, /EFFICACY_INJECTED_WORKER_SIGTERM/, 'the mutation must reach the intentional worker kill');
+  const observed = detail.replaceAll(marker, '');
+  assert.ok(diagnostics.signal === 'SIGTERM'
+    || /Worker exited unexpectedly|ERR_IPC_CHANNEL_CLOSED/.test(observed),
+  'worker interruption must be observed');
+}
+
+test('interruption control rejects marker-only diagnostics without an observed worker failure', () => {
+  for (const diagnostics of [
+    { stderr: 'EFFICACY_INJECTED_WORKER_SIGTERM\n', signal: null },
+    { stderr: 'EFFICACY_INJECTED_WORKER_SIGTERM\nSIGTERM requested', signal: null },
+  ]) {
+    assert.throws(() => assertWorkerInterruption(diagnostics), /worker interruption must be observed/);
+  }
+});
+
+test('interruption control accepts independent observed worker diagnostics or structured signal', () => {
+  for (const diagnostics of [
+    { stderr: 'EFFICACY_INJECTED_WORKER_SIGTERM\nError: Worker exited unexpectedly', signal: null },
+    { stderr: 'EFFICACY_INJECTED_WORKER_SIGTERM\nError [ERR_IPC_CHANNEL_CLOSED]: Channel closed', signal: null },
+    { stderr: 'EFFICACY_INJECTED_WORKER_SIGTERM\n', signal: 'SIGTERM' },
+  ]) {
+    assert.doesNotThrow(() => assertWorkerInterruption(diagnostics));
+  }
+  assert.throws(() => assertWorkerInterruption({ stderr: 'ERR_IPC_CHANNEL_CLOSED', signal: null }),
+    /mutation must reach the intentional worker kill/);
+});
+
 test('accepts collected baseline and designated semantic casualty with identical collection', () => {
   assert.deepEqual(qualifyEfficacyPhase(baselineReport(), { status: 0 }), names);
   assert.deepEqual(qualifyEfficacyPhase(killedReport(), { status: 1 }, { assertion: names[0], baselineNames: names }), names);
@@ -474,8 +505,7 @@ if (process.env.TEST_EFFICACY_REAL_RUNTIME === '1') {
             if(scenario==='import') assert.match(detail,/missing-setup-dependency/);
             else if(scenario==='unhandled') assert.match(detail,/adversarial unhandled/);
             else if(scenario==='interruption') {
-              assert.match(detail,/EFFICACY_INJECTED_WORKER_SIGTERM/,'the mutation must reach the intentional worker kill');
-              assert.match(detail,/Worker exited unexpectedly|SIGTERM|ERR_IPC_CHANNEL_CLOSED/,'worker interruption must be observed');
+              assertWorkerInterruption(error.diagnostics);
             }
             else {
               assert.match(detail,/hook failure/);
