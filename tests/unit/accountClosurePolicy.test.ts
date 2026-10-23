@@ -32,6 +32,17 @@ function fixture() {
 }
 
 describe('account closure — approved no-refund, retained-trial-email policy', () => {
+  it.each([
+    { ...proof, customerId: undefined }, { ...proof, customerId: false },
+    { ...proof, customerId: 0 }, { ...proof, customerId: {} },
+    { ...proof, email: 1 }, { ...proof, email: {} }, { ...proof, requestId: {} },
+  ])('rejects malformed authoritative proof before any effect (%j)', async (value) => {
+    const { deps, order } = fixture();
+    vi.mocked(deps.consumeProof).mockResolvedValue(value as unknown as ClosureProof);
+    expect((await closeAccount('owner', 'token', deps)).outcome).toBe('refused');
+    expect(deps.verifyCheckouts).not.toHaveBeenCalled();
+    expect(order).toEqual([]);
+  });
   it('legacy open checkout on a customer-null account prevents every destructive call', async () => {
     const { deps } = fixture();
     vi.mocked(deps.consumeProof).mockResolvedValue({ ...proof, customerId:null });
