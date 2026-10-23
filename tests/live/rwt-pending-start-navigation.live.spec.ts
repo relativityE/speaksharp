@@ -19,6 +19,7 @@ import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
+import { RETURN_SETTLE_DEFAULTS, returnControlSample, settleReturnControlState, type ReturnControlState } from './helpers/rwtReturnControlState';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 
@@ -210,44 +211,40 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await expect(page.getByTestId('mic-card')).toBeVisible({ timeout: 30_000 });
-        const modelStatus = await page.getByTestId('mic-card').getAttribute('data-model-status');
-        const controlForStatus: Record<string, string> = {
-            'download-required': 'mic-download',
-            ready: 'mic-start',
-            idle: 'mic-start',
-            warming: 'mic-start',
-            error: 'mic-retry',
-            'init-failed': 'mic-retry',
-        };
-        const expectedControl = modelStatus ? controlForStatus[modelStatus] : undefined;
-        const startControl = expectedControl ? page.getByTestId(expectedControl) : null;
-        const startAvailable = Boolean(startControl)
-            && await startControl!.isVisible().catch(() => false)
-            && await startControl!.isEnabled().catch(() => false);
         // #1593 (case 4, run 39165065684): the FAIL named no cause. Record WHAT the return showed — which primary control
         // exists, whether it is visible/enabled, its closed aria-label (`Starting…` = a stale start wait, `…unavailable while
         // your last session finishes` = the Progress gate, plain `Start recording` disabled = runtime/finalizing state) and the
         // session-shell state — so a failure classifies its own cause. Closed product copy and booleans only.
-        const controlState = async (id: string) => {
-            const el = page.getByTestId(id);
-            const present = (await el.count()) > 0;
+        // #1593 (CLI audit 1792782759, Sam 1792798707): one read taken the moment the card appears can catch a healthy
+        // remount still resolving availability. The return is judged on a SETTLED state within a fixed deadline; a stuck
+        // or unknown state still FAILs. A read that throws is counted as a read error, never coerced into a verdict.
+        const controlState = async (id: string): Promise<ReturnControlState> => {
+            const el = page.getByTestId(id).first();
+            const present = (await page.getByTestId(id).count()) > 0;
             return {
                 present,
-                visible: present ? await el.first().isVisible().catch(() => false) : false,
-                enabled: present ? await el.first().isEnabled().catch(() => false) : false,
-                ariaLabel: present ? await el.first().getAttribute('aria-label').catch(() => null) : null,
+                visible: present ? await el.isVisible() : false,
+                enabled: present ? await el.isEnabled() : false,
+                ariaLabel: present ? await el.getAttribute('aria-label') : null,
             };
         };
-        const [startState, downloadState, retryState] = await Promise.all([controlState('mic-start'), controlState('mic-download'), controlState('mic-retry')]);
-        const shellState = await page.getByTestId('session-shell').first().getAttribute('data-session-state').catch(() => null);
-        receipt.row('return to Open Mic exposes truthful Start state', startAvailable ? 'PASS' : 'FAIL',
-            startAvailable ? `return shows the ${expectedControl} action for model state ${modelStatus}`
-                : `return did not expose an enabled Start/retry action consistent with model state ${modelStatus ?? 'unreadable'}`,
+        const returned = await settleReturnControlState(async () => {
+            const modelStatus = await page.getByTestId('mic-card').getAttribute('data-model-status');
+            const [start, download, retry] = await Promise.all([controlState('mic-start'), controlState('mic-download'), controlState('mic-retry')]);
+            const shellState = await page.getByTestId('session-shell').first().getAttribute('data-session-state');
+            return returnControlSample(modelStatus, shellState, { start, download, retry });
+        });
+        const last = returned.last;
+        receipt.row('return to Open Mic exposes truthful Start state', returned.settled ? 'PASS' : 'FAIL',
+            returned.settled ? `return settled on the ${last?.expectedControl} action for model state ${last?.modelStatus}`
+                : `return did not settle on an enabled Start/retry action consistent with model state ${last?.modelStatus ?? 'unreadable'} within ${RETURN_SETTLE_DEFAULTS.deadlineMs} ms`,
             {
-                modelStatus: modelStatus ?? null, expectedControl: expectedControl ?? null, shellState,
-                startPresent: startState.present, startVisible: startState.visible, startEnabled: startState.enabled, startAriaLabel: startState.ariaLabel,
-                downloadPresent: downloadState.present, downloadVisible: downloadState.visible, downloadEnabled: downloadState.enabled, downloadAriaLabel: downloadState.ariaLabel,
-                retryPresent: retryState.present, retryVisible: retryState.visible, retryEnabled: retryState.enabled, retryAriaLabel: retryState.ariaLabel,
+                modelStatus: last?.modelStatus ?? null, expectedControl: last?.expectedControl ?? null, shellState: last?.shellState ?? null,
+                startPresent: last?.start.present ?? false, startVisible: last?.start.visible ?? false, startEnabled: last?.start.enabled ?? false, startAriaLabel: last?.start.ariaLabel ?? null,
+                downloadPresent: last?.download.present ?? false, downloadVisible: last?.download.visible ?? false, downloadEnabled: last?.download.enabled ?? false, downloadAriaLabel: last?.download.ariaLabel ?? null,
+                retryPresent: last?.retry.present ?? false, retryVisible: last?.retry.visible ?? false, retryEnabled: last?.retry.enabled ?? false, retryAriaLabel: last?.retry.ariaLabel ?? null,
+                settleSamples: returned.samples.length, settleElapsedMs: returned.elapsedMs, settleReadErrors: returned.readErrors,
+                firstModelStatus: returned.samples[0]?.modelStatus ?? null, firstActionable: returned.samples[0]?.actionable ?? false,
             });
         const recorderAfterReturn = await page.getByTestId('recorder-stop').count().then((n) => n > 0);
         const micAfterReturn = await readMicEvidence(page);
