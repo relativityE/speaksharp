@@ -23,6 +23,7 @@ import { extractUidFromAuthStorage } from './helpers/proofAuthority';
 import {
     AnalyticsTap,
     EntitlementTap,
+    returningAccessRow,
     RWT_ACCOUNT_PREFIX,
     RwtReceipt,
     humanObservation,
@@ -182,12 +183,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 receipt.row('Products → Open Mic', toOpenMic ? 'PASS' : 'FAIL', toOpenMic ? 'landed on the Open Mic session' : 'did not reach the session');
                 // The returning user's access as the session page received it. This test records nothing, so an
                 // expired account is a state fact (HOLD for a recording journey), not a product failure.
-                await entitlement.settle();
-                const verdict = entitlement.responses[0];
-                receipt.row('returning-user access', !verdict ? 'HOLD' : verdict.can_start === true ? 'PASS' : 'HOLD',
-                    !verdict ? 'no check-usage-limit response was observed' : verdict.can_start === true
-                        ? 'the server lets this returning user start a recording' : 'this account cannot start a recording (expired or unentitled); not used for a recording journey',
-                    { canStart: verdict?.can_start === true, trialActive: verdict?.trial_active === true, isPro: verdict?.is_pro === true });
+                await returningAccessRow(receipt, entitlement);
 
                 const setup = await products(page, 'focus-points') && await page.getByTestId('objective-setup-dialog').waitFor({ state: 'visible', timeout: 30_000 }).then(() => true).catch(() => false);
                 receipt.row('Products → Focus Points', setup ? 'PASS' : 'FAIL', setup ? 'the Focus Points setup opened' : 'the setup did not open');
