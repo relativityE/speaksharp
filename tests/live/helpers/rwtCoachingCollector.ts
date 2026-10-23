@@ -202,9 +202,10 @@ export async function readSavedPromptInputs(admin: AdminClient, userId: string, 
 }
 
 /** Expiry is an explicit state, never evidence that inputs or coaching were previously saved. */
-export async function readSavedPromptObservation(admin: AdminClient, userId: string, sessionId: string, product: Product): Promise<SavedPromptObservation> {
+export async function readSavedPromptObservation(admin: AdminClient, userId: string, sessionId: string, product: Product, isActive = () => true): Promise<SavedPromptObservation> {
     const { data: row, error } = await admin.from('sessions').select(`id, user_id, product, transcript, transcript_state, total_words, ${PROMPT_METRIC_KEYS.join(', ')}`)
         .eq('id', sessionId).eq('user_id', userId).maybeSingle();
+    if (!isActive()) return { state: 'query_error' };
     if (error) return { state: 'query_error' };
     if (!row) return { state: 'missing' };
     if (row.id !== sessionId || row.user_id !== userId || row.product !== product) return { state: 'identity_mismatch' };
@@ -219,6 +220,7 @@ export async function readSavedPromptObservation(admin: AdminClient, userId: str
     // Mirrors the Edge function's loadFocusContext over the same tables, keyed by the run-owned session.
     const { data: objective, error: oErr } = await admin.from('objective_session').select('id, brief_id')
         .eq('source_session_id', sessionId).eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (!isActive()) return { state: 'query_error' };
     if (oErr) return { state: 'query_error' };
     if (!objective) return { state: 'missing' };
     const [brief, points, evidence] = await Promise.all([
@@ -330,6 +332,8 @@ export async function readLiveCoachingPair(page: Pick<Page, 'evaluate'>, product
  * a coaching result before its rapid Repeat press. An interrupted B with no positive saved/rendered witness stays HOLD;
  * C can never stand in for B. No navigation, provider call, retry or durable write is performed by this observer.
  */
+export const COACHING_CAPTURE_READ_TIMEOUT_MS = 5_000;
+
 export function createCoachingTakeCapture(input: {
     page: Page;
     admin: AdminClient;
@@ -343,6 +347,10 @@ export function createCoachingTakeCapture(input: {
 }) {
     const captures = new Map<string, CapturedCoachingTake>();
     const witnesses = new Map<string, Extract<CapturedCoachingTake, { take: RwtCoachingTakeEvidence }>>();
+    // A timed-out transport may still be pending. Do not stack more reads behind it or accept its late answer.
+    const reading = new Set<string>();
+    const activeReads = new Set<Promise<void>>();
+    const cancellations = new Set<() => void>();
     const runId = `${process.env.GITHUB_RUN_ID ?? 'local'}-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}`;
     const synthetic = input.fixture.kind === 'synthetic' && Boolean(input.fixture.sha256);
     let stopped = false;
@@ -354,16 +362,27 @@ export function createCoachingTakeCapture(input: {
         : !synthetic ? { hold: 'collector_synthetic_only' }
             : id ? captures.get(id) ?? { hold: 'saved_take_not_witnessed' } : { hold: 'saved_take_identity_unavailable' };
     const sample = async (sessionId: string, rendered?: CoachingSuggestionPair | null): Promise<void> => {
-        if (disposed || !synthetic || ('fail' in get(sessionId))) return;
-        let captured: CapturedCoachingTake;
-        try {
-            const observed = await readSavedPromptObservation(input.admin, input.userId, sessionId, input.product);
+        if (disposed || !synthetic || reading.has(sessionId) || ('fail' in get(sessionId))) return;
+        reading.add(sessionId);
+        let active = true;
+        let deadline: ReturnType<typeof setTimeout>;
+        let cancel: () => void;
+        const timeout = new Promise<CapturedCoachingTake>((resolve) => {
+            cancel = () => { active = false; clearTimeout(deadline); resolve({ hold: 'capture_disposed' }); };
+            deadline = setTimeout(() => { active = false; resolve({ hold: 'saved_evidence_read_timeout' }); }, COACHING_CAPTURE_READ_TIMEOUT_MS);
+            cancellations.add(cancel);
+        });
+        const read = (async (): Promise<CapturedCoachingTake> => {
+          try {
+            const observed = await readSavedPromptObservation(input.admin, input.userId, sessionId, input.product, () => active && !disposed);
+            if (!active || disposed) return { hold: 'saved_evidence_read_timeout' };
             const authority = observed.state === 'available' ? await readAuthority(input.admin, input.userId, sessionId) : null;
+            if (!active || disposed) return { hold: 'saved_evidence_read_timeout' };
             const previous = witnesses.get(sessionId);
             if (previous && observed.state === 'expired') {
-                captured = previous; // Explicit, identity-checked expiry preserves only a prior positive witness.
+                return previous; // Explicit, identity-checked expiry preserves only a prior positive witness.
             } else if (previous && observed.state === 'malformed') {
-                captured = { fail: 'saved_evidence_changed' };
+                return { fail: 'saved_evidence_changed' };
             } else if (previous && observed.state === 'available') {
                 const savedBefore = previous.take.savedInputReadback;
                 const unchangedInputs = savedBefore.transcript === observed.saved.transcript && previous.totalWords === observed.totalWords
@@ -372,23 +391,30 @@ export function createCoachingTakeCapture(input: {
                 const before = previous.take.authorityReceipt;
                 const unchangedPair = authority && ['session_id', 'user_id', 'provider', 'model', 'provider_request_made', 'receipt_suggestion_sha256', 'current_suggestion_sha256', 'ai_suggestions']
                     .every((key) => JSON.stringify(before[key as keyof typeof before]) === JSON.stringify(authority[key as keyof AuthorityReadback]));
-                captured = !unchangedInputs ? { fail: 'saved_evidence_changed' }
+                return !unchangedInputs ? { fail: 'saved_evidence_changed' }
                     : !authority?.ai_suggestions ? { hold: 'server_authority_readback_unavailable' }
                         : unchangedPair ? previous : { fail: 'saved_evidence_changed' };
             } else {
                 const shown = rendered === undefined ? await (input.readRendered?.() ?? readLiveCoachingPair(input.page, input.product)) : null;
-                captured = captureCoachingTake({
+                if (!active || disposed) return { hold: 'saved_evidence_read_timeout' };
+                return captureCoachingTake({
                 identity: { runId, suiteId: input.suiteId, product: input.product, fixtureName: input.fixture.key,
                     fixtureSha256: input.fixture.sha256!, sessionId, userId: input.userId },
                 exchanges: input.tap.exchanges, observed, authority,
                 rendered: rendered === undefined ? (shown?.sessionId === sessionId ? shown.pair : null) : rendered,
                 });
             }
-        } catch { captured = { hold: 'saved_evidence_query_error' }; }
-        if (!disposed) {
-            captures.set(sessionId, captured);
-            if ('take' in captured && !witnesses.has(sessionId)) witnesses.set(sessionId, captured);
-        }
+          } catch { return { hold: 'saved_evidence_query_error' }; }
+          finally { reading.delete(sessionId); }
+        })();
+        const bounded = Promise.race([read, timeout]).then((captured) => {
+            if (!disposed) {
+                captures.set(sessionId, captured);
+                if ('take' in captured && !witnesses.has(sessionId)) witnesses.set(sessionId, captured);
+            }
+        }).finally(() => { active = false; clearTimeout(deadline); cancellations.delete(cancel); });
+        activeReads.add(bounded);
+        try { await bounded; } finally { activeReads.delete(bounded); }
     };
     const poll = (): void => {
         if (stopped || disposed || !synthetic) return;
@@ -400,8 +426,12 @@ export function createCoachingTakeCapture(input: {
     return {
         sample, get,
         start: () => { if (!started && !stopped && !disposed) { started = true; poll(); } },
-        stop: async () => { stopped = true; clearTimeout(timer); await pending; },
-        dispose: async () => { disposed = true; stopped = true; clearTimeout(timer); captures.clear(); witnesses.clear(); await pending; },
+        stop: async () => { stopped = true; clearTimeout(timer); await Promise.all([pending, ...activeReads]); },
+        dispose: async () => {
+            disposed = true; stopped = true; clearTimeout(timer); captures.clear(); witnesses.clear();
+            for (const cancel of cancellations) cancel();
+            await Promise.all([pending, ...activeReads]);
+        },
     };
 }
 
