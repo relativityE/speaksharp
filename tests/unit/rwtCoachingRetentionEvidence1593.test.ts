@@ -11,6 +11,7 @@ import {
     readSavedPromptObservation, type AuthorityReadback, type SavedPromptInputs, type TakeIdentity,
 } from '../live/helpers/rwtCoachingCollector';
 import { canonicalSuggestionSha256, coachingContract, coachingSessionBindingSha256, recomputeCoachingPromptSha256 } from '../live/helpers/rwtCoachingEvidence';
+import { switchIsolationVerdict, type SwitchIsolationObservation } from '../live/helpers/rwtOracles';
 
 const RELEASE = 'c'.repeat(40);
 const USER = '20000000-0000-4000-8000-000000000001';
@@ -61,6 +62,45 @@ const observer = (db: ReturnType<typeof database>, fixtures: Fixture[], readRend
     page: {} as never, admin: db.admin as never, tap: { exchanges: fixtures.map((f) => f.exchange), inFlight: () => [] },
     fixture: { key: 'open_mic_tts', kind: 'synthetic', sha256: manifest.fixtures.open_mic_tts.sha256 }, suiteId: 'open-mic-first-session',
     product: 'open_mic', userId: USER, readRendered,
+});
+
+describe('product-switch isolation distinguishes prior witnessed expiry from overwrite', () => {
+    const clean: SwitchIsolationObservation = {
+        railPendingBefore: true, openMicId: identity(1).sessionId, focusId: identity(2).sessionId, ownerId: USER,
+        savedProduct: 'focus_points', finalStatuses: ['covered', 'missing', 'missing', 'missing'],
+        staleCoachingBeforeStart: false, markerSupport: [true, true, true],
+        openMicBefore: { product: 'open_mic', digest: 'saved-digest', state: 'available', sessionId: identity(1).sessionId, userId: USER },
+        openMicAfter: { product: 'open_mic', digest: null, state: 'expired', sessionId: identity(1).sessionId, userId: USER },
+    };
+    const verdict = (over: Partial<SwitchIsolationObservation> = {}) => switchIsolationVerdict({ ...clean, ...over }).verdict;
+    it('PASS for unchanged source or available/nonempty witness followed by identity-bound expired/null', () => {
+        expect(verdict()).toBe('PASS');
+        expect(verdict({ openMicAfter: { ...clean.openMicBefore } })).toBe('PASS');
+    });
+    it('expiry without prior positive evidence is HOLD, never proof that the source was correct', () => {
+        expect(verdict({ openMicBefore: { ...clean.openMicBefore, state: undefined } })).toBe('HOLD');
+        expect(verdict({ openMicBefore: { ...clean.openMicBefore, digest: null, state: 'expired' } })).toBe('HOLD');
+        expect(verdict({ ownerId: undefined })).toBe('HOLD');
+    });
+    it.each(['missing', 'query_error'] as const)('a %s source read is HOLD rather than expiry', (state) => {
+        expect(verdict({ openMicAfter: { product: null, digest: null, state } })).toBe('HOLD');
+    });
+    it.each([
+        { userId: identity(9).userId + '-other' }, { sessionId: identity(9).sessionId },
+        { product: 'focus_points' }, { state: 'malformed' as const }, { digest: 'text-remains' },
+    ])('wrong identity/product or contradictory expiry still FAILs: %j', (change) => {
+        expect(verdict({ openMicAfter: { ...clean.openMicAfter, ...change } })).toBe('FAIL');
+    });
+    it('an available transcript changed after the switch still FAILs', () => {
+        expect(verdict({ openMicAfter: { ...clean.openMicBefore, digest: 'overwritten' } })).toBe('FAIL');
+    });
+    it('lawful expiry does not waive distinct sessions, Focus product or old-audio marker isolation', () => {
+        expect(verdict({ focusId: clean.openMicId })).toBe('FAIL');
+        expect(verdict({ savedProduct: 'open_mic' })).toBe('FAIL');
+        expect(verdict({ finalStatuses: ['covered', 'covered', 'missing', 'missing'] })).toBe('FAIL');
+        expect(verdict({ staleCoachingBeforeStart: true })).toBe('FAIL');
+        expect(verdict({ markerSupport: [true, false, true] })).toBe('HOLD');
+    });
 });
 const dirs: string[] = [];
 afterEach(() => { vi.useRealTimers(); for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
