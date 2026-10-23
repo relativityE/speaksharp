@@ -7,6 +7,12 @@ on:
       - 'tests/db/account-closure-full-chain*'
       - 'tests/db/t2-native-catalog-proof.mjs'
       - 'tests/db/t2-native-catalog-proof.test.mjs'
+      - 'tests/db/t2-native-catalog-expanded.test.mjs'
+      # The attested catalog query and pins: a pin/query change must receive native verification before production
+      # postflight consumes it; the offline tests echo the pins back and cannot catch a wrong one (Codex P2 4363567722).
+      - 'scripts/lib/t2MigrationPostflight.mjs'
+      - 'scripts/t2-migration-postflight.mjs'
+      - 'scripts/lib/exactMigrationGate.mjs'
       - 'tests/db/account-closure-concurrency-realpg.mjs'
       - 'tests/db/account-closure-attestation-realpg.mjs'
       - 'tests/db/account-closure-tokens.integration.test.ts'
@@ -55,7 +61,7 @@ jobs:
         with:
           node-version: '22'
       - name: Prove explicit main, Analytics, U1 and account replay plans offline
-        run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs tests/db/t2-native-catalog-proof.test.mjs
+        run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs tests/db/t2-native-catalog-proof.test.mjs tests/db/t2-native-catalog-expanded.test.mjs
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}

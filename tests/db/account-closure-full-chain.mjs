@@ -24,6 +24,39 @@ export function t2ExpandedCatalogQuery(inventory) {
   return hashed.replaceAll('md5(', '(');
 }
 
+// Wraps the proof's record: on a pin mismatch, retain the un-hashed object for that key, then rethrow the ORIGINAL
+// error. Neither a failing query nor a failing write may replace it (Sam RETURN on 40dfd6b7: the write sat outside
+// the guard). Anything other than a pin mismatch is rethrown untouched, with no diagnostic.
+export function withExpandedCatalogDiagnostic(record, { sql, write, inventory, warn = message => console.error(message) }) {
+  return stage => {
+    try {
+      return record(stage);
+    } catch (error) {
+      const key = /^T2 catalog mismatch: (.+)$/.exec(error instanceof Error ? error.message : '')?.[1];
+      if (key) {
+        let diagnostic;
+        try {
+          const expanded = JSON.parse(sql(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL search_path=public,pg_temp;
+${t2ExpandedCatalogQuery(inventory)}
+COMMIT;`));
+          diagnostic = { stage, key, object: key in expanded ? JSON.parse(expanded[key]) : null };
+        } catch (diagnosticError) {
+          diagnostic = { stage, key, object: null, diagnosticError: String(diagnosticError?.message ?? diagnosticError).slice(0, 300) };
+        }
+        try {
+          write(diagnostic);
+        } catch (writeError) {
+          try {
+            warn(`T2 expanded catalog diagnostic not retained: ${String(writeError?.message ?? writeError).slice(0, 200)}`);
+          } catch { /* A failing warning must not mask the mismatch either. */ }
+        }
+      }
+      throw error;
+    }
+  };
+}
+
 /** Frozen independently reviewed main99585 + optional U1 bytes. No directory-driven profile selection. */
 export const MAIN_MIGRATION_SNAPSHOT = Object.freeze([
   {
@@ -859,33 +892,12 @@ export function runMainClosureProof() {
         ownedContainer: containerName, imageDigest: proofPostgresImage(postgresVersion).repositoryDigest },
       retain: receipt => writeFileSync(join(evidence, 't2-native-catalog.json'), JSON.stringify(receipt, null, 2)),
     });
-    if (nativeT2Catalog) {
-      // On a pin mismatch, retain the un-hashed object for that key from this same disposable database, then rethrow:
-      // the run still fails exactly as before.
-      const record = nativeT2Catalog.record.bind(nativeT2Catalog);
-      nativeT2Catalog.record = stage => {
-        try {
-          return record(stage);
-        } catch (error) {
-          const key = /^T2 catalog mismatch: (.+)$/.exec(error instanceof Error ? error.message : '')?.[1];
-          if (key) {
-            let diagnostic;
-            try {
-              const expanded = JSON.parse(sql(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
-SET LOCAL search_path=public,pg_temp;
-${t2ExpandedCatalogQuery(T2_INVENTORY)}
-COMMIT;`));
-              diagnostic = { stage, key, object: key in expanded ? JSON.parse(expanded[key]) : null };
-            } catch (diagnosticError) {
-              // The diagnostic must never mask the mismatch it explains.
-              diagnostic = { stage, key, object: null, diagnosticError: String(diagnosticError?.message ?? diagnosticError).slice(0, 300) };
-            }
-            writeFileSync(join(evidence, 't2-native-catalog-expanded.json'), JSON.stringify(diagnostic, null, 2));
-          }
-          throw error;
-        }
-      };
-    }
+    // On a pin mismatch, retain the un-hashed object for that key from this same disposable database; the run still
+    // fails exactly as before.
+    if (nativeT2Catalog) nativeT2Catalog.record = withExpandedCatalogDiagnostic(nativeT2Catalog.record.bind(nativeT2Catalog), {
+      sql, inventory: T2_INVENTORY,
+      write: diagnostic => writeFileSync(join(evidence, 't2-native-catalog-expanded.json'), JSON.stringify(diagnostic, null, 2)),
+    });
     assert.equal(Math.floor(Number(sql("SELECT current_setting('server_version_num');")) / 10000), 17);
     assert.deepEqual(history(), plan.stages[0].versions, 'baseline replay is incomplete');
     verifyEnforcement('before');
