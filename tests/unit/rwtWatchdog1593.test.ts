@@ -223,7 +223,7 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
             'tests/live/rwt-open-mic-first-session.live.spec.ts', 'tests/live/helpers/rwtFocusPointsJourney.ts',
             'tests/live/rwt-pending-start-navigation.live.spec.ts', 'tests/live/rwt-save-retry-recovery.live.spec.ts',
             'tests/live/rwt-feedback-association-boundaries.live.spec.ts', 'tests/live/rwt-abandon-and-two-tabs.live.spec.ts',
-            'tests/live/rwt-adverse-mic-model.live.spec.ts', 'tests/live/rwt-products-navigation.live.spec.ts',
+            'tests/live/helpers/rwtAdverseJourney.ts', 'tests/live/rwt-products-navigation.live.spec.ts',
         ];
         for (const f of files) {
             const src = read(f);
@@ -249,8 +249,10 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
         };
         for (const f of readdirSync('tests/live').filter((n) => /^rwt-.*\.live\.spec\.ts$/.test(n))) {
             const src = read(`tests/live/${f}`);
-            const journey = src.includes('focusPointsJourney(') ? read('tests/live/helpers/rwtFocusPointsJourney.ts') : src;
-            if (!/armWatchdog\(/.test(journey)) continue;
+            // A wrapper spec resolves to the extracted journey it runs; every spec's journey must arm the watchdog (no exemption).
+            const journey = src.includes('focusPointsJourney(') ? read('tests/live/helpers/rwtFocusPointsJourney.ts')
+                : src.includes("from './helpers/rwtAdverseJourney'") ? read('tests/live/helpers/rwtAdverseJourney.ts') : src;
+            expect(journey, `${f}: the journey arms the watchdog`).toMatch(/armWatchdog\(/);
             expect(journey, `${f}: the finalization is registered once`).toMatch(/finalizer\.once\(async \(\) => \{/);
             expect(journey, `${f}: the body's finally runs that same finalization`).toMatch(/\} finally \{\s*await finish\(\);/);
             expect(afterEachBody(src), `${f}: the afterEach drains it`).toContain('await finalizer.drain();');
@@ -263,7 +265,7 @@ describe('every RWT journey is armed, and every run-owned cleanup survives a tim
             'tests/live/rwt-open-mic-first-session.live.spec.ts', 'tests/live/helpers/rwtFocusPointsJourney.ts',
             'tests/live/rwt-pending-start-navigation.live.spec.ts', 'tests/live/rwt-save-retry-recovery.live.spec.ts',
             'tests/live/rwt-feedback-association-boundaries.live.spec.ts', 'tests/live/rwt-abandon-and-two-tabs.live.spec.ts',
-            'tests/live/rwt-adverse-mic-model.live.spec.ts', 'tests/live/rwt-products-navigation.live.spec.ts',
+            'tests/live/helpers/rwtAdverseJourney.ts', 'tests/live/rwt-products-navigation.live.spec.ts',
         ];
         for (const f of files) {
             const src = read(f);
@@ -677,7 +679,7 @@ describe('#1662 Codex on f527a033 — each fault phase brackets exactly its inje
     const read = (f: string) => readFileSync(f, 'utf8');
 
     it('P1: the model-fault phase opens BEFORE the fault is injected (route abort, going offline)', () => {
-        const src = read('tests/live/rwt-adverse-mic-model.live.spec.ts');
+        const src = read('tests/live/helpers/rwtAdverseJourney.ts');
         for (const inject of ["await context.route(MODEL_ASSETS, (route) => route.abort('failed'))", 'await context.setOffline(true)']) {
             const at = src.indexOf(inject);
             expect(at).toBeGreaterThan(0);
@@ -1381,7 +1383,7 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
     it('Codex P2 r4313846488: EVERY watchdog verdict in every RWT finalizer comes after a bounded telemetry wait', () => {
         const files = [
             ...readdirSync('tests/live').filter((f) => /^rwt-.*\.live\.spec\.ts$/.test(f)).map((f) => `tests/live/${f}`),
-            'tests/live/helpers/rwtFocusPointsJourney.ts',
+            'tests/live/helpers/rwtFocusPointsJourney.ts', 'tests/live/helpers/rwtAdverseJourney.ts',
         ];
         const RECORD = "steps.step('watchdog', () => watch.record(receipt))";
         let records = 0;
@@ -1399,9 +1401,9 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
     });
 
     it('Sam 845401a5 #2 + Codex P2 r4316425029: EVERY finalizer settles every attached page, not the first flush', () => {
-        for (const f of ['rwt-abandon-and-two-tabs', 'rwt-adverse-mic-model', 'rwt-feedback-association-boundaries', 'rwt-save-retry-recovery', 'rwt-pending-start-navigation',
+        for (const f of ['rwt-abandon-and-two-tabs', '../helpers/rwtAdverseJourney', 'rwt-feedback-association-boundaries', 'rwt-save-retry-recovery', 'rwt-pending-start-navigation',
             'rwt-open-mic-first-session', 'rwt-products-navigation', '../helpers/rwtFocusPointsJourney']) {
-            const src = readFileSync(f.startsWith('../') ? 'tests/live/helpers/rwtFocusPointsJourney.ts' : `tests/live/${f}.live.spec.ts`, 'utf8');
+            const src = readFileSync(f.startsWith('../') ? `tests/live/helpers/${f.slice('../helpers/'.length)}.ts` : `tests/live/${f}.live.spec.ts`, 'utf8');
             expect({ f, perPage: src.includes("steps.step('telemetry settle', () => tap.settleEveryPage("), anyPage: src.includes("steps.step('telemetry settle', () => tap.settleQueuedTelemetry(") })
                 .toEqual({ f, perPage: true, anyPage: false });
         }
@@ -1476,5 +1478,49 @@ describe('Codex P2 on 06fe109b — telemetry settles before the watchdog verdict
         expect(branch.indexOf('watch.setStartRefusedAllowed(false);')).toBeLessThan(click);
         expect(branch.indexOf('watch.setFaultPhase(false);')).toBeGreaterThan(-1);
         expect(branch.indexOf('watch.setFaultPhase(false);')).toBeLessThan(click);
+    });
+});
+
+/**
+ * #1593 cases 9–11: a describe-level `test.use({ launchOptions })` made Playwright refuse to load
+ * rwt-adverse-mic-model.live.spec.ts ("forces a new worker"), so all three adverse cases selected zero tests and the live
+ * journeys never ran. Launch options are worker-scoped: they belong only in a file's top-level `test.use`.
+ */
+describe('#1593 cases 9–11 — every RWT live spec is collectable', () => {
+    const specs = readdirSync('tests/live').filter((f) => /^rwt-.*\.live\.spec\.ts$/.test(f));
+
+    it('launchOptions appear only in a top-level test.use, never inside a describe group', () => {
+        expect(specs.length).toBeGreaterThan(0);
+        for (const f of specs) {
+            const src = readFileSync(`tests/live/${f}`, 'utf8');
+            // Every `launchOptions:` property (prose mentions in comments are not options).
+            for (const m of src.matchAll(/\blaunchOptions\s*:/g)) {
+                const use = src.lastIndexOf('test.use(', m.index);
+                expect({ f, at: m.index, topLevel: use === 0 || src[use - 1] === '\n' }).toEqual({ f, at: m.index, topLevel: true });
+            }
+        }
+    });
+
+    it('the adverse variants keep their exact titles across the two files, mic denied with its own =deny launch', () => {
+        const model = readFileSync('tests/live/rwt-adverse-mic-model.live.spec.ts', 'utf8');
+        const denied = readFileSync('tests/live/rwt-adverse-mic-denied.live.spec.ts', 'utf8');
+        expect(model).toContain("test('model download fails: Retry, never ready, stays Private, no Cloud; fixed → Retry saves a take'");
+        expect(model).toContain("test('offline mid-download: Retry, never ready, stays Private, no Cloud; back online → Retry saves a take'");
+        expect(model).not.toContain("'mic-denied'");
+        expect(denied).toContain("test('mic denied: stated truthfully, nothing records, no Cloud; allowed → a take saves'");
+        expect(denied).toMatch(/^test\.use\(\{\n {4}permissions: \[\], /m);
+        expect(denied).toContain("'--use-fake-ui-for-media-stream=deny'");
+        for (const spec of [model, denied]) {
+            expect(spec).toContain("import { test } from './helpers/rwtProductionTest';");
+            expect(spec).toContain("import { finalizer, fixture, runVariant } from './helpers/rwtAdverseJourney';");
+            expect(spec).toContain('await finalizer.drain();');
+            expect(spec, 'a wrapper holds no journey or finalizer of its own').not.toMatch(/armWatchdog\(|new JourneyFinalizer\(|finalizer\.once\(/);
+        }
+        // Both wrappers resolve to ONE extracted journey and ONE finalizer.
+        const journey = readFileSync('tests/live/helpers/rwtAdverseJourney.ts', 'utf8');
+        expect(journey.match(/^export const finalizer = new JourneyFinalizer\(\);$/gm)).toHaveLength(1);
+        expect(journey.match(/^export async function runVariant\(/gm)).toHaveLength(1);
+        expect(journey).toMatch(/const finish = finalizer\.once\(async \(\) => \{/);
+        expect(journey).toMatch(/armWatchdog\(/);
     });
 });
