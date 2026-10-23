@@ -109,6 +109,33 @@ The collector does not query the management secret store or acquire its values/h
 
 Many `secrets.*` are non-secret config over-classified as Secrets; a small number of GitHub `vars.*` are also referenced (e.g. `vars.SUPABASE_PROJECT_ID`, `vars.SUPABASE_URL`, `vars.EDGE_FN_URL`) — reconcile counts against the current workflows rather than assuming "none." **Genuine secrets (keep as GitHub Secrets):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `ASSEMBLYAI_API_KEY`, `GEMINI_API_KEY`, `SENTRY_AUTH_TOKEN`, `POSTHOG_PERSONAL_API_KEY`, `AGENT_SECRET`, `OBSERVABILITY_SMOKE_SECRET`, `PROMO_GEN_ADMIN_SECRET`, `GH_PAT`, `VERCEL_ACCESS_TOKEN`, and the real test-account passwords (`*_TEST_PASSWORD`, `CANARY_TRIAL_PASSWORD`, `CANARY_PAID_PASSWORD`, `SOAK_TEST_PASSWORD`). **Over-classified → should be GitHub Variables (non-secret config):** `SUPABASE_URL`, `SUPABASE_ANON_KEY` (owner decision: kept a Secret despite being client-public), `SUPABASE_PROJECT_ID`, publishable-key/price-ID names, `SENTRY_DSN`/`SENTRY_API_BASE`/`SENTRY_ORG`/`SENTRY_PROJECT`, `POSTHOG_PROJECT_API_KEY`/`POSTHOG_PROJECT_ID`/hosts, `EDGE_FN_URL`, `VERCEL_PROJECT_ID`, and test-account emails. **Safe migration order (CI never breaks):** product-ops creates the Variable (copy value) → dev flips the workflow ref `secrets.X → vars.X` → owner deletes the old Secret. Agents do NOT mutate the secret store; dev only edits the `.yml` refs. Same-name `secrets.X`/`vars.X` may coexist, so no rename is required. The `tester-evidence-audit.yml` workflow consumes only `SUPABASE_URL` (variable), `SUPABASE_SERVICE_ROLE_KEY` (secret), `AUDIT_EXCLUDED_EMAILS_JSON` (secret — centralized exclusion manifest; audit fails closed if absent/malformed), `AUDIT_EXCLUSION_LIST_VERSION` (variable), `AUDIT_EXCLUSION_LIST_REVIEWED_AT` (variable), plus the operator's `confirm_exclusion_manifest_complete` attestation input.
 
+#### Served-release binding for default-off integration
+
+| Name | Storage / consumer | Meaning / ownership |
+|---|---|---|
+| `PRODUCTION_RELEASE_SHA` | Home D: **repository Actions Variable**, consumed as `vars.PRODUCTION_RELEASE_SHA`; non-secret, full 40-character Git commit SHA | Last successfully promoted and independently read-back **served frontend release**. App is the selected release operator; an operator with separately authorized repository-variable write access maintains this binding. It is not the latest unserved `main` SHA or a frontend runtime secret. |
+
+This is the required configuration contract for the selected default-off release policy,
+not evidence that a variable exists or that the policy has been installed. Before use,
+verify the merged workflow consumers and separately authorized bootstrap in
+[RELEASE_PROCESS.md §5.1](./RELEASE_PROCESS.md#51-default-off-integration-and-served-release-binding).
+Do not create a second Vercel/Supabase copy or move credentials to implement this binding.
+
+Scheduled production monitoring must compare the observed served identity to this binding,
+while qualification of an unserved candidate stays attached to that candidate's own exact SHA.
+Missing, malformed or mismatched binding is **HOLD**, not fallback to `github.sha` or latest
+`main`. Retain scheduled health visibility; a held or unexecuted lane produces no passing
+product qualification.
+
+Advance the variable only after successful authorized promotion and independent served-identity
+readback. A failed or uncertain promotion/readback leaves the prior binding unchanged and the
+release **HOLD**. The old value then means *last verified*, not proof that production remains
+healthy or unchanged. Variable-update/readback failure after a successful deployment is also
+**HOLD**; do not dispatch dependent qualification as though the new binding were installed.
+Record changing values, UTC observations and run/receipt links only in `RELEASE_STATUS.md`.
+Documentation, source acceptance, merge approval and release-operator selection do not grant
+variable/settings write permission or production authority.
+
 ### 2.4 Vercel Project Env (Home B)
 
 The real production values for the §2.1 `VITE_*` live here (Production scope) plus platform vars, all encrypted at rest in Vercel: the public `VITE_*` set (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, live `VITE_STRIPE_PUBLISHABLE_KEY`, `VITE_SENTRY_DSN`/`VITE_POSTHOG_KEY`/`VITE_POSTHOG_HOST`), `OPS_STATUS_PASSWORD` (a real secret — gates the Ops status page), and the auto-provided `VERCEL_GIT_COMMIT_SHA`. The Production candidate comparison uses no key: its authorization is one owner-dispatched `rc-gates.yml` GitHub run attempt that mints a one-use nonce (#1432).
