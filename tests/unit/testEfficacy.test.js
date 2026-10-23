@@ -235,6 +235,20 @@ function fixture() {
   return { directory, write, git };
 }
 
+test('generated apt cache does not enter producer snapshots or phase inputs',()=>{
+  const {directory,write}=fixture();
+  try {
+    const before=runTestEfficacy({root:directory});
+    write('apt-bundle/debs/Packages','generated CI cache, not source');
+    fs.mkdirSync(path.join(directory,'apt-bundle/apt-lists'),{recursive:true});
+    fs.symlinkSync('../debs/Packages',path.join(directory,'apt-bundle/apt-lists/runner_Packages'));
+    const after=runTestEfficacy({root:directory});
+    assert.equal(after.snapshotSha256,before.snapshotSha256);
+    assert.equal(after.contracts[0].restored.report.success,true);
+    assert.equal(after.contracts[0].baseline.inputSha256,before.contracts[0].baseline.inputSha256);
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
 test('efficacy fixture excludes dependency symlink from Git inventory without allowing source symlinks',()=>{
   const {directory,git}=fixture();
   const external=fs.mkdtempSync(path.join(os.tmpdir(),'efficacy-dependency-link-'));

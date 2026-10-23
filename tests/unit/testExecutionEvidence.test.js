@@ -6,7 +6,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
-  changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution} from '../../scripts/lib/testExecutionEvidence.mjs';
+  changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
@@ -21,7 +21,7 @@ function pilot(expected) {
   const names=contract.mutants.map(mutant=>mutant.assertion).sort();
   // Independent construction from the real file inventory and literal reviewed rewrites.
   // Do not call the consumer's expected-input implementation to manufacture its own oracle.
-  const inventory=[...new Set(execFileSync('git',['ls-files','-z','--cached','--others','--exclude-standard'],
+  const inventory=[...new Set(execFileSync('git',['ls-files','-z','--cached','--others','--exclude-standard','--exclude=/apt-bundle/'],
     {cwd:root,encoding:'utf8'}).split('\0').filter(Boolean))].sort().filter(file=>fs.existsSync(path.join(root,file)))
     .map(file=>[file,hash(fs.readFileSync(path.join(root,file)))]);
   const original=fs.readFileSync(path.join(root,contract.sourceFile),'utf8');
@@ -283,6 +283,32 @@ function executionFixture(installed=false) {
   return {dir,write,git,commit,base,file,passing};
 }
 
+test('generated apt cache is excluded without excluding tracked cache paths or similarly named source',()=>{
+  const {dir,write,git}=executionFixture();
+  try {
+    const baseline=sourceIdentity(dir);
+    write('apt-bundle/debs/Packages','generated package index');
+    fs.mkdirSync(path.join(dir,'apt-bundle/apt-lists'),{recursive:true});
+    fs.symlinkSync('../debs/Packages',path.join(dir,'apt-bundle/apt-lists/runner_Packages'));
+    assert.match(git(['ls-files','--others','--exclude-standard']),/apt-bundle\/apt-lists\/runner_Packages/,
+      'the CI-like link must really be visible to the former Git inventory');
+    assert.deepEqual(sourceIdentity(dir),baseline);
+    write('apt-bundle/debs/Packages','cache churn must not change application source');
+    assert.deepEqual(sourceIdentity(dir),baseline);
+    write('frontend/src/apt-bundle/control.js','export const realSource=1;');
+    assert.notEqual(sourceIdentity(dir).snapshotSha256,baseline.snapshotSha256);
+    write('apt-bundle/tracked-source.js','export const tracked=1;');
+    git(['add','--force','--','apt-bundle/tracked-source.js']);
+    const tracked=sourceIdentity(dir);
+    write('apt-bundle/tracked-source.js','export const tracked=2;');
+    assert.notEqual(sourceIdentity(dir).snapshotSha256,tracked.snapshotSha256,
+      'an explicit tracked path must remain bound even under the cache directory');
+    fs.symlinkSync('debs/Packages',path.join(dir,'apt-bundle/tracked-link'));
+    git(['add','--force','--','apt-bundle/tracked-link']);
+    assert.throws(()=>sourceIdentity(dir),/Unsupported source entry: apt-bundle\/tracked-link/);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
 test('writer execution fixture excludes dependency symlink from Git inventory without allowing source symlinks',()=>{
   const {dir,git}=executionFixture();
   const external=fs.mkdtempSync(path.join(os.tmpdir(),'writer-dependency-link-'));
@@ -302,7 +328,7 @@ test('execution-only consumer binds actual source, runtime, command and controll
   try {
     const expected=executionContext(dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID(),GITHUB_ACTIONS:'true',
       GITHUB_SHA:base,GITHUB_RUN_ID:'901',GITHUB_RUN_ATTEMPT:'3'});
-    const entries=execFileSync('git',['ls-files','-z','--cached','--others','--exclude-standard'],{cwd:dir,encoding:'utf8'})
+    const entries=execFileSync('git',['ls-files','-z','--cached','--others','--exclude-standard','--exclude=/apt-bundle/'],{cwd:dir,encoding:'utf8'})
       .split('\0').filter(Boolean).sort().map(name=>[name,hash(fs.readFileSync(path.join(dir,name)))]);
     const inputSha256=hash(JSON.stringify(entries));const cwd=path.join(dir,'isolated');
     const binding={runId:randomUUID(),phaseId:randomUUID(),phase:'execution',provenance:expected,cwd,

@@ -8,7 +8,9 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
 function sourceEntries(root) {
-  const files=[...new Set(git(root,['ls-files','-z','--cached','--others','--exclude-standard']).split('\0').filter(Boolean))].sort();
+  // CI materializes this untracked package cache before testing. Git exclusions
+  // apply only to --others: tracked paths remain source even under this directory.
+  const files=[...new Set(git(root,['ls-files','-z','--cached','--others','--exclude-standard','--exclude=/apt-bundle/']).split('\0').filter(Boolean))].sort();
   const entries=files.map(file=> {
     const target=path.join(root,file);
     if (!fs.existsSync(target)) return [file,'deleted'];
@@ -84,11 +86,11 @@ export function executionRoute(file, root) {
 
 function changedPaths(root, base) {
   if (base && !/^[a-f0-9]{40}$/.test(base)) throw new Error('Diff base must be an exact commit SHA');
-  const all=git(root,['ls-files','-z','--cached','--others','--exclude-standard']).split('\0');
+  const all=git(root,['ls-files','-z','--cached','--others','--exclude-standard','--exclude=/apt-bundle/']).split('\0');
   const files=base && !/^0+$/.test(base) ? [
     ...git(root,['diff','--name-only','-z',base,'HEAD']).split('\0'),
     ...git(root,['diff','--name-only','-z','HEAD']).split('\0'),
-    ...git(root,['ls-files','-z','--others','--exclude-standard']).split('\0'),
+    ...git(root,['ls-files','-z','--others','--exclude-standard','--exclude=/apt-bundle/']).split('\0'),
   ] : all;
   return [...new Set(files.filter(Boolean))].sort();
 }

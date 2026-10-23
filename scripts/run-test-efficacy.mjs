@@ -51,7 +51,8 @@ export function selectContracts(root, changedPaths) {
 }
 
 function snapshot(root) {
-  const files = git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0').filter(Boolean);
+  // Exclude only the untracked root CI package cache, never tracked source paths.
+  const files = git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--exclude=/apt-bundle/']).split('\0').filter(Boolean);
   const entries = [...new Set(files)].sort().map(file => {
     const location = path.join(root, file);
     if (!fs.existsSync(location)) return [file, 'deleted'];
@@ -79,7 +80,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   const changed = base ? [...new Set([
     ...git(root, ['diff', '--name-only', '-z', base, 'HEAD']).split('\0'),
     ...git(root, ['diff', '--name-only', '-z', 'HEAD']).split('\0'),
-    ...git(root, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0'),
+    ...git(root, ['ls-files', '--others', '--exclude-standard', '--exclude=/apt-bundle/', '-z']).split('\0'),
   ].filter(Boolean))] : null;
   const selected = executionOnly ? changedEvidencePaths(root,base)
     .filter(file=>executionRoute(file,root)?.runner==='vitest' && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
