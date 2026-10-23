@@ -36,7 +36,6 @@ import {
     installMicAcquisitionCounter,
     loadRwtFixture,
     markRunOwnedAccountCanary,
-    micAcquisitionLog,
     micAcquisitions,
     newDisposableEmail,
     nextStartEvidence,
@@ -82,7 +81,7 @@ import { openProductsItem, resolveProductsTrigger } from './productsMenu';
 import { PACE_GUIDE_DEFAULT_SECONDS, parsePaceGuideSeconds } from './rwtPaceGuide';
 import {
     LIVE_MARKER_MAX_AFTER_SECONDS, armMarkerObserver, bindTakeAcquisition, classifyMarkerTiming, disposeMarkerObserver, freezeMarkerObserver,
-    type MarkerObserverSnapshot,
+    markerTimingStatus, type MarkerObserverSnapshot,
 } from './rwtMarkerObserver';
 
 const JOURNEY = 'focus_points';
@@ -450,7 +449,8 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             // observer, measured from the take's one fresh granted getUserMedia INVOCATION. Nothing is backdated; any binding
             // gap is a HOLD, never a PASS. The polled first-seen times are kept beside it to separate observer from product.
             const windows = fixture.entry.pointAudioWindows;
-            const binding = sealed ? bindTakeAcquisition(await micAcquisitionLog(page), await micAcquisitions(page), sealed.acquisitionsAtArm) : null;
+            // Only the acquisition copy sealed in the same token-validated evaluation as the window; no separate later reads.
+            const binding = sealed ? bindTakeAcquisition(sealed.acquisitionLog, sealed.acquisitionMarks, sealed.acquisitionsAtArm) : null;
             const polledFirstSec = firstChange.map((c) => (c ? `${c.status}@${c.atSec}` : 'none')).join(',');
             if (!windows) {
                 receipt.row('marker timing vs audio', 'HOLD', 'this fixture has no point audio windows');
@@ -466,10 +466,14 @@ export async function focusPointsJourney(page: Page, testInfo: TestInfo, fixture
             } else {
                 const verdicts = classifyMarkerTiming({ windows, observations: sealed.observations, invokedAtMs: binding.invokedAtMs,
                     expectsLive: points.map((_, i) => expectsLiveChange(expectedFinal[i])) });
-                const ok = verdicts.every((v) => v.startsWith('ok'));
-                receipt.row('marker timing vs audio', ok ? 'PASS' : 'FAIL',
-                    ok ? 'each marker was observed while its point was spoken or within 5 s after, before the next point' : 'a marker was observed before its point was spoken, more than 5 s after it or after the next point began, or for an unspoken point',
+                const status = markerTimingStatus(verdicts);
+                receipt.row('marker timing vs audio', status,
+                    status === 'PASS' ? 'each marker\'s whole change interval lies while its point was spoken or within 5 s after, before the next point'
+                        : status === 'HOLD' ? 'a marker\'s change interval crosses a timing boundary, so its timing is not established either way'
+                            : 'a marker changed before its point was spoken, more than 5 s after it or after the next point began, or for an unspoken point',
                     { perPoint: verdicts.join(','), maxAfterPointSec: LIVE_MARKER_MAX_AFTER_SECONDS, clock: 'page-side observation after getUserMedia invocation',
+                        invokedAtMs: binding.invokedAtMs, armedAtMs: sealed.armedAtMs, frozenAtMs: sealed.frozenAtMs ?? 'none',
+                        boundsMs: sealed.observations.map((o) => `${o.point}:${o.status}:${o.afterMs - binding.invokedAtMs}..${o.observedAtMs - binding.invokedAtMs}`).join(','),
                         observations: sealed.observations.length, railGenerations: sealed.railGenerations, rejected: sealed.rejected.length, polledFirstSec });
             }
             // Runbook v12: red "Not detected" is a FINAL, after-Stop verdict only — never during speech.

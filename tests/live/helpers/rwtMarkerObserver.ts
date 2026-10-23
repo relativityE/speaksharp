@@ -12,11 +12,17 @@
  */
 import type { Page } from '@playwright/test';
 
-/** One status a point's row showed, in delivery order; transient statuses inside one batch are kept. */
+/**
+ * One status a point's row showed, in delivery order; transient statuses inside one batch are kept. The change happened in
+ * the conservative interval (afterMs, observedAtMs]: a MutationObserver delivery takes EVERY record queued since the previous
+ * delivery, so a change in this batch happened after that delivery and no later than this callback. No exact time is invented.
+ */
 export interface MarkerObservation {
     point: number;
     status: string;
-    /** Page `Date.now()` when the observer callback ran (or the drain at freeze): OBSERVATION time, not mutation time. */
+    /** The previous delivery (or arm): the change happened AFTER this. */
+    afterMs: number;
+    /** Page `Date.now()` when this callback (or the freeze drain) ran: OBSERVATION time, the latest the change can have been. */
     observedAtMs: number;
     seq: number;
     /** 1 = the rail present at arm; incremented when an expected re-render replaces it. */
@@ -30,11 +36,14 @@ export interface MarkerObserverSnapshot {
     initialAllPending: boolean;
     initialStatuses: (string | null)[];
     observations: MarkerObservation[];
-    /** Records refused as stale (detached row/rail), out of range, or arriving after the window froze. */
+    /** Records refused as stale (changed after their row/rail was removed), out of range, or arriving after the freeze. */
     rejected: { reason: 'detached' | 'out-of-range' | 'after-freeze'; point: number | null }[];
     railGenerations: number;
     /** Microphone acquisitions already logged at arm: only a later acquisition can be this take's. */
     acquisitionsAtArm: number;
+    /** The microphone log and its invocation stamps, copied in the SAME token-validated evaluation that froze the window. */
+    acquisitionLog: { id: number; outcome: string }[];
+    acquisitionMarks: number[];
     frozen: boolean;
     frozenAtMs: number | null;
 }
@@ -44,8 +53,8 @@ interface ObserverState {
     observer: MutationObserver | null;
     rail: Element | null;
     last: (string | null)[];
+    lastDeliveryAtMs: number;
 }
-
 
 /** In-page: arm the observer on the current rail. Refuses a second live observer and a missing rail. */
 export function armMarkerObserverInPage(args: { token: string; count: number; railTestId: string; rowPrefix: string }): { ok: boolean; reason?: string } {
@@ -64,23 +73,25 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
         container.querySelector(`[data-testid="${args.rowPrefix}${i}"]`)?.getAttribute('data-status') ?? null);
     const initial = readStatuses(rail);
     const log = (w['__rwtMicAcquisitionLog__'] as unknown[] | undefined) ?? [];
+    const armedAtMs = Date.now();
     const state: ObserverState = {
         snapshot: {
-            token: args.token, armedAtMs: Date.now(), initialAllPending: initial.length > 0 && initial.every((s) => s === 'pending'),
-            initialStatuses: initial, observations: [], rejected: [], railGenerations: 1, acquisitionsAtArm: log.length, frozen: false, frozenAtMs: null,
+            token: args.token, armedAtMs, initialAllPending: initial.length > 0 && initial.every((s) => s === 'pending'),
+            initialStatuses: initial, observations: [], rejected: [], railGenerations: 1, acquisitionsAtArm: log.length,
+            acquisitionLog: [], acquisitionMarks: [], frozen: false, frozenAtMs: null,
         },
         observer: null,
         rail,
         last: initial.slice(),
+        lastDeliveryAtMs: armedAtMs,
     };
     const s = state.snapshot;
-    const record = (point: number, status: string | null, at: number) => {
+    const record = (point: number, status: string | null, afterMs: number, at: number, railGeneration: number) => {
         if (status === null || status === state.last[point]) return;
         state.last[point] = status;
-        s.observations.push({ point, status, observedAtMs: at, seq: s.observations.length, railGeneration: s.railGenerations });
+        s.observations.push({ point, status, afterMs, observedAtMs: at, seq: s.observations.length, railGeneration });
     };
-    // An expected re-render may replace the rail. Adopt the connected replacement (a new generation) and record any status
-    // its rows already show; rows of the detached rail are stale and refused.
+    // An expected re-render may replace the rail: adopt the connected replacement as a new generation.
     const currentRail = (): Element | null => {
         if (state.rail && state.rail.isConnected) return state.rail;
         const next = document.querySelector(`[data-testid="${args.railTestId}"]`);
@@ -91,30 +102,48 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
         return state.rail && state.rail.isConnected ? state.rail : null;
     };
     const handle = (records: MutationRecord[], at: number) => {
+        const afterMs = state.lastDeliveryAtMs;
+        state.lastDeliveryAtMs = at;
         if (s.frozen) {
             for (const r of records) s.rejected.push({ reason: 'after-freeze', point: r.target instanceof Element ? rowOf(r.target) : null });
             return;
         }
-        // Attribute records per row, in delivery order: each record's oldValue is the status before it, so the value it set
-        // is the next record's oldValue (or the current attribute for the last). Transients inside one batch survive.
-        const byRow = new Map<Element, MutationRecord[]>();
+        // The value an attribute record set is the next record's oldValue for the same row (or the current attribute for
+        // the last), so transients inside one batch survive.
+        const perRow = new Map<Element, MutationRecord[]>();
+        for (const r of records) {
+            if (r.type !== 'attributes' || !(r.target instanceof Element)) continue;
+            perRow.set(r.target, [...(perRow.get(r.target) ?? []), r]);
+        }
+        const railAtStart = state.rail;
+        const generationAtStart = s.railGenerations;
+        const rail = currentRail();
+        // Records in DELIVERY ORDER: a row change recorded before its rail's removal is eligible evidence of that rail's
+        // generation (the change happened while it was attached); a change recorded after the removal is stale.
+        const removed: Node[] = [];
         let structural = false;
         for (const r of records) {
-            if (r.type === 'childList') { structural = true; continue; }
+            if (r.type === 'childList') {
+                structural = true;
+                r.removedNodes.forEach((n) => removed.push(n));
+                continue;
+            }
             if (r.type !== 'attributes' || !(r.target instanceof Element)) continue;
-            const list = byRow.get(r.target) ?? [];
-            list.push(r);
-            byRow.set(r.target, list);
-        }
-        const rail = currentRail();
-        for (const [el, list] of byRow) {
+            const el = r.target;
             const point = rowOf(el);
             if (point === null) continue;
             if (point >= args.count) { s.rejected.push({ reason: 'out-of-range', point }); continue; }
-            if (!rail || !el.isConnected || !rail.contains(el)) { s.rejected.push({ reason: 'detached', point }); continue; }
-            list.forEach((r, k) => record(point, k + 1 < list.length ? list[k + 1].oldValue : el.getAttribute('data-status'), at));
+            if (removed.some((n) => n === el || n.contains(el))) { s.rejected.push({ reason: 'detached', point }); continue; }
+            const list = perRow.get(el) ?? [r];
+            const k = list.indexOf(r);
+            // A detached row's current attribute may carry a write made after its removal, so the value its last
+            // pre-removal record set is not established: record 'unknown' (never a PASS) rather than guess.
+            const value = k + 1 < list.length ? list[k + 1].oldValue : el.isConnected ? el.getAttribute('data-status') : 'unknown';
+            if (railAtStart && railAtStart.contains(el)) record(point, value, afterMs, at, generationAtStart);
+            else if (rail && el.isConnected && rail.contains(el)) record(point, value, afterMs, at, s.railGenerations);
+            else s.rejected.push({ reason: 'detached', point });
         }
-        if (structural && rail) readStatuses(rail).forEach((status, i) => record(i, status, at));
+        if (structural && rail) readStatuses(rail).forEach((status, i) => record(i, status, afterMs, at, s.railGenerations));
     };
     const observer = new MutationObserver((records) => handle(records, Date.now()));
     observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-status'], attributeOldValue: true });
@@ -124,9 +153,13 @@ export function armMarkerObserverInPage(args: { token: string; count: number; ra
     return { ok: true };
 }
 
-/** In-page: drain undelivered records, freeze the live window and disconnect. Idempotent; a sealed window never changes. */
+/**
+ * In-page: validate the token, drain undelivered records, freeze the live window, disconnect, and copy the microphone log
+ * and its stamps in this same evaluation. Idempotent; a sealed window (and its acquisition copy) never changes.
+ */
 export function freezeMarkerObserverInPage(token: string): MarkerObserverSnapshot | null {
-    const state = (window as unknown as Record<string, unknown>)['__rwtMarkerObserver__'] as (ObserverState & { drain?: () => void }) | undefined;
+    const w = window as unknown as Record<string, unknown>;
+    const state = w['__rwtMarkerObserver__'] as (ObserverState & { drain?: () => void }) | undefined;
     if (!state || state.snapshot.token !== token) return null;
     if (!state.snapshot.frozen) {
         state.drain?.();
@@ -134,6 +167,9 @@ export function freezeMarkerObserverInPage(token: string): MarkerObserverSnapsho
         state.snapshot.frozenAtMs = Date.now();
         state.observer?.disconnect();
         state.observer = null;
+        const log = (w['__rwtMicAcquisitionLog__'] as { id: number; outcome: string }[] | undefined) ?? [];
+        state.snapshot.acquisitionLog = log.map((a) => ({ id: a.id, outcome: a.outcome }));
+        state.snapshot.acquisitionMarks = ((w['__rwtMicAcquisitions__'] as number[] | undefined) ?? []).slice();
     }
     return JSON.parse(JSON.stringify(state.snapshot)) as MarkerObserverSnapshot;
 }
@@ -199,9 +235,11 @@ export const MARKER_ALIGNMENT_SLACK_SECONDS = 1;
 export const LIVE_MARKER_MAX_AFTER_SECONDS = 5;
 
 /**
- * Per-point timing verdict, unchanged semantics: a spoken point's first non-pending observation must land no earlier than
- * 1 s before its window opens, and no later than min(window end + 5 s, next point's start). A never-spoken point must never
- * be marked (a transient counts). The input time is page-side OBSERVATION time after the getUserMedia invocation.
+ * Per-point timing verdict, unchanged windows and deadlines: a spoken point's first non-pending change must land no earlier
+ * than 1 s before its window opens and no later than min(window end + 5 s, next point's start); a never-spoken point must
+ * never be marked (a transient counts). Times are page-clock ms after the take's getUserMedia INVOCATION. The change is only
+ * known to lie in (afterMs, observedAtMs]: PASS needs the WHOLE interval inside the bounds, an interval wholly outside is a
+ * FAIL, and an interval that crosses a boundary is `uncertain-*` (non-PASS). Verdicts carry exact ms bounds as seconds.
  */
 export function classifyMarkerTiming(input: {
     windows: readonly ([number, number] | null)[];
@@ -217,14 +255,26 @@ export function classifyMarkerTiming(input: {
     return input.expectsLive.map((expectsLive, i) => {
         const window = input.windows[i] ?? null;
         const change = first(i);
-        if (window === null) return change ? 'marked-though-never-spoken' : 'ok-unspoken';
+        const lo = change ? (change.afterMs - input.invokedAtMs) / 1000 : 0;
+        const hi = change ? (change.observedAtMs - input.invokedAtMs) / 1000 : 0;
+        const bounds = `${lo.toFixed(3)}..${hi.toFixed(3)}`;
+        // A pre-removal change whose resulting value is not established is evidence of a write, not of a marker: non-PASS.
+        if (window === null) return change ? (change.status === 'unknown' ? `uncertain-unspoken-change@${bounds}` : 'marked-though-never-spoken') : 'ok-unspoken';
         if (!change) return expectsLive ? 'no-live-change' : 'ok-no-change';
-        const audioSec = (change.observedAtMs - input.invokedAtMs) / 1000;
-        const latency = (audioSec - window[1]).toFixed(1); // negative = during the point
+        if (change.status === 'unknown') return `uncertain-unknown@${bounds}`;
+        const earliest = window[0] - MARKER_ALIGNMENT_SLACK_SECONDS;
         const next = nextStart(i);
         const deadline = Math.min(window[1] + LIVE_MARKER_MAX_AFTER_SECONDS, next ?? Number.POSITIVE_INFINITY);
-        if (audioSec < window[0] - MARKER_ALIGNMENT_SLACK_SECONDS) return `early@${audioSec.toFixed(1)}`;
-        if (audioSec > deadline) return `late@${audioSec.toFixed(1)}(+${latency}s)`;
-        return `ok@${audioSec.toFixed(1)}(${latency}s)`;
+        if (hi < earliest) return `early@${bounds}`;
+        if (lo > deadline) return `late@${bounds}`;
+        if (lo >= earliest && hi <= deadline) return `ok@${bounds}`;
+        return lo < earliest ? `uncertain-early@${bounds}` : `uncertain-late@${bounds}`;
     });
+}
+
+/** Row status: any definite violation FAILs; otherwise any uncertainty is a HOLD; PASS only when every point is ok. */
+export function markerTimingStatus(verdicts: readonly string[]): 'PASS' | 'FAIL' | 'HOLD' {
+    if (verdicts.some((v) => !v.startsWith('ok') && !v.startsWith('uncertain-'))) return 'FAIL';
+    if (verdicts.some((v) => v.startsWith('uncertain-'))) return 'HOLD';
+    return 'PASS';
 }
