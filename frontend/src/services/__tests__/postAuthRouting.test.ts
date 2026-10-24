@@ -44,9 +44,28 @@ describe('postAuthRouting — resolveInAppPostAuthTarget (#1548 in-app return: h
     }
   });
 
-  it('omits state when the destination had none, and ignores a malformed hash', () => {
+  it('omits state when the destination had none', () => {
     expect(resolveInAppPostAuthTarget({ pathname: '/session' })).toEqual({ to: '/session' });
-    expect(resolveInAppPostAuthTarget({ pathname: '/session', hash: 'no-hash-mark' })).toEqual({ to: '/session' });
+    expect(resolveInAppPostAuthTarget({ pathname: '/session', search: '', hash: '' })).toEqual({ to: '/session' });
+  });
+
+  it('refuses MALFORMED parts to /practice without state (each part validated before joining)', () => {
+    const state = { kept: 'never' };
+    const malformed = [
+      { pathname: '/', search: '/evil.example' },          // would join into protocol-relative //evil.example
+      { pathname: '/', search: '\\evil.example' },        // backslash in search
+      { pathname: '/session', search: 'q=1' },              // search without '?'
+      { pathname: '/session', search: '?q=1#frag' },        // search carrying a fragment
+      { pathname: '/session', hash: 'no-hash-mark' },       // hash without '#'
+      { pathname: '/session?q=1' },                         // pathname carrying a query
+      { pathname: '/session#top' },                         // pathname carrying a fragment
+      { pathname: '/auth?x=1' },                            // auth route hidden behind a query in pathname
+      { pathname: '/auth#x' },
+      { pathname: '/auth/', search: '?' },
+    ];
+    for (const from of malformed) {
+      expect(resolveInAppPostAuthTarget({ ...from, state })).toEqual({ to: '/practice' });
+    }
   });
 
   it('never follows a nested state.from — the outer validated pathname is the destination', () => {

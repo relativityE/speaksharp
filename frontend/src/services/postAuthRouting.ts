@@ -52,10 +52,22 @@ function isAuthSurface(pathname: string): boolean {
  * wrapper's state, and a nested `state.from` is passed through as data, never followed as a destination. State is
  * handed to the router only; it is not serialized anywhere. Invalid, unsafe or sign-in destinations → `/practice`
  * with no state.
+ *
+ * Each part is validated on its own before anything is joined (a router location never mixes them, so any mixing is
+ * malformed and refused): pathname is a safe in-app path with no `?`/`#`; search is empty or `?…` with no `#`; hash
+ * is empty or `#…`. Otherwise `'/'` + search `'/evil.example'` would join into `//evil.example`, and `'/auth?x=1'`
+ * would slip past the sign-in check. The joined target is re-checked as a safe in-app path.
  */
 export function resolveInAppPostAuthTarget(from: PostAuthFrom): { to: string; state?: unknown } {
-  const path = safeDeepLink(from);
-  if (path === null || isAuthSurface(from?.pathname ?? '')) return { to: '/practice' };
-  const hash = typeof from?.hash === 'string' && from.hash.startsWith('#') ? from.hash : '';
-  return from?.state === undefined ? { to: `${path}${hash}` } : { to: `${path}${hash}`, state: from.state };
+  const refuse = { to: '/practice' };
+  const pathname = from?.pathname;
+  const search = from?.search ?? '';
+  const hash = from?.hash ?? '';
+  if (!isSafeInternalPath(pathname) || /[?#]/.test(pathname)) return refuse;
+  if (typeof search !== 'string' || (search !== '' && (!search.startsWith('?') || search.includes('#')))) return refuse;
+  if (typeof hash !== 'string' || (hash !== '' && !hash.startsWith('#'))) return refuse;
+  if (isAuthSurface(pathname)) return refuse;
+  const to = `${pathname}${search}${hash}`;
+  if (!isSafeInternalPath(to)) return refuse;
+  return from?.state === undefined ? { to } : { to, state: from.state };
 }
