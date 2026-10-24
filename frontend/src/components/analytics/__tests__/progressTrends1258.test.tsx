@@ -12,9 +12,14 @@ import { FillerWordsBreakdown } from '../FillerWordsBreakdown';
 import { fillerBreakdownModel, fillerSummary } from '../fillerBreakdown';
 import { TrendsCard } from '../TrendsCard';
 
+// #1472: `weekly` is per-test so the loading/unavailable summaries can be asserted; the default is the complete week.
+const COMPLETE_WEEK = { status: 'complete', count: 3, activity: [{ day: 'Mon', sessions: 2 }, { day: 'Tue', sessions: 1 }] };
+const weeklyState = vi.hoisted(() => ({ value: null as unknown }));
 vi.mock('@/hooks/useAnalytics', () => ({
-    useAnalytics: () => ({ weekly: { status: 'complete', count: 3, activity: [{ day: 'Mon', sessions: 2 }, { day: 'Tue', sessions: 1 }] }, loading: false, error: null }),
+    useAnalytics: () => ({ weekly: weeklyState.value, loading: false, error: null }),
 }));
+
+weeklyState.value = COMPLETE_WEEK;
 
 global.ResizeObserver = class ResizeObserver {
     observe() { }
@@ -146,7 +151,21 @@ describe('#1258 D7 TrendsCard', () => {
     });
 
     it('weekly activity summarises this week\'s sessions', () => {
+        weeklyState.value = COMPLETE_WEEK;
         render(<TrendsCard slideIds={['weekly_activity']} trendData={data} sessions={sessions} />);
         expect(screen.getByTestId('trend-row-weekly_activity').textContent).toContain('3 sessions this week');
+    });
+
+    it('#1472: a week still loading or unavailable states that, never a count from a partial page', () => {
+        weeklyState.value = { status: 'loading' };
+        const { unmount } = render(<TrendsCard slideIds={['weekly_activity']} trendData={data} sessions={sessions} />);
+        expect(screen.getByTestId('trend-row-weekly_activity').textContent).toContain('Loading this week…');
+        expect(screen.getByTestId('trend-row-weekly_activity').textContent).not.toMatch(/\d+ sessions? this week/);
+        unmount();
+        weeklyState.value = { status: 'unavailable' };
+        render(<TrendsCard slideIds={['weekly_activity']} trendData={data} sessions={sessions} />);
+        expect(screen.getByTestId('trend-row-weekly_activity').textContent).toContain('This week\'s count can\'t load right now');
+        expect(screen.getByTestId('trend-row-weekly_activity').textContent).not.toMatch(/\d+ sessions? this week/);
+        weeklyState.value = COMPLETE_WEEK;
     });
 });

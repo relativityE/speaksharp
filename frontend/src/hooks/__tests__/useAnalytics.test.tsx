@@ -405,6 +405,35 @@ describe('useAnalytics', () => {
             expect(result.current.weekly).toMatchObject({ status: 'complete', count: 2 });
         });
 
+        // Fixed clock (the history's fetch time). Saturday 24 Oct 2026, 12:00 local: the week starts Sunday 18 Oct 00:00 and the
+        // 7-day window starts Saturday 17 Oct 12:00. Since the 7-day boundary is always the earlier one, coverage needs the
+        // oldest row strictly before it; a row between the two boundaries proves nothing.
+        const SAT = new Date(2026, 9, 24, 12, 0, 0);
+        const at = (id: string, d: Date) => ({ ...row(id, 0), created_at: d.toISOString() });
+        const pageEndingAt = (oldest: Date) => history(
+            [at('w1', new Date(2026, 9, 24, 10)), ...Array.from({ length: 18 }, (_, i) => at(`m${i}`, new Date(2026, 9, 23, 9, i))), at('oldest', oldest)],
+            { dataUpdatedAt: SAT.getTime() },
+        );
+
+        it('weekly one-boundary: an oldest row before the week start but inside the 7-day window proves nothing', async () => {
+            pageEndingAt(new Date(2026, 9, 17, 20, 0)); // before Sun 00:00, after Sat 12:00
+            (getSessionCount as Mock).mockResolvedValue(30);
+            (getAnalyticsSummary as Mock).mockRejectedValue(new Error('rpc failed'));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('unavailable'));
+            expect(result.current.weekly).toEqual({ status: 'unavailable' });
+        });
+
+        it('CONTROL weekly: an oldest row strictly before BOTH boundaries covers the week (counts from the same clock)', async () => {
+            pageEndingAt(new Date(2026, 9, 17, 8, 0)); // before Sat 12:00 too
+            (getSessionCount as Mock).mockResolvedValue(30);
+            (getAnalyticsSummary as Mock).mockRejectedValue(new Error('rpc failed'));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('unavailable'));
+            // 1 today + 18 yesterday are inside both windows; the oldest is outside both.
+            expect(result.current.weekly).toMatchObject({ status: 'complete', count: 19 });
+        });
+
         it('weekly: an invalid oldest timestamp proves nothing', async () => {
             history([row('w1', 0), { ...row('bad', 30 * day), created_at: 'not-a-date' }]);
             (getSessionCount as Mock).mockResolvedValue(30);
