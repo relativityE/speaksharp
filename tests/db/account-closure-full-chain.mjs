@@ -685,11 +685,16 @@ export const MAIN_T2_ACCOUNT_MIGRATIONS=Object.freeze([
   {name:'20261019202856_account_coaching_admission_1643.sql',version:'20261019202856',sha256:'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e',stage:'coaching-admission'},
   {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'76bffe1f7dc15efe487cd33faffbfd8d1b6c654a7b09508d427e53b4b88d83cf',stage:'account-completion'},
 ].map(row=>Object.freeze(row)));
-const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126'];
+// #1643 UNKNOWN-coaching fence: reviewed separately and staged after completion, never inside the 126 profile.
+export const MAIN_T2_FENCE_MIGRATION=Object.freeze({name:'20261024083000_account_coaching_unknown_fence_1643.sql',
+  version:'20261024083000',sha256:'29548e27a0b33a303ff093569097367b1227251faff7e7df77af392cfa4b0d14',stage:'coaching-unknown-fence'});
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127'];
+const T2_PROFILES=['main-t2-account-126','main-t2-fence-127'];
 function selectedAdditions(profile) {
   const rows=[...(profile!=='main-120'?[{...MAIN_U1_MIGRATION,stage:'heartbeat-u1'}]:[]),
-    ...(['main-analytics-u1-122','main-t2-account-126'].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
-    ...(profile==='main-t2-account-126'?MAIN_T2_ACCOUNT_MIGRATIONS:[])];
+    ...(['main-analytics-u1-122',...T2_PROFILES].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
+    ...(T2_PROFILES.includes(profile)?MAIN_T2_ACCOUNT_MIGRATIONS:[]),
+    ...(profile==='main-t2-fence-127'?[MAIN_T2_FENCE_MIGRATION]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
@@ -729,7 +734,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(actual.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name)];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
@@ -758,8 +763,9 @@ export function runMainClosureProof() {
   const migrations = manifest.filter((row) => row.version !== null);
   assert.equal(new Set(migrations.map((row) => row.version)).size, migrations.length, 'duplicate migration versions');
   const plan = buildMainU1ReplayPlan(manifest, args.profile);
-  const completeT2=args.profile==='main-t2-account-126';
-  const hasAnalytics=['main-analytics-u1-122','main-t2-account-126'].includes(args.profile);
+  const completeT2=T2_PROFILES.includes(args.profile);
+  const fenceT2=args.profile==='main-t2-fence-127';
+  const hasAnalytics=['main-analytics-u1-122',...T2_PROFILES].includes(args.profile);
   if (args.plan) {
     console.log(JSON.stringify({ ...plan, candidate: migrations.at(-1) }));
     process.exit(0);
@@ -850,7 +856,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name)].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1035,6 +1041,43 @@ export function runMainClosureProof() {
       verifyAnalytics();
       nativeT2Catalog.finish(); // No PASS without all seven actual native readbacks.
       console.log('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED');
+    }
+    if(fenceT2) {
+      // Fence last: it redefines claim/status/W1/delete guard and closes direct coaching writes. Its semantics and
+      // concurrency are proven natively by tests/db/account-coaching-fence.*; here the real Supabase image proves the
+      // migration applies at the end of the actual chain, its catalog/ACL, and that every earlier account proof still holds.
+      const fence=MAIN_T2_FENCE_MIGRATION;
+      cpSync(join(root,fence.name),join(directory,'migrations',fence.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name===fence.stage).versions,'fence history is incomplete');
+      const w2='public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer)';
+      const rpc='public.fence_account_coaching_unknown_v1(uuid,uuid,uuid,uuid,text,text)';
+      const guard='public.guard_account_coaching_ai_suggestions_write_v1()';
+      const state=JSON.parse(sql(`SELECT json_build_object(
+        'auditRls',(SELECT relrowsecurity FROM pg_class WHERE oid='public.account_coaching_fences'::regclass),
+        'auditPrivileges',(SELECT count(*) FROM unnest(ARRAY['anon','authenticated','service_role']) r,
+          unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE']) p WHERE has_table_privilege(r,'public.account_coaching_fences',p)),
+        'rpcDefiner',(SELECT prosecdef FROM pg_proc WHERE oid='${rpc}'::regprocedure),
+        'rpcService',has_function_privilege('service_role','${rpc}','EXECUTE'),
+        'rpcClient',has_function_privilege('anon','${rpc}','EXECUTE') OR has_function_privilege('authenticated','${rpc}','EXECUTE'),
+        'guardInvoker',(SELECT NOT prosecdef FROM pg_proc WHERE oid='${guard}'::regprocedure),
+        'guardTriggers',(SELECT count(*) FROM pg_trigger WHERE tgrelid='public.sessions'::regclass AND tgenabled='O'
+          AND tgname IN ('a_guard_account_coaching_ai_suggestions_insert','a_guard_account_coaching_ai_suggestions_update')),
+        'w2Service',has_function_privilege('service_role','${w2}','EXECUTE'),
+        'receiptWrites',has_table_privilege('service_role','public.ai_suggestion_authority_receipts','INSERT')
+          OR has_table_privilege('service_role','public.ai_suggestion_authority_receipts','UPDATE'),
+        'cacheReadDefiner',(SELECT prosecdef FROM pg_proc WHERE oid='public.record_ai_suggestion_cache_read_v1(uuid,uuid)'::regprocedure),
+        'fencedPhase',(SELECT pg_get_constraintdef(oid) LIKE '%fenced_unknown%' FROM pg_constraint
+          WHERE conrelid='public.account_coaching_operations'::regclass AND conname='account_coaching_operations_phase_check'))::text;`));
+      assert.deepEqual(state,{auditRls:true,auditPrivileges:0,rpcDefiner:true,rpcService:true,rpcClient:false,guardInvoker:true,
+        guardTriggers:2,w2Service:false,receiptWrites:false,cacheReadDefiner:true,fencedPhase:true},'fence catalog/ACL');
+      const coaching=sql(readFileSync('tests/db/account-coaching-admission-invariants.sql','utf8')+"\nSELECT 'ACCOUNT COACHING ADMISSION INVARIANTS PASSED';");
+      assert.ok(coaching.includes('ACCOUNT COACHING ADMISSION INVARIANTS PASSED'),'coaching admission proof after the fence');
+      const completionAfterFence=sql("SET closure_proof.heartbeat_profile='true';\n"+readFileSync('tests/db/account-completion-full-chain-invariants.sql','utf8'));
+      assert.ok(completionAfterFence.includes('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED'),'completion proof after the fence');
+      assert.equal(sql('SELECT enabled FROM public.account_completion_configuration;'),'f','completion proof must restore disabled configuration');
+      assert.equal(sql('SELECT count(*) FROM public.account_coaching_fences;'),'0','the migration fences nothing');
+      console.log('ACCOUNT COACHING UNKNOWN FENCE FULL-CHAIN INVARIANTS PASSED');
     }
   } catch (error) {
     primaryError = error;
