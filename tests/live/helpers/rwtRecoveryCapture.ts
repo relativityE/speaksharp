@@ -142,22 +142,34 @@ export class SessionCreateBinding {
     private readonly failures = new Map<string, number>();
     private readonly unreadableRequests = new Map<string, number>();
     private readonly attached: [BindingPage, (r: BindingRequest) => void][] = [];
+    private closed = false;
+    private readonly terminalBindings = new Map<string, TakeBinding>();
+    private readonly knownIdentities = new Set<string>();
 
     constructor(private readonly supabaseOrigin: string, private readonly ownerId: () => string) {}
 
-    arm(phase: string | null): void { this.phase = phase; }
+    arm(phase: string | null): void { if (!this.closed) this.phase = phase; }
 
     attach(page: BindingPage): void {
+        if (this.closed) return;
         const listener = (request: BindingRequest) => this.onRequest(request);
         page.on('request', listener);
         this.attached.push([page, listener]);
     }
 
     detach(): void {
+        if (!this.closed) {
+            // Close before unregistering: even a closed page whose off() throws cannot admit another request.
+            this.closed = true;
+            for (const phase of new Set([...this.records.keys(), ...this.pending.keys(), ...this.failures.keys(), ...this.unreadableRequests.keys()])) {
+                this.terminalBindings.set(phase, Object.freeze(this.readBinding(phase)));
+            }
+        }
         for (const [page, listener] of this.attached.splice(0)) { try { page.off('request', listener); } catch { /* closed page */ } }
     }
 
     onRequest(request: BindingRequest): void {
+        if (this.closed) return;
         const phase = this.phase;
         if (phase === null) return;
         let url: URL;
@@ -169,25 +181,38 @@ export class SessionCreateBinding {
                 return text(body?.p_session_data?.lease_id);
             } catch { return null; }
         })();
-        const bump = (m: Map<string, number>, by: number) => m.set(phase, (m.get(phase) ?? 0) + by);
+        // Known at request time, even if its body never settles: include it in the caller's terminal forbid snapshot.
+        if (requestLease) this.knownIdentities.add(requestLease);
+        const bump = (m: Map<string, number>, by: number) => { if (!this.closed) m.set(phase, (m.get(phase) ?? 0) + by); };
         bump(this.pending, 1);
-        void request.response().then(async (response) => {
+        void Promise.resolve().then(() => this.closed ? null : request.response()).then(async (response) => {
+            if (this.closed) return;
             if (!response || !response.ok()) { bump(this.failures, 1); return; }
             // Sam 1792434538: the take is bound only against its OWN request lease — a request with no readable lease
             // cannot be checked, so its creation is unavailable (HOLD); response-only identity is never substituted.
             if (requestLease === null || requestLease === '') { bump(this.unreadableRequests, 1); return; }
-            const body = await response.json().catch(() => undefined) as { new_session?: Record<string, unknown> | null } | undefined;
-            if (body === undefined) { bump(this.failures, 1); return; }
-            const created = body.new_session;
-            if (!created) return; // the server refused to create (e.g. lease not held): no take was created
+            const body: unknown = await response.json();
+            if (this.closed) return;
+            if (body === null || typeof body !== 'object' || Array.isArray(body)) { bump(this.failures, 1); return; }
+            const created = (body as Record<string, unknown>).new_session;
+            if (created === null || created === undefined) return; // wrapped server refusal: no take created
+            if (typeof created !== 'object' || Array.isArray(created)) { bump(this.failures, 1); return; }
+            const identity = created as Record<string, unknown>;
             const list = this.records.get(phase) ?? [];
-            list.push({ sessionId: text(created.id) ?? '', userId: text(created.user_id) ?? '', leaseId: text(created.lease_id) ?? '', requestLease });
+            const record = { sessionId: text(identity.id) ?? '', userId: text(identity.user_id) ?? '', leaseId: text(identity.lease_id) ?? '', requestLease };
+            list.push(record);
             this.records.set(phase, list);
-        }, () => { bump(this.failures, 1); }).finally(() => bump(this.pending, -1));
+            for (const value of [record.sessionId, record.leaseId]) if (value !== '') this.knownIdentities.add(value);
+        }).catch(() => { bump(this.failures, 1); }).finally(() => bump(this.pending, -1));
     }
 
     /** The phase's created take: exactly one settled, successful, self-consistent creation, else unavailable/contradiction. */
     binding(phase: string): TakeBinding {
+        if (this.closed) return this.terminalBindings.get(phase) ?? { state: 'unavailable', reason: 'no_creation_observed' };
+        return this.readBinding(phase);
+    }
+
+    private readBinding(phase: string): TakeBinding {
         if ((this.pending.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_unsettled' };
         if ((this.failures.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_exchange_failed' };
         if ((this.unreadableRequests.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_request_lease_unreadable' };
@@ -205,7 +230,7 @@ export class SessionCreateBinding {
 
     /** Every identity observed, for `receipt.forbid` (never written to the receipt). */
     identities(): string[] {
-        return [...this.records.values()].flat().flatMap((r) => [r.sessionId, r.leaseId, r.requestLease]).filter((v) => v !== '');
+        return [...this.knownIdentities];
     }
 }
 

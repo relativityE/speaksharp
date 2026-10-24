@@ -200,6 +200,107 @@ function fakePage(): BindingPage & { emit(r: BindingRequest): void; closed: bool
 }
 const created = (id: string, lease: string, user = U) => ({ id, user_id: user, lease_id: lease });
 
+/** Headers and JSON settle independently: the production binding, not a copied predicate, consumes both. */
+function deferredExchange(lease: string) {
+    const deferred = <T>() => {
+        let resolve!: (value: T) => void;
+        let reject!: (error: Error) => void;
+        const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+        return { promise, resolve, reject };
+    };
+    const headers = deferred<{ ok(): boolean; json(): Promise<unknown> } | null>();
+    const body = deferred<unknown>();
+    let bodyReads = 0;
+    let headerReads = 0;
+    const request: BindingRequest = { url: () => RPC, method: () => 'POST',
+        postDataJSON: () => ({ p_session_data: { lease_id: lease } }),
+        response: () => { headerReads++; return headers.promise; } };
+    return { request, body, headers, respond: () => headers.resolve({ ok: () => true, json: () => { bodyReads++; return body.promise; } }),
+        bodyReads: () => bodyReads, headerReads: () => headerReads };
+}
+const flushExchange = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+describe('#1593 raw JSON exchange refusal', () => {
+    it.each([null, 7, 'not-an-envelope', [], true,
+        { new_session: 7 }, { new_session: 'unreadable' }, { new_session: false }, { new_session: [] }]
+        .map((body) => [body]))('raw JSON %j is an unavailable exchange', async (body) => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const exchange = deferredExchange(L1); page.emit(exchange.request); exchange.respond(); exchange.body.resolve(body);
+        await flushExchange();
+        expect(b.binding('A')).toEqual({ state: 'unavailable', reason: 'creation_exchange_failed' });
+        b.detach();
+    });
+    it('a malformed additional exchange cannot fall back to an earlier valid creation', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const good = rpc(L1); page.emit(good.request); await good.created(created('first', L1));
+        const exchange = deferredExchange(L1); page.emit(exchange.request); exchange.respond(); exchange.body.resolve(null);
+        await flushExchange();
+        expect(b.binding('A')).toEqual({ state: 'unavailable', reason: 'creation_exchange_failed' });
+        b.detach();
+    });
+    it('a rejected body is unavailable while a wrapped server refusal remains no creation', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const exchange = deferredExchange(L1); page.emit(exchange.request); exchange.respond(); await flushExchange();
+        expect(exchange.bodyReads()).toBe(1);
+        exchange.body.reject(new Error('body unavailable')); await flushExchange();
+        expect(b.binding('A')).toEqual({ state: 'unavailable', reason: 'creation_exchange_failed' });
+        b.arm('B'); const refused = rpc(L2); page.emit(refused.request); await refused.created(null);
+        expect(b.binding('B')).toEqual({ state: 'unavailable', reason: 'no_creation_observed' });
+        b.detach();
+    });
+});
+
+describe('#1593 terminal freeze of real binding and forbid snapshot', () => {
+    it.each(['headers', 'body'] as const)('pending %s cannot add identities after detach and the forbid snapshot', async (stage) => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const exchange = deferredExchange(L1); page.emit(exchange.request);
+        if (stage === 'body') { exchange.respond(); await flushExchange(); }
+        const before = b.binding('A'); b.detach();
+        const forbidden = new Set(b.identities());
+        expect(before).toEqual({ state: 'unavailable', reason: 'creation_unsettled' });
+        expect(forbidden.has(L1)).toBe(true); // request lease was already known even though no body settled
+        exchange.respond(); exchange.body.resolve({ new_session: created('late-session', L1) }); await flushExchange();
+        expect(b.binding('A')).toEqual(before);
+        expect(new Set(b.identities())).toEqual(forbidden);
+        expect(b.identities()).not.toContain('late-session');
+    });
+    it('a rejected JSON body after detach is consumed without changing terminal evidence', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const exchange = deferredExchange(L1); page.emit(exchange.request); exchange.respond(); await flushExchange();
+        expect(exchange.bodyReads()).toBe(1);
+        b.detach(); const before = b.binding('A'); const ids = b.identities();
+        exchange.body.reject(new Error('late body')); await flushExchange();
+        expect(b.binding('A')).toEqual(before); expect(b.identities()).toEqual(ids);
+    });
+    it('a late rejected response after detach cannot rewrite the frozen unavailable reason', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const exchange = deferredExchange(L1); page.emit(exchange.request); await flushExchange();
+        expect(exchange.headerReads()).toBe(1);
+        b.detach(); const before = b.binding('A');
+        exchange.headers.reject(new Error('late headers')); await flushExchange();
+        expect(b.binding('A')).toEqual(before);
+    });
+    it('settled terminal bindings are frozen, cannot rearm or attach, and survive closed-page detach twice', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const good = rpc(L1); page.emit(good.request); await good.created(created('first', L1));
+        page.closed = true; b.detach(); b.detach(); const before = b.binding('A');
+        expect(Object.isFrozen(before)).toBe(true);
+        const replacement = fakePage(); b.arm('B'); b.attach(replacement);
+        const late = deferredExchange(L2); replacement.emit(late.request); page.emit(late.request); await flushExchange();
+        expect(late.headerReads()).toBe(0); expect(b.binding('A')).toEqual(before);
+        expect(b.binding('B')).toEqual({ state: 'unavailable', reason: 'no_creation_observed' });
+    });
+    it('reverse-order A/B bodies after detach cannot promote either pending take', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const a = deferredExchange(L1); page.emit(a.request); a.respond();
+        b.arm('B'); const next = deferredExchange(L2); page.emit(next.request); next.respond(); await flushExchange();
+        b.detach(); const frozenA = b.binding('A'); const frozenB = b.binding('B'); const forbidden = new Set(b.identities());
+        next.body.resolve({ new_session: created('next', L2) }); a.body.resolve({ new_session: created('left', L1) }); await flushExchange();
+        expect(b.binding('A')).toEqual(frozenA); expect(b.binding('B')).toEqual(frozenB);
+        expect(new Set(b.identities())).toEqual(forbidden); expect(forbidden).toEqual(new Set([L1, L2]));
+    });
+});
+
 describe('#1593 case10 passive take-identity binding', () => {
     it('binds the one settled, self-consistent creation of each phase', async () => {
         const page = fakePage();
@@ -366,6 +467,30 @@ describe('#1593 case10 evidence assembly before the oracle', () => {
 
     it('passes the bound permanently displaced take through the accepted oracle', () => {
         expect(run()).toMatchObject({ status: 'PASS', evidence: { bindingA: 'observed', bindingB: 'observed', duplicateObserved: false } });
+    });
+
+    it('composes actual settled binding with the permanent-fence oracle without changing its requirements', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const a = rpc(L1); page.emit(a.request); await a.created(created('left', L1));
+        b.arm('B'); const n = rpc(L2); page.emit(n.request); await n.created(created('next', L2));
+        b.detach(); expect(run(captures(), b).status).toBe('PASS');
+        const noFence = afterSave();
+        if (noFence.snapshot.rows.state !== 'observed') throw new Error('fixture unavailable');
+        noFence.snapshot.rows = { ...noFence.snapshot.rows,
+            value: noFence.snapshot.rows.value.map((r, i) => i === 0 ? { ...r, recording_fenced_at: null } : r) };
+        expect(run(captures(), b, noFence).status).toBe('FAIL');
+    });
+    it('actual pending binding stays HOLD after terminal late completion; an observed contradiction still FAILs', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const a = deferredExchange(L1); page.emit(a.request); a.respond();
+        b.arm('B'); const n = rpc(L2); page.emit(n.request); await n.created(created('next', L2));
+        expect(run(captures(), b).status).toBe('HOLD'); b.detach();
+        a.body.resolve({ new_session: created('left', L1) }); await flushExchange();
+        expect(run(captures(), b).status).toBe('HOLD');
+        const other = fakePage(); const bad = new SessionCreateBinding(ORIGIN, () => U); bad.attach(other); bad.arm('A');
+        const wrong = rpc(L1); other.emit(wrong.request); await wrong.created(created('left', L2)); bad.detach();
+        const missing = captures(); delete missing.first;
+        expect(run(missing, bad).status).toBe('FAIL');
     });
 
     it('an observed duplicate FAILs before an incomplete read or an unavailable binding can HOLD', () => {
