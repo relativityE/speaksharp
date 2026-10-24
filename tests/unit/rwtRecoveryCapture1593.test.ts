@@ -221,6 +221,16 @@ function deferredExchange(lease: string) {
 const flushExchange = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe('#1593 raw JSON exchange refusal', () => {
+    it.each([
+        ['missing', {}], ['undefined', { new_session: undefined }],
+        ['inherited null', Object.create({ new_session: null }) as Record<string, unknown>],
+    ] as const)('%s own new_session field is not a server refusal', async (_name, body) => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const exchange = deferredExchange(L1); page.emit(exchange.request); exchange.respond(); exchange.body.resolve(body);
+        await flushExchange();
+        expect(b.binding('A')).toEqual({ state: 'unavailable', reason: 'creation_exchange_failed' });
+        b.detach();
+    });
     it.each([null, 7, 'not-an-envelope', [], true,
         { new_session: 7 }, { new_session: 'unreadable' }, { new_session: false }, { new_session: [] }]
         .map((body) => [body]))('raw JSON %j is an unavailable exchange', async (body) => {
@@ -479,6 +489,24 @@ describe('#1593 case10 evidence assembly before the oracle', () => {
         noFence.snapshot.rows = { ...noFence.snapshot.rows,
             value: noFence.snapshot.rows.value.map((r, i) => i === 0 ? { ...r, recording_fenced_at: null } : r) };
         expect(run(captures(), b, noFence).status).toBe('FAIL');
+    });
+    it.each([['missing', {}], ['undefined', { new_session: undefined }]] as const)(
+        'a prior valid creation plus %s field remains oracle HOLD', async (_name, body) => {
+            const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+            const a = rpc(L1); page.emit(a.request); await a.created(created('left', L1));
+            b.arm('B'); const n = rpc(L2); page.emit(n.request); await n.created(created('next', L2));
+            b.arm('A'); const extra = deferredExchange(L1); page.emit(extra.request); extra.respond(); extra.body.resolve(body);
+            await flushExchange(); b.detach();
+            expect(run(captures(), b).status).toBe('HOLD');
+            expect(b.binding('A')).toEqual({ state: 'unavailable', reason: 'creation_exchange_failed' });
+        });
+    it('an explicit own null refusal after a valid creation preserves the actual oracle PASS', async () => {
+        const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');
+        const a = rpc(L1); page.emit(a.request); await a.created(created('left', L1));
+        const refusal = rpc(L1); page.emit(refusal.request); await refusal.created(null);
+        b.arm('B'); const n = rpc(L2); page.emit(n.request); await n.created(created('next', L2)); b.detach();
+        expect(b.binding('A')).toEqual({ state: 'observed', sessionId: 'left', leaseId: L1 });
+        expect(run(captures(), b).status).toBe('PASS');
     });
     it('actual pending binding stays HOLD after terminal late completion; an observed contradiction still FAILs', async () => {
         const page = fakePage(); const b = new SessionCreateBinding(ORIGIN, () => U); b.attach(page); b.arm('A');

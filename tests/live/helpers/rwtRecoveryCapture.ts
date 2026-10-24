@@ -195,7 +195,8 @@ export class SessionCreateBinding {
             if (this.closed) return;
             if (body === null || typeof body !== 'object' || Array.isArray(body)) { bump(this.failures, 1); return; }
             const created = (body as Record<string, unknown>).new_session;
-            if (created === null || created === undefined) return; // wrapped server refusal: no take created
+            if (!Object.prototype.hasOwnProperty.call(body, 'new_session') || created === undefined) { bump(this.failures, 1); return; }
+            if (created === null) return; // an explicit own null is the server's refusal envelope
             if (typeof created !== 'object' || Array.isArray(created)) { bump(this.failures, 1); return; }
             const identity = created as Record<string, unknown>;
             const list = this.records.get(phase) ?? [];
