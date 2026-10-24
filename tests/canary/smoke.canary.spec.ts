@@ -19,6 +19,17 @@ import {
     classifyCanaryUsageEntitlement,
     type CanaryStartRpcPayload,
 } from './canaryRuntimeContract';
+import {
+    awaitStopTerminal,
+    classifyStopOutcome,
+    startOwnerId,
+    verifySavedReadback,
+    type CompletionEvidence,
+} from './canaryStopSaveOracle';
+
+/** CO006: the save wait and the two readback waits fit inside the 120 s stop_and_settle ceiling (45 + 30 + 30). */
+const STOP_SAVE_WAIT_MS = 45_000;
+const STOP_READBACK_WAIT_MS = 30_000;
 
 /**
  * #1106 — deploy-race gate. The canary is triggered on push to main, but Vercel's deploy is async, so a
@@ -266,50 +277,47 @@ test.describe('Production Smoke Canary @canary', () => {
         await withPhaseDeadline('stop_and_settle', async () => {
         const stopButton = page.getByTestId('recorder-stop');
         await expect(stopButton).toBeVisible();
+
+        // 7. CO006: the take passes only on evidence bound to THIS take. The save listener is registered
+        // BEFORE Stop, so a fast save cannot be missed; a locator timeout never ends the wait (it used to
+        // turn into null and "finish" the race); no-speech is its own non-save outcome; and the readback
+        // checks the exact started session by id and owner, never `sessions[0]`.
+        const completion = page.waitForResponse(
+            (res) => /\/rest\/v1\/rpc\/complete_session_v2(\?|$)/.test(res.url()) && res.request().method() === 'POST',
+            { timeout: STOP_SAVE_WAIT_MS },
+        ).then(async (res): Promise<CompletionEvidence> => {
+            let requestSessionId: string | null = null;
+            try { requestSessionId = (res.request().postDataJSON() as { p_session_id?: unknown })?.p_session_id as string ?? null; } catch { /* unreadable → unbound */ }
+            let body: unknown = null;
+            try { body = await res.json(); } catch { /* classified as not saved */ }
+            return { requestSessionId: typeof requestSessionId === 'string' ? requestSessionId : null, status: res.status(), body };
+        });
+        const noSpeech = page.getByText('No speech was detected').waitFor({ timeout: STOP_SAVE_WAIT_MS }).then(() => undefined);
+        const dialog = page.locator('div[role="alertdialog"]').waitFor({ timeout: STOP_SAVE_WAIT_MS }).then(() => undefined);
         await stopButton.click();
 
-        // 7. Handle session end (dialog, empty state, or redirect)
-        const dialogLocator = page.locator('div[role="alertdialog"]');
-        const emptyStateLocator = page.getByText('No speech was detected');
-        const analyticsUrl = page.waitForURL(/\/analytics/, { timeout: 15000 }).catch(() => null);
+        const observation = await awaitStopTerminal({ completion, noSpeech, dialog }, STOP_SAVE_WAIT_MS);
+        const outcome = classifyStopOutcome(startOutcome.sessionId, observation);
+        await test.info().attach('stop-save-outcome', {
+            contentType: 'application/json',
+            body: JSON.stringify({ outcome, unrelatedDialog: observation.unrelatedDialog }, null, 2),
+        });
+        expect(outcome.kind, `CANARY_STOP_${outcome.kind === 'unresolved' ? outcome.reason : outcome.kind}`).toBe('saved');
 
-        // Wait for any end state
-        await Promise.race([
-            dialogLocator.waitFor({ timeout: 10000 }).catch(() => null),
-            emptyStateLocator.waitFor({ timeout: 10000 }).catch(() => null),
-            analyticsUrl,
-        ]);
-
-        // If we reached analytics, perform SCHEMA CHECK on Sessions
-        if (page.url().includes('/analytics')) {
-            debugLog('[CANARY] 🔍 Validating Sessions Schema...');
-            // Intercept the next list fetch to validate fields
-            const sessionResponsePromise = page.waitForResponse(res =>
-                res.url().includes('/rest/v1/sessions') && res.status() === 200
+        // 8. Durable readback of the exact take, twice: once on arrival and once after a full reload.
+        const ownerId = startOwnerId(startPayload?.new_session);
+        for (const pass of ['arrival', 'reload'] as const) {
+            const read = page.waitForResponse(
+                (res) => res.url().includes('/rest/v1/sessions') && res.url().includes(startOutcome.sessionId)
+                    && res.request().method() === 'GET' && res.status() === 200,
+                { timeout: STOP_READBACK_WAIT_MS },
             );
-
-            // Force a reload or wait for data
-            await page.reload();
-            const response = await sessionResponsePromise;
-            const sessions = await response.json();
-
-            if (Array.isArray(sessions) && sessions.length > 0) {
-                const latestSession = sessions[0];
-                const requiredFields = ['id', 'user_id', 'total_words', 'duration', 'created_at', 'engine'];
-                for (const field of requiredFields) {
-                    expect(latestSession[field], `Schema Valid: Session missing ${field}`).toBeDefined();
-                }
-                debugLog('[CANARY] ✅ Sessions Schema Valid');
-            }
+            if (pass === 'arrival') await navigateToRoute(page, ROUTES.analyticsWithSession(startOutcome.sessionId));
+            else await page.reload();
+            const verdict = verifySavedReadback(startOutcome.sessionId, ownerId, await (await read).json());
+            expect(verdict, `CANARY_READBACK_${pass}`).toEqual({ ok: true });
         }
-
-        // If dialog appeared, dismiss it
-        if (await dialogLocator.isVisible().catch(() => false)) {
-            const stayButton = page.getByRole('button', { name: 'Stay on Page' });
-            if (await stayButton.isVisible().catch(() => false)) {
-                await stayButton.click();
-            }
-        }
+        debugLog('[CANARY] ✅ Saved take read back by id and owner, before and after reload');
         });
 
         debugLog('[CANARY] ✅ Smoke test passed. System is operational.');
