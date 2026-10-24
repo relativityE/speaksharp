@@ -117,6 +117,10 @@ const journeyId = arg('--journey-id') ?? process.env.TELEMETRY_QUALIFICATION_JOU
  */
 const trafficType = arg('--traffic-type') ?? process.env.TELEMETRY_QUALIFICATION_TRAFFIC_TYPE ?? null;
 const windowHours = Number(arg('--window-hours') ?? 24);
+// One deadline covers both headers and body; partial response progress must not extend it.
+// The bounded CLI override supports controlled diagnostics without changing any production credentials.
+const queryTimeoutArgument = process.argv.indexOf('--query-timeout-ms');
+const queryTimeoutMs = queryTimeoutArgument < 0 ? 30_000 : Number(process.argv[queryTimeoutArgument + 1]);
 
 /** Every refusal lands here, so a missing precondition cannot become a pass by another route. */
 function hold(reason: string, observed: string[] = []): never {
@@ -170,6 +174,9 @@ async function main(): Promise<void> {
         hold(`--traffic-type ${trafficType} is not a controlled evidence class; only ${CONTROLLED_EVIDENCE_TRAFFIC.join(' or ')} may qualify a release`);
     }
     if (!Number.isFinite(windowHours) || windowHours <= 0) hold(`--window-hours ${windowHours} is not a positive number`);
+    if (!Number.isInteger(queryTimeoutMs) || queryTimeoutMs < 1 || queryTimeoutMs > 120_000) {
+        hold('--query-timeout-ms must be an integer between 1 and 120000');
+    }
 
     const projectId = process.env.POSTHOG_PROJECT_ID;
     const personalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
@@ -192,23 +199,31 @@ async function main(): Promise<void> {
         if (selected.length !== expected.length || selected.some(name => !expected.includes(name)) || new Set(selected).size !== selected.length) {
             hold(`${label} query selects [${selected.join(',')}], not the decoder's declared columns`);
         }
-        let response: Response;
-        try {
-            response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId!)}/query/`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${personalApiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: { kind: 'HogQLQuery', query: hogql } }),
-            });
-        } catch (err) {
-            hold(`${label} request failed: ${(err as Error).name}`);
-        }
-        if (!response.ok) hold(`${label} returned HTTP ${response.status}`);
-
+        const controller = new AbortController();
+        const deadline = setTimeout(() => controller.abort(), queryTimeoutMs);
         let payload: unknown;
         try {
-            payload = await response.json();
-        } catch {
-            hold(`${label} response was not JSON`);
+            let response: Response;
+            try {
+                response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId!)}/query/`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${personalApiKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: { kind: 'HogQLQuery', query: hogql } }),
+                    signal: controller.signal,
+                });
+            } catch (err) {
+                if (controller.signal.aborted) hold(`${label} exceeded its ${queryTimeoutMs} ms query deadline`);
+                hold(`${label} request failed: ${(err as Error).name}`);
+            }
+            if (!response.ok) hold(`${label} returned HTTP ${response.status}`);
+            try {
+                payload = await response.json();
+            } catch {
+                if (controller.signal.aborted) hold(`${label} exceeded its ${queryTimeoutMs} ms query deadline`);
+                hold(`${label} response was not JSON`);
+            }
+        } finally {
+            clearTimeout(deadline);
         }
 
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) hold(`${label} response was not an object`);

@@ -118,6 +118,7 @@ let responseMutation: { kind: Shape; edit: (reply: ResponseFixture) => ResponseF
 let queryDerivedResponse = false;
 let responseStatus = 200;
 let malformedJson = false;
+let stalledResponse: { kind: Shape; mode: 'headers' | 'body' | 'progressing-body' } | null = null;
 const seenQueries: Array<{ kind: Shape; sql: string }> = [];
 const queryKind = (sql: string): Shape => /SELECT DISTINCT/.test(sql) ? 'identity'
     : /count\(\)/.test(sql) ? 'user'
@@ -137,6 +138,7 @@ const coachingRows = (): Record<string, unknown>[] => [
 ];
 beforeEach(() => {
     responseMutation = null; queryDerivedResponse = false; responseStatus = 200; malformedJson = false;
+    stalledResponse = null;
     seenQueries.length = 0;
 });
 
@@ -148,6 +150,16 @@ beforeAll(async () => {
             const hogql = String((JSON.parse(body || '{}') as { query?: { query?: string } }).query?.query ?? '');
             const kind = queryKind(hogql);
             seenQueries.push({ kind, sql: hogql });
+            if (stalledResponse?.kind === kind) {
+                if (stalledResponse.mode === 'headers') return;
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.flushHeaders();
+                if (stalledResponse.mode === 'progressing-body') {
+                    const interval = setInterval(() => { res.write(' '); }, 20);
+                    res.on('close', () => clearInterval(interval));
+                }
+                return;
+            }
             const columns = [...ORACLE_COLUMNS[kind]];
             const rows = kind === 'identity' ? [{ distinct_id: IDENTITY }]
                 : kind === 'user' ? [{ event: 'recording_state', received: 1 }]
@@ -171,15 +183,18 @@ beforeAll(async () => {
 afterAll(() => new Promise<void>((ok) => server.close(() => ok())));
 
 /**
- * Run the REAL qualifier (the same `tsx` entry the package script and rc-gates use). ASYNC on purpose: the stand-in server
+ * Run the REAL qualifier with the installed tsx loader. Using Node directly avoids a launcher child surviving timeout.
+ * ASYNC on purpose: the stand-in server
  * lives in this process, so a synchronous spawn would block the event loop that has to answer the child's requests.
  */
-const qualify = (stages: string, opts: { acquisition?: boolean; script?: string; attempts?: string; shape?: Shape } = {}) => new Promise<{
+const qualify = (stages: string, opts: { acquisition?: boolean; script?: string; attempts?: string; shape?: Shape; queryTimeoutMs?: string; killAfterMs?: number } = {}) => new Promise<{
     status: number | null; out: string; evidence: Record<string, unknown> | null; acquisition: Record<string, unknown> | null;
 }>((done) => {
-    const child = spawn(resolve(ROOT, 'node_modules/.bin/tsx'), [opts.script ?? 'scripts/telemetry-readback-qualification.mts',
-        '--release-sha', RELEASE, '--journey-id', JOURNEY, '--traffic-type', opts.shape === 'user' ? 'user' : 'canary'], {
+    const child = spawn(process.execPath, ['--import', 'tsx', opts.script ?? 'scripts/telemetry-readback-qualification.mts',
+        '--release-sha', RELEASE, '--journey-id', JOURNEY, '--traffic-type', opts.shape === 'user' ? 'user' : 'canary',
+        ...(opts.queryTimeoutMs === undefined ? [] : ['--query-timeout-ms', opts.queryTimeoutMs])], {
         cwd: ROOT,
+        detached: process.platform !== 'win32',
         env: {
             PATH: process.env.PATH, HOME: process.env.HOME,
             POSTHOG_API_HOST: host, POSTHOG_PROJECT_ID: '1', POSTHOG_PERSONAL_API_KEY: 'fixture-not-a-secret',
@@ -193,7 +208,12 @@ const qualify = (stages: string, opts: { acquisition?: boolean; script?: string;
     let out = '';
     child.stdout.on('data', (c) => { out += c; });
     child.stderr.on('data', (c) => { out += c; });
-    const kill = setTimeout(() => child.kill('SIGKILL'), 60_000);
+    const kill = setTimeout(() => {
+        if (process.platform !== 'win32' && child.pid) {
+            try { process.kill(-child.pid, 'SIGKILL'); return; } catch { /* Child may already have exited. */ }
+        }
+        child.kill('SIGKILL');
+    }, opts.killAfterMs ?? 60_000);
     child.on('close', (status) => {
         clearTimeout(kill);
         done(parse(status, out));
@@ -407,6 +427,40 @@ describe.each(shapes)('independent actual-entry response schema: %s', shape => {
         expect(seenQueries.some(q => q.kind === shape)).toBe(true);
         expect(r.status).toBe(1);
         expect(r.out).toContain('was truncated by the query API');
+    });
+});
+
+describe('query deadline spans headers and the entire response body', () => {
+    it.each([
+        ['identity', 'headers'],
+        ['readback', 'body'],
+        ['readback', 'progressing-body'],
+    ] as const)('query deadline: %s with pending %s emits HOLD without a downstream query', async (kind, mode) => {
+        answer = { readback: recordingJourney(), acquisition: [coldDownload()] };
+        stalledResponse = { kind, mode };
+        const r = await qualify('session_during', { acquisition: true, queryTimeoutMs: '100', killAfterMs: 2500 });
+        expect(r.status).toBe(1); // SIGKILL/null is a harness failure, never a bounded HOLD.
+        expect(r.evidence?.verdict).toBe('HOLD');
+        expect(r.out).toContain('exceeded its 100 ms query deadline');
+        expect(seenQueries.map(q => q.kind)).toEqual(kind === 'identity' ? ['identity'] : ['identity', 'readback']);
+        expect(r.acquisition).toBeNull();
+        expect(r.out).not.toContain('fixture-not-a-secret');
+    });
+
+    it.each(['0', '-1', '1.5', 'NaN', 'Infinity', '120001', ''])('query deadline: invalid bound %j refuses before any query', async queryTimeoutMs => {
+        const r = await qualify('session_during', { queryTimeoutMs });
+        expect(r.status).toBe(1);
+        expect(r.evidence?.verdict).toBe('HOLD');
+        expect(r.out).toContain('--query-timeout-ms must be an integer between 1 and 120000');
+        expect(seenQueries).toEqual([]);
+    });
+
+    it('query deadline: a complete response still qualifies within the explicit bound', async () => {
+        answer = { readback: recordingJourney(), acquisition: [coldDownload()] };
+        const r = await qualify('session_during', { acquisition: true, queryTimeoutMs: '1000' });
+        expect(r.status).toBe(0);
+        expect(r.evidence?.verdict).toBe('QUALIFIED');
+        expect(r.acquisition?.state).toBe('RECEIVED_COLD_DOWNLOAD');
     });
 });
 
