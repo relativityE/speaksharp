@@ -108,4 +108,26 @@ describe('account-closure authenticated request/confirmation contract', () => {
     expect(await response.json()).toMatchObject({ outcome: 'incomplete', accountDeleted: false });
     expect(deps.finish).toHaveBeenCalledWith('owner', 'request');
   });
+  it.each([undefined, {}, { requestId: 'bad', phase: 'pending', destructiveEnabled: false, checkoutPending: 1 },
+    { requestId: '20000000-0000-4000-8000-000000000002', phase: 'pending', destructiveEnabled: true, checkoutPending: 0 },
+    { requestId: '20000000-0000-4000-8000-000000000002', phase: 'pending', destructiveEnabled: false, checkoutPending: -1 },
+    { requestId: '20000000-0000-4000-8000-000000000002', phase: 'pending', destructiveEnabled: false, checkoutPending: 0, token: 'private' },
+  ])('unverified pending readback %j cannot imply deletion or fall through to destructive execution', async status => {
+    const { deps, request, adapters } = fixture();
+    deps.pending = { confirm: async () => status, status: async () => status };
+    const response = await handleClosureRequest(request({ action: 'confirm', token: secret, confirmIrreversible: true }), deps);
+    expect(response.status).toBe(503); expect(await response.text()).not.toContain('private');
+    expect(adapters.consumeProof).not.toHaveBeenCalled(); expect(deps.finish).not.toHaveBeenCalled();
+  });
+  it('status is authenticated and never dispatches confirmation or accepts caller identity', async () => {
+    const { deps, request, adapters } = fixture();
+    deps.pending = { confirm: vi.fn(), status: vi.fn(async () => null) };
+    const response = await handleClosureRequest(request({ action: 'status', userId: 'other' }), deps);
+    expect(await response.json()).toEqual({ outcome: 'not_pending', destructiveEnabled: false });
+    expect(deps.pending.status).toHaveBeenCalledWith(); expect(deps.pending.confirm).not.toHaveBeenCalled();
+    expect(adapters.consumeProof).not.toHaveBeenCalled();
+    vi.mocked(deps.authenticate).mockResolvedValue(null);
+    expect((await handleClosureRequest(request({ action: 'status' }), deps)).status).toBe(401);
+    expect(deps.pending.status).toHaveBeenCalledTimes(1);
+  });
 });

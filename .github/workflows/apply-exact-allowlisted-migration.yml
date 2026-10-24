@@ -36,6 +36,12 @@ on:
           - '20261016090000'
           - '20261016180000'
           - '20261017200000'
+          - '20261018090000'
+          - '20261018170000'
+          - '20261019010000'
+          - '20261019055102'
+          - '20261019202856'
+          - '20261020230653'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
@@ -194,7 +200,7 @@ jobs:
         # ONE resolution serves both. Stage B originally resolved the pooler a second time, which the
         # SEC-002 contract rejects: two resolutions can drift, leaving this proof attesting to parameters
         # the postflight never uses.
-        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') || contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') || contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') || contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') || contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') || contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') || contains(steps.contract.outputs.target_file, '20261016180000_account_closure_drain_enforcement') || contains(steps.contract.outputs.target_file, '20261017200000_checkout_rejection_recovery') }}
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') || contains(steps.contract.outputs.target_file, '20260926190000_session_product_marker_1258') || contains(steps.contract.outputs.target_file, '20260928120000_focus_points_trial_capability') || contains(steps.contract.outputs.target_file, '20261013120000_retention_expiry_without_superuser_1258') || contains(steps.contract.outputs.target_file, '20261013140000_retention_expiry_typed_empty_array_1258') || contains(steps.contract.outputs.target_file, '20261013180000_account_closure_tokens') || contains(steps.contract.outputs.target_file, '20261016090000_account_closure_drain_persistence') || contains(steps.contract.outputs.target_file, '20261016180000_account_closure_drain_enforcement') || contains(steps.contract.outputs.target_file, '20261017200000_checkout_rejection_recovery') || contains(steps.contract.outputs.target_file, '20261018090000_analytics_summary_observed_filler_rate_1472') || contains(steps.contract.outputs.target_file, '20261018170000_account_closure_pending_checkout') || contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') || contains(steps.contract.outputs.target_file, '20261019055102_account_pending_recording_admission_1643') || contains(steps.contract.outputs.target_file, '20261019202856_account_coaching_admission_1643') || contains(steps.contract.outputs.target_file, '20261020230653_account_pending_completion_journal_1643') }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
@@ -399,6 +405,18 @@ jobs:
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
           unset DB_URL
           node scripts/checkout-rejection-gate.mjs before
+
+      - name: Verify T2 target preimage and prerequisites before exact apply
+        if: ${{ contains(steps.contract.outputs.target_file, '20261018090000_analytics_summary_observed_filler_rate_1472') || contains(steps.contract.outputs.target_file, '20261018170000_account_closure_pending_checkout') || contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') || contains(steps.contract.outputs.target_file, '20261019055102_account_pending_recording_admission_1643') || contains(steps.contract.outputs.target_file, '20261019202856_account_coaching_admission_1643') || contains(steps.contract.outputs.target_file, '20261020230653_account_pending_completion_journal_1643') }}
+        env:
+          T2_TARGET: ${{ steps.contract.outputs.target_version }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs before "$T2_TARGET"
 
       - name: Revalidate main IMMEDIATELY before the irreversible apply
         env:
@@ -772,6 +790,72 @@ jobs:
           unset DB_URL
           node scripts/checkout-rejection-gate.mjs after
 
+      - name: Verify reviewed T2 20261018090000 catalog and ACL
+        id: postflight_20261018090000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261018090000_analytics_summary_observed_filler_rate_1472') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261018090000'
+
+      - name: Verify reviewed T2 20261018170000 catalog and ACL
+        id: postflight_20261018170000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261018170000_account_closure_pending_checkout') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261018170000'
+
+      - name: Verify reviewed T2 20261019010000 catalog and ACL
+        id: postflight_20261019010000
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261019010000_heartbeat_session_cap_keeps_take_open_1593') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261019010000'
+
+      - name: Verify reviewed T2 20261019055102 catalog and ACL
+        id: postflight_20261019055102
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261019055102_account_pending_recording_admission_1643') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261019055102'
+
+      - name: Verify reviewed T2 20261019202856 catalog and ACL
+        id: postflight_20261019202856
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261019202856_account_coaching_admission_1643') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261019202856'
+
+      - name: Verify reviewed T2 20261020230653 catalog and ACL
+        id: postflight_20261020230653
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20261020230653_account_pending_completion_journal_1643') }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::verified pooler absent'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          node scripts/t2-migration-postflight.mjs after '20261020230653'
+
       - name: Require unambiguous exact-operation success
         id: terminal
         if: always()
@@ -793,7 +877,13 @@ jobs:
             "postflight_20261013180000=${{ steps.postflight_20261013180000.outcome }}" \
             "postflight_20261016090000=${{ steps.postflight_20261016090000.outcome }}" \
             "postflight_20261016180000=${{ steps.postflight_20261016180000.outcome }}" \
-            "postflight_20261017200000=${{ steps.postflight_20261017200000.outcome }}"
+            "postflight_20261017200000=${{ steps.postflight_20261017200000.outcome }}" \
+            "postflight_20261018090000=${{ steps.postflight_20261018090000.outcome }}" \
+            "postflight_20261018170000=${{ steps.postflight_20261018170000.outcome }}" \
+            "postflight_20261019010000=${{ steps.postflight_20261019010000.outcome }}" \
+            "postflight_20261019055102=${{ steps.postflight_20261019055102.outcome }}" \
+            "postflight_20261019202856=${{ steps.postflight_20261019202856.outcome }}" \
+            "postflight_20261020230653=${{ steps.postflight_20261020230653.outcome }}"
 
       - name: Publish sanitized result
         if: always()

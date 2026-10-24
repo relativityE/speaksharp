@@ -94,7 +94,7 @@ describe('the fault counts only its own attempt\'s failures, armed before induct
     });
 
     it('the spec arms the fault before inducing it and opens the attempt before the press, in both variants', () => {
-        const spec = readFileSync('tests/live/rwt-adverse-mic-model.live.spec.ts', 'utf8');
+        const spec = readFileSync('tests/live/helpers/rwtAdverseJourney.ts', 'utf8');
         const route = spec.indexOf('await context.route(MODEL_ASSETS, (route) => route.abort');
         const offline = spec.indexOf('await context.setOffline(true)');
         const armBeforeRoute = spec.lastIndexOf('fault.armFault();', route);

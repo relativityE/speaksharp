@@ -50,7 +50,14 @@ interface MockOptions {
   sessionSelectErrors?: unknown[];
   quota?: Record<string, unknown>;
   quotaError?: unknown;
+  admission?: Record<string, unknown>;
+  admissionError?: unknown;
+  settlementError?: unknown;
   updateError?: unknown;
+  /** The persistence RPC's returned `data` (default: null with an error, else the readback). */
+  persistData?: unknown;
+  /** The persistence RPC rejects (throws) instead of returning a result. */
+  persistThrows?: unknown;
   legacyUpdateError?: unknown;
   readback?: unknown;
   authorityError?: unknown;
@@ -98,6 +105,8 @@ let adaptiveGemini = false;
 /** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
 let geminiModelVersion: string | null = 'gemini-3.8-flash';
 let fetchThrows = false;
+let fetchFailuresRemaining = 0;
+let abortAfterBody: AbortController | null = null;
 /** #1258: what a non-OK provider answer's body says, and what a transport error's message says. */
 let providerErrorBody = 'upstream unavailable';
 let fetchErrorMessage = 'network unreachable';
@@ -162,7 +171,7 @@ globalThis.fetch = async (url, init) => {
     abortDuringFetch = null;
     throw new DOMException('The signal has been aborted', 'AbortError');
   }
-  if (fetchThrows) throw new TypeError(fetchErrorMessage);
+  if (fetchThrows || fetchFailuresRemaining-- > 0) throw new TypeError(fetchErrorMessage);
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
@@ -176,7 +185,7 @@ globalThis.fetch = async (url, init) => {
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
     : geminiText;
-  return new Response(JSON.stringify({
+  const response = new Response(JSON.stringify({
     ...(geminiModelVersion === null ? {} : { modelVersion: geminiModelVersion }),
     candidates: [{ content: { parts: [{ text }] } }],
     ...geminiExtra,
@@ -184,6 +193,13 @@ globalThis.fetch = async (url, init) => {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
+  if (abortAfterBody) {
+    const caller = abortAfterBody;
+    abortAfterBody = null;
+    const read = response.json.bind(response);
+    response.json = async () => { const value = await read(); caller.abort(); return value; };
+  }
+  return response;
 };
 
 function mockSupabase(options: MockOptions = {}) {
@@ -199,6 +215,9 @@ function mockSupabase(options: MockOptions = {}) {
     // #1486 — counted on its own. `rpcCount` also counts other rpc traffic, so it cannot answer
     // "how many slots did this one generation action spend?".
     quotaCount: 0,
+    admissionArgs: null as Record<string, unknown> | null,
+    settlementArgs: null as Record<string, unknown> | null,
+    legacyUpdateCount: 0,
     sessionColumns: [] as string[],
   };
   const sessionSelectErrors = [...(options.sessionSelectErrors ?? [])];
@@ -213,6 +232,14 @@ function mockSupabase(options: MockOptions = {}) {
         : { data: { user: null }, error: { message: 'Unauthorized' } }),
     },
     rpc: (name: string, args?: Record<string, unknown>) => {
+      if (name === 'begin_account_coaching_v1') {
+        state.admissionArgs = args ?? null;
+        return Promise.resolve({ data: options.admission ?? { admitted: true, operationId: args?.p_operation_id }, error: options.admissionError ?? null });
+      }
+      if (name === 'finish_account_coaching_failure_v1') {
+        state.settlementArgs = args ?? null;
+        return Promise.resolve({ data: !options.settlementError, error: options.settlementError ?? null });
+      }
       if (name === 'check_usage_limit') {
         return Promise.resolve({
           data: options.entitlement ?? (profile === 'free'
@@ -233,15 +260,17 @@ function mockSupabase(options: MockOptions = {}) {
         state.authorityReadCount++;
         return Promise.resolve({ data: options.authorityReadback ?? [], error: null });
       }
-      if (name === 'persist_ai_suggestion_with_authority_v1') {
+      if (name === 'persist_ai_suggestion_with_authority_v1' || name === 'persist_account_coaching_v1') {
         state.authorityRpcCount++;
         state.authorityArgs = args ?? null;
+        if (options.persistThrows !== undefined) return Promise.reject(options.persistThrows);
         if (!options.updateError) {
           state.updated = { ai_suggestions: args?.p_suggestions };
           state.filters.push(['id', args?.p_session_id], ['user_id', args?.p_user_id]);
         }
         return Promise.resolve({
-          data: options.updateError ? null : (options.readback ?? args?.p_suggestions),
+          data: 'persistData' in options ? options.persistData
+            : options.updateError ? null : (options.readback ?? args?.p_suggestions),
           error: options.updateError ?? null,
         });
       }
@@ -292,6 +321,7 @@ function mockSupabase(options: MockOptions = {}) {
         return query;
       },
       update: (value: unknown) => {
+        state.legacyUpdateCount++;
         state.updated = value;
         const query = {
           eq: (column: string, value: unknown) => {
@@ -330,6 +360,8 @@ function resetProvider() {
   adaptiveGemini = false;
   geminiModelVersion = 'gemini-3.8-flash';
   fetchThrows = false;
+  fetchFailuresRemaining = 0;
+  abortAfterBody = null;
   providerErrorBody = 'upstream unavailable';
   fetchErrorMessage = 'network unreachable';
   geminiExtra = {};
@@ -350,6 +382,138 @@ function resetProvider() {
 
 Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   resetProvider();
+
+  await t.step('#1643 pending accounts refuse fresh work before quota or provider', async () => {
+    resetProvider();
+    const mock = mockSupabase({ admission: { admitted: false, reason: 'account_closure_pending' } });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 423);
+    assertEquals((await response.json()).diagnostics.reason, 'access_denied');
+    assertEquals(mock.state.quotaCount, 0);
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.authorityRpcCount, 0);
+    assertEquals(mock.state.settlementArgs, null);
+  });
+
+  await t.step('#1643 missing or mismatched admission fails closed with no provider work', async () => {
+    for (const options of [
+      { admissionError: { code: 'PGRST202' } },
+      { admission: { admitted: true, operationId: 'wrong-operation' } },
+      { admission: { admitted: false, reason: 'operation_already_recorded' } },
+    ]) {
+      resetProvider();
+      const mock = mockSupabase(options);
+      const response = await handler(request(), mock.create);
+      assertEquals(response.status, 503);
+      assertEquals((await response.json()).diagnostics.reason, 'authority_unverified');
+      assertEquals(mock.state.quotaCount, 0);
+      assertEquals(fetchCount, 0);
+    }
+  });
+
+  await t.step('#1643 cached reads remain available without new admission schema', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), admissionError: { code: 'PGRST202' } });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(mock.state.admissionArgs, null);
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 admitted quota refusal settles only the exact server-generated operation', async () => {
+    resetProvider();
+    const mock = mockSupabase({ quota: { allowed: false } });
+    assertEquals((await handler(request({ sessionId: 'session-a', operationId: 'caller-forged' }), mock.create)).status, 429);
+    assertEquals(mock.state.settlementArgs, { ...mock.state.admissionArgs, p_outcome: 'refused' });
+    assertNotEquals(mock.state.admissionArgs?.p_operation_id, 'caller-forged');
+    assertEquals(typeof mock.state.admissionArgs?.p_operation_id, 'string');
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 provider transport uncertainty stays fenced through failure', async () => {
+    resetProvider();
+    fetchThrows = true;
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 502);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 persistence failure never falls back around the operation ledger', async () => {
+    resetProvider();
+    const mock = mockSupabase({ updateError: { code: 'PGRST202' } });
+    assertEquals((await handler(request(), mock.create)).status, 503);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 successful authority persistence atomically binds the admitted operation', async () => {
+    resetProvider();
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(mock.state.authorityArgs?.p_operation_id, mock.state.admissionArgs?.p_operation_id);
+    assertEquals(typeof mock.state.authorityArgs?.p_operation_id, 'string');
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(mock.state.settlementArgs, null);
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 a recovered provider retry cannot erase the first attempt uncertainty', async () => {
+    resetProvider();
+    fetchFailuresRemaining = 1;
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(fetchCount, 2);
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, false);
+    assertEquals(mock.state.settlementArgs, null, 'the atomic persistence RPC retains unknown');
+  });
+
+  await t.step('#1643 an admitted valid answer completes after caller navigation', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortAfterBody = caller;
+    const mock = mockSupabase();
+    assertEquals((await handler(request({ sessionId: 'session-a' }, caller.signal), mock.create)).status, 200);
+    assertEquals(caller.signal.aborted, true);
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(mock.state.updated, { ai_suggestions: suggestionA });
+  });
+
+  await t.step('#1643 cancellation during a provider call never claims definitive settlement', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortDuringFetch = caller;
+    const mock = mockSupabase();
+    assertEquals((await handler(request({ sessionId: 'session-a' }, caller.signal), mock.create)).status, 499);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.updated, null);
+    assertEquals(fetchCount, 1);
+  });
+
+  await t.step('#1643 settlement transport failure never overrides the refusal or reopens admission', async () => {
+    resetProvider();
+    const mock = mockSupabase({ quota: { allowed: false }, settlementError: { message: 'reply lost' } });
+    assertEquals((await handler(request(), mock.create)).status, 429);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(mock.state.updated, null);
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 the service client owns admission, persistence and settlement, never the caller client', async () => {
+    resetProvider();
+    const caller = mockSupabase({ admissionError: { code: '42501' }, updateError: { code: '42501' } });
+    const service = mockSupabase();
+    assertEquals((await handler(request(), caller.create, service.create)).status, 200);
+    assertEquals(caller.state.admissionArgs, null);
+    assertEquals(caller.state.authorityRpcCount, 0);
+    assertEquals(service.state.authorityArgs?.p_operation_id, service.state.admissionArgs?.p_operation_id);
+    assertEquals(caller.state.quotaCount, 1);
+    resetProvider();
+    const refused = mockSupabase({ quota: { allowed: false } });
+    const settlement = mockSupabase();
+    assertEquals((await handler(request(), refused.create, settlement.create)).status, 429);
+    assertEquals(refused.state.settlementArgs, null);
+    assertEquals(settlement.state.settlementArgs?.p_outcome, 'refused');
+  });
 
   await t.step('rejects unauthenticated users', async () => {
     const mock = mockSupabase({ profile: 'unauthenticated', userId: null });
@@ -706,6 +870,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((saved.state.updated as { ai_suggestions: unknown }).ai_suggestions, suggestionA);
     assertEquals(saved.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
     assertEquals(saved.state.authorityArgs, {
+      p_operation_id: saved.state.admissionArgs?.p_operation_id,
+      p_provider_settled: true,
       p_session_id: 'session-a',
       p_user_id: 'pro-user',
       p_suggestions: suggestionA,
@@ -718,19 +884,73 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     });
   });
 
-  await t.step('keeps product saves working while Edge precedes the receipt migration', async () => {
+  await t.step('fails closed when the admitted persistence RPC is unavailable, without a legacy write', async () => {
     resetProvider();
     const skewed = mockSupabase({ updateError: { code: 'PGRST202', message: 'function not in schema cache' } });
     const res = await handler(request(), skewed.create);
-    assertEquals(res.status, 200);
-    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).code, 'persist_failed');
     assertEquals(skewed.state.authorityRpcCount, 1);
-    assertEquals(skewed.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
+    assertEquals(skewed.state.filters, []);
+    assertEquals(skewed.state.legacyUpdateCount, 0);
+    assertEquals(skewed.state.settlementArgs?.p_outcome, 'unknown');
 
     resetProvider();
     const realFailure = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
     assertEquals((await handler(request(), realFailure.create)).status, 503);
     assertEquals(realFailure.state.filters, []);
+  });
+
+  // #1684 Codex P1 r4354653671: only the persistence RPC's own definitive rejection (a returned SQLSTATE 23514 with no
+  // data, e.g. the quota-ledger check) settles `refused`, and only when the provider attempt was itself certain. An
+  // `unknown` admission can never settle again, so classifying a definitive rejection as unknown blocked deletion forever.
+  await t.step('#1643 a returned 23514 persistence rejection settles refused only after a certain provider attempt', async () => {
+    resetProvider();
+    const rejected = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), rejected.create)).status, 503);
+    assertEquals(rejected.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(rejected.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(rejected.state.updated, null);
+
+    resetProvider();
+    fetchFailuresRemaining = 1;
+    const recovered = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), recovered.create)).status, 503);
+    assertEquals(fetchCount, 2);
+    assertEquals(recovered.state.authorityArgs?.p_provider_settled, false);
+    assertEquals(recovered.state.settlementArgs?.p_outcome, 'unknown', 'earlier provider uncertainty survives the rejection');
+  });
+
+  await t.step('#1643 every other persistence failure stays unknown and never succeeds', async () => {
+    const unknownCases: Array<[string, MockOptions]> = [
+      ['schema-cache PGRST202', { updateError: { code: 'PGRST202', message: 'function not in schema cache' } }],
+      ['connection 08006', { updateError: { code: '08006', message: 'connection failure' } }],
+      ['connection 08007', { updateError: { code: '08007', message: 'transaction resolution unknown' } }],
+      ['arbitrary 23505', { updateError: { code: '23505', message: 'duplicate key' } }],
+      ['code-less error', { updateError: { message: 'write failed' } }],
+      ['23514 with returned data', { updateError: { code: '23514', message: 'receipt rejected' }, persistData: suggestionA }],
+      ['thrown 23514', { persistThrows: { code: '23514', message: 'receipt rejected' } }],
+      ['mismatched saved value', { readback: suggestionB }],
+      ['malformed saved value', { readback: { unexpected: true } }],
+    ];
+    for (const [label, options] of unknownCases) {
+      resetProvider();
+      const mock = mockSupabase(options);
+      const status = (await handler(request(), mock.create)).status;
+      assertEquals(status >= 500, true, `${label}: never reported as success`);
+      assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown', label);
+    }
+
+    resetProvider();
+    const saved = mockSupabase();
+    assertEquals((await handler(request(), saved.create)).status, 200);
+    assertEquals(saved.state.settlementArgs, null, 'a verified save records no failure settlement');
+
+    resetProvider();
+    const unsettled = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' }, settlementError: { message: 'reply lost' } });
+    assertEquals((await handler(request(), unsettled.create)).status, 503, 'a failed settlement keeps the 503');
+    assertEquals(unsettled.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(unsettled.state.updated, null);
   });
 
   await t.step('materially different saved sessions produce different grounded coaching', async () => {

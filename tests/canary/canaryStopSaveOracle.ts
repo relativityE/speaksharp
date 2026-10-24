@@ -1,102 +1,203 @@
-/**
- * CO006 — the canary's stop/save oracle, extracted so the unit lane can prove it can FAIL.
- *
- * The stop phase used to race a dialog wait, a "No speech" wait and an /analytics navigation, each of
- * which turned its own timeout into `null`. A timeout, an unrelated dialog or a no-speech take therefore
- * all "finished" the race, and the follow-up schema check read `sessions[0]` — any old row — so a take
- * that never saved could still pass. Here the outcome is decided only by evidence bound to THIS take:
- * the save RPC for the session the canary itself started, then a durable readback of that exact row.
- *
- * Pure and Playwright-free: the spec hands in promises and parsed bodies.
- */
-
-/** The save the page sent, captured from a listener registered BEFORE Stop is pressed. */
-export interface CompletionEvidence {
-    /** `p_session_id` from the complete_session_v2 request body; null when it could not be read. */
-    requestSessionId: string | null;
-    status: number;
-    body: unknown;
+/** CO006 successor: one started take, one deadline, owned response observation. No Playwright or network dependency. */
+export interface StopRequest {
+    url(): string;
+    method(): string;
+    postDataJSON(): unknown;
+}
+export interface StopResponse {
+    url(): string;
+    status(): number;
+    request(): StopRequest;
+    json(): Promise<unknown>;
 }
 
-export interface StopObservation {
-    completion: CompletionEvidence | null;
-    noSpeechShown: boolean;
-    unrelatedDialog: boolean;
+export interface StopPage {
+    on(event: 'request', listener: (request: StopRequest) => void): unknown;
+    on(event: 'response', listener: (response: StopResponse) => void): unknown;
+    off(event: 'request', listener: (request: StopRequest) => void): unknown;
+    off(event: 'response', listener: (response: StopResponse) => void): unknown;
 }
 
-export type StopOutcome =
-    | { kind: 'saved'; sessionId: string }
-    | { kind: 'no_speech' }
-    | { kind: 'unresolved'; reason: string };
-
-/**
- * Wait for the take's terminal evidence. Only the save response or the no-speech state ends the wait; a
- * dialog is recorded but never ends it, and a source that times out simply never resolves (it cannot win
- * the race the way a swallowed locator timeout used to). After the deadline the observation is frozen, so
- * a late callback cannot change what was decided.
- */
-export async function awaitStopTerminal(
-    sources: { completion: Promise<CompletionEvidence>; noSpeech: Promise<void>; dialog: Promise<void> },
-    deadlineMs: number,
-): Promise<StopObservation> {
-    const seen: StopObservation = { completion: null, noSpeechShown: false, unrelatedDialog: false };
-    let closed = false;
-    const never = new Promise<never>(() => undefined);
-    void sources.dialog.then(() => { if (!closed) seen.unrelatedDialog = true; }, () => undefined);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-        sources.completion.then((c) => { if (!closed) seen.completion = c; }, () => never),
-        sources.noSpeech.then(() => { if (!closed) seen.noSpeechShown = true; }, () => never),
-        new Promise<void>((resolve) => { timer = setTimeout(resolve, deadlineMs); }),
-    ]);
-    clearTimeout(timer);
-    closed = true;
-    return { ...seen };
+export interface StopControls {
+    sessionId: string;
+    ownerId: string | null;
+    apiOrigin: string;
+    remainingMs(): number;
+    stop(): Promise<unknown>;
+    waitForSettledTake(): Promise<unknown>;
+    openSavedTake(): Promise<unknown>;
+    reloadSavedTake(): Promise<unknown>;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+type Phase = 'completion' | 'settlement' | 'arrival' | 'reload';
+type Refusal = 'invalid_binding' | 'deadline' | 'save_http' | 'save_body' | 'save_not_completed'
+    | 'readback_http' | 'readback_body' | 'row_missing' | 'row_duplicate' | 'wrong_owner'
+    | 'row_not_completed' | 'row_schema' | 'no_words' | 'action_failed' | 'listener_cleanup_failed';
+export type StopResult = Readonly<{ kind: 'saved'; readbacks: 2 } | { kind: 'refused'; phase: Phase; reason: Refusal }>;
 
-/** What the observation proves about the take the canary started. Only a saved completion of THAT session passes. */
-export function classifyStopOutcome(expectedSessionId: string, observation: StopObservation): StopOutcome {
-    const { completion } = observation;
-    if (completion) {
-        if (completion.requestSessionId !== expectedSessionId) return { kind: 'unresolved', reason: 'completion_for_other_session' };
-        if (completion.status < 200 || completion.status >= 300) return { kind: 'unresolved', reason: `completion_http_${completion.status}` };
-        const body = completion.body;
-        if (!isObject(body) || body.success !== true || body.session_saved !== true || body.final_status !== 'completed') {
-            return { kind: 'unresolved', reason: 'completion_not_saved' };
-        }
-        return { kind: 'saved', sessionId: expectedSessionId };
-    }
-    // No-speech is its own non-save outcome, never a persisted take.
-    if (observation.noSpeechShown) return { kind: 'no_speech' };
-    return { kind: 'unresolved', reason: observation.unrelatedDialog ? 'unrelated_dialog_without_save' : 'no_terminal_save' };
-}
+const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+const nonempty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
-/** The owner of the started take, from the authoritative start RPC's `new_session`; null when absent. */
 export function startOwnerId(newSession: unknown): string | null {
-    const owner = isObject(newSession) ? newSession.user_id : undefined;
-    return typeof owner === 'string' && owner.trim() ? owner : null;
+    return record(newSession) && nonempty(newSession.user_id) ? newSession.user_id : null;
 }
 
-const REQUIRED_FIELDS = ['id', 'user_id', 'total_words', 'duration', 'created_at', 'engine'] as const;
+/** Standalone/serializable Page predicate: the current take has settled, not merely committed its first save RPC. */
+export function isOwnedStopSettledInPage(sessionId: string): boolean {
+    const root = document.documentElement;
+    return typeof sessionId === 'string' && sessionId.trim().length > 0
+        && root.getAttribute('data-session-persisted') === 'true'
+        && root.getAttribute('data-session-persisted-id') === sessionId
+        && root.getAttribute('data-session-persist-status') === 'saved'
+        && root.getAttribute('data-runtime-state') === 'READY';
+}
+
+/** Compare request identity BEFORE selecting a response; never select by an ID mentioned elsewhere in the URL. */
+export function responseMatchesTake(response: StopResponse, phase: Phase, apiOrigin: string, sessionId: string): boolean {
+    try {
+        const url = new URL(response.url());
+        const request = response.request();
+        if (url.href !== new URL(request.url()).href) return false;
+        return requestMatchesTake(request, phase, apiOrigin, sessionId);
+    } catch { return false; }
+}
+
+function requestMatchesTake(request: StopRequest, phase: Phase, apiOrigin: string, sessionId: string): boolean {
+    try {
+        if (phase === 'settlement') return false;
+        const url = new URL(request.url());
+        if (url.origin !== apiOrigin) return false;
+        if (phase === 'completion') {
+            if (url.pathname !== '/rest/v1/rpc/complete_session_v2' || request.method() !== 'POST') return false;
+            const body = request.postDataJSON();
+            return record(body) && body.p_session_id === sessionId;
+        }
+        return url.pathname === '/rest/v1/sessions' && request.method() === 'GET'
+            && url.searchParams.getAll('id').length === 1
+            && url.searchParams.get('id') === `eq.${sessionId}`;
+    } catch { return false; }
+}
+
+/** A list or single-row body must contain exactly one matching completed take, not merely a plausible first row. */
+export function verifySavedReadback(sessionId: string, ownerId: string | null, body: unknown): Refusal | null {
+    if (!nonempty(sessionId) || !nonempty(ownerId)) return 'invalid_binding';
+    const rows = record(body) ? [body] : body;
+    if (!Array.isArray(rows)) return 'readback_body';
+    const matching = rows.filter((row) => record(row) && row.id === sessionId);
+    if (matching.length === 0) return 'row_missing';
+    if (matching.length !== 1) return 'row_duplicate';
+    const row = matching[0] as Record<string, unknown>;
+    if (row.user_id !== ownerId) return 'wrong_owner';
+    if (row.status !== 'completed') return 'row_not_completed';
+    if (!nonempty(row.engine) || !nonempty(row.created_at)
+        || typeof row.duration !== 'number' || !Number.isFinite(row.duration) || row.duration < 0) return 'row_schema';
+    if (typeof row.total_words !== 'number' || !Number.isFinite(row.total_words) || row.total_words <= 0) return 'no_words';
+    return null;
+}
 
 /**
- * Durable readback of the exact saved row. The detail read (`.single()`) returns one object and a list read
- * returns an array; either way the row is found by id — never `rows[0]` — and must belong to the take's
- * owner, be completed and carry words.
+ * All predicates/body reads and actions share the existing stop phase's remaining budget. Reserve 100ms INSIDE that
+ * ceiling for cleanup/verdict publication; no test/phase timeout is enlarged. A dialog, no-speech label or rejected wait
+ * never supplies save evidence. The exact completion and TWO durable readbacks (arrival/reload) are required instead.
+ * Only enums/counts leave; request/owner/content are never included in the result.
  */
-export function verifySavedReadback(
-    expectedSessionId: string, ownerId: string | null, body: unknown,
-): { ok: true } | { ok: false; reason: string } {
-    const rows = isObject(body) ? [body] : body;
-    if (!Array.isArray(rows)) return { ok: false, reason: 'readback_not_a_row' };
-    const row = rows.find((r) => isObject(r) && r.id === expectedSessionId);
-    if (!isObject(row)) return { ok: false, reason: 'row_missing' };
-    for (const field of REQUIRED_FIELDS) if (row[field] === undefined) return { ok: false, reason: `missing_${field}` };
-    if (ownerId === null || row.user_id !== ownerId) return { ok: false, reason: 'wrong_owner' };
-    // The shipped detail select (current and legacy) always reads `status`, so a missing status is not a completed take.
-    if (row.status !== 'completed') return { ok: false, reason: 'not_completed' };
-    if (typeof row.total_words !== 'number' || row.total_words <= 0) return { ok: false, reason: 'no_words' };
-    return { ok: true };
+export function collectCanaryStopSave(page: StopPage, controls: StopControls): Promise<StopResult> {
+    let budget: number;
+    try {
+        const origin = new URL(controls.apiOrigin);
+        budget = controls.remainingMs();
+        if (!nonempty(controls.sessionId) || !nonempty(controls.ownerId)
+            || origin.origin !== controls.apiOrigin || !['http:', 'https:'].includes(origin.protocol)
+            || origin.username || origin.password || !Number.isFinite(budget) || budget <= 100) {
+            return Promise.resolve(Object.freeze({ kind: 'refused', phase: 'completion', reason: 'invalid_binding' }));
+        }
+    } catch { return Promise.resolve(Object.freeze({ kind: 'refused', phase: 'completion', reason: 'invalid_binding' })); }
+
+    const deadline = performance.now() + Math.floor(budget) - 100;
+    return new Promise((resolve) => {
+        let phase: Phase = 'completion';
+        let closed = false;
+        let bodyPending = false;
+        let evidenceReady = false;
+        let actionReady = false;
+        let requestListenerAdded = false;
+        let responseListenerAdded = false;
+        const requestedInPhase = new WeakMap<StopRequest, Phase>();
+
+        const finish = (result: StopResult) => {
+            if (closed) return;
+            // Timer delivery can lag behind promise continuations; publication must independently enforce the ceiling.
+            if (result.kind === 'saved' && performance.now() >= deadline) result = { kind: 'refused', phase, reason: 'deadline' };
+            closed = true; // freeze BEFORE cleanup or any queued body/action callback can publish
+            clearTimeout(timer);
+            let cleanupFailed = false;
+            try { if (requestListenerAdded) page.off('request', onRequest); } catch { cleanupFailed = true; }
+            try { if (responseListenerAdded) page.off('response', onResponse); } catch { cleanupFailed = true; }
+            if (cleanupFailed) result = { kind: 'refused', phase, reason: 'listener_cleanup_failed' };
+            resolve(Object.freeze(result));
+        };
+        const refuse = (reason: Refusal) => finish({ kind: 'refused', phase, reason });
+        const isOpen = () => {
+            if (closed) return false;
+            if (performance.now() >= deadline) { refuse('deadline'); return false; }
+            return true;
+        };
+        const act = (action: () => Promise<unknown>) => {
+            void Promise.resolve().then(() => { if (isOpen()) return action(); }).then(() => {
+                if (!isOpen()) return;
+                actionReady = true;
+                advance();
+            }, () => { if (isOpen()) refuse('action_failed'); });
+        };
+        const advance = () => {
+            if (!isOpen() || !actionReady || !evidenceReady) return;
+            if (phase === 'reload') { finish({ kind: 'saved', readbacks: 2 }); return; }
+            phase = phase === 'completion' ? 'settlement' : phase === 'settlement' ? 'arrival' : 'reload';
+            evidenceReady = phase === 'settlement';
+            actionReady = false;
+            bodyPending = false;
+            // Stage/predicate already armed before the action can synchronously emit its response.
+            act(phase === 'settlement' ? controls.waitForSettledTake
+                : phase === 'arrival' ? controls.openSavedTake : controls.reloadSavedTake);
+        };
+        const onRequest = (request: StopRequest) => {
+            if (isOpen() && requestMatchesTake(request, phase, controls.apiOrigin, controls.sessionId)) requestedInPhase.set(request, phase);
+        };
+        const onResponse = (response: StopResponse) => {
+            if (!isOpen() || bodyPending || evidenceReady || !responseMatchesTake(response, phase, controls.apiOrigin, controls.sessionId)) return;
+            if (requestedInPhase.get(response.request()) !== phase) return;
+            const capturedPhase = phase;
+            bodyPending = true;
+            let status: number;
+            try { status = response.status(); } catch { refuse(phase === 'completion' ? 'save_http' : 'readback_http'); return; }
+            if (status !== 200) { refuse(phase === 'completion' ? 'save_http' : 'readback_http'); return; }
+            // The body may never resolve or may resolve after the deadline; it never owns the verdict.
+            void Promise.resolve().then(() => { if (isOpen()) return response.json(); }).then((body) => {
+                if (!isOpen() || phase !== capturedPhase) return;
+                if (capturedPhase === 'completion') {
+                    if (!record(body) || body.success !== true || body.session_saved !== true || body.final_status !== 'completed') {
+                        refuse('save_not_completed'); return;
+                    }
+                    try {
+                        const request = response.request().postDataJSON();
+                        if (!record(request) || request.p_status !== 'completed') { refuse('save_not_completed'); return; }
+                    } catch { refuse('save_not_completed'); return; }
+                } else {
+                    const refusal = verifySavedReadback(controls.sessionId, controls.ownerId, body);
+                    if (refusal) { refuse(refusal); return; }
+                }
+                evidenceReady = true;
+                advance();
+            }, () => { if (isOpen()) refuse(capturedPhase === 'completion' ? 'save_body' : 'readback_body'); });
+        };
+
+        const timer = setTimeout(() => refuse('deadline'), Math.floor(budget) - 100);
+        try {
+            requestListenerAdded = true;
+            page.on('request', onRequest);
+            responseListenerAdded = true;
+            page.on('response', onResponse);
+        } catch { refuse('action_failed'); return; }
+        act(controls.stop);
+    });
 }

@@ -62,7 +62,10 @@ describe('recoveredTakeVerdict — removing the cause recovers by the person\'s 
 });
 
 describe('guards — the spec, the acceptance map and the product stay in step', () => {
-    const spec = src('tests/live/rwt-adverse-mic-model.live.spec.ts');
+    // #1593 cases 9–11: the journey lives in helpers/rwtAdverseJourney.ts and the variants in two spec files (mic denied needs
+    // its own file-level `=deny` launch options). Every assertion below reads their union, so none is relaxed.
+    const spec = ['tests/live/rwt-adverse-mic-model.live.spec.ts', 'tests/live/rwt-adverse-mic-denied.live.spec.ts',
+        'tests/live/helpers/rwtAdverseJourney.ts'].map(src).join('\n');
     const written = `${spec}\n${src('tests/live/helpers/rwtDisposableAccount.ts')}`;
 
     it('the blocked copy and failed model states are the product\'s own', () => {

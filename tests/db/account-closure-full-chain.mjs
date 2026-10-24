@@ -12,6 +12,50 @@ import { checkoutRejectionQuery, assertCheckoutRejection } from '../../scripts/l
 import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage, proofPostgresVersion, proofSubprocessFailure } from './account-closure-full-chain-diagnostics.mjs';
 
 import { pathToFileURL } from 'node:url';
+import { createNativeT2CatalogProof } from './t2-native-catalog-proof.mjs';
+import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
+
+// P5 diagnostic: the same catalog query with its three per-object md5 wrappers removed, so a mismatched pin can be
+// compared field by field (names, types, constraints, policies, ACL roles; no rows). Diagnostic only — never a verdict.
+export function t2ExpandedCatalogQuery(inventory) {
+  const hashed = t2CatalogQuery(inventory);
+  const wrappers = hashed.split('md5(').length - 1;
+  assert.equal(wrappers, 3, `expected exactly 3 per-object md5 wrappers, found ${wrappers}`);
+  return hashed.replaceAll('md5(', '(');
+}
+
+// Wraps the proof's record: on a pin mismatch, retain the un-hashed object for that key, then rethrow the ORIGINAL
+// error. Neither a failing query nor a failing write may replace it (Sam RETURN on 40dfd6b7: the write sat outside
+// the guard). Anything other than a pin mismatch is rethrown untouched, with no diagnostic.
+export function withExpandedCatalogDiagnostic(record, { sql, write, inventory, warn = message => console.error(message) }) {
+  return stage => {
+    try {
+      return record(stage);
+    } catch (error) {
+      const key = /^T2 catalog mismatch: (.+)$/.exec(error instanceof Error ? error.message : '')?.[1];
+      if (key) {
+        let diagnostic;
+        try {
+          const expanded = JSON.parse(sql(`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL search_path=public,pg_temp;
+${t2ExpandedCatalogQuery(inventory)}
+COMMIT;`));
+          diagnostic = { stage, key, object: key in expanded ? JSON.parse(expanded[key]) : null };
+        } catch (diagnosticError) {
+          diagnostic = { stage, key, object: null, diagnosticError: String(diagnosticError?.message ?? diagnosticError).slice(0, 300) };
+        }
+        try {
+          write(diagnostic);
+        } catch (writeError) {
+          try {
+            warn(`T2 expanded catalog diagnostic not retained: ${String(writeError?.message ?? writeError).slice(0, 200)}`);
+          } catch { /* A failing warning must not mask the mismatch either. */ }
+        }
+      }
+      throw error;
+    }
+  };
+}
 
 /** Frozen independently reviewed main99585 + optional U1 bytes. No directory-driven profile selection. */
 export const MAIN_MIGRATION_SNAPSHOT = Object.freeze([
@@ -635,7 +679,24 @@ export const MAIN_ANALYTICS_MIGRATION=Object.freeze({
   name:'20261018090000_analytics_summary_observed_filler_rate_1472.sql',
   version:'20261018090000',sha256:'72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f',
 });
-const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122'];
+export const MAIN_T2_ACCOUNT_MIGRATIONS=Object.freeze([
+  {name:'20261018170000_account_closure_pending_checkout.sql',version:'20261018170000',sha256:'68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19',stage:'account-pending'},
+  {name:'20261019055102_account_pending_recording_admission_1643.sql',version:'20261019055102',sha256:'e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4',stage:'recording-admission'},
+  {name:'20261019202856_account_coaching_admission_1643.sql',version:'20261019202856',sha256:'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e',stage:'coaching-admission'},
+  {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'76bffe1f7dc15efe487cd33faffbfd8d1b6c654a7b09508d427e53b4b88d83cf',stage:'account-completion'},
+].map(row=>Object.freeze(row)));
+// #1643 UNKNOWN-coaching fence: reviewed separately and staged after completion, never inside the 126 profile.
+export const MAIN_T2_FENCE_MIGRATION=Object.freeze({name:'20261024083000_account_coaching_unknown_fence_1643.sql',
+  version:'20261024083000',sha256:'29548e27a0b33a303ff093569097367b1227251faff7e7df77af392cfa4b0d14',stage:'coaching-unknown-fence'});
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127'];
+const T2_PROFILES=['main-t2-account-126','main-t2-fence-127'];
+function selectedAdditions(profile) {
+  const rows=[...(profile!=='main-120'?[{...MAIN_U1_MIGRATION,stage:'heartbeat-u1'}]:[]),
+    ...(['main-analytics-u1-122',...T2_PROFILES].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
+    ...(T2_PROFILES.includes(profile)?MAIN_T2_ACCOUNT_MIGRATIONS:[]),
+    ...(profile==='main-t2-fence-127'?[MAIN_T2_FENCE_MIGRATION]:[])];
+  return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
+}
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
 const MAIN_RECOVERY = '20261017200000_checkout_rejection_recovery.sql';
 
@@ -664,8 +725,8 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   assert.equal(new Set(actual.map(row => row.name)).size, actual.length, 'duplicate migration name');
   const versioned = actual.filter(row => row.version !== null);
   assert.equal(new Set(versioned.map(row => row.version)).size, versioned.length, 'duplicate migration version');
-  const expected = [...MAIN_MIGRATION_SNAPSHOT, ...(profile !== 'main-120' ? [MAIN_U1_MIGRATION] : []),
-    ...(profile === 'main-analytics-u1-122' ? [MAIN_ANALYTICS_MIGRATION] : [])];
+  const additions=selectedAdditions(profile);
+  const expected = [...MAIN_MIGRATION_SNAPSHOT,...additions];
   const byName = new Map(expected.map(row => [row.name, row]));
   for (const row of actual) {
     assert.ok(byName.has(row.name), 'unreviewed migration requires an explicit updated baseline: ' + row.name);
@@ -673,13 +734,12 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(actual.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
     { name: 'checkout-rejection-recovery', versions: history(late) },
-    ...(profile === 'main-analytics-u1-122' ? [{name:'analytics-observed-rate',versions:history([MAIN_U1_MIGRATION.name])}] : []),
-    ...(profile !== 'main-120' ? [{ name: 'heartbeat-u1', versions: history([]) }] : []),
+    ...additions.map((row,index)=>({name:row.stage,versions:history(additions.slice(index+1).map(item=>item.name))})),
   ];
   return { mode: 'PLAN_ONLY', profile, migrations: versioned.length,
     unversioned: actual.filter(row => row.version === null), stages, executed: false };
@@ -703,6 +763,9 @@ export function runMainClosureProof() {
   const migrations = manifest.filter((row) => row.version !== null);
   assert.equal(new Set(migrations.map((row) => row.version)).size, migrations.length, 'duplicate migration versions');
   const plan = buildMainU1ReplayPlan(manifest, args.profile);
+  const completeT2=T2_PROFILES.includes(args.profile);
+  const fenceT2=args.profile==='main-t2-fence-127';
+  const hasAnalytics=['main-analytics-u1-122',...T2_PROFILES].includes(args.profile);
   if (args.plan) {
     console.log(JSON.stringify({ ...plan, candidate: migrations.at(-1) }));
     process.exit(0);
@@ -768,6 +831,7 @@ export function runMainClosureProof() {
   let primaryError;
   let cleanupError;
   let realSupabaseSchema = false;
+  let nativeT2Catalog;
   let subnet;
   const cli = (args) => run('supabase', [...args, '--workdir', stage]);
   const sql = (text) => run('docker', ['exec', '-i', containerName, 'psql', '-X', '-qAt', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], {
@@ -792,7 +856,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -825,6 +889,21 @@ export function runMainClosureProof() {
       'supautilsVersionSetting',current_setting('supautils.version',true),
       'extensions',(SELECT json_agg(json_build_object('name',extname,'version',extversion) ORDER BY extname) FROM pg_extension))::text;`));
     writeFileSync(join(evidence, 'database-version.json'), JSON.stringify(databaseVersion, null, 2));
+    if (completeT2) nativeT2Catalog = createNativeT2CatalogProof({ sql,
+      sources: Object.fromEntries(manifest.filter(row => T2_VERSIONS.includes(row.version))
+        .map(row => [row.version, readFileSync(join(root, row.name), 'utf8')])),
+      identity: { profile: args.profile, environment: 'disposable',
+        testedCommit: run('git', ['rev-parse', 'HEAD']), requestedHead: process.env.PROOF_HEAD_SHA,
+        treeClean: run('git', ['status', '--porcelain']) === '', selectedPostgresVersion: postgresVersion,
+        ownedContainer: containerName, imageDigest: proofPostgresImage(postgresVersion).repositoryDigest },
+      retain: receipt => writeFileSync(join(evidence, 't2-native-catalog.json'), JSON.stringify(receipt, null, 2)),
+    });
+    // On a pin mismatch, retain the un-hashed object for that key from this same disposable database; the run still
+    // fails exactly as before.
+    if (nativeT2Catalog) nativeT2Catalog.record = withExpandedCatalogDiagnostic(nativeT2Catalog.record.bind(nativeT2Catalog), {
+      sql, inventory: T2_INVENTORY,
+      write: diagnostic => writeFileSync(join(evidence, 't2-native-catalog-expanded.json'), JSON.stringify(diagnostic, null, 2)),
+    });
     assert.equal(Math.floor(Number(sql("SELECT current_setting('server_version_num');")) / 10000), 17);
     assert.deepEqual(history(), plan.stages[0].versions, 'baseline replay is incomplete');
     verifyEnforcement('before');
@@ -861,27 +940,60 @@ export function runMainClosureProof() {
     assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('c3333333-3333-4333-8333-333333333333','c4444444-4444-4444-8444-444444444444')"), '0', 'rejection fixture residue');
     verifyEnforcement('after');
     console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED');
+    nativeT2Catalog?.record(0); // Native main120, before any of the six T2 targets.
     const verifyAnalytics=()=>{
       const proof=sql(readFileSync('tests/db/analytics-observed-rate-full-chain.sql','utf8'));
       assert.ok(proof.includes('ANALYTICS OBSERVED RATE FULL-CHAIN INVARIANTS PASSED'),'Analytics proof marker absent');
       assert.equal(sql("SELECT count(*) FROM auth.users WHERE id='a1472000-0000-4000-8000-000000000001'"),'0','Analytics fixture Auth residue');
       assert.equal(sql("SELECT count(*) FROM public.sessions WHERE user_id='a1472000-0000-4000-8000-000000000001'"),'0','Analytics fixture session residue');
     };
-    if(args.profile==='main-analytics-u1-122') {
+    const assertCompletionAbsent=()=>{
+      const state=JSON.parse(sql("SELECT json_build_object("+
+        "'tables',(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN "+
+        "('account_completion_configuration','account_completion_coverage','account_save_obligations','account_completion_executions','account_completion_stages','account_completion_status_capabilities')),"+
+        "'functions',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND (p.proname LIKE '%account%completion%' OR p.proname LIKE '_account_save_%')),"+
+        "'triggers',(SELECT count(*) FROM pg_trigger WHERE tgname IN ('zz_account_save_obligation','zz_account_save_session_obligation','account_save_delete_guard')))::text;"));
+      assert.deepEqual(state,{tables:0,functions:0,triggers:0},'completion leaked into an earlier account checkpoint');
+    };
+    const applyAccountStage=(row,proofFile,marker)=>{
+      cpSync(join(root,row.name),join(directory,'migrations',row.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name===row.stage).versions,'account stage history is incomplete: '+row.stage);
+      nativeT2Catalog?.record(T2_VERSIONS.indexOf(row.version) + 1);
+      if(row.stage!=='account-completion') assertCompletionAbsent();
+      const output=sql(readFileSync(proofFile,'utf8')+"\nSELECT '"+marker+"';");
+      assert.ok(output.includes(marker),'account stage proof marker absent: '+row.stage);
+      assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'),'f','account proof enabled legacy rollout');
+    };
+    if(completeT2) assertCompletionAbsent();
+    if(hasAnalytics) {
       cpSync(join(root,MAIN_ANALYTICS_MIGRATION.name),join(directory,'migrations',MAIN_ANALYTICS_MIGRATION.name));
       cli(['migration','up','--local']);
       assert.deepEqual(history(),plan.stages.find(stage=>stage.name==='analytics-observed-rate').versions,'Analytics history is incomplete');
+      nativeT2Catalog?.record(1);
       verifyAnalytics();
       verifyEnforcement('after');
       assertCheckoutRejection(sql(checkoutRejectionQuery('after',readFileSync(join(root,recovery),'utf8'))),'after');
+    }
+    if(completeT2) {
+      applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[0],'tests/db/account-closure-pending-invariants.sql','ACCOUNT CLOSURE PENDING INVARIANTS PASSED');
+      // Reuse semantic legacy controls after pending replaces selected function bodies.
+      // The immutable118/119/120 catalog checks above remain at their original boundary.
+      const retained=sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql','utf8'));
+      assert.ok(retained.includes('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED'));
     }
     if (args.profile !== 'main-120') {
       // The original 118 -> 119 -> 120 proof above is unchanged. Only now may U1 enter staging.
       cpSync(join(root, MAIN_U1_MIGRATION.name), join(directory, 'migrations', MAIN_U1_MIGRATION.name));
       cli(['migration', 'up', '--local']);
       assert.deepEqual(history(), plan.stages.find(stage=>stage.name==='heartbeat-u1').versions, 'U1 history is incomplete');
-      assertCheckoutRejection(sql(checkoutRejectionQuery('after', readFileSync(join(root, recovery), 'utf8'))), 'after');
-      verifyEnforcement('after');
+      nativeT2Catalog?.record(3);
+      // Pending intentionally replaces checkout bodies. Preserve exact catalog
+      // fingerprints on120/121/122;126 uses the same substantive recovery SQL below.
+      if(!completeT2) {
+        assertCheckoutRejection(sql(checkoutRejectionQuery('after', readFileSync(join(root, recovery), 'utf8'))), 'after');
+        verifyEnforcement('after');
+      }
       const u1EnforcementProof = sql(readFileSync('tests/db/account-closure-enforcement-full-chain.sql', 'utf8'));
       assert.ok(u1EnforcementProof.includes('ACCOUNT CLOSURE ENFORCEMENT FULL-CHAIN INVARIANTS PASSED'), 'U1 enforcement proof marker absent');
       const u1RecoveryProof = sql(readFileSync('tests/db/checkout-rejection-recovery.sql', 'utf8'));
@@ -890,9 +1002,82 @@ export function runMainClosureProof() {
       assert.equal(sql("SELECT count(*) FROM public.account_closure_attempts WHERE user_id='c1111111-1111-4111-8111-111111111111'"), '0', 'U1 owned fixture journal residue');
       assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'), 'f', 'U1 proof must restore disabled rollout gate');
       assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('c3333333-3333-4333-8333-333333333333','c4444444-4444-4444-8444-444444444444')"), '0', 'U1 rejection fixture residue');
-      verifyEnforcement('after');
+      if(!completeT2) verifyEnforcement('after');
       console.log('MAIN PLUS U1 CLOSURE INVARIANTS PASSED');
-      if(args.profile==='main-analytics-u1-122') verifyAnalytics();
+      if(hasAnalytics) verifyAnalytics();
+    }
+    if(completeT2) {
+      assertCompletionAbsent();
+      applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[1],'tests/db/account-recording-admission-invariants.sql','ACCOUNT RECORDING ADMISSION INVARIANTS PASSED');
+      applyAccountStage(MAIN_T2_ACCOUNT_MIGRATIONS[2],'tests/db/account-coaching-admission-invariants.sql','ACCOUNT COACHING ADMISSION INVARIANTS PASSED');
+      const completion=MAIN_T2_ACCOUNT_MIGRATIONS[3];
+      cpSync(join(root,completion.name),join(directory,'migrations',completion.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name===completion.stage).versions,'completion history is incomplete');
+      nativeT2Catalog.record(6);
+      // Catalog metadata only, bound to the immutable image already verified above.
+      // Retain it before completion SQL, including when that SQL later fails.
+      const storageGuard=JSON.parse(sql(`SELECT json_build_object(
+        'functionDefinition',pg_get_functiondef(p.oid),'functionBodyMd5',md5(p.prosrc),
+        'objectDeleteTriggers',(SELECT json_agg(json_build_object('name',t.tgname,'enabled',t.tgenabled,
+          'type',t.tgtype,'definition',pg_get_triggerdef(t.oid)) ORDER BY t.tgname)
+          FROM pg_trigger t WHERE t.tgrelid='storage.objects'::regclass AND t.tgfoid=p.oid AND NOT t.tgisinternal))
+        FROM pg_proc p WHERE p.oid='storage.protect_delete()'::regprocedure;`));
+      writeFileSync(join(evidence,'storage-delete-guard.json'),JSON.stringify({
+        profile:args.profile,image:JSON.parse(readFileSync(join(evidence,'database-image.json'),'utf8')),
+        completionSqlSha256:createHash('sha256').update(readFileSync('tests/db/account-completion-full-chain-invariants.sql')).digest('hex'),
+        guard:storageGuard,scope:'catalog readback; synthetic metadata cleanup only, not Storage API/object-store deletion',
+      },null,2));
+      assert.ok(storageGuard.objectDeleteTriggers?.some(trigger=>trigger.name==='protect_objects_delete'
+        && trigger.enabled==='O' && trigger.type===10),'actual Storage statement-level delete guard missing or disabled');
+      const completionProof=sql("SET closure_proof.heartbeat_profile='true';\n"+readFileSync('tests/db/account-completion-full-chain-invariants.sql','utf8'));
+      assert.ok(completionProof.includes('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED'),'completion proof marker absent');
+      assert.equal(sql('SELECT enabled FROM public.account_completion_configuration;'),'f','completion proof must restore disabled configuration');
+      assert.equal(sql('SELECT count(*) FROM public.account_completion_coverage;'),'0','synthetic coverage escaped rollback');
+      assert.equal(sql('SELECT checkout_workers_drained FROM public.account_billing_coordination;'),'f','legacy rollout must remain disabled');
+      assert.equal(sql("SELECT count(*) FROM auth.users WHERE id IN ('b9110000-0000-4000-8000-000000000001','b9110000-0000-4000-8000-000000000002','b9110000-0000-4000-8000-000000000003','b9110000-0000-4000-8000-000000000004')"),'0','completion fixture Auth residue');
+      assert.equal(sql("SELECT count(*) FROM storage.buckets WHERE id='closure-completion-proof'"),'0','completion fixture storage residue');
+      assert.equal(sql("SELECT to_regclass('public.completion_chain_residue_fixture') IS NULL"),'t','completion fixture table escaped rollback');
+      verifyAnalytics();
+      nativeT2Catalog.finish(); // No PASS without all seven actual native readbacks.
+      console.log('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED');
+    }
+    if(fenceT2) {
+      // Fence last: it redefines claim/status/W1/delete guard and closes direct coaching writes. Its semantics and
+      // concurrency are proven natively by tests/db/account-coaching-fence.*; here the real Supabase image proves the
+      // migration applies at the end of the actual chain, its catalog/ACL, and that every earlier account proof still holds.
+      const fence=MAIN_T2_FENCE_MIGRATION;
+      cpSync(join(root,fence.name),join(directory,'migrations',fence.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name===fence.stage).versions,'fence history is incomplete');
+      const w2='public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer)';
+      const rpc='public.fence_account_coaching_unknown_v1(uuid,uuid,uuid,uuid,text,text)';
+      const guard='public.guard_account_coaching_ai_suggestions_write_v1()';
+      const state=JSON.parse(sql(`SELECT json_build_object(
+        'auditRls',(SELECT relrowsecurity FROM pg_class WHERE oid='public.account_coaching_fences'::regclass),
+        'auditPrivileges',(SELECT count(*) FROM unnest(ARRAY['anon','authenticated','service_role']) r,
+          unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE']) p WHERE has_table_privilege(r,'public.account_coaching_fences',p)),
+        'rpcDefiner',(SELECT prosecdef FROM pg_proc WHERE oid='${rpc}'::regprocedure),
+        'rpcService',has_function_privilege('service_role','${rpc}','EXECUTE'),
+        'rpcClient',has_function_privilege('anon','${rpc}','EXECUTE') OR has_function_privilege('authenticated','${rpc}','EXECUTE'),
+        'guardInvoker',(SELECT NOT prosecdef FROM pg_proc WHERE oid='${guard}'::regprocedure),
+        'guardTriggers',(SELECT count(*) FROM pg_trigger WHERE tgrelid='public.sessions'::regclass AND tgenabled='O'
+          AND tgname IN ('a_guard_account_coaching_ai_suggestions_insert','a_guard_account_coaching_ai_suggestions_update')),
+        'w2Service',has_function_privilege('service_role','${w2}','EXECUTE'),
+        'receiptWrites',has_table_privilege('service_role','public.ai_suggestion_authority_receipts','INSERT')
+          OR has_table_privilege('service_role','public.ai_suggestion_authority_receipts','UPDATE'),
+        'cacheReadDefiner',(SELECT prosecdef FROM pg_proc WHERE oid='public.record_ai_suggestion_cache_read_v1(uuid,uuid)'::regprocedure),
+        'fencedPhase',(SELECT pg_get_constraintdef(oid) LIKE '%fenced_unknown%' FROM pg_constraint
+          WHERE conrelid='public.account_coaching_operations'::regclass AND conname='account_coaching_operations_phase_check'))::text;`));
+      assert.deepEqual(state,{auditRls:true,auditPrivileges:0,rpcDefiner:true,rpcService:true,rpcClient:false,guardInvoker:true,
+        guardTriggers:2,w2Service:false,receiptWrites:false,cacheReadDefiner:true,fencedPhase:true},'fence catalog/ACL');
+      const coaching=sql(readFileSync('tests/db/account-coaching-admission-invariants.sql','utf8')+"\nSELECT 'ACCOUNT COACHING ADMISSION INVARIANTS PASSED';");
+      assert.ok(coaching.includes('ACCOUNT COACHING ADMISSION INVARIANTS PASSED'),'coaching admission proof after the fence');
+      const completionAfterFence=sql("SET closure_proof.heartbeat_profile='true';\n"+readFileSync('tests/db/account-completion-full-chain-invariants.sql','utf8'));
+      assert.ok(completionAfterFence.includes('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED'),'completion proof after the fence');
+      assert.equal(sql('SELECT enabled FROM public.account_completion_configuration;'),'f','completion proof must restore disabled configuration');
+      assert.equal(sql('SELECT count(*) FROM public.account_coaching_fences;'),'0','the migration fences nothing');
+      console.log('ACCOUNT COACHING UNKNOWN FENCE FULL-CHAIN INVARIANTS PASSED');
     }
   } catch (error) {
     primaryError = error;
@@ -915,6 +1100,7 @@ export function runMainClosureProof() {
       candidate: migrations.at(-1), migrations: migrations.length, realSupabaseSchema,
       profile: args.profile, stagedVersions: plan.stages,
       testedCommit: run('git', ['rev-parse', 'HEAD']), requestedHead: process.env.PROOF_HEAD_SHA,
+      t2NativeCatalog: nativeT2Catalog?.report() ?? null,
       providerProof: false, cleanupVerified: !cleanupError,
       selectedPostgresVersion: postgresVersion, imageComparisonOnly: postgresVersion === '17.6.1.106', productionRepresentativenessVerified: false,
       error: primaryError?.message, cleanupError: cleanupError?.message,

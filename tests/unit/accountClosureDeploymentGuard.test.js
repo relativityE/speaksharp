@@ -64,8 +64,9 @@ describe('deployment invalidates deletion authority before any worker change', (
         const workflow = parse(readFileSync('.github/workflows/deploy-supabase-migrations.yml', 'utf8'));
         const guardName = 'invalidate-account-closure-authority';
         const guard = workflow.jobs[guardName];
-        expect(guard, 'guard must run before schema/secrets as well as functions').toBeDefined();
-        expect(guard.needs).toBe('validate-edge-configuration');
+        expect(guard).toBeDefined();
+        expect(guard.needs).toEqual(['validate-edge-configuration', 'verify-t2-database-prerequisites']);
+        expect(guard.if).toContain("needs.verify-t2-database-prerequisites.result == 'success'");
         expect(guard.environment).toBe('production-db');
         expect(guard.if).toContain("inputs.deploy_production == true");
         expect(guard.if).toContain("needs.validate-edge-configuration.outputs.allowed == 'true'");

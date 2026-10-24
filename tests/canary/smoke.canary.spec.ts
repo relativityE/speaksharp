@@ -1,6 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
+import { isProgressRoutePathname } from '../e2e/canaryLanding';
+import { collectCanaryStopSave, isOwnedStopSettledInPage, startOwnerId } from './canaryStopSaveOracle';
 import { startTake as startTakeWithAssertions, type TakeAssertions } from './canaryStartTake';
 import { canaryTestTimeoutMs, withPhaseDeadline, DEPLOY_WAIT_MS, DEPLOY_POLL_MS } from './canaryBudget';
 
@@ -19,17 +21,6 @@ import {
     classifyCanaryUsageEntitlement,
     type CanaryStartRpcPayload,
 } from './canaryRuntimeContract';
-import {
-    awaitStopTerminal,
-    classifyStopOutcome,
-    startOwnerId,
-    verifySavedReadback,
-    type CompletionEvidence,
-} from './canaryStopSaveOracle';
-
-/** CO006: the save wait and the two readback waits fit inside the 120 s stop_and_settle ceiling (45 + 30 + 30). */
-const STOP_SAVE_WAIT_MS = 45_000;
-const STOP_READBACK_WAIT_MS = 30_000;
 
 /**
  * #1106 — deploy-race gate. The canary is triggered on push to main, but Vercel's deploy is async, so a
@@ -270,54 +261,34 @@ test.describe('Production Smoke Canary @canary', () => {
         await withPhaseDeadline('recording_dwell', () => page.waitForTimeout(5000));
 
         // 6. Stop Session — the during-state RecorderBar exposes `recorder-stop`.
-        // One phase covers stop through settle: the stop-control wait, the end-state race, and the
-        // analytics reload with its sessions-response validation — the waits the earlier enumeration
-        // left out entirely (PM RETURN finding 2).
+        // One phase covers the authoritative completion, same-take READY settlement and durable
+        // arrival/reload readbacks. No navigation may interrupt the controller's Stop tail.
         debugLog('[CANARY] Stopping session...');
-        await withPhaseDeadline('stop_and_settle', async () => {
+        await withPhaseDeadline('stop_and_settle', async ({ remainingMs }) => {
         const stopButton = page.getByTestId('recorder-stop');
         await expect(stopButton).toBeVisible();
-
-        // 7. CO006: the take passes only on evidence bound to THIS take. The save listener is registered
-        // BEFORE Stop, so a fast save cannot be missed; a locator timeout never ends the wait (it used to
-        // turn into null and "finish" the race); no-speech is its own non-save outcome; and the readback
-        // checks the exact started session by id and owner, never `sessions[0]`.
-        const completion = page.waitForResponse(
-            (res) => /\/rest\/v1\/rpc\/complete_session_v2(\?|$)/.test(res.url()) && res.request().method() === 'POST',
-            { timeout: STOP_SAVE_WAIT_MS },
-        ).then(async (res): Promise<CompletionEvidence> => {
-            let requestSessionId: string | null = null;
-            try { requestSessionId = (res.request().postDataJSON() as { p_session_id?: unknown })?.p_session_id as string ?? null; } catch { /* unreadable → unbound */ }
-            let body: unknown = null;
-            try { body = await res.json(); } catch { /* classified as not saved */ }
-            return { requestSessionId: typeof requestSessionId === 'string' ? requestSessionId : null, status: res.status(), body };
+        // Carry the authoritative Start identity into Stop. A locator timeout/dialog/no-speech label is never a save.
+        if (!startOutcome.ok) throw new Error('CANARY_STOP_UNBOUND_START');
+        const savedId = startOutcome.sessionId;
+        const outcome = await collectCanaryStopSave(page, {
+            sessionId: savedId,
+            ownerId: startOwnerId(startPayload?.new_session),
+            apiOrigin: new URL(startResponse.url()).origin,
+            remainingMs,
+            stop: () => stopButton.click({ timeout: remainingMs() }),
+            waitForSettledTake: () => page.waitForFunction(isOwnedStopSettledInPage, savedId, { timeout: remainingMs() }),
+            openSavedTake: async () => {
+                // Retain the legacy redirect probe; both canonical and legacy detail paths remain accepted.
+                await navigateToRoute(page, ROUTES.analyticsWithSession(savedId));
+                if (remainingMs() <= 100) throw new Error('CANARY_STOP_DEADLINE');
+                await page.waitForURL(url => isProgressRoutePathname(url.pathname)
+                    && [`/progress/${savedId}`, `/analytics/${savedId}`].includes(url.pathname.replace(/\/$/, '')),
+                { timeout: remainingMs() });
+            },
+            reloadSavedTake: () => page.reload({ timeout: remainingMs() }),
         });
-        const noSpeech = page.getByText('No speech was detected').waitFor({ timeout: STOP_SAVE_WAIT_MS }).then(() => undefined);
-        const dialog = page.locator('div[role="alertdialog"]').waitFor({ timeout: STOP_SAVE_WAIT_MS }).then(() => undefined);
-        await stopButton.click();
-
-        const observation = await awaitStopTerminal({ completion, noSpeech, dialog }, STOP_SAVE_WAIT_MS);
-        const outcome = classifyStopOutcome(startOutcome.sessionId, observation);
-        await test.info().attach('stop-save-outcome', {
-            contentType: 'application/json',
-            body: JSON.stringify({ outcome, unrelatedDialog: observation.unrelatedDialog }, null, 2),
-        });
-        expect(outcome.kind, `CANARY_STOP_${outcome.kind === 'unresolved' ? outcome.reason : outcome.kind}`).toBe('saved');
-
-        // 8. Durable readback of the exact take, twice: once on arrival and once after a full reload.
-        const ownerId = startOwnerId(startPayload?.new_session);
-        for (const pass of ['arrival', 'reload'] as const) {
-            const read = page.waitForResponse(
-                (res) => res.url().includes('/rest/v1/sessions') && res.url().includes(startOutcome.sessionId)
-                    && res.request().method() === 'GET' && res.status() === 200,
-                { timeout: STOP_READBACK_WAIT_MS },
-            );
-            if (pass === 'arrival') await navigateToRoute(page, ROUTES.analyticsWithSession(startOutcome.sessionId));
-            else await page.reload();
-            const verdict = verifySavedReadback(startOutcome.sessionId, ownerId, await (await read).json());
-            expect(verdict, `CANARY_READBACK_${pass}`).toEqual({ ok: true });
-        }
-        debugLog('[CANARY] ✅ Saved take read back by id and owner, before and after reload');
+        await test.info().attach('stop-save-outcome', { contentType: 'application/json', body: JSON.stringify(outcome) });
+        expect(outcome.kind, `CANARY_STOP_${outcome.kind === 'refused' ? outcome.reason : 'saved'}`).toBe('saved');
         });
 
         debugLog('[CANARY] ✅ Smoke test passed. System is operational.');

@@ -1,262 +1,356 @@
+// @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-    awaitStopTerminal,
-    classifyStopOutcome,
-    startOwnerId,
-    verifySavedReadback,
-    type CompletionEvidence,
-} from '../canary/canaryStopSaveOracle';
+import { collectCanaryStopSave, isOwnedStopSettledInPage, responseMatchesTake, startOwnerId, verifySavedReadback,
+    type StopControls, type StopPage, type StopRequest, type StopResponse } from '../canary/canaryStopSaveOracle';
+import { isProgressRoutePathname } from '../e2e/canaryLanding';
 
-/**
- * CO006 — the canary's stop/save decision must be able to FAIL. Each CASUALTY is a state the old race
- * (three locator waits whose timeouts became null, then `sessions[0]`) accepted as a passing canary.
- */
 const TAKE = 'take-1';
 const OWNER = 'owner-1';
-const SAVED: CompletionEvidence = {
-    requestSessionId: TAKE, status: 200,
-    body: { success: true, session_saved: true, final_status: 'completed' },
+const API = 'https://api.example';
+const row = (changes: Record<string, unknown> = {}) => ({ id: TAKE, user_id: OWNER, total_words: 42,
+    duration: 5, created_at: '2026-10-24T00:00:00Z', engine: 'private', status: 'completed', ...changes });
+const saved = { success: true, session_saved: true, final_status: 'completed' };
+function response(path: string, method: string, body: unknown, requestBody: unknown = null, status = 200): StopResponse {
+    const url = path.startsWith('http') ? path : `${API}${path}`;
+    const request = { url: () => url, method: () => method, postDataJSON: () => requestBody };
+    return { url: () => url, status: () => status, request: () => request, json: vi.fn(async () => body) };
+}
+const completion = () => response('/rest/v1/rpc/complete_session_v2', 'POST', saved, { p_session_id: TAKE, p_status: 'completed' });
+const readback = (body: unknown) => response(`/rest/v1/sessions?id=eq.${TAKE}`, 'GET', body);
+const deferred = <T>() => {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => { resolve = done; });
+    return { promise, resolve };
 };
-const row = (over: Record<string, unknown> = {}) => ({
-    id: TAKE, user_id: OWNER, total_words: 42, duration: 30, created_at: '2026-10-22T12:00:00Z', engine: 'private',
-    status: 'completed', ...over,
-});
-const withoutStatus = () => Object.fromEntries(Object.entries(row()).filter(([key]) => key !== 'status'));
-const never = <T>() => new Promise<T>(() => undefined);
-const after = <T>(ms: number, value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
-const rejectAfter = (ms: number) => new Promise<never>((_, reject) => setTimeout(() => reject(new Error('locator timeout')), ms));
 
-describe('CO006 classifyStopOutcome — only a saved completion of THIS take passes', () => {
-    it('POSITIVE: the started session saved and completed', () => {
-        expect(classifyStopOutcome(TAKE, { completion: SAVED, noSpeechShown: false, unrelatedDialog: false }))
-            .toEqual({ kind: 'saved', sessionId: TAKE });
+type Scenario = { rows?: unknown; completion?: StopResponse | null; reviewRoute?: boolean; dialog?: boolean; noSpeech?: boolean };
+class FakePage implements StopPage {
+    listeners = new Set<(response: StopResponse) => void>();
+    requestListeners = new Set<(request: StopRequest) => void>();
+    events: string[] = [];
+    throwOnRegistration = false;
+    settlementAttributes: Record<string, string | null> = { 'data-session-persisted': 'true', 'data-session-persisted-id': TAKE,
+        'data-session-persist-status': 'saved', 'data-runtime-state': 'READY' };
+    currentUrl = 'https://app.example/session';
+    scenario: Scenario;
+    constructor(scenario: Scenario = {}) { this.scenario = scenario; }
+    on(event: 'request', listener: (request: StopRequest) => void): void;
+    on(event: 'response', listener: (response: StopResponse) => void): void;
+    on(event: 'request' | 'response', listener: ((request: StopRequest) => void) | ((response: StopResponse) => void)) {
+        if (event === 'request') this.requestListeners.add(listener as (request: StopRequest) => void);
+        else this.listeners.add(listener as (response: StopResponse) => void);
+        this.events.push(`arm-${event}`);
+        if (this.throwOnRegistration) throw new Error('registration failed');
+    }
+    off(event: 'request', listener: (request: StopRequest) => void): void;
+    off(event: 'response', listener: (response: StopResponse) => void): void;
+    off(event: 'request' | 'response', listener: ((request: StopRequest) => void) | ((response: StopResponse) => void)) {
+        if (event === 'request') this.requestListeners.delete(listener as (request: StopRequest) => void);
+        else this.listeners.delete(listener as (response: StopResponse) => void);
+        this.events.push(`off-${event}`);
+    }
+    emitRequest(request: StopRequest) { for (const listener of [...this.requestListeners]) listener(request); }
+    emit(r: StopResponse, startRequest = true) {
+        if (startRequest) this.emitRequest(r.request());
+        for (const listener of [...this.listeners]) listener(r);
+    }
+    async stop() {
+        this.events.push('stop');
+        if (this.scenario.reviewRoute) this.currentUrl = 'https://app.example/progress';
+        if (this.scenario.completion !== null) this.emit(this.scenario.completion ?? completion());
+    }
+    async openSavedTake() { this.events.push('open'); this.emit(readback(this.scenario.rows === undefined ? [row()] : this.scenario.rows)); }
+    async reload() { this.events.push('reload'); this.emit(readback(this.scenario.rows === undefined ? [row()] : this.scenario.rows)); }
+    async waitForFunction(predicate: (sessionId: string) => boolean, sessionId: string) {
+        vi.stubGlobal('document', { documentElement: { getAttribute: (name: string) => this.settlementAttributes[name] ?? null } });
+        if (!predicate(sessionId)) throw new Error('current take has not settled');
+        this.events.push('settled');
+    }
+    url() { return this.currentUrl; }
+    async waitForURL(predicate: (url: URL) => boolean) {
+        if (!predicate(new URL(this.currentUrl))) throw new Error('simulated locator timeout');
+    }
+    waitForResponse(predicate: (response: StopResponse) => boolean): Promise<StopResponse> {
+        return new Promise((resolve) => {
+            const listener = (r: StopResponse) => {
+                if (!predicate(r)) return;
+                this.off('response', listener);
+                resolve(r);
+            };
+            this.on('response', listener);
+        });
+    }
+    locator() { return { waitFor: async () => { if (!this.scenario.dialog) throw new Error('simulated locator timeout'); }, isVisible: async () => Boolean(this.scenario.dialog) }; }
+    getByText() { return { waitFor: async () => { if (!this.scenario.noSpeech) throw new Error('simulated locator timeout'); } }; }
+    getByRole() { return { isVisible: async () => true, click: async () => undefined }; }
+}
+
+function controls(page: FakePage, changes: Partial<StopControls> = {}): StopControls {
+    return { sessionId: TAKE, ownerId: OWNER, apiOrigin: API, remainingMs: () => 1000,
+        stop: () => page.stop(), waitForSettledTake: () => page.waitForFunction(isOwnedStopSettledInPage, TAKE),
+        openSavedTake: () => page.openSavedTake(), reloadSavedTake: () => page.reload(), ...changes };
+}
+async function settle<T>(promise: Promise<T>) {
+    await vi.advanceTimersByTimeAsync(1000);
+    return promise;
+}
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe('actual serializable Stop settlement predicate', () => {
+    const settled = { 'data-session-persisted': 'true', 'data-session-persisted-id': TAKE,
+        'data-session-persist-status': 'saved', 'data-runtime-state': 'READY' };
+    it.each([
+        ['complete owned settlement', {}, true],
+        ['old take', { 'data-session-persisted-id': 'older-take' }, false],
+        ['missing take', { 'data-session-persisted-id': null }, false],
+        ['not persisted', { 'data-session-persisted': null }, false],
+        ['attribution pending', { 'data-session-persist-status': 'saved-attribution-pending' }, false],
+        ['missing status', { 'data-session-persist-status': null }, false],
+        ['Stop tail unfinished', { 'data-runtime-state': 'STOPPING' }, false],
+    ] as const)('%s', (_label, changes, expected) => {
+        const attributes: Record<string, unknown> = { ...settled, ...changes };
+        vi.stubGlobal('document', { documentElement: { getAttribute: (name: string) => attributes[name] ?? null } });
+        expect(isOwnedStopSettledInPage(TAKE)).toBe(expected);
+        expect(isOwnedStopSettledInPage('')).toBe(false);
     });
-    it('CASUALTY: a save for another session (stale take) is unresolved', () => {
-        const other = { ...SAVED, requestSessionId: 'old-take' };
-        expect(classifyStopOutcome(TAKE, { completion: other, noSpeechShown: false, unrelatedDialog: false }))
-            .toEqual({ kind: 'unresolved', reason: 'completion_for_other_session' });
+});
+
+describe('current-take response selection uses the real predicate', () => {
+    it('selects only the exact completion origin/path/method/request ID', () => {
+        expect(responseMatchesTake(completion(), 'completion', API, TAKE)).toBe(true);
+        for (const r of [
+            response('https://foreign.example/rest/v1/rpc/complete_session_v2', 'POST', saved, { p_session_id: TAKE }),
+            response('/other?next=/rest/v1/rpc/complete_session_v2', 'POST', saved, { p_session_id: TAKE }),
+            response('/rest/v1/rpc/complete_session_v2-extra', 'POST', saved, { p_session_id: TAKE }),
+            response('/rest/v1/rpc/complete_session_v2', 'GET', saved, { p_session_id: TAKE }),
+            response('/rest/v1/rpc/complete_session_v2', 'POST', saved, { p_session_id: `${TAKE}-other` }),
+            response('/rest/v1/rpc/complete_session_v2', 'POST', saved, 'unreadable'),
+        ]) expect(responseMatchesTake(r, 'completion', API, TAKE)).toBe(false);
+    });
+    it('selects only a GET with one exact id filter; not an ID in another query parameter', () => {
+        expect(responseMatchesTake(readback([row()]), 'arrival', API, TAKE)).toBe(true);
+        for (const path of [`/rest/v1/sessions?other=${TAKE}`, `/rest/v1/sessions?id=eq.${TAKE}-extra`,
+            `/rest/v1/sessions?id=eq.${TAKE}&id=eq.${TAKE}`, `/rest/v1/sessions_archive?id=eq.${TAKE}`,
+            `/other?next=/rest/v1/sessions&id=eq.${TAKE}`, `https://foreign.example/rest/v1/sessions?id=eq.${TAKE}`]) {
+            expect(responseMatchesTake(response(path, 'GET', [row()]), 'arrival', API, TAKE)).toBe(false);
+        }
+        expect(responseMatchesTake(response(`/rest/v1/sessions?id=eq.${TAKE}`, 'POST', [row()]), 'reload', API, TAKE)).toBe(false);
+    });
+});
+
+describe('exact durable readback', () => {
+    it('accepts one exact matching row even when it is second, or a single-object detail response', () => {
+        expect(verifySavedReadback(TAKE, OWNER, [row({ id: 'other' }), row()])).toBeNull();
+        expect(verifySavedReadback(TAKE, OWNER, row())).toBeNull();
     });
     it.each([
-        ['suppressed persistence', { ...SAVED, body: { success: true, session_saved: false, final_status: 'completed' } }, 'completion_not_saved'],
-        ['failed save', { ...SAVED, body: { success: false } }, 'completion_not_saved'],
-        ['non-completed status', { ...SAVED, body: { success: true, session_saved: true, final_status: 'active' } }, 'completion_not_saved'],
-        ['HTTP error', { ...SAVED, status: 500 }, 'completion_http_500'],
-    ] as const)('CASUALTY: %s is unresolved', (_label, completion, reason) => {
-        expect(classifyStopOutcome(TAKE, { completion, noSpeechShown: false, unrelatedDialog: false })).toEqual({ kind: 'unresolved', reason });
-    });
-    it('CASUALTY: an unrelated dialog with no save is unresolved, not a pass', () => {
-        expect(classifyStopOutcome(TAKE, { completion: null, noSpeechShown: false, unrelatedDialog: true }))
-            .toEqual({ kind: 'unresolved', reason: 'unrelated_dialog_without_save' });
-    });
-    it('CASUALTY: nothing observed (every wait timed out) is unresolved', () => {
-        expect(classifyStopOutcome(TAKE, { completion: null, noSpeechShown: false, unrelatedDialog: false }))
-            .toEqual({ kind: 'unresolved', reason: 'no_terminal_save' });
-    });
-    it('no-speech is its own non-save outcome, never a persisted take', () => {
-        expect(classifyStopOutcome(TAKE, { completion: null, noSpeechShown: true, unrelatedDialog: false })).toEqual({ kind: 'no_speech' });
+        ['empty', [], 'row_missing'], ['malformed', 'text', 'readback_body'], ['null', null, 'readback_body'],
+        ['old', [row({ id: 'old' })], 'row_missing'], ['duplicate', [row(), row()], 'row_duplicate'],
+        ['wrong owner', [row({ user_id: 'other' })], 'wrong_owner'],
+        ['missing status', [row({ status: undefined })], 'row_not_completed'], ['active', [row({ status: 'active' })], 'row_not_completed'],
+        ['zero words', [row({ total_words: 0 })], 'no_words'], ['string words', [row({ total_words: '42' })], 'no_words'],
+        ['infinite words', [row({ total_words: Infinity })], 'no_words'], ['NaN words', [row({ total_words: NaN })], 'no_words'],
+        ['null engine', [row({ engine: null })], 'row_schema'], ['missing date', [row({ created_at: undefined })], 'row_schema'],
+        ['null duration', [row({ duration: null })], 'row_schema'], ['infinite duration', [row({ duration: Infinity })], 'row_schema'],
+    ])('refuses %s', (_label, body, reason) => { expect(verifySavedReadback(TAKE, OWNER, body)).toBe(reason); });
+    it('requires the nonempty owner captured from the authoritative start', () => {
+        expect(startOwnerId({ user_id: OWNER })).toBe(OWNER);
+        for (const value of [null, {}, { user_id: '' }, { user_id: 4 }]) expect(startOwnerId(value)).toBeNull();
+        expect(verifySavedReadback(TAKE, null, [row()])).toBe('invalid_binding');
     });
 });
 
-describe('CO006 awaitStopTerminal — timeouts cannot win, late callbacks cannot change the verdict', () => {
-    it('CASUALTY: a valid DELAYED save is not lost to a faster locator timeout', async () => {
-        const seen = await awaitStopTerminal({ completion: after(60, SAVED), noSpeech: rejectAfter(5), dialog: rejectAfter(5) }, 1_000);
-        expect(classifyStopOutcome(TAKE, seen)).toEqual({ kind: 'saved', sessionId: TAKE });
+describe('actual collector, fake Page/Response composition', () => {
+    it.each(['/progress', '/analytics'])('arms before Stop and requires arrival plus reload on %s', async (route) => {
+        vi.useFakeTimers();
+        const page = new FakePage();
+        const run = collectCanaryStopSave(page, controls(page, { openSavedTake: async () => {
+            page.currentUrl = `https://app.example${route}/${TAKE}`;
+            await page.openSavedTake();
+        } }));
+        const result = await settle(run);
+        expect(result).toEqual({ kind: 'saved', readbacks: 2 });
+        expect(JSON.stringify(result)).not.toMatch(/take-1|owner-1|https|transcript|email/);
+        expect(page.events).toEqual(['arm-request', 'arm-response', 'stop', 'settled', 'open', 'reload', 'off-request', 'off-response']);
+        expect(page.listeners.size).toBe(0);
+        expect(page.requestListeners.size).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
     });
-    it('a dialog alone does not end the wait; the later save still decides', async () => {
-        const seen = await awaitStopTerminal({ completion: after(40, SAVED), noSpeech: never(), dialog: after(5, undefined) }, 1_000);
-        expect(seen.unrelatedDialog).toBe(true);
-        expect(classifyStopOutcome(TAKE, seen).kind).toBe('saved');
-    });
-    it('CASUALTY: all waits time out → the deadline returns an unresolved observation', async () => {
-        const seen = await awaitStopTerminal({ completion: rejectAfter(5), noSpeech: rejectAfter(5), dialog: rejectAfter(5) }, 50);
-        expect(seen).toEqual({ completion: null, noSpeechShown: false, unrelatedDialog: false });
-        expect(classifyStopOutcome(TAKE, seen)).toEqual({ kind: 'unresolved', reason: 'no_terminal_save' });
-    });
-    it('CASUALTY: a save arriving after the deadline cannot mutate the returned observation', async () => {
-        const late = after(80, SAVED);
-        const seen = await awaitStopTerminal({ completion: late, noSpeech: never(), dialog: never() }, 20);
-        await late;
-        expect(seen.completion).toBeNull();
-        expect(classifyStopOutcome(TAKE, seen).kind).toBe('unresolved');
-    });
-});
-
-describe('CO006 verifySavedReadback — the exact row, by id and owner, never rows[0]', () => {
-    it('POSITIVE: the matching saved row in a list, and the single-object detail read', () => {
-        expect(verifySavedReadback(TAKE, OWNER, [row({ id: 'newer-other' }), row()])).toEqual({ ok: true });
-        expect(verifySavedReadback(TAKE, OWNER, row())).toEqual({ ok: true });
-    });
-    it('CASUALTY: a stale old row at rows[0] does not satisfy a missing take', () => {
-        expect(verifySavedReadback(TAKE, OWNER, [row({ id: 'old-take' })])).toEqual({ ok: false, reason: 'row_missing' });
+    it('ignores a foreign/wrong take first, without reading its body, then accepts the correct response', async () => {
+        vi.useFakeTimers();
+        const page = new FakePage();
+        const wrong = response('/rest/v1/rpc/complete_session_v2', 'POST', saved, { p_session_id: 'other', p_status: 'completed' });
+        const run = collectCanaryStopSave(page, controls(page, { stop: async () => { page.emit(wrong); await page.stop(); } }));
+        expect(await settle(run)).toEqual({ kind: 'saved', readbacks: 2 });
+        expect(wrong.json).not.toHaveBeenCalled();
     });
     it.each([
-        ['empty list', [], 'row_missing'],
-        ['empty id', [row({ id: '' })], 'row_missing'],
-        ['not a row', 'unexpected text', 'readback_not_a_row'],
-        ['single row for another take', row({ id: 'old-take' }), 'row_missing'],
-        ['wrong owner', [row({ user_id: 'someone-else' })], 'wrong_owner'],
-        ['not completed', [row({ status: 'active' })], 'not_completed'],
-        // Sam RETURN on 7efacb7c: the shipped detail select always reads `status`, so a row without it is not a completed take.
-        ['status omitted, list readback', [withoutStatus()], 'not_completed'],
-        ['status omitted, single-object readback', withoutStatus(), 'not_completed'],
-        ['status undefined, list readback', [row({ status: undefined })], 'not_completed'],
-        ['no words', [row({ total_words: 0 })], 'no_words'],
-        ['missing schema field', [row({ engine: undefined })], 'missing_engine'],
-    ] as const)('CASUALTY: %s fails', (_label, rows, reason) => {
-        expect(verifySavedReadback(TAKE, OWNER, rows)).toEqual({ ok: false, reason });
+        ['HTTP failure', response('/rest/v1/rpc/complete_session_v2', 'POST', saved, { p_session_id: TAKE }, 503), 'save_http'],
+        ['malformed', response('/rest/v1/rpc/complete_session_v2', 'POST', null, { p_session_id: TAKE }), 'save_not_completed'],
+        ['not saved', response('/rest/v1/rpc/complete_session_v2', 'POST', { ...saved, session_saved: false }, { p_session_id: TAKE }), 'save_not_completed'],
+        ['wrong request status', response('/rest/v1/rpc/complete_session_v2', 'POST', saved, { p_session_id: TAKE, p_status: 'failed' }), 'save_not_completed'],
+    ])('refuses %s without opening another take', async (_label, r, reason) => {
+        vi.useFakeTimers(); const page = new FakePage({ completion: r as StopResponse });
+        expect(await settle(collectCanaryStopSave(page, controls(page)))).toMatchObject({ kind: 'refused', reason });
+        expect(page.events).not.toContain('open'); expect(page.listeners.size).toBe(0);
     });
-    it('CASUALTY: an unknown owner (start RPC gave none) never passes', () => {
-        expect(verifySavedReadback(TAKE, null, [row()])).toEqual({ ok: false, reason: 'wrong_owner' });
+    it('freezes on deadline and removes the listener even while the completion body is hung', async () => {
+        vi.useFakeTimers(); const body = deferred<unknown>(); const r = completion(); r.json = () => body.promise;
+        const page = new FakePage({ completion: r });
+        const result = await settle(collectCanaryStopSave(page, controls(page)));
+        expect(result).toEqual({ kind: 'refused', phase: 'completion', reason: 'deadline' });
+        expect(page.listeners.size).toBe(0); expect(vi.getTimerCount()).toBe(0);
+        body.resolve(saved); await vi.advanceTimersByTimeAsync(1);
+        expect(result.kind).toBe('refused'); expect(page.events).not.toContain('open');
     });
-    it('startOwnerId reads only a non-empty string user_id', () => {
-        expect(startOwnerId({ id: TAKE, user_id: OWNER })).toBe(OWNER);
-        expect(startOwnerId({ id: TAKE })).toBeNull();
-        expect(startOwnerId(null)).toBeNull();
+    it('freezes late readback bodies and never starts a reload afterwards', async () => {
+        vi.useFakeTimers(); const body = deferred<unknown>(); const page = new FakePage(); const r = readback([row()]); r.json = () => body.promise;
+        const result = await settle(collectCanaryStopSave(page, controls(page, { openSavedTake: async () => { page.emit(r); } })));
+        expect(result).toEqual({ kind: 'refused', phase: 'arrival', reason: 'deadline' });
+        body.resolve([row()]); await vi.advanceTimersByTimeAsync(1);
+        expect(page.events).not.toContain('reload'); expect(page.listeners.size).toBe(0);
+    });
+    it('late Stop action completion cannot reopen a deadline-frozen collector', async () => {
+        vi.useFakeTimers(); const late = deferred<void>(); const page = new FakePage();
+        const result = await settle(collectCanaryStopSave(page, controls(page, { stop: async () => { page.emit(completion()); await late.promise; } })));
+        expect(result.kind).toBe('refused'); late.resolve(); await vi.advanceTimersByTimeAsync(1);
+        expect(page.events).not.toContain('open'); expect(page.listeners.size).toBe(0);
+    });
+    it('a response to a request from the previous phase cannot prove reload', async () => {
+        vi.useFakeTimers(); const page = new FakePage(); const stale = readback([row()]);
+        const run = collectCanaryStopSave(page, controls(page, {
+            openSavedTake: async () => { page.emitRequest(stale.request()); await page.openSavedTake(); },
+            reloadSavedTake: async () => { page.emit(stale, false); },
+        }));
+        expect(await settle(run)).toEqual({ kind: 'refused', phase: 'reload', reason: 'deadline' });
+        expect(stale.json).not.toHaveBeenCalled();
+        expect(page.listeners.size).toBe(0); expect(page.requestListeners.size).toBe(0);
+    });
+    it('does not navigate while the committed take is still settling', async () => {
+        vi.useFakeTimers(); const page = new FakePage(); const late = deferred<void>();
+        const run = collectCanaryStopSave(page, controls(page, { waitForSettledTake: () => late.promise }));
+        await vi.advanceTimersByTimeAsync(200);
+        expect(page.events).not.toContain('open');
+        late.resolve();
+        expect(await settle(run)).toEqual({ kind: 'saved', readbacks: 2 });
+    });
+    it.each([
+        ['data-session-persisted-id', 'other-take'],
+        ['data-session-persist-status', 'saved-attribution-pending'],
+        ['data-runtime-state', 'STOPPING'],
+    ])('actual collector/DOM predicate refuses %s=%s before navigation', async (key, value) => {
+        vi.useFakeTimers(); const page = new FakePage(); page.settlementAttributes[key] = value;
+        expect(await settle(collectCanaryStopSave(page, controls(page)))).toMatchObject({ kind: 'refused', phase: 'settlement' });
+        expect(page.events).not.toContain('open');
+    });
+    it('a settlement finishing after deadline cannot trigger navigation or change the verdict', async () => {
+        vi.useFakeTimers(); const page = new FakePage(); const late = deferred<void>();
+        const result = await settle(collectCanaryStopSave(page, controls(page, { waitForSettledTake: () => late.promise })));
+        expect(result).toEqual({ kind: 'refused', phase: 'settlement', reason: 'deadline' });
+        late.resolve(); await vi.advanceTimersByTimeAsync(1);
+        expect(page.events).not.toContain('open'); expect(page.listeners.size).toBe(0); expect(page.requestListeners.size).toBe(0);
+    });
+    it.each(['stop', 'waitForSettledTake', 'openSavedTake', 'reloadSavedTake'] as const)('refuses %s action rejection and cleans up', async (action) => {
+        vi.useFakeTimers(); const page = new FakePage();
+        expect(await settle(collectCanaryStopSave(page, controls(page, { [action]: async () => { throw new Error('opaque'); } }))))
+            .toMatchObject({ kind: 'refused', reason: 'action_failed' });
+        expect(page.listeners.size).toBe(0); expect(vi.getTimerCount()).toBe(0);
+    });
+    it('refuses a missing owner without registering listeners or clicking', async () => {
+        const page = new FakePage();
+        expect(await collectCanaryStopSave(page, controls(page, { ownerId: null }))).toMatchObject({ kind: 'refused', reason: 'invalid_binding' });
+        expect(page.events).toEqual([]);
+    });
+    it('removes an owned registration even if registration throws after adding it', async () => {
+        vi.useFakeTimers(); const page = new FakePage(); page.throwOnRegistration = true;
+        expect(await settle(collectCanaryStopSave(page, controls(page)))).toMatchObject({ kind: 'refused', reason: 'action_failed' });
+        expect(page.listeners.size).toBe(0); expect(vi.getTimerCount()).toBe(0);
+        expect(page.requestListeners.size).toBe(0);
+    });
+    it('never publishes saved if owned-listener cleanup throws', async () => {
+        vi.useFakeTimers(); const page = new FakePage();
+        page.off = () => { throw new Error('cleanup failed'); };
+        expect(await settle(collectCanaryStopSave(page, controls(page)))).toMatchObject({ kind: 'refused', reason: 'listener_cleanup_failed' });
+        expect(vi.getTimerCount()).toBe(0);
     });
 });
 
-/**
- * Controlled old/new harness (observed RED). `legacyStopPhase` is the pre-CO006 stop phase copied verbatim from
- * main d160e907 tests/canary/smoke.canary.spec.ts L271–312 (blob 76d6cbce), with only `page` typed for the fake.
- * Each scenario drives that code and the new oracle from the SAME page behaviour: the legacy phase completes
- * (the canary passed) where the new oracle refuses. The delayed-save positive shows the legacy pass was vacuous.
- */
-interface Scenario {
-    save?: { at: number; evidence: CompletionEvidence };
-    dialogAt?: number;
-    noSpeechAt?: number;
-    analyticsAt?: number;
-    sessions?: unknown[];
-}
-const settleAt = (at: number | undefined, timeout: number) => new Promise<void>((resolve, reject) => {
-    if (at !== undefined && at <= timeout) setTimeout(resolve, at);
-    else setTimeout(() => reject(new Error(`locator timeout ${timeout}ms`)), timeout);
+describe('absolute deadline without timer delivery', () => {
+    const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
+    it.each(['before-stop', 'completion-body', 'stop-action', 'settlement-action', 'arrival-body', 'reload-body', 'reload-action'] as const)(
+        'refuses overdue %s without delivering the scheduled timer', async (point) => {
+            vi.useFakeTimers();
+            let clock = 0;
+            vi.spyOn(performance, 'now').mockImplementation(() => clock);
+            const page = new FakePage();
+            const late = deferred<unknown>();
+            const changes: Partial<StopControls> = {};
+            if (point === 'completion-body') {
+                const r = completion(); r.json = () => late.promise;
+                changes.stop = async () => page.emit(r);
+            } else if (point === 'stop-action') changes.stop = async () => { page.emit(completion()); await late.promise; };
+            else if (point === 'settlement-action') changes.waitForSettledTake = () => late.promise;
+            else if (point === 'arrival-body' || point === 'reload-body') {
+                const r = readback([row()]); r.json = () => late.promise;
+                changes[point === 'arrival-body' ? 'openSavedTake' : 'reloadSavedTake'] = async () => { page.emit(r); };
+            } else if (point === 'reload-action') changes.reloadSavedTake = async () => { await page.reload(); await late.promise; };
+            let observed: unknown;
+            const run = collectCanaryStopSave(page, controls(page, changes));
+            void run.then((result) => { observed = result; });
+            if (point !== 'before-stop') await flush();
+            expect(vi.getTimerCount()).toBe(1);
+            expect(observed).toBeUndefined();
+            clock = 900; // exact absolute deadline, including the unchanged 100ms reserve; DO NOT advance timers
+            late.resolve(point === 'completion-body' ? saved : [row()]);
+            await flush();
+            const phase = point.startsWith('reload') ? 'reload' : point === 'arrival-body' ? 'arrival'
+                : point === 'settlement-action' ? 'settlement' : 'completion';
+            expect(observed).toEqual({ kind: 'refused', phase, reason: 'deadline' });
+            expect(page.listeners.size).toBe(0); expect(page.requestListeners.size).toBe(0);
+            expect(vi.getTimerCount()).toBe(0);
+            const forbidden = point === 'before-stop' ? ['stop', 'open', 'reload']
+                : phase === 'completion' || phase === 'settlement' ? ['open', 'reload'] : phase === 'arrival' ? ['reload'] : [];
+            expect(page.events.filter((event) => forbidden.includes(event))).toEqual([]);
+        });
 });
-/** The slice of Playwright's Page the legacy stop phase touches; the fake implements it with fewer parameters. */
-interface LegacyPage {
-    locator(selector: string): { waitFor(opts: { timeout: number }): Promise<void>; isVisible(): Promise<boolean> };
-    getByText(text: string): { waitFor(opts: { timeout: number }): Promise<void> };
-    getByRole(role: string, opts: { name: string }): { isVisible(): Promise<boolean>; click(): Promise<void> };
-    waitForURL(url: RegExp, opts: { timeout: number }): Promise<void>;
-    url(): string;
-    reload(): Promise<void>;
-    waitForResponse(predicate: (res: { url(): string; status(): number }) => boolean): Promise<{ json(): Promise<Array<Record<string, unknown>>> }>;
-}
-const fakePage = (s: Scenario): LegacyPage => {
-    let url = 'https://app.test/session';
-    if (s.analyticsAt !== undefined) setTimeout(() => { url = 'https://app.test/analytics'; }, s.analyticsAt);
-    return {
-        locator: () => ({
-            waitFor: ({ timeout }) => settleAt(s.dialogAt, timeout),
-            isVisible: async () => false,
-        }),
-        getByText: () => ({ waitFor: ({ timeout }) => settleAt(s.noSpeechAt, timeout) }),
-        getByRole: () => ({ isVisible: async () => false, click: async () => undefined }),
-        waitForURL: (...[, { timeout }]) => settleAt(s.analyticsAt, timeout),
-        url: () => url,
-        reload: async () => undefined,
-        waitForResponse: async () => ({ json: async () => (s.sessions ?? []) as Array<Record<string, unknown>> }),
-    };
-};
-const debugLog: (message: string) => void = () => undefined;
 
-async function legacyStopPhase(page: LegacyPage): Promise<'passed'> {
-        // 7. Handle session end (dialog, empty state, or redirect)
-        const dialogLocator = page.locator('div[role="alertdialog"]');
-        const emptyStateLocator = page.getByText('No speech was detected');
-        const analyticsUrl = page.waitForURL(/\/analytics/, { timeout: 15000 }).catch(() => null);
-
-        // Wait for any end state
-        await Promise.race([
-            dialogLocator.waitFor({ timeout: 10000 }).catch(() => null),
-            emptyStateLocator.waitFor({ timeout: 10000 }).catch(() => null),
-            analyticsUrl,
-        ]);
-
-        // If we reached analytics, perform SCHEMA CHECK on Sessions
-        if (page.url().includes('/analytics')) {
-            debugLog('[CANARY] 🔍 Validating Sessions Schema...');
-            // Intercept the next list fetch to validate fields
-            const sessionResponsePromise = page.waitForResponse(res =>
-                res.url().includes('/rest/v1/sessions') && res.status() === 200
-            );
-
-            // Force a reload or wait for data
-            await page.reload();
-            const response = await sessionResponsePromise;
-            const sessions = await response.json();
-
-            if (Array.isArray(sessions) && sessions.length > 0) {
-                const latestSession = sessions[0];
-                const requiredFields = ['id', 'user_id', 'total_words', 'duration', 'created_at', 'engine'];
-                for (const field of requiredFields) {
-                    expect(latestSession[field], `Schema Valid: Session missing ${field}`).toBeDefined();
-                }
-                debugLog('[CANARY] ✅ Sessions Schema Valid');
-            }
+/** Frozen old d326 Stop block, with only fake-Page parameter typing and final success mapping added. Predicates execute. */
+async function oldStopFlow(page: FakePage) {
+    const dialogLocator = page.locator();
+    const emptyStateLocator = page.getByText();
+    const analyticsUrl = page.waitForURL(url => isProgressRoutePathname(url.pathname)).catch(() => null);
+    await Promise.race([dialogLocator.waitFor().catch(() => null), emptyStateLocator.waitFor().catch(() => null), analyticsUrl]);
+    if (isProgressRoutePathname(new URL(page.url()).pathname)) {
+        const observed = page.waitForResponse(res => res.url().includes('/rest/v1/sessions') && res.status() === 200);
+        await page.reload();
+        const sessions = await (await observed).json();
+        if (Array.isArray(sessions) && sessions.length > 0) {
+            for (const field of ['id', 'user_id', 'total_words', 'duration', 'created_at', 'engine']) expect(sessions[0][field]).toBeDefined();
         }
-
-        // If dialog appeared, dismiss it
-        if (await dialogLocator.isVisible().catch(() => false)) {
-            const stayButton = page.getByRole('button', { name: 'Stay on Page' });
-            if (await stayButton.isVisible().catch(() => false)) {
-                await stayButton.click();
-            }
-        }
+    }
+    if (await dialogLocator.isVisible().catch(() => false)) {
+        const stay = page.getByRole(); if (await stay.isVisible()) await stay.click();
+    }
     return 'passed';
 }
 
-/** The new stop phase's decision for the same scenario: the spec's 45 s save wait, then the exact-id readback. */
-async function newStopDecision(s: Scenario): Promise<string> {
-    const completion = s.save
-        ? new Promise<CompletionEvidence>((resolve) => setTimeout(() => resolve(s.save!.evidence), s.save!.at))
-        : settleAt(undefined, 45_000).then(() => never<CompletionEvidence>());
-    const observation = await awaitStopTerminal({
-        completion, noSpeech: settleAt(s.noSpeechAt, 45_000), dialog: settleAt(s.dialogAt, 45_000),
-    }, 45_000);
-    const outcome = classifyStopOutcome(TAKE, observation);
-    if (outcome.kind !== 'saved') return outcome.kind === 'unresolved' ? outcome.reason : outcome.kind;
-    const verdict = verifySavedReadback(TAKE, OWNER, s.sessions ?? []);
-    return verdict.ok ? 'saved' : verdict.reason;
-}
-
-const runBoth = async (s: Scenario) => {
-    vi.useFakeTimers();
-    const legacy = legacyStopPhase(fakePage(s)).then((r) => r, (e: Error) => `threw: ${e.message}`);
-    const next = newStopDecision(s);
-    await vi.advanceTimersByTimeAsync(60_000);
-    return { legacy: await legacy, next: await next };
-};
-
-describe('CO006 observed RED — the pre-CO006 stop phase passed each casualty; the new oracle refuses it', () => {
-    afterEach(() => { vi.useRealTimers(); });
-
+describe('old-flow false-PASS causal controls', () => {
     it.each([
-        ['suppressed persistence, page stays put', {
-            save: { at: 2_000, evidence: { ...SAVED, body: { success: true, session_saved: false, final_status: 'completed' } } },
-        }, 'completion_not_saved'],
-        ['no save request at all (every wait times out)', {}, 'no_terminal_save'],
-        ['unrelated dialog, no save', { dialogAt: 1_000 }, 'unrelated_dialog_without_save'],
-        ['save for another session, navigates to analytics', {
-            save: { at: 2_000, evidence: { ...SAVED, requestSessionId: 'old-take' } }, analyticsAt: 3_000, sessions: [row({ id: 'old-take' })],
-        }, 'completion_for_other_session'],
-        ['saved, but the take is missing and an older row sits at sessions[0]', {
-            save: { at: 2_000, evidence: SAVED }, analyticsAt: 3_000, sessions: [row({ id: 'old-take' })],
-        }, 'row_missing'],
-        ['saved, but the row belongs to someone else', {
-            save: { at: 2_000, evidence: SAVED }, analyticsAt: 3_000, sessions: [row({ user_id: 'someone-else' })],
-        }, 'wrong_owner'],
-    ] as const)('RED: %s', async (_label, scenario, newReason) => {
-        const { legacy, next } = await runBoth(scenario as Scenario);
-        expect(legacy).toBe('passed');
-        expect(next).toBe(newReason);
-    });
-
-    it('POSITIVE: a valid delayed save — legacy "passed" without checking anything; the new oracle proves it', async () => {
-        // The save lands at 20 s and the page reaches /analytics at 21 s: the legacy 10 s waits had already timed out
-        // into null, so its schema check never ran. The new oracle waits for the save and reads the exact row back.
-        const { legacy, next } = await runBoth({ save: { at: 20_000, evidence: SAVED }, analyticsAt: 21_000, sessions: [row()] });
-        expect(legacy).toBe('passed');
-        expect(next).toBe('saved');
+        ['all waits time out', { completion: null }],
+        ['unrelated dialog', { completion: null, dialog: true }],
+        ['no speech', { completion: null, noSpeech: true }],
+        ['only old row', { reviewRoute: true, rows: [row({ id: 'old-take' })] }],
+        ['empty readback', { reviewRoute: true, rows: [] }],
+        ['malformed readback', { reviewRoute: true, rows: null }],
+        ['missing status', { reviewRoute: true, rows: [row({ status: undefined })] }],
+        ['wrong owner', { reviewRoute: true, rows: [row({ user_id: 'wrong-owner' })] }],
+    ] as [string, Scenario][])('%s: old reaches PASS, corrected collector refuses', async (_label, scenario) => {
+        vi.useFakeTimers();
+        const old = new FakePage(scenario); await old.stop();
+        expect(await oldStopFlow(old)).toBe('passed');
+        const current = new FakePage(scenario);
+        const result = await settle(collectCanaryStopSave(current, controls(current)));
+        expect(result.kind).toBe('refused');
+        expect(current.listeners.size).toBe(0);
     });
 });

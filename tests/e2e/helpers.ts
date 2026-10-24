@@ -8,7 +8,7 @@
 
 import { type Locator, type Page, expect } from '@playwright/test';
 import { isExpectedAuthLanding, DEFAULT_AUTH_LANDING, type ExpectedAuthLanding } from './canaryLanding';
-import { setupE2EManifest, type E2EWindow } from './helpers/setupE2EManifest';
+import { setupE2EManifest, type E2EWindow, type ProfileFault } from './helpers/setupE2EManifest';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 import { createMockSession } from '../../frontend/src/mocks/test-user-utils';
 import logger from '../../frontend/src/lib/logger';
@@ -411,6 +411,12 @@ export async function programmaticLoginWithRoutes(
     sessions?: Partial<import('../support/factories/session.factory').MockSession>[];
     /** #1047 U3: seed Progress rows into the authoritative in-browser Supabase test client. */
     progressFixtures?: import('./helpers/setupE2EManifest').ProgressFixtures;
+    /**
+     * CO016: make the injected client's `user_profiles` read fail from the very first query, BEFORE login reaches
+     * profile readiness. The profile never becomes ready, so the readiness wait is skipped. The fault survives
+     * reloads until the spec clears it (see `clearProfileFault` in error-states.e2e.spec.ts).
+     */
+    profileFault?: ProfileFault;
   } = {}
 ) {
   const {
@@ -422,6 +428,7 @@ export async function programmaticLoginWithRoutes(
     mockProfile,
     sessions,
     progressFixtures,
+    profileFault,
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -468,9 +475,19 @@ export async function programmaticLoginWithRoutes(
     storage: authStorage
   });
 
+  if (profileFault) {
+    // Armed before the first navigation, so the very first profile query already fails. A cleared marker in
+    // sessionStorage keeps the fault from re-arming on a later reload once the spec has cleared it.
+    await page.addInitScript((fault) => {
+      if (window.sessionStorage.getItem('__e2e_profile_fault_cleared_co016') !== '1') {
+        (window as unknown as { __E2E_PROFILE_FAULT_CO016__?: string }).__E2E_PROFILE_FAULT_CO016__ = fault;
+      }
+    }, profileFault);
+  }
+
   await page.goto('/');
   await waitForAppReady(page);
-  await waitForProfileReady(page);
+  if (!profileFault) await waitForProfileReady(page);
   return session;
 }
 
