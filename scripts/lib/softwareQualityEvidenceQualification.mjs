@@ -2,6 +2,152 @@ import { COVERAGE_THRESHOLDS } from '../coverage-thresholds.mjs';
 
 export const COVERAGE_RELEASE_FLOOR = Math.min(...Object.values(COVERAGE_THRESHOLDS.global));
 
+// Bounded pilot: other meaningful-coverage paths retain their existing gates, but make no
+// mutation-efficacy claim until their actual seams and semantic casualties are registered.
+export const TEST_EFFICACY_CONTRACTS = Object.freeze([
+  {
+    id: 'analytics-truth',
+    testFile: 'frontend/src/lib/__tests__/analyticsEvidenceValidity.test.ts',
+    sourceFile: 'frontend/src/utils/metricValidity.ts',
+    control: [
+      { anchor: "if (value.trim() === '') return false;", replacement: "if ('' === value.trim()) return false;" },
+      { anchor: 'return Number.isFinite(n);', replacement: 'return (Number.isFinite(n));' },
+    ],
+    mutants: [
+      {
+        id: 'blank-is-zero',
+        anchor: "if (value.trim() === '') return false;",
+        replacement: "if (value.trim() === '') return true;",
+        assertion: '#1045 metric validity predicate rejects a blank string — Number("") is 0, which would be a fabricated zero',
+        assertionAnchor: "expect(isValidMetric('')).toBe(false);",
+      },
+      {
+        id: 'nonfinite-is-valid',
+        anchor: 'return Number.isFinite(n);',
+        replacement: 'return true;',
+        assertion: '#1045 metric validity predicate rejects only the values we cannot stand behind',
+        assertionAnchor: 'expect(isValidMetric(NaN)).toBe(false);',
+      },
+    ],
+  },
+]);
+
+export function qualifyEfficacyPhase(report, execution, { assertion, baselineNames, envelope, binding, assertionLocation } = {}) {
+  if (execution.error || execution.signal || execution.status !== (assertion ? 1 : 0)) {
+    throw new Error('Efficacy process failed or timed out');
+  }
+  if (/Unhandled (?:Error|Rejection)|uncaughtException|Error during test collection/i.test(
+    `${execution.stdout || ''}\n${execution.stderr || ''}`,
+  )) throw new Error('Efficacy unhandled runtime/setup error');
+  // JSON 3.2.4 has no numRuntimeErrorTestSuites and discards hook/unhandled errors.
+  // It cannot independently qualify a RED; require the companion's raw lifecycle evidence.
+  if (!binding || !binding.runId || !binding.phaseId || !binding.inputSha256
+    || !binding.command?.length || binding.runtime?.adapter !== 'vitest-3.2.4-raw-v1'
+    || envelope?.schemaVersion !== 2 || JSON.stringify(envelope.binding) !== JSON.stringify(binding)
+    || JSON.stringify(envelope.observed) !== JSON.stringify({ command: binding.command, cwd: binding.cwd, runtime: binding.runtime })
+    || envelope.collectionCalls !== 1 || envelope.finishedCalls !== 1 || envelope.endCalls !== 1
+    || envelope.timedOut !== false || envelope.ended?.reason !== (assertion ? 'failed' : 'passed')
+    || !Array.isArray(envelope.ended?.errors) || envelope.ended.errors.length
+    || !Array.isArray(envelope.finished?.errors) || envelope.finished.errors.length
+    || envelope.collected?.length !== 1 || envelope.finished?.files?.length !== 1
+    || envelope.collected[0].file !== binding.testFile || envelope.finished.files[0].file !== binding.testFile) {
+    throw new Error('Missing, stale, interrupted or inconsistent raw phase evidence');
+  }
+  const tasks = envelope.finished.files[0].tasks;
+  if (!Array.isArray(tasks) || !tasks.length || new Set(tasks.map(task => task.id)).size !== tasks.length
+    || tasks.some(task => !task.id || !['test', 'suite'].includes(task.type) || task.mode !== 'run'
+      || task.fails || task.retry || task.repeats || !['pass', 'fail'].includes(task.result?.state)
+      || task.result.pending || task.result.retryCount || task.result.repeatCount
+      || !task.result.hooks || Object.values(task.result.hooks).some(state => state !== 'pass')
+      || !Array.isArray(task.result.errors)
+      || (task.type === 'suite' && task.result.errors.length)
+      || (task.result.state === 'pass' && task.result.errors.length))) {
+    throw new Error('Raw task setup/hook/suite failure or incomplete execution');
+  }
+  const rawTests = tasks.filter(task => task.type === 'test');
+  const suites = tasks.filter(task => task.type === 'suite');
+  const roots = tasks.filter(task => task.parentId === null);
+  if (roots.length !== 1 || roots[0].type !== 'suite') throw new Error('Raw suite hierarchy missing');
+  const descendants = suite => rawTests.filter(test => {
+    let node = test; const visited = new Set();
+    while (node.parentId !== null) {
+      if (visited.has(node.id)) throw new Error('Raw suite hierarchy cycle');
+      visited.add(node.id);
+      node = tasks.find(item => item.id === node.parentId);
+      if (!node || node.type !== 'suite') throw new Error('Raw suite hierarchy invalid');
+      if (node.id === suite.id) return true;
+    }
+    return false;
+  });
+  for (const suite of suites) {
+    const children = descendants(suite);
+    if (!children.length || suite.result.state !== (children.some(test => test.result.state === 'fail') ? 'fail' : 'pass')) {
+      throw new Error('Raw suite status contradicts descendant tests');
+    }
+  }
+  const collection = rawTests.map(({ id, name, mode }) => ({ id, name, mode }));
+  if (!rawTests.length || JSON.stringify(collection) !== JSON.stringify(envelope.collected[0].tests)
+    || rawTests.some(task => task.result.state === 'fail'
+      && (!task.result.errors.length || task.result.errors.some(error => error.name !== 'AssertionError'
+        || !error.stack?.includes(`${binding.testFile}:`))))
+    || (!rawTests.some(task => task.result.state === 'fail') && tasks.some(task => task.result.state === 'fail'))) {
+    throw new Error('Raw collection or semantic failure mismatch');
+  }
+  if (assertion) {
+    const casualty = rawTests.find(task => task.name === assertion);
+    // A registered expectation location distinguishes the body assertion from a hook/cleanup
+    // AssertionError attached to the same test. The anchor is resolved against the copied test.
+    if (casualty?.result.state !== 'fail' || !assertionLocation
+      || !casualty.result.errors.every(error => error.stack.includes(`${binding.testFile}:${assertionLocation}:`))) {
+      throw new Error('Designated assertion body did not fail');
+    }
+  }
+  if (!report || report.testResults?.length !== 1) {
+    throw new Error('Efficacy collection/setup failed');
+  }
+  const tests = report.testResults[0].assertionResults;
+  if (!Array.isArray(tests) || !tests.length
+    || tests.some(test => !['passed', 'failed'].includes(test.status))) {
+    throw new Error('Efficacy tests missing or skipped');
+  }
+  const names = tests.map(test => test.fullName).sort();
+  if (rawTests.length !== tests.length || rawTests.some(task => !tests.some(test =>
+    test.fullName === task.name && test.status === (task.result.state === 'pass' ? 'passed' : 'failed')))) {
+    throw new Error('JSON/raw evidence mismatch');
+  }
+  if (new Set(names).size !== names.length || names.some(name => typeof name !== 'string')
+    || (baselineNames && JSON.stringify(names) !== JSON.stringify(baselineNames))) {
+    throw new Error('Efficacy collection changed');
+  }
+  const failures = tests.filter(test => test.status === 'failed');
+  if (report.testResults[0].status !== (failures.length ? 'failed' : 'passed')
+    || report.success !== (failures.length === 0)) throw new Error('JSON suite status contradicts phase tests');
+  if (report.numTotalTests !== tests.length || report.numFailedTests !== failures.length
+    || report.numPassedTests !== tests.length - failures.length
+    || report.numPendingTests !== 0 || report.numTodoTests !== 0) {
+    throw new Error('Efficacy counts missing or inconsistent');
+  }
+  if (!assertion) {
+    if (failures.length || report.success !== true || report.testResults[0].status !== 'passed') {
+      throw new Error('Efficacy baseline failed');
+    }
+  } else {
+    if (report.success !== false || !failures.some(test => test.fullName === assertion)
+      || failures.some(test => !test.failureMessages?.length
+        || test.failureMessages.some(message => {
+          // Runtime frames such as Vitest's runWithTimeout are present on ordinary
+          // assertion stacks. Classify the diagnostic heading, not helper names or
+          // expected application values mentioned later in the stack/message.
+          const heading = message.split(/\r?\n/, 1)[0];
+          return !/AssertionError|expected .* to /s.test(heading)
+            || /^(?:(?:Error|AssertionError):\s*)?(?:timeout\b|test timed out\b|timed out\b|Cannot find module\b|SyntaxError\b|ReferenceError\b)/i.test(heading);
+        }))) {
+      throw new Error('Mutant survived or failed without designated semantic assertion');
+    }
+  }
+  return names;
+}
+
 /**
  * QUALITY.md's release-priority paths. Each receipt is a behavioral/casualty test exercised by the
  * full Vitest lane; aggregate coverage alone is never substituted for these product-risk contracts.

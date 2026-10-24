@@ -1,10 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import {
-  COVERAGE_RELEASE_FLOOR,
-  assertSoftwareQualityEvidence,
-  parseCiAuditOverride,
-} from './lib/softwareQualityEvidenceQualification.mjs';
+import { randomUUID } from 'node:crypto';
+// Candidate imports occur only after old output is invalidated, including on parse/import failure.
+let COVERAGE_RELEASE_FLOOR, assertSoftwareQualityEvidence, parseCiAuditOverride;
 
 const METRICS_FILE = path.resolve(process.cwd(), 'test-results/metrics.json');
 const CI_AUDIT_FILE = path.resolve(process.cwd(), 'test-results/ci-audit.md');
@@ -21,7 +19,7 @@ const QUALITY_TARGETS = {
     totalRuntimeMaxMinutes: 15,
   },
   coverage: {
-    releaseFloor: COVERAGE_RELEASE_FLOOR,
+    releaseFloor: null,
     industryTarget: 80,
   },
   lighthouse: {
@@ -168,6 +166,11 @@ Generated: ${evidence.generatedAt}
 Source: ${evidence.run.source}
 Commit: ${evidence.run.commitSha ?? 'local/unavailable'}
 GitHub run: ${evidence.run.githubRunId ?? 'local/unavailable'}
+Run attempt: ${evidence.provenance.runAttempt ?? 'local'}
+Execution coverage: ${evidence.executionCoverage.status} (${evidence.overallStatus})
+Claim scope: metrics and explicitly registered analytics faults only; not all product journeys.
+
+${evidence.executionCoverage.rows.map(row => `- ${row.status}: ${row.file} (${row.route?.runner ?? 'no registered runner'})`).join('\n')}
 
 ## Test Suite State
 
@@ -206,9 +209,36 @@ GitHub run: ${evidence.run.githubRunId ?? 'local/unavailable'}
 }
 
 try {
+  // Never consume an uploaded/local PASS receipt: execute against this checkout on this run.
+  // Remove previous output first so a failed attempt cannot leave an apparently current PASS.
+  fs.rmSync(JSON_EVIDENCE_FILE, { force: true });
+  fs.rmSync(MD_EVIDENCE_FILE, { force: true });
+  ({COVERAGE_RELEASE_FLOOR,assertSoftwareQualityEvidence,parseCiAuditOverride}=await import('./lib/softwareQualityEvidenceQualification.mjs'));
+  const {runTestEfficacy,runVitestExecution}=await import('./run-test-efficacy.mjs');
+  const {executionContext,changedEvidencePaths,executionCoverage}=await import('./lib/testExecutionEvidence.mjs');
+  // Standalone local writes get a new identity; consumers must receive this identity from the
+  // invoking controller, never adopt it from the receipt they are trying to validate.
+  process.env.SOFTWARE_QUALITY_INVOCATION ??= randomUUID();
+  QUALITY_TARGETS.coverage.releaseFloor=COVERAGE_RELEASE_FLOOR;
   const evidence = buildEvidence();
   const qualification = assertSoftwareQualityEvidence(evidence);
-  evidence.qualification = { status: 'valid', ...qualification };
+  const provenance=executionContext(process.cwd());
+  evidence.provenance=provenance;
+  evidence.testEfficacy = runTestEfficacy({provenance});
+  evidence.testExecution = runVitestExecution({provenance});
+  evidence.executionCoverage=executionCoverage(changedEvidencePaths(process.cwd(),process.env.TEST_EFFICACY_BASE),
+    {root:process.cwd(),expected:provenance,pilot:evidence.testEfficacy,execution:evidence.testExecution,base:process.env.TEST_EFFICACY_BASE});
+  evidence.overallStatus=evidence.executionCoverage.status==='COMPLETE'?'QUALIFIED':'UNQUALIFIED';
+  evidence.trust='candidate-controlled observation; independent checker/runtime isolation not established';
+  if (evidence.run.source === 'github-actions' && evidence.run.commitSha !== evidence.testEfficacy.commit) {
+    throw new Error('CI commit identity differs from tested checkout');
+  }
+  if (evidence.overallStatus !== 'QUALIFIED') {
+    const gaps=evidence.executionCoverage.rows.filter(row=>row.status!=='EXECUTED');
+    const pilotGap=evidence.executionCoverage.pilot.status==='NOT RUN'?'NOT RUN: applicable analytics pilot; ':'';
+    throw new Error(`Unqualified execution coverage: ${pilotGap}${gaps.map(row=>`${row.status}: ${row.file}`).join('; ')}`);
+  }
+  evidence.qualification = { status: 'valid', scope:'quality-metrics-only', ...qualification };
   fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
   fs.writeFileSync(JSON_EVIDENCE_FILE, JSON.stringify(evidence, null, 2));
   fs.writeFileSync(MD_EVIDENCE_FILE, renderMarkdown(evidence));
