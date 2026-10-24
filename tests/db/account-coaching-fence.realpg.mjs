@@ -162,7 +162,10 @@ test('#1643 UNKNOWN-coaching fence: effective ACLs, writer refusal and serializa
     baseline.hostedRoleFlags = { source: 'Sam 1792829877.661409 read-only catalog', postgres: { rolsuper: false, rolbypassrls: true },
       service_role: { rolsuper: false, rolbypassrls: true }, authenticated: { rolsuper: false, rolbypassrls: false },
       anon: { rolsuper: false, rolbypassrls: false }, owners: { W1: 'postgres', W2: 'postgres', cacheRead: 'postgres', retentionPurge: 'postgres' },
-      fixtureMapping: 'closure_owner models postgres; quota/authority/M5/retention purge applied as closure_owner; M6 as fixture admin' };
+      fixtureMapping: 'closure_owner models postgres; quota/authority/M5/retention purge, M6 and the fence migration applied as closure_owner',
+      // Receipts written before this correction (commit 9921de8b and earlier) carried a stale mapping that named the
+      // fixture admin for M6; their owner readbacks were already correct (Sam 1792831852.984209). Originals are kept.
+      correction: 'fixtureMapping text corrected: M6 is applied as closure_owner, not the fixture admin' };
     if (fenceMigration) sql(`SET ROLE closure_owner; ${closureMigration(fenceMigration)}`);
     baseline.ownersAfterFence = Object.fromEntries(['public.fence_account_coaching_unknown_v1', 'public.guard_account_coaching_ai_suggestions_write_v1',
       'public.persist_account_coaching_v1', 'public.persist_ai_suggestion_with_authority_v1', 'public.record_ai_suggestion_cache_read_v1',

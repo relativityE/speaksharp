@@ -288,15 +288,23 @@ test('U1 is excluded from initial staging and all four final proof layers remain
   assert.ok(driver.includes('if (primaryError || cleanupError) throw primaryError ?? cleanupError'));
 });
 
-test('existing workflow collects new Node tests and explicitly selects complete126 on replay AND cleanup', () => {
+test('existing workflow collects new Node tests and explicitly selects fence127 on replay AND cleanup', () => {
   const workflow = read('.github/workflows/account-closure-full-chain-proof.yml');
   const collection = workflow.indexOf('run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs');
   assert.ok(collection > workflow.indexOf('actions/setup-node@v6'));
   assert.ok(collection < workflow.indexOf('supabase/setup-cli@v2'));
-  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=main-t2-account-126'));
-  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-t2-account-126'));
+  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=main-t2-fence-127'));
+  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-t2-fence-127'));
+  assert.ok(!workflow.includes('--profile=main-t2-account-126'), 'the fence file makes complete126 refuse the real tree');
   assert.ok(workflow.includes('node tests/db/account-closure-concurrency-realpg.mjs'));
   assert.ok(workflow.includes('node tests/db/account-closure-attestation-realpg.mjs'));
+  // #1643 fence: native proof runs on the exact head, a test-only change triggers it, and failures keep its receipts.
+  assert.ok(workflow.indexOf('node tests/db/account-coaching-fence.realpg.mjs') > workflow.indexOf('[ "$actual_head" = "$PROOF_HEAD_SHA" ]'));
+  for (const file of ['tests/db/account-coaching-fence.realpg.mjs', 'tests/db/account-coaching-fence.integration.test.ts',
+    'tests/db/account-completion-fixture.mjs', 'tests/db/account-closure-pending-fixture.mjs',
+    'backend/supabase/functions/get-ai-suggestions/contract.json'])
+    assert.ok(workflow.includes("- '" + file + "'"), 'missing fence proof trigger: ' + file);
+  assert.ok(workflow.includes('artifacts/account-coaching-fence/*.json'));
   assert.ok(workflow.includes('if: always()'));
   assert.ok(workflow.includes('retention-days: 1'));
 });

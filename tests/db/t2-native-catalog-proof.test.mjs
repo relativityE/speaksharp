@@ -16,10 +16,10 @@ const identity = { profile: 'main-t2-account-126', environment: 'disposable',
   ownedContainer: 'supabase_db_closure-proof-0123456789abcdef',
   imageDigest: 'ghcr.io/supabase/postgres@sha256:3866d94d8426927e8db3f1c5d790752292bfbe27b5f1f46e199ae1b7d3c1710b' };
 const expected = stage => t2ExpectedCatalog(stage === 0 ? 'before' : 'after', T2_VERSIONS[Math.max(0, stage - 1)]);
-function fixture(mutate = () => {}) {
+function fixture(mutate = () => {}, proofIdentity = identity) {
   const saved = [], queries = [];
   let call = 0;
-  const proof = createNativeT2CatalogProof({ identity, sources,
+  const proof = createNativeT2CatalogProof({ identity: proofIdentity, sources,
     retain: r => saved.push(r),
     sql: query => {
       const stage = call++;
@@ -51,6 +51,17 @@ test('exact seven read-only snapshots, no earlier PASS; retained evidence bound 
     assert.match(q, /SET LOCAL search_path=public,pg_temp/);
     assert.doesNotMatch(q, /\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP)\s+(?:INTO|TABLE|FUNCTION)/);
   }
+});
+
+test('fence127 is observed over the same seven snapshots and retains its own 127 identity', () => {
+  const fence = { ...identity, profile: 'main-t2-fence-127' };
+  const { proof, saved } = fixture(undefined, fence);
+  for (let n = 0; n < 7; n++) proof.record(n);
+  const done = proof.finish();
+  assert.equal(done.status, 'PASS');
+  assert.equal(done.stages.length, 7);
+  assert.deepEqual(done.identity, fence);
+  assert.equal(saved.at(-1).identity.profile, 'main-t2-fence-127');
 });
 
 for (let broken = 0; broken < 7; broken++) {
@@ -131,7 +142,8 @@ test('source pin change is refused before SQL', () => {
     sql: () => { calls++; }, retain() {} }), /migration source mismatch/);
   assert.equal(calls, 0);
 });
-for (const delta of [{ environment: 'production' }, { profile: 'main-120' },
+for (const delta of [{ environment: 'production' }, { profile: 'main-120' }, { profile: 'main-analytics-u1-122' },
+  { profile: 'main-t2-fence-128' },
   { requestedHead: '0'.repeat(40) }, { ownedContainer: 'production' }, { imageDigest: 'unverified' },
   { treeClean: false }, { selectedPostgresVersion: '17.6.1.106' },
   { imageDigest: 'ghcr.io/supabase/postgres@sha256:' + '0'.repeat(64) }]) {
