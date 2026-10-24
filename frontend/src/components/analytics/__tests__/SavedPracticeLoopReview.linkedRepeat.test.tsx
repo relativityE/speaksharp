@@ -111,7 +111,7 @@ describe('#1548 displayed instruction opt-in at the actual saved-review caller',
         client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
         render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/session']}><Routes>
             <Route path="/session" element={<CoachingCard sessionState="before" practiceTarget={{ kind: 'unavailable', retry: vi.fn(), sourceSessionId: 's1' }} />} />
-            <Route path="/analytics/:sessionId" element={<><SavedPracticeLoopReview sessionId="s1" /><ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview /></>} />
+            <Route path="/progress/:sessionId" element={<><SavedPracticeLoopReview sessionId="s1" /><ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview /></>} />
         </Routes></MemoryRouter></QueryClientProvider>);
         const recoveryCopy = screen.getByTestId('repeat-practice-target').textContent;
         fireEvent.click(screen.getByRole('link', { name: 'Reopen saved review' }));

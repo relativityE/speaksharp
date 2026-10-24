@@ -26,7 +26,7 @@ describe('vercel.json SPA fallback', () => {
   });
 
   it('real app routes ARE rewritten to the SPA index (still boot)', () => {
-    for (const p of ['/', '/practice', '/session', '/analytics', '/analytics/7e7aca2c-c192-4a80-8976-df5637859164', '/pricing']) {
+    for (const p of ['/', '/practice', '/session', '/progress', '/progress/7e7aca2c-c192-4a80-8976-df5637859164', '/analytics', '/analytics/7e7aca2c-c192-4a80-8976-df5637859164', '/pricing']) {
       expect(rewritesToIndex(p), `${p} must serve the SPA index`).toBe(true);
     }
   });

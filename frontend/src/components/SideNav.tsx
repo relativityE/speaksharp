@@ -35,7 +35,7 @@ export const SideNav: React.FC = () => {
                         <Home className="mr-3 h-5 w-5" />
                         Home
                     </NavLink>
-                    <NavLink to="/analytics" className={getNavLinkClass}>
+                    <NavLink to="/progress" className={getNavLinkClass}>
                         <BarChart className="mr-3 h-5 w-5" />
                         Analytics
                     </NavLink>

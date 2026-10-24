@@ -177,7 +177,7 @@ describe('AnalyticsPage', () => {
 
             renderAnalyticsPage('/analytics/missing-session');
             const link = screen.getByRole('link', { name: /view dashboard/i });
-            expect(link).toHaveAttribute('href', '/analytics');
+            expect(link).toHaveAttribute('href', '/progress');
         });
     });
 
