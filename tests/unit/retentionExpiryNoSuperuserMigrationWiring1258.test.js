@@ -210,3 +210,42 @@ describe('the postflight script is read-only and pins the digests the integratio
         expect(code).toContain('set -euo pipefail');
     });
 });
+
+describe('#1258 P0: the real-PostgreSQL concurrent-edit race proof runs in CI (PM 6149494459)', () => {
+    const MATRIX = readFileSync(resolve(ROOT, '.github/workflows/atomic-completion-concurrency-matrix.yml'), 'utf8');
+    const RACE = readFileSync(resolve(ROOT, 'tests/db/run-retention-expiry-edit-race-realpg.sh'), 'utf8');
+    const matrixStep = (marker) => {
+        const start = MATRIX.indexOf(marker);
+        if (start === -1) throw new Error(`matrix step not found: ${marker}`);
+        const next = MATRIX.indexOf('\n      - name:', start + 1);
+        return MATRIX.slice(start, next === -1 ? undefined : next);
+    };
+
+    it('a PR touching the migration, the race script or the schema it reads triggers the matrix', () => {
+        const paths = MATRIX.slice(MATRIX.indexOf('paths:'), MATRIX.indexOf('permissions:'));
+        for (const p of [`backend/supabase/migrations/${FILE}`, 'tests/db/run-retention-expiry-edit-race-realpg.sh',
+            'tests/db/retention-expiry-no-superuser-1258.integration.test.ts']) {
+            expect({ p, triggers: paths.includes(`- '${p}'`) }).toEqual({ p, triggers: true });
+        }
+    });
+
+    it('every matrix version runs the race against its own service, and any FAIL fails the job', () => {
+        expect(MATRIX).toMatch(/pg: \['15', '16', '17'\]/);
+        const s = matrixStep('- name: Retention-expiry concurrent-edit race');
+        expect(s).toContain("RACE_PG_EXTERNAL: '1'");
+        expect(s).toContain('set -o pipefail');
+        expect(s).toContain('bash tests/db/run-retention-expiry-edit-race-realpg.sh | tee edit-race-');
+        expect(MATRIX.slice(MATRIX.indexOf('- name: Summary'))).toContain('edit-race-${{ matrix.pg }}.txt');
+    });
+
+    it('external mode needs only psql and a service login, uses a fresh database and owner, and drops both on exit', () => {
+        const external = RACE.slice(RACE.indexOf('if [ "${RACE_PG_EXTERNAL:-0}" = "1" ]; then'), RACE.indexOf('else'));
+        expect(external).not.toMatch(/initdb|pg_ctl/);
+        expect(external).toContain('DROP DATABASE IF EXISTS $DB WITH (FORCE)');
+        expect(external).toContain('DROP ROLE IF EXISTS $OWNER');
+        expect(RACE).toMatch(/DB=race1258_\$RUN/);
+        expect(RACE).toMatch(/OWNER=ss_function_owner_\$RUN/);
+        expect(RACE).toContain('trap cleanup EXIT');
+        expect(RACE).toMatch(/\[ "\$FAILS" -eq 0 \] && \{ echo "RESULT: PASS"; exit 0; \} \|\| \{ echo "RESULT: FAIL \(\$FAILS\)"; exit 1; \}/);
+    });
+});
