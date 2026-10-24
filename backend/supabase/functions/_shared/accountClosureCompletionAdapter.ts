@@ -21,6 +21,10 @@ const digest = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const closed = (v: unknown, keys: string[]): v is Record<string, unknown> => object(v)
   && Object.keys(v).length === keys.length && keys.every(key => Object.hasOwn(v, key));
+const validBinding = (v: unknown): v is CompletionBinding => closed(v, ['projectId', 'environment', 'url', 'scopeDigest'])
+  && typeof v.projectId === 'string' && /^[a-z0-9-]{1,63}$/.test(v.projectId)
+  && (v.environment === 'production' || v.environment === 'disposable')
+  && typeof v.url === 'string' && digest(v.scopeDigest);
 function stop(): never { throw new Error('account_completion_unavailable'); }
 const identity = (v: CompletionBinding) => JSON.stringify([v.projectId, v.environment, v.url, v.scopeDigest]);
 
@@ -32,9 +36,7 @@ const identity = (v: CompletionBinding) => JSON.stringify([v.projectId, v.enviro
  */
 export function createAccountCompletionRpc(input: CompletionBinding, ports: CompletionRpcPorts) {
   const binding = structuredClone(input);
-  if (!closed(binding, ['projectId', 'environment', 'url', 'scopeDigest'])
-    || !/^[a-z0-9-]{1,63}$/.test(binding.projectId)
-    || !['production', 'disposable'].includes(binding.environment) || !digest(binding.scopeDigest)) stop();
+  if (!validBinding(binding)) stop();
   let url: URL;
   try { url = new URL(binding.url); } catch { return stop(); }
   const production = binding.environment === 'production' && url.protocol === 'https:'
@@ -46,8 +48,7 @@ export function createAccountCompletionRpc(input: CompletionBinding, ports: Comp
   if (typeof client?.rpc !== 'function') stop();
   const current = async () => {
     const actual = await ports.currentBinding();
-    if (!closed(actual, ['projectId', 'environment', 'url', 'scopeDigest'])
-      || identity(actual as unknown as CompletionBinding) !== identity(binding)) stop();
+    if (!validBinding(actual) || identity(actual) !== identity(binding)) stop();
     return binding.scopeDigest;
   };
   const names = new Set(['claim_account_pending_completion_v1','inspect_account_pending_completion_v1',
