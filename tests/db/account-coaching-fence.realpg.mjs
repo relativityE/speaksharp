@@ -31,7 +31,8 @@ const payload = '{"version":"gemini_coaching_v1","what_worked":"Synthetic contro
 const FENCE_RPC = 'public.fence_account_coaching_unknown_v1(uuid,uuid,uuid,uuid,text,text)';
 /**
  * One PostgreSQL v3 simple-query message over the fixture's trust-auth Unix socket, exactly what `psql -c` sends:
- * argv: socket file, user, database, SQL file. Exit 1 with `ERROR:  <SQLSTATE>: <message>` on the first server error.
+ * argv: socket file, user, database, SQL file. Exit 1 with `ERROR:  <SQLSTATE>: <message>` on the first server error;
+ * exit 3 if the connection ends before the terminal ReadyForQuery (an interrupted query is never reported complete).
  */
 const SIMPLE_QUERY = `
 import net from 'node:net'; import { readFileSync } from 'node:fs'; import process from 'node:process'; import { Buffer } from 'node:buffer';
@@ -42,10 +43,15 @@ const startup = Buffer.concat([int32(196608), cstr('user'), cstr(user), cstr('da
   cstr('client_encoding'), cstr('UTF8'), Buffer.from([0])]);
 const query = cstr(readFileSync(file, 'utf8'));
 const socket = net.createConnection(path);
-let buffer = Buffer.alloc(0), queried = false, error = null;
+let buffer = Buffer.alloc(0), queried = false, finished = false, error = null;
 const fail = message => { process.stderr.write(message + '\\n'); process.exit(2); };
 socket.on('error', e => fail('simple-query transport: ' + e.message));
 socket.on('connect', () => socket.write(Buffer.concat([int32(startup.length + 4), startup])));
+socket.on('close', () => {
+  if (finished) return;
+  process.stderr.write((error ? error + '\\n' : '') + 'simple-query transport: connection closed before ReadyForQuery\\n');
+  process.exit(3);
+});
 socket.on('data', chunk => {
   buffer = Buffer.concat([buffer, chunk]);
   while (buffer.length >= 5 && buffer.length >= 1 + buffer.readInt32BE(1)) {
@@ -59,7 +65,7 @@ socket.on('data', chunk => {
     }
     if (type !== 'Z') continue;
     if (!queried && !error) { queried = true; socket.write(Buffer.concat([Buffer.from('Q'), int32(query.length + 4), query])); continue; }
-    socket.end(Buffer.from([0x58, 0, 0, 0, 4]));
+    finished = true; socket.end(Buffer.from([0x58, 0, 0, 0, 4]));
     if (error) { process.stderr.write(error + '\\n'); process.exitCode = 1; }
   }
 });
@@ -175,7 +181,12 @@ test('#1643 UNKNOWN-coaching fence: effective ACLs, writer refusal and serializa
       const argument = outcome('transport_argument'), message = outcome('transport_message');
       assert.deepEqual(argument, ['t', 't', 'f'], 'psql -c reference semantics');
       assert.deepEqual(message, argument, 'large-text route changed atomicity');
-      baseline.transportControl = { argument, message, argumentError: viaArgument.split('\n')[0], messageError: viaMessage.split('\n')[0] };
+      // DISCONNECT CONTROL: a backend that dies mid-query (FATAL, then the socket closes with no ReadyForQuery) must fail.
+      const disconnected = failure(`SELECT pg_terminate_backend(pg_backend_pid());\n-- ${'x'.repeat(110_000)}`);
+      assert.match(disconnected ?? 'SUCCEEDED', /57P01/);
+      assert.match(disconnected ?? 'SUCCEEDED', /connection closed before ReadyForQuery/);
+      baseline.transportControl = { argument, message, argumentError: viaArgument.split('\n')[0], messageError: viaMessage.split('\n')[0],
+        disconnect: disconnected.split('\n').slice(0, 2) };
       sql('DROP TABLE transport_argument_a, transport_argument_b, transport_message_a, transport_message_b');
     }
     // The actual completion chain (the same fixture the accepted native completion proof uses), split at the pending
