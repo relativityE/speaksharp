@@ -17,7 +17,17 @@ describe('isUuid', () => {
 });
 
 describe('deriveSessionIdFromPath', () => {
-  it('returns the session id for a valid /analytics/:sessionId route', () => {
+  it('returns the session id for the canonical /progress/:sessionId route (#1548)', () => {
+    expect(deriveSessionIdFromPath(`/progress/${UUID}`)).toBe(UUID);
+    expect(deriveSessionIdFromPath(`/progress/${UUID}/`)).toBe(UUID);
+    expect(deriveSessionIdFromPath(`/progress/${UUID}?from=history#top`)).toBe(UUID);
+    expect(deriveSessionIdFromPath('/progress')).toBeNull();
+    expect(deriveSessionIdFromPath('/progress/not-a-uuid')).toBeNull();
+    expect(deriveSessionIdFromPath(`/progress/${UUID}/extra`)).toBeNull();
+    expect(deriveSessionIdFromPath(`/progress-archive/${UUID}`)).toBeNull();
+  });
+
+  it('returns the session id for a valid legacy /analytics/:sessionId route', () => {
     expect(deriveSessionIdFromPath(`/analytics/${UUID}`)).toBe(UUID);
     expect(deriveSessionIdFromPath(`/analytics/${UUID}/`)).toBe(UUID); // trailing slash
     expect(deriveSessionIdFromPath(`/analytics/${UUID}?from=history`)).toBe(UUID); // query stripped

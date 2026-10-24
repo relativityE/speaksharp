@@ -719,7 +719,7 @@ describe('AnalyticsDashboard', () => {
         const openLink = screen.getByTestId('open-session-detail-session-1');
         expect(openLink).toHaveTextContent('Open');
 
-        expect(openLink).toHaveAttribute('href', '/analytics/session-1');
+        expect(openLink).toHaveAttribute('href', '/progress/session-1');
     });
 
     // #1306 metrics-only: there is NO transcript pane and NO transcript_state to honor. The session detail

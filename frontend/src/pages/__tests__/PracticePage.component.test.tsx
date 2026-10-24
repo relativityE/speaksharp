@@ -97,7 +97,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
-    it('returning user: the resume band → /analytics/<id>, Analytics → /analytics', () => {
+    it('returning user: the resume band → /progress/<id>, Analytics → /progress', () => {
       mockHistory.mockReturnValue({
         data: [{ id: 'sess-9', created_at: '2026-07-20T00:00:00.000Z', duration: 120, status: 'completed' }],
         isLoading: false,
@@ -107,11 +107,11 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       // hidden so two controls never point at the same review. The routing contract is unchanged.
       expect(screen.queryByTestId('home-last-session')).toBeNull();
       fireEvent.click(screen.getByTestId('home-resume-cta'));
-      expect(navigateSpy).toHaveBeenCalledWith('/analytics/sess-9');
+      expect(navigateSpy).toHaveBeenCalledWith('/progress/sess-9');
       fireEvent.click(screen.getByTestId('home-resume-progress'));
-      expect(navigateSpy).toHaveBeenCalledWith('/analytics');
+      expect(navigateSpy).toHaveBeenCalledWith('/progress');
       fireEvent.click(screen.getByTestId('home-analytics'));
-      expect(navigateSpy).toHaveBeenCalledWith('/analytics');
+      expect(navigateSpy).toHaveBeenCalledWith('/progress');
     });
 
     it('first run: the empty state explains itself and leads nowhere (never a fabricated 0:00)', () => {

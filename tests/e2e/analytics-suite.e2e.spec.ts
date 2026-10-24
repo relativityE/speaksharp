@@ -14,7 +14,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
 
   // SCENARIO 1: Dashboard with Data (Metrics Matrix)
   test('Analytics Matrix: Dashboard and Stat-Card Verification', async ({ userPage: page }, testInfo) => {
-    await navigateToRoute(page, '/analytics');
+    await navigateToRoute(page, '/progress');
     
     // 🛡️ Architectural Readiness
     await waitForFeature(page, 'analytics');
@@ -50,7 +50,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
 
   // SCENARIO 1b (#1258 D6/D7, Rev 2 §5.7–5.8): Trends rows start collapsed; Filler words opens to COUNTS, never rates.
   test('Analytics Matrix: Trends rows start collapsed and Filler words shows counts', async ({ userPage: page }, testInfo) => {
-    await navigateToRoute(page, '/analytics');
+    await navigateToRoute(page, '/progress');
     await waitForFeature(page, 'analytics');
 
     const trends = page.getByTestId('trends-card');
@@ -76,7 +76,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
   // SCENARIO 1c (#1258 D9, Rev 2 §5.9): Recent sessions rows — date/time titles, units in labels, ink Open, yellow PDF,
   // and no horizontal scroll at 375px.
   test('Analytics Matrix: Recent sessions rows at desktop and phone width', async ({ userPage: page }, testInfo) => {
-    await navigateToRoute(page, '/analytics');
+    await navigateToRoute(page, '/progress');
     await waitForFeature(page, 'analytics');
 
     const row = page.getByTestId(/session-history-item-/).first();
@@ -99,7 +99,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
 
   // SCENARIO 2: Detail Flow (Click-through Analysis)
   test('Analytics Matrix: Session Detail View and Error Handling', async ({ userPage: page }) => {
-    await navigateToRoute(page, '/analytics');
+    await navigateToRoute(page, '/progress');
     await waitForFeature(page, 'analytics');
 
     // Check for session list items
@@ -109,7 +109,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
       await openSessionDetailFromHistoryItem(page, firstSession);
 
       // Verify Detail View URL and Header
-      await expect(page).toHaveURL(/\/analytics\/[a-zA-Z0-9-]+/);
+      await expect(page).toHaveURL(/\/progress\/[a-zA-Z0-9-]+/);
       await expect(page.getByText(/session analysis/i)).toBeVisible();
       
       // Verify Detail Metrics
@@ -120,7 +120,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
 
   // SCENARIO 3: Error States (Invalid IDs)
   test('Analytics Matrix: Resilience to Invalid Session IDs', async ({ userPage: page }) => {
-    await navigateToRoute(page, '/analytics/invalid-uuid-signal');
+    await navigateToRoute(page, '/progress/invalid-uuid-signal');
     await waitForFeature(page, 'analytics');
 
     // Verify "Session Not Found" handling
@@ -129,17 +129,47 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await expect(dashboardLink).toBeVisible();
 
     await dashboardLink.click();
-    await expect(page).toHaveURL('/analytics');
+    await expect(page).toHaveURL('/progress');
   });
 
   // SCENARIO 4: Empty State Matrix
   test('Analytics Matrix: Zero-Data Empty State', async ({ emptyUserPage: page }) => {
-    await navigateToRoute(page, '/analytics');
+    await navigateToRoute(page, '/progress');
     await waitForFeature(page, 'analytics');
 
     // Verify Empty State UI
     await expect(page.getByTestId('analytics-dashboard-empty-state')).toBeVisible();
     await expect(page.getByText(/Your trends start after one saved session/i)).toBeVisible();
+  });
+
+  // SCENARIO 5 (#1548): /progress is canonical; saved and bookmarked /analytics links still resolve to the same page.
+  test('#1548 legacy /analytics links replace-redirect to /progress, keeping the session segment, query and hash', async ({ userPage: page }) => {
+    await navigateToRoute(page, '/practice');
+
+    // Index: query and hash survive, and the dashboard renders on the canonical route.
+    await navigateToRoute(page, '/analytics?from=bookmark#trends');
+    await expect(page).toHaveURL(/\/progress\?from=bookmark#trends$/);
+    await waitForFeature(page, 'analytics');
+    await expect(page.getByTestId('analytics-dashboard')).toBeVisible();
+    // Replace-style: Back leaves Progress for the page before it, never the legacy URL (which would redirect again).
+    await page.goBack();
+    await expect(page).toHaveURL(/\/practice(\?|#|$)/);
+
+    // Session detail: the same session segment is bound on the canonical route.
+    await navigateToRoute(page, '/progress');
+    const firstSession = page.getByTestId(/session-history-item-/).first();
+    await expect(firstSession).toBeVisible({ timeout: 15000 });
+    await openSessionDetailFromHistoryItem(page, firstSession);
+    const detailPath = new URL(page.url()).pathname;
+    expect(detailPath).toMatch(/^\/progress\/session-/);
+    await navigateToRoute(page, `${detailPath.replace(/^\/progress\//, '/analytics/')}?ref=old#top`);
+    await expect(page).toHaveURL(new RegExp(`${detailPath}\\?ref=old#top$`));
+    await expect(page.getByText(/session analysis/i)).toBeVisible();
+
+    // An unknown legacy session id still lands on the honest not-found state, now under /progress.
+    await navigateToRoute(page, '/analytics/invalid-uuid-signal?x=1');
+    await expect(page).toHaveURL(/\/progress\/invalid-uuid-signal\?x=1$/);
+    await expect(page.getByTestId('session-not-found-heading')).toBeVisible({ timeout: 15000 });
   });
 
 });
