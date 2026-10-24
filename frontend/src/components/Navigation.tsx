@@ -272,7 +272,9 @@ const Navigation = () => {
                   <span key={i} style={{ width: 3, height: h, background: 'var(--brand-signature)', borderRadius: 1 }} />
                 ))}
               </span>
-              <span className={session ? "text-lg font-bold text-foreground tracking-tight" : "text-base sm:text-lg font-bold text-foreground tracking-tight"}>SpeakSharp</span>
+              {/* #1475: the site uses the device's system font, so below 360px the signed-out wordmark text cannot be
+                  guaranteed to fit beside Sign In + Get Started; the brand mark and the link's accessible name remain. */}
+              <span className={session ? "text-lg font-bold text-foreground tracking-tight" : "hidden min-[360px]:inline text-base sm:text-lg font-bold text-foreground tracking-tight"}>SpeakSharp</span>
             </Link>
 
             {/* Navigation Items */}

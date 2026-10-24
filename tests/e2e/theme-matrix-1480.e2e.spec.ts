@@ -130,7 +130,7 @@ test.describe('#1480 theme matrix — public, auth, legal, error and internal su
     });
   }
 
-  test('#1475 signed-out header: Get Started fully on-screen and keyboard-usable at 320px and 340px', async ({ page }) => {
+  test('#1475 signed-out header: Get Started fully on-screen at 320/340/360px and keyboard-usable at 320px', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await setupE2EMocks(page, { userType: 'free' });
     await goToApp(page, '/');
@@ -138,7 +138,7 @@ test.describe('#1480 theme matrix — public, auth, legal, error and internal su
     const signIn = account.getByRole('link', { name: 'Sign In' });
     const getStarted = account.getByRole('link', { name: 'Get Started' });
     const geometry: Record<string, unknown> = {};
-    for (const width of [320, 340]) {
+    for (const width of [320, 340, 360]) {
       await page.setViewportSize({ width, height: 800 });
       await settle(page);
       const box = await getStarted.boundingBox();
