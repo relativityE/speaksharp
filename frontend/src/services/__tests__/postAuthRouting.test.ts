@@ -49,6 +49,16 @@ describe('postAuthRouting — resolveInAppPostAuthTarget (#1548 in-app return: h
     expect(resolveInAppPostAuthTarget({ pathname: '/session', search: '', hash: '' })).toEqual({ to: '/session' });
   });
 
+  it('keeps legitimate colon text in the query and fragment, with the original state (not a scheme)', () => {
+    const state = { tab: 'filler' };
+    expect(resolveInAppPostAuthTarget({ pathname: `/progress/${ID}`, hash: '#chapter:one', state }))
+      .toEqual({ to: `/progress/${ID}#chapter:one`, state });
+    expect(resolveInAppPostAuthTarget({ pathname: '/session', search: '?next=https://example.test', state }))
+      .toEqual({ to: '/session?next=https://example.test', state });
+    expect(resolveInAppPostAuthTarget({ pathname: '/session', search: '?a=b:c', hash: '#x:y//z', state }))
+      .toEqual({ to: '/session?a=b:c#x:y//z', state });
+  });
+
   it('refuses MALFORMED parts to /practice without state (each part validated before joining)', () => {
     const state = { kept: 'never' };
     const malformed = [
@@ -62,6 +72,8 @@ describe('postAuthRouting — resolveInAppPostAuthTarget (#1548 in-app return: h
       { pathname: '/auth?x=1' },                            // auth route hidden behind a query in pathname
       { pathname: '/auth#x' },
       { pathname: '/auth/', search: '?' },
+      { pathname: '/x/../auth/signin' },                    // dot segments resolving to a sign-in surface
+      { pathname: '/./signup' },
     ];
     for (const from of malformed) {
       expect(resolveInAppPostAuthTarget({ ...from, state })).toEqual({ to: '/practice' });
