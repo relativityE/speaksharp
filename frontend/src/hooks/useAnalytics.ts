@@ -133,7 +133,9 @@ const isValidRpcWeekly = (s: AnalyticsSummary): boolean =>
     isFiniteNonNegative(s.weeklySessionsCount)
     && Array.isArray(s.weeklyActivity)
     && s.weeklyActivity.length === WEEK_DAYS.length
-    && s.weeklyActivity.every((d) => !!d && WEEK_DAYS.includes(d.day) && isFiniteNonNegative(d.sessions));
+    && s.weeklyActivity.every((d) => !!d && WEEK_DAYS.includes(d.day) && isFiniteNonNegative(d.sessions))
+    // Exactly one row per day: seven "Mon" rows would pass the checks above while the chart reads the first and Trends sums all.
+    && new Set(s.weeklyActivity.map((d) => d.day)).size === WEEK_DAYS.length;
 
 export const useAnalytics = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
@@ -206,7 +208,8 @@ export const useAnalytics = () => {
 
     const analyticsData = useMemo(() => {
         // Use pre-computed summary from RPC if available and appropriate
-        if (shouldUseRPC && summaryData) {
+        // #1472: validated BEFORE adaptation — a truthy summary without real totals would otherwise be dereferenced here.
+        if (shouldUseRPC && isValidSummary(summaryData)) {
             logger.debug('[useAnalytics] Using summary data from RPC');
             const rpcOverallStats = summaryData.overallStats as unknown as Record<string, unknown>;
             return {
@@ -303,7 +306,9 @@ export const useAnalytics = () => {
         }
         const count = sessionCountQuery.data;
         // #1472: the CURRENT wall clock, read once here so this week's counts and the page-coverage check agree. Never the
-        // history's fetch time: a cached Saturday page reopened on Sunday must be judged against Sunday's week.
+        // history's fetch time: a cached Saturday page reopened on Sunday must be judged against Sunday's week. Limit: the
+        // clock is read when this memo recomputes (mount or new data); a view left mounted across midnight does not roll over
+        // until then. No timer is added here (Sam 1792885199).
         const now = new Date();
         const historyPending = isLoading && !error;
         const page = allSessions;

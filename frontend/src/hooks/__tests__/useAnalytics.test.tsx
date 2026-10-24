@@ -476,6 +476,37 @@ describe('useAnalytics', () => {
             expect(result.current.weekly).toEqual({ status: 'unavailable' });
         });
 
+        it.each([
+            ['no overallStats key', { overallStats: undefined }],
+            ['overallStats: null', { overallStats: null }],
+        ])('> 20 with %s → unavailable, never a throw from the RPC adaptation', async (_label, bad) => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockResolvedValue({ ...summary, ...bad });
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime).toEqual({ status: 'unavailable', reason: 'summary_failed' }));
+        });
+
+        it.each([
+            ['seven duplicate days', { weeklyActivity: Array.from({ length: 7 }, () => ({ day: 'Mon', sessions: 1 })) }],
+            ['a missing day (Sat replaced by a second Sun)', { weeklyActivity: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sun'].map((day) => ({ day, sessions: 0 })) }],
+        ])('> 20 with %s: the RPC week is not complete', async (_label, bad) => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockResolvedValue({ ...summary, ...bad });
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
+            expect(result.current.weekly).toEqual({ status: 'unavailable' });
+        });
+
+        it('CONTROL a valid seven-day RPC week is complete', async () => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockResolvedValue(summary);
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.weekly).toMatchObject({ status: 'complete', count: 3 }));
+        });
+
         it('CONTROL legitimately null averages keep a valid summary complete', async () => {
             history([...newest20]);
             (getSessionCount as Mock).mockResolvedValue(21);
