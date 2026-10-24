@@ -90,10 +90,10 @@ const InternalRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 /**
  * #1548: `/progress` is the canonical user-facing route; `/analytics` and `/analytics/:sessionId` are legacy aliases.
  * A replace-redirect (no extra history entry) keeps the session segment, query, hash and router state, so saved and
- * bookmarked links keep resolving to the same page. (The logged-out sign-in round trip is a separate path: it does not
- * yet carry the hash — tracked, not claimed here.)
+ * bookmarked links keep resolving to the same page. Signed out, it redirects first and the canonical route's
+ * ProtectedRoute then carries query, hash and state through sign-in (postAuthDestination.routing.test.tsx).
  */
-const LegacyProgressRedirect: React.FC = () => {
+export const LegacyProgressRedirect: React.FC = () => {
   const location = useLocation();
   const to = `${canonicalProgressPath(location.pathname)}${location.search}${location.hash}`;
   return <Navigate to={to} state={location.state} replace />;

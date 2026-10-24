@@ -8,6 +8,7 @@ import { AuthIndexRedirect } from '@/components/AuthIndexRedirect';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { ENV } from '@/config/TestFlags';
 import * as AuthProvider from '@/contexts/AuthProvider';
+import { LegacyProgressRedirect } from '@/App';
 
 // Both auth pages delegate the post-auth destination to <PostAuthRedirect>, which is flag-free: a safe
 // deep-link wins, otherwise → /practice. No PostHog is consulted. This suite proves that composition at the
@@ -161,6 +162,35 @@ describe('#1548 logged-out deep link → sign-in → the exact destination (cons
       expect(landed).toHaveAttribute('data-state', JSON.stringify({ tab: 'filler' }));
       expect(router.state.historyAction).toBe('REPLACE');
       // Every hop replaced: Back leaves for the page before the deep link, never the sign-in screen.
+      await act(async () => { await router.navigate(-1); });
+      expect(router.state.location.pathname).toBe('/practice');
+    });
+  }
+
+  // #1548 composed with #1700: the REAL legacy alias redirect runs before the protected canonical route, so a signed-out
+  // /analytics link (any casing) is canonicalized first and the sign-in round trip ends on /progress, never /analytics.
+  function startAtLegacy(entry: Entry) {
+    const router = createMemoryRouter([
+      { path: '/progress/:sessionId', element: <ProtectedRoute><Destination /></ProtectedRoute> },
+      { path: '/analytics/:sessionId', element: <LegacyProgressRedirect /> },
+      { path: '/auth', element: <AuthIndexRedirect to="/auth/signin" /> },
+      { path: '/auth/signin', element: <SignInPage /> },
+      { path: '/practice', element: <div data-testid="practice" /> },
+    ], { initialEntries: ['/practice', entry], initialIndex: 1 });
+    render(<RouterProvider router={router} />);
+    return router;
+  }
+
+  for (const legacy of ['/analytics', '/Analytics']) {
+    it(`legacy ${legacy}/<id>?q#hash signed out → canonical /progress → sign-in → /progress/<id>?q#hash with state (replace)`, async () => {
+      expect(ENV.isE2E).toBe(false);
+      const router = startAtLegacy({ pathname: `${legacy}/${ID}`, search: '?q=1', hash: '#trend', state: { tab: 'filler' } });
+      expect(await screen.findByTestId('email-input')).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe('/auth/signin');
+      act(() => authStore.set(authed()));
+      const landed = await screen.findByTestId('destination');
+      expect(landed).toHaveAttribute('data-location', `/progress/${ID}?q=1#trend`);
+      expect(landed).toHaveAttribute('data-state', JSON.stringify({ tab: 'filler' }));
       await act(async () => { await router.navigate(-1); });
       expect(router.state.location.pathname).toBe('/practice');
     });
