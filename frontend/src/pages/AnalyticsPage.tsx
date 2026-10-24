@@ -109,7 +109,7 @@ const APP_DOCUMENT_TITLE = 'SpeakSharp - Private Practice. Public Impact!';
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const queryClient = useQueryClient();
-    const { sessionHistory, overallStats, firstSessionAt, loading, error } = useAnalytics();
+    const { sessionHistory, allTime, firstSessionAt, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
     const [upgradeLoading, setUpgradeLoading] = useState(false);
@@ -244,7 +244,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                     profile={profile || null}
                     isProUser={isProUser}
                     sessionHistory={sessionHistory || []}
-                    overallStats={overallStats}
+                    allTime={allTime}
                     firstSessionAt={firstSessionAt}
                     loading={isLoading}
                     error={error || null}

@@ -42,7 +42,7 @@ import {
 
 import type { PracticeSession, SessionProduct } from '@/types/session';
 import type { UserProfile } from '@/types/user';
-import type { OverallStats } from '@/types/analytics';
+import type { AllTimeAggregate, OverallStats } from '@/types/analytics';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TEST_IDS } from '@/constants/testIds';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
@@ -99,7 +99,8 @@ interface AnalyticsDashboardProps {
     profile: UserProfile | null;
     isProUser?: boolean;
     sessionHistory: PracticeSession[];
-    overallStats: OverallStats;
+    /** #1472: the all-time aggregate, `complete` only when it is actually all-time (see useAnalytics). */
+    allTime: AllTimeAggregate;
     /** #1258 D5: the oldest counted session's `created_at` (null while unknown) — the header's "since {date}". */
     firstSessionAt?: string | null;
     loading: boolean;
@@ -156,15 +157,16 @@ type StatCardConfig = {
     label: string;
     getLabel?: (recent: RecentWindow) => string;
     icon: React.ReactNode;
-    getValue: (stats: OverallStats, recent: RecentWindow) => string | number | null;
+    /** #1472: `stats` is null unless the all-time aggregate is complete; an all-time card then shows no value. */
+    getValue: (stats: OverallStats | null, recent: RecentWindow) => string | number | null;
     unit?: string;
     description?: string;
     /** #1258 D5: the metric's colour dot on the card (TrendChart's palette). */
     metric?: TrendMetric;
     // Narrative-first: decode the raw value into a plain label (Fast / Choppy / Strong …).
-    getInterpretation?: (stats: OverallStats, recent: RecentWindow) => CoachingMetric;
+    getInterpretation?: (stats: OverallStats | null, recent: RecentWindow) => CoachingMetric;
     /** The card's one sentence when the grade must name the value it judged (fillers: the per-minute rate). */
-    getDetail?: (stats: OverallStats, recent: RecentWindow) => string | null;
+    getDetail?: (stats: OverallStats | null, recent: RecentWindow) => string | null;
 };
 
 const STAT_CARD_OPTIONS: StatCardConfig[] = [
@@ -172,18 +174,18 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         id: 'total_sessions',
         label: 'Total Sessions',
         icon: <Layers size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.totalSessions,
+        getValue: (stats) => stats?.totalSessions ?? null,
         description: 'Number of practice sessions completed'
     },
     {
         id: 'speaking_pace',
         label: 'Speaking Pace',
         icon: <Gauge size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.averageWPM,
+        getValue: (stats) => stats?.averageWPM ?? null,
         unit: 'WPM',
         description: 'Average words per minute',
         metric: 'wpm',
-        getInterpretation: (stats) => decodePace(stats.averageWPM),
+        getInterpretation: (stats) => decodePace(stats?.averageWPM ?? null),
     },
     {
         id: 'filler_words_per_min',
@@ -208,7 +210,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         label: 'Total Practice Time',
         icon: <Clock size={24} className="text-foreground/70" />,
         // #1045: formatted from exact seconds so a real but short total reads "<1 min", never "0 mins".
-        getValue: (stats) => formatDurationMinutes(stats.totalPracticeTimeSeconds),
+        getValue: (stats) => (stats ? formatDurationMinutes(stats.totalPracticeTimeSeconds) : null),
         description: 'Total time spent practicing'
     },
     {
@@ -216,20 +218,20 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         label: 'Clear delivery',
         icon: <Target size={24} className="text-foreground/70" />,
         metric: 'clarity',
-        getValue: (stats) => stats.avgClarity,
+        getValue: (stats) => stats?.avgClarity ?? null,
         unit: '%',
         description: 'Based on pace, fillers, and structure — not transcription accuracy.',
-        getInterpretation: (stats) => decodeClarity(stats.avgClarity),
+        getInterpretation: (stats) => decodeClarity(stats?.avgClarity ?? null),
     },
     {
         id: 'pause_rhythm',
         label: 'Pause Rhythm',
         icon: <AudioLines size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.avgPausesPerMin,
+        getValue: (stats) => stats?.avgPausesPerMin ?? null,
         unit: '/min',
         description: 'Pauses per minute. Healthy pauses make key ideas easier to follow.',
         metric: 'pauses',
-        getInterpretation: (stats) => decodePauseRhythm(stats.avgPausesPerMin),
+        getInterpretation: (stats) => decodePauseRhythm(stats?.avgPausesPerMin ?? null),
     },
     // Future stat cards can be added here
     {
@@ -237,7 +239,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         label: 'Avg. Session Length',
         icon: <Activity size={24} className="text-foreground/70" />,
         // #1045: Math.round turned every sub-30s average into the flatly false "0 mins".
-        getValue: (stats) => formatDurationMinutes(stats.averageSessionLengthSeconds),
+        getValue: (stats) => (stats ? formatDurationMinutes(stats.averageSessionLengthSeconds) : null),
         description: 'Average duration per session'
     },
 ];
@@ -543,7 +545,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     profile,
     isProUser: effectiveIsProUser,
     sessionHistory,
-    overallStats,
+    allTime,
     firstSessionAt = null,
     loading,
     error,
@@ -816,18 +818,26 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </DropdownMenu>
     );
     const newestSession = !sessionId && sessionHistory && sessionHistory.length > 0 ? sessionHistory[0] : null;
+    // #1472: all-time numbers exist only for a complete aggregate; otherwise the all-time cards and header count stay empty.
+    const overallStats = allTime.status === 'complete' ? allTime.stats : null;
 
     return (
         <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
             {/* #1258 D5: on the overview the ink header leads every state and owns the page h1. */}
             {!sessionId && (
                 <ProgressHeader
-                    sessionCount={Number(overallStats.totalSessions) || 0}
+                    sessionCount={overallStats ? Number(overallStats.totalSessions) || 0 : 0}
                     firstSessionAt={firstSessionAt}
                     latest={newestSession ? { product: newestSession.product ?? null, createdAt: newestSession.created_at } : null}
                     focusLabel={focusLabel}
                     focusControl={newestSession ? focusControl : null}
                 />
+            )}
+            {/* #1472: when the all-time aggregate is unavailable, say so instead of presenting the latest page as all-time. */}
+            {!sessionId && allTime.status === 'unavailable' && (
+                <p className="text-sm text-muted-foreground" data-testid="progress-alltime-unavailable">
+                    Your all-time totals can&rsquo;t load right now &mdash; showing your latest sessions.
+                </p>
             )}
             {loading ? (
                 <AnalyticsDashboardSkeleton />

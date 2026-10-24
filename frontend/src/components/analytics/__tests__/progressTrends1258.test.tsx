@@ -13,7 +13,7 @@ import { fillerBreakdownModel, fillerSummary } from '../fillerBreakdown';
 import { TrendsCard } from '../TrendsCard';
 
 vi.mock('@/hooks/useAnalytics', () => ({
-    useAnalytics: () => ({ weeklyActivity: [{ day: 'Mon', sessions: 2 }, { day: 'Tue', sessions: 1 }], loading: false, error: null }),
+    useAnalytics: () => ({ weekly: { status: 'complete', count: 3, activity: [{ day: 'Mon', sessions: 2 }, { day: 'Tue', sessions: 1 }] }, loading: false, error: null }),
 }));
 
 global.ResizeObserver = class ResizeObserver {

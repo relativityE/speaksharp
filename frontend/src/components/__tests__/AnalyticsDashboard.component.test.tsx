@@ -86,7 +86,7 @@ describe('AnalyticsDashboard', () => {
     const defaultProps = {
         profile: mockProfile,
         sessionHistory: [],
-        overallStats: mockStats,
+        allTime: { status: 'complete' as const, stats: mockStats },
         loading: false,
         error: null,
         onUpgrade: vi.fn(),
@@ -101,6 +101,33 @@ describe('AnalyticsDashboard', () => {
         const props = { ...defaultProps, ...propsOverride };
         return render(<AnalyticsDashboard {...props} />);
     };
+
+    describe('#1472: the overview never presents a partial page as all-time', () => {
+        it('unavailable all-time: no "You\'ve done" count, an explicit notice, empty all-time cards, recent history kept', () => {
+            renderComponent({ sessionHistory: mockSessionHistory, allTime: { status: 'unavailable', reason: 'summary_failed' }, firstSessionAt: '2026-09-01T10:00:00Z' });
+            expect(screen.queryByText(/You've done \d+ sessions/)).toBeNull();
+            // No header count line of any kind ("first session" included) is derived from the loaded page.
+            expect(screen.queryByTestId('progress-header-line')).toBeNull();
+            expect(screen.getByTestId('progress-alltime-unavailable')).toHaveTextContent('Your all-time totals can’t load right now');
+            // No all-time card may show the fixture's all-time numbers (10 sessions, 120 wpm) while unavailable.
+            const allTimeCards = ['stat-card-total_sessions', 'stat-card-speaking_pace'].map((id) => screen.queryByTestId(id)?.textContent ?? '');
+            expect(allTimeCards.join(' | ')).not.toMatch(/\b(10|120)\b/);
+            expect(screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-session-1`)).toBeInTheDocument();
+        });
+
+        it('loading all-time: no count claim and no unavailable notice', () => {
+            renderComponent({ sessionHistory: mockSessionHistory, allTime: { status: 'loading' }, firstSessionAt: '2026-09-01T10:00:00Z' });
+            expect(screen.queryByText(/You've done \d+ sessions/)).toBeNull();
+            expect(screen.queryByTestId('progress-header-line')).toBeNull();
+            expect(screen.queryByTestId('progress-alltime-unavailable')).toBeNull();
+        });
+
+        it('CONTROL complete all-time: the header states the real count', () => {
+            renderComponent({ allTime: { status: 'complete', stats: { ...mockStats, totalSessions: 21 } }, firstSessionAt: '2026-09-01T10:00:00Z' });
+            expect(screen.getByTestId('progress-header-line')).toHaveTextContent(/You've done 21 sessions since/);
+            expect(screen.queryByTestId('progress-alltime-unavailable')).toBeNull();
+        });
+    });
 
     it('should render loading skeleton when loading', () => {
         renderComponent({ loading: true });

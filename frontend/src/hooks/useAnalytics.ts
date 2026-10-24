@@ -12,6 +12,7 @@ import {
     calculateTopFillerWords,
 } from '../lib/analyticsUtils';
 import type { PracticeSession } from '../types/session';
+import type { AllTimeAggregate, AnalyticsSummary, OverallStats, WeeklyActivityDay, WeeklyAggregate } from '../types/analytics';
 import { DASHBOARD_PAGINATION_LIMIT } from '../config/env';
 import { useReadinessStore } from '../stores/useReadinessStore';
 
@@ -83,6 +84,44 @@ return null;
 // Empty fallback array (defined outside hook to prevent re-creation)
 const EMPTY_SESSIONS: PracticeSession[] = [];
 
+const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * The client's this-week counts, in the browser's local time (unchanged definition). `now` is captured ONCE by the
+ * caller so the counts and the coverage check below use the same clock. No parity with the database week is claimed.
+ */
+const clientWeekly = (sessions: PracticeSession[], now: Date) => {
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    const weeklySessionsCount = sessions.filter(s => new Date(s.created_at) >= sevenDaysAgo).length;
+    const dayCounts: Record<string, number> = {};
+    WEEK_DAYS.forEach(d => { dayCounts[d] = 0; });
+    sessions.forEach(s => {
+        const d = new Date(s.created_at);
+        if (d >= startOfWeek) dayCounts[WEEK_DAYS[d.getDay()]]++;
+    });
+    const weeklyActivity: WeeklyActivityDay[] = WEEK_DAYS.map(day => ({ day, sessions: dayCounts[day] }));
+    return { weeklySessionsCount, weeklyActivity, sevenDaysAgo, startOfWeek };
+};
+
+/**
+ * #1472: a newest-first PARTIAL page proves this week's counts only when its oldest row has a valid timestamp strictly
+ * before BOTH window boundaries — then every session inside the windows is on the page. Empty or invalid proves nothing.
+ */
+const pageCoversWeek = (sessions: PracticeSession[], sevenDaysAgo: Date, startOfWeek: Date): boolean => {
+    const oldest = sessions.length > 0 ? new Date(sessions[sessions.length - 1].created_at) : null;
+    if (!oldest || !Number.isFinite(oldest.getTime())) return false;
+    return oldest < sevenDaysAgo && oldest < startOfWeek;
+};
+
+const isValidSummary = (s: AnalyticsSummary | null | undefined): s is AnalyticsSummary =>
+    !!s && typeof s === 'object' && !!s.overallStats && typeof s.overallStats === 'object';
+
+const isValidRpcWeekly = (s: AnalyticsSummary): boolean =>
+    Number.isFinite(Number(s.weeklySessionsCount)) && Array.isArray(s.weeklyActivity);
+
 export const useAnalytics = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { user } = useAuthProvider();
@@ -92,7 +131,7 @@ export const useAnalytics = () => {
         limit: DASHBOARD_PAGINATION_LIMIT,
     }), []);
 
-    const { data: allSessions = EMPTY_SESSIONS, isLoading, error } = usePracticeHistory(paginationOptions);
+    const { data: allSessions = EMPTY_SESSIONS, isLoading, error, dataUpdatedAt: historyUpdatedAt } = usePracticeHistory(paginationOptions);
     const { data: specificSession, isLoading: isSessionLoading } = useSession(sessionId);
 
     // Signal Analytics Readiness (Critical Query Settlement)
@@ -105,7 +144,7 @@ export const useAnalytics = () => {
         }
     }, [isLoading, error]);
 
-    const { data: totalSessionsCount = 0 } = useQuery({
+    const sessionCountQuery = useQuery({
         queryKey: ["sessionCount", user?.id],
         queryFn: () => getSessionCount(user!.id),
         enabled: !!user && !sessionId,
@@ -118,18 +157,25 @@ export const useAnalytics = () => {
         enabled: !!user && !sessionId,
     });
 
+    // #1472: a pending or failed count is NOT zero. It no longer defaults the history into a "complete" client total.
+    const totalSessionsCount = sessionCountQuery.isSuccess ? sessionCountQuery.data : null;
+
     // Use RPC for aggregation when dataset is large (> 20 sessions)
     // and we are not in a specific session view.
-    const shouldUseRPC = totalSessionsCount > 20 && !sessionId;
+    const shouldUseRPC = totalSessionsCount !== null && totalSessionsCount > 20 && !sessionId;
 
-    const { data: summaryData, isLoading: isSummaryLoading } = useQuery({
+    const summaryQuery = useQuery({
         queryKey: ["analyticsSummary", user?.id],
         queryFn: () => getAnalyticsSummary(user!.id),
         enabled: !!user && shouldUseRPC,
         staleTime: 5 * 60 * 1000,
     });
+    const summaryData = summaryQuery.data;
+    const isSummaryLoading = summaryQuery.isLoading;
 
     const sessionsToUse = allSessions;
+    // #1472: ONE clock per history snapshot (when it was fetched) for this week's counts and the page-coverage check.
+    const weeklyNow = useMemo(() => new Date(historyUpdatedAt || Date.now()), [historyUpdatedAt]);
 
     logger.debug({ sessionId, isLoading, sessions: sessionsToUse?.length }, '[useAnalytics] Hook called');
 
@@ -218,23 +264,8 @@ export const useAnalytics = () => {
         const fillerWordTrends = calculateFillerWordTrends(sessionHistory);
         const topFillerWords = calculateTopFillerWords(sessionHistory);
 
-        // Client-side fallback for weekly metrics
-        const now = new Date();
-        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        const weeklySessionsCount = sessionHistory.filter(s => new Date(s.created_at) >= sevenDaysAgo).length;
-
-        const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() - now.getDay());
-        startOfWeek.setHours(0, 0, 0, 0);
-
-        const dayCounts: Record<string, number> = {};
-        DAYS.forEach(d => { dayCounts[d] = 0; });
-        sessionHistory.forEach(s => {
-            const d = new Date(s.created_at);
-            if (d >= startOfWeek) dayCounts[DAYS[d.getDay()]]++;
-        });
-        const weeklyActivity = DAYS.map(day => ({ day, sessions: dayCounts[day] }));
+        // Client-side fallback for weekly metrics (local time, one captured clock — see clientWeekly).
+        const { weeklySessionsCount, weeklyActivity } = clientWeekly(sessionHistory, weeklyNow);
 
         return {
             overallStats,
@@ -243,7 +274,59 @@ export const useAnalytics = () => {
             weeklySessionsCount,
             weeklyActivity
         };
-    }, [shouldUseRPC, summaryData, sessionHistory]);
+    }, [shouldUseRPC, summaryData, sessionHistory, weeklyNow]);
+
+    /**
+     * #1472: what the overview may call ALL-TIME, and this week's counts. Exact states (Sam 1792882179):
+     *  - count pending → loading; count error → unavailable.
+     *  - count ≤ 20: history pending → loading; history error → unavailable; settled length ≠ count (incl. a positive count
+     *    with an empty page) → unavailable; settled length === count (incl. 0) → complete from that full history.
+     *  - count > 20: only a valid, successful summary with no error is complete; a summary error (with or without cached
+     *    data) or a settled missing/invalid summary is unavailable. A history error does not invalidate a valid summary.
+     */
+    const { allTime, weekly } = useMemo((): { allTime: AllTimeAggregate; weekly: WeeklyAggregate } => {
+        if (!sessionCountQuery.isSuccess) {
+            return sessionCountQuery.isError
+                ? { allTime: { status: 'unavailable', reason: 'session_count_unavailable' }, weekly: { status: 'unavailable' } }
+                : { allTime: { status: 'loading' }, weekly: { status: 'loading' } };
+        }
+        const count = sessionCountQuery.data;
+        const historyPending = isLoading && !error;
+        const page = allSessions;
+        const partialWeekly = (): WeeklyAggregate => {
+            if (historyPending) return { status: 'loading' };
+            if (error) return { status: 'unavailable' };
+            const w = clientWeekly(page, weeklyNow);
+            return pageCoversWeek(page, w.sevenDaysAgo, w.startOfWeek)
+                ? { status: 'complete', count: w.weeklySessionsCount, activity: w.weeklyActivity }
+                : { status: 'unavailable' };
+        };
+        if (count <= 20) {
+            if (historyPending) return { allTime: { status: 'loading' }, weekly: { status: 'loading' } };
+            if (error) return { allTime: { status: 'unavailable', reason: 'history_failed' }, weekly: { status: 'unavailable' } };
+            if (page.length !== count) return { allTime: { status: 'unavailable', reason: 'history_incomplete' }, weekly: partialWeekly() };
+            const w = clientWeekly(page, weeklyNow);
+            return {
+                allTime: { status: 'complete', stats: analyticsData.overallStats as OverallStats },
+                weekly: { status: 'complete', count: w.weeklySessionsCount, activity: w.weeklyActivity },
+            };
+        }
+        if (summaryQuery.isError) {
+            return {
+                allTime: { status: 'unavailable', reason: summaryQuery.data ? 'summary_refetch_failed' : 'summary_failed' },
+                weekly: partialWeekly(),
+            };
+        }
+        if (summaryQuery.isPending) return { allTime: { status: 'loading' }, weekly: { status: 'loading' } };
+        if (!isValidSummary(summaryData)) return { allTime: { status: 'unavailable', reason: 'summary_failed' }, weekly: partialWeekly() };
+        return {
+            allTime: { status: 'complete', stats: analyticsData.overallStats as OverallStats },
+            weekly: isValidRpcWeekly(summaryData)
+                ? { status: 'complete', count: Number(summaryData.weeklySessionsCount), activity: summaryData.weeklyActivity }
+                : partialWeekly(),
+        };
+    }, [sessionCountQuery.isSuccess, sessionCountQuery.isError, sessionCountQuery.data, summaryQuery.isError,
+        summaryQuery.isPending, summaryQuery.data, summaryData, isLoading, error, allSessions, analyticsData, weeklyNow]);
 
     // CRITICAL: Don't wait for individual session query if the session list
     // has already loaded and the session isn't in it. This prevents the
@@ -257,9 +340,13 @@ export const useAnalytics = () => {
         ? isSessionLoading
         : false;
 
+    // #1472: the window-derived `overallStats` / weekly fields are NOT returned bare; consumers read `allTime` / `weekly`.
     return {
         sessionHistory,
-        ...analyticsData,
+        fillerWordTrends: analyticsData.fillerWordTrends,
+        topFillerWords: analyticsData.topFillerWords,
+        allTime,
+        weekly,
         firstSessionAt,
         loading: (isLoading && !error) || (effectiveSessionLoading && !error) || (shouldUseRPC && isSummaryLoading),
         error

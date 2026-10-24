@@ -8,6 +8,7 @@ import * as AuthProvider from '../../contexts/AuthProvider';
 import * as UserProfileHook from '@/hooks/useUserProfile';
 import * as conversionFunnel from '@/services/conversionFunnel';
 import { enablePaymentsForTest } from '../../../tests/support/payments';
+import { AnalyticsDashboard } from '../../components/AnalyticsDashboard';
 
 // Mock modules
 vi.mock('../../hooks/useAnalytics');
@@ -140,6 +141,16 @@ describe('AnalyticsPage', () => {
         it('should pass profile to AnalyticsDashboard', () => {
             renderAnalyticsPage('/analytics');
             expect(screen.getByText('Mock Dashboard - Has Profile')).toBeInTheDocument();
+        });
+
+        it('#1472: threads the all-time aggregate from useAnalytics into the dashboard unchanged', () => {
+            const allTime = { status: 'unavailable', reason: 'summary_failed' } as const;
+            mockUseAnalytics.mockReturnValue({
+                sessionHistory: [], allTime, loading: false, error: null,
+            } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
+            renderAnalyticsPage('/analytics');
+            const props = vi.mocked(AnalyticsDashboard).mock.calls[vi.mocked(AnalyticsDashboard).mock.calls.length - 1]?.[0];
+            expect(props?.allTime).toEqual(allTime);
         });
     });
 

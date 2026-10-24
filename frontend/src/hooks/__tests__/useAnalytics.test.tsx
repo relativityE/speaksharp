@@ -34,6 +34,14 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 );
 
+/** #1472: all-time numbers exist only inside a `complete` aggregate; anything else fails the read loudly. */
+type HookResult = { current: ReturnType<typeof useAnalytics> };
+const statsOf = (result: HookResult) => {
+    const a = result.current.allTime;
+    if (a.status !== 'complete') throw new Error(`allTime is ${a.status}${a.status === 'unavailable' ? ` (${a.reason})` : ''}`);
+    return a.stats;
+};
+
 describe('useAnalytics', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -89,10 +97,11 @@ describe('useAnalytics', () => {
             { word: 'uh', count: 3 },
         ]);
 
-        expect(result.current.overallStats.totalSessions).toBe(2);
-        expect(result.current.overallStats.totalPracticeTime).toBe(3); // 180s / 60 = 3m
-        expect(result.current.weeklySessionsCount).toBe(2);
-        expect(result.current.weeklyActivity).toHaveLength(7);
+        await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
+        expect(statsOf(result).totalSessions).toBe(2);
+        expect(statsOf(result).totalPracticeTime).toBe(3); // 180s / 60 = 3m
+        expect(result.current.weekly).toMatchObject({ status: 'complete', count: 2, activity: expect.any(Array) });
+        expect((result.current.weekly as { activity: unknown[] }).activity).toHaveLength(7);
     });
 
     it('should filter sessions when sessionId is present in URL', async () => {
@@ -114,7 +123,8 @@ describe('useAnalytics', () => {
 
         expect(result.current.sessionHistory).toHaveLength(1);
         expect(result.current.sessionHistory[0].id).toBe('s1');
-        expect(result.current.overallStats.totalSessions).toBe(1);
+        // #1472: the session-detail view never fetches the count, so it never claims an all-time aggregate.
+        expect(result.current.allTime.status).not.toBe('complete');
     });
 
     /**
@@ -151,13 +161,13 @@ describe('useAnalytics', () => {
             (getSessionCount as Mock).mockResolvedValue(40); // > 20 -> RPC path
             (getAnalyticsSummary as Mock).mockResolvedValue(summary);
             const { result } = renderHook(() => useAnalytics(), { wrapper });
-            await vi.waitFor(() => expect(result.current.overallStats.totalSessions).toBe(40));
+            await vi.waitFor(() => expect(statsOf(result).totalSessions).toBe(40));
             return result;
         };
 
         it('derives duration in seconds from the minutes the RPC actually returns', async () => {
             const result = await renderWithRpc(rpcSummary());
-            const stats = result.current.overallStats;
+            const stats = statsOf(result);
             expect(stats.totalPracticeTimeSeconds).toBe(200 * 60);
             expect(stats.averageSessionLengthSeconds).toBeCloseTo((200 * 60) / 40, 5);
             expect(stats.averageSessionLength).toBeCloseTo(200 / 40, 5);
@@ -165,12 +175,12 @@ describe('useAnalytics', () => {
 
         it('maps the RPC clarity field instead of dropping Clear Delivery on this path', async () => {
             const result = await renderWithRpc(rpcSummary());
-            expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(81.5, 5);
+            expect(Number(statsOf(result).avgClarity)).toBeCloseTo(81.5, 5);
         });
 
         it('reports duration as unknown — never 0 mins — when the RPC returns no usable duration', async () => {
             const result = await renderWithRpc(rpcSummary({ totalPracticeTime: 0 }));
-            const stats = result.current.overallStats;
+            const stats = statsOf(result);
             // Rounded minutes of 0 means the total is under 30s: real, but not expressible at this
             // precision. Unknown is honest; "0 mins" would repeat the defect this PR fixes.
             expect(stats.averageSessionLengthSeconds).toBeNull();
@@ -179,7 +189,7 @@ describe('useAnalytics', () => {
 
         it('reports pause rhythm as unknown because the RPC does not compute it', async () => {
             const result = await renderWithRpc(rpcSummary());
-            expect(result.current.overallStats.avgPausesPerMin).toBeNull();
+            expect(statsOf(result).avgPausesPerMin).toBeNull();
         });
 
         /**
@@ -190,23 +200,23 @@ describe('useAnalytics', () => {
         describe('#1091 RPC evidence-validity contract', () => {
             it('passes the real clarity average through when contributors exist', async () => {
                 const result = await renderWithRpc(rpcSummary());
-                expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(81.5, 5);
-                expect(result.current.overallStats.averageWPM).toBe(145);
-                expect(Number(result.current.overallStats.avgFillerWordsPerMin)).toBeCloseTo(2.4, 5);
+                expect(Number(statsOf(result).avgClarity)).toBeCloseTo(81.5, 5);
+                expect(statsOf(result).averageWPM).toBe(145);
+                expect(Number(statsOf(result).avgFillerWordsPerMin)).toBeCloseTo(2.4, 5);
             });
 
             it('prefers the explicit avgClarity key over the legacy avgAccuracy alias', async () => {
                 const result = await renderWithRpc(
                     rpcSummary({ avgClarity: '74.2', avgAccuracy: '81.5' }),
                 );
-                expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(74.2, 5);
+                expect(Number(statsOf(result).avgClarity)).toBeCloseTo(74.2, 5);
             });
 
             it('still reads clarity from avgAccuracy when only the alias is populated', async () => {
                 const result = await renderWithRpc(
                     rpcSummary({ avgClarity: null, avgAccuracy: '77.0' }),
                 );
-                expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(77, 5);
+                expect(Number(statsOf(result).avgClarity)).toBeCloseTo(77, 5);
             });
 
             it('reports clarity as unknown — not 0.0 — when zero sessions carry clarity evidence', async () => {
@@ -216,9 +226,9 @@ describe('useAnalytics', () => {
                 const result = await renderWithRpc(
                     rpcSummary({ avgClarity: null, avgAccuracy: null, clarityContributorCount: 0 }),
                 );
-                expect(result.current.overallStats.avgClarity).toBeNull();
-                expect(result.current.overallStats.avgClarity).not.toBe('0.0');
-                expect(result.current.overallStats.avgClarity).not.toBe(0);
+                expect(statsOf(result).avgClarity).toBeNull();
+                expect(statsOf(result).avgClarity).not.toBe('0.0');
+                expect(statsOf(result).avgClarity).not.toBe(0);
             });
 
             it('never resurrects a number from a stale value when the contributor count is 0', async () => {
@@ -227,7 +237,7 @@ describe('useAnalytics', () => {
                 const result = await renderWithRpc(
                     rpcSummary({ avgClarity: '0.0', avgAccuracy: '0.0', clarityContributorCount: 0 }),
                 );
-                expect(result.current.overallStats.avgClarity).toBeNull();
+                expect(statsOf(result).avgClarity).toBeNull();
             });
 
             it('degrades every guarded aggregate to unknown on a legacy/unmigrated RPC payload', async () => {
@@ -247,7 +257,7 @@ describe('useAnalytics', () => {
                     chartData: [],
                 };
                 const result = await renderWithRpc(legacy);
-                const stats = result.current.overallStats;
+                const stats = statsOf(result);
                 expect(stats.avgClarity).toBeNull();
                 expect(stats.averageWPM).toBeNull();
                 expect(stats.avgFillerWordsPerMin).toBeNull();
@@ -264,20 +274,144 @@ describe('useAnalytics', () => {
                         fillerRateContributorCount: 0,
                     }),
                 );
-                expect(result.current.overallStats.averageWPM).toBeNull();
-                expect(result.current.overallStats.avgFillerWordsPerMin).toBeNull();
+                expect(statsOf(result).averageWPM).toBeNull();
+                expect(statsOf(result).avgFillerWordsPerMin).toBeNull();
                 // Clarity is gated independently and still passes through.
-                expect(Number(result.current.overallStats.avgClarity)).toBeCloseTo(81.5, 5);
+                expect(Number(statsOf(result).avgClarity)).toBeCloseTo(81.5, 5);
             });
 
             it('preserves a genuine zero filler rate — real evidence of clean delivery', async () => {
                 const result = await renderWithRpc(
                     rpcSummary({ avgFillerWordsPerMin: '0.0', fillerRateContributorCount: 38 }),
                 );
-                expect(Number(result.current.overallStats.avgFillerWordsPerMin)).toBe(0);
-                expect(result.current.overallStats.avgFillerWordsPerMin).not.toBeNull();
+                expect(Number(statsOf(result).avgFillerWordsPerMin)).toBe(0);
+                expect(statsOf(result).avgFillerWordsPerMin).not.toBeNull();
             });
         });
     });
 
+
+    /**
+     * #1472 (Sam 1792882179): the overview's ALL-TIME aggregate and this week's counts are `complete` only when they really
+     * cover all history / the whole week. A failed or pending count, a short page or a failed summary never becomes a total.
+     */
+    describe('#1472 all-time and weekly availability', () => {
+        const day = 24 * 60 * 60 * 1000;
+        const row = (id: string, ageMs: number, duration = 60) =>
+            ({ id, created_at: new Date(Date.now() - ageMs).toISOString(), duration, total_words: 100, filler_counts: { um: 1 }, engine: 'Private' });
+        const history = (rows: unknown[], over: Record<string, unknown> = {}) =>
+            (usePracticeHistory as Mock).mockReturnValue({ data: rows, isLoading: false, error: null, ...over });
+        const summary = {
+            overallStats: { totalSessions: 21, totalPracticeTime: 30, avgWpm: 120, clarityContributorCount: 0, wpmContributorCount: 21, fillerRateContributorCount: 0 },
+            fillerWordTrends: {}, topFillerWords: [], weeklySessionsCount: 3, weeklyActivity: [{ day: 'Mon', sessions: 3 }],
+        };
+        // Sam's fixture: 21 sessions = newest 20 × 60 s plus the oldest 600 s → all-time is 21 sessions / 30 min, never 20 / 20.
+        const newest20 = Array.from({ length: 20 }, (_, i) => row(`n${i}`, i * 60 * 60 * 1000));
+
+        it('count pending → loading (never a default 0 that makes the page "complete")', async () => {
+            history([row('a', 0)]);
+            (getSessionCount as Mock).mockReturnValue(new Promise(() => {}));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            expect(result.current.allTime).toEqual({ status: 'loading' });
+            expect(result.current.weekly).toEqual({ status: 'loading' });
+        });
+
+        it('count error → unavailable, even with a short loaded history', async () => {
+            history([row('a', 0)]);
+            (getSessionCount as Mock).mockRejectedValue(new Error('count failed'));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime).toEqual({ status: 'unavailable', reason: 'session_count_unavailable' }));
+        });
+
+        it('≤ 20 with settled length ≠ count (positive count, empty page) → unavailable, not perpetual loading', async () => {
+            history([]);
+            (getSessionCount as Mock).mockResolvedValue(3);
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime).toEqual({ status: 'unavailable', reason: 'history_incomplete' }));
+        });
+
+        it('≤ 20 with a history error → unavailable', async () => {
+            history([], { error: new Error('history failed') });
+            (getSessionCount as Mock).mockResolvedValue(2);
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime).toEqual({ status: 'unavailable', reason: 'history_failed' }));
+        });
+
+        it('successful 0 / empty history is complete', async () => {
+            history([]);
+            (getSessionCount as Mock).mockResolvedValue(0);
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
+            expect(statsOf(result).totalSessions).toBe(0);
+        });
+
+        it('> 20 with a summary error and no cache → unavailable; the newest 20 never become 20 sessions / 20 min', async () => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockRejectedValue(new Error('rpc failed'));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime).toEqual({ status: 'unavailable', reason: 'summary_failed' }));
+            // All 20 rows are inside this week's windows and the page's oldest row does not reach past them.
+            expect(result.current.weekly).toEqual({ status: 'unavailable' });
+        });
+
+        it('> 20 summary loading → loading', async () => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockReturnValue(new Promise(() => {}));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(getAnalyticsSummary).toHaveBeenCalled());
+            expect(result.current.allTime).toEqual({ status: 'loading' });
+        });
+
+        it('> 20 recovery: an error, then a successful refetch → complete with the summary values', async () => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockRejectedValueOnce(new Error('rpc failed')).mockResolvedValue(summary);
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('unavailable'));
+            await queryClient.refetchQueries({ queryKey: ['analyticsSummary'] });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
+            expect(statsOf(result).totalSessions).toBe(21);
+            expect(result.current.weekly).toEqual({ status: 'complete', count: 3, activity: [{ day: 'Mon', sessions: 3 }] });
+        });
+
+        it('> 20 stale cached summary plus a refetch error → unavailable (summary_refetch_failed)', async () => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockResolvedValueOnce(summary).mockRejectedValue(new Error('refetch failed'));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
+            await queryClient.refetchQueries({ queryKey: ['analyticsSummary'] }).catch(() => undefined);
+            await vi.waitFor(() => expect(result.current.allTime).toEqual({ status: 'unavailable', reason: 'summary_refetch_failed' }));
+        });
+
+        it('> 20 a history error does not invalidate a valid summary', async () => {
+            history([], { error: new Error('history failed') });
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockResolvedValue(summary);
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
+            expect(result.current.error).toBeTruthy();
+        });
+
+        it('weekly from a partial page: complete only when the oldest row is before BOTH boundaries', async () => {
+            const covering = [row('w1', 0), row('w2', 1 * day), ...Array.from({ length: 18 }, (_, i) => row(`o${i}`, (9 + i) * day))];
+            history(covering);
+            (getSessionCount as Mock).mockResolvedValue(30);
+            (getAnalyticsSummary as Mock).mockRejectedValue(new Error('rpc failed'));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('unavailable'));
+            expect(result.current.weekly).toMatchObject({ status: 'complete', count: 2 });
+        });
+
+        it('weekly: an invalid oldest timestamp proves nothing', async () => {
+            history([row('w1', 0), { ...row('bad', 30 * day), created_at: 'not-a-date' }]);
+            (getSessionCount as Mock).mockResolvedValue(30);
+            (getAnalyticsSummary as Mock).mockRejectedValue(new Error('rpc failed'));
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('unavailable'));
+            expect(result.current.weekly).toEqual({ status: 'unavailable' });
+        });
+    });
 });
