@@ -29,6 +29,41 @@ const model = JSON.parse(readFileSync('backend/supabase/functions/get-ai-suggest
 const payload = '{"version":"gemini_coaching_v1","what_worked":"Synthetic control","what_to_try_next":"Synthetic next step"}';
 // The closure request and scope are explicit arguments: the operation triple alone is never fence authority (Sam 1792829599.283729).
 const FENCE_RPC = 'public.fence_account_coaching_unknown_v1(uuid,uuid,uuid,uuid,text,text)';
+/**
+ * One PostgreSQL v3 simple-query message over the fixture's trust-auth Unix socket, exactly what `psql -c` sends:
+ * argv: socket file, user, database, SQL file. Exit 1 with `ERROR:  <SQLSTATE>: <message>` on the first server error.
+ */
+const SIMPLE_QUERY = `
+import net from 'node:net'; import { readFileSync } from 'node:fs'; import process from 'node:process'; import { Buffer } from 'node:buffer';
+const [path, user, database, file] = process.argv.slice(1);
+const int32 = n => { const b = Buffer.alloc(4); b.writeInt32BE(n); return b; };
+const cstr = s => Buffer.concat([Buffer.from(s, 'utf8'), Buffer.from([0])]);
+const startup = Buffer.concat([int32(196608), cstr('user'), cstr(user), cstr('database'), cstr(database),
+  cstr('client_encoding'), cstr('UTF8'), Buffer.from([0])]);
+const query = cstr(readFileSync(file, 'utf8'));
+const socket = net.createConnection(path);
+let buffer = Buffer.alloc(0), queried = false, error = null;
+const fail = message => { process.stderr.write(message + '\\n'); process.exit(2); };
+socket.on('error', e => fail('simple-query transport: ' + e.message));
+socket.on('connect', () => socket.write(Buffer.concat([int32(startup.length + 4), startup])));
+socket.on('data', chunk => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (buffer.length >= 5 && buffer.length >= 1 + buffer.readInt32BE(1)) {
+    const type = String.fromCharCode(buffer[0]), body = buffer.subarray(5, 1 + buffer.readInt32BE(1));
+    buffer = buffer.subarray(1 + buffer.readInt32BE(1));
+    if (type === 'R' && body.readInt32BE(0) !== 0) fail('simple-query transport: fixture must use trust authentication');
+    if (type === 'E' && !error) {
+      const fields = {}; let at = 0;
+      while (body[at]) { const end = body.indexOf(0, at + 1); fields[String.fromCharCode(body[at])] = body.toString('utf8', at + 1, end); at = end + 1; }
+      error = 'ERROR:  ' + fields.C + ': ' + fields.M;
+    }
+    if (type !== 'Z') continue;
+    if (!queried && !error) { queried = true; socket.write(Buffer.concat([Buffer.from('Q'), int32(query.length + 4), query])); continue; }
+    socket.end(Buffer.from([0x58, 0, 0, 0, 4]));
+    if (error) { process.stderr.write(error + '\\n'); process.exitCode = 1; }
+  }
+});
+`;
 
 test('#1643 UNKNOWN-coaching fence: effective ACLs, writer refusal and serialization (native)', async t => {
   const root = mkdtempSync(join(tmpdir(), 'coaching-fence-')); const data = join(root, 'data');
@@ -37,13 +72,17 @@ test('#1643 UNKNOWN-coaching fence: effective ACLs, writer refusal and serializa
     PGHOST: socket, PGPORT: '5432', PGUSER: 'fence_test_admin', PGDATABASE: 'postgres' };
   const args = ['-h', socket, '-p', '5432', '-U', env.PGUSER, '-d', 'postgres', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'];
   // Linux caps ONE argv string at 128 KiB (MAX_ARG_STRLEN; CI run 40079862636 failed `spawnSync psql E2BIG` on the
-  // ~254 KB completion chain), far below macOS. Larger SQL runs from a file in this test's own temp root on every host.
+  // ~254 KB completion chain), far below macOS. `psql -f`/stdin would split the text into autocommitted statements and
+  // change bootstrap atomicity (Sam 1792832242.032489). Larger SQL therefore goes from a file in this test's own temp
+  // root as the SAME single simple-query message `psql -c` sends: one implicit transaction divided only by the text's own
+  // BEGIN/COMMIT, stopping at the first error, with its SET ROLE/SET LOCAL context unchanged. It returns no rows.
   let statementFiles = 0;
   const sql = text => {
     const options = { env, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] };
     if (Buffer.byteLength(text) <= 100_000) return execFileSync('psql', [...args, '-c', text], options).trim();
     const file = join(root, `statement-${++statementFiles}.sql`); writeFileSync(file, text);
-    return execFileSync('psql', [...args, '-f', file], { ...options, timeout: 120_000 }).trim();
+    return execFileSync(process.execPath, ['--input-type=module', '-e', SIMPLE_QUERY, join(socket, '.s.PGSQL.5432'),
+      env.PGUSER, env.PGDATABASE, file], { ...options, timeout: 120_000 }).trim();
   };
   const json = text => JSON.parse(sql(text).split('\n').at(-1));
   /** Run a statement expected to fail; return its stderr (SQLSTATE in VERBOSITY=verbose), or null if it succeeded. */
@@ -122,6 +161,23 @@ test('#1643 UNKNOWN-coaching fence: effective ACLs, writer refusal and serializa
     execFileSync('pg_ctl', ['-D', data, '-l', join(root, 'postgres.log'), '-w', 'start', '-o',
       `-F -k ${socket} -h '' -p 5432 -c max_connections=10 -c shared_buffers=16MB -c work_mem=1MB -c deadlock_timeout=100ms`], { encoding: 'utf8' });
     started = true; assert.equal(sql("SELECT current_setting('data_directory')"), data);
+    // TRANSPORT CONTROL: the same multi-statement text through `psql -c` and (padded past 100 KB) through the simple-query
+    // sender must commit what its own BEGIN/COMMIT commits, roll back the failing implicit transaction, and report the
+    // same SQLSTATE. Proves the large-text route does not change atomicity before any bootstrap relies on it.
+    {
+      const probe = (prefix, pad = '') => `CREATE TABLE ${prefix}_a(); BEGIN; CREATE TABLE ${prefix}_b(); COMMIT;
+        CREATE TABLE ${prefix}_c(); SET LOCAL statement_timeout = '5s'; SELECT 1/0;${pad}`;
+      const outcome = prefix => ['a', 'b', 'c'].map(suffix => sql(`SELECT to_regclass('${prefix}_${suffix}') IS NOT NULL`));
+      const viaArgument = failure(probe('transport_argument'));
+      const viaMessage = failure(probe('transport_message', '\n-- ' + 'x'.repeat(110_000)));
+      assert.equal(statementFiles, 1, 'the padded probe must take the large-text route');
+      assert.match(viaArgument ?? 'SUCCEEDED', /22012/); assert.match(viaMessage ?? 'SUCCEEDED', /22012/);
+      const argument = outcome('transport_argument'), message = outcome('transport_message');
+      assert.deepEqual(argument, ['t', 't', 'f'], 'psql -c reference semantics');
+      assert.deepEqual(message, argument, 'large-text route changed atomicity');
+      baseline.transportControl = { argument, message, argumentError: viaArgument.split('\n')[0], messageError: viaMessage.split('\n')[0] };
+      sql('DROP TABLE transport_argument_a, transport_argument_b, transport_message_a, transport_message_b');
+    }
     // The actual completion chain (the same fixture the accepted native completion proof uses), split at the pending
     // bootstrap so the hosted role defaults below are in force BEFORE quota/authority/M5 run as the schema owner.
     const pending = pendingBootstrap() + '\nRESET ROLE;\n', chain = completionBootstrap();
@@ -204,7 +260,7 @@ test('#1643 UNKNOWN-coaching fence: effective ACLs, writer refusal and serializa
       baseline.authDeleteWithUnknown = (failure(remove(b)) ?? '').match(/55000|coaching operation unsettled/) ? 'blocked_55000' : 'not_blocked';
       baseline.fenceRpc = fenceAvailable() ? 'present' : 'absent';
       baseline.fenceMigration = fenceMigration;
-      baseline.statementsViaFile = statementFiles; // >100 KB SQL never passed as one argv string
+      baseline.statementsViaFile = statementFiles; // >100 KB SQL never passed as one argv string (incl. the control probe)
     }
 
     await t.test('ACL: service_role cannot write sessions.ai_suggestions directly (UPDATE)', () => {
