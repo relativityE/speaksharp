@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
+import { Buffer } from 'node:buffer';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pendingBootstrap, closureMigration } from './account-closure-pending-fixture.mjs';
 import { completionBootstrap, recordingChain } from './account-completion-fixture.mjs';
@@ -35,7 +36,15 @@ test('#1643 UNKNOWN-coaching fence: effective ACLs, writer refusal and serializa
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('PG'))),
     PGHOST: socket, PGPORT: '5432', PGUSER: 'fence_test_admin', PGDATABASE: 'postgres' };
   const args = ['-h', socket, '-p', '5432', '-U', env.PGUSER, '-d', 'postgres', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'];
-  const sql = text => execFileSync('psql', [...args, '-c', text], { env, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  // Linux caps ONE argv string at 128 KiB (MAX_ARG_STRLEN; CI run 40079862636 failed `spawnSync psql E2BIG` on the
+  // ~254 KB completion chain), far below macOS. Larger SQL runs from a file in this test's own temp root on every host.
+  let statementFiles = 0;
+  const sql = text => {
+    const options = { env, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] };
+    if (Buffer.byteLength(text) <= 100_000) return execFileSync('psql', [...args, '-c', text], options).trim();
+    const file = join(root, `statement-${++statementFiles}.sql`); writeFileSync(file, text);
+    return execFileSync('psql', [...args, '-f', file], { ...options, timeout: 120_000 }).trim();
+  };
   const json = text => JSON.parse(sql(text).split('\n').at(-1));
   /** Run a statement expected to fail; return its stderr (SQLSTATE in VERBOSITY=verbose), or null if it succeeded. */
   const failure = text => { try { sql(text); return null; } catch (error) { return String(error.stderr ?? error.message); } };
@@ -195,6 +204,7 @@ test('#1643 UNKNOWN-coaching fence: effective ACLs, writer refusal and serializa
       baseline.authDeleteWithUnknown = (failure(remove(b)) ?? '').match(/55000|coaching operation unsettled/) ? 'blocked_55000' : 'not_blocked';
       baseline.fenceRpc = fenceAvailable() ? 'present' : 'absent';
       baseline.fenceMigration = fenceMigration;
+      baseline.statementsViaFile = statementFiles; // >100 KB SQL never passed as one argv string
     }
 
     await t.test('ACL: service_role cannot write sessions.ai_suggestions directly (UPDATE)', () => {
