@@ -471,9 +471,9 @@ test('all-zero base selects all registered contracts; realpath accepts symlinked
   } finally {fs.rmSync(link,{force:true});fs.rmSync(directory,{recursive:true,force:true});}
 });
 
-// Explicit opt-in only. No installed-host qualification is implied by the Node-only fixture count.
+// Hosted CI always runs these controls; local Node-only fixtures require explicit opt-in.
 // Run on a provisioned host: TEST_EFFICACY_REAL_RUNTIME=1 node --test tests/unit/testEfficacy.test.js
-if (process.env.TEST_EFFICACY_REAL_RUNTIME === '1') {
+if (process.env.GITHUB_ACTIONS === 'true' || process.env.TEST_EFFICACY_REAL_RUNTIME === '1') {
   test('INSTALLED Vitest 3.2.4: real fixture phases and adversarial setup/hook/error rejection', () => {
     runtimeIdentity(root); // Missing/wrong runtime fails; never substitutes the synthetic adapter.
     for (const scenario of ['ordinary', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'cleanup', 'import', 'unhandled', 'interruption']) {

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
+import {registeredHelper, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
@@ -66,6 +67,8 @@ const sqlConsumers = {
   'tests/db/account-closure-denial-control.sql': {runner:'node-postgres',consumer:'tests/db/account-closure-full-chain.mjs'},
 };
 export function executionRoute(file, root) {
+  const helper = registeredHelper(file);
+  if (helper) return {runner:'vitest-helper', consumer:helper.testFile, config:HELPER_CONFIG};
   if (sqlConsumers[file]) return sqlConsumers[file];
   if (file.endsWith('.sql')) return null;
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
@@ -172,7 +175,10 @@ export function validateVitestExecution(receipt, expected, root) {
   const files=new Set(); const phases=new Set();
   for (const result of receipt.tests) {
     const {testFile,phase}=result; const binding=phase?.binding;
-    if (executionRoute(testFile,root)?.runner!=='vitest' || files.has(testFile)
+    const helper = result.helperFile ? registeredHelper(result.helperFile) : null;
+    const creditedFile = result.helperFile || testFile;
+    if ((result.helperFile && (!helper || helper.testFile !== testFile))
+      || executionRoute(testFile,root)?.runner!=='vitest' || files.has(creditedFile)
       || TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===testFile)) throw new Error('Wrong/duplicate execution route');
     if (!binding || binding.phase!=='execution' || !binding.phaseId || phases.has(binding.phaseId)
       || binding.runId!==receipt.runId || !path.isAbsolute(binding.cwd || '')
@@ -183,12 +189,16 @@ export function validateVitestExecution(receipt, expected, root) {
       || JSON.stringify(binding.runtime)!==JSON.stringify(runtime)) throw new Error('Wrong execution phase/source/runtime identity');
     assertProvenance(binding.provenance,expected);
     const command=[canonicalPath(process.execPath),path.join(binding.cwd,'node_modules/vitest/vitest.mjs'),
-      'run','--config','frontend/vitest.config.mjs','--coverage.enabled=false','--retry=0','--reporter=json',
+      'run','--config',helper ? HELPER_CONFIG : 'frontend/vitest.config.mjs',`--coverage.enabled=${helper ? 'true' : 'false'}`,'--retry=0','--reporter=json',
       '--reporter=./scripts/efficacy-reporter.mjs',`--outputFile=${path.join(binding.cwd,'efficacy-report.json')}`,testFile];
     if (JSON.stringify(binding.command)!==JSON.stringify(command)
       || phase.report?.testResults?.[0]?.name!==binding.testFile) throw new Error('Wrong execution command/collection identity');
     qualifyEfficacyPhase(phase.report,phase.execution || {},{binding,envelope:phase.envelope});
-    files.add(testFile);phases.add(binding.phaseId);
+    if (helper) {
+      if (!phase.helperCoverage?.raw || binding.helper?.helperFile !== result.helperFile) throw new Error('Missing helper coverage evidence');
+      validateHelperCoverage(phase.helperCoverage.raw,binding,root);
+    } else if (binding.helper || phase.helperCoverage) throw new Error('Unexpected helper phase');
+    files.add(creditedFile);phases.add(binding.phaseId);
   }
   return files;
 }
@@ -203,7 +213,8 @@ export function executionCoverage(files, {root,expected,pilot,execution,base}={}
   const rows=files.map(file=> {
     const route=executionRoute(file,root);
     return {file,route,status:file===proven || executed.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
-      claim:file===proven?'registered analytics-truth faults only':executed.has(file)?'collection and execution only':null};
+      claim:file===proven?'registered analytics-truth faults only':executed.has(file)
+        ?registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance':'collection and execution only':null};
   });
   return {scope:'changed tests and fixtures; not a product requirement inventory',
     pilot:{required,status:proven?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},

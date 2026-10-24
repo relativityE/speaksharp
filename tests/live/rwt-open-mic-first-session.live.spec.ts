@@ -41,7 +41,7 @@ import {
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
-import { characterCeilingVerdict, fillerAdviceVerdict, readTwoTakesCoaching, takesDifferVerdict } from './helpers/rwtCoachingConsistency';
+import { characterCeilingVerdict, fillerAdviceVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
 import { MODEL_COMPARISON_AUTH_KEY } from './helpers/practiceLoopJourney';
 import { canonicalizeForLeakCheck, extractPdfText } from '../helpers/pdfText';
@@ -106,7 +106,7 @@ import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbac
 import { productFillerCount } from './helpers/rwtFillerOracle';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
-import { coachingPromptBindingRow, coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
+import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture } from './helpers/rwtCoachingCollector';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
 
@@ -280,9 +280,12 @@ test.describe('RWT — Open Mic first session @live', () => {
         let savedNext = '';
         // The Practice-again pass's saved take: the coaching evidence's repeat take.
         let repeatSessionId: string | null = null;
+        let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
         const finish = finalizer.once(async () => {
             // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
             const steps = new FinalizationSteps();
+            // Clear transient synthetic content and prevent late observer writes before owned-account cleanup.
+            await steps.step('coaching capture disposed', () => coachingCapture?.dispose());
             // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
             const observed = await steps.step('telemetry observed', () => tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 }));
             receipt.meta.finalTelemetryObserved = observed?.observed ?? false;
@@ -893,21 +896,35 @@ test.describe('RWT — Open Mic first session @live', () => {
                 }
                 const repeatFrom = tap.events.length;
                 let saveTakeEnd = -1;
+                coachingCapture = createCoachingTakeCapture({
+                    page, admin: admin as never, tap: generations,
+                    fixture: { key: fixture.key, kind: fixture.entry.kind, sha256: fixture.entry.kind === 'synthetic' ? fixture.entry.sha256 : undefined },
+                    suiteId: SUITE, product: 'open_mic', userId: capturedUid,
+                });
+                // Witness A while its saved inputs still exist. B is observed passively during the unchanged rapid
+                // Repeat flow; the observer never waits for coaching ahead of that press and never substitutes C.
+                await coachingCapture.sample(persistedId, shownWell && shownNext
+                    ? { version: 'gemini_coaching_v1', what_worked: shownWell, what_to_try_next: shownNext } : null);
+                coachingCapture.start();
                 const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; });
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
                 repeatSessionId = again.savedSessionId;
                 // #1258 R4: not generic — the two takes (different saved evidence) must not get the identical pair.
-                const twoTakes = again.savedSessionId && again.savedSessionId !== persistedId
-                    ? await readTwoTakesCoaching(admin as never, capturedUid, persistedId, again.savedSessionId)
-                    : { first: null, second: null, evidenceDiffers: null };
-                const differ = takesDifferVerdict(twoTakes.first, twoTakes.second, twoTakes.evidenceDiffers);
+                await generations.settle();
+                await coachingCapture.stop();
+                if (repeatSessionId) await coachingCapture.sample(repeatSessionId);
+                const firstCaptured = coachingCapture.get(persistedId);
+                const repeatCaptured = coachingCapture.get(repeatSessionId);
+                const differ = capturedTakesDifferVerdict(firstCaptured, repeatCaptured, expectedReleaseSha());
                 const differRow = coachingParentOutcome
                     ? successDependentRow(coachingParentOutcome, { verdict: differ.status, detail: differ.detail })
                     : { verdict: 'HOLD' as const, detail: 'the coaching step did not settle' };
                 receipt.row('coaching differs between takes', differRow.verdict, differRow.detail,
-                    { bothPairsSaved: Boolean(twoTakes.first && twoTakes.second), evidenceDiffers: twoTakes.evidenceDiffers });
+                    { bothPairsSaved: 'take' in firstCaptured && 'take' in repeatCaptured,
+                        evidenceDiffers: 'take' in firstCaptured && 'take' in repeatCaptured && firstCaptured.totalWords !== null && repeatCaptured.totalWords !== null
+                            ? firstCaptured.totalWords !== repeatCaptured.totalWords : null });
                 // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Open Mic.
                 await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', [persistedId, again.savedSessionId]);
             });
@@ -929,6 +946,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                     suiteId: SUITE, product: 'open_mic', userId: capturedUid, firstSessionId: persistedId, repeatSessionId,
                     firstRendered: shownWell && shownNext ? { version: 'gemini_coaching_v1', what_worked: shownWell, what_to_try_next: shownNext } : null,
                     releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
+                    captured: coachingCapture ?? undefined,
                 });
             });
         } finally {

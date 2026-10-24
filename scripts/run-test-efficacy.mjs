@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
 import { executionContext, testEnvironment, pilotAffectedByPaths, changedEvidencePaths, executionRoute } from './lib/testExecutionEvidence.mjs';
+import {HELPER_CONTRACTS, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -69,7 +70,11 @@ export function runVitestExecution(options = {}) {
   return runTestEfficacy({...options, executionOnly:true});
 }
 
-export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false } = {}) {
+export function runVitestHelperExecution(options = {}) {
+  return runTestEfficacy({...options, executionOnly: true, helpersOnly: true});
+}
+
+export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false } = {}) {
   root = canonicalPath(root);
   const commit = git(root, ['rev-parse', 'HEAD']);
   const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
@@ -82,9 +87,11 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
     ...git(root, ['diff', '--name-only', '-z', 'HEAD']).split('\0'),
     ...git(root, ['ls-files', '--others', '--exclude-standard', '--exclude=/apt-bundle/', '-z']).split('\0'),
   ].filter(Boolean))] : null;
-  const selected = executionOnly ? changedEvidencePaths(root,base)
+  const selected = executionOnly ? (helpersOnly ? [] : changedEvidencePaths(root,base)
     .filter(file=>executionRoute(file,root)?.runner==='vitest' && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
-    .map(testFile=>({testFile})) : selectContracts(root, changed);
+    .map(testFile=>({testFile}))).concat(HELPER_CONTRACTS
+      .filter(contract => helpersOnly || changed === null || changed.includes(contract.helperFile))
+      .map(contract => ({...contract, helper: true}))) : selectContracts(root, changed);
   if (executionOnly && selected.length > 8) throw new Error('NOT RUN: changed Vitest execution budget exceeds 8 files');
   if (!executionOnly && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
     throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
@@ -138,13 +145,16 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       fs.rmSync(envelopeFile, { force: true });
       const inputHashes = before.entries.filter(([, digest]) => digest !== 'deleted').map(([file]) =>
         [file, hash(fs.readFileSync(path.join(temporary, file)))]);
-      const command = [canonicalPath(process.execPath), executable, 'run', '--config', 'frontend/vitest.config.mjs',
-        '--coverage.enabled=false', '--retry=0', '--reporter=json',
+      const coverageDirectory = contract.helper ? fs.mkdtempSync(path.join(temporary, '.helper-coverage-')) : null;
+      const command = [canonicalPath(process.execPath), executable, 'run', '--config', contract.helper ? HELPER_CONFIG : 'frontend/vitest.config.mjs',
+        `--coverage.enabled=${contract.helper ? 'true' : 'false'}`, '--retry=0', '--reporter=json',
         '--reporter=./scripts/efficacy-reporter.mjs', `--outputFile=${reportFile}`, contract.testFile];
       const binding = { runId: receipt.runId, phaseId: randomUUID(), phase,
         provenance, sourceCopyCommit,
         command, cwd: temporary, testFile: canonicalPath(path.join(temporary, contract.testFile)),
-        inputSha256: hash(JSON.stringify(inputHashes)), repoLockSha256, runtime };
+        inputSha256: hash(JSON.stringify(inputHashes)), repoLockSha256, runtime,
+        ...(contract.helper ? {coverageDirectory, helper: {helperFile: contract.helperFile, testFile: contract.testFile,
+          sourceBinding: helperSourceBinding(temporary, contract)}} : {})};
       const result = spawnSync(command[0], command.slice(1),
       { cwd: temporary, timeout: 60000, killSignal: 'SIGKILL', detached: process.platform !== 'win32',
         maxBuffer: 8 * 1024 * 1024,
@@ -165,6 +175,9 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       const envelope = fs.existsSync(envelopeFile) ? JSON.parse(fs.readFileSync(envelopeFile, 'utf8')) : null;
       diagnostics={report,envelope,status:result.status,signal:result.signal,error:result.error?.code || null,
         stdout:result.stdout?.toString() || '',stderr:result.stderr?.toString() || ''};
+      if (contract.helper && fs.existsSync(path.join(coverageDirectory,'helper-raw.json'))) {
+        diagnostics.helperCoverage=JSON.parse(fs.readFileSync(path.join(coverageDirectory,'helper-raw.json'),'utf8'));
+      }
       let assertionLocation;
       if (assertionAnchor) {
         const testSource = fs.readFileSync(binding.testFile, 'utf8');
@@ -174,9 +187,16 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if (JSON.stringify(runtimeIdentity(temporary)) !== JSON.stringify(runtime)) throw new Error('Installed runtime changed during phase');
       const names = qualifyEfficacyPhase(report, result, { assertion, baselineNames, envelope, binding, assertionLocation });
       if (canonicalPath(report.testResults[0].name) !== binding.testFile) throw new Error('Wrong contract test file collected');
+      let helperCoverage;
+      if (contract.helper) {
+        const raw = diagnostics.helperCoverage;
+        if (!raw) throw new Error('Missing helper coverage output');
+        helperCoverage = {raw, validated: validateHelperCoverage(raw, binding, temporary)};
+      }
       completedPhases.push(phase);
       return { names, binding, envelope, execution:{status:result.status,signal:result.signal,error:result.error?.message || null},
-        inputSha256: binding.inputSha256, report, reportSha256: hash(JSON.stringify(report)) };
+        inputSha256: binding.inputSha256, report, reportSha256: hash(JSON.stringify(report)),
+        ...(helperCoverage ? {helperCoverage} : {}) };
       } catch (cause) {
         const error = new Error(`[${phase}] ${cause.message}`, {cause});
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
@@ -190,6 +210,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
     for (const contract of selected) {
       if (executionOnly) {
         receipt.tests.push({testFile:contract.testFile,
+          ...(contract.helper ? {helperFile:contract.helperFile} : {}),
           testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),
           phase:execute(contract,'execution')});
         continue;

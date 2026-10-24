@@ -255,7 +255,7 @@ function executionFixture(installed=false) {
   const dir=canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(),'quality-vitest-execution-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),bytes);};
   for(const file of ['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
-    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs',
+    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs',
     'scripts/lib/softwareQualityEvidenceQualification.mjs',...dependencyPaths(root,contract.testFile)]) {
     write(file,fs.readFileSync(path.join(root,file)));
   }
@@ -364,8 +364,8 @@ test('execution-only consumer binds actual source, runtime, command and controll
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 
-// This opt-in requires already installed Vitest; no provisioning or synthetic fallback.
-if(process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+// Hosted CI always runs these; local opt-in requires installed Vitest, with no fallback.
+if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
   test('INSTALLED Vitest: actual writer qualifies a changed non-pilot test, rejects bad evidence, restores GREEN without deleting it',()=>{
     runtimeIdentity(root);
     const fixture=executionFixture(true);const {dir,write,git,commit,file,passing}=fixture;
@@ -410,7 +410,7 @@ if(process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
   });
 }
 
-if(process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
   test('INSTALLED Vitest: weakening a registered assertion fails the actual writer and thin report, then restores GREEN',()=>{
     const {dir,write,git}=executionFixture(true);
     const evidence=path.join(dir,'product_release/evidence/software-quality.latest.json');
@@ -456,7 +456,7 @@ test('CI-invoked writer fails incomplete coverage and succeeds after valid evide
     assert.ok(command,'exercise the writer command actually invoked by CI');
     const files=['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
       'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs',
-      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
       ...dependencyPaths(root,contract.testFile)];
     for (const file of files) {
       fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});

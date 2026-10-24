@@ -20,6 +20,9 @@ const ACCOUNT = [
   {name:'20261019202856_account_coaching_admission_1643.sql',version:'20261019202856',sha256:'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e'},
   {name:'20261020230653_account_pending_completion_journal_1643.sql',version:'20261020230653',sha256:'76bffe1f7dc15efe487cd33faffbfd8d1b6c654a7b09508d427e53b4b88d83cf'},
 ];
+// #1643 fence: pinned here independently of the planner's own constant.
+const FENCE=Object.freeze({name:'20261024083000_account_coaching_unknown_fence_1643.sql',version:'20261024083000',
+  sha256:'29548e27a0b33a303ff093569097367b1227251faff7e7df77af392cfa4b0d14'});
 const baseTuplesSha256 = '601403209858cc31dba0f9125b1feebd535827d7e4bed469e2458e6ff7cda2b0';
 const drain = '20261016180000_account_closure_drain_enforcement.sql';
 const recovery = '20261017200000_checkout_rejection_recovery.sql';
@@ -27,10 +30,11 @@ const physical = readdirSync(join(root, 'backend/supabase/migrations')).filter(n
   name, version: name.match(/^(\d{8}|\d{14})_.+\.sql$/)?.[1] ?? null,
   sha256: hash(readFileSync(join(root, 'backend/supabase/migrations', name))),
 }));
-const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name)].includes(row.name));
+const main = physical.filter(row => ![U1.name, ANALYTICS.name, ...ACCOUNT.map(row=>row.name), FENCE.name].includes(row.name));
 const receiving = [...main, U1].sort((a, b) => a.name.localeCompare(b.name, 'en'));
 const analyticsReceiving=[...receiving,ANALYTICS].sort((a,b)=>a.name.localeCompare(b.name,'en'));
 const fullReceiving=[...analyticsReceiving,...ACCOUNT].sort((a,b)=>a.name.localeCompare(b.name,'en'));
+const fenceReceiving=[...fullReceiving,FENCE].sort((a,b)=>a.name.localeCompare(b.name,'en'));
 const versionsWithout = names => receiving.filter(row => row.version !== null && !names.includes(row.name)).map(row => row.version);
 
 test('frozen independent main identity and exact physical source count', () => {
@@ -104,7 +108,7 @@ test('Analytics runtime staging and same SQL oracle run before AND after U1',()=
   assert.ok(driver.slice(u1).includes('if(hasAnalytics) verifyAnalytics()'));
 });
 test('complete126 pins actual source and orders pending before U1, completion last',()=>{
-  assert.deepEqual(physical,fullReceiving);
+  assert.deepEqual(physical.filter(r=>r.name!==FENCE.name),fullReceiving);
   const plan=buildMainU1ReplayPlan(fullReceiving,'main-t2-account-126');
   assert.equal(plan.migrations,126);
   assert.equal(plan.executed,false);
@@ -131,6 +135,39 @@ for(const member of fullReceiving) {
   });
   test('complete126 refuses changed reviewed digest: '+member.name,()=>{
     assert.throws(()=>buildMainU1ReplayPlan(fullReceiving.map(r=>r.name===member.name?{...r,sha256:'0'.repeat(64)}:r),'main-t2-account-126'),/reviewed migration digest changed/);
+  });
+}
+test('fence127 pins actual source and adds only the fence after completion',()=>{
+  assert.deepEqual(physical,fenceReceiving);
+  assert.equal(hash(readFileSync(join(root,'backend/supabase/migrations',FENCE.name))),FENCE.sha256);
+  const complete=buildMainU1ReplayPlan(fullReceiving,'main-t2-account-126');
+  const plan=buildMainU1ReplayPlan(fenceReceiving,'main-t2-fence-127');
+  assert.equal(plan.migrations,127);
+  assert.equal(plan.executed,false);
+  assert.deepEqual(plan.stages.slice(0,-1),complete.stages,'every 126 checkpoint is unchanged');
+  assert.deepEqual(plan.stages.at(-1),{name:'coaching-unknown-fence',versions:[...complete.stages.at(-1).versions,FENCE.version]});
+  assert.equal(parseMainProofArguments(['--profile=main-t2-fence-127']).profile,'main-t2-fence-127');
+  for(const profile of ['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126'])
+    assert.throws(()=>buildMainU1ReplayPlan(fenceReceiving,profile),/unreviewed migration/);
+  assert.throws(()=>buildMainU1ReplayPlan(fullReceiving,'main-t2-fence-127'),/reviewed migration missing/);
+  assert.throws(()=>buildMainU1ReplayPlan([...fenceReceiving,{name:'20261025000000_unreviewed.sql',version:'20261025000000',sha256:'a'.repeat(64)}],
+    'main-t2-fence-127'),/unreviewed migration/);
+});
+test('fence127 runtime applies the fence only after the completion proof and native catalog finish',()=>{
+  const driver=read('tests/db/account-closure-full-chain.mjs');
+  const finish=driver.indexOf('nativeT2Catalog.finish();');
+  const fence=driver.indexOf('if(fenceT2) {');
+  assert.ok(finish>0&&fence>finish,'fence stage must follow the completed 126 proof');
+  for(const proof of ["'fence catalog/ACL'","account-coaching-admission-invariants.sql","'completion proof after the fence'",
+    "'the migration fences nothing'","ACCOUNT COACHING UNKNOWN FENCE FULL-CHAIN INVARIANTS PASSED"])
+    assert.ok(driver.slice(fence).includes(proof),'fence stage proof missing: '+proof);
+});
+for(const member of fenceReceiving) {
+  test('fence127 refuses missing reviewed member: '+member.name,()=>{
+    assert.throws(()=>buildMainU1ReplayPlan(fenceReceiving.filter(r=>r.name!==member.name),'main-t2-fence-127'),/reviewed migration missing/);
+  });
+  test('fence127 refuses changed reviewed digest: '+member.name,()=>{
+    assert.throws(()=>buildMainU1ReplayPlan(fenceReceiving.map(r=>r.name===member.name?{...r,sha256:'0'.repeat(64)}:r),'main-t2-fence-127'),/reviewed migration digest changed/);
   });
 }
 test('complete126 refuses aliases, duplicate rows and unrelated additions',()=>{
@@ -233,7 +270,7 @@ for (const { path, sha256 } of unchangedProofs) test('original proof/helper unch
 test('U1 is excluded from initial staging and all four final proof layers remain explicit', () => {
   const driver = read('tests/db/account-closure-full-chain.mjs');
   const replay = driver.indexOf("if (args.profile !== 'main-120')");
-  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name)].includes(name)'));
+  assert.ok(driver.includes('![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name].includes(name)'));
   const final = driver.slice(replay, driver.indexOf('} catch (error)', replay));
   assert.ok(replay > driver.indexOf("console.log('CHECKOUT REJECTION RECOVERY INVARIANTS PASSED')"));
   for (const token of [
@@ -251,15 +288,23 @@ test('U1 is excluded from initial staging and all four final proof layers remain
   assert.ok(driver.includes('if (primaryError || cleanupError) throw primaryError ?? cleanupError'));
 });
 
-test('existing workflow collects new Node tests and explicitly selects complete126 on replay AND cleanup', () => {
+test('existing workflow collects new Node tests and explicitly selects fence127 on replay AND cleanup', () => {
   const workflow = read('.github/workflows/account-closure-full-chain-proof.yml');
   const collection = workflow.indexOf('run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs');
   assert.ok(collection > workflow.indexOf('actions/setup-node@v6'));
   assert.ok(collection < workflow.indexOf('supabase/setup-cli@v2'));
-  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=main-t2-account-126'));
-  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-t2-account-126'));
+  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --profile=main-t2-fence-127'));
+  assert.ok(workflow.includes('run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-t2-fence-127'));
+  assert.ok(!workflow.includes('--profile=main-t2-account-126'), 'the fence file makes complete126 refuse the real tree');
   assert.ok(workflow.includes('node tests/db/account-closure-concurrency-realpg.mjs'));
   assert.ok(workflow.includes('node tests/db/account-closure-attestation-realpg.mjs'));
+  // #1643 fence: native proof runs on the exact head, a test-only change triggers it, and failures keep its receipts.
+  assert.ok(workflow.indexOf('node tests/db/account-coaching-fence.realpg.mjs') > workflow.indexOf('[ "$actual_head" = "$PROOF_HEAD_SHA" ]'));
+  for (const file of ['tests/db/account-coaching-fence.realpg.mjs', 'tests/db/account-coaching-fence.integration.test.ts',
+    'tests/db/account-completion-fixture.mjs', 'tests/db/account-closure-pending-fixture.mjs',
+    'backend/supabase/functions/get-ai-suggestions/contract.json'])
+    assert.ok(workflow.includes("- '" + file + "'"), 'missing fence proof trigger: ' + file);
+  assert.ok(workflow.includes('artifacts/account-coaching-fence/*.json'));
   assert.ok(workflow.includes('if: always()'));
   assert.ok(workflow.includes('retention-days: 1'));
 });
