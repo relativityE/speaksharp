@@ -65,9 +65,13 @@ describe('postAuthRouting — resolveInAppPostAuthTarget (#1548 in-app return: h
       { pathname: '/', search: '/evil.example' },          // would join into protocol-relative //evil.example
       { pathname: '/', search: '\\evil.example' },        // backslash in search
       { pathname: '/session', search: 'q=1' },              // search without '?'
+      { pathname: '/session', search: '\t' },              // search without '?' that the URL parser strips: the pathname would survive
       { pathname: '/session', search: '?q=1#frag' },        // search carrying a fragment
       { pathname: '/session', hash: 'no-hash-mark' },       // hash without '#'
+      { pathname: '/session', hash: '?x=1' },               // hash without '#' that keeps the pathname: would join as a query
       { pathname: '/session?q=1' },                         // pathname carrying a query
+      { pathname: '/session ', search: '?x=1' },            // trailing space: alone it parses as /session, joined it becomes /session%20
+      { pathname: '/\t/evil.example' },                    // tab between slashes: the URL parser strips it into //evil.example (another origin)
       { pathname: '/session#top' },                         // pathname carrying a fragment
       { pathname: '/auth?x=1' },                            // auth route hidden behind a query in pathname
       { pathname: '/auth#x' },
