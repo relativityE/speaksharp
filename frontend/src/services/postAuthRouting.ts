@@ -34,3 +34,28 @@ export function safeDeepLink(from?: { pathname?: string; search?: string } | nul
 export function resolvePostAuthPath(from?: { pathname?: string; search?: string } | null): string {
   return safeDeepLink(from) ?? '/practice';
 }
+
+/** The protected location `ProtectedRoute` hands to sign-in as `state.from` (a router location). */
+export type PostAuthFrom = { pathname?: string; search?: string; hash?: string; state?: unknown } | null | undefined;
+
+/** Sign-in surfaces are never a post-auth destination: returning to one would re-enter sign-in. */
+function isAuthSurface(pathname: string): boolean {
+  return /^\/(?:auth|signup)(?:\/|$)/i.test(pathname);
+}
+
+/**
+ * #1548 — the IN-APP post-auth return, for `PostAuthRedirect`'s `<Navigate>` only. The magic-link email return URL
+ * keeps `safeDeepLink` (pathname + search, no fragment): the auth provider writes its own tokens into that URL's
+ * fragment, so a destination hash must never be put there.
+ *
+ * In-app, the validated destination keeps its hash and its ORIGINAL router state (`from.state`) — never the auth
+ * wrapper's state, and a nested `state.from` is passed through as data, never followed as a destination. State is
+ * handed to the router only; it is not serialized anywhere. Invalid, unsafe or sign-in destinations → `/practice`
+ * with no state.
+ */
+export function resolveInAppPostAuthTarget(from: PostAuthFrom): { to: string; state?: unknown } {
+  const path = safeDeepLink(from);
+  if (path === null || isAuthSurface(from?.pathname ?? '')) return { to: '/practice' };
+  const hash = typeof from?.hash === 'string' && from.hash.startsWith('#') ? from.hash : '';
+  return from?.state === undefined ? { to: `${path}${hash}` } : { to: `${path}${hash}`, state: from.state };
+}
