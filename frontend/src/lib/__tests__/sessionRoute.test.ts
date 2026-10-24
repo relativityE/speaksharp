@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveSessionIdFromPath, isUuid } from '../sessionRoute';
+import { canonicalProgressPath, deriveSessionIdFromPath, isUuid } from '../sessionRoute';
 
 const UUID = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
 
@@ -13,6 +13,26 @@ describe('isUuid', () => {
     expect(isUuid(null)).toBe(false);
     expect(isUuid(undefined)).toBe(false);
     expect(isUuid(12345)).toBe(false);
+  });
+});
+
+describe('canonicalProgressPath (#1548 legacy alias)', () => {
+  it('rewrites the /analytics first segment to /progress, keeping the rest of the path', () => {
+    expect(canonicalProgressPath('/analytics')).toBe('/progress');
+    expect(canonicalProgressPath('/analytics/')).toBe('/progress/');
+    expect(canonicalProgressPath(`/analytics/${UUID}`)).toBe(`/progress/${UUID}`);
+  });
+
+  it('matches the case-insensitive legacy routes, so a mixed-case alias can never re-target itself', () => {
+    expect(canonicalProgressPath('/Analytics')).toBe('/progress');
+    expect(canonicalProgressPath(`/ANALYTICS/${UUID}`)).toBe(`/progress/${UUID}`);
+    expect(canonicalProgressPath('/aNaLyTiCs/session-1')).toBe('/progress/session-1');
+  });
+
+  it('leaves non-alias paths untouched', () => {
+    expect(canonicalProgressPath('/progress')).toBe('/progress');
+    expect(canonicalProgressPath('/analytics-archive')).toBe('/analytics-archive');
+    expect(canonicalProgressPath('/session/analytics')).toBe('/session/analytics');
   });
 });
 

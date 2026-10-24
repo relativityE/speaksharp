@@ -24,6 +24,16 @@ export function isUuid(value: unknown): value is string {
 }
 
 /**
+ * #1548: the canonical `/progress` pathname for a legacy `/analytics` one. The legacy `<Route>`s match case-insensitively
+ * (React Router's default), so the prefix is replaced case-insensitively too: `/Analytics/<id>` must leave the alias, never
+ * re-target its own unchanged path. Only the exact first segment is rewritten (`/analytics-archive` is not an alias);
+ * the rest of the path keeps its original bytes.
+ */
+export function canonicalProgressPath(pathname: string): string {
+  return pathname.replace(/^\/analytics(?=\/|$)/i, '/progress');
+}
+
+/**
  * Extract the session id from a route pathname, or `null` when the route is not a valid
  * session-specific Progress route. Only matches `/progress/<uuid>` or `/analytics/<uuid>` (optionally trailing slash).
  */

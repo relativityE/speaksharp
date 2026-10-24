@@ -166,6 +166,11 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await expect(page).toHaveURL(new RegExp(`${detailPath}\\?ref=old#top$`));
     await expect(page.getByText(/session analysis/i)).toBeVisible();
 
+    // React Router matches the legacy route case-insensitively; the alias must still leave for /progress (no self-redirect).
+    await navigateToRoute(page, '/Analytics?case=mixed');
+    await expect(page).toHaveURL(/\/progress\?case=mixed$/);
+    await expect(page.getByTestId('analytics-dashboard')).toBeVisible();
+
     // An unknown legacy session id still lands on the honest not-found state, now under /progress.
     await navigateToRoute(page, '/analytics/invalid-uuid-signal?x=1');
     await expect(page).toHaveURL(/\/progress\/invalid-uuid-signal\?x=1$/);
