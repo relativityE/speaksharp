@@ -10,8 +10,6 @@
  * Each casualty changes one thing in an otherwise qualifying journey and asserts the stage HOLDs for it.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
     FOCUS_POINTS_POST_STOP_CHAIN,
     OPEN_MIC_POST_STOP_CHAIN,
@@ -20,6 +18,7 @@ import {
     type DecodedTelemetryRow,
 } from '../completenessGate';
 import { buildReadbackQuery } from '../bootScopedReceipts';
+import { readbackRowsByName } from '../readbackColumns';
 
 const stage = (name: string) => QUALIFICATION_STAGES.find((s) => s.stage === name)!;
 const OPEN_MIC = stage('session_after_open_mic');
@@ -221,10 +220,22 @@ describe('#1421 — the readback selects and decodes what these invariants read'
     });
 
     it('the decoder maps those columns to the properties the invariants read', () => {
-        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
-        expect(script).toContain('stage: cells[18] ?? null');
-        expect(script).toContain('transcript_visibly_present: cells[19] ?? null');
-        expect(script).toContain('digests_match: cells[20] ?? null');
+        const query = buildReadbackQuery({
+            windowHours: 24, releaseSha: 'sha', trafficType: 'internal_test', qualifyingIdentity: 'id',
+            governedEvents: ['transcript_authority'], quote: (v: string) => `'${v}'`,
+        } as never);
+        const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
+        const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
+        const sent: Record<string, unknown> = {
+            event: 'transcript_authority', stage: 'review_rendered', transcript_visibly_present: true, digests_match: false,
+        };
+        for (const field of ['stage', 'transcript_visibly_present', 'digests_match']) expect(columns).toContain(field);
+        const decoded = readbackRowsByName(columns, [columns.map((name) => sent[name] ?? null)]);
+        expect(decoded.ok).toBe(true);
+        if (!decoded.ok) throw new Error(decoded.reason);
+        expect(decoded.rows[0].properties).toMatchObject({
+            stage: 'review_rendered', transcript_visibly_present: true, digests_match: false,
+        });
     });
 });
 
@@ -269,10 +280,9 @@ describe('#1258 — a Focus Points review must include its AI coaching (runbook 
      * The casualties above hand the gate decoded objects that already carry `review_surface`, `phase` and
      * `suggestions_present`. The trusted readback selected none of the three, so a genuine Focus Points journey
      * reached the gate without them and held as "rendered no AI coaching" although the receipt was delivered.
-     * This round-trips the qualifying journey through the REAL wire shape: each row becomes the positional cells
-     * the actual `buildReadbackQuery` select list produces, and is decoded with the actual `name: cells[i]`
-     * mapping read from `telemetry-readback-qualification.mts` — so a column the query drops, or a cell the
-     * decoder never reads, is dropped here too.
+     * This round-trips the qualifying journey through the REAL wire shape and production named decoder.
+     * Independently required field names and coaching values prevent a jointly missing query/decoder field
+     * from validating itself. Reversed response order also proves decoding follows metadata, not position.
      */
     it('CASUALTY: a qualifying Focus Points journey still qualifies after the trusted readback round trip', () => {
         const query = buildReadbackQuery({
@@ -281,25 +291,24 @@ describe('#1258 — a Focus Points review must include its AI coaching (runbook 
         } as never);
         const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
         const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
-        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
-        const decoderCells = [...script.matchAll(/(\w+): \(?cells\[(\d+)\]/g)].map((m) => [m[1], Number(m[2])] as const);
+        for (const field of ['event', 'timestamp', 'journey_id', 'boot_id', 'attempt_id', 'review_surface', 'phase', 'suggestions_present']) {
+            expect(columns, `the readback selects ${field}`).toContain(field);
+        }
+        const responseColumns = [...columns].reverse();
         const TOP_LEVEL: Record<string, keyof DecodedTelemetryRow> = { event: 'event', timestamp: 'timestamp', journey_id: 'journeyId', boot_id: 'bootId' };
 
-        const toCells = (r: DecodedTelemetryRow) => columns.map((c) => (c in TOP_LEVEL
+        const toCells = (r: DecodedTelemetryRow) => responseColumns.map((c) => (c in TOP_LEVEL
             ? (r as unknown as Record<string, unknown>)[TOP_LEVEL[c]] ?? null
             : (r.properties as Record<string, unknown> | undefined)?.[c] ?? null));
-        const decode = (cells: unknown[]): DecodedTelemetryRow => {
-            const decoded: Record<string, unknown> = { properties: {} };
-            for (const [name, index] of decoderCells) {
-                if (['event', 'timestamp', 'journeyId', 'bootId'].includes(name)) decoded[name] = cells[index] ?? null;
-                else (decoded.properties as Record<string, unknown>)[name] = cells[index] ?? null;
-            }
-            return decoded as unknown as DecodedTelemetryRow;
-        };
 
         const sent = withLoop(FOCUS_POINTS, FOCUS_POINTS_POST_STOP_CHAIN, [row('practice_loop', RAIL_ONLY), row('practice_loop', COACHING_RENDERED)]);
         expect(evaluateQualificationStage(FOCUS_POINTS, sent), 'control: the sent journey qualifies').toEqual([]);
-        expect(evaluateQualificationStage(FOCUS_POINTS, sent.map((r) => decode(toCells(r)))), 'the received journey qualifies').toEqual([]);
+        const received = readbackRowsByName(responseColumns, sent.map(toCells));
+        expect(received.ok).toBe(true);
+        if (!received.ok) throw new Error(received.reason);
+        expect(received.rows.find((r) => r.event === 'practice_loop' && r.properties.review_surface === 'coaching_verdict')?.properties)
+            .toMatchObject({ phase: 'rendered', review_surface: 'coaching_verdict', suggestions_present: true, attempt_id: 'attempt-1' });
+        expect(evaluateQualificationStage(FOCUS_POINTS, received.rows), 'the received journey qualifies').toEqual([]);
     });
 
     it('CASUALTY (PM 6205858358 P1): the per-take save outcome survives the trusted readback round trip — explicit false exempts, unknown HOLDs', () => {
@@ -310,22 +319,21 @@ describe('#1258 — a Focus Points review must include its AI coaching (runbook 
         const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
         const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
         expect(columns, 'the readback selects the save outcome').toContain('persisted');
-        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
-        const decoderCells = [...script.matchAll(/(\w+): \(?cells\[(\d+)\]/g)].map((m) => [m[1], Number(m[2])] as const);
-        expect(decoderCells.find(([n]) => n === 'persisted')?.[1], 'the decoder reads it from its own column').toBe(columns.indexOf('persisted'));
+        for (const field of ['event', 'stage', 'attempt_id', 'persisted', 'transcript_visibly_present']) expect(columns).toContain(field);
         const TOP_LEVEL: Record<string, keyof DecodedTelemetryRow> = { event: 'event', timestamp: 'timestamp', journey_id: 'journeyId', boot_id: 'bootId' };
         const toCells = (r: DecodedTelemetryRow) => columns.map((c) => (c in TOP_LEVEL
             ? (r as unknown as Record<string, unknown>)[TOP_LEVEL[c]] ?? null
             : (r.properties as Record<string, unknown> | undefined)?.[c] ?? null));
-        const decode = (cells: unknown[]): DecodedTelemetryRow => {
-            const decoded: Record<string, unknown> = { properties: {} };
-            for (const [name, index] of decoderCells) {
-                if (['event', 'timestamp', 'journeyId', 'bootId'].includes(name)) decoded[name] = cells[index] ?? null;
-                else (decoded.properties as Record<string, unknown>)[name] = cells[index] ?? null;
-            }
-            return decoded as unknown as DecodedTelemetryRow;
+        const received = (rows: DecodedTelemetryRow[]) => {
+            const decoded = readbackRowsByName(columns, rows.map(toCells));
+            expect(decoded.ok).toBe(true);
+            if (!decoded.ok) throw new Error(decoded.reason);
+            return decoded.rows;
         };
-        const received = (rows: DecodedTelemetryRow[]) => rows.map((r) => decode(toCells(r)));
+        expect(received([saveReceipt('attempt-2', false)])[0].properties)
+            .toMatchObject({ stage: 'save', attempt_id: 'attempt-2', persisted: false });
+        expect(received([row('transcript_authority', { stage: 'finalize', attempt_id: 'attempt-2' })])[0].properties)
+            .toMatchObject({ stage: 'finalize', attempt_id: 'attempt-2', persisted: null });
 
         const unsaved = journey(OPEN_MIC, OPEN_MIC_POST_STOP_CHAIN,
             [reviewReceipt(), saveReceipt('attempt-2', false), reviewReceipt({ attempt_id: 'attempt-2', transcript_visibly_present: false })]);
