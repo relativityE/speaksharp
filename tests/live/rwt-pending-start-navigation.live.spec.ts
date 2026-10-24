@@ -218,20 +218,25 @@ test('leaving during a cold Start does not leave a recording or session behind @
         // #1593 (CLI audit 1792782759, Sam 1792798707): one read taken the moment the card appears can catch a healthy
         // remount still resolving availability. The return is judged on a SETTLED state within a fixed deadline; a stuck
         // or unknown state still FAILs. A read that throws is counted as a read error, never coerced into a verdict.
-        const controlState = async (id: string): Promise<ReturnControlState> => {
+        // Each read receives the remaining budget as its Playwright timeout (Sam HOLD on 81a442b2); the helper also races
+        // it against that budget, so a stalled locator can never outlive the deadline.
+        const controlState = async (id: string, timeout: number): Promise<ReturnControlState> => {
             const el = page.getByTestId(id).first();
             const present = (await page.getByTestId(id).count()) > 0;
             return {
                 present,
                 visible: present ? await el.isVisible() : false,
-                enabled: present ? await el.isEnabled() : false,
-                ariaLabel: present ? await el.getAttribute('aria-label') : null,
+                enabled: present ? await el.isEnabled({ timeout }) : false,
+                ariaLabel: present ? await el.getAttribute('aria-label', { timeout }) : null,
             };
         };
-        const returned = await settleReturnControlState(async () => {
-            const modelStatus = await page.getByTestId('mic-card').getAttribute('data-model-status');
-            const [start, download, retry] = await Promise.all([controlState('mic-start'), controlState('mic-download'), controlState('mic-retry')]);
-            const shellState = await page.getByTestId('session-shell').first().getAttribute('data-session-state');
+        const returned = await settleReturnControlState(async (remainingMs) => {
+            const timeout = Math.max(1, remainingMs);
+            const modelStatus = await page.getByTestId('mic-card').getAttribute('data-model-status', { timeout });
+            const [start, download, retry] = await Promise.all([
+                controlState('mic-start', timeout), controlState('mic-download', timeout), controlState('mic-retry', timeout),
+            ]);
+            const shellState = await page.getByTestId('session-shell').first().getAttribute('data-session-state', { timeout });
             return returnControlSample(modelStatus, shellState, { start, download, retry });
         });
         const last = returned.last;

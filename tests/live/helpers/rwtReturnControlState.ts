@@ -7,6 +7,10 @@
  * matches the published model status to be present, visible AND enabled on consecutive samples; anything else at the
  * deadline is FAIL with every observed state retained. A genuinely stuck or unknown state still fails. The spec keeps its
  * own Playwright reads; this module only decides when they have settled.
+ *
+ * Sam HOLD on 81a442b2 — THE DEADLINE IS ABSOLUTE. Each read is raced against the remaining budget and receives it, a
+ * success counts only if its confirming read completed within the deadline, and a read that resolves (or rejects) after
+ * the verdict is ignored: the returned evidence is a frozen copy and the late promise's outcome is always consumed.
  */
 
 /** The primary control the mic card must offer for each published model status. */
@@ -55,24 +59,24 @@ export function returnControlSample(
 }
 
 export interface SettleReturnControlOptions {
-    /** Fixed deadline measured from the first read. */
+    /** Absolute deadline measured from the start of the first read. */
     deadlineMs: number;
     /** Pause between reads; also the minimum spacing of the consecutive settled samples. */
     intervalMs: number;
     /** Consecutive actionable samples, with the same expected control, that count as settled. */
     stableSamples: number;
-    now?: () => number;
-    sleep?: (ms: number) => Promise<void>;
 }
 
 export interface SettledReturnControl {
     settled: boolean;
     last: ReturnControlSample | null;
-    /** Every sample read, in order (closed status strings, closed product copy and booleans only). */
+    /** Every sample that completed within the deadline, in order (closed status strings, closed copy and booleans). */
     samples: ReturnControlSample[];
     elapsedMs: number;
-    /** A read that threw is its own outcome, never coerced into "not enabled". */
+    /** A read that rejected within the budget: its own outcome, never coerced into "not enabled". */
     readErrors: number;
+    /** A read still pending when the budget ran out. */
+    readTimeouts: number;
 }
 
 export const RETURN_SETTLE_DEFAULTS: Readonly<SettleReturnControlOptions> = Object.freeze({
@@ -81,29 +85,51 @@ export const RETURN_SETTLE_DEFAULTS: Readonly<SettleReturnControlOptions> = Obje
     stableSamples: 2,
 });
 
+type Bounded<T> = { kind: 'value'; value: T } | { kind: 'error' } | { kind: 'timeout' };
+
+/** Race `work` against `ms`. The work's rejection is always consumed, so a late failure is never unhandled. */
+function withinBudget<T>(work: Promise<T>, ms: number): Promise<Bounded<T>> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const budget = new Promise<Bounded<T>>((resolve) => { timer = setTimeout(() => resolve({ kind: 'timeout' }), ms); });
+    const settled = work.then((value): Bounded<T> => ({ kind: 'value', value }), (): Bounded<T> => ({ kind: 'error' }));
+    return Promise.race([settled, budget]).finally(() => clearTimeout(timer));
+}
+
 /**
- * Poll `read` until the expected control is actionable on `stableSamples` consecutive reads for the same expected
- * control, or the deadline passes. A flicker (actionable, then not) or a change of expected control restarts the count;
- * a read error counts as not actionable and is reported separately.
+ * Poll `read(remainingMs)` until the expected control is actionable on `stableSamples` consecutive reads for the same
+ * expected control, all completed within the absolute deadline; otherwise FAIL once the deadline is reached. A flicker
+ * or a change of expected control restarts the count; a rejected or timed-out read counts as not actionable.
  */
 export async function settleReturnControlState(
-    read: () => Promise<ReturnControlSample>,
+    read: (remainingMs: number) => Promise<ReturnControlSample>,
     options: SettleReturnControlOptions = RETURN_SETTLE_DEFAULTS,
 ): Promise<SettledReturnControl> {
-    const now = options.now ?? (() => Date.now());
-    const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-    const started = now();
+    const started = Date.now();
+    const deadline = started + options.deadlineMs;
     const samples: ReturnControlSample[] = [];
     let readErrors = 0;
+    let readTimeouts = 0;
     let run = 0;
     let runControl: string | null = null;
+    const verdict = (settled: boolean, last: ReturnControlSample | null): SettledReturnControl => ({
+        settled, last, samples: samples.slice(), elapsedMs: Date.now() - started, readErrors, readTimeouts,
+    });
     for (;;) {
-        let sample: ReturnControlSample | null = null;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return verdict(false, samples[samples.length - 1] ?? null);
+        let work: Promise<ReturnControlSample>;
         try {
-            sample = await read();
-        } catch {
-            readErrors += 1;
+            work = read(remaining);
+        } catch (error) {
+            work = Promise.reject(error);
         }
+        const outcome = await withinBudget(work, remaining);
+        if (outcome.kind === 'timeout' || Date.now() > deadline) {
+            if (outcome.kind === 'timeout') readTimeouts += 1;
+            return verdict(false, samples[samples.length - 1] ?? null);
+        }
+        const sample = outcome.kind === 'value' ? outcome.value : null;
+        if (!sample) readErrors += 1;
         if (sample?.actionable && sample.expectedControl === runControl) {
             run += 1;
         } else if (sample?.actionable) {
@@ -114,11 +140,9 @@ export async function settleReturnControlState(
             runControl = null;
         }
         if (sample) samples.push(sample);
-        const elapsedMs = now() - started;
-        if (run >= options.stableSamples) return { settled: true, last: sample, samples, elapsedMs, readErrors };
-        if (elapsedMs >= options.deadlineMs) {
-            return { settled: false, last: samples[samples.length - 1] ?? null, samples, elapsedMs, readErrors };
-        }
-        await sleep(options.intervalMs);
+        if (run >= options.stableSamples) return verdict(true, sample);
+        const pause = Math.min(options.intervalMs, deadline - Date.now());
+        if (pause <= 0) return verdict(false, samples[samples.length - 1] ?? null);
+        await new Promise<void>((resolve) => setTimeout(resolve, pause));
     }
 }
