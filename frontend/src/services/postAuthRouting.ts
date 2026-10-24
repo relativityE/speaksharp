@@ -45,6 +45,18 @@ function normalizedPath(pathname: string): string {
   try { return new URL(pathname, PLACEHOLDER_ORIGIN).pathname; } catch { return ''; }
 }
 
+/**
+ * The pathname as React Router matches it: each segment percent-decoded, with a decoded `/` kept as `%2F` so it never
+ * forms a new segment (the router's own `decodePath` rule). `null` when a segment cannot be decoded.
+ */
+function routerDecodedPath(pathname: string): string | null {
+  try {
+    return pathname.split('/').map((segment) => decodeURIComponent(segment).replace(/\//g, '%2F')).join('/');
+  } catch {
+    return null;
+  }
+}
+
 /** The joined in-app target resolves on the same origin to exactly the validated pathname. */
 function staysOnPath(target: string, pathname: string): boolean {
   try {
@@ -85,8 +97,11 @@ export function resolveInAppPostAuthTarget(from: PostAuthFrom): { to: string; st
   if (!isSafeInternalPath(pathname) || /[?#]/.test(pathname)) return refuse;
   if (typeof search !== 'string' || (search !== '' && (!search.startsWith('?') || search.includes('#')))) return refuse;
   if (typeof hash !== 'string' || (hash !== '' && !hash.startsWith('#'))) return refuse;
-  // Also on the normalized path, so a dot-segment form (`/x/../auth/signin`) cannot reach a sign-in surface.
-  if (isAuthSurface(pathname) || isAuthSurface(normalizedPath(pathname))) return refuse;
+  // Also on the normalized and the router-decoded path, so a dot-segment (`/x/../auth/signin`) or percent-encoded
+  // (`/%61uth/signin`) form cannot reach a sign-in surface. Undecodable percent-encoding is refused.
+  const normalized = normalizedPath(pathname);
+  const decoded = routerDecodedPath(normalized);
+  if (decoded === null || [pathname, normalized, decoded].some(isAuthSurface)) return refuse;
   const to = `${pathname}${search}${hash}`;
   if (!staysOnPath(to, pathname)) return refuse;
   return from?.state === undefined ? { to } : { to, state: from.state };

@@ -74,6 +74,10 @@ describe('postAuthRouting — resolveInAppPostAuthTarget (#1548 in-app return: h
       { pathname: '/auth/', search: '?' },
       { pathname: '/x/../auth/signin' },                    // dot segments resolving to a sign-in surface
       { pathname: '/./signup' },
+      { pathname: '/%61uth/signin' },                       // percent-encoded: the router decodes it to /auth/signin
+      { pathname: '/%41UTH/x' },
+      { pathname: '/x/%2e%2e/auth' },
+      { pathname: '/%E0%A4%A' },                            // undecodable percent-encoding
     ];
     for (const from of malformed) {
       expect(resolveInAppPostAuthTarget({ ...from, state })).toEqual({ to: '/practice' });
@@ -97,6 +101,9 @@ describe('postAuthRouting — resolveInAppPostAuthTarget (#1548 in-app return: h
 
   it('does not treat a route that merely starts with "auth"/"signup" text as a sign-in surface', () => {
     expect(resolveInAppPostAuthTarget({ pathname: '/authors' })).toEqual({ to: '/authors' });
+    // An encoded slash stays inside one segment for the router, so this is not the /auth route; bytes are kept.
+    expect(resolveInAppPostAuthTarget({ pathname: '/%2Fauth', search: '?a=b:c', hash: '#h:1', state: { k: 1 } }))
+      .toEqual({ to: '/%2Fauth?a=b:c#h:1', state: { k: 1 } });
   });
 
   it('leaves the magic-link email URL path unchanged: safeDeepLink still drops hash and state', () => {
