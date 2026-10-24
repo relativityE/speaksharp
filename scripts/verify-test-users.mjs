@@ -5,6 +5,8 @@
  * VERIFY_TARGET=reviewers (default): confirms configured reviewer/test accounts have both
  * - a Supabase auth user
  * - a public.user_profiles row with the expected subscription_status
+ * and reports each found account's completed-session count (a head-only count; no session row is read). The count is
+ * reported, not a PASS condition: a returning-user journey (#1593 case 15) needs verified history before it runs.
  *
  * VERIFY_TARGET=canaries: strictly read-only canary identity inspection (scripts/lib/canaryReadOnlyVerify.mjs).
  * It never authenticates as a canary, so credential viability is not tested.
@@ -15,6 +17,7 @@
 import { createClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { pathToFileURL } from 'node:url';
 import { formatCanaryLine, runCanaryInspection } from './lib/canaryReadOnlyVerify.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -108,7 +111,20 @@ async function listAllAuthUsers(supabase) {
   }
 }
 
-function statusLine(status, result) {
+/**
+ * The account's completed-session count, read-only: a head-only exact count, so no session row or content is returned.
+ * null when the count cannot be verified (query error or a non-count answer) — never a 0 that reads as "no history".
+ */
+export async function completedSessionCount(supabase, userId) {
+  const { count, error } = await supabase
+    .from('sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('status', 'completed');
+  return !error && Number.isInteger(count) && count >= 0 ? count : null;
+}
+
+export function statusLine(status, result) {
   const prefix = status === 'PASS' ? 'PASS' : 'FAIL';
   const details = [
     `auth user ${result.authUserExists ? 'exists' : 'missing'}`,
@@ -121,6 +137,10 @@ function statusLine(status, result) {
 
   if (result.expectedTier && result.subscriptionStatus && result.subscriptionStatus !== result.expectedTier) {
     details.push(`expected=${result.expectedTier}`);
+  }
+
+  if (result.authUserExists) {
+    details.push(`completed sessions=${result.completedSessions ?? 'unverified'}`);
   }
 
   return `${prefix} ${result.label}: ${details.join(', ')}`;
@@ -188,7 +208,7 @@ async function main() {
     }
   }
 
-  const results = candidates.map((candidate) => {
+  const results = await Promise.all(candidates.map(async (candidate) => {
     const authUser = authByEmail.get(candidate.email.toLowerCase());
     const profile = authUser ? profileById.get(authUser.id) : null;
     const subscriptionStatus = profile?.subscription_status || null;
@@ -202,9 +222,10 @@ async function main() {
       authUserExists: Boolean(authUser),
       profileRowExists: Boolean(profile),
       subscriptionStatus,
+      completedSessions: authUser ? await completedSessionCount(supabase, authUser.id) : null,
       pass,
     };
-  });
+  }));
 
   console.log('Test user profile verification');
   for (const result of results) {
@@ -218,7 +239,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`FAIL verifier runtime: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(`FAIL verifier runtime: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  });
+}

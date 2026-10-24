@@ -86,11 +86,19 @@ describe('applyHumanReflex — every action waits, and only while applied', () =
 });
 
 describe('every RWT scenario runs with it, and the dispatch can choose it', () => {
-    it('all nine RWT specs use the RWT production base that applies the think-time', () => {
+    it('all ten RWT specs (15 journeys) use the RWT production base that applies the think-time', () => {
         const live = path.join(ROOT, 'tests/live');
         const specs = readdirSync(live).filter((f) => /^rwt-.*\.live\.spec\.ts$/.test(f));
-        // Six, plus #1258 R1–R3: save-retry-recovery, abandon-and-two-tabs, adverse-mic-model.
-        expect(specs.length).toBe(9);
+        // Six, plus #1258 R1–R3: save-retry-recovery, abandon-and-two-tabs, adverse-mic-model; #1593 cases 9–11 split mic
+        // denied into adverse-mic-denied (its =deny launch options must be file-level). Still exactly 15 journeys.
+        expect(specs.sort()).toEqual([
+            'rwt-abandon-and-two-tabs.live.spec.ts', 'rwt-adverse-mic-denied.live.spec.ts', 'rwt-adverse-mic-model.live.spec.ts',
+            'rwt-feedback-association-boundaries.live.spec.ts', 'rwt-focus-points-partial.live.spec.ts',
+            'rwt-focus-points-session.live.spec.ts', 'rwt-open-mic-first-session.live.spec.ts',
+            'rwt-pending-start-navigation.live.spec.ts', 'rwt-products-navigation.live.spec.ts', 'rwt-save-retry-recovery.live.spec.ts',
+        ]);
+        const journeys = specs.map((spec) => (readFileSync(path.join(live, spec), 'utf8').match(/^\s*test\(\s*['"`]/gm) ?? []).length);
+        expect(journeys.reduce((a, b) => a + b, 0)).toBe(15);
         for (const spec of specs) {
             const src = readFileSync(path.join(live, spec), 'utf8');
             expect({ spec, usesRwtBase: /from '\.\/helpers\/rwtProductionTest'/.test(src) }).toEqual({ spec, usesRwtBase: true });

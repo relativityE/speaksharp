@@ -14,7 +14,7 @@ const sources = Object.fromEntries(T2_VERSIONS.map(version => [version,
 
 // BEGIN BOUNDED FIXTURE. Platform tables/usage are the existing declared fixture;
 // application table/function definitions below are executed from real source.
-async function fixture() {
+async function fixture({ historicalTableDefaults = true } = {}) {
   const db = new PGlite();
   const bootstrap = read('tests/db/account-closure-tokens.integration.test.ts')
     .match(/await db\.exec\(`\n([\s\S]*?)`\);/);
@@ -23,6 +23,15 @@ async function fixture() {
   await db.exec(`CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$
     SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
     SET ROLE closure_owner;`);
+  // Native replay includes this earlier default under its object-creating role.
+  // Apply only the exact historical TABLE default: existing bootstrap tables and
+  // sequence/function defaults are outside this fixture-history correction.
+  if (historicalTableDefaults) {
+    const grants = source('20251219150000_fix_service_role_permissions.sql')
+      .match(/^ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;$/gm);
+    if (grants?.length !== 1) throw new Error('exact historical table-default grant absent or ambiguous');
+    await db.exec(grants[0]);
+  }
   for (const name of ['20260812041600_trial_commercial_grant_on_conflict_1294.sql',
     '20260812002000_webhook_lifecycle_completeness_1282.sql']) await db.exec(source(name));
   const canonical = source('20260812041500_flawless_launch_runtime_convergence_1290.sql');
@@ -76,6 +85,41 @@ async function fixture() {
 // END BOUNDED FIXTURE.
 
 describe('T2 catalog gate rejects missing or changed evidence', () => {
+  it('retains historical table defaults and rejects the omitted-grant receipt catalog', async () => {
+    const target = 'table:public.ai_suggestion_authority_receipts';
+    const expected = t2ExpectedCatalog('before', T2_VERSIONS[0]);
+    for (const historicalTableDefaults of [true, false]) {
+      const db = await fixture({ historicalTableDefaults });
+      try {
+        await db.exec('SET search_path=public,pg_temp');
+        // Direct catalog privileges are an independent oracle, not values copied
+        // from the digest map under test. GRANT SELECT/INSERT/UPDATE is additive.
+        const privileges = (await db.query(`SELECT a.privilege_type, a.is_grantable
+          FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a
+          JOIN pg_roles r ON r.oid=a.grantee
+          WHERE c.oid='public.ai_suggestion_authority_receipts'::regclass
+            AND r.rolname='service_role' ORDER BY a.privilege_type`)).rows;
+        expect(privileges.map(row => row.privilege_type)).toEqual(historicalTableDefaults
+          ? ['DELETE', 'INSERT', 'MAINTAIN', 'REFERENCES', 'SELECT', 'TRIGGER', 'TRUNCATE', 'UPDATE']
+          : ['INSERT', 'SELECT', 'UPDATE']);
+        expect(privileges.every(row => row.is_grantable === false)).toBe(true);
+        const actual = JSON.parse(Object.values((await db.query(t2CatalogQuery(T2_INVENTORY))).rows[0])[0]);
+        expect(Object.keys(actual).sort()).toEqual(Object.keys(expected).sort());
+        expect(Object.keys(expected).filter(key => actual[key] !== expected[key]))
+          .toEqual(historicalTableDefaults ? [] : [target]);
+        let admission;
+        try { admission = assertT2Catalog(actual, expected); }
+        catch (error) { admission = error.message; }
+        expect(admission).toEqual(historicalTableDefaults
+          ? { passed: true, objects: Object.keys(expected).length }
+          : `T2 catalog mismatch: ${target}`);
+        // Retained pre-correction fixture result; omission must fail closed.
+        expect(actual[target]).toBe(historicalTableDefaults
+          ? expected[target] : 'f2255e021f0773c930bc75db91338373');
+      } finally { await db.close(); }
+    }
+  }, 30_000);
+
   it('retains the real heartbeat before Analytics/pending/U1 and rejects missing/body/ACL drift', async () => {
     const db = await fixture();
     const catalog = async () => {

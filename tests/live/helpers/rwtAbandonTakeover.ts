@@ -27,6 +27,39 @@ export type Verdict = { status: 'PASS' | 'FAIL' | 'HOLD'; detail: string };
 export type TabState = { runtimeState: string | null; recorderVisible: boolean; liveTracks: number };
 export type RowFacts = { id: string; status: string | null };
 
+/** Self-contained page predicate. A resolved mode is not a settled model-availability decision. */
+export function actionablePrivateStartForLease(): 'mic-download' | 'mic-start' | false {
+    const root = document.documentElement;
+    const status = root.getAttribute('data-model-status');
+    const control = status === 'download-required' ? 'mic-download'
+        : (status === 'ready' || (status === 'idle' && root.getAttribute('data-stt-ready') === 'true')) ? 'mic-start' : null;
+    if (!control) return false;
+    const button = document.querySelector<HTMLButtonElement>(`[data-testid="${control}"]`);
+    if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true' || !button.getClientRects().length) return false;
+    const style = getComputedStyle(button);
+    return style.visibility !== 'hidden' && style.display !== 'none' ? control : false;
+}
+
+/**
+ * Case 11's first activation: wait for the actionable cold/warm decision, never initialise a cold model.
+ * Open refusal observation only AFTER background availability settles, immediately before the actual Start.
+ * A replaced/disabled control fails its bounded click; it is never silently replaced by a different gesture.
+ */
+export async function pressPrivateStartForLease(
+    page: import('@playwright/test').Page,
+    waitForReady: (page: import('@playwright/test').Page, timeout: number) => Promise<void>,
+    beforePress: () => Promise<void> = async () => undefined,
+): Promise<boolean> {
+    const handle = await page.waitForFunction(actionablePrivateStartForLease, undefined, { timeout: 30_000 });
+    let control: ReturnType<typeof actionablePrivateStartForLease>;
+    try { control = await handle.jsonValue(); } finally { await handle.dispose(); }
+    if (control !== 'mic-download' && control !== 'mic-start') throw new Error('private Start control was not established');
+    if (control === 'mic-start') await waitForReady(page, 30_000);
+    await beforePress();
+    await page.getByTestId(control).click({ timeout: 30_000 });
+    return control === 'mic-download';
+}
+
 const recordingNow = (t: TabState) => t.runtimeState === 'RECORDING' || t.recorderVisible || t.liveTracks > 0;
 
 /** After leaving: nothing records, no recorder shows, and every microphone track has ended. */
