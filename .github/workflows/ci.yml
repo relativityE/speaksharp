@@ -587,6 +587,8 @@ jobs:
 
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -707,7 +709,24 @@ jobs:
 
       # Generate and publish the qualified receipt only after every final assertion has succeeded.
       # Failure diagnostics remain in the job log/HTML report; they can never resemble acceptance.
+      # Runs outside the candidate Node entrypoint, so even its syntax/import failure cannot
+      # leave old output in this job. This is freshness, not an independent security boundary.
+      - name: Begin fresh quality evidence attempt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { randomUUID } from 'node:crypto';
+          for (const name of ['software-quality.latest.json', 'software-quality-summary.latest.md', 'service-levels.latest.json', 'service-levels-summary.latest.md']) {
+            fs.rmSync(`product_release/evidence/${name}`, { force: true });
+          }
+          fs.appendFileSync(process.env.GITHUB_ENV, `SOFTWARE_QUALITY_INVOCATION=${randomUUID()}\n`);
+          NODE
+
       - name: Generate qualified software quality evidence
+        env:
+          TEST_EFFICACY_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: node scripts/write-software-quality-evidence.mjs
 
       - name: Upload CI Metrics
