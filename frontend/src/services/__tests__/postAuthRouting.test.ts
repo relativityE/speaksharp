@@ -104,6 +104,9 @@ describe('postAuthRouting — resolveInAppPostAuthTarget (#1548 in-app return: h
     // An encoded slash stays inside one segment for the router, so this is not the /auth route; bytes are kept.
     expect(resolveInAppPostAuthTarget({ pathname: '/%2Fauth', search: '?a=b:c', hash: '#h:1', state: { k: 1 } }))
       .toEqual({ to: '/%2Fauth?a=b:c#h:1', state: { k: 1 } });
+    // The decisive case for that rule: the router matches `auth%2Fsignin` as ONE segment, never the /auth/signin route.
+    // Decoding the %2F into a separator would wrongly refuse it as a sign-in surface.
+    expect(resolveInAppPostAuthTarget({ pathname: '/auth%2Fsignin' })).toEqual({ to: '/auth%2Fsignin' });
   });
 
   it('leaves the magic-link email URL path unchanged: safeDeepLink still drops hash and state', () => {
