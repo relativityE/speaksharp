@@ -63,4 +63,13 @@ describe('WeeklyActivityChart', () => {
         render(<WeeklyActivityChart />);
         expect(screen.getByTestId('weekly-activity-unavailable')).toHaveTextContent('This week’s activity can’t load right now.');
     });
+
+    it('#1472: a failed recent history does not hide a complete week', () => {
+        (useAnalytics as Mock).mockReturnValue({
+            sessionHistory: [], weekly: { status: 'complete', count: 1, activity: [{ day: 'Mon', sessions: 1 }] }, loading: false, error: new Error('history failed'),
+        });
+        render(<WeeklyActivityChart />);
+        expect(screen.queryByText('Could not load activity data.')).toBeNull();
+        expect(screen.getByText('Weekly Activity')).toBeInTheDocument();
+    });
 });

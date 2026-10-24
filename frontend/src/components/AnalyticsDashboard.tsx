@@ -145,6 +145,10 @@ interface SessionHistoryItemProps {
  */
 type RecentWindow = { sessions: number; stats: OverallStats | null; fillersPerSession: number | null; fillersPerMin: number | null };
 const RECENT_WINDOW_SESSIONS = 4;
+/** #1472: the empty recent window used when the recent history itself failed to load. */
+const NO_RECENT: RecentWindow = { sessions: 0, stats: null, fillersPerSession: null, fillersPerMin: null };
+/** #1472: cards whose value is an ALL-TIME aggregate (they read `stats`, not the recent window). */
+const ALL_TIME_CARD_IDS = new Set(['total_sessions', 'speaking_pace', 'total_practice_time', 'clarity_score', 'pause_rhythm', 'avg_session_length']);
 /** OverallStats averages are `string | number | null` (rates arrive via `toFixed`); a non-finite or absent value is null. */
 const numberOrNull = (v: unknown): number | null => {
     const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
@@ -841,6 +845,29 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             )}
             {loading ? (
                 <AnalyticsDashboardSkeleton />
+            ) : error && overallStats === null ? (
+                <ErrorDisplay error={error} />
+            ) : error && !sessionId ? (
+                /* #1472: the recent history failed but the all-time aggregate is complete (server summary): keep the totals and
+                   say the recent list can't load — never the "no sessions yet" empty state, never a hidden summary. */
+                <div className="space-y-4" data-testid="analytics-recent-history-unavailable">
+                    <p className="text-sm text-muted-foreground">Your recent sessions can&rsquo;t load right now &mdash; your all-time totals are below.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {STAT_CARD_OPTIONS.filter((option) => ALL_TIME_CARD_IDS.has(option.id)).map((option) => (
+                            <StatCard
+                                key={option.id}
+                                icon={option.icon}
+                                label={option.label}
+                                value={option.getValue(overallStats, NO_RECENT)}
+                                unit={option.unit}
+                                interpretation={option.getInterpretation?.(overallStats, NO_RECENT)}
+                                detail={option.getDetail?.(overallStats, NO_RECENT)}
+                                metric={option.metric}
+                                testId={`stat-card-${option.id}`}
+                            />
+                        ))}
+                    </div>
+                </div>
             ) : error ? (
                 <ErrorDisplay error={error} />
             ) : targetSession && targetSessionMetrics ? (

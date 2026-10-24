@@ -29,6 +29,26 @@ describe('GoalsSection (#1472 availability)', () => {
         expect(screen.getByTestId('clarity-avg-value').textContent).toMatch(/^—/);
         expect(screen.getByTestId('goals-section').textContent).not.toMatch(/\b0%|^0 /);
         expect(screen.getByText("Your goal progress can't load right now.")).toBeInTheDocument();
+        expect(screen.queryAllByTestId('goal-actual-fill-track')).toHaveLength(0);
+    });
+
+    it('a complete aggregate with no clarity evidence keeps clarity unknown: no 0%, no clarity bar', () => {
+        (useAnalytics as Mock).mockReturnValue({
+            weekly: { status: 'complete', count: 2, activity: [] }, allTime: { status: 'complete', stats: { ...stats, avgClarity: null } }, loading: false, error: null,
+        });
+        render(<GoalsSection />);
+        expect(screen.getByTestId('clarity-avg-value').textContent).toMatch(/^—/);
+        expect(screen.getByTestId('goals-section').textContent).not.toMatch(/\b0%/);
+        expect(screen.queryAllByTestId('goal-actual-fill-track')).toHaveLength(1); // the weekly bar only
+    });
+
+    it('a failed recent history does not hide goals the complete aggregates can answer', () => {
+        (useAnalytics as Mock).mockReturnValue({
+            weekly: { status: 'complete', count: 6, activity: [] }, allTime: { status: 'complete', stats }, loading: false, error: new Error('history failed'),
+        });
+        render(<GoalsSection />);
+        expect(screen.queryByText('Could not load goals.')).toBeNull();
+        expect(screen.getByTestId('weekly-sessions-value').textContent).toMatch(/^6/);
     });
 
     it('CONTROL complete week and all-time: the real count, the real clarity and the goal message', () => {

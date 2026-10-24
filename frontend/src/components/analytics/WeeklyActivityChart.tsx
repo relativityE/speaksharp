@@ -38,7 +38,8 @@ export const WeeklyActivityChart: React.FC = () => {
         );
     }
 
-    if (error) {
+    // #1472: a failed recent-history read must not hide a complete week (e.g. from the server summary).
+    if (error && weekly.status !== 'complete') {
         return (
             <Card className="h-full">
                 <CardHeader><CardTitle>Weekly Activity</CardTitle></CardHeader>

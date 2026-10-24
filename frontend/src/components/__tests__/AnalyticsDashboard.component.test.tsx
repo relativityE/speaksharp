@@ -122,6 +122,20 @@ describe('AnalyticsDashboard', () => {
             expect(screen.queryByTestId('progress-alltime-unavailable')).toBeNull();
         });
 
+        it('a failed recent history does not hide a complete all-time summary: totals render, no empty state, no error page', () => {
+            renderComponent({ sessionHistory: [], error: new Error('history failed'), allTime: { status: 'complete', stats: { ...mockStats, totalSessions: 21 } }, firstSessionAt: '2026-09-01T10:00:00Z' });
+            expect(screen.getByTestId('analytics-recent-history-unavailable')).toHaveTextContent('Your recent sessions can’t load right now');
+            expect(screen.getByTestId('stat-card-total_sessions')).toHaveTextContent('21');
+            expect(screen.getByTestId('progress-header-line')).toHaveTextContent(/You've done 21 sessions since/);
+            expect(screen.queryByTestId(TEST_IDS.ANALYTICS_EMPTY_STATE)).toBeNull();
+        });
+
+        it('CONTROL a failed history with no complete aggregate still shows the error, not invented totals', () => {
+            renderComponent({ sessionHistory: [], error: new Error('history failed'), allTime: { status: 'unavailable', reason: 'history_failed' } });
+            expect(screen.queryByTestId('analytics-recent-history-unavailable')).toBeNull();
+            expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
+        });
+
         it('CONTROL complete all-time: the header states the real count', () => {
             renderComponent({ allTime: { status: 'complete', stats: { ...mockStats, totalSessions: 21 } }, firstSessionAt: '2026-09-01T10:00:00Z' });
             expect(screen.getByTestId('progress-header-line')).toHaveTextContent(/You've done 21 sessions since/);
@@ -186,7 +200,8 @@ describe('AnalyticsDashboard', () => {
     });
 
     it('should render error display when error occurs', () => {
-        renderComponent({ error: new Error('Test error') });
+        // #1472: a history error with no complete aggregate (the ≤ 20 path reports history_failed) shows the error.
+        renderComponent({ error: new Error('Test error'), allTime: { status: 'unavailable', reason: 'history_failed' } });
         expect(screen.getByText(/Test error/i)).toBeInTheDocument();
     });
 

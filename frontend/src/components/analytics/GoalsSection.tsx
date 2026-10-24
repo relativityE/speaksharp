@@ -53,7 +53,8 @@ export const GoalsSection: React.FC = () => {
         );
     }
 
-    if (error) {
+    // #1472: a failed recent-history read must not hide goals that the (complete) aggregates can still answer.
+    if (error && weekly.status !== 'complete' && allTime.status !== 'complete') {
         return (
             <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2"><Target className="h-5 w-5 text-signature-text" />Current Goals</CardTitle></CardHeader>
@@ -72,9 +73,10 @@ export const GoalsSection: React.FC = () => {
     const { weeklyGoal, clarityGoal } = goals;
 
     const overallStats = allTime.status === 'complete' ? allTime.stats : null;
-    const avgClarityScore = overallStats === null ? null : typeof overallStats.avgClarity === 'string'
-        ? parseFloat(overallStats.avgClarity)
-        : (overallStats.avgClarity ?? 0);
+    // An unknown average (no contributing evidence) stays unknown — never 0%.
+    const rawClarity = overallStats === null ? null
+        : typeof overallStats.avgClarity === 'string' ? parseFloat(overallStats.avgClarity) : overallStats.avgClarity;
+    const avgClarityScore = typeof rawClarity === 'number' && Number.isFinite(rawClarity) ? rawClarity : null;
 
     // Determine encouragement message
     const getEncouragementMessage = () => {

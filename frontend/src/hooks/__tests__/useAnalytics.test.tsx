@@ -303,7 +303,8 @@ describe('useAnalytics', () => {
             (usePracticeHistory as Mock).mockReturnValue({ data: rows, isLoading: false, error: null, ...over });
         const summary = {
             overallStats: { totalSessions: 21, totalPracticeTime: 30, avgWpm: 120, clarityContributorCount: 0, wpmContributorCount: 21, fillerRateContributorCount: 0 },
-            fillerWordTrends: {}, topFillerWords: [], weeklySessionsCount: 3, weeklyActivity: [{ day: 'Mon', sessions: 3 }],
+            fillerWordTrends: {}, topFillerWords: [], weeklySessionsCount: 3,
+            weeklyActivity: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => ({ day, sessions: day === 'Mon' ? 3 : 0 })),
         };
         // Sam's fixture: 21 sessions = newest 20 × 60 s plus the oldest 600 s → all-time is 21 sessions / 30 min, never 20 / 20.
         const newest20 = Array.from({ length: 20 }, (_, i) => row(`n${i}`, i * 60 * 60 * 1000));
@@ -373,7 +374,7 @@ describe('useAnalytics', () => {
             await queryClient.refetchQueries({ queryKey: ['analyticsSummary'] });
             await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
             expect(statsOf(result).totalSessions).toBe(21);
-            expect(result.current.weekly).toEqual({ status: 'complete', count: 3, activity: [{ day: 'Mon', sessions: 3 }] });
+            expect(result.current.weekly).toMatchObject({ status: 'complete', count: 3 });
         });
 
         it('> 20 stale cached summary plus a refetch error → unavailable (summary_refetch_failed)', async () => {
@@ -432,6 +433,56 @@ describe('useAnalytics', () => {
             await vi.waitFor(() => expect(result.current.allTime.status).toBe('unavailable'));
             // 1 today + 18 yesterday are inside both windows; the oldest is outside both.
             expect(result.current.weekly).toMatchObject({ status: 'complete', count: 19 });
+        });
+
+        it('the week is judged on the CURRENT clock, not the cached history fetch time (Saturday cache reopened Sunday)', async () => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                vi.setSystemTime(new Date(2026, 9, 25, 10, 0)); // Sunday 25 Oct, 10:00 local: this week starts today 00:00
+                history([at('sun', new Date(2026, 9, 25, 9)), at('sat1', new Date(2026, 9, 24, 18)), at('sat2', new Date(2026, 9, 24, 19))],
+                    { dataUpdatedAt: new Date(2026, 9, 24, 23, 0).getTime() }); // fetched on Saturday night
+                (getSessionCount as Mock).mockResolvedValue(3);
+                const { result } = renderHook(() => useAnalytics(), { wrapper });
+                await vi.waitFor(() => expect(result.current.weekly.status).toBe('complete'));
+                const activity = (result.current.weekly as { activity: { day: string; sessions: number }[] }).activity;
+                expect(activity.find((d) => d.day === 'Sun')?.sessions).toBe(1);
+                expect(activity.find((d) => d.day === 'Sat')?.sessions).toBe(0); // last week now
+                expect(result.current.weekly).toMatchObject({ count: 3 }); // all three are inside the 7-day window
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it.each([
+            ['an empty overallStats object', { overallStats: {} }],
+            ['null totals', { overallStats: { totalSessions: null, totalPracticeTime: null } }],
+        ])('> 20 with %s is not a summary → unavailable', async (_label, bad) => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockResolvedValue({ ...summary, ...bad });
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime).toEqual({ status: 'unavailable', reason: 'summary_failed' }));
+        });
+
+        it.each([
+            ['a null weekly count (never Number(null) = 0)', { weeklySessionsCount: null }],
+            ['malformed day rows', { weeklyActivity: [{ day: 'Mon', sessions: 3 }] }],
+        ])('> 20 valid totals but %s: the RPC week is not complete', async (_label, bad) => {
+            history([...newest20]); // every row is inside this week, so the partial page cannot cover it either
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockResolvedValue({ ...summary, ...bad });
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
+            expect(result.current.weekly).toEqual({ status: 'unavailable' });
+        });
+
+        it('CONTROL legitimately null averages keep a valid summary complete', async () => {
+            history([...newest20]);
+            (getSessionCount as Mock).mockResolvedValue(21);
+            (getAnalyticsSummary as Mock).mockResolvedValue({ ...summary, overallStats: { ...summary.overallStats, avgWpm: null, avgClarity: null } });
+            const { result } = renderHook(() => useAnalytics(), { wrapper });
+            await vi.waitFor(() => expect(result.current.allTime.status).toBe('complete'));
+            expect(statsOf(result).averageWPM).toBeNull();
         });
 
         it('weekly: an invalid oldest timestamp proves nothing', async () => {
