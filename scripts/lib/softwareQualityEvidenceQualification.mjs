@@ -29,7 +29,14 @@ export function parseCiAuditOverride(content) {
   const e2ePassed = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*(\d+)\s*\/\s*\d+/);
   const e2eTotal = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*\d+\s*\/\s*(\d+)/);
   const e2eFailed = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Failed\*\*:\s*(\d+)/);
-  const e2eFlaky = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Flaky\*\*:\s*(\d+)/);
+  // Absence is legacy data; a present malformed value must survive to validation.
+  // Bound the search to the E2E summary so a later section cannot supply its count.
+  const e2eSection = content.split('E2E Tests')[1]?.split(/\r?\n#{1,6} /)[0] ?? '';
+  const flakyFields = [...e2eSection.matchAll(/^[ \t]*-[ \t]+\*\*Flaky\*\*:[ \t]*([^\r\n]*)/gm)];
+  const flakyRaw = flakyFields[0]?.[1].trim();
+  const e2eFlaky = flakyFields.length > 1 ? 'duplicate Flaky field'
+    : flakyRaw === undefined ? null
+      : /^\d+$/.test(flakyRaw) && Number.isSafeInteger(Number(flakyRaw)) ? Number(flakyRaw) : flakyRaw;
 
   if (
     unitPassed === null || unitTotal === null || unitFailed === null
@@ -47,7 +54,7 @@ export function parseCiAuditOverride(content) {
       passed: e2ePassed,
       failed: e2eFailed,
       ...(e2eFlaky !== null ? { flaky: e2eFlaky } : {}),
-      skipped: Math.max(0, e2eTotal - e2ePassed - e2eFailed - (e2eFlaky ?? 0)),
+      skipped: Math.max(0, e2eTotal - e2ePassed - e2eFailed - (typeof e2eFlaky === 'number' ? e2eFlaky : 0)),
       total: e2eTotal,
     },
     lighthouse: {

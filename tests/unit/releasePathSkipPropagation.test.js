@@ -561,4 +561,28 @@ describe('C2 four-bucket E2E accounting preserves the no-silent-flaky policy', (
     expect(result.reasons).toContain('e2e_tests_flaky:1');
     expect(result.reasons).not.toContain('e2e_test_counts_inconsistent');
   });
+
+  it.each([
+    [undefined, undefined, true], ['0', 0, true], ['1', 1, false],
+    ['-1', '-1', false], ['0.5', '0.5', false], ['bad', 'bad', false], ['', '', false],
+  ])('audit fallback parses complete Flaky value %s and cannot erase malformed data', (raw, expected, valid) => {
+    const audit = parseCiAuditOverride('Unit Tests\n- **Passed**: 100 / 100\n- **Failed**: 0\n'
+      + 'E2E Tests\n- **Passed**: 20 / 20\n- **Failed**: 0\n'
+      + (raw === undefined ? '' : `- **Flaky**: ${raw}\n`));
+    expect(audit.e2e_tests.flaky).toBe(expected);
+    const result = withOutcome(audit.e2e_tests);
+    expect(result.valid).toBe(valid);
+    if (raw !== undefined && !/^\d+$/.test(raw))
+      expect(result.reasons).toContain('e2e_flaky_count_missing_or_invalid');
+  });
+
+  it('duplicate audit values fail closed and a later section cannot impersonate the absent E2E field', () => {
+    const prefix = 'Unit Tests\n- **Passed**: 100 / 100\n- **Failed**: 0\n'
+      + 'E2E Tests\n- **Passed**: 20 / 20\n- **Failed**: 0\n';
+    const duplicate = parseCiAuditOverride(prefix + '- **Flaky**: 0\n- **Flaky**: bad\n');
+    expect(withOutcome(duplicate.e2e_tests).reasons).toContain('e2e_flaky_count_missing_or_invalid');
+    const absent = parseCiAuditOverride(prefix + '## Other measurements\n- **Flaky**: 1\n');
+    expect(absent.e2e_tests.flaky).toBeUndefined();
+    expect(withOutcome(absent.e2e_tests).valid).toBe(true);
+  });
 });
