@@ -25,14 +25,14 @@ const context=()=>executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID(
 const contract=TEST_EFFICACY_CONTRACTS[0];
 
 // Synthetic in-memory receipts exercise validation only; no runtime/product PASS is claimed.
-function pilot(expected) {
+function pilot(expected, receiptRoot=root) {
   const names=contract.mutants.map(mutant=>mutant.assertion).sort();
   // Independent construction from the real file inventory and literal reviewed rewrites.
   // Do not call the consumer's expected-input implementation to manufacture its own oracle.
   const inventory=[...new Set(execFileSync('git',['ls-files','-z','--cached','--others','--exclude-standard','--exclude=/apt-bundle/'],
-    {cwd:root,encoding:'utf8'}).split('\0').filter(Boolean))].sort().filter(file=>fs.existsSync(path.join(root,file)))
-    .map(file=>[file,hash(fs.readFileSync(path.join(root,file)))]);
-  const original=fs.readFileSync(path.join(root,contract.sourceFile),'utf8');
+    {cwd:receiptRoot,encoding:'utf8'}).split('\0').filter(Boolean))].sort().filter(file=>fs.existsSync(path.join(receiptRoot,file)))
+    .map(file=>[file,hash(fs.readFileSync(path.join(receiptRoot,file)))]);
+  const original=fs.readFileSync(path.join(receiptRoot,contract.sourceFile),'utf8');
   const sourceFor={
     baseline:original,restored:original,
     'semantic-control':original.replace("if (value.trim() === '') return false;","if ('' === value.trim()) return false;")
@@ -43,8 +43,8 @@ function pilot(expected) {
   const phase=(label,mutant)=>{
     const inputSha256=hash(JSON.stringify(inventory.map(([file,digest])=>[file,file===contract.sourceFile?hash(sourceFor[label]):digest])));
     const binding={runId:'synthetic-run',phaseId:randomUUID(),phase:label,inputSha256,
-      repoLockSha256:hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml'))),
-      command:['node','vitest','run',contract.testFile],cwd:root,testFile:path.join(root,contract.testFile),
+      repoLockSha256:hash(fs.readFileSync(path.join(receiptRoot,'pnpm-lock.yaml'))),
+      command:['node','vitest','run',contract.testFile],cwd:receiptRoot,testFile:path.join(receiptRoot,contract.testFile),
       runtime:{adapter:'vitest-3.2.4-raw-v1'}};
     const source=fs.readFileSync(binding.testFile,'utf8');
     const line=mutant?source.slice(0,source.indexOf(mutant.assertionAnchor)).split('\n').length:0;
@@ -62,10 +62,28 @@ function pilot(expected) {
     return {binding,envelope,report,names,inputSha256,execution:{status:mutant?1:0,signal:null,error:null}};
   };
   const result={id:contract.id,testFile:contract.testFile,sourceFile:contract.sourceFile,
-    testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),sourceSha256:hash(fs.readFileSync(path.join(root,contract.sourceFile))),
+    testSha256:hash(fs.readFileSync(path.join(receiptRoot,contract.testFile))),sourceSha256:hash(fs.readFileSync(path.join(receiptRoot,contract.sourceFile))),
     baseline:phase('baseline'),control:phase('semantic-control'),mutants:contract.mutants.map(m=>phase(m.id,m)),restored:phase('restored')};
   return {provenance:expected,commit:expected.commit,tree:expected.tree,snapshotSha256:expected.snapshotSha256,
     runId:'synthetic-run',status:'executed',contracts:[result]};
+}
+
+// Receipt-shape controls need exact maintained source bytes, not every unrelated
+// file in this checkout. Production validators still derive the real fixture
+// snapshot independently; no cached inventory or weakened receipt is accepted.
+function withPilotFixture(check) {
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pilot-receipt-control-'));
+  try {
+    for(const file of [contract.sourceFile,contract.testFile,'pnpm-lock.yaml']) {
+      const target=path.join(dir,file);fs.mkdirSync(path.dirname(target),{recursive:true});
+      fs.writeFileSync(target,fs.readFileSync(path.join(root,file)));
+    }
+    const git=args=>execFileSync('git',args,{cwd:dir,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+    git(['init']);git(['add','.']);
+    git(['-c','user.name=Receipt fixture','-c','user.email=fixture@example.invalid','commit','-m','bounded maintained pilot bytes']);
+    const expected=executionContext(dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    return check({root:dir,expected});
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 }
 
 test('routes Node .mjs, Vitest, Playwright, Deno and inspected SQL consumers separately',()=>{
@@ -85,15 +103,25 @@ test('claimed filenames/run ID or neighboring suite cannot qualify SQL or Node t
   assert.equal(coverage.status,'INCOMPLETE');
 });
 
-test('replays all five raw phases for the narrow pilot and never credits neighboring SQL',()=>{
-  const expected=context();const receipt=pilot(expected);
+test('replays all five raw phases for the narrow pilot and never credits neighboring SQL',()=>withPilotFixture(({root,expected})=>{
+  const receipt=pilot(expected,root);
   assert.equal(validatePilotExecution(receipt,expected,root),contract.testFile);
   const coverage=executionCoverage([contract.testFile,'tests/db/focus-points-trial-capability-matrix.sql'],{root,expected,pilot:receipt});
   assert.deepEqual(coverage.rows.map(row=>row.status),['EXECUTED','NOT RUN']);
-});
+}));
 
-test('consumer derives all five phase inputs, rejecting same-input and incorrect mutant receipts',()=>{
-  const expected=context();const correct=pilot(expected);const result=correct.contracts[0];
+test('bounded receipt fixture retains exact maintained inputs and refuses a changed source snapshot',()=>withPilotFixture(({root:fixtureRoot,expected})=>{
+  const files=execFileSync('git',['ls-files','-z'],{cwd:fixtureRoot,encoding:'utf8'}).split('\0').filter(Boolean);
+  assert.deepEqual(files.sort(),[contract.sourceFile,contract.testFile,'pnpm-lock.yaml'].sort());
+  for(const file of files) assert.deepEqual(fs.readFileSync(path.join(fixtureRoot,file)),fs.readFileSync(path.join(root,file)));
+  const receipt=pilot(expected,fixtureRoot);
+  assert.equal(validatePilotExecution(receipt,expected,fixtureRoot),contract.testFile);
+  fs.appendFileSync(path.join(fixtureRoot,'pnpm-lock.yaml'),'\n# controlled source change\n');
+  assert.throws(()=>validatePilotExecution(receipt,expected,fixtureRoot),/Reviewed source snapshot changed/);
+}));
+
+test('consumer derives all five phase inputs, rejecting same-input and incorrect mutant receipts',()=>withPilotFixture(({root,expected})=>{
+  const correct=pilot(expected,root);const result=correct.contracts[0];
   assert.equal(validatePilotExecution(correct,expected,root),contract.testFile);
   assert.equal(result.baseline.inputSha256,result.restored.inputSha256);
   assert.equal(new Set([result.baseline,result.control,...result.mutants].map(phase=>phase.inputSha256)).size,4);
@@ -107,7 +135,7 @@ test('consumer derives all five phase inputs, rejecting same-input and incorrect
     if (alteration==='other-file-change') set(candidate.mutants[0],hash('correct seam plus unregistered test edit'));
     assert.throws(()=>validatePilotExecution(receipt,expected,root),/Phase bytes do not match registered transformation/,alteration);
   }
-});
+}));
 
 test('source-only diff requires pilot even with empty changed-test rows; unrelated diff does not',()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'quality-applicability-'));
@@ -141,17 +169,15 @@ test('source-only diff requires pilot even with empty changed-test rows; unrelat
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 
-test('gate-owned Vitest suites remain NOT RUN without their own validated execution receipts',()=>{
-  const expected=context();
+test('gate-owned Vitest suites remain NOT RUN without their own validated execution receipts',()=>withPilotFixture(({root,expected})=>{
   const files=['tests/unit/testEfficacy.test.js','tests/unit/testExecutionEvidence.test.js','tests/unit/releasePathSkipPropagation.test.js'];
-  const coverage=executionCoverage(files,{root,expected,pilot:pilot(expected)});
+  const coverage=executionCoverage(files,{root,expected,pilot:pilot(expected,root)});
   assert.equal(coverage.pilot.status,'EXECUTED'); // synthetic pilot evidence still cannot cover neighbors
   assert.equal(coverage.status,'INCOMPLETE');
   assert.deepEqual(coverage.rows.map(row=>[row.route.runner,row.status]),files.map(()=>['vitest','NOT RUN']));
-});
+}));
 
-test('rejects missing, stale, wrong-head/attempt/source, skipped and failed execution receipts',()=>{
-  const expected=context();
+test('rejects missing, stale, wrong-head/attempt/source, skipped and failed execution receipts',()=>withPilotFixture(({root,expected})=>{
   assert.throws(()=>assertProvenance(null,expected));
   for (const key of ['invocation','commit','tree','snapshotSha256','source','runAttempt','runId']) {
     assert.throws(()=>assertProvenance({...expected,[key]:'wrong'},expected));
@@ -165,8 +191,8 @@ test('rejects missing, stale, wrong-head/attempt/source, skipped and failed exec
     receipt=>{receipt.contracts[0].testSha256='wrong';},
     receipt=>{receipt.contracts[0].restored.inputSha256='wrong';},
     receipt=>{receipt.contracts[0].baseline.binding.repoLockSha256='wrong';},
-  ]) {const receipt=pilot(expected);corrupt(receipt);assert.throws(()=>validatePilotExecution(receipt,expected,root));}
-});
+  ]) {const receipt=pilot(expected,root);corrupt(receipt);assert.throws(()=>validatePilotExecution(receipt,expected,root));}
+}));
 
 test('producer context requires caller invocation and actual CI head, run and attempt',()=>{
   assert.throws(()=>executionContext(root,{}),/invocation/i);
