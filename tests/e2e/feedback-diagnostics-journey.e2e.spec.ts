@@ -167,8 +167,16 @@ test.describe('#1258 MOCKED — coaching failure → Share Feedback journey', ()
         expect(current).not.toBe(older);
         await sendFeedback(page, older, 'MOCKED journey: about my earlier take.');
         await expect(acknowledged(page)).toBeVisible({ timeout: 15_000 });
+        // The first report's toast can still be on screen, so `.last()` alone could pass on it. Mark every toast already
+        // shown; the second report is acknowledged only by an UNMARKED one, after its own dialog has closed. (A count
+        // would race the first toast's own auto-dismissal.)
+        await page.locator('li[data-sonner-toast]').evaluateAll((toasts) => toasts.forEach((t) => t.setAttribute('data-e2e-earlier', '')));
         await sendFeedback(page, 'none', 'MOCKED journey: not about a session.');
-        await expect(acknowledged(page).last()).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('issue-report-dialog'), 'the second report\'s dialog closed').toBeHidden({ timeout: 15_000 });
+        await expect(
+            page.locator('li[data-sonner-toast]:not([data-e2e-earlier])').filter({ hasText: 'Thanks — we’ve got it.' }),
+            'the second report produced its own acknowledgement',
+        ).toBeVisible({ timeout: 15_000 });
         const stored = (await boundaryRecord(page)).storedReports.map((r) => r.sessionId);
         expect(stored).toEqual([older, null]);
     });
