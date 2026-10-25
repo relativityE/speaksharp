@@ -180,6 +180,10 @@ export const cases = {
   },
   async guardedLateCoaching(db) {
     const { user, ids } = await seed(db);
+    const content = () => db.query('SELECT transcript,transcript_state,ai_suggestions FROM sessions WHERE id=$1', [ids[0]]);
+    const originalContent = (await content()).rows[0];
+    assert.equal(originalContent.transcript, 'synthetic speech [noise] [music]', 'this exact coaching take initially retains its transcript');
+    assert.equal(originalContent.ai_suggestions, null);
     const operation = (await db.query('SELECT gen_random_uuid() AS id')).rows[0].id;
     await db.exec('SET ROLE authenticated;');
     const quota = (await db.query('SELECT consume_ai_suggestion_quota(3) AS r')).rows[0].r;
@@ -190,14 +194,26 @@ export const cases = {
     await db.exec('SET ROLE closure_owner;');
     await replaceTake(db, user);
     const before = (await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows;
+    const erased = { transcript: null, transcript_state: 'expired', ai_suggestions: null };
+    assert.deepEqual((await content()).rows[0], erased, 'this exact take is erased before its late provider completion');
     const model = JSON.parse(readFileSync('backend/supabase/functions/get-ai-suggestions/contract.json', 'utf8')).model;
     const payload = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'Synthetic grounded control', what_to_try_next: 'Synthetic next step' });
     await db.exec('SET ROLE service_role;');
     try {
       const persist = () => db.query(`SELECT persist_account_coaching_v1($1,true,$2,$3,$4::jsonb,
         'google_gemini',$5,'user_utc_day',(now() AT TIME ZONE 'UTC')::date,3,1) AS r`, [operation, ids[0], user, payload, model]);
+      const assertRejectedState = async () => {
+        await db.exec('SET ROLE closure_owner;');
+        assert.deepEqual((await content()).rows[0], erased, 'a rejected completion cannot restore this take transcript, state or coaching');
+        assert.deepEqual((await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows, before);
+        assert.equal((await db.query('SELECT phase FROM account_coaching_operations WHERE operation_id=$1', [operation])).rows[0].phase,
+          'admitted', 'a SQL refusal alone does not establish provider settlement or safe account exit');
+        await db.exec('SET ROLE service_role;');
+      };
       await assert.rejects(persist(), /session is missing or unowned/, 'actual W1 to W2 late completion cannot restore expired coaching');
+      await assertRejectedState();
       await assert.rejects(persist(), /session is missing or unowned/, 'identical late completion retry cannot restore expired coaching');
+      await assertRejectedState();
     } finally { await db.exec('SET ROLE closure_owner;'); }
     assert.equal((await db.query('SELECT ai_suggestions FROM sessions WHERE id=$1', [ids[0]])).rows[0].ai_suggestions, null);
     assert.deepEqual((await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows, before);
