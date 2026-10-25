@@ -521,12 +521,17 @@ describe('C2 four-bucket E2E accounting preserves the no-silent-flaky policy', (
     expect(evidence).toBeNull();
   });
 
-  it('REAL zero-flake control qualifies and discloses measured zero in JSON and human summary', () => {
-    const { writerRun, evidence, summary } = runRealReportChain([shard(paths), shard(paths)]);
-    expect(writerRun.status).toBe(0);
-    expect(evidence.tests.flaky).toBe(0);
-    expect(evidence.tests.e2e).toMatchObject({ passed: 20, failed: 0, flaky: 0, skipped: 0, total: 20 });
-    expect(summary).toContain('| Flaky (passed only on retry) | 0 | 0 |');
+  it('REAL zero-flake metrics qualify without crediting unbound synthetic execution', () => {
+    const { serialized, writerRun, evidence } = runRealReportChain([shard(paths), shard(paths)]);
+    expect(serialized.e2e_tests).toMatchObject({ passed: 20, failed: 0, flaky: 0, skipped: 0, total: 20 });
+    const metricsEvidence = evidenceFrom(shard(paths));
+    metricsEvidence.tests.e2e = serialized.e2e_tests;
+    expect(validateSoftwareQualityEvidence(metricsEvidence).valid).toBe(true);
+    expect(`${writerRun.stdout}${writerRun.stderr}`).not.toContain('e2e_tests_flaky');
+    expect(writerRun.status, 'synthetic counts are not exact-source execution proof').toBe(1);
+    expect(evidence).toBeNull();
+    // JSON and human-summary disclosure are checked by the installed, source-bound
+    // actual-writer control in testExecutionEvidence.test.js, not this unbound fixture.
   });
 
   it('four independent terminal buckets keep count drift and unexpected failures visible', () => {

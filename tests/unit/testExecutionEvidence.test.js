@@ -562,6 +562,10 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       assert.equal(f.result.error,undefined);assert.equal(f.result.status,0,f.result.stderr);
       const evidence=JSON.parse(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json'),'utf8'));
       assert.equal(evidence.overallStatus,'QUALIFIED');assert.equal(evidence.executionCoverage.status,'COMPLETE');
+      assert.equal(evidence.tests.flaky,0);
+      assert.deepEqual(evidence.tests.e2e,{passed:1,failed:0,skipped:0,total:1});
+      assert.ok(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality-summary.latest.md'),'utf8')
+        .includes('| Flaky (passed only on retry) | 0 | 0 |'));
       assert.deepEqual(evidence.executionCoverage.rows.map(row=>[row.file,row.status]),[[fixtureConsumer.fixtureFile,'EXECUTED']]);
       const phase=evidence.testExecution.tests[0].phase;
       assert.equal(phase.report.numTotalTests,1);assert.equal(phase.report.numPendingTests,0);
