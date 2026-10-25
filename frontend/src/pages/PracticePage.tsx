@@ -150,8 +150,8 @@ export default function PracticePage() {
             streakLoading={homeStreakLoading}
             onStartFreeform={startFreeform}
             onStartObjective={startObjective}
-            onReviewLastSession={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
-            onViewAnalytics={() => navigate('/analytics')}
+            onReviewLastSession={() => { if (lastSession) navigate(`/progress/${lastSession.id}`); }}
+            onViewAnalytics={() => navigate('/progress')}
           />
         </div>
         <ObjectiveSetupDialog

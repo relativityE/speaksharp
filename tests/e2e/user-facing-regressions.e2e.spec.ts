@@ -142,7 +142,7 @@ test.describe('User-facing session and analytics regressions', () => {
     const latestSession = page.getByTestId(/session-history-item-/).first();
     await expect(latestSession).toContainText('1'); // #1231: true-filler headline (um), matches the session page
     await latestSession.getByTestId(/session-detail-link-/).click();
-    await page.waitForURL('**/analytics/session-*');
+    await page.waitForURL('**/progress/session-*');
 
     // Analytics session-DETAIL page keeps its own filler-count metric surface (unchanged by the overhaul).
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
