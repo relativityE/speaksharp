@@ -77,6 +77,7 @@ const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
 const OpsStatusPage = React.lazy(() => import('./pages/OpsStatusPage').then(module => ({ default: module.OpsStatusPage })));
 const PricingPage = React.lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
 const AccountPage = React.lazy(() => import('./pages/AccountPage'));
+const AccountDeletionPage = React.lazy(() => import('./pages/AccountDeletionPage'));
 const TranscriptionProvider = React.lazy(() => import('./providers/TranscriptionProvider').then(module => ({ default: module.TranscriptionProvider })));
 const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage').then(module => ({ default: module.NotFoundPage })));
 const TermsPage = React.lazy(() => import('./pages/LegalPage').then(module => ({ default: module.TermsPage })));
@@ -409,6 +410,8 @@ const App: React.FC = () => {
                   <Route path="/" element={<AuthAwareRoot><PageTransition><PracticePage /></PageTransition></AuthAwareRoot>} />
                   <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
                   <Route path="/account" element={<ProtectedRoute><PageTransition><AccountPage /></PageTransition></ProtectedRoute>} />
+                  {/* #1643: unguarded on purpose; the page renders its own signed-out and pending-recovery states. */}
+                  <Route path="/account/delete" element={<PageTransition><AccountDeletionPage /></PageTransition>} />
                   {/* The FAQ is no longer a page: it is an inline dropdown opened from the global nav
                       (see @/components/faq/FaqMenu), so it never has its own route. */}
                   <Route path="/terms" element={<PageTransition><TermsPage /></PageTransition>} />
