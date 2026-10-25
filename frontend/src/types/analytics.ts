@@ -39,6 +39,29 @@ export interface OverallStats {
   chartData: ChartDataPoint[];
 }
 
+/**
+ * #1472: an ALL-TIME aggregate is shown only when it is actually all-time. `complete` comes from the full history
+ * (≤ 20 sessions, every row loaded) or a successful server summary; anything else is `loading` or `unavailable`, never a
+ * window silently presented as all-time. `OverallStats` exists only inside `complete`.
+ */
+export type AllTimeUnavailableReason =
+  | 'session_count_unavailable'
+  | 'history_failed'
+  | 'history_incomplete'
+  | 'summary_failed'
+  | 'summary_refetch_failed';
+export type AllTimeAggregate =
+  | { status: 'complete'; stats: OverallStats }
+  | { status: 'loading' }
+  | { status: 'unavailable'; reason: AllTimeUnavailableReason };
+
+/** #1472: this-week counts, complete only when the data actually covers the week (see useAnalytics). */
+export type WeeklyActivityDay = { day: string; sessions: number };
+export type WeeklyAggregate =
+  | { status: 'complete'; count: number; activity: WeeklyActivityDay[] }
+  | { status: 'loading' }
+  | { status: 'unavailable' };
+
 export interface AnalyticsSummary {
   overallStats: OverallStats;
   fillerWordTrends: FillerWordTrends;
