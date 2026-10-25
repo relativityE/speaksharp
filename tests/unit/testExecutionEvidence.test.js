@@ -445,7 +445,12 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
   test('INSTALLED upload layout → workflow staging → maintained paired command preserves CI origin and new invocation',()=>{
     const f=serviceWorkflowFixture();
     try {
-      const old=execFileSync('git',['show','adfeab3441cccb2ef44c94349e1f9d246154ae97:.github/workflows/service-level-evidence.yml'],{cwd:root,encoding:'utf8'});
+      // Immutable pre-fix bytes from adfeab3441cccb2ef44c94349e1f9d246154ae97,
+      // .github/workflows/service-level-evidence.yml. Runtime proof must survive squash/branch deletion.
+      const oldBytes=fs.readFileSync(path.join(root,'tests/fixtures/efficacy/service-level-evidence.adfeab34.yml'));
+      assert.equal(hash(oldBytes),'bbe2873647d2c3f922c70d10fb9f05b4b4e360106a19bb0de00c64b771a0db56',
+        'historical workflow fixture differs from the reviewed pre-fix bytes');
+      const old=oldBytes.toString('utf8');
       // Rebind only the old hard-coded download directory into this owned fixture.
       const oldFetch=workflowStep(old,'Fetch software quality evidence from CI')
         .replaceAll('/tmp/speaksharp-ci-metrics',path.join(f.consumer.RUNNER_TEMP,'old-download'));
