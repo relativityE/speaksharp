@@ -26,6 +26,7 @@ export const PURPOSES = {
     canary_trial: { emailVar: 'CANARY_TRIAL_EMAIL', passwordVar: 'CANARY_TRIAL_PASSWORD', verify: 'trial' },
     canary_paid: { emailVar: 'CANARY_PAID_EMAIL', passwordVar: 'CANARY_PAID_PASSWORD', verify: 'paid' },
     free_test: { emailVar: 'FREE_TEST_EMAIL', passwordVar: 'FREE_TEST_PASSWORD', verify: 'trial' },
+    throwaway_free: { emailVar: 'THROWAWAY_TEST_EMAIL', passwordVar: 'THROWAWAY_TEST_PASSWORD', verify: 'trial', createOnly: true },
 };
 // Back-compat alias for the canary-only subset (older imports).
 export const CANARY_PURPOSES = PURPOSES;
@@ -51,6 +52,7 @@ const RELEVANT_PEERS = {
     canary_trial: ['canary_paid'],
     canary_paid: ['canary_trial'],
     free_test: ['canary_trial', 'canary_paid'],
+    throwaway_free: ['canary_trial', 'canary_paid', 'free_test'],
 };
 
 const identityError = (email, label) => {
@@ -103,7 +105,7 @@ const blocked = (purpose, maskedEmail, reason, facts = {}) =>
  *   'truncated' (hit the page cap while the final page was still full — inventory NOT fully scanned, so
  *     absence CANNOT be proven → fail closed), or 'error'. A truncated scan must NEVER be treated as absent.
  */
-export async function strictLookup(adminClient, email) {
+export async function strictLookup(adminClient, email, { requireInventoryShape = false } = {}) {
     const target = email.toLowerCase();
     const PER = 200;
     const MAX_PAGES = 100;
@@ -111,6 +113,10 @@ export async function strictLookup(adminClient, email) {
     for (let page = 1; page <= MAX_PAGES; page++) {
         const { data, error } = await withRetry(() => adminClient.auth.admin.listUsers({ page, perPage: PER }));
         if (error) return { status: 'error', category: classifyError(error).category };
+        if (requireInventoryShape && (!Array.isArray(data?.users) || data.users.some(user =>
+            !user || !nonBlankStr(user.id) || typeof user.email !== 'string'))) {
+            return { status: 'error', category: 'unreadable_inventory' };
+        }
         const users = data?.users || [];
         for (const u of users) if ((u.email || '').toLowerCase() === target) matches.push(u.id);
         if (users.length < PER) {
@@ -139,6 +145,13 @@ export async function strictLookup(adminClient, email) {
 export function judgeCanaryFoundationSnapshot(data, { purpose, effectiveTier: effTier }) {
     const verifyMode = PURPOSES[purpose]?.verify ?? 'trial';
 
+    if (purpose === 'throwaway_free') {
+        if (data.subscription_status !== 'free') return { ok: false, reason: 'throwaway_profile_not_free' };
+        if ([data.subscription_id, data.stripe_customer_id, data.stripe_subscription_id]
+            .some(value => value !== null && value !== undefined && value !== '')) {
+            return { ok: false, reason: 'throwaway_billing_identity_present' };
+        }
+    }
     if (isSyntheticSub(data.stripe_subscription_id)) return { ok: false, reason: 'synthetic_subscription_present' };
 
     if (verifyMode === 'trial') {
@@ -230,6 +243,13 @@ async function authenticateAndVerify({ signInClient, adminClient, email, passwor
     }
     const check = await verifyCanaryFoundation(adminClient, expectedUserId, purpose);
     if (!check.ok) return blocked(purpose, maskedEmail, check.reason, { password_reset: false });
+    if (purpose === 'throwaway_free') {
+        if (check.snapshot.id !== expectedUserId) return blocked(purpose, '***', 'throwaway_profile_id_mismatch');
+        return { result: 'CREATED', purpose, maskedEmail: '***', facts: {
+            created_once: true, authenticated_uid_verified: true, free_profile_verified: true,
+            unbilled_verified: true, password_reset: false,
+        } };
+    }
     return { result: resultLabel, purpose, maskedEmail, facts: { ...check.facts, ...extraFacts, password_reset: false } };
 }
 
@@ -241,7 +261,29 @@ async function authenticateAndVerify({ signInClient, adminClient, email, passwor
  * @param {object}   args.secrets           runtime secrets for the purpose (CANARY_*_EMAIL/PASSWORD, FREE_TEST_EMAIL/PASSWORD)
  * @param {string}   args.purpose           'canary_trial' | 'canary_paid' | 'free_test'
  */
-export async function provisionCanaryCredential({ adminClient, makeSignInClient, secrets = {}, purpose }) {
+export async function provisionCanaryCredential(args) {
+    if (args.purpose !== 'throwaway_free') return provisionCredential(args);
+    const inputs = args.inputs ?? {};
+    if (args.action !== 'create') return blocked('throwaway_free', '***', 'throwaway_requires_create');
+    if (inputs.credentialsPresent || (inputs.email !== undefined && inputs.email !== '') ||
+        (inputs.password !== undefined && inputs.password !== '')) {
+        return blocked('throwaway_free', '***', 'plaintext_credentials_forbidden');
+    }
+    if (inputs.tier !== undefined && inputs.tier !== '' && inputs.tier !== 'free') {
+        return blocked('throwaway_free', '***', 'throwaway_requires_free');
+    }
+    const control = { creationAttempted: false, creationConfirmed: false };
+    try {
+        return await provisionCredential({ ...args, control });
+    } catch {
+        // A transport exception may follow a committed create. Never retry, reuse, reset or print it.
+        return blocked('throwaway_free', '***', control.creationConfirmed ? 'throwaway_verification_uncertain'
+            : control.creationAttempted ? 'throwaway_creation_outcome_uncertain' : 'throwaway_lookup_or_verification_uncertain',
+        { creation_attempted: control.creationAttempted });
+    }
+}
+
+async function provisionCredential({ adminClient, makeSignInClient, secrets = {}, purpose, control }) {
     const cfg = PURPOSES[purpose];
     if (!cfg) return blocked(purpose, '***', `invalid_purpose_${purpose}`);
 
@@ -252,23 +294,26 @@ export async function provisionCanaryCredential({ adminClient, makeSignInClient,
 
     const email = idCheck.email;
     const password = secrets[cfg.passwordVar] || '';
-    const maskedEmail = maskEmail(email);
+    const maskedEmail = cfg.createOnly ? '***' : maskEmail(email);
     if (!nonBlankStr(password)) return blocked(purpose, maskedEmail, `missing_${cfg.passwordVar}`);
 
     const signInClient = typeof makeSignInClient === 'function' ? makeSignInClient() : null;
     if (!signInClient) return blocked(purpose, maskedEmail, 'no_anon_sign_in_client'); // anon auth is mandatory
 
     // 2) STRICT existence-first lookup. Ambiguous/truncated/error → fail closed (never a blind create).
-    const found = await strictLookup(adminClient, email);
+    const found = await strictLookup(adminClient, email, { requireInventoryShape: cfg.createOnly === true });
     if (found.status === 'error') return blocked(purpose, maskedEmail, `auth_admin_error_[${found.category}]`);
     if (found.status === 'ambiguous') return blocked(purpose, maskedEmail, 'duplicate_identity');
     if (found.status === 'truncated') return blocked(purpose, maskedEmail, 'inventory_scan_truncated');
+    if (cfg.createOnly && found.status === 'found') return blocked(purpose, maskedEmail, 'throwaway_identity_already_exists');
 
     if (found.status === 'absent') {
         // 3a) DEFINITIVELY absent → create exactly one email-confirmed user; write NO tier/sub/trial. Then
         //     authenticate with the supplied password and bind the authenticated id to the created id.
+        if (control) control.creationAttempted = true;
         const { data, error } = await adminClient.auth.admin.createUser({ email, password, email_confirm: true });
         if (error) {
+            if (cfg.createOnly) return blocked(purpose, maskedEmail, 'throwaway_creation_not_confirmed', { creation_attempted: true });
             // A create race means it now exists → re-lookup strictly and verify reuse (never duplicate).
             if ((error.message || '').includes('already been registered')) {
                 const re = await strictLookup(adminClient, email);
@@ -279,6 +324,7 @@ export async function provisionCanaryCredential({ adminClient, makeSignInClient,
         }
         const createdId = data?.user?.id;
         if (!nonBlankStr(createdId)) return blocked(purpose, maskedEmail, 'create_returned_no_id');
+        if (control) control.creationConfirmed = true;
         return authenticateAndVerify({ signInClient, adminClient, email, password, purpose, maskedEmail, expectedUserId: createdId, resultLabel: 'CREATED' });
     }
 

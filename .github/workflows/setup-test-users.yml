@@ -68,6 +68,7 @@ on:
           - canary_trial
           - canary_paid
           - free_test
+          - throwaway_free
       verify_target:
         description: 'Verify action only: reviewers (default), or canaries for a strictly read-only canary identity inspection that never signs in'
         required: false
@@ -90,7 +91,7 @@ jobs:
         uses: ./.github/actions/setup-environment
 
       - name: Generate and set SOAK_TEST_PASSWORD
-        if: ${{ github.event.inputs.action == 'setup' && github.event.inputs.password_action == 'generate_new_credentials' }}
+        if: ${{ github.event.inputs.create_purpose != 'throwaway_free' && github.event.inputs.action == 'setup' && github.event.inputs.password_action == 'generate_new_credentials' }}
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
@@ -118,7 +119,7 @@ jobs:
       # the Supabase URL, the service-role credential, the two canary email IDENTIFIERS, and the two selectors.
       # No anon key, no password of any kind, no reviewer identity, no create input, no soak variable.
       - name: Run canary identity inspection (strictly read-only)
-        if: ${{ github.event.inputs.action == 'verify' && github.event.inputs.verify_target == 'canaries' }}
+        if: ${{ github.event.inputs.create_purpose != 'throwaway_free' && github.event.inputs.action == 'verify' && github.event.inputs.verify_target == 'canaries' }}
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -128,10 +129,29 @@ jobs:
           VERIFY_TARGET: ${{ github.event.inputs.verify_target }}
         run: pnpm verify:test-users
 
+      # A fixed, create-only identity. No arbitrary secret selector, plaintext credential input,
+      # shared password, maintained-account password or local credential file enters this process.
+      - name: Create one throwaway Free account
+        if: ${{ github.event.inputs.create_purpose == 'throwaway_free' }}
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}
+          THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
+          CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
+          CANARY_PAID_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
+          ACTION: ${{ github.event.inputs.action }}
+          CREATE_PURPOSE: throwaway_free
+          CREATE_USER_TIER: ${{ github.event.inputs.create_tier }}
+          CREATE_INPUTS_PRESENT: ${{ github.event.inputs.create_email != '' || github.event.inputs.create_password != '' }}
+        run: node scripts/setup-test-users.mjs
+
       - name: Run test user admin action
         # The broad step cannot execute for the canary-verification case; that case is served only by the
         # least-privilege step above.
-        if: ${{ !(github.event.inputs.action == 'verify' && github.event.inputs.verify_target == 'canaries') }}
+        if: ${{ github.event.inputs.create_purpose != 'throwaway_free' && !(github.event.inputs.action == 'verify' && github.event.inputs.verify_target == 'canaries') }}
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

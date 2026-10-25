@@ -1,5 +1,9 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { provisionCanaryCredential, maskEmail, strictLookup } from '../../scripts/lib/canaryAccountAdmin.mjs';
 
 // #1294 focused Admin - Test Users security proofs. Injectable in-memory mocks — no network, no real
@@ -23,6 +27,237 @@ const trialProfile = (over = {}) => ({
   id: 'x', subscription_status: 'free', subscription_id: null, stripe_customer_id: null, stripe_subscription_id: null,
   trial_started_at: iso(START), trial_expires_at: iso(START + 30 * DAY), commercial_trial_granted_at: iso(START),
   ...(typeof over === 'string' ? { id: over } : over),
+});
+
+const THROWAWAY_SECRETS = {
+  ...SECRETS,
+  THROWAWAY_TEST_EMAIL: 'one-off-free@example.test',
+  THROWAWAY_TEST_PASSWORD: 'one-off-fixture-password',
+};
+const runThrowaway = (over = {}) => provisionCanaryCredential({
+  adminClient: over.admin ?? makeAdmin({ profile: trialProfile('created-id') }),
+  makeSignInClient: over.makeSignInClient ?? makeSignIn(),
+  secrets: over.secrets ?? THROWAWAY_SECRETS,
+  purpose: 'throwaway_free',
+  action: over.action ?? 'create',
+  inputs: over.inputs ?? {},
+});
+
+describe('throwaway_free: fixed credentials, absent identity, one creation only', () => {
+  it('creates once, binds public authenticated UID and verifies Free/unbilled foundation without credential output', async () => {
+    const admin = makeAdmin({ profile: trialProfile('created-id') });
+    const result = await runThrowaway({ admin });
+    expect(result.result).toBe('CREATED');
+    expect(result.facts).toMatchObject({ created_once: true, authenticated_uid_verified: true, free_profile_verified: true, unbilled_verified: true });
+    expect(admin.calls.createUser).toEqual([{ email: THROWAWAY_SECRETS.THROWAWAY_TEST_EMAIL, password: THROWAWAY_SECRETS.THROWAWAY_TEST_PASSWORD, email_confirm: true }]);
+    expect(admin.calls.updateUserById).toHaveLength(0);
+    expect(admin.calls.from).toEqual(['user_profiles']);
+    const output = JSON.stringify(result);
+    for (const secret of [...Object.values(THROWAWAY_SECRETS), 'created-id']) expect(output).not.toContain(secret);
+  });
+
+  it.each(['THROWAWAY_TEST_EMAIL', 'THROWAWAY_TEST_PASSWORD'])('refuses missing fixed %s even when shared or arbitrary credentials exist', async (key) => {
+    const admin = makeAdmin();
+    const result = await runThrowaway({ admin, secrets: { ...THROWAWAY_SECRETS, [key]: '', SOAK_TEST_PASSWORD: 'shared-fixture-password', SOME_SELECTED_SECRET: 'selected-fixture-password' } });
+    expect(result.result).toBe('BLOCKED');
+    expect(result.facts.reason).toContain(`missing_${key}`);
+    expect(admin.calls.listUsers).toBe(0);
+    expect(admin.calls.createUser).toHaveLength(0);
+  });
+
+  it.each([{ email: 'input@example.test' }, { password: 'plaintext-fixture-password' }, { credentialsPresent: true }])('rejects plaintext dispatch inputs before any lookup: %j', async (inputs) => {
+    const admin = makeAdmin();
+    const result = await runThrowaway({ admin, inputs });
+    expect(result).toMatchObject({ result: 'BLOCKED', facts: { reason: 'plaintext_credentials_forbidden' } });
+    expect(admin.calls.listUsers).toBe(0);
+    expect(admin.calls.createUser).toHaveLength(0);
+    expect(JSON.stringify(result)).not.toContain('plaintext-fixture-password');
+  });
+
+  it('rejects non-create action and paid tier selection without touching accounts', async () => {
+    const admin = makeAdmin();
+    expect(await runThrowaway({ admin, action: 'setup' })).toMatchObject({ result: 'BLOCKED', facts: { reason: 'throwaway_requires_create' } });
+    expect(await runThrowaway({ admin, inputs: { tier: 'pro' } })).toMatchObject({ result: 'BLOCKED', facts: { reason: 'throwaway_requires_free' } });
+    expect(admin.calls.listUsers).toBe(0);
+    expect(admin.calls.createUser).toHaveLength(0);
+  });
+
+  it.each(['CANARY_TRIAL_EMAIL', 'CANARY_PAID_EMAIL', 'FREE_TEST_EMAIL'])('rejects collision with maintained %s', async (key) => {
+    const admin = makeAdmin();
+    const result = await runThrowaway({ admin, secrets: { ...THROWAWAY_SECRETS, THROWAWAY_TEST_EMAIL: THROWAWAY_SECRETS[key].toUpperCase() } });
+    expect(result.result).toBe('BLOCKED');
+    expect(result.facts.reason).toContain('not_distinct');
+    expect(admin.calls.createUser).toHaveLength(0);
+  });
+
+  it('existing identity stops without signing in, reusing, resetting or creating', async () => {
+    const admin = makeAdmin({ pages: [[{ email: THROWAWAY_SECRETS.THROWAWAY_TEST_EMAIL, id: 'existing-id' }]] });
+    let authentications = 0;
+    const result = await runThrowaway({ admin, makeSignInClient: () => ({ auth: { signInWithPassword: async () => { authentications++; throw new Error('must not authenticate existing identity'); } } }) });
+    expect(result).toMatchObject({ result: 'BLOCKED', facts: { reason: 'throwaway_identity_already_exists' } });
+    expect(authentications).toBe(0);
+    expect(admin.calls.createUser).toHaveLength(0);
+    expect(admin.calls.updateUserById).toHaveLength(0);
+  });
+
+  it('create race stops after one mutation; never re-looks up and reuses the race winner', async () => {
+    const admin = makeAdmin({ createError: { message: 'A user with this email address has already been registered' } });
+    const result = await runThrowaway({ admin });
+    expect(result).toMatchObject({ result: 'BLOCKED', facts: { reason: 'throwaway_creation_not_confirmed' } });
+    expect(admin.calls.createUser).toHaveLength(1);
+    expect(admin.calls.listUsers).toBe(1);
+    expect(admin.calls.from).toHaveLength(0);
+  });
+
+  it('uncertain network creation stops once and suppresses raw errors containing credentials', async () => {
+    const admin = makeAdmin();
+    let creations = 0;
+    admin.auth.admin.createUser = async () => { creations++; throw new Error(`${THROWAWAY_SECRETS.THROWAWAY_TEST_PASSWORD} network failed`); };
+    const result = await runThrowaway({ admin });
+    expect(result).toMatchObject({ result: 'BLOCKED', facts: { reason: 'throwaway_creation_outcome_uncertain', creation_attempted: true } });
+    expect(creations).toBe(1);
+    expect(JSON.stringify(result)).not.toContain(THROWAWAY_SECRETS.THROWAWAY_TEST_PASSWORD);
+  });
+
+  it('unreadable inventory is not definitive absence', async () => {
+    const admin = makeAdmin();
+    admin.auth.admin.listUsers = async () => ({ data: null, error: null });
+    const result = await runThrowaway({ admin });
+    expect(result).toMatchObject({ result: 'BLOCKED', facts: { reason: 'auth_admin_error_[unreadable_inventory]' } });
+    expect(admin.calls.createUser).toHaveLength(0);
+  });
+
+  it('ambiguous or truncated inventory and a missing created UID never permit reuse or another create', async () => {
+    for (const options of [
+      { pages: [[{ email: THROWAWAY_SECRETS.THROWAWAY_TEST_EMAIL, id: 'one' }, { email: THROWAWAY_SECRETS.THROWAWAY_TEST_EMAIL, id: 'two' }]] },
+      { full: true },
+    ]) {
+      const admin = makeAdmin(options);
+      expect((await runThrowaway({ admin })).result).toBe('BLOCKED');
+      expect(admin.calls.createUser).toHaveLength(0);
+    }
+    const admin = makeAdmin({ createId: '' });
+    expect(await runThrowaway({ admin })).toMatchObject({ result: 'BLOCKED', facts: { reason: 'create_returned_no_id' } });
+    expect(admin.calls.createUser).toHaveLength(1);
+    expect(admin.calls.from).toHaveLength(0);
+  });
+
+  it.each([
+    [{ subscription_status: 'pro' }, 'throwaway_profile_not_free'],
+    [{ subscription_status: 'trial_expired' }, 'throwaway_profile_not_free'],
+    [{ subscription_id: 'legacy-billing-fixture' }, 'throwaway_billing_identity_present'],
+    [{ stripe_customer_id: 'customer-fixture' }, 'throwaway_billing_identity_present'],
+    [{ subscription_id: 0 }, 'throwaway_billing_identity_present'],
+    [{ id: 'other-user' }, 'throwaway_profile_id_mismatch'],
+  ])('refuses the wrong profile after creation: %j', async (over, reason) => {
+    const admin = makeAdmin({ profile: trialProfile({ id: 'created-id', ...over }) });
+    const result = await runThrowaway({ admin });
+    expect(result).toMatchObject({ result: 'BLOCKED', facts: { reason } });
+    expect(admin.calls.createUser).toHaveLength(1);
+    expect(admin.calls.updateUserById).toHaveLength(0);
+  });
+
+  it('auth UID mismatch refuses after exactly one creation', async () => {
+    const admin = makeAdmin({ profile: trialProfile('created-id') });
+    const result = await runThrowaway({ admin, makeSignInClient: makeSignIn({ userId: 'other-user' }) });
+    expect(result).toMatchObject({ result: 'BLOCKED', facts: { reason: 'authenticated_id_mismatch' } });
+    expect(admin.calls.createUser).toHaveLength(1);
+  });
+
+  it('maintained free_test keeps its existing authenticated reuse contract', async () => {
+    const admin = makeAdmin({ pages: [[{ email: SECRETS.FREE_TEST_EMAIL, id: 'found-id' }]], profile: trialProfile('found-id') });
+    expect(await run({ admin, purpose: 'free_test', signIn: { userId: 'found-id' } })).toMatchObject({ result: 'REUSED' });
+    expect(admin.calls.createUser).toHaveLength(0);
+  });
+});
+
+// Execute the actual CLI and both real core modules with only the external SDK/dotenv replaced.
+// The SDK records counts/booleans only; no network, actual account, credential file or secret store.
+function runThrowawayCli(over = {}) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'throwaway-admin-fixture-'));
+  const audit = path.join(directory, 'audit.jsonl');
+  try {
+    fs.mkdirSync(path.join(directory, 'scripts/lib'), { recursive: true });
+    for (const file of ['scripts/setup-test-users.mjs', 'scripts/lib/canaryAccountAdmin.mjs', 'scripts/lib/canaryProvision.mjs'])
+      fs.copyFileSync(path.resolve(file), path.join(directory, file));
+    for (const [name, source] of [
+      ['dotenv', 'export const config = () => { throw new Error("local env loading forbidden"); };'],
+      ['@supabase/supabase-js', `import fs from 'node:fs';
+const note = value => fs.appendFileSync(process.env.FIXTURE_AUDIT, JSON.stringify(value)+'\\n');
+const uid='fixture-created-uid';
+export const createClient = (_url,key) => ({
+ auth:{admin:{listUsers:async()=>{note({operation:'lookup'});return {data:{users:[]},error:null};},
+ createUser:async p=>{note({operation:'create',fixedCredentials:p.email===process.env.THROWAWAY_TEST_EMAIL&&p.password===process.env.THROWAWAY_TEST_PASSWORD});
+ if(process.env.FIXTURE_UNCERTAIN==='true')throw new Error(process.env.THROWAWAY_TEST_PASSWORD+' uncertain');
+ return {data:{user:{id:uid}},error:null};}},
+ signInWithPassword:async()=>{note({operation:'authenticate',anon:key==='anon-fixture-key'});return {data:{user:{id:uid}},error:null};}},
+ from:()=>({select:()=>({eq:()=>({maybeSingle:async()=>({data:{id:uid,subscription_status:'free',subscription_id:null,stripe_customer_id:null,stripe_subscription_id:null,trial_started_at:'2026-10-01T00:00:00.000Z',trial_expires_at:'2026-10-31T00:00:00.000Z',commercial_trial_granted_at:'2026-10-01T00:00:00.000Z'},error:null})})})}),
+ rpc:async()=>({data:'pro',error:null})
+});`],
+    ]) {
+      const target = path.join(directory, 'node_modules', name);
+      fs.mkdirSync(target, { recursive: true });
+      fs.writeFileSync(path.join(target, 'package.json'), JSON.stringify({ name, type: 'module', exports: './index.mjs' }));
+      fs.writeFileSync(path.join(target, 'index.mjs'), source);
+    }
+    const env = { PATH: process.env.PATH, ACTION: 'create', CREATE_PURPOSE: 'throwaway_free',
+      SUPABASE_URL: 'https://fixture.invalid', SUPABASE_SERVICE_ROLE_KEY: 'admin-fixture-key', SUPABASE_ANON_KEY: 'anon-fixture-key',
+      ...THROWAWAY_SECRETS, FIXTURE_AUDIT: audit, ...over };
+    const result = spawnSync(process.execPath, ['scripts/setup-test-users.mjs'], { cwd: directory, env, encoding: 'utf8', timeout: 5000 });
+    const calls = fs.existsSync(audit) ? fs.readFileSync(audit, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
+    return { ...result, calls };
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+}
+
+describe('throwaway_free actual CLI boundary', () => {
+  it('runs the real CLI without dotenv, creates/authenticates once, and emits only sanitized receipts', () => {
+    const result = runThrowawayCli();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.calls).toEqual([{ operation: 'lookup' }, { operation: 'create', fixedCredentials: true }, { operation: 'authenticate', anon: true }]);
+    expect(result.stdout).toContain('"result":"CREATED"');
+    for (const value of [...Object.values(THROWAWAY_SECRETS), 'admin-fixture-key', 'anon-fixture-key', 'fixture-created-uid'])
+      expect(result.stdout + result.stderr).not.toContain(value);
+  });
+
+  it.each([
+    [{ THROWAWAY_TEST_PASSWORD: '', SOAK_TEST_PASSWORD: 'shared-fixture-password' }, 'missing_THROWAWAY_TEST_PASSWORD'],
+    [{ CREATE_INPUTS_PRESENT: 'true' }, 'plaintext_credentials_forbidden'],
+    [{ CREATE_USER_PASSWORD: 'plaintext-fixture-password' }, 'plaintext_credentials_forbidden'],
+    [{ CREATE_USER_TIER: 'pro' }, 'throwaway_requires_free'],
+    [{ ACTION: 'setup' }, 'throwaway_requires_create'],
+  ])('refuses bad inputs in the real CLI without any admin lookup: %j', (over, reason) => {
+    const result = runThrowawayCli(over);
+    expect(result.status).toBe(1);
+    expect(result.stdout + result.stderr).toContain(reason);
+    expect(result.calls).toEqual([]);
+    expect(result.stdout + result.stderr).not.toContain('plaintext-fixture-password');
+  });
+
+  it('uncertain create exits once, without resetting/recreating or printing the raw exception', () => {
+    const result = runThrowawayCli({ FIXTURE_UNCERTAIN: 'true' });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('throwaway_creation_outcome_uncertain');
+    expect(result.calls.filter(x => x.operation === 'create')).toHaveLength(1);
+    expect(result.stdout + result.stderr).not.toContain(THROWAWAY_SECRETS.THROWAWAY_TEST_PASSWORD);
+  });
+
+  it('workflow wiring uses only fixed secret/variable bindings and excludes the maintained broad step (static contract)', () => {
+    const source = fs.readFileSync(path.resolve('.github/workflows/setup-test-users.yml'), 'utf8');
+    const step = source.split('      - name: Create one throwaway Free account\n')[1]?.split('      - name:')[0];
+    expect(step).toBeTruthy();
+    expect(step).toContain("if: ${{ github.event.inputs.create_purpose == 'throwaway_free' }}");
+    expect(step).toContain('THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}');
+    expect(step).toContain('THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}');
+    expect(step).toContain('CREATE_PURPOSE: throwaway_free');
+    expect(step).toContain("CREATE_INPUTS_PRESENT: ${{ github.event.inputs.create_email != '' || github.event.inputs.create_password != '' }}");
+    expect(step).not.toMatch(/CREATE_USER_(?:EMAIL|PASSWORD):|SOAK_TEST_PASSWORD|FREE_TEST_PASSWORD|CANARY_(?:TRIAL|PAID)_PASSWORD|secrets\[/);
+    expect(step).toContain('run: node scripts/setup-test-users.mjs');
+    const broad = source.split('      - name: Run test user admin action\n')[1]?.split('      - name:')[0];
+    expect(broad).toContain("github.event.inputs.create_purpose != 'throwaway_free'");
+    const generator = source.split('      - name: Generate and set SOAK_TEST_PASSWORD\n')[1]?.split('      - name:')[0];
+    expect(generator).toContain("github.event.inputs.create_purpose != 'throwaway_free'");
+  });
 });
 
 function makeAdmin({ pages = [[]], full = false, fullMatchFirst = null, profile, createId = 'created-id', createError = null, effTier = 'pro' } = {}) {
