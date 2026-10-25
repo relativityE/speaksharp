@@ -110,6 +110,14 @@ describe('#1258 D6 Filler words: counts for the two newest measured sessions', (
         expect([model.latest?.count, model.previous?.count]).toEqual([1, 2]);
     });
 
+    it('#1254: a two-zero breakdown names its scope as the last two MEASURED sessions (unmeasured ones are skipped)', () => {
+        // Not producible by fillerBreakdownModel today (measured means observed > 0); this pins the copy for a future
+        // verified zero, built directly as a model.
+        const zero = (id: string, createdAt: string) => ({ id, createdAt, count: 0, perWord: {} });
+        render(<FillerWordsBreakdown model={{ latest: zero('a', '2026-10-07T18:12:00.000Z'), previous: zero('b', '2026-10-01T18:12:00.000Z'), rows: [] }} />);
+        expect(screen.getByTestId('filler-breakdown-none')).toHaveTextContent('No filler words detected in your last two measured sessions.');
+    });
+
     it('only one measured session: no comparison line and no second column', () => {
         render(<FillerWordsBreakdown model={fillerBreakdownModel([session(7, { um: 1 }), session(1, null)])} />);
         expect(screen.getByText('1 in your latest session')).toBeInTheDocument();
