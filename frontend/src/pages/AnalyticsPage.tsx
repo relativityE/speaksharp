@@ -109,7 +109,7 @@ const APP_DOCUMENT_TITLE = 'SpeakSharp - Private Practice. Public Impact!';
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const queryClient = useQueryClient();
-    const { sessionHistory, overallStats, firstSessionAt, loading, error } = useAnalytics();
+    const { sessionHistory, allTime, firstSessionAt, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
     const [upgradeLoading, setUpgradeLoading] = useState(false);
@@ -202,8 +202,12 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
     const isLoading = loading || isProfileLoading;
 
-    // Show error state if either query failed
-    if (error || profileError) {
+    // Show error state if either query failed.
+    // #1472 (Code P2 r4372161385): the overview keeps a complete all-time aggregate through a recent-history failure — the
+    // dashboard receives the history error and shows the totals with its "recent sessions can't load" warning. A profile
+    // failure, a session-detail failure and an unavailable or loading aggregate still fail as the whole page.
+    const historyErrorKeepsTotals = !!error && !sessionId && allTime.status === 'complete';
+    if (profileError || (error && !historyErrorKeepsTotals)) {
         logger.error({ err: error || profileError }, '[AnalyticsPage] Failed to load analytics');
         return (
             <div className="text-center py-24">
@@ -244,7 +248,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                     profile={profile || null}
                     isProUser={isProUser}
                     sessionHistory={sessionHistory || []}
-                    overallStats={overallStats}
+                    allTime={allTime}
                     firstSessionAt={firstSessionAt}
                     loading={isLoading}
                     error={error || null}

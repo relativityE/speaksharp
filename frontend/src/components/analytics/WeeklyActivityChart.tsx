@@ -7,7 +7,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useChartContainerReady } from './useChartContainerReady';
 
 export const WeeklyActivityChart: React.FC = () => {
-    const { weeklyActivity, loading, error } = useAnalytics();
+    const { weekly, loading, error } = useAnalytics();
+    const weeklyActivity = weekly.status === 'complete' ? weekly.activity : null;
     const chartContainer = useChartContainerReady();
 
     // Use pre-computed chart data from useAnalytics (which handles RPC or fallback)
@@ -26,7 +27,7 @@ export const WeeklyActivityChart: React.FC = () => {
         });
     }, [weeklyActivity]);
 
-    if (loading) {
+    if (loading || weekly.status === 'loading') {
         return (
             <Card className="h-full">
                 <CardHeader><CardTitle>Weekly Activity</CardTitle></CardHeader>
@@ -37,12 +38,25 @@ export const WeeklyActivityChart: React.FC = () => {
         );
     }
 
-    if (error) {
+    // #1472: a failed recent-history read must not hide a complete week (e.g. from the server summary).
+    if (error && weekly.status !== 'complete') {
         return (
             <Card className="h-full">
                 <CardHeader><CardTitle>Weekly Activity</CardTitle></CardHeader>
                 <CardContent>
                     <p className="text-destructive">Could not load activity data.</p>
+                </CardContent>
+            </Card>
+        );
+    }
+
+    // #1472: never chart this week from a page that does not cover it.
+    if (weekly.status === 'unavailable') {
+        return (
+            <Card className="h-full">
+                <CardHeader><CardTitle>Weekly Activity</CardTitle></CardHeader>
+                <CardContent>
+                    <p className="text-muted-foreground" data-testid="weekly-activity-unavailable">This week&rsquo;s activity can&rsquo;t load right now.</p>
                 </CardContent>
             </Card>
         );

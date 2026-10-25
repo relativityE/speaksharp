@@ -91,6 +91,10 @@ export function useUnresolvedRecovery({
         const draft = getRecoverableDraftForUser(authUserId);
         setRecoveryDraft(draft);
         if (!draft || transcriptContent.trim()) return;
+        // A1-2: after a reload the transcript is always empty (#1306), so an interrupted take used to be acknowledged
+        // straight away: its report went to the STT status slot, which engine warm-up overwrites at once, and the draft
+        // was deleted — the take vanished without a word. Keep it for the persistent banner until the person dismisses it.
+        if (draft.recoveryState === 'active_interrupted') return;
         acknowledgeRecoveryDraft(draft);
     }, [isListening, sessionSaved, acknowledgeRecoveryDraft, transcriptContent, authUserId]);
 
