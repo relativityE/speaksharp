@@ -18,9 +18,7 @@ import * as dotenv from 'dotenv';
 import { provisionCanaryCredential } from './lib/canaryAccountAdmin.mjs';
 
 // Load environment from .env.development (Standard for Soak/Canary tests)
-if (process.env.CREATE_PURPOSE !== 'throwaway_free') {
-    dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
-}
+dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 
 // ============================================
 // Configuration
@@ -40,21 +38,14 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     process.exit(1);
 }
 
-if (ACTION === 'setup' && CREATE_PURPOSE !== 'throwaway_free' && !SOAK_TEST_PASSWORD) {
+if (ACTION === 'setup' && !SOAK_TEST_PASSWORD) {
     console.error('❌ Missing required env var: SOAK_TEST_PASSWORD');
     process.exit(1);
 }
 
-let supabase;
-try {
-    supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { autoRefreshToken: false, persistSession: false }
-    });
-} catch (error) {
-    if (CREATE_PURPOSE !== 'throwaway_free') throw error;
-    console.error(JSON.stringify({ result: 'BLOCKED', purpose: 'throwaway_free', reason: 'throwaway_client_initialization_failed' }));
-    process.exit(1);
-}
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false }
+});
 
 const DEDICATED_BROWSER_ENDURANCE_ACCOUNTS = [
     { index: 45, email: 'soak-test45@test.com', tier: 'free' },
@@ -107,7 +98,7 @@ async function getConfigCounts() {
         const max = maxMatch ? parseInt(maxMatch[1], 10) : 50;
 
         return { total: getExpectedAccounts(free, pro).length, free, pro, max };
-    } catch {
+    } catch (e) {
         return { total: getExpectedAccounts(30, 5).length, free: 30, pro: 5, max: 50 };
     }
 }
@@ -329,17 +320,8 @@ async function createCanaryUser(purpose) {
             CANARY_PAID_PASSWORD: process.env.CANARY_PAID_PASSWORD,
             FREE_TEST_EMAIL: process.env.FREE_TEST_EMAIL,
             FREE_TEST_PASSWORD: process.env.FREE_TEST_PASSWORD,
-            THROWAWAY_TEST_EMAIL: process.env.THROWAWAY_TEST_EMAIL,
-            THROWAWAY_TEST_PASSWORD: process.env.THROWAWAY_TEST_PASSWORD,
         },
         purpose,
-        action: ACTION,
-        inputs: {
-            email: process.env.CREATE_USER_EMAIL,
-            password: process.env.CREATE_USER_PASSWORD,
-            tier: process.env.CREATE_USER_TIER,
-            credentialsPresent: !!process.env.CREATE_INPUTS_PRESENT && process.env.CREATE_INPUTS_PRESENT !== 'false',
-        },
     });
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -449,10 +431,6 @@ async function syncUserPasswords(users, expectedAccounts) {
 // ============================================
 
 async function main() {
-    if (CREATE_PURPOSE === 'throwaway_free' && ACTION !== 'create') {
-        console.error(JSON.stringify({ result: 'BLOCKED', purpose: 'throwaway_free', reason: 'throwaway_requires_create' }));
-        process.exit(1);
-    }
     if (!['setup', 'query', 'create'].includes(ACTION)) {
         console.error(`❌ Invalid ACTION: ${ACTION}. Expected setup, query, or create.`);
         process.exit(1);
@@ -464,12 +442,12 @@ async function main() {
     }
 
     if (ACTION === 'create') {
-        if (['canary_trial', 'canary_paid', 'free_test', 'throwaway_free'].includes(CREATE_PURPOSE)) {
+        if (['canary_trial', 'canary_paid', 'free_test'].includes(CREATE_PURPOSE)) {
             await createCanaryUser(CREATE_PURPOSE); // secret-backed purposes (password never a dispatch input)
         } else if (CREATE_PURPOSE === 'standard') {
             await createSingleUser();
         } else {
-            console.error(`❌ Invalid CREATE_PURPOSE: ${CREATE_PURPOSE}. Expected standard, canary_trial, canary_paid, free_test, or throwaway_free.`);
+            console.error(`❌ Invalid CREATE_PURPOSE: ${CREATE_PURPOSE}. Expected standard, canary_trial, canary_paid, or free_test.`);
             process.exit(1);
         }
         return;
@@ -584,8 +562,6 @@ async function main() {
 }
 
 main().catch(e => {
-    if (CREATE_PURPOSE === 'throwaway_free') {
-        console.error(JSON.stringify({ result: 'BLOCKED', purpose: 'throwaway_free', reason: 'throwaway_admin_failed' }));
-    } else console.error('❌ Fatal error:', e);
+    console.error('❌ Fatal error:', e);
     process.exit(1);
 });

@@ -331,9 +331,19 @@ workflows without learning or copying their credential values.
 | `CANARY_PAID_EMAIL` (+ `CANARY_PAID_PASSWORD`) | Paid canary identity; the password is reserved for a future separately-authorized live commercial-readiness proof, not the scheduled test-mode billing qualification |
 
 **Sourcing split (#1294), verified live 2026-08-19 against `gh secret list` / `gh variable list`:** every
-test-account **EMAIL is a repository Variable**; every **PASSWORD is a Secret**. So `vars.FREE_TEST_EMAIL` +
-`secrets.FREE_TEST_PASSWORD` — never `secrets.*_EMAIL`, which would resolve empty at runtime. A static guard
-(`tests/release/flawless-launch-product-contract-guard.test.ts`) fails closed on any active `secrets.*_EMAIL`.
+maintained test-account **EMAIL is a repository Variable**; every **PASSWORD is a Secret**. So `vars.FREE_TEST_EMAIL` +
+`secrets.FREE_TEST_PASSWORD` — never source a maintained account's email from Secrets. A static guard
+(`tests/release/flawless-launch-product-contract-guard.test.ts`) fails closed on the governed maintained email names.
+
+The dedicated `setup-throwaway-test-user.yml` / `setup-throwaway-test-user.mjs` path is the narrow confidentiality
+exception: **both** `THROWAWAY_TEST_EMAIL` and `THROWAWAY_TEST_PASSWORD` resolve from fixed GitHub Secrets, so
+the new identity is masked in GitHub's environment header as well as script output. This exception applies only
+to the create-only `throwaway_free` purpose, never to maintained Free/Pro, checkout, soak or canary bindings.
+It uses no plaintext credential inputs, arbitrary secret selector, local credential file or shared-password
+fallback. Maintained email Variables may be passed solely as collision-denylist identifiers; no maintained
+password or account operation belongs in that process. Existing-identity/race/uncertain outcomes stop rather
+than reuse, reset or recreate. Source qualification does not authorize dispatch, account mutation or cleanup;
+those retain their exact operational approval and credential-presence prerequisites.
 
 `FREE_TEST_*` and legacy `E2E_FREE_*` names remain compatibility aliases in some scripts.
 Workflows resolve `FREE_TEST_*` directly — the legacy Basic test-credential fallback and the ambiguous single

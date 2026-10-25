@@ -173,12 +173,12 @@ describe('throwaway_free: fixed credentials, absent identity, one creation only'
 
 // Execute the actual CLI and both real core modules with only the external SDK/dotenv replaced.
 // The SDK records counts/booleans only; no network, actual account, credential file or secret store.
-function runThrowawayCli(over = {}) {
+function runThrowawayCli(over = {}, args = []) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'throwaway-admin-fixture-'));
   const audit = path.join(directory, 'audit.jsonl');
   try {
     fs.mkdirSync(path.join(directory, 'scripts/lib'), { recursive: true });
-    for (const file of ['scripts/setup-test-users.mjs', 'scripts/lib/canaryAccountAdmin.mjs', 'scripts/lib/canaryProvision.mjs'])
+    for (const file of ['scripts/setup-throwaway-test-user.mjs', 'scripts/lib/canaryAccountAdmin.mjs', 'scripts/lib/canaryProvision.mjs'])
       fs.copyFileSync(path.resolve(file), path.join(directory, file));
     for (const [name, source] of [
       ['dotenv', 'export const config = () => { throw new Error("local env loading forbidden"); };'],
@@ -203,7 +203,7 @@ export const createClient = (_url,key) => ({
     const env = { PATH: process.env.PATH, ACTION: 'create', CREATE_PURPOSE: 'throwaway_free',
       SUPABASE_URL: 'https://fixture.invalid', SUPABASE_SERVICE_ROLE_KEY: 'admin-fixture-key', SUPABASE_ANON_KEY: 'anon-fixture-key',
       ...THROWAWAY_SECRETS, FIXTURE_AUDIT: audit, ...over };
-    const result = spawnSync(process.execPath, ['scripts/setup-test-users.mjs'], { cwd: directory, env, encoding: 'utf8', timeout: 5000 });
+    const result = spawnSync(process.execPath, ['scripts/setup-throwaway-test-user.mjs', ...args], { cwd: directory, env, encoding: 'utf8', timeout: 5000 });
     const calls = fs.existsSync(audit) ? fs.readFileSync(audit, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
     return { ...result, calls };
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
@@ -226,6 +226,9 @@ describe('throwaway_free actual CLI boundary', () => {
     [{ CREATE_USER_PASSWORD: 'plaintext-fixture-password' }, 'plaintext_credentials_forbidden'],
     [{ CREATE_USER_TIER: 'pro' }, 'throwaway_requires_free'],
     [{ ACTION: 'setup' }, 'throwaway_requires_create'],
+    [{ SUPABASE_URL: '' }, 'missing_SUPABASE_URL'],
+    [{ SUPABASE_SERVICE_ROLE_KEY: '' }, 'missing_SUPABASE_SERVICE_ROLE_KEY'],
+    [{ SUPABASE_ANON_KEY: '' }, 'missing_SUPABASE_ANON_KEY'],
   ])('refuses bad inputs in the real CLI without any admin lookup: %j', (over, reason) => {
     const result = runThrowawayCli(over);
     expect(result.status).toBe(1);
@@ -242,21 +245,27 @@ describe('throwaway_free actual CLI boundary', () => {
     expect(result.stdout + result.stderr).not.toContain(THROWAWAY_SECRETS.THROWAWAY_TEST_PASSWORD);
   });
 
-  it('workflow wiring uses only fixed secret/variable bindings and excludes the maintained broad step (static contract)', () => {
-    const source = fs.readFileSync(path.resolve('.github/workflows/setup-test-users.yml'), 'utf8');
-    const step = source.split('      - name: Create one throwaway Free account\n')[1]?.split('      - name:')[0];
+  it('dedicated CLI refuses plaintext arguments without echoing them or touching auth', () => {
+    const result = runThrowawayCli({}, ['--password=plaintext-fixture-password']);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain('unexpected_cli_arguments');
+    expect(result.stdout + result.stderr).not.toContain('plaintext-fixture-password');
+    expect(result.calls).toEqual([]);
+  });
+
+  it('dedicated workflow keeps both identity/password secret and never invokes maintained setup (static contract)', () => {
+    const source = fs.readFileSync(path.resolve('.github/workflows/setup-throwaway-test-user.yml'), 'utf8');
+    const step = source.split('      - name: Create one secret-backed throwaway Free account\n')[1]?.split('      - name:')[0];
     expect(step).toBeTruthy();
-    expect(step).toContain("if: ${{ github.event.inputs.create_purpose == 'throwaway_free' }}");
-    expect(step).toContain('THROWAWAY_TEST_EMAIL: ${{ vars.THROWAWAY_TEST_EMAIL }}');
+    expect(step).toContain('THROWAWAY_TEST_EMAIL: ${{ secrets.THROWAWAY_TEST_EMAIL }}');
     expect(step).toContain('THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}');
-    expect(step).toContain('CREATE_PURPOSE: throwaway_free');
-    expect(step).toContain("CREATE_INPUTS_PRESENT: ${{ github.event.inputs.create_email != '' || github.event.inputs.create_password != '' }}");
-    expect(step).not.toMatch(/CREATE_USER_(?:EMAIL|PASSWORD):|SOAK_TEST_PASSWORD|FREE_TEST_PASSWORD|CANARY_(?:TRIAL|PAID)_PASSWORD|secrets\[/);
-    expect(step).toContain('run: node scripts/setup-test-users.mjs');
-    const broad = source.split('      - name: Run test user admin action\n')[1]?.split('      - name:')[0];
-    expect(broad).toContain("github.event.inputs.create_purpose != 'throwaway_free'");
-    const generator = source.split('      - name: Generate and set SOAK_TEST_PASSWORD\n')[1]?.split('      - name:')[0];
-    expect(generator).toContain("github.event.inputs.create_purpose != 'throwaway_free'");
+    expect(source).not.toMatch(/vars\.THROWAWAY_TEST_EMAIL|github\.event\.inputs|SOAK_TEST_PASSWORD|FREE_TEST_PASSWORD|CANARY_(?:TRIAL|PAID)_PASSWORD|secrets\[/);
+    expect(step).toContain('run: node scripts/setup-throwaway-test-user.mjs');
+    expect(source).not.toContain('setup-test-users.mjs');
+    const maintained = fs.readFileSync(path.resolve('.github/workflows/setup-test-users.yml'), 'utf8');
+    expect(maintained).not.toContain('throwaway_free');
+    const script = fs.readFileSync(path.resolve('scripts/setup-throwaway-test-user.mjs'), 'utf8');
+    expect(script).not.toMatch(/from ['"]dotenv|writeFile|SOAK_TEST_PASSWORD|FREE_TEST_PASSWORD|CANARY_(?:TRIAL|PAID)_PASSWORD/);
   });
 });
 
