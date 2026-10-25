@@ -105,11 +105,12 @@ function buildEvidence() {
   const coverage = readCoverage(metrics);
   const performance = metrics.performance ?? {};
 
-  const e2eTotal = e2eTests?.total ?? ((e2eTests?.passed || 0) + (e2eTests?.failed || 0) + (e2eTests?.skipped || 0));
+  const e2eTotal = e2eTests?.total ?? ((e2eTests?.passed || 0) + (e2eTests?.failed || 0) + (e2eTests?.skipped || 0) + (e2eTests?.flaky || 0));
   const totalTests = (unitTests?.total || 0) + e2eTotal;
   const passingTests = (unitTests?.passed || 0) + (e2eTests?.passed || 0);
   const failingTests = (unitTests?.failed || 0) + (e2eTests?.failed || 0);
   const skippedTests = (unitTests?.skipped || 0) + (e2eTests?.skipped || 0);
+  const flakyTests = (unitTests?.flaky || 0) + (e2eTests?.flaky || 0);
   const recordedRuntime = Number(metrics.total_runtime_seconds);
   const totalRuntimeSeconds = recordedRuntime > 0 ? recordedRuntime : readLogicalRuntimeSeconds();
 
@@ -129,6 +130,7 @@ function buildEvidence() {
       passing: passingTests,
       failing: failingTests,
       skipped: skippedTests,
+      flaky: flakyTests,
       unit: unitTests,
       e2e: {
         ...(e2eTests ?? {}),
@@ -176,6 +178,7 @@ GitHub run: ${evidence.run.githubRunId ?? 'local/unavailable'}
 | Total tests | Track trend | ${evidence.tests.total} (${unitTotal} unit + ${e2eTotal} E2E) |
 | Passing tests | 100% of non-skipped tests | ${evidence.tests.passing} (${evidence.tests.unit.passed} unit + ${evidence.tests.e2e.passed} E2E) |
 | Failing tests | ${targets.tests.failing} | ${evidence.tests.failing} |
+| Flaky (passed only on retry) | 0 | ${evidence.tests.flaky} |
 | Disabled/skipped tests | ${targets.tests.skippedMax} release-path skips | ${evidence.tests.skipped} |
 | Passing unit tests | 100% | ${evidence.tests.unit.passed}/${unitTotal} (${unitPassingPct}%) |
 | Passing E2E tests | 100% | ${evidence.tests.e2e.passed}/${e2eTotal} (${e2ePassingPct}%) |

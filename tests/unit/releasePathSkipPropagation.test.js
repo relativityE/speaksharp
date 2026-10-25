@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MEANINGFUL_COVERAGE_MANIFEST,
+  parseCiAuditOverride,
   validateSoftwareQualityEvidence,
 } from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 
@@ -169,7 +170,7 @@ const evidenceFrom = (merged) => ({
  * these stages, and the run is independent of whether coverage, e2e or a build happen to be present.
  * (The merge itself writes to its own module root, which is why the helper above still stashes.)
  */
-function runRealReportChain(shardPayloads) {
+function runRealReportChain(shardPayloads, e2eStats = { expected: 20, unexpected: 0, flaky: 0, skipped: 0 }) {
   const { mergedRaw } = mergeShards(shardPayloads);
   const cwd = mkdtempSync(join(tmpdir(), 'release-chain-'));
   const write = (rel, body) => {
@@ -192,7 +193,7 @@ function runRealReportChain(shardPayloads) {
     },
   }));
   write('test-results/playwright/results.json', JSON.stringify({
-    stats: { expected: 20, unexpected: 0, flaky: 0, skipped: 0 },
+    stats: e2eStats,
   }));
   // `initial_chunk_size` is read from the emitted entry chunk; the validator refuses
   // `initial_chunk_metric_missing_or_unknown`, which is what a missing build would produce.
@@ -239,7 +240,8 @@ function runRealReportChain(shardPayloads) {
       ? JSON.parse(readFileSync(evidencePath, 'utf8'))
       : null;
 
-    return { serialized, writerRun, evidence };
+    const summaryPath = join(cwd, 'product_release', 'evidence', 'software-quality-summary.latest.md');
+    return { serialized, writerRun, evidence, summary: existsSync(summaryPath) ? readFileSync(summaryPath, 'utf8') : null };
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -498,5 +500,65 @@ describe('#1430 P1 — a skipped release path survives merge -> metrics -> valid
     expect(evidence.tests.unit.skippedTestFiles,
       'and the empty array survived into the published evidence').toEqual([]);
     expect(evidence.qualification.status).toBe('valid');
+  });
+});
+
+describe('C2 four-bucket E2E accounting preserves the no-silent-flaky policy', () => {
+  const paths = MEANINGFUL_COVERAGE_MANIFEST.map(({ testFile }) => testFile);
+  const withOutcome = outcome => {
+    const evidence = evidenceFrom(shard(paths));
+    evidence.tests.e2e = outcome;
+    return validateSoftwareQualityEvidence(evidence);
+  };
+
+  it('REAL report chain counts retry passes separately and refuses explicitly for flaky, not inconsistent counts', () => {
+    const { serialized, writerRun, evidence } = runRealReportChain([shard(paths), shard(paths)],
+      { expected: 19, unexpected: 0, flaky: 1, skipped: 0 });
+    expect(serialized.e2e_tests).toMatchObject({ passed: 19, failed: 0, flaky: 1, skipped: 0, total: 20 });
+    expect(writerRun.status).toBe(1);
+    expect(writerRun.stderr).toContain('e2e_tests_flaky:1');
+    expect(writerRun.stderr).not.toContain('e2e_test_counts_inconsistent');
+    expect(evidence).toBeNull();
+  });
+
+  it('REAL zero-flake control qualifies and discloses measured zero in JSON and human summary', () => {
+    const { writerRun, evidence, summary } = runRealReportChain([shard(paths), shard(paths)]);
+    expect(writerRun.status, writerRun.stderr).toBe(0);
+    expect(evidence.tests.flaky).toBe(0);
+    expect(evidence.tests.e2e).toMatchObject({ passed: 20, failed: 0, flaky: 0, skipped: 0, total: 20 });
+    expect(summary).toContain('| Flaky (passed only on retry) | 0 | 0 |');
+  });
+
+  it('four independent terminal buckets keep count drift and unexpected failures visible', () => {
+    const exact = withOutcome({ passed: 17, failed: 1, flaky: 1, skipped: 1, total: 20 });
+    expect(exact.valid).toBe(false);
+    expect(exact.reasons).toContain('e2e_tests_failed:1');
+    expect(exact.reasons).toContain('e2e_tests_flaky:1');
+    expect(exact.reasons).not.toContain('e2e_test_counts_inconsistent');
+    const drift = withOutcome({ passed: 18, failed: 0, flaky: 1, skipped: 0, total: 20 });
+    expect(drift.reasons).toContain('e2e_test_counts_inconsistent');
+    expect(drift.reasons).toContain('e2e_tests_flaky:1');
+  });
+
+  it.each([-1, 0.5, null, '1', 'bad'])('malformed flaky count %s cannot silently qualify', flaky => {
+    const result = withOutcome({ passed: 20, failed: 0, skipped: 0, total: 20, flaky });
+    expect(result.valid).toBe(false);
+    expect(result.reasons).toContain('e2e_flaky_count_missing_or_invalid');
+  });
+
+  it('an all-retry run is refused and still names its flaky count', () => {
+    const result = withOutcome({ passed: 0, failed: 0, skipped: 0, flaky: 1, total: 1 });
+    expect(result.valid).toBe(false);
+    expect(result.reasons).toContain('e2e_tests_flaky:1');
+  });
+
+  it('legacy three-bucket producers remain compatible while audit fallback preserves an explicit flaky bucket', () => {
+    expect(withOutcome({ passed: 20, failed: 0, skipped: 0, total: 20 }).valid).toBe(true);
+    const audit = parseCiAuditOverride('Unit Tests\n- **Passed**: 100 / 100\n- **Failed**: 0\n'
+      + 'E2E Tests\n- **Passed**: 18 / 20\n- **Failed**: 0\n- **Flaky**: 1\n');
+    expect(audit.e2e_tests).toEqual({ passed: 18, failed: 0, flaky: 1, skipped: 1, total: 20 });
+    const result = withOutcome(audit.e2e_tests);
+    expect(result.reasons).toContain('e2e_tests_flaky:1');
+    expect(result.reasons).not.toContain('e2e_test_counts_inconsistent');
   });
 });

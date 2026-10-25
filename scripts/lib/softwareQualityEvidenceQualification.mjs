@@ -29,6 +29,7 @@ export function parseCiAuditOverride(content) {
   const e2ePassed = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*(\d+)\s*\/\s*\d+/);
   const e2eTotal = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Passed\*\*:\s*\d+\s*\/\s*(\d+)/);
   const e2eFailed = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Failed\*\*:\s*(\d+)/);
+  const e2eFlaky = matchNumber(content, /E2E Tests[\s\S]*?- \*\*Flaky\*\*:\s*(\d+)/);
 
   if (
     unitPassed === null || unitTotal === null || unitFailed === null
@@ -45,7 +46,8 @@ export function parseCiAuditOverride(content) {
     e2e_tests: {
       passed: e2ePassed,
       failed: e2eFailed,
-      skipped: Math.max(0, e2eTotal - e2ePassed - e2eFailed),
+      ...(e2eFlaky !== null ? { flaky: e2eFlaky } : {}),
+      skipped: Math.max(0, e2eTotal - e2ePassed - e2eFailed - (e2eFlaky ?? 0)),
       total: e2eTotal,
     },
     lighthouse: {
@@ -58,6 +60,14 @@ export function parseCiAuditOverride(content) {
 }
 
 function validateTestOutcome(name, outcome, reasons) {
+  // Playwright terminal buckets are disjoint: expected, unexpected, skipped, flaky.
+  // A pass on retry is disclosed and refused, never promoted to a clean first-pass result.
+  // Older three-bucket producers have no flaky field; preserve their existing contract.
+  const flaky = outcome?.flaky === undefined ? 0 : outcome.flaky;
+  const validFlaky = typeof flaky === 'number' && Number.isInteger(flaky) && flaky >= 0;
+  if (!validFlaky) reasons.push(`${name}_flaky_count_missing_or_invalid`);
+  else if (flaky > 0) reasons.push(`${name}_tests_flaky:${flaky}`);
+
   if (!positiveFinite(outcome?.total) || !positiveFinite(outcome?.passed)) {
     reasons.push(`${name}_metrics_missing_or_empty`);
     return;
@@ -76,7 +86,8 @@ function validateTestOutcome(name, outcome, reasons) {
   if (
     nonNegativeInteger(outcome?.failed)
     && nonNegativeInteger(outcome?.skipped)
-    && Number(outcome.passed) + Number(outcome.failed) + Number(outcome.skipped) !== Number(outcome.total)
+    && validFlaky
+    && Number(outcome.passed) + Number(outcome.failed) + Number(outcome.skipped) + flaky !== Number(outcome.total)
   ) {
     reasons.push(`${name}_test_counts_inconsistent`);
   }
