@@ -6,11 +6,18 @@ import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
-  changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase} from '../../scripts/lib/testExecutionEvidence.mjs';
+  changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase,
+  registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
-const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
+const {test:registerTest}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
+const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
+// A dedicated fixture phase has one explicit consumer contract. Ordinary execution still
+// registers the complete file; this is not a skipped-test waiver or a reduced global gate.
+const test=(name,...args)=>{
+  if(process.env.TEST_EFFICACY_SERVICE_CALLER_FIXTURE!=='1' || name===fixtureConsumer.assertion) return registerTest(name,...args);
+};
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const context=()=>executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
@@ -416,6 +423,14 @@ function serviceWorkflowFixture({childFailure=false}={}) {
     fs.mkdirSync(path.dirname(path.join(payload,file)),{recursive:true});fs.copyFileSync(path.join(dir,file),path.join(payload,file));
   }
   const bin=path.join(scratch,'bin');fs.mkdirSync(bin);
+  const binding=JSON.parse(process.env.TEST_EFFICACY_BINDING || 'null');
+  if(binding?.fixture) {
+    const manager=binding.fixture.sourceBinding.packageManager;
+    assert.equal(hash(fs.readFileSync(manager.entry)),manager.entrySha256);
+    // Use the bound, already installed pnpm implementation. No inherited PATH,
+    // Corepack download, fake paired command or alternative package manager.
+    fs.writeFileSync(path.join(bin,'pnpm'),`#!${process.execPath}\nimport {spawnSync} from 'node:child_process';\nconst p=spawnSync(process.execPath,[${JSON.stringify(manager.entry)},...process.argv.slice(2)],{stdio:'inherit',env:{...process.env,COREPACK_ENABLE_NETWORK:'0'}});process.exit(p.status??1);\n`,{mode:0o755});
+  }
   fs.writeFileSync(path.join(bin,'gh'),`#!${process.execPath}\nimport fs from 'node:fs';import path from 'node:path';
 const a=process.argv.slice(2);
 if(a[0]==='run'&&a[1]==='list')process.stdout.write('202');
@@ -441,7 +456,109 @@ function retainServiceControl(name,phases) {
       {status:value.status,signal:value.signal,error:value.error?.message??null,stdout:value.stdout,stderr:value.stderr}]))},null,2));
 }
 
+// Synthetic receipt-shape controls are not runtime proof. The installed writer controls
+// below independently exercise the real producer, reporter, consumer and final coverage gate.
+function fixtureWitnessControl() {
+  const f=executionFixture(true);
+  f.write('package.json',fs.readFileSync(path.join(root,'package.json')));
+  f.write(fixtureConsumer.fixtureFile,fs.readFileSync(path.join(root,fixtureConsumer.fixtureFile)));
+  f.write(fixtureConsumer.testFile,'// synthetic consumer identity only\n');
+  const binding={cwd:f.dir,phaseId:randomUUID()};
+  binding.fixture={fixtureFile:fixtureConsumer.fixtureFile,testFile:fixtureConsumer.testFile,
+    sourceBinding:fixtureSourceBinding(f.dir,fixtureConsumer.fixtureFile),
+    witnessFile:path.join(f.dir,`.fixture-${binding.phaseId}.json`)};
+  const raw={schemaVersion:1,phaseId:binding.phaseId,bindingSha256:hash(JSON.stringify(binding)),
+    fixtureFile:fixtureConsumer.fixtureFile,fixtureSha256:fixtureConsumer.sha256,assertion:fixtureConsumer.assertion,
+    old:{status:1,signal:null,error:null,stderr:'Metrics artifact not found'},current:{status:0,signal:null,error:null}};
+  const report={testResults:[{assertionResults:[{fullName:fixtureConsumer.assertion,status:'passed'}]}]};
+  const envelope={finished:{files:[{tasks:[{type:'test',name:fixtureConsumer.assertion,result:{state:'pass'}}]}]}};
+  return {...f,binding,raw,report,envelope,clean:()=>fs.rmSync(f.dir,{recursive:true,force:true})};
+}
+
+// This receipt-shape control uses the installed pinned pnpm runtime. Keep it in the
+// installed-runtime lane; the ordinary isolated file phase has no inherited runtime cache.
+if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') test('fixture registration is exact; witness rejects stale bytes, runtime, phase, missing execution and invented success',()=>{
+  const f=fixtureWitnessControl();
+  try {
+    const verify=(raw=f.raw,binding=f.binding,report=f.report,envelope=f.envelope)=>
+      validateFixtureWitness(raw,binding,f.dir,report,envelope);
+    assert.equal(verify(),fixtureConsumer.fixtureFile);
+    assert.equal(executionRoute(fixtureConsumer.fixtureFile,f.dir).consumer,fixtureConsumer.testFile);
+    assert.equal(executionRoute('tests/fixtures/efficacy/unknown.yml',f.dir),null);
+    for(const edit of [raw=>{raw.phaseId=randomUUID();},raw=>{raw.fixtureSha256='a'.repeat(64);},
+      raw=>{raw.old.status=0;},raw=>{raw.old.stderr='unrelated loader failure';},raw=>{raw.current.status=1;}]) {
+      const raw=structuredClone(f.raw);edit(raw);
+      assert.throws(()=>verify(raw),/fixture consumption witness/);
+    }
+    assert.throws(()=>verify(null),/fixture consumption witness/);
+    assert.throws(()=>verify(f.raw,f.binding,{testResults:[]}),/consumer was not executed/);
+    assert.throws(()=>verify(f.raw,f.binding,f.report,{finished:{files:[]}}),/consumer was not executed/);
+    const changed=structuredClone(f.binding);changed.fixture.sourceBinding.packageManager.entrySha256='b'.repeat(64);
+    assert.throws(()=>verify(f.raw,changed),/stale fixture\/consumer\/runtime/);
+    f.write(fixtureConsumer.fixtureFile,'changed historical input');
+    assert.throws(()=>verify(),/pinned input/);
+  } finally {f.clean();}
+});
+
+test('fixture runtime must already match the repository pnpm pin; no runtime acquisition or arbitrary selector',()=>{
+  const f=executionFixture(true);
+  try {
+    f.write('package.json',JSON.stringify({packageManager:'pnpm@latest'}));
+    assert.throws(()=>fixturePackageManagerIdentity(f.dir,{PATH:''}),/Unsupported fixture package-manager pin/);
+    f.write('package.json',JSON.stringify({packageManager:'pnpm@0.0.1'}));
+    assert.throws(()=>fixturePackageManagerIdentity(f.dir,{PATH:'',COREPACK_HOME:path.join(f.dir,'empty-cache')}),/installed pnpm runtime unavailable/);
+  } finally {fs.rmSync(f.dir,{recursive:true,force:true});}
+});
+
+function fixtureWriterProject(weakened=false) {
+  const f=executionFixture(true);
+  const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'fixture-writer-environment-'));
+  for(const file of ['package.json','scripts/pnpm-only.mjs','scripts/run-metrics.sh','scripts/write-service-level-evidence.mjs',
+    '.github/workflows/ci.yml','.github/workflows/service-level-evidence.yml',fixtureConsumer.testFile]) {
+    f.write(file,fs.readFileSync(path.join(root,file)));
+  }
+  if(weakened) f.write(fixtureConsumer.testFile,`import {test,expect} from 'vitest';\ntest(${JSON.stringify(fixtureConsumer.assertion)},()=>expect(2+3).toBe(5));\n`);
+  f.git(['add','.']);const base=f.commit();
+  // Only the registered data input is new. No historical branch/object exists in this project.
+  f.write(fixtureConsumer.fixtureFile,fs.readFileSync(path.join(root,fixtureConsumer.fixtureFile)));
+  const environment={...testEnvironment(scratch,null,''),GITHUB_ACTIONS:'true',GITHUB_SHA:base,GITHUB_RUN_ID:'803',GITHUB_RUN_ATTEMPT:'1',
+    TEST_EFFICACY_BASE:base,SOFTWARE_QUALITY_INVOCATION:randomUUID(),npm_execpath:fixturePackageManagerIdentity(root).entry};
+  const result=spawnSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{
+    cwd:f.dir,env:environment,encoding:'utf8',timeout:65000});
+  return {...f,result,base,environment,clean:()=>{
+    fs.rmSync(f.dir,{recursive:true,force:true});fs.rmSync(scratch,{recursive:true,force:true});
+  }};
+}
+
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED actual writer credits only the consumed pinned fixture, with one executed workflow-control assertion',()=>{
+    const f=fixtureWriterProject();
+    try {
+      retainServiceControl('registered-fixture-writer',{result:f.result});
+      assert.equal(f.result.error,undefined);assert.equal(f.result.status,0,f.result.stderr);
+      const evidence=JSON.parse(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json'),'utf8'));
+      assert.equal(evidence.overallStatus,'QUALIFIED');assert.equal(evidence.executionCoverage.status,'COMPLETE');
+      assert.deepEqual(evidence.executionCoverage.rows.map(row=>[row.file,row.status]),[[fixtureConsumer.fixtureFile,'EXECUTED']]);
+      const phase=evidence.testExecution.tests[0].phase;
+      assert.equal(phase.report.numTotalTests,1);assert.equal(phase.report.numPendingTests,0);
+      assert.equal(phase.fixtureWitness.old.status,1);assert.equal(phase.fixtureWitness.current.status,0);
+      assert.equal(phase.fixtureWitness.fixtureSha256,fixtureConsumer.sha256);
+      assert.equal(readCurrentQuality(path.join(f.dir,'product_release/evidence/software-quality.latest.json'),evidence.provenance,f.dir,f.base).overallStatus,'QUALIFIED');
+    } finally {f.clean();}
+  });
+  test('INSTALLED actual writer refuses a passing named consumer that never consumes the fixture',()=>{
+    const f=fixtureWriterProject(true);
+    try {
+      retainServiceControl('unconsumed-fixture-writer',{result:f.result});
+      assert.equal(f.result.error,undefined);assert.equal(f.result.status,1);
+      assert.match(f.result.stderr,/Missing actual fixture consumption witness/);
+      assert.doesNotMatch(f.result.stderr,/Cannot find module|budget exceeds|timed out/);
+      assert.equal(fs.existsSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json')),false);
+    } finally {f.clean();}
+  });
+}
+
+if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1'||process.env.TEST_EFFICACY_SERVICE_CALLER_FIXTURE==='1') {
   test('INSTALLED upload layout → workflow staging → maintained paired command preserves CI origin and new invocation',()=>{
     const f=serviceWorkflowFixture();
     try {
@@ -475,6 +592,13 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       assert.equal(origin.regeneratedBy.runId,'802');
       assert.notEqual(quality.provenance.invocation,origin.qualityProvenance.invocation);
       assert.equal(service.countsAsReleaseEvidence,false,'no stress/endurance/live input was run by this fixture');
+      const binding=JSON.parse(process.env.TEST_EFFICACY_BINDING || 'null');
+      if(binding?.fixture) fs.writeFileSync(binding.fixture.witnessFile,JSON.stringify({schemaVersion:1,
+        phaseId:binding.phaseId,bindingSha256:hash(JSON.stringify(binding)),
+        fixtureFile:'tests/fixtures/efficacy/service-level-evidence.adfeab34.yml',fixtureSha256:hash(oldBytes),
+        assertion:'INSTALLED upload layout → workflow staging → maintained paired command preserves CI origin and new invocation',
+        old:{status:casualty.status,signal:casualty.signal,error:casualty.error?.code??null,stderr:casualty.stderr},
+        current:{status:result.status,signal:result.signal,error:result.error?.code??null}}));
     } finally {f.clean();}
   });
   for(const mode of ['missing','wrong-head','history','child-failure']) test(`INSTALLED service caller ${mode} leaves no PASS output`,()=>{

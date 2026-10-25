@@ -7,7 +7,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
-import { executionContext, testEnvironment, pilotAffectedByPaths, changedEvidencePaths, executionRoute } from './lib/testExecutionEvidence.mjs';
+import { executionContext, testEnvironment, pilotAffectedByPaths, changedEvidencePaths, executionRoute,
+  fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONTRACTS, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -88,8 +89,9 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
     ...git(root, ['ls-files', '--others', '--exclude-standard', '--exclude=/apt-bundle/', '-z']).split('\0'),
   ].filter(Boolean))] : null;
   const selected = executionOnly ? (helpersOnly ? [] : changedEvidencePaths(root,base)
-    .filter(file=>executionRoute(file,root)?.runner==='vitest' && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
-    .map(testFile=>({testFile}))).concat(HELPER_CONTRACTS
+    .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
+    .map(file=>executionRoute(file,root).runner==='vitest-fixture'
+      ? {testFile:executionRoute(file,root).consumer,fixtureFile:file} : {testFile:file})).concat(HELPER_CONTRACTS
       .filter(contract => helpersOnly || changed === null || changed.includes(contract.helperFile))
       .map(contract => ({...contract, helper: true}))) : selectContracts(root, changed);
   if (executionOnly && selected.length > 8) throw new Error('NOT RUN: changed Vitest execution budget exceeds 8 files');
@@ -155,10 +157,15 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         inputSha256: hash(JSON.stringify(inputHashes)), repoLockSha256, runtime,
         ...(contract.helper ? {coverageDirectory, helper: {helperFile: contract.helperFile, testFile: contract.testFile,
           sourceBinding: helperSourceBinding(temporary, contract)}} : {})};
+      if(contract.fixtureFile) binding.fixture={fixtureFile:contract.fixtureFile,testFile:contract.testFile,
+        sourceBinding:fixtureSourceBinding(temporary,contract.fixtureFile),
+        witnessFile:path.join(temporary,`.fixture-${binding.phaseId}.json`)};
+      const environment=testEnvironment(temporary,binding,envelopeFile);
+      if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';
       const result = spawnSync(command[0], command.slice(1),
       { cwd: temporary, timeout: 60000, killSignal: 'SIGKILL', detached: process.platform !== 'win32',
         maxBuffer: 8 * 1024 * 1024,
-        env: testEnvironment(temporary,binding,envelopeFile) });
+        env: environment });
       if (result.error && result.pid && process.platform !== 'win32') {
         try { process.kill(-result.pid, 'SIGKILL'); }
         catch (error) {
@@ -193,10 +200,16 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         if (!raw) throw new Error('Missing helper coverage output');
         helperCoverage = {raw, validated: validateHelperCoverage(raw, binding, temporary)};
       }
+      let fixtureWitness;
+      if(contract.fixtureFile) {
+        if(!fs.existsSync(binding.fixture.witnessFile)) throw new Error('Missing actual fixture consumption witness');
+        fixtureWitness=JSON.parse(fs.readFileSync(binding.fixture.witnessFile,'utf8'));
+        validateFixtureWitness(fixtureWitness,binding,temporary,report,envelope);
+      }
       completedPhases.push(phase);
       return { names, binding, envelope, execution:{status:result.status,signal:result.signal,error:result.error?.message || null},
         inputSha256: binding.inputSha256, report, reportSha256: hash(JSON.stringify(report)),
-        ...(helperCoverage ? {helperCoverage} : {}) };
+        ...(helperCoverage ? {helperCoverage} : {}),...(fixtureWitness ? {fixtureWitness} : {}) };
       } catch (cause) {
         const error = new Error(`[${phase}] ${cause.message}`, {cause});
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
@@ -211,6 +224,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if (executionOnly) {
         receipt.tests.push({testFile:contract.testFile,
           ...(contract.helper ? {helperFile:contract.helperFile} : {}),
+          ...(contract.fixtureFile ? {fixtureFile:contract.fixtureFile} : {}),
           testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),
           phase:execute(contract,'execution')});
         continue;

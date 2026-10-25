@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './softwareQualityEvidenceQualification.mjs';
@@ -87,6 +88,74 @@ export function testEnvironment(directory, binding, envelopeFile) {
     TEST_EFFICACY_BINDING:JSON.stringify(binding),TEST_EFFICACY_ENVELOPE:envelopeFile};
 }
 
+// One immutable data input, not a generic exemption for fixtures. Its consumer must actually
+// execute the named old/current workflow control and return a phase-bound consumption witness.
+const workflowFixture = Object.freeze({
+  fixtureFile:'tests/fixtures/efficacy/service-level-evidence.adfeab34.yml',
+  testFile:'tests/unit/testExecutionEvidence.test.js',
+  assertion:'INSTALLED upload layout → workflow staging → maintained paired command preserves CI origin and new invocation',
+  sha256:'bbe2873647d2c3f922c70d10fb9f05b4b4e360106a19bb0de00c64b771a0db56',
+});
+export const registeredFixture = file => file === workflowFixture.fixtureFile ? workflowFixture : null;
+
+export function fixturePackageManagerIdentity(root, env=process.env) {
+  const pin=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).packageManager;
+  const version=/^pnpm@(\d+\.\d+\.\d+)$/.exec(pin || '')?.[1];
+  if(!version) throw new Error('Unsupported fixture package-manager pin');
+  // Resolve installed bytes only. Corepack's supported v1 cache is read, never populated or downloaded.
+  const corepackHome=env.COREPACK_HOME ?? path.join(env.XDG_CACHE_HOME ?? env.LOCALAPPDATA
+    ?? path.join(os.homedir(),process.platform==='win32'?'AppData/Local':'.cache'),'node/corepack');
+  const candidates=[env.npm_execpath,...(env.PATH || '').split(path.delimiter).filter(path.isAbsolute).map(p=>path.join(p,'pnpm')),
+    path.join(corepackHome,'v1','pnpm',version,'bin/pnpm.cjs')];
+  for(const candidate of candidates) {
+    if(!candidate || !path.isAbsolute(candidate)) continue;
+    try {
+      const entry=fs.realpathSync(candidate);
+      const packageFile=path.join(path.dirname(entry),'../package.json');
+      const bytes=fs.readFileSync(packageFile),metadata=JSON.parse(bytes);
+      if(metadata.name!=='pnpm' || metadata.version!==version || path.basename(entry)!=='pnpm.cjs') continue;
+      return {entry,version,entrySha256:hash(fs.readFileSync(entry)),packageSha256:hash(bytes)};
+    } catch { /* An uninstalled or non-pnpm candidate is not a usable runtime. */ }
+  }
+  throw new Error('NOT RUN: pinned installed pnpm runtime unavailable for fixture consumer');
+}
+
+export function fixtureSourceBinding(root, fixtureFile) {
+  const contract=registeredFixture(fixtureFile);
+  if(!contract) throw new Error('Unregistered fixture input');
+  const sources=[contract.fixtureFile,contract.testFile].map(file=>{
+    const target=path.join(root,file);
+    if(!fs.lstatSync(target).isFile() || fs.realpathSync(target)!==target) throw new Error('Aliased fixture input or consumer');
+    return {file,sha256:hash(fs.readFileSync(target))};
+  });
+  if(sources[0].sha256!==contract.sha256) throw new Error('Historical fixture bytes differ from the pinned input');
+  return {sources,packageManager:fixturePackageManagerIdentity(root)};
+}
+
+export function validateFixtureWitness(raw,binding,root,report,envelope) {
+  const contract=registeredFixture(binding?.fixture?.fixtureFile);
+  if(!contract || binding.fixture.testFile!==contract.testFile
+    || binding.fixture.witnessFile!==path.join(binding.cwd,`.fixture-${binding.phaseId}.json`)
+    || JSON.stringify(binding.fixture.sourceBinding)!==JSON.stringify(fixtureSourceBinding(root,contract.fixtureFile))) {
+    throw new Error('Wrong or stale fixture/consumer/runtime binding');
+  }
+  const assertions=report?.testResults?.flatMap(file=>file.assertionResults || []) || [];
+  const matches=assertions.filter(test=>test.fullName===contract.assertion);
+  const tasks=envelope?.finished?.files?.flatMap(file=>file.tasks || [])
+    .filter(task=>task.type==='test' && task.name===contract.assertion) || [];
+  if(assertions.length!==1 || matches.length!==1 || matches[0].status!=='passed' || tasks.length!==1 || tasks[0].result?.state!=='pass') {
+    throw new Error('Registered fixture consumer was not executed successfully');
+  }
+  if(raw?.schemaVersion!==1 || raw.phaseId!==binding.phaseId || raw.bindingSha256!==hash(JSON.stringify(binding))
+    || raw.fixtureFile!==contract.fixtureFile || raw.fixtureSha256!==contract.sha256 || raw.assertion!==contract.assertion
+    || raw.old?.status!==1 || raw.old?.signal!==null || raw.old?.error!==null
+    || !/Metrics artifact not found/.test(raw.old?.stderr || '')
+    || raw.current?.status!==0 || raw.current?.signal!==null || raw.current?.error!==null) {
+    throw new Error('Missing or invalid actual fixture consumption witness');
+  }
+  return contract.fixtureFile;
+}
+
 // Explicit examples, not a purported product inventory. Other SQL/fixture paths are UNCOVERED.
 const sqlConsumers = {
   'tests/db/focus-points-trial-capability-bootstrap.sql': {runner:'vitest-pglite',consumer:'tests/db/focus-points-trial-capability.integration.test.ts'},
@@ -95,6 +164,8 @@ const sqlConsumers = {
   'tests/db/account-closure-denial-control.sql': {runner:'node-postgres',consumer:'tests/db/account-closure-full-chain.mjs'},
 };
 export function executionRoute(file, root) {
+  const fixture=registeredFixture(file);
+  if(fixture) return {runner:'vitest-fixture',consumer:fixture.testFile,config:'frontend/vitest.config.mjs'};
   const helper = registeredHelper(file);
   if (helper) return {runner:'vitest-helper', consumer:helper.testFile, config:HELPER_CONFIG};
   if (sqlConsumers[file]) return sqlConsumers[file];
@@ -204,8 +275,10 @@ export function validateVitestExecution(receipt, expected, root) {
   for (const result of receipt.tests) {
     const {testFile,phase}=result; const binding=phase?.binding;
     const helper = result.helperFile ? registeredHelper(result.helperFile) : null;
-    const creditedFile = result.helperFile || testFile;
+    const fixture = result.fixtureFile ? registeredFixture(result.fixtureFile) : null;
+    const creditedFile = result.helperFile || result.fixtureFile || testFile;
     if ((result.helperFile && (!helper || helper.testFile !== testFile))
+      || (result.fixtureFile && (!fixture || fixture.testFile!==testFile || result.helperFile))
       || executionRoute(testFile,root)?.runner!=='vitest' || files.has(creditedFile)
       || TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===testFile)) throw new Error('Wrong/duplicate execution route');
     if (!binding || binding.phase!=='execution' || !binding.phaseId || phases.has(binding.phaseId)
@@ -226,6 +299,10 @@ export function validateVitestExecution(receipt, expected, root) {
       if (!phase.helperCoverage?.raw || binding.helper?.helperFile !== result.helperFile) throw new Error('Missing helper coverage evidence');
       validateHelperCoverage(phase.helperCoverage.raw,binding,root);
     } else if (binding.helper || phase.helperCoverage) throw new Error('Unexpected helper phase');
+    if(fixture) {
+      if(binding.fixture?.fixtureFile!==result.fixtureFile) throw new Error('Missing fixture phase binding');
+      validateFixtureWitness(phase.fixtureWitness,binding,root,phase.report,phase.envelope);
+    } else if(binding.fixture || phase.fixtureWitness) throw new Error('Unexpected fixture phase');
     files.add(creditedFile);phases.add(binding.phaseId);
   }
   return files;
@@ -242,7 +319,8 @@ export function executionCoverage(files, {root,expected,pilot,execution,base}={}
     const route=executionRoute(file,root);
     return {file,route,status:file===proven || executed.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
       claim:file===proven?'registered analytics-truth faults only':executed.has(file)
-        ?registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance':'collection and execution only':null};
+        ?registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
+          :registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
   });
   return {scope:'changed tests and fixtures; not a product requirement inventory',
     pilot:{required,status:proven?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},
