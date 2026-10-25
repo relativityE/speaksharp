@@ -6,7 +6,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {executionContext,assertProvenance,executionRoute,executionCoverage,validatePilotExecution,
-  changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity} from '../../scripts/lib/testExecutionEvidence.mjs';
+  changedEvidencePaths,readCurrentQuality,testEnvironment,validateVitestExecution,sourceIdentity,resolveComparisonBase} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
@@ -248,6 +248,84 @@ test('service-level consumer refuses missing controller identity and removes old
     assert.deepEqual(fs.readdirSync(path.join(dir,'product_release/evidence')),[]);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('manual full evidence receives an exact base on both a feature ref and main',()=>{
+  const workflow=fs.readFileSync(path.join(root,'.github/workflows/ci.yml'),'utf8');
+  const scriptFor=name=>{
+    const block=workflow.split(`- name: ${name}`)[1];
+    if(!block) return '';
+    return block.split("<<'NODE'\n")[1].split('\n          NODE')[0]
+      .split('\n').map(line=>line.slice(10)).join('\n');
+  };
+  for(const dispatchRef of ['feature','main']) {
+    const {dir,git,commit,base,file}=executionFixture();
+    try {
+      git(['add',file]);const head=commit();
+      git(['update-ref','refs/remotes/origin/main',dispatchRef==='main'?head:base]);
+      const output=path.join(dir,'job-env');
+      const result=spawnSync(process.execPath,['--input-type=module','-e',
+        scriptFor('Begin fresh quality evidence attempt')+'\n'+scriptFor('Resolve exact efficacy comparison base')],
+      {cwd:dir,encoding:'utf8',env:{...process.env,GITHUB_ENV:output,GITHUB_ACTIONS:'true',
+        GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_SHA:head,TEST_EFFICACY_BASE:'',TEST_EFFICACY_DEFAULT_BRANCH:'main'}});
+      assert.equal(result.status,0,result.stderr);
+      const values=Object.fromEntries(fs.readFileSync(output,'utf8').trim().split('\n').map(line=>line.split('=')));
+      assert.equal(values.TEST_EFFICACY_BASE,base,`manual ${dispatchRef} must compare the intended exact ancestor`);
+      const generation=workflow.split('- name: Generate qualified software quality evidence')[1].split('- name: Upload CI Metrics')[0];
+      assert.doesNotMatch(generation,/TEST_EFFICACY_BASE:/,'the writer must not replace the resolved job base with an empty event field');
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  }
+});
+
+test('comparison resolution preserves explicit event scope and refuses unavailable history',()=>{
+  const {dir,git,commit,base,file}=executionFixture();
+  try {
+    git(['add',file]);commit();
+    for(const event of ['pull_request','push','merge_group']) {
+      const resolved=resolveComparisonBase(dir,{GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:event,TEST_EFFICACY_BASE:base});
+      assert.equal(resolved,base);
+      assert.deepEqual(changedEvidencePaths(dir,resolved),[file],'only the changed test is selected, not the entire repository');
+      assert.throws(()=>resolveComparisonBase(dir,{GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:event}),/Exact event comparison base required/);
+    }
+    assert.throws(()=>resolveComparisonBase(dir,{TEST_EFFICACY_BASE:'HEAD~1'}),/exact commit SHA/);
+    assert.throws(()=>resolveComparisonBase(dir,{GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'workflow_dispatch'}),/Exact comparison base unavailable/);
+    git(['update-ref','refs/remotes/origin/main',base]);
+    assert.equal(resolveComparisonBase(dir,{}),base,'local paired reports use the same bounded fork point');
+    assert.throws(()=>resolveComparisonBase(dir,{GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'pull_request',TEST_EFFICACY_BASE:'0'.repeat(40)}),/Exact event comparison base required/);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+if(process.env.GITHUB_ACTIONS==='true' || process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED Vitest: maintained service-level command shares fresh quality provenance',()=>{
+    const {dir,write,git,commit}=executionFixture(true);
+    try {
+      write('scripts/write-service-level-evidence.mjs',fs.readFileSync(path.join(root,'scripts/write-service-level-evidence.mjs')));
+      git(['add','scripts/write-service-level-evidence.mjs']);const head=commit();
+      const scripts=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).scripts;
+      const command=scripts['metrics:service-levels'].split(' && ').at(-1).split(' ');
+      assert.equal(command[0],'node');
+      assert.match(scripts['rc:slo:dry'],/pnpm metrics:service-levels$/);
+      const env={...process.env,GITHUB_ACTIONS:'false',TEST_EFFICACY_BASE:head,NODE_V8_COVERAGE:''};
+      delete env.SOFTWARE_QUALITY_INVOCATION;
+      const result=spawnSync(process.execPath,command.slice(1),{cwd:dir,env,encoding:'utf8',timeout:120000});
+      assert.equal(result.error,undefined);
+      assert.equal(result.status,0,'maintained report command must work without a shell-owned invocation: '+result.stderr);
+      const quality=JSON.parse(fs.readFileSync(path.join(dir,'product_release/evidence/software-quality.latest.json'),'utf8'));
+      const service=JSON.parse(fs.readFileSync(path.join(dir,'product_release/evidence/service-levels.latest.json'),'utf8'));
+      assert.equal(quality.overallStatus,'QUALIFIED');
+      assert.deepEqual(service.provenance,quality.provenance,'both actual producers must share the same fresh invocation/source');
+      assert.match(service.provenance.invocation,/^[a-f0-9-]{36}$/);
+      assert.deepEqual(quality.executionCoverage.rows.map(row=>row.status),['EXECUTED']);
+      assert.equal(service.countsAsReleaseEvidence,false,'missing stress/live inputs are not release acceptance');
+      write('scripts/write-service-level-evidence.mjs',"throw new Error('synthetic-service-failure');\n");
+      git(['add','scripts/write-service-level-evidence.mjs']);env.TEST_EFFICACY_BASE=commit();
+      const failed=spawnSync(process.execPath,command.slice(1),{cwd:dir,env,encoding:'utf8',timeout:120000});
+      assert.equal(failed.status,1);assert.match(failed.stderr,/synthetic-service-failure/);
+      for(const name of ['software-quality.latest.json','software-quality-summary.latest.md','service-levels.latest.json','service-levels-summary.latest.md']) {
+        assert.equal(fs.existsSync(path.join(dir,'product_release/evidence',name)),false,'a failed paired attempt must invalidate both reports');
+      }
+    } finally {fs.rmSync(dir,{recursive:true,force:true});}
+  });
+}
 
 // A real Git diff with one non-pilot Vitest test remains present in every acceptance case.
 // Runtime=false supplies only inert package bytes for consumer unit controls, never execution.

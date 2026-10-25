@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 // Candidate imports occur only after old output is invalidated, including on parse/import failure.
 let COVERAGE_RELEASE_FLOOR, assertSoftwareQualityEvidence, parseCiAuditOverride;
 
@@ -10,6 +12,8 @@ const COVERAGE_FILE = path.resolve(process.cwd(), 'frontend/coverage/coverage-su
 const EVIDENCE_DIR = path.resolve(process.cwd(), 'product_release/evidence');
 const JSON_EVIDENCE_FILE = path.join(EVIDENCE_DIR, 'software-quality.latest.json');
 const MD_EVIDENCE_FILE = path.join(EVIDENCE_DIR, 'software-quality-summary.latest.md');
+const serviceLevelMode=process.argv.slice(2).includes('--service-levels');
+const SERVICE_OUTPUTS=['service-levels.latest.json','service-levels-summary.latest.md'].map(name=>path.join(EVIDENCE_DIR,name));
 const CI_METRICS_FILE = path.resolve(process.cwd(), 'artifacts/ci-metrics.json');
 
 const QUALITY_TARGETS = {
@@ -213,15 +217,18 @@ try {
   // Remove previous output first so a failed attempt cannot leave an apparently current PASS.
   fs.rmSync(JSON_EVIDENCE_FILE, { force: true });
   fs.rmSync(MD_EVIDENCE_FILE, { force: true });
+  if (serviceLevelMode) for (const file of SERVICE_OUTPUTS) fs.rmSync(file,{force:true});
+  if (process.argv.slice(2).some(arg=>arg!=='--service-levels')) throw new Error('Unknown quality evidence argument');
   ({COVERAGE_RELEASE_FLOOR,assertSoftwareQualityEvidence,parseCiAuditOverride}=await import('./lib/softwareQualityEvidenceQualification.mjs'));
   const {runTestEfficacy,runVitestExecution}=await import('./run-test-efficacy.mjs');
-  const {executionContext,changedEvidencePaths,executionCoverage}=await import('./lib/testExecutionEvidence.mjs');
+  const {executionContext,changedEvidencePaths,executionCoverage,resolveComparisonBase}=await import('./lib/testExecutionEvidence.mjs');
   // Standalone local writes get a new identity; consumers must receive this identity from the
   // invoking controller, never adopt it from the receipt they are trying to validate.
   process.env.SOFTWARE_QUALITY_INVOCATION ??= randomUUID();
   QUALITY_TARGETS.coverage.releaseFloor=COVERAGE_RELEASE_FLOOR;
   const evidence = buildEvidence();
   const qualification = assertSoftwareQualityEvidence(evidence);
+  process.env.TEST_EFFICACY_BASE=resolveComparisonBase(process.cwd());
   const provenance=executionContext(process.cwd());
   evidence.provenance=provenance;
   evidence.testEfficacy = runTestEfficacy({provenance});
@@ -245,7 +252,14 @@ try {
 
   console.log(`[QualityMetrics] Evidence written to ${JSON_EVIDENCE_FILE}`);
   console.log(`[QualityMetrics] Summary written to ${MD_EVIDENCE_FILE}`);
+  if (serviceLevelMode) {
+    execFileSync(process.execPath,[path.join(path.dirname(fileURLToPath(import.meta.url)),'write-service-level-evidence.mjs')],
+      {cwd:process.cwd(),env:process.env,stdio:'inherit',timeout:120000});
+  }
 } catch (error) {
+  if (serviceLevelMode) {
+    for (const file of [JSON_EVIDENCE_FILE,MD_EVIDENCE_FILE,...SERVICE_OUTPUTS]) fs.rmSync(file,{force:true});
+  }
   console.error('[QualityMetrics] Failed to generate software quality evidence:', error);
   process.exit(1);
 }

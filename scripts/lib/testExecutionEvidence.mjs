@@ -25,6 +25,34 @@ export function sourceIdentity(root) {
   return {commit:git(root,['rev-parse','HEAD']),tree:git(root,['rev-parse','HEAD^{tree}']),snapshotSha256:hash(JSON.stringify(sourceEntries(root)))};
 }
 
+// Resolve once in the invoking controller and pass the exact commit to both producers.
+// Missing PR/push context must not silently turn a bounded comparison into the whole repository.
+export function resolveComparisonBase(root, env=process.env) {
+  const explicit=env.TEST_EFFICACY_BASE;
+  if (explicit && explicit!=='0'.repeat(40)) {
+    if (!/^[a-f0-9]{40}$/.test(explicit)) throw new Error('Diff base must be an exact commit SHA');
+    const resolved=git(root,['rev-parse','--verify',`${explicit}^{commit}`]);
+    if (resolved!==explicit) throw new Error('Diff base must name the commit itself');
+    git(root,['merge-base','--is-ancestor',explicit,'HEAD']);
+    return explicit;
+  }
+  if (env.GITHUB_ACTIONS==='true' && env.GITHUB_EVENT_NAME!=='workflow_dispatch') {
+    throw new Error('Exact event comparison base required');
+  }
+  const branch=env.TEST_EFFICACY_DEFAULT_BRANCH || 'main';
+  // check-ref-format validates the branch without interpreting it as a revision or option.
+  git(root,['check-ref-format',`refs/heads/${branch}`]);
+  try {
+    const tip=git(root,['rev-parse','--verify',`refs/remotes/origin/${branch}^{commit}`]);
+    const head=git(root,['rev-parse','HEAD']);
+    const common=git(root,['merge-base','HEAD',tip]);
+    // A manual main run compares its last change; a feature run compares its fork point.
+    return common===head ? git(root,['rev-parse','--verify','HEAD^1']) : common;
+  } catch (cause) {
+    throw new Error('Exact comparison base unavailable; provide TEST_EFFICACY_BASE or fetched default-branch history', {cause});
+  }
+}
+
 export function executionContext(root, env=process.env) {
   const invocation=env.SOFTWARE_QUALITY_INVOCATION;
   if (!invocation || !/^[a-f0-9-]{36}$/.test(invocation)) throw new Error('Fresh SOFTWARE_QUALITY_INVOCATION required');

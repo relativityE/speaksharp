@@ -724,9 +724,21 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_ENV, `SOFTWARE_QUALITY_INVOCATION=${randomUUID()}\n`);
           NODE
 
-      - name: Generate qualified software quality evidence
+      - name: Resolve exact efficacy comparison base
         env:
           TEST_EFFICACY_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          TEST_EFFICACY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const { appendFileSync } = await import('node:fs');
+          const { resolveComparisonBase } = await import('./scripts/lib/testExecutionEvidence.mjs');
+          const comparisonBase = resolveComparisonBase(process.cwd());
+          appendFileSync(process.env.GITHUB_ENV, `TEST_EFFICACY_BASE=${comparisonBase}\n`);
+          NODE
+
+      - name: Generate qualified software quality evidence
         run: node scripts/write-software-quality-evidence.mjs
 
       - name: Upload CI Metrics
