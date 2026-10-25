@@ -226,6 +226,8 @@ test.describe('#1474 A2.3 saved review at 320×800, prefers-reduced-motion: redu
 
         for (const testid of ['review-try-next', 'verdict-practice-again']) {
             const target = page.getByTestId(testid);
+            // Named and bounded before any action on it: acting on a hidden element only waits out the test timeout.
+            await expect(target, `${testid} is rendered visible under reduced motion`).toBeVisible({ timeout: 5_000 });
             await target.scrollIntoViewIfNeeded();
             await expect(target).toBeVisible();
             expect(await unobscured(target), `${testid}: fully on screen and not covered (e.g. by the fixed bar)`).toEqual({ inViewport: true, topmost: true });
