@@ -11,7 +11,8 @@ import {executionContext,assertProvenance,executionRoute,executionCoverage,valid
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
-const {test:registerTest}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
+const framework=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
+const {test:registerTest}=framework;
 const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
 // A dedicated fixture phase has one explicit consumer contract. Ordinary execution still
 // registers the complete file; this is not a skipped-test waiver or a reduced global gate.
@@ -447,13 +448,22 @@ else process.exit(91);\n`,{mode:0o755});
     clean:()=>{fs.rmSync(dir,{recursive:true,force:true});fs.rmSync(scratch,{recursive:true,force:true});}};
 }
 
-function retainServiceControl(name,phases) {
+function retainServiceControl(name,phases,extra={}) {
   const directory=process.env.SERVICE_CALLER_CONTROL_RECEIPT_DIR;
   if(!directory)return;
   fs.mkdirSync(directory,{recursive:true});
   fs.writeFileSync(path.join(directory,`${name}.json`),JSON.stringify({scope:'synthetic inputs, actual workflow/report scripts; no live run',
     phases:Object.fromEntries(Object.entries(phases).map(([key,value])=>[key,
-      {status:value.status,signal:value.signal,error:value.error?.message??null,stdout:value.stdout,stderr:value.stderr}]))},null,2));
+      {status:value.status,signal:value.signal,error:value.error?.message??null,stdout:value.stdout,stderr:value.stderr}])),...extra},null,2));
+}
+
+// Initial CI input construction is fixture setup, not the timed caller assertion.
+// In the dedicated phase reuse it through the runner's existing lifecycle hooks:
+// hook budget10s, named-test budget5s and controller phase budget60s stay unchanged.
+let preparedWorkflowFixture;
+if(process.env.TEST_EFFICACY_SERVICE_CALLER_FIXTURE==='1') {
+  framework.beforeAll(()=>{preparedWorkflowFixture=serviceWorkflowFixture();});
+  framework.afterAll(()=>{preparedWorkflowFixture?.clean();});
 }
 
 // Synthetic receipt-shape controls are not runtime proof. The installed writer controls
@@ -510,14 +520,28 @@ test('fixture runtime must already match the repository pnpm pin; no runtime acq
   } finally {fs.rmSync(f.dir,{recursive:true,force:true});}
 });
 
-function fixtureWriterProject(weakened=false) {
+function fixtureWriterProject(weakened=false,preparationFailure=false) {
   const f=executionFixture(true);
   const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'fixture-writer-environment-'));
+  const diagnosticFile=path.join(scratch,'failed-phase.json');
   for(const file of ['package.json','scripts/pnpm-only.mjs','scripts/run-metrics.sh','scripts/write-service-level-evidence.mjs',
     '.github/workflows/ci.yml','.github/workflows/service-level-evidence.yml',fixtureConsumer.testFile]) {
     f.write(file,fs.readFileSync(path.join(root,file)));
   }
   if(weakened) f.write(fixtureConsumer.testFile,`import {test,expect} from 'vitest';\ntest(${JSON.stringify(fixtureConsumer.assertion)},()=>expect(2+3).toBe(5));\n`);
+  if(preparationFailure) {
+    const source=fs.readFileSync(path.join(f.dir,fixtureConsumer.testFile),'utf8');
+    const setup='framework.beforeAll(()=>{preparedWorkflowFixture=serviceWorkflowFixture();});';
+    assert.ok(source.includes(setup));
+    f.write(fixtureConsumer.testFile,source.replace(setup,"framework.beforeAll(()=>{throw new Error('controlled-fixture-preparation-failure');});"));
+    // Observe the existing private diagnostic payload without changing the real
+    // producer's decision or publishing diagnostics from the production script.
+    const producer='scripts/write-software-quality-evidence.mjs';
+    const bytes=fs.readFileSync(path.join(f.dir,producer),'utf8');
+    const failed="console.error('[QualityMetrics] Failed to generate software quality evidence:', error);";
+    assert.ok(bytes.includes(failed));
+    f.write(producer,bytes.replace(failed,failed+`\n  fs.writeFileSync(${JSON.stringify(diagnosticFile)},JSON.stringify(error.diagnostics));`));
+  }
   f.git(['add','.']);const base=f.commit();
   // Only the registered data input is new. No historical branch/object exists in this project.
   f.write(fixtureConsumer.fixtureFile,fs.readFileSync(path.join(root,fixtureConsumer.fixtureFile)));
@@ -525,7 +549,7 @@ function fixtureWriterProject(weakened=false) {
     TEST_EFFICACY_BASE:base,SOFTWARE_QUALITY_INVOCATION:randomUUID(),npm_execpath:fixturePackageManagerIdentity(root).entry};
   const result=spawnSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{
     cwd:f.dir,env:environment,encoding:'utf8',timeout:65000});
-  return {...f,result,base,environment,clean:()=>{
+  return {...f,result,base,environment,diagnosticFile,clean:()=>{
     fs.rmSync(f.dir,{recursive:true,force:true});fs.rmSync(scratch,{recursive:true,force:true});
   }};
 }
@@ -541,9 +565,13 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       assert.deepEqual(evidence.executionCoverage.rows.map(row=>[row.file,row.status]),[[fixtureConsumer.fixtureFile,'EXECUTED']]);
       const phase=evidence.testExecution.tests[0].phase;
       assert.equal(phase.report.numTotalTests,1);assert.equal(phase.report.numPendingTests,0);
+      assert.ok(phase.envelope.finished.files.flatMap(file=>file.tasks).some(task=>task.type==='suite'
+        && task.result?.hooks?.beforeAll==='pass' && task.result?.hooks?.afterAll==='pass'),
+      'actual fixture setup and cleanup must pass through existing hooks outside the five-second named-test budget');
       assert.equal(phase.fixtureWitness.old.status,1);assert.equal(phase.fixtureWitness.current.status,0);
       assert.equal(phase.fixtureWitness.fixtureSha256,fixtureConsumer.sha256);
       assert.equal(readCurrentQuality(path.join(f.dir,'product_release/evidence/software-quality.latest.json'),evidence.provenance,f.dir,f.base).overallStatus,'QUALIFIED');
+      retainServiceControl('registered-fixture-writer',{result:f.result},{quality:evidence});
     } finally {f.clean();}
   });
   test('INSTALLED actual writer refuses a passing named consumer that never consumes the fixture',()=>{
@@ -556,11 +584,24 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       assert.equal(fs.existsSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json')),false);
     } finally {f.clean();}
   });
+  test('INSTALLED actual writer refuses failed fixture preparation instead of crediting a named consumer',()=>{
+    const f=fixtureWriterProject(false,true);
+    try {
+      assert.equal(f.result.error,undefined);assert.equal(f.result.status,1);
+      const raw=JSON.parse(fs.readFileSync(f.diagnosticFile,'utf8'));
+      retainServiceControl('failed-fixture-preparation',{result:f.result},{diagnostics:raw});
+      assert.equal(raw.status,1);assert.equal(raw.signal,null);assert.equal(raw.error,null);
+      assert.ok(raw.envelope.finished.files.flatMap(file=>file.tasks).some(task=>task.type==='suite'
+        && task.result?.state==='fail' && task.result.hooks?.beforeAll!=='pass'
+        && task.result.errors.some(error=>/controlled-fixture-preparation-failure/.test(error.message))));
+      assert.equal(fs.existsSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json')),false);
+    } finally {f.clean();}
+  });
 }
 
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1'||process.env.TEST_EFFICACY_SERVICE_CALLER_FIXTURE==='1') {
   test('INSTALLED upload layout → workflow staging → maintained paired command preserves CI origin and new invocation',()=>{
-    const f=serviceWorkflowFixture();
+    const f=preparedWorkflowFixture || serviceWorkflowFixture();
     try {
       // Immutable pre-fix bytes from adfeab3441cccb2ef44c94349e1f9d246154ae97,
       // .github/workflows/service-level-evidence.yml. Runtime proof must survive squash/branch deletion.
@@ -599,7 +640,7 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
         assertion:'INSTALLED upload layout → workflow staging → maintained paired command preserves CI origin and new invocation',
         old:{status:casualty.status,signal:casualty.signal,error:casualty.error?.code??null,stderr:casualty.stderr},
         current:{status:result.status,signal:result.signal,error:result.error?.code??null}}));
-    } finally {f.clean();}
+    } finally {if(!preparedWorkflowFixture) f.clean();}
   });
   for(const mode of ['missing','wrong-head','history','child-failure']) test(`INSTALLED service caller ${mode} leaves no PASS output`,()=>{
     const f=serviceWorkflowFixture({childFailure:mode==='child-failure'});
