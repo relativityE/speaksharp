@@ -22,7 +22,7 @@ describe('FreeformHelpOverlay (#1042 PR2 / #1116 redesign)', () => {
         expect(screen.queryByTestId('freeform-help-overlay')).not.toBeInTheDocument();
     });
 
-    it('opens on click and shows the title, exactly three steps, and a start CTA', () => {
+    it('opens on click and shows the title, exactly three steps, and a close-only "Got it" button', () => {
         render(<FreeformHelpOverlay available />);
         fireEvent.click(screen.getByTestId('freeform-help-button'));
         const overlay = screen.getByTestId('freeform-help-overlay');
@@ -33,7 +33,9 @@ describe('FreeformHelpOverlay (#1042 PR2 / #1116 redesign)', () => {
         for (const action of STEP_ACTIONS) {
             expect(within(overlay).getByText(action)).toBeInTheDocument();
         }
-        expect(within(overlay).getByTestId('freeform-help-start')).toHaveTextContent(/got it — start speaking/i);
+        // #1254: "start speaking" is reserved for controls that record; this one only closes the guide.
+        expect(within(overlay).getByTestId('freeform-help-start')).toHaveTextContent(/^Got it$/);
+        expect(within(overlay).getByTestId('freeform-help-start')).not.toHaveTextContent(/start speaking/i);
     });
 
     it('primary CTA closes the modal and calls onStart', async () => {
