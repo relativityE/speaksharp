@@ -523,7 +523,7 @@ describe('C2 four-bucket E2E accounting preserves the no-silent-flaky policy', (
 
   it('REAL zero-flake control qualifies and discloses measured zero in JSON and human summary', () => {
     const { writerRun, evidence, summary } = runRealReportChain([shard(paths), shard(paths)]);
-    expect(writerRun.status, writerRun.stderr).toBe(0);
+    expect(writerRun.status).toBe(0);
     expect(evidence.tests.flaky).toBe(0);
     expect(evidence.tests.e2e).toMatchObject({ passed: 20, failed: 0, flaky: 0, skipped: 0, total: 20 });
     expect(summary).toContain('| Flaky (passed only on retry) | 0 | 0 |');
@@ -572,8 +572,8 @@ describe('C2 four-bucket E2E accounting preserves the no-silent-flaky policy', (
     expect(audit.e2e_tests.flaky).toBe(expected);
     const result = withOutcome(audit.e2e_tests);
     expect(result.valid).toBe(valid);
-    if (raw !== undefined && !/^\d+$/.test(raw))
-      expect(result.reasons).toContain('e2e_flaky_count_missing_or_invalid');
+    const invalidReasons = raw !== undefined && !/^\d+$/.test(raw) ? ['e2e_flaky_count_missing_or_invalid'] : [];
+    expect(result.reasons.filter(reason => reason === 'e2e_flaky_count_missing_or_invalid')).toEqual(invalidReasons);
   });
 
   it('duplicate audit values fail closed and a later section cannot impersonate the absent E2E field', () => {
