@@ -48,7 +48,7 @@ REVOKE ALL ON FUNCTION public._ss_retention_content_cohort(public.sessions) FROM
 
 CREATE FUNCTION public.retention_content_free_compatible()
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
-  SELECT count(*) = 7 AND coalesce(bool_and(
+  SELECT count(*) = 8 AND coalesce(bool_and(
     to_regprocedure(signature) IS NOT NULL
     AND md5(pg_get_functiondef(to_regprocedure(signature))) = definition_md5
   ), false) FROM public.transcript_retention_function_pins
@@ -93,6 +93,20 @@ REVOKE ALL ON FUNCTION public._ss_retention_content_row_guard() FROM PUBLIC, ano
 CREATE TRIGGER aa_retention_content_row_guard
   BEFORE INSERT OR UPDATE OF transcript, transcript_state, user_id, status, created_at, engine, engine_version, model_name, product ON public.sessions
   FOR EACH ROW EXECUTE FUNCTION public._ss_retention_content_row_guard();
+
+-- The old AFTER-expiry purge cannot stop a later W1/W2 reply from restoring derived plaintext.
+-- This invoker guard touches only NEW; it adds no opposite profile/session lock ordering to coaching.
+CREATE FUNCTION public._ss_retention_expired_derived_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+BEGIN
+  IF OLD.transcript_state = 'expired' THEN NEW.ai_suggestions := NULL; END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public._ss_retention_expired_derived_guard() FROM PUBLIC, anon, authenticated, service_role;
+CREATE TRIGGER aa_retention_expired_derived_guard
+  BEFORE UPDATE OF ai_suggestions ON public.sessions
+  FOR EACH ROW EXECUTE FUNCTION public._ss_retention_expired_derived_guard();
 
 -- No participating old writer may create a phantom recovery copy after the replacement's scan.
 -- Existing recovery rows are still readable until a successful replacement; DELETE/cascade is serialized.
@@ -1245,6 +1259,7 @@ FROM unnest(ARRAY[
  'public.complete_session_v2(uuid,text,integer,text,jsonb,integer,double precision,double precision,jsonb,jsonb,text)',
  'public.create_session_and_update_usage(jsonb,text,uuid,text,text,text)',
  'public.record_progress_evaluation(uuid)'
+ ,'public._ss_retention_expired_derived_guard()'
 ]) AS x(signature);
 DO $compatibility$
 BEGIN

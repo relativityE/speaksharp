@@ -27,6 +27,8 @@ export function bootstrapSql() {
     ${migration('20260810120000_retention_purge_ai_suggestions.sql')}
     ${migration('20261013120000_retention_expiry_without_superuser_1258.sql')}
     ${migration('20261013140000_retention_expiry_typed_empty_array_1258.sql')}
+    ${migration('20261020230653_account_pending_completion_journal_1643.sql')}
+    ${migration('20261024083000_account_coaching_unknown_fence_1643.sql')}
     RESET ROLE;
   `;
 }
@@ -112,6 +114,9 @@ export const cases = {
     assert.equal(row.word_count, 100); assert.equal(row.clarity_raw, 91, 'same clarity formula as before erasure');
     await db.query("UPDATE sessions SET transcript='late synthetic restoration',transcript_state='available' WHERE id=$1", [ids[0]]);
     assert.equal((await db.query('SELECT transcript FROM sessions WHERE id=$1', [ids[0]])).rows[0].transcript, null, 'late writes cannot restore expired text');
+    await db.query(`UPDATE sessions SET ai_suggestions='{"synthetic":"late derived coaching"}'::jsonb WHERE id=$1`, [ids[0]]);
+    assert.equal((await db.query('SELECT ai_suggestions FROM sessions WHERE id=$1', [ids[0]])).rows[0].ai_suggestions,
+      null, 'late coaching cannot restore content after transcript expiry');
     assert.equal((await db.query('SELECT record_progress_evaluation($1) AS id', [ids[0]])).rows[0].id, evaluation, 'terminal evaluation is idempotent');
     return true;
   },
