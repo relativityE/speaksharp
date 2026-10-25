@@ -741,6 +741,26 @@ jobs:
       - name: Generate qualified software quality evidence
         run: node scripts/write-software-quality-evidence.mjs
 
+      - name: Bind canonical CI quality inputs
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          const quality = JSON.parse(fs.readFileSync('product_release/evidence/software-quality.latest.json', 'utf8'));
+          assert.equal(quality.provenance.commit, process.env.GITHUB_SHA);
+          assert.equal(quality.provenance.runId, process.env.GITHUB_RUN_ID);
+          assert.equal(quality.provenance.runAttempt, process.env.GITHUB_RUN_ATTEMPT);
+          assert.match(process.env.TEST_EFFICACY_BASE, /^[a-f0-9]{40}$/);
+          const files = Object.fromEntries(['test-results/metrics.json', 'artifacts/ci-metrics.json'].map(file =>
+            [file, createHash('sha256').update(fs.readFileSync(file)).digest('hex')]));
+          fs.writeFileSync('artifacts/software-quality-input-origin.json', JSON.stringify({
+            schemaVersion: 1, originatingCi: { runId: process.env.GITHUB_RUN_ID,
+              runAttempt: process.env.GITHUB_RUN_ATTEMPT, commit: process.env.GITHUB_SHA },
+            comparisonBase: process.env.TEST_EFFICACY_BASE, qualityProvenance: quality.provenance, files,
+          }, null, 2));
+          NODE
+
       - name: Upload CI Metrics
         uses: actions/upload-artifact@v6
         with:
@@ -749,6 +769,8 @@ jobs:
             artifacts/ci-metrics.json
             artifacts/ci-wall-clock.json
             artifacts/ci-job-timing.json
+            artifacts/software-quality-input-origin.json
+            test-results/metrics.json
             product_release/evidence/software-quality.latest.json
             product_release/evidence/software-quality-summary.latest.md
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
