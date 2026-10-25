@@ -34,9 +34,19 @@ async function saveTake(page: Page, coaching: CoachingAnswer[]): Promise<string>
 
 /** Share Feedback: a "Something broke" report about `session` (a value of the session select, or 'none'). */
 async function sendFeedback(page: Page, session: string | 'none' | 'default', note: string): Promise<void> {
+    // The previous report's dialog must have finished closing before it is reopened, and the new one must own the keyboard
+    // before it is used: a type click 23 ms after it appeared, while the last one was still closing, never took effect
+    // and Send stayed disabled for the whole test timeout (run 40211203363).
+    const dialog = page.getByTestId('issue-report-dialog');
+    await expect(dialog, 'the previous feedback dialog finished closing').toBeHidden({ timeout: 5_000 });
     await page.getByTestId('nav-report-issue-button').first().click();
-    await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 15_000 });
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await expect.poll(
+        () => dialog.evaluate((element) => element.contains(document.activeElement)),
+        { message: 'the feedback dialog has keyboard focus', timeout: 5_000 },
+    ).toBe(true);
     await page.getByTestId('feedback-type-broke').click();
+    await expect(page.getByTestId('feedback-type-broke'), 'the "Something broke" choice took effect').toHaveAttribute('aria-checked', 'true');
     await page.getByTestId('issue-report-description').fill(note);
     if (session !== 'default') {
         const select = page.getByTestId('feedback-session-select');
