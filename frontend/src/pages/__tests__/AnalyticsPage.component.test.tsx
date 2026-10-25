@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ComponentProps } from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { render, screen, fireEvent } from '../../../tests/support/test-utils';
@@ -8,19 +9,28 @@ import * as AuthProvider from '../../contexts/AuthProvider';
 import * as UserProfileHook from '@/hooks/useUserProfile';
 import * as conversionFunnel from '@/services/conversionFunnel';
 import { enablePaymentsForTest } from '../../../tests/support/payments';
+import { AnalyticsDashboard } from '../../components/AnalyticsDashboard';
 
 // Mock modules
 vi.mock('../../hooks/useAnalytics');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
-vi.mock('../../components/AnalyticsDashboard', () => ({
-    AnalyticsDashboard: vi.fn(({ profile, loading }) => (
-        <div data-testid="analytics-dashboard-mock">
-            Mock Dashboard - {profile ? 'Has Profile' : 'No Profile'}
-            {loading && <span data-testid="loading-indicator">Loading...</span>}
-        </div>
-    ))
-}));
+// #1472 Code P2 r4372161385: the overview-totals cases render the REAL dashboard, so the page guard is proven through what
+// the person sees rather than through forwarded props. Every other case keeps the light mock.
+const dashboardMode = vi.hoisted(() => ({ real: false }));
+vi.mock('../../components/AnalyticsDashboard', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../components/AnalyticsDashboard')>();
+    return {
+        AnalyticsDashboard: vi.fn((props: ComponentProps<typeof actual.AnalyticsDashboard>) => dashboardMode.real
+            ? <actual.AnalyticsDashboard {...props} />
+            : (
+                <div data-testid="analytics-dashboard-mock">
+                    Mock Dashboard - {props.profile ? 'Has Profile' : 'No Profile'}
+                    {props.loading && <span data-testid="loading-indicator">Loading...</span>}
+                </div>
+            )),
+    };
+});
 
 // Mock window.location.reload
 const mockReload = vi.fn();
@@ -36,6 +46,7 @@ const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
 describe('AnalyticsPage', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        dashboardMode.real = false;
 
         // Default mocks
         mockUseAnalytics.mockReturnValue({
@@ -91,6 +102,7 @@ describe('AnalyticsPage', () => {
         it('should render error message when analytics fails', () => {
             mockUseAnalytics.mockReturnValue({
                 sessionHistory: [],
+                allTime: { status: 'unavailable', reason: 'history_failed' },
                 loading: false,
                 error: { message: 'Failed to load sessions' },
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
@@ -114,6 +126,7 @@ describe('AnalyticsPage', () => {
         it('should retry analytics queries when retry button is clicked', () => {
             mockUseAnalytics.mockReturnValue({
                 sessionHistory: [],
+                allTime: { status: 'unavailable', reason: 'history_failed' },
                 loading: false,
                 error: { message: 'Error' },
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
@@ -121,6 +134,64 @@ describe('AnalyticsPage', () => {
             renderAnalyticsPage();
             fireEvent.click(screen.getByText('Retry Analytics'));
             expect(mockReload).not.toHaveBeenCalled();
+        });
+    });
+
+    // #1472 Code P2 r4372161385: useAnalytics keeps a complete server aggregate through a recent-history failure, but the page
+    // used to return its whole-page error before the dashboard mounted, so the person lost every total anyway.
+    describe('#1472: a recent-history failure does not hide complete all-time totals on the overview', () => {
+        const historyError = { message: 'recent history failed' };
+        const completeAllTime = {
+            status: 'complete',
+            stats: {
+                totalSessions: 37, averageWPM: 131, avgFillerWordsPerMin: 2, totalPracticeTime: 222, totalPracticeTimeSeconds: 13320,
+                averageSessionLength: 6, averageSessionLengthSeconds: 360, avgClarity: 88, avgPausesPerMin: 7, chartData: [],
+            },
+        } as const;
+        const withAnalytics = (over: Record<string, unknown>) => mockUseAnalytics.mockReturnValue({
+            sessionHistory: [], allTime: completeAllTime, firstSessionAt: '2026-09-01T10:00:00Z', loading: false, error: historyError, ...over,
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
+
+        beforeEach(() => { dashboardMode.real = true; });
+
+        it('CASUALTY: the overview shows its complete totals and says the recent sessions cannot load', () => {
+            withAnalytics({});
+            renderAnalyticsPage('/analytics');
+            expect(screen.queryByText('Error Loading Analytics')).toBeNull();
+            expect(screen.getByTestId('analytics-recent-history-unavailable')).toHaveTextContent('Your recent sessions can’t load right now');
+            expect(screen.getByTestId('stat-card-total_sessions')).toHaveTextContent('37');
+            expect(screen.getByTestId('progress-header-line')).toHaveTextContent(/You've done 37 sessions since/);
+            // The dashboard receives the original history error, which is what makes its warning truthful.
+            const props = vi.mocked(AnalyticsDashboard).mock.calls[vi.mocked(AnalyticsDashboard).mock.calls.length - 1]?.[0];
+            expect(props?.error).toBe(historyError);
+        });
+
+        it('CONTROL a profile failure still fails the whole page', () => {
+            withAnalytics({});
+            mockUseUserProfile.mockReturnValue({
+                data: null, isLoading: false, error: { message: 'Failed to load profile' },
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
+            renderAnalyticsPage('/analytics');
+            expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
+            expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
+        });
+
+        it('CONTROL a session detail with a history failure still fails the whole page', () => {
+            withAnalytics({});
+            renderAnalyticsPage('/analytics/session-1');
+            expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
+            expect(screen.queryByText('Session Not Found')).toBeNull();
+            expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
+        });
+
+        it.each([
+            ['unavailable', { status: 'unavailable', reason: 'history_failed' }],
+            ['loading', { status: 'loading' }],
+        ])('CONTROL an %s aggregate with a history failure still fails the whole page', (_label, allTime) => {
+            withAnalytics({ allTime });
+            renderAnalyticsPage('/analytics');
+            expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
+            expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
         });
     });
 
@@ -140,6 +211,16 @@ describe('AnalyticsPage', () => {
         it('should pass profile to AnalyticsDashboard', () => {
             renderAnalyticsPage('/analytics');
             expect(screen.getByText('Mock Dashboard - Has Profile')).toBeInTheDocument();
+        });
+
+        it('#1472: threads the all-time aggregate from useAnalytics into the dashboard unchanged', () => {
+            const allTime = { status: 'unavailable', reason: 'summary_failed' } as const;
+            mockUseAnalytics.mockReturnValue({
+                sessionHistory: [], allTime, loading: false, error: null,
+            } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
+            renderAnalyticsPage('/analytics');
+            const props = vi.mocked(AnalyticsDashboard).mock.calls[vi.mocked(AnalyticsDashboard).mock.calls.length - 1]?.[0];
+            expect(props?.allTime).toEqual(allTime);
         });
     });
 
