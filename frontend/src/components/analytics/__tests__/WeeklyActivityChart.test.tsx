@@ -19,6 +19,7 @@ describe('WeeklyActivityChart', () => {
     it('renders loading state', () => {
         (useAnalytics as Mock).mockReturnValue({
             sessionHistory: [],
+            weekly: { status: 'loading' },
             loading: true,
             error: null,
         });
@@ -31,6 +32,7 @@ describe('WeeklyActivityChart', () => {
     it('renders error state', () => {
         (useAnalytics as Mock).mockReturnValue({
             sessionHistory: [],
+            weekly: { status: 'unavailable' },
             loading: false,
             error: new Error('Failed to fetch'),
         });
@@ -46,6 +48,7 @@ describe('WeeklyActivityChart', () => {
 
         (useAnalytics as Mock).mockReturnValue({
             sessionHistory: mockSessions,
+            weekly: { status: 'complete', count: 1, activity: [{ day: 'Mon', sessions: 1 }] },
             loading: false,
             error: null,
         });
@@ -53,5 +56,20 @@ describe('WeeklyActivityChart', () => {
         render(<WeeklyActivityChart />);
         expect(screen.getByText('Weekly Activity')).toBeInTheDocument();
         // Recharts is hard to test in unit tests, but we can verify our useMemo logic
+    });
+
+    it('#1472: an unavailable week says so instead of charting a partial page', () => {
+        (useAnalytics as Mock).mockReturnValue({ sessionHistory: [], weekly: { status: 'unavailable' }, loading: false, error: null });
+        render(<WeeklyActivityChart />);
+        expect(screen.getByTestId('weekly-activity-unavailable')).toHaveTextContent('This week’s activity can’t load right now.');
+    });
+
+    it('#1472: a failed recent history does not hide a complete week', () => {
+        (useAnalytics as Mock).mockReturnValue({
+            sessionHistory: [], weekly: { status: 'complete', count: 1, activity: [{ day: 'Mon', sessions: 1 }] }, loading: false, error: new Error('history failed'),
+        });
+        render(<WeeklyActivityChart />);
+        expect(screen.queryByText('Could not load activity data.')).toBeNull();
+        expect(screen.getByText('Weekly Activity')).toBeInTheDocument();
     });
 });
