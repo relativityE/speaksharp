@@ -364,9 +364,9 @@ function executionFixture(installed=false) {
 // Execute the checked-in step bodies and upload paths. Only GitHub's download API
 // is mocked; report inputs go through run-metrics and both real paired producers.
 function workflowStep(source,name) {
-  const block=source.split(`      - name: ${name}\n`)[1]?.split(/\n      - (?:name|uses):/)[0];
+  const block=source.split(`      - name: ${name}\n`)[1]?.split(/\n {6}- (?:name|uses):/)[0];
   assert.ok(block,`missing workflow step: ${name}`);
-  const run=block.match(/^        run: (.+)$/m);
+  const run=block.match(/^ {8}run: (.+)$/m);
   assert.ok(run,`missing run body: ${name}`);
   return run[1]==='|' ? block.slice(run.index+run[0].length+1).split('\n')
     .map(line=>line.startsWith('          ')?line.slice(10):line).join('\n').trimEnd() : run[1];
@@ -407,8 +407,8 @@ function serviceWorkflowFixture({childFailure=false}={}) {
   assert.equal(quality.status,0,quality.stderr);
   const originStep=workflowStep(ci,'Bind canonical CI quality inputs');
   const origin=run(originStep);assert.equal(origin.status,0,origin.stderr);
-  const upload=ci.split('      - name: Upload CI Metrics\n')[1].split(/\n  [^ ]/)[0];
-  const paths=upload.match(/          path: \|\n((?:            [^\n]*\n)+)/)?.[1]
+  const upload=ci.split('      - name: Upload CI Metrics\n')[1].split(/\n {2}[^ ]/)[0];
+  const paths=upload.match(/ {10}path: \|\n((?: {12}[^\n]*\n)+)/)?.[1]
     .trim().split('\n').map(line=>line.trim());
   assert.ok(paths?.length,'actual upload layout missing');
   const payload=path.join(scratch,'payload');
