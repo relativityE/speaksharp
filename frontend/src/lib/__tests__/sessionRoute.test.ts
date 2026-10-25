@@ -34,6 +34,21 @@ describe('canonicalProgressPath (#1548 legacy alias)', () => {
     expect(canonicalProgressPath('/analytics-archive')).toBe('/analytics-archive');
     expect(canonicalProgressPath('/session/analytics')).toBe('/session/analytics');
   });
+
+  // Sam RETURN 1792964160.252279: the router matches the DECODED segment, so an encoded alias must leave the alias too.
+  it('rewrites a percent-encoded alias segment (which the router matches decoded), keeping the rest of the raw path', () => {
+    expect(canonicalProgressPath('/%61nalytics')).toBe('/progress');
+    expect(canonicalProgressPath(`/%61nalytics/${UUID}`)).toBe(`/progress/${UUID}`);
+    expect(canonicalProgressPath('/%41NALYTIC%53/session-1')).toBe('/progress/session-1');
+    expect(canonicalProgressPath('/%61nalytics/a%20b/c')).toBe('/progress/a%20b/c');
+  });
+
+  it('CONTROL an encoded slash, a malformed escape or an encoded non-alias is not the alias', () => {
+    expect(canonicalProgressPath('/analytics%2Fx')).toBe('/analytics%2Fx');
+    expect(canonicalProgressPath('/%E0%A4%A/x')).toBe('/%E0%A4%A/x');
+    expect(canonicalProgressPath('/%61nalytics-archive')).toBe('/%61nalytics-archive');
+    expect(canonicalProgressPath('/session/%61nalytics')).toBe('/session/%61nalytics');
+  });
 });
 
 describe('deriveSessionIdFromPath', () => {

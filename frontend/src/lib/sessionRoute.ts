@@ -28,9 +28,21 @@ export function isUuid(value: unknown): value is string {
  * (React Router's default), so the prefix is replaced case-insensitively too: `/Analytics/<id>` must leave the alias, never
  * re-target its own unchanged path. Only the exact first segment is rewritten (`/analytics-archive` is not an alias);
  * the rest of the path keeps its original bytes.
+ *
+ * The router also percent-decodes each segment before matching (an encoded `/` stays encoded), so `/%61nalytics/<id>`
+ * matches the alias too (Sam RETURN 1792964160.252279). The first segment is therefore compared DECODED and replaced
+ * RAW; a segment that does not decode, or decodes to anything but `analytics`, is not the alias and is left as it is.
  */
 export function canonicalProgressPath(pathname: string): string {
-  return pathname.replace(/^\/analytics(?=\/|$)/i, '/progress');
+  const first = /^\/([^/]*)/.exec(pathname);
+  if (!first) return pathname;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(first[1]);
+  } catch {
+    return pathname;
+  }
+  return decoded.toLowerCase() === 'analytics' ? `/progress${pathname.slice(first[0].length)}` : pathname;
 }
 
 /**

@@ -181,7 +181,8 @@ describe('#1548 logged-out deep link → sign-in → the exact destination (cons
     return router;
   }
 
-  for (const legacy of ['/analytics', '/Analytics']) {
+  // Sam RETURN 1792964160.252279: the router matches segments decoded, so an encoded alias reaches this redirect too.
+  for (const legacy of ['/analytics', '/Analytics', '/%61nalytics', '/%41NALYTICS']) {
     it(`legacy ${legacy}/<id>?q#hash signed out → canonical /progress → sign-in → /progress/<id>?q#hash with state (replace)`, async () => {
       expect(ENV.isE2E).toBe(false);
       const router = startAtLegacy({ pathname: `${legacy}/${ID}`, search: '?q=1', hash: '#trend', state: { tab: 'filler' } });
