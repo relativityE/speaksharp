@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, RouterProvider, createMemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import SignInPage from '../SignInPage';
 import AuthPage from '../AuthPage';
 import { AuthIndexRedirect } from '@/components/AuthIndexRedirect';
@@ -105,7 +105,9 @@ describe('post-auth destination — /practice is the flag-free default (AuthPage
 
 // #1548 — the LOGGED-OUT round trip, composed from the real consumers: ProtectedRoute → /auth → AuthIndexRedirect →
 // SignInPage → PostAuthRedirect. The E2E auth bypass is OFF (asserted), and auth flips from signed-out to signed-in
-// mid-flow through a store, exactly as a completed sign-in re-renders the page. A data router exposes the history.
+// mid-flow through a store, exactly as a completed sign-in re-renders the page. Like production (BrowserRouter + Routes),
+// it uses a non-data MemoryRouter: a data router builds a native Request with jsdom's AbortSignal, which Node 24 rejects
+// (#1718 Code P2 r4372582488). A probe beside the routes reads the location and navigation type and drives a real Back.
 describe('#1548 logged-out deep link → sign-in → the exact destination (consumer composition, no E2E bypass)', () => {
   const ID = '7e7aca2c-c192-4a80-8976-df5637859164';
   const signedOut = () => ({
@@ -125,18 +127,39 @@ describe('#1548 logged-out deep link → sign-in → the exact destination (cons
       data-state={JSON.stringify(location.state ?? null)} />;
   }
 
-  type Entry = { pathname: string; search?: string; hash?: string; state?: unknown };
-  function startAt(entry: Entry) {
-    const router = createMemoryRouter([
-      { path: '/progress/:sessionId', element: <ProtectedRoute><Destination /></ProtectedRoute> },
-      { path: '/analytics/:sessionId', element: <ProtectedRoute><Destination /></ProtectedRoute> },
-      { path: '/auth', element: <AuthIndexRedirect to="/auth/signin" /> },
-      { path: '/auth/signin', element: <SignInPage /> },
-      { path: '/practice', element: <div data-testid="practice" /> },
-    ], { initialEntries: ['/practice', entry], initialIndex: 1 });
-    render(<RouterProvider router={router} />);
-    return router;
+  function HistoryProbe() {
+    const location = useLocation();
+    const navigationType = useNavigationType();
+    const navigate = useNavigate();
+    return (
+      <div data-testid="history-probe" data-path={location.pathname} data-state={JSON.stringify(location.state ?? null)}
+        data-navigation={navigationType}>
+        <button type="button" data-testid="history-back" onClick={() => navigate(-1)}>Back</button>
+      </div>
+    );
   }
+  const probe = () => screen.getByTestId('history-probe');
+  const goBack = async () => {
+    fireEvent.click(screen.getByTestId('history-back'));
+    await waitFor(() => expect(probe()).toHaveAttribute('data-path', '/practice'));
+  };
+
+  type Entry = { pathname: string; search?: string; hash?: string; state?: unknown };
+  function startWith(entry: Entry, analyticsElement: React.ReactElement) {
+    render(
+      <MemoryRouter initialEntries={['/practice', entry]} initialIndex={1}>
+        <HistoryProbe />
+        <Routes>
+          <Route path="/progress/:sessionId" element={<ProtectedRoute><Destination /></ProtectedRoute>} />
+          <Route path="/analytics/:sessionId" element={analyticsElement} />
+          <Route path="/auth" element={<AuthIndexRedirect to="/auth/signin" />} />
+          <Route path="/auth/signin" element={<SignInPage />} />
+          <Route path="/practice" element={<div data-testid="practice" />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+  const startAt = (entry: Entry) => startWith(entry, <ProtectedRoute><Destination /></ProtectedRoute>);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -148,11 +171,11 @@ describe('#1548 logged-out deep link → sign-in → the exact destination (cons
   for (const base of ['/progress', '/analytics']) {
     it(`${base}/<id>?q#hash with router state: signed out → sign-in → back to the same path, query, hash and state (replace)`, async () => {
       expect(ENV.isE2E).toBe(false); // ProtectedRoute's unauthenticated branch really runs
-      const router = startAt({ pathname: `${base}/${ID}`, search: '?q=1', hash: '#trend', state: { tab: 'filler' } });
+      startAt({ pathname: `${base}/${ID}`, search: '?q=1', hash: '#trend', state: { tab: 'filler' } });
 
       // Signed out: the protected route sent us to sign-in, carrying the destination; nothing protected rendered.
       expect(await screen.findByTestId('email-input')).toBeInTheDocument();
-      expect(router.state.location.pathname).toBe('/auth/signin');
+      expect(probe()).toHaveAttribute('data-path', '/auth/signin');
       expect(screen.queryByTestId('destination')).toBeNull();
 
       act(() => authStore.set(authed())); // sign-in completes
@@ -160,50 +183,38 @@ describe('#1548 logged-out deep link → sign-in → the exact destination (cons
       const landed = await screen.findByTestId('destination');
       expect(landed).toHaveAttribute('data-location', `${base}/${ID}?q=1#trend`);
       expect(landed).toHaveAttribute('data-state', JSON.stringify({ tab: 'filler' }));
-      expect(router.state.historyAction).toBe('REPLACE');
+      expect(probe()).toHaveAttribute('data-navigation', 'REPLACE');
       // Every hop replaced: Back leaves for the page before the deep link, never the sign-in screen.
-      await act(async () => { await router.navigate(-1); });
-      expect(router.state.location.pathname).toBe('/practice');
+      await goBack();
     });
   }
 
   // #1548 composed with #1700: the REAL legacy alias redirect runs before the protected canonical route, so a signed-out
   // /analytics link (any casing) is canonicalized first and the sign-in round trip ends on /progress, never /analytics.
-  function startAtLegacy(entry: Entry) {
-    const router = createMemoryRouter([
-      { path: '/progress/:sessionId', element: <ProtectedRoute><Destination /></ProtectedRoute> },
-      { path: '/analytics/:sessionId', element: <LegacyProgressRedirect /> },
-      { path: '/auth', element: <AuthIndexRedirect to="/auth/signin" /> },
-      { path: '/auth/signin', element: <SignInPage /> },
-      { path: '/practice', element: <div data-testid="practice" /> },
-    ], { initialEntries: ['/practice', entry], initialIndex: 1 });
-    render(<RouterProvider router={router} />);
-    return router;
-  }
+  const startAtLegacy = (entry: Entry) => startWith(entry, <LegacyProgressRedirect />);
 
   // Sam RETURN 1792964160.252279: the router matches segments decoded, so an encoded alias reaches this redirect too.
   for (const legacy of ['/analytics', '/Analytics', '/%61nalytics', '/%41NALYTICS']) {
     it(`legacy ${legacy}/<id>?q#hash signed out → canonical /progress → sign-in → /progress/<id>?q#hash with state (replace)`, async () => {
       expect(ENV.isE2E).toBe(false);
-      const router = startAtLegacy({ pathname: `${legacy}/${ID}`, search: '?q=1', hash: '#trend', state: { tab: 'filler' } });
+      startAtLegacy({ pathname: `${legacy}/${ID}`, search: '?q=1', hash: '#trend', state: { tab: 'filler' } });
       expect(await screen.findByTestId('email-input')).toBeInTheDocument();
-      expect(router.state.location.pathname).toBe('/auth/signin');
+      expect(probe()).toHaveAttribute('data-path', '/auth/signin');
       act(() => authStore.set(authed()));
       const landed = await screen.findByTestId('destination');
       expect(landed).toHaveAttribute('data-location', `/progress/${ID}?q=1#trend`);
       expect(landed).toHaveAttribute('data-state', JSON.stringify({ tab: 'filler' }));
-      await act(async () => { await router.navigate(-1); });
-      expect(router.state.location.pathname).toBe('/practice');
+      await goBack();
     });
   }
 
   it('a sign-in surface as the destination (auth loop) lands on /practice with no state', async () => {
-    const router = startAt({ pathname: '/auth', state: { from: { pathname: '/auth/signin', hash: '#x', state: { leak: 1 } } } });
+    startAt({ pathname: '/auth', state: { from: { pathname: '/auth/signin', hash: '#x', state: { leak: 1 } } } });
     expect(await screen.findByTestId('email-input')).toBeInTheDocument();
     act(() => authStore.set(authed()));
     expect(await screen.findByTestId('practice')).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/practice');
-    expect(router.state.location.state ?? null).toBeNull();
+    expect(probe()).toHaveAttribute('data-path', '/practice');
+    expect(probe()).toHaveAttribute('data-state', 'null');
   });
 
   it('the magic-link email keeps its existing contract: pathname + query only, no fragment or state, shouldCreateUser:false', async () => {
