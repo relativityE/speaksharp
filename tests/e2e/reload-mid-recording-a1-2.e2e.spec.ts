@@ -15,7 +15,9 @@ const RECOVERY_DRAFT_KEY = 'speaksharp_unsaved_session_draft';
 
 test.describe('A1-2 reload during a live take', () => {
     test('the interrupted take is reported as not saved, and Dismiss clears it for good', async ({ page }) => {
-        await programmaticLoginWithRoutes(page, { userType: 'free' });
+        // A real browser keeps localStorage across a reload; the E2E manifest clears it on every load unless a spec opts in
+        // (Sam 1792951882.028579 / 1792952082.868719). Only the app's own recovery draft is kept — nothing is reseeded.
+        await programmaticLoginWithRoutes(page, { userType: 'free', preserveRecoveryDraftAcrossLoads: true });
         await navigateToRoute(page, '/session');
         await expect(page.getByText(/Practice Session/i)).toBeVisible();
 
@@ -31,18 +33,6 @@ test.describe('A1-2 reload during a live take', () => {
             }, RECOVERY_DRAFT_KEY),
             { message: 'the live take keeps a recovery draft', timeout: 10_000 },
         ).toBe('active_interrupted');
-
-        // A real browser keeps localStorage across a reload, but `setupE2EManifest`'s init script clears it on EVERY document
-        // load (keeping only its lease/obligation keys), which deleted the very draft under test (Sam 1792951882.028579).
-        // Init scripts run in registration order, so this later one puts back exactly the value the live take left, once —
-        // a per-tab sessionStorage marker keeps it from re-injecting on the reload after Dismiss.
-        const draftBeforeReload = await page.evaluate((key) => window.localStorage.getItem(key), RECOVERY_DRAFT_KEY);
-        expect(draftBeforeReload, 'the live take left a draft to survive the reload').not.toBeNull();
-        await page.addInitScript(([key, value]) => {
-            if (window.sessionStorage.getItem('__e2e_a1_2_draft_restored')) return;
-            window.sessionStorage.setItem('__e2e_a1_2_draft_restored', '1');
-            window.localStorage.setItem(key, value);
-        }, [RECOVERY_DRAFT_KEY, draftBeforeReload as string] as const);
 
         await page.reload();
         await expect(page.getByText(/Practice Session/i)).toBeVisible({ timeout: 20_000 });
