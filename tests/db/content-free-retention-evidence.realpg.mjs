@@ -16,6 +16,7 @@ const nextAction = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'wp
 const migration = name => readFileSync(join('backend/supabase/migrations', name), 'utf8');
 export function bootstrapSql() {
   return completionBootstrap() + `
+    SET TIME ZONE 'UTC';
     SET ROLE closure_owner;
     ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS attribution_status text NOT NULL DEFAULT 'pending';
     CREATE TABLE public.objective_source_recording(session_id uuid PRIMARY KEY,user_id uuid NOT NULL);
@@ -167,6 +168,43 @@ export const cases = {
     await db.query('DELETE FROM session_progress_content_evidence WHERE session_id=$1', [ids[0]]);
     assert.equal(await settle(db, user, ids[0]), null, 'missing snapshot remains unavailable, not a zero or no_transcript terminal verdict'); return true;
   },
+  async lateDerivedWrite(db) {
+    const { user, ids } = await seed(db); await replaceTake(db, user);
+    const before = (await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows;
+    await db.query('UPDATE sessions SET ai_suggestions=$2::jsonb WHERE id=$1',
+      [ids[0], JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'Synthetic late control', what_to_try_next: 'Synthetic next step' })]);
+    assert.equal((await db.query('SELECT ai_suggestions FROM sessions WHERE id=$1', [ids[0]])).rows[0].ai_suggestions,
+      null, 'expired derived prose cannot be restored at the actual session UPDATE boundary');
+    assert.deepEqual((await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows, before);
+    return true;
+  },
+  async guardedLateCoaching(db) {
+    const { user, ids } = await seed(db);
+    const operation = (await db.query('SELECT gen_random_uuid() AS id')).rows[0].id;
+    await db.exec('SET ROLE authenticated;');
+    const quota = (await db.query('SELECT consume_ai_suggestion_quota(3) AS r')).rows[0].r;
+    assert.equal(quota.allowed, true, 'guarded writer fixture has real authenticated quota admission');
+    assert.equal(quota.used, 1);
+    await db.exec('SET ROLE service_role;');
+    await db.query('SELECT begin_account_coaching_v1($1,$2,$3) AS r', [user, ids[0], operation]);
+    await db.exec('SET ROLE closure_owner;');
+    await replaceTake(db, user);
+    const before = (await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows;
+    const model = JSON.parse(readFileSync('backend/supabase/functions/get-ai-suggestions/contract.json', 'utf8')).model;
+    const payload = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'Synthetic grounded control', what_to_try_next: 'Synthetic next step' });
+    await db.exec('SET ROLE service_role;');
+    try {
+      const persist = () => db.query(`SELECT persist_account_coaching_v1($1,true,$2,$3,$4::jsonb,
+        'google_gemini',$5,'user_utc_day',(now() AT TIME ZONE 'UTC')::date,3,1) AS r`, [operation, ids[0], user, payload, model]);
+      await assert.rejects(persist(), /session is missing or unowned/, 'actual W1 to W2 late completion cannot restore expired coaching');
+      await assert.rejects(persist(), /session is missing or unowned/, 'identical late completion retry cannot restore expired coaching');
+    } finally { await db.exec('SET ROLE closure_owner;'); }
+    assert.equal((await db.query('SELECT ai_suggestions FROM sessions WHERE id=$1', [ids[0]])).rows[0].ai_suggestions, null);
+    assert.deepEqual((await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows, before);
+    assert.equal((await db.query('SELECT phase FROM account_coaching_operations WHERE operation_id=$1', [operation])).rows[0].phase,
+      'admitted', 'refusing the late write does not fabricate a terminal provider outcome');
+    return true;
+  },
   async snapshotVersionUnavailable(db) {
     const { user, ids } = await seed(db); await replaceTake(db, user);
     const pin = (await db.query(`SELECT conname,pg_get_constraintdef(oid) AS definition FROM pg_constraint
@@ -228,6 +266,8 @@ export const mutants = [
     to: 'IF NOT FOUND THEN v_content.has_nonblank := true; v_content.error_marker_count := 0; END IF;', exercise: 'snapshotUnavailable' },
   { name: 'mismatched recovery copy ignored', from: 'v_recovery.transcript IS DISTINCT FROM v_row.transcript', to: 'false', exercise: 'mismatchedCopies' },
   { name: '501 outgoing sessions accepted', from: 'cardinality(v_ids) > p_batch_size', to: 'cardinality(v_ids) > 5000', exercise: 'distinct501' },
+  { name: 'late derived-content fence removed', from: "IF OLD.transcript_state = 'expired' THEN NEW.ai_suggestions := NULL; END IF;",
+    to: 'IF false THEN NEW.ai_suggestions := NULL; END IF;', exercise: 'lateDerivedWrite' },
 ];
 
 // No inherited PG URL/credentials, TCP listener, linked Supabase target or network download.
@@ -259,7 +299,7 @@ async function nativeFixture(t) {
   const literal = x => x === null ? 'NULL' : typeof x === 'number' ? String(x) : `'${String(x).replaceAll("'", "''")}'`;
   // Each call owns one connection. Synthetic role/subject are explicitly reapplied, never inferred from a prior call.
   let subject = ''; let role = 'closure_owner';
-  const prefix = () => `SELECT set_config('request.jwt.claim.sub','${subject}',false); SET ROLE ${role}; SET statement_timeout='20s'; SET lock_timeout='5s';`;
+  const prefix = () => `SELECT set_config('request.jwt.claim.sub','${subject}',false); SET ROLE ${role}; SET TIME ZONE 'UTC'; SET statement_timeout='20s'; SET lock_timeout='5s';`;
   const db = {
     exec: async sql => {
       const match = sql.match(/set_config\('request\.jwt\.claim\.sub','([^']+)'/); if (match) subject = match[1];
