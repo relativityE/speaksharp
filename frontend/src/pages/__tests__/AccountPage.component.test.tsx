@@ -170,3 +170,29 @@ describe('Membership on Account', () => {
     expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
   });
 });
+
+describe('#1643 Delete account entry on Account', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useUsageLimit).mockReturnValue({ data: { trial_active: false }, isError: false } as ReturnType<typeof useUsageLimit>);
+    vi.mocked(useQueryClient).mockReturnValue({ setQueryData: vi.fn() } as unknown as ReturnType<typeof useQueryClient>);
+    vi.mocked(arePaymentsEnabled).mockReturnValue(true);
+    vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke: vi.fn() } } as unknown as ReturnType<typeof getSupabaseClient>);
+  });
+
+  it.each([
+    ['a paid member', { data: paid, isLoading: false }],
+    ['a free member', { data: { ...paid, subscription_status: 'free', stripe_customer_id: null }, isLoading: false }],
+    ['an account whose membership failed to load', { data: undefined, isLoading: false, isError: true }],
+  ])('%s can reach the existing deletion page from a plain text link below membership', (_label, profileState) => {
+    vi.mocked(useUserProfile).mockReturnValue(profileState as unknown as ReturnType<typeof useUserProfile>);
+    render(<AccountPage />, { route: '/account' });
+    const link = screen.getByRole('link', { name: 'Delete account' });
+    expect(link).toHaveAttribute('href', '/account/delete');
+    // Plain text in normal ink: never the signature (practice) colour and never a destructive button.
+    expect(link.className).not.toMatch(/signature|destructive|bg-/);
+    expect(screen.queryByRole('button', { name: /delete account/i })).not.toBeInTheDocument();
+    const membershipTitle = screen.getByText('Membership');
+    expect(membershipTitle.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

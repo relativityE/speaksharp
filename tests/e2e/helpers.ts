@@ -418,6 +418,8 @@ export async function programmaticLoginWithRoutes(
      * reloads until the spec clears it (see `clearProfileFault` in error-states.e2e.spec.ts).
      */
     profileFault?: ProfileFault;
+    /** A1-2: keep the app's recovery draft across reloads, as a real browser does (see setupE2EManifest). */
+    preserveRecoveryDraftAcrossLoads?: boolean;
   } = {}
 ) {
   const {
@@ -430,6 +432,7 @@ export async function programmaticLoginWithRoutes(
     sessions,
     progressFixtures,
     profileFault,
+    preserveRecoveryDraftAcrossLoads,
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -473,6 +476,7 @@ export async function programmaticLoginWithRoutes(
     // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
     sessions,
     progressFixtures,
+    preserveRecoveryDraftAcrossLoads,
     storage: authStorage
   });
 
