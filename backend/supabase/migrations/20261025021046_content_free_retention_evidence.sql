@@ -61,7 +61,7 @@ CREATE FUNCTION public._ss_retention_content_statement_lock()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF auth.uid() IS NOT NULL THEN
-    PERFORM 1 FROM public.user_profiles WHERE id = auth.uid() FOR UPDATE;
+    PERFORM 1 FROM public.user_profiles WHERE id = auth.uid() FOR UPDATE NOWAIT;
   END IF;
   RETURN NULL;
 END;
@@ -75,7 +75,7 @@ CREATE TRIGGER aa_retention_content_statement_lock
 CREATE FUNCTION public._ss_retention_content_row_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
-  PERFORM 1 FROM public.user_profiles WHERE id = NEW.user_id FOR UPDATE;
+  PERFORM 1 FROM public.user_profiles WHERE id = NEW.user_id FOR UPDATE NOWAIT;
   IF TG_OP = 'UPDATE' AND NEW.user_id IS DISTINCT FROM OLD.user_id THEN
     RAISE EXCEPTION 'retention_owner_immutable' USING ERRCODE = '42501';
   END IF;
@@ -99,7 +99,11 @@ CREATE TRIGGER aa_retention_content_row_guard
 CREATE FUNCTION public._ss_retention_expired_derived_guard()
 RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
-  IF OLD.transcript_state = 'expired' THEN NEW.ai_suggestions := NULL; END IF;
+  IF OLD.transcript_state = 'expired' AND NEW.ai_suggestions IS NOT NULL THEN
+    -- A definitive pre-write refusal uses the existing Edge atomic-rejection contract.
+    -- Do not turn a known provider response into an UNKNOWN admission by returning P0002 after UPDATE.
+    RAISE EXCEPTION 'retention_expired_coaching_refused' USING ERRCODE = '23514';
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -114,10 +118,10 @@ CREATE FUNCTION public._ss_retention_recovery_write_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
-    PERFORM 1 FROM public.user_profiles WHERE id = OLD.user_id FOR UPDATE;
+    PERFORM 1 FROM public.user_profiles WHERE id = OLD.user_id FOR UPDATE NOWAIT;
     RETURN OLD;
   END IF;
-  PERFORM 1 FROM public.user_profiles WHERE id = NEW.user_id FOR UPDATE;
+  PERFORM 1 FROM public.user_profiles WHERE id = NEW.user_id FOR UPDATE NOWAIT;
   RAISE EXCEPTION 'retention_plaintext_recovery_write_refused' USING ERRCODE = '55000';
 END;
 $$;

@@ -14,6 +14,8 @@ export const candidate = () => readFileSync(migrationPath, 'utf8');
 const nextAction = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'wpm', value: 100,
   comparator: 'within_target', templateVersion: 'rec_v1' };
 const migration = name => readFileSync(join('backend/supabase/migrations', name), 'utf8');
+const expiredCoachingRefusal = error => (error.sqlstate ?? error.code) === '23514'
+  && /retention_expired_coaching_refused/.test(error.message);
 export function bootstrapSql() {
   return completionBootstrap() + `
     SET TIME ZONE 'UTC';
@@ -115,7 +117,8 @@ export const cases = {
     assert.equal(row.word_count, 100); assert.equal(row.clarity_raw, 91, 'same clarity formula as before erasure');
     await db.query("UPDATE sessions SET transcript='late synthetic restoration',transcript_state='available' WHERE id=$1", [ids[0]]);
     assert.equal((await db.query('SELECT transcript FROM sessions WHERE id=$1', [ids[0]])).rows[0].transcript, null, 'late writes cannot restore expired text');
-    await db.query(`UPDATE sessions SET ai_suggestions='{"synthetic":"late derived coaching"}'::jsonb WHERE id=$1`, [ids[0]]);
+    await assert.rejects(db.query(`UPDATE sessions SET ai_suggestions='{"synthetic":"late derived coaching"}'::jsonb WHERE id=$1`, [ids[0]]),
+      expiredCoachingRefusal, 'expired coaching restoration is an explicit atomic refusal');
     assert.equal((await db.query('SELECT ai_suggestions FROM sessions WHERE id=$1', [ids[0]])).rows[0].ai_suggestions,
       null, 'late coaching cannot restore content after transcript expiry');
     assert.equal((await db.query('SELECT record_progress_evaluation($1) AS id', [ids[0]])).rows[0].id, evaluation, 'terminal evaluation is idempotent');
@@ -171,14 +174,17 @@ export const cases = {
   async lateDerivedWrite(db) {
     const { user, ids } = await seed(db); await replaceTake(db, user);
     const before = (await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows;
-    await db.query('UPDATE sessions SET ai_suggestions=$2::jsonb WHERE id=$1',
-      [ids[0], JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'Synthetic late control', what_to_try_next: 'Synthetic next step' })]);
+    await assert.rejects(db.query('UPDATE sessions SET ai_suggestions=$2::jsonb WHERE id=$1',
+      [ids[0], JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'Synthetic late control', what_to_try_next: 'Synthetic next step' })]),
+    expiredCoachingRefusal, 'actual UPDATE refuses late derived plaintext before writing');
     assert.equal((await db.query('SELECT ai_suggestions FROM sessions WHERE id=$1', [ids[0]])).rows[0].ai_suggestions,
       null, 'expired derived prose cannot be restored at the actual session UPDATE boundary');
     assert.deepEqual((await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows, before);
+    await assert.doesNotReject(db.query('UPDATE sessions SET ai_suggestions=NULL WHERE id=$1', [ids[0]]),
+      'a legitimate NULL purge remains permitted after expiry');
     return true;
   },
-  async guardedLateCoaching(db) {
+  async guardedLateCoaching(db, providerSettled = true) {
     const { user, ids } = await seed(db);
     const content = () => db.query('SELECT transcript,transcript_state,ai_suggestions FROM sessions WHERE id=$1', [ids[0]]);
     const originalContent = (await content()).rows[0];
@@ -200,8 +206,8 @@ export const cases = {
     const payload = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'Synthetic grounded control', what_to_try_next: 'Synthetic next step' });
     await db.exec('SET ROLE service_role;');
     try {
-      const persist = () => db.query(`SELECT persist_account_coaching_v1($1,true,$2,$3,$4::jsonb,
-        'google_gemini',$5,'user_utc_day',(now() AT TIME ZONE 'UTC')::date,3,1) AS r`, [operation, ids[0], user, payload, model]);
+      const persist = () => db.query(`SELECT persist_account_coaching_v1($1,$6::boolean,$2,$3,$4::jsonb,
+        'google_gemini',$5,'user_utc_day',(now() AT TIME ZONE 'UTC')::date,3,1) AS r`, [operation, ids[0], user, payload, model, providerSettled]);
       const assertRejectedState = async () => {
         await db.exec('SET ROLE closure_owner;');
         assert.deepEqual((await content()).rows[0], erased, 'a rejected completion cannot restore this take transcript, state or coaching');
@@ -210,16 +216,41 @@ export const cases = {
           'admitted', 'a SQL refusal alone does not establish provider settlement or safe account exit');
         await db.exec('SET ROLE service_role;');
       };
-      await assert.rejects(persist(), /session is missing or unowned/, 'actual W1 to W2 late completion cannot restore expired coaching');
+      await assert.rejects(persist(), expiredCoachingRefusal, 'actual W1 to W2 late completion cannot restore expired coaching');
       await assertRejectedState();
-      await assert.rejects(persist(), /session is missing or unowned/, 'identical late completion retry cannot restore expired coaching');
+      await assert.rejects(persist(), expiredCoachingRefusal, 'identical late completion retry cannot restore expired coaching');
       await assertRejectedState();
     } finally { await db.exec('SET ROLE closure_owner;'); }
     assert.equal((await db.query('SELECT ai_suggestions FROM sessions WHERE id=$1', [ids[0]])).rows[0].ai_suggestions, null);
     assert.deepEqual((await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows, before);
     assert.equal((await db.query('SELECT phase FROM account_coaching_operations WHERE operation_id=$1', [operation])).rows[0].phase,
       'admitted', 'refusing the late write does not fabricate a terminal provider outcome');
+    // Exercise the current SQL finalizer, using the already-existing Edge 23514/provider-certainty rule.
+    // This is not a provider call or an execution of the Edge handler itself.
+    const outcome = providerSettled ? 'refused' : 'unknown';
+    await db.exec('SET ROLE service_role;');
+    try {
+      const finish = value => db.query('SELECT finish_account_coaching_failure_v1($1,$2,$3,$4) AS r', [user, ids[0], operation, value]);
+      await assert.rejects(db.exec(`DO $fault$ BEGIN
+        PERFORM public.finish_account_coaching_failure_v1('${user}','${ids[0]}','${operation}','${outcome}');
+        RAISE EXCEPTION 'synthetic_finalizer_commit_failure'; END $fault$;`), /synthetic_finalizer_commit_failure/,
+      'an aborted finalization transaction is not a durable settlement');
+      await db.exec('SET ROLE closure_owner;');
+      assert.equal((await db.query('SELECT phase FROM account_coaching_operations WHERE operation_id=$1', [operation])).rows[0].phase, 'admitted');
+      assert.deepEqual((await content()).rows[0], erased);
+      assert.deepEqual((await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows, before);
+      await db.exec('SET ROLE service_role;');
+      assert.equal((await finish(outcome)).rows[0].r, true);
+      assert.equal((await finish(outcome)).rows[0].r, true, 'same settlement outcome is idempotent');
+      assert.equal((await finish('refused')).rows[0].r, providerSettled, 'uncertain provider outcome cannot be cleared as refused');
+    } finally { await db.exec('SET ROLE closure_owner;'); }
+    assert.equal((await db.query('SELECT phase FROM account_coaching_operations WHERE operation_id=$1', [operation])).rows[0].phase, outcome);
+    assert.deepEqual((await content()).rows[0], erased, 'finalization never restores expired content');
+    assert.deepEqual((await db.query('SELECT total_words,wpm,duration,filler_counts FROM sessions WHERE id=$1', [ids[0]])).rows, before);
     return true;
+  },
+  async uncertainLateCoaching(db) {
+    return cases.guardedLateCoaching(db, false);
   },
   async snapshotVersionUnavailable(db) {
     const { user, ids } = await seed(db); await replaceTake(db, user);
@@ -282,8 +313,8 @@ export const mutants = [
     to: 'IF NOT FOUND THEN v_content.has_nonblank := true; v_content.error_marker_count := 0; END IF;', exercise: 'snapshotUnavailable' },
   { name: 'mismatched recovery copy ignored', from: 'v_recovery.transcript IS DISTINCT FROM v_row.transcript', to: 'false', exercise: 'mismatchedCopies' },
   { name: '501 outgoing sessions accepted', from: 'cardinality(v_ids) > p_batch_size', to: 'cardinality(v_ids) > 5000', exercise: 'distinct501' },
-  { name: 'late derived-content fence removed', from: "IF OLD.transcript_state = 'expired' THEN NEW.ai_suggestions := NULL; END IF;",
-    to: 'IF false THEN NEW.ai_suggestions := NULL; END IF;', exercise: 'lateDerivedWrite' },
+  { name: 'late derived-content fence removed', from: "IF OLD.transcript_state = 'expired' AND NEW.ai_suggestions IS NOT NULL THEN",
+    to: 'IF false THEN', exercise: 'lateDerivedWrite' },
 ];
 
 // No inherited PG URL/credentials, TCP listener, linked Supabase target or network download.
@@ -310,7 +341,12 @@ async function nativeFixture(t) {
   receipt.owner = { controllerPid: process.pid, postmasterPid: Number(readFileSync(join(data, 'postmaster.pid'), 'utf8').split('\n')[0]), data, socket };
   const exec = async text => {
     const path = join(root, `statement-${++statement}.sql`); writeFileSync(path, text);
-    return run('psql', ['-h', socket, '-p', '55477', '-U', 'retention_fixture_admin', '-d', 'postgres', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-f', path], 30_000);
+    try {
+      return run('psql', ['-h', socket, '-p', '55477', '-U', 'retention_fixture_admin', '-d', 'postgres', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-f', path], 30_000);
+    } catch (error) {
+      error.sqlstate = String(error.stderr).match(/ERROR:\s+([0-9A-Z]{5}):/)?.[1];
+      throw error;
+    }
   };
   const literal = x => x === null ? 'NULL' : typeof x === 'number' ? String(x) : `'${String(x).replaceAll("'", "''")}'`;
   // Each call owns one connection. Synthetic role/subject are explicitly reapplied, never inferred from a prior call.
@@ -342,21 +378,66 @@ async function nativeFixture(t) {
     });
     if (failure) throw failure;
   }
-  // Two independent sessions demonstrate the actual same-user profile lock, not a PGlite scheduling claim.
-  const { user } = await seed(db); const holderSql = join(root, 'holder.sql');
-  writeFileSync(holderSql, `BEGIN; SET ROLE closure_owner; SELECT 1 FROM user_profiles WHERE id='${user}' FOR UPDATE; SELECT 'LOCKED'; SELECT pg_sleep(2); COMMIT;`);
-  const holder = spawn(join(bin, 'psql'), ['-h', socket, '-p', '55477', '-U', 'retention_fixture_admin', '-d', 'postgres', '-X', '-qAt', '-f', holderSql], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { if (holder.exitCode === null) holder.kill('SIGTERM'); });
-  await new Promise((resolveLock, rejectLock) => {
-    holder.stdout.on('data', chunk => { if (String(chunk).includes('LOCKED')) resolveLock(); });
-    holder.on('error', rejectLock);
-    holder.on('exit', () => rejectLock(new Error('holder exited before the lock receipt')));
-  });
-  await assert.rejects(exec(`SELECT set_config('request.jwt.claim.sub','${user}',false); SET lock_timeout='100ms'; SET ROLE closure_owner;
-    INSERT INTO sessions(user_id,status,duration,transcript) VALUES('${user}','completed',60,'synthetic concurrent take');`),
-  /lock timeout|canceling statement/, 'independent actual session writer blocks on the shared same-user boundary');
-  await new Promise((resolveExit, rejectExit) => holder.on('exit', code => code === 0 ? resolveExit() : rejectExit(new Error(`holder exit ${code}`))));
-  receipt.cases.push({ name: 'native-profile-serialization', status: 'PASS' });
+  // Independent connections exercise actual locks. The holder's two seconds are shorter than
+  // the contender's ten-second lock timeout: a blocking mutant would eventually succeed, not pass as NOWAIT.
+  const profileHeld = async (user, name, action) => {
+    const holderSql = join(root, `holder-${name}.sql`);
+    writeFileSync(holderSql, `BEGIN; SET ROLE closure_owner; SELECT 1 FROM user_profiles WHERE id='${user}' FOR UPDATE; SELECT 'LOCKED'; SELECT pg_sleep(2); COMMIT;`);
+    const holder = spawn(join(bin, 'psql'), ['-h', socket, '-p', '55477', '-U', 'retention_fixture_admin', '-d', 'postgres', '-X', '-qAt', '-f', holderSql], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    t.after(() => { if (holder.exitCode === null) holder.kill('SIGTERM'); });
+    const done = new Promise((resolveExit, rejectExit) => {
+      holder.on('error', rejectExit);
+      holder.on('exit', code => code === 0 ? resolveExit() : rejectExit(new Error(`holder exit ${code}`)));
+    });
+    done.catch(() => undefined); // Observe startup errors immediately; the awaited promise below still rejects.
+    try {
+      await new Promise((resolveLock, rejectLock) => {
+        holder.stdout.on('data', chunk => { if (String(chunk).includes('LOCKED')) resolveLock(); });
+        holder.on('error', rejectLock);
+        holder.on('exit', () => rejectLock(new Error('holder exited before the lock receipt')));
+      });
+      await action();
+    } finally { await done; }
+  };
+  const busy = error => error.sqlstate === '55P03' && /could not obtain lock/.test(error.message);
+  {
+    const { user } = await seed(db); const before = await inspect(db, user);
+    const insert = `SELECT set_config('request.jwt.claim.sub','${user}',false); SET lock_timeout='10s'; SET ROLE closure_owner;
+      INSERT INTO sessions(user_id,status,duration,transcript) VALUES('${user}','completed',60,'synthetic concurrent take');`;
+    await profileHeld(user, 'statement', () => assert.rejects(exec(insert), busy, 'statement admission refuses rather than waiting behind an inverse writer'));
+    assert.deepEqual(await inspect(db, user), before, 'refused INSERT commits no session, snapshot or content loss');
+    await exec(insert);
+    assert.equal((await inspect(db, user)).live, before.live + 1, 'same INSERT retries successfully after release');
+    receipt.cases.push({ name: 'native-statement-nowait-refusal-and-retry', status: 'PASS' });
+  }
+  {
+    const { user } = await seed(db);
+    // Valid current save-only shape, admitted by the real legacy classifier; no trigger disable or grant changes.
+    const id = (await db.query(`INSERT INTO sessions(user_id,status,duration,transcript,recording_fenced_at,recording_fenced_reason,
+      total_words,wpm,filler_counts,engine,engine_version,model_name,product)
+      VALUES($1,'active',60,'synthetic ambiguous saved take',now(),'save_only',100,100,'{"um":2}','private','v2','base','open_mic') RETURNING id`, [user])).rows[0].id;
+    const read = () => db.query('SELECT transcript,duration,total_words,wpm,filler_counts,status FROM sessions WHERE id=$1', [id]);
+    const before = (await read()).rows[0];
+    const classify = `SELECT set_config('request.jwt.claim.sub','',false); SET lock_timeout='10s'; SET ROLE service_role;
+      SELECT classify_transcript_retention_legacy_session('${id}','completed','synthetic native classification');`;
+    await profileHeld(user, 'classifier', () => assert.rejects(exec(classify), busy, 'real service classifier already holding its session row refuses nonblocking profile admission'));
+    assert.deepEqual((await read()).rows[0], before, 'classifier refusal rolls back its classification and content changes');
+    assert.equal((await db.query('SELECT count(*)::int AS n FROM transcript_retention_legacy_classifications WHERE session_id=$1', [id])).rows[0].n, 0);
+    await exec(classify);
+    assert.deepEqual((await read()).rows[0], { ...before, status: 'completed' }, 'classifier retry succeeds after release without changing content or metrics');
+    receipt.cases.push({ name: 'native-service-prelocked-session-nowait-and-retry', status: 'PASS' });
+  }
+  {
+    const { user, ids } = await seed(db, 1, { recovery: true }); const before = await inspect(db, user);
+    const remove = `SELECT set_config('request.jwt.claim.sub','',false); SET lock_timeout='10s'; SET ROLE closure_owner;
+      BEGIN; SELECT 1 FROM sessions WHERE id='${ids[0]}' FOR UPDATE;
+      DELETE FROM transcript_retention_tombstones WHERE session_id='${ids[0]}'; COMMIT;`;
+    await profileHeld(user, 'recovery', () => assert.rejects(exec(remove), busy, 'recovery DELETE after a session lock also refuses nonblocking profile admission'));
+    assert.deepEqual(await inspect(db, user), before, 'failed cleanup transaction retains both plaintext copies and evidence');
+    await exec(remove);
+    assert.deepEqual(await inspect(db, user), { ...before, recovery: 0 }, 'same cleanup succeeds after release without altering live content or metrics');
+    receipt.cases.push({ name: 'native-prelocked-recovery-delete-nowait-and-retry', status: 'PASS' });
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

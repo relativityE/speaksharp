@@ -52,7 +52,7 @@ describe('bad code must fail at the intended policy assertion', () => {
                     snapshotUnavailable: { actual: expect.any(String), expected: null, operator: 'strictEqual' },
                     mismatchedCopies: { actual: undefined, operator: 'rejects', message: expect.stringMatching(/Missing expected rejection/) },
                     distinct501: { actual: undefined, operator: 'rejects', message: expect.stringMatching(/Missing expected rejection/) },
-                    lateDerivedWrite: { actual: expect.objectContaining({ version: 'gemini_coaching_v1' }), expected: null, operator: 'strictEqual' },
+                    lateDerivedWrite: { actual: undefined, operator: 'rejects', message: expect.stringMatching(/Missing expected rejection/) },
                 };
                 expect({ actual: caught?.actual, expected: caught?.expected, operator: caught?.operator,
                     message: caught?.message }).toMatchObject(required[mutant.exercise]);
