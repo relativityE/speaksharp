@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -125,6 +125,12 @@ export default function AccountPage() {
             )}
           </CardContent>
         </Card>
+        {/* #1643: plain text in normal ink, below membership. Not the signature colour (reserved for practice) and not a
+            destructive button; the deletion page holds the consequences and the deliberate confirmation. */}
+        <p>
+          <Link to="/account/delete" data-testid="account-delete-link"
+            className="text-sm font-medium text-foreground underline underline-offset-4 hover:text-foreground/70">Delete account</Link>
+        </p>
       </div>
     </main>
   );
