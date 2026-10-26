@@ -25,6 +25,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -45,7 +47,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p product_release/evidence
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          for (const file of ['software-quality.latest.json', 'software-quality-summary.latest.md',
+            'service-levels.latest.json', 'service-levels-summary.latest.md', 'software-quality-input-origin.json']) {
+            fs.rmSync(`product_release/evidence/${file}`, { force: true });
+          }
+          for (const file of ['test-results/metrics.json', 'artifacts/ci-metrics.json']) fs.rmSync(file, { force: true });
+          NODE
 
           CI_RUN_ID=""
           for attempt in {1..20}; do
@@ -66,19 +76,64 @@ jobs:
           done
 
           if [ -z "$CI_RUN_ID" ]; then
-            echo "No successful CI metrics artifact found for ${GITHUB_SHA}; service-level evidence will mark quality checks as missing."
-            exit 0
+            echo "::error::No successful same-head CI input artifact; refusing service-level evidence."
+            exit 1
           fi
 
           echo "Downloading CI metrics artifact from run ${CI_RUN_ID}."
-          if ! gh run download "$CI_RUN_ID" --name ci-metrics --dir /tmp/speaksharp-ci-metrics; then
-            echo "Unable to download ci-metrics from CI run ${CI_RUN_ID}; service-level evidence will mark quality checks as missing."
-            exit 0
-          fi
+          CI_INPUT_DIR=$(mktemp -d "$RUNNER_TEMP/ci-quality-inputs.XXXXXX")
+          gh run download "$CI_RUN_ID" --name ci-metrics --dir "$CI_INPUT_DIR"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID" > "$CI_INPUT_DIR/selected-run.json"
+          printf 'SOFTWARE_QUALITY_INPUT_DIR=%s\n' "$CI_INPUT_DIR" >> "$GITHUB_ENV"
 
-          cp /tmp/speaksharp-ci-metrics/product_release/evidence/software-quality.latest.json product_release/evidence/ 2>/dev/null || true
-          cp /tmp/speaksharp-ci-metrics/product_release/evidence/software-quality-summary.latest.md product_release/evidence/ 2>/dev/null || true
-          ls -la product_release/evidence
+      - name: Stage verified CI quality inputs
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createHash } from 'node:crypto';
+          import { resolveComparisonBase } from './scripts/lib/testExecutionEvidence.mjs';
+          const directory = process.env.SOFTWARE_QUALITY_INPUT_DIR;
+          assert.ok(directory, 'CI input download is missing');
+          const read = file => JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8'));
+          const selected = read('selected-run.json');
+          const origin = read('artifacts/software-quality-input-origin.json');
+          const previous = read('product_release/evidence/software-quality.latest.json');
+          assert.equal(origin.schemaVersion, 1);
+          assert.equal(selected.status, 'completed');
+          assert.equal(selected.conclusion, 'success');
+          assert.equal(selected.head_sha, process.env.GITHUB_SHA, 'selected CI head differs');
+          assert.equal(origin.originatingCi.commit, process.env.GITHUB_SHA, 'CI inputs have wrong head');
+          assert.equal(origin.originatingCi.runId, String(selected.id), 'CI input run differs');
+          assert.equal(origin.originatingCi.runAttempt, String(selected.run_attempt), 'CI input attempt differs');
+          assert.equal(previous.overallStatus, 'QUALIFIED');
+          assert.deepEqual(previous.provenance, origin.qualityProvenance);
+          assert.equal(previous.provenance.source, 'github-actions');
+          for (const key of ['commit', 'runId', 'runAttempt'])
+            assert.equal(previous.provenance[key], origin.originatingCi[key], `origin quality ${key} differs`);
+          assert.match(origin.comparisonBase ?? '', /^[a-f0-9]{40}$/, 'CI comparison base is missing');
+          const base = resolveComparisonBase(process.cwd(), { ...process.env, TEST_EFFICACY_BASE: origin.comparisonBase });
+          const inputs = ['test-results/metrics.json', 'artifacts/ci-metrics.json'];
+          assert.deepEqual(Object.keys(origin.files).sort(), [...inputs].sort());
+          const bytes = inputs.map(file => {
+            const data = fs.readFileSync(path.join(directory, file));
+            assert.equal(createHash('sha256').update(data).digest('hex'), origin.files[file], `CI input digest differs: ${file}`);
+            JSON.parse(data.toString());
+            return [file, data];
+          });
+          for (const [file, data] of bytes) {
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, data);
+          }
+          fs.mkdirSync('product_release/evidence', { recursive: true });
+          fs.writeFileSync('product_release/evidence/software-quality-input-origin.json', JSON.stringify({ ...origin,
+            regeneratedBy: { runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+              commit: process.env.GITHUB_SHA },
+          }, null, 2));
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            `TEST_EFFICACY_BASE=${base}\nSOFTWARE_QUALITY_INPUTS_VERIFIED=1\n`);
+          NODE
 
       - name: Collect ops health snapshot
         continue-on-error: true
@@ -137,7 +192,11 @@ jobs:
 
       - name: Generate service-level evidence
         if: always()
-        run: pnpm metrics:service-levels
+        run: |
+          set -euo pipefail
+          test "${SOFTWARE_QUALITY_INPUTS_VERIFIED:-}" = 1
+          unset SOFTWARE_QUALITY_INVOCATION
+          pnpm metrics:service-levels
 
       - name: Publish service-level summary
         if: always()
