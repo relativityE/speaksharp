@@ -7,8 +7,6 @@
  * the same boot, the verdict is `verified`, and there is exactly one such receipt. Each casualty below
  * breaks exactly one of those and must HOLD.
  */
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     QUALIFICATION_STAGES,
@@ -17,6 +15,7 @@ import {
     type DecodedTelemetryRow,
 } from '../completenessGate';
 import { buildReadbackQuery, stageEvidenceRows } from '../bootScopedReceipts';
+import { readbackRowsByName } from '../readbackColumns';
 
 const BOOT = 'boot-a';
 const JOURNEY = 'journey-a';
@@ -199,7 +198,7 @@ describe('#1421 P1 `3984043475` — the readback reaches the receipt that names 
         expect(stageEvidenceRows([foreignRow, foreignReceipt, notAReceipt], J, PRE)).toEqual([]);
     });
 
-    it('the decoder reads each cell from the column the query selects at that position', () => {
+    it('the decoder preserves every independently required query field by name', () => {
         const query = buildReadbackQuery({
             windowHours: 24, releaseSha: 'sha', trafficType: 'canary', qualifyingIdentity: 'person-1',
             governedEvents: ['session_saved'], quote: (v: string) => `'${v}'`,
@@ -207,14 +206,28 @@ describe('#1421 P1 `3984043475` — the readback reaches the receipt that names 
         const selectList = query.slice(query.indexOf('SELECT') + 'SELECT'.length, query.indexOf('FROM'));
         const columns = selectList.split(',').map((c) => c.trim()).map((c) => /\bAS\s+(\w+)$/.exec(c)?.[1] ?? c);
 
-        const script = readFileSync(resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8');
-        const snake = (name: string) => name.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
-        const decoded = [...script.matchAll(/(\w+): \(?cells\[(\d+)\]/g)].map((m) => [snake(m[1]), Number(m[2])] as const);
-
-        expect(decoded.length, 'the decoder maps every selected column').toBe(columns.length);
-        for (const [name, index] of decoded) {
-            expect({ name, selectedAt: columns[index] }).toEqual({ name, selectedAt: name });
-        }
+        // Independent fixed values/names, not derived from the decoder's declared column list.
+        const sent: Record<string, unknown> = {
+            event: 'model_attribution_receipt', timestamp: '2026-10-24T12:00:00Z', journey_id: 'journey-wire', boot_id: 'boot-wire',
+            outcome: 'outcome-wire', to_state: 'state-wire', acquired_candidate_id: 'acquired-wire', expected_candidate_id: 'expected-wire',
+            candidate_id: 'candidate-wire', engine: 'engine-wire', runtime_version: 'runtime-wire', attempt_id: 'attempt-wire', attempt_seq: 7,
+            subject_boot_id: 'subject-boot-wire', subject_journey_id: 'subject-journey-wire', subject_attempt_id: 'subject-attempt-wire',
+            subject_attempt_seq: 8, attribution_status: 'verified', stage: 'stage-wire', transcript_visibly_present: true, digests_match: false,
+            transport_initialized: true, flush_outcome: 'flush-wire', dropped_count: 9, comparison_evidence_document_id: 'document-wire',
+            review_surface: 'surface-wire', phase: 'phase-wire', suggestions_present: false, action: 'action-wire', action_seq: 10,
+            intended_route: 'route-wire', route_class: 'class-wire', link_state: 'link-wire', submit_seq: 11, error_category: 'error-wire',
+            producer_ts: 'producer-wire', persisted: false, diagnostic_request_id: 'diagnostic-wire', origin_attempt_id: 'origin-attempt-wire',
+            end_reason: 'reason-wire', origin_boot_id: 'origin-boot-wire', intent_kind: 'kind-wire', intent_outcome: 'intent-outcome-wire',
+            step: 'step-wire', option_selected: 'option-wire',
+        };
+        expect(columns).toHaveLength(45);
+        expect([...columns].sort()).toEqual(Object.keys(sent).sort());
+        const responseColumns = [...columns].reverse();
+        const decoded = readbackRowsByName(responseColumns, [responseColumns.map((name) => sent[name])]);
+        expect(decoded.ok).toBe(true);
+        if (!decoded.ok) throw new Error(decoded.reason);
+        const { event, timestamp, journeyId, bootId, properties } = decoded.rows[0];
+        expect({ event, timestamp, journey_id: journeyId, boot_id: bootId, ...properties }).toEqual(sent);
         for (const field of ['attempt_id', 'attempt_seq', 'subject_boot_id', 'subject_journey_id',
             'subject_attempt_id', 'subject_attempt_seq', 'attribution_status']) {
             expect(columns, `the readback selects ${field}`).toContain(field);
