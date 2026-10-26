@@ -4,12 +4,14 @@
  * A rejected shared credential is account repair (HOLD), setup/network/service faults are inconclusive (HOLD), and only a
  * valid password token for this submit that fails to establish its own session or Practice is a product FAIL.
  */
+import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     armPasswordSignInObserver,
     classifyTokenResponse,
+    pageAttemptEvents,
     returningSignInVerdict,
     wireErrorCode,
     type AttemptRequest,
@@ -17,6 +19,7 @@ import {
     type SignInAttemptEvents,
     type SignInAttemptOutcome,
 } from '../live/helpers/returningSignInAttempt';
+import type { Page } from '@playwright/test';
 
 const AUTH = 'https://project.supabase.example';
 const PASSWORD_GRANT = `${AUTH}/auth/v1/token?grant_type=password`;
@@ -246,5 +249,86 @@ describe('G18 the observer binds only this submit\'s own password-grant exchange
         const request = page.request(PASSWORD_GRANT);
         page.listeners.response.forEach((l) => l({ request: () => request, status: () => 200, headers: () => ({}), json: () => Promise.reject(new SyntaxError('x')) }));
         await expect(attempt.settle()).resolves.toMatchObject({ kind: 'inconclusive', reason: 'unreadable_body' });
+    });
+});
+
+/**
+ * The live spec always arms through `pageAttemptEvents(page)`, so the adapter's event mapping, main-frame identity and
+ * same-handler unsubscribe are part of the verdict path. A Node EventEmitter stands in for the Playwright Page (`on`,
+ * `off`, `emit`, `listenerCount`); no browser. Adapter proof only, not live authentication proof.
+ */
+const PAGE_EVENTS = ['request', 'response', 'requestfailed', 'close'] as const;
+class EmitterPage extends EventEmitter {
+    readonly frame = { frame: 'main' };
+    mainFrameCalls = 0;
+    mainFrame() { this.mainFrameCalls += 1; return this.frame; }
+    counts() { return Object.fromEntries(PAGE_EVENTS.map((name) => [name, this.listenerCount(name)])); }
+}
+type Adapter = (page: Page) => SignInAttemptEvents;
+
+/** Every way `make` departs from the adapter contract; empty means the contract holds. */
+function adapterViolations(make: Adapter): string[] {
+    const violations: string[] = [];
+    const page = new EmitterPage();
+    const events = make(page as unknown as Page);
+    if (events.mainFrame !== page.frame || page.mainFrameCalls !== 1) violations.push('mainFrame identity');
+    const seen: string[] = [];
+    const offs = {
+        request: events.onRequest((r) => seen.push(`request:${r.url()}`)),
+        response: events.onResponse((r) => seen.push(`response:${r.status()}`)),
+        requestfailed: events.onRequestFailed((r) => seen.push(`requestfailed:${r.url()}`)),
+        close: events.onClose(() => seen.push('close')),
+    };
+    const request = { method: () => 'POST', url: () => PASSWORD_GRANT, frame: () => page.frame };
+    const payload = {
+        request: [request],
+        response: [{ request: () => request, status: () => 200, headers: () => ({}), json: () => Promise.resolve(SESSION) }],
+        requestfailed: [request],
+        close: [],
+    };
+    for (const name of PAGE_EVENTS) page.emit(name, ...payload[name]);
+    const expected = [`request:${PASSWORD_GRANT}`, 'response:200', `requestfailed:${PASSWORD_GRANT}`, 'close'];
+    if (JSON.stringify(seen) !== JSON.stringify(expected)) violations.push(`event mapping ${JSON.stringify(seen)}`);
+    for (const name of PAGE_EVENTS) {
+        if (page.listenerCount(name) !== 1) violations.push(`subscribe ${name}`);
+        offs[name]();
+        if (page.listenerCount(name) !== 0) violations.push(`unsubscribe ${name}`);
+    }
+    seen.length = 0;
+    for (const name of PAGE_EVENTS) page.emit(name, ...payload[name]);
+    if (seen.length) violations.push(`late events ${JSON.stringify(seen)}`);
+    return violations;
+}
+
+describe('G18 pageAttemptEvents maps the Playwright page onto the observer and releases exactly its own handlers', () => {
+    it('each event reaches only its own listener with its own payload; mainFrame is the page\'s; every off removes its handler', () => {
+        expect(adapterViolations(pageAttemptEvents)).toEqual([]);
+    });
+
+    it('through the real observer: the armed grant settles token_ok and dispose leaves no page listener behind', async () => {
+        const page = new EmitterPage();
+        const attempt = armPasswordSignInObserver(pageAttemptEvents(page as unknown as Page), { authOrigin: AUTH, timeoutMs: 50 });
+        expect(Object.values(page.counts()).every((n) => n > 0)).toBe(true);
+        const request = { method: () => 'POST', url: () => PASSWORD_GRANT, frame: () => page.frame };
+        page.emit('request', request);
+        page.emit('response', { request: () => request, status: () => 200, headers: () => ({}), json: () => Promise.resolve(SESSION) });
+        await expect(attempt.settle()).resolves.toEqual({ kind: 'token_ok', status: 200, userId: 'u-1' });
+        attempt.dispose();
+        expect(page.counts()).toEqual({ request: 0, response: 0, requestfailed: 0, close: 0 });
+        page.emit('request', request); // late, after disposal: nothing listens and the outcome stands
+        expect(attempt.final()).toEqual({ kind: 'token_ok', status: 200, userId: 'u-1' });
+    });
+
+    it('NEGATIVE CONTROLS: a swapped event name or a missing off is caught by the same contract', () => {
+        const swapped: Adapter = (page) => {
+            const real = pageAttemptEvents(page);
+            return { ...real, onRequest: (listener) => { page.on('requestfailed', listener); return () => { page.off('requestfailed', listener); }; } };
+        };
+        const missingOff: Adapter = (page) => {
+            const real = pageAttemptEvents(page);
+            return { ...real, onResponse: (listener) => { real.onResponse(listener); return () => {}; } };
+        };
+        expect(adapterViolations(swapped).join(' | ')).toMatch(/event mapping/);
+        expect(adapterViolations(missingOff)).toContain('unsubscribe response');
     });
 });
