@@ -10,7 +10,8 @@ import {executionContext,assertProvenance,executionRoute,executionCoverage,valid
   registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
-import {dependencyPaths,runVitestExecution} from '../../scripts/run-test-efficacy.mjs';
+import {dependencyPaths,runVitestExecution,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
+import {HELPER_CONTRACTS} from '../../scripts/lib/helperExecutionEvidence.mjs';
 const framework=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const {test:registerTest}=framework;
 const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
@@ -20,6 +21,50 @@ const test=(name,...args)=>{
   if(process.env.TEST_EFFICACY_SERVICE_CALLER_FIXTURE!=='1' || name===fixtureConsumer.assertion) return registerTest(name,...args);
 };
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+
+test('routes approved source contracts separately from actual live execution',()=>{
+  for(const file of ['tests/canary/smoke.canary.spec.ts',
+    'tests/live/rwt-open-mic-first-session.live.spec.ts','tests/fixtures/rwt/rwt-fixtures.manifest.json']) {
+    const route=executionRoute(file,root);
+    assert.equal(route?.runner,'vitest-source-contract',`${file} needs an explicit source-only contract`);
+    assert.equal(route.liveExecution,'NOT RUN');
+  }
+  assert.equal(executionRoute('tests/live/unregistered-helper.ts',root),null);
+  assert.equal(executionRoute('tests/fixtures/unconsumed.json',root),null);
+  assert.equal(executionRoute('tests/live/unregistered.live.spec.ts',root).runner,'playwright-live');
+});
+test('deduplicates bound helper consumers within eight phases and still refuses a ninth',()=>{
+  // A planner fixture represents the receiving shape, not a claim that future
+  // callables/consumers already exist on the main-branch baseline.
+  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'receiving-phase-plan-')));
+  const write=(file,source)=>{fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),source);};
+  try {
+  write('package.json','{}');fs.symlinkSync(path.join(root,'node_modules'),path.join(dir,'node_modules'),'dir');
+  const pairs=[
+    ['tests/canary/canaryStopSaveOracle.ts','tests/unit/canaryStopSaveOracle.test.ts'],
+    ['tests/e2e/canaryLanding.ts','tests/e2e/__tests__/canaryLanding.test.ts'],
+    ['tests/live/helpers/rwtJourney.ts','tests/unit/progressReaderUrlPredicates.test.ts'],
+    ['tests/live/helpers/rwtOracles.ts','tests/unit/rwtReadbackBindingReasons1258.test.ts'],
+    ['tests/live/helpers/rwtStepDiagnostics.ts','tests/unit/rwtStepDiagnostics1258.test.ts'],
+  ];
+  for(const [helperFile,testFile] of pairs) {
+    const contract=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
+    write(helperFile,contract.callables.map(name=>`export function ${name}() { return true; }`).join('\n'));
+    write(testFile,'// planning identity only, no execution credit\n');
+  }
+  write('tests/unit/sourceContractEvidence.test.js','// planning consumer only\n');
+  write('tests/canary/smoke.canary.spec.ts',"import {collectCanaryStopSave,isOwnedStopSettledInPage,startOwnerId} from './canaryStopSaveOracle';\n");
+  const files=[...pairs.flat(),'tests/unit/humanTestCdpTarget.test.js','tests/unit/rwtReadbackActionBinding1570.test.ts','tests/canary/smoke.canary.spec.ts'];
+  const selected=selectExecutionContracts(dir,files);
+  assert.equal(selected.length,8);
+  assert.equal(selected.filter(item=>item.helper && item.consumerExecution).length,5);
+  assert.equal(new Set(selected.map(item=>item.testFile)).size,8);
+  assert.throws(()=>selectExecutionContracts(dir,[...files,'tests/unit/extra.test.ts']),/budget exceeds 8/);
+  const helperOnly=selectExecutionContracts(dir,[pairs[0][0]]);
+  assert.equal(helperOnly.length,1);assert.equal(helperOnly[0].consumerExecution,undefined);
+  assert.deepEqual(selectExecutionContracts(dir,['tests/live/helpers/unregistered.ts']),[]);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const context=()=>executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
 const contract=TEST_EFFICACY_CONTRACTS[0];
@@ -367,7 +412,7 @@ function executionFixture(installed=false) {
   const dir=canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(),'quality-vitest-execution-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),bytes);};
   for(const file of ['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
-    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs',
+    'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
     'scripts/lib/softwareQualityEvidenceQualification.mjs',...dependencyPaths(root,contract.testFile)]) {
     write(file,fs.readFileSync(path.join(root,file)));
   }
@@ -959,7 +1004,7 @@ test('CI-invoked writer fails incomplete coverage and succeeds after valid evide
     assert.ok(command,'exercise the writer command actually invoked by CI');
     const files=['scripts/write-software-quality-evidence.mjs','scripts/run-test-efficacy.mjs',
       'scripts/efficacy-reporter.mjs','scripts/coverage-thresholds.mjs',
-      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+      'scripts/lib/testExecutionEvidence.mjs','scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
       ...dependencyPaths(root,contract.testFile)];
     for (const file of files) {
       fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});
