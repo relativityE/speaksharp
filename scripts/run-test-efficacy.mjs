@@ -14,6 +14,51 @@ import {SOURCE_CONSUMER,sourceContractBinding,validateSourceContractWitness} fro
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
+
+// A completed leader is not proof that its detached group has stopped writing.
+// Operate only on the group created for this phase, never a name-based process match.
+export function drainOwnedPhase(result) {
+  if (process.platform === 'win32') throw new Error('Owned phase group drain requires POSIX process groups');
+  const group = result.pid;
+  if (!Number.isInteger(group) || group <= 1 || group === process.pid) {
+    if (result.error && !group) return {status:'not-started'};
+    throw new Error('Missing owned phase process-group identity');
+  }
+  try { process.kill(-group,0); }
+  catch (error) {
+    if (error.code === 'ESRCH') return {status:'drained',group,signalled:false,zombies:[]};
+    throw new Error('Cannot inspect owned phase process group',{cause:error});
+  }
+  try { process.kill(-group,'SIGKILL'); }
+  catch (error) { if (error.code !== 'ESRCH') throw new Error('Cannot stop owned phase process group',{cause:error}); }
+  const deadline = Date.now()+1000;
+  do {
+    const output = execFileSync('ps',['-axo','pid=,pgid=,stat='],
+      {encoding:'utf8',timeout:1000,maxBuffer:2*1024*1024});
+    const members = output.trim().split('\n').filter(Boolean).map(line=>{
+      const match=/^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/.exec(line);
+      if (!match) throw new Error('Unparseable process-group drain observation');
+      return {pid:Number(match[1]),group:Number(match[2]),state:match[3]};
+    }).filter(item=>item.group===group);
+    // A zombie has already exited and cannot write; reaping belongs to its new parent.
+    if (members.every(item=>/^[ZX]/.test(item.state))) {
+      return {status:'drained',group,signalled:true,zombies:members.map(item=>item.pid)};
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);
+  } while (Date.now()<deadline);
+  throw new Error('Owned phase process group did not drain within 1000ms');
+}
+
+export function cleanupOwnedCopy(temporary,primaryError) {
+  try { fs.rmSync(temporary,{recursive:true,force:true,maxRetries:3,retryDelay:50}); }
+  catch (cleanupError) {
+    const error=new AggregateError(primaryError?[primaryError,cleanupError]:[cleanupError],
+      `Efficacy cleanup failed; retained copy: ${temporary}${primaryError?`; primary failure: ${primaryError.message}`:''}`);
+    error.retainedCopy=temporary;
+    if (primaryError?.diagnostics) error.diagnostics=primaryError.diagnostics;
+    throw error;
+  }
+}
 // Vitest setup imports application modules outside the contract's direct import closure.
 // Conservatively select the bounded pilot for every frontend source change.
 
@@ -130,6 +175,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (!selected.length) return receipt;
   // /tmp is a symlink on macOS. Compare real paths on both sides of the reporter boundary.
   const temporary = canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(), 'speaksharp-efficacy-')));
+  let primaryError;
+  let ownedGroupsDrained=true;
   try {
     for (const [file, digest, mode] of before.entries) {
       if (digest === 'deleted') continue;
@@ -185,17 +232,15 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         witnessFile:path.join(temporary,`.source-contract-${binding.phaseId}.json`)};
       const environment=testEnvironment(temporary,binding,envelopeFile);
       if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';
+      ownedGroupsDrained=false;
       const result = spawnSync(command[0], command.slice(1),
       { cwd: temporary, timeout: 60000, killSignal: 'SIGKILL', detached: process.platform !== 'win32',
         maxBuffer: 8 * 1024 * 1024,
         env: environment });
-      if (result.error && result.pid && process.platform !== 'win32') {
-        try { process.kill(-result.pid, 'SIGKILL'); }
-        catch (error) {
-          // ESRCH means the entire process group has already exited.
-          if (error.code !== 'ESRCH') throw error;
-        }
-      }
+      diagnostics={status:result.status,signal:result.signal,error:result.error?.code || null,
+        stdout:result.stdout?.toString() || '',stderr:result.stderr?.toString() || ''};
+      const processCleanup=drainOwnedPhase(result);
+      ownedGroupsDrained=true;
       for (const [file, digest] of inputHashes) {
         if (hash(fs.readFileSync(path.join(temporary, file))) !== digest) {
           throw new Error(`Input changed during test phase: ${file}`);
@@ -235,7 +280,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         validateSourceContractWitness(sourceContractWitness,binding,temporary,report,envelope);
       }
       completedPhases.push(phase);
-      return { names, binding, envelope, execution:{status:result.status,signal:result.signal,error:result.error?.message || null},
+      return { names, binding, envelope, execution:{status:result.status,signal:result.signal,error:result.error?.message || null,processCleanup},
         inputSha256: binding.inputSha256, report, reportSha256: hash(JSON.stringify(report)),
         ...(helperCoverage ? {helperCoverage} : {}),...(fixtureWitness ? {fixtureWitness} : {}),
         ...(sourceContractWitness?{sourceContractWitness}:{}) };
@@ -296,10 +341,19 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         testSha256: hash(fs.readFileSync(path.join(temporary, contract.testFile))), baseline, control, mutants, restored });
     }
     if (snapshot(root).digest !== before.digest) throw new Error('Working tree changed during efficacy run');
-    return receipt;
-  } finally {
-    fs.rmSync(temporary, { recursive: true, force: true });
+  } catch(error) {
+    primaryError=error;
   }
+  if (!ownedGroupsDrained) {
+    const error=new Error(`Owned phase cleanup unverified; retained copy: ${temporary}; ${primaryError?.message || 'phase did not return'}`,
+      {cause:primaryError});
+    error.retainedCopy=temporary;
+    if(primaryError?.diagnostics) error.diagnostics=primaryError.diagnostics;
+    throw error;
+  }
+  cleanupOwnedCopy(temporary,primaryError);
+  if(primaryError)throw primaryError;
+  return receipt;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
