@@ -35,7 +35,7 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/repeatMetricWording.ts', testFile:'tests/unit/repeatMetricWording1548.test.ts',
   callables:['normalizeLine','validRecommendation','expectedTargetLine','expectedOutcomeLine','pressLinkage','repeatMetricPrerequisites','repeatMetricWordingVerdict'],
 }, {
-  helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/c1MigrationPostflight.test.js',
+  helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/exactMigrationGate.test.js',
   callables:['proveC1CatalogStages'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
