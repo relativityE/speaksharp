@@ -19,6 +19,29 @@ function fixture() {
 }
 
 describe('inactive exact-target pending completion adapter', () => {
+  it.each([
+    { ...binding, projectId: 5, url: 'https://5.supabase.co' },
+    { ...binding, projectId: null, url: 'https://null.supabase.co' },
+    { ...binding, projectId: undefined, url: 'https://undefined.supabase.co' },
+    { ...binding, projectId: true, url: 'https://true.supabase.co' },
+    { ...binding, projectId: ['project-test'] },
+    { ...binding, url: [binding.url] },
+  ])('primitive binding types: rejects coercible target before client creation (%j)', value => {
+    const factory = vi.fn(() => ({ rpc: vi.fn() }));
+    expect(() => createAccountCompletionRpc(value as unknown as CompletionBinding, {
+      createAdminClient: factory, currentBinding: async () => value,
+    })).toThrow('account_completion_unavailable');
+    expect(factory).not.toHaveBeenCalled();
+  });
+
+  it.each(['projectId', 'environment', 'url', 'scopeDigest'] as const)(
+    'primitive binding types: a %s object cannot impersonate a fresh binding through toJSON', async field => {
+      const f = fixture();
+      f.ports.currentBinding.mockResolvedValue({ ...binding, [field]: { toJSON: () => binding[field] } });
+      await expect(f.adapter.claim(request, binding.scopeDigest)).rejects.toThrow('account_completion_unavailable');
+      expect(f.rpc).not.toHaveBeenCalled();
+    });
+
   it('shares the pinned target transport with status RPCs without constructing effect ports', async () => {
     const f=fixture();
     const shared=createAccountCompletionRpc(binding,f.ports);
