@@ -48,17 +48,36 @@ export const referenceKeyFor = (word: string): ReferenceKey | null => {
  * Word tokens split at every non-word character, the same boundaries as the product's `\b` patterns: letters, digits and
  * "_" stay joined, so "um2" or "um_x" is never "um" (Sam 1792983480.096009), while "um-hmm" and "um's" still contain "um".
  */
-const tokenize = (text: string): string[] => text.toLowerCase().split(/[^a-z0-9_]+/).filter((t) => t.length > 0);
+interface Token { word: string; sep: string }
+
+/**
+ * Word tokens, each with the exact raw text separating it from the next word ('' after the last). A multi-part variant
+ * matches only with its own literal internal separators: "y'know" needs "'", "you know" one space, so "y know", "y-know"
+ * or "you  know" are not declared variants (Sam 1792984173.303649).
+ */
+const tokenizeWithSeparators = (text: string): Token[] => {
+    const lower = text.toLowerCase();
+    const words = [...lower.matchAll(/[a-z0-9_]+/g)];
+    return words.map((m, i) => ({
+        word: m[0],
+        sep: i + 1 < words.length ? lower.slice(m.index! + m[0].length, words[i + 1].index) : '',
+    }));
+};
+
+const tokenize = (text: string): string[] => tokenizeWithSeparators(text).map((t) => t.word);
 
 interface Unit { key: ReferenceKey; start: number; length: number }
 
+const VARIANT_TOKENS = REFERENCE_KEYS
+    .flatMap((key) => REFERENCE_VARIANTS[key].map((v) => ({ key, parts: tokenizeWithSeparators(v) })))
+    .sort((a, b) => b.parts.length - a.parts.length);
+
 /** Every hesitation unit in the token stream, longest variant first so "you know" is one unit. */
-const hesitationUnits = (tokens: readonly string[]): Unit[] => {
-    const variants = REFERENCE_KEYS.flatMap((key) => REFERENCE_VARIANTS[key].map((v) => ({ key, parts: tokenize(v) })))
-        .sort((a, b) => b.parts.length - a.parts.length);
+const hesitationUnits = (tokens: readonly Token[]): Unit[] => {
     const units: Unit[] = [];
     for (let i = 0; i < tokens.length;) {
-        const hit = variants.find(({ parts }) => parts.every((p, j) => tokens[i + j] === p));
+        const hit = VARIANT_TOKENS.find(({ parts }) => parts.every((p, j) =>
+            tokens[i + j]?.word === p.word && (j === parts.length - 1 || tokens[i + j].sep === p.sep)));
         if (hit) { units.push({ key: hit.key, start: i, length: hit.parts.length }); i += hit.parts.length; } else i += 1;
     }
     return units;
@@ -66,7 +85,7 @@ const hesitationUnits = (tokens: readonly string[]): Unit[] => {
 
 /** The reference count of one key in `text`, independent of the product counter. */
 export const referenceCount = (text: string, key: ReferenceKey): number =>
-    hesitationUnits(tokenize(text)).filter((u) => u.key === key).length;
+    hesitationUnits(tokenizeWithSeparators(text)).filter((u) => u.key === key).length;
 
 const anchorStarts = (tokens: readonly string[], anchor: string): number[] => {
     const parts = tokenize(anchor);
@@ -90,8 +109,9 @@ export interface Alignment { instances: InstanceResult[]; inserted: Record<Refer
  * INSERTED.
  */
 export const alignFillers = (transcript: string, annotations: readonly FillerAnnotation[]): Alignment => {
-    const tokens = tokenize(transcript);
-    const units = hesitationUnits(tokens);
+    const withSeparators = tokenizeWithSeparators(transcript);
+    const tokens = withSeparators.map((t) => t.word);
+    const units = hesitationUnits(withSeparators);
     const unitEndingAt = new Map(units.map((u) => [u.start + u.length, u]));
     const anchorKey = (anchor: string) => tokenize(anchor).join(' ');
     const declared = new Map<string, number>();

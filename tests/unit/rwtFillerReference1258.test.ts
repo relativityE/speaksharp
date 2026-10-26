@@ -141,6 +141,21 @@ describe('APP-G1h corpus verdicts: exact per word, substitutions never pass', ()
         expect([referenceCount('um2 um_x', 'um'), referenceCount('Um-hmm, um\'s point', 'um')]).toEqual([0, 2]);
     });
 
+    // Sam 1792984173.303649: a variant's internal separator is literal; only the outer boundaries follow the word rule.
+    it('n. declared "y\'know" matches, but undeclared "y know", "y-know" and "you  know" do not, and never PASS "you know"', () => {
+        expect(referenceCount("Y'know, that gives us time.", 'you_know')).toBe(1);
+        for (const spelled of ['y know', 'y-know', 'you  know']) {
+            const t = `${spelled} that gives us time.`;
+            expect(referenceCount(t, 'you_know')).toBe(0);
+            const aligned = alignFillers(t, [{ word: 'you know', anchor: 'that gives' }]);
+            expect(aligned.instances[0].class).toBe('OMITTED');
+            expect(corpusWordVerdict('you know', 1, t, aligned, 'synthetic').verdict).not.toBe('PASS');
+        }
+        const declared = "Y'know, that gives us time.";
+        expect(corpusWordVerdict('you know', 1, declared, alignFillers(declared, [{ word: 'you know', anchor: 'that gives' }]), 'synthetic').verdict)
+            .toBe('PASS');
+    });
+
     it('m. verdicts cover the full key union: an unanchored "Ah." FAILs even though the corpus has no "ah" key', () => {
         const exact = corpusVerdicts(CORPUS, SCRIPT, alignFillers(SCRIPT, ANNOTATIONS), 'synthetic');
         expect(Object.keys(exact).sort()).toEqual(['ah', 'uh', 'um', 'you know']);
