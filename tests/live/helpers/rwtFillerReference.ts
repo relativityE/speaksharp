@@ -221,6 +221,35 @@ export const corpusVerdicts = (
 export interface CorpusRow { word: string; verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, number> }
 
 /**
+ * #1720 review P2 (r4377679000; Sam FIX NOW 10:00:17 EDT): a human recording inherits no synthetic annotations, so it is
+ * judged count-only, with no hesitation alignment, from per-word transcript counts computed here against the declared
+ * corpus. A declared word PASSes only on an exact count; a missing or malformed declared count is HOLD; an empty corpus
+ * is HOLD; a reference filler the corpus does not declare FAILs when spoken and emits no row when silent (an undeclared
+ * zero is never a PASS).
+ */
+export const humanCountRows = (corpus: Readonly<Record<string, number>>, transcript: string): CorpusRow[] => {
+    const declared = corpus && typeof corpus === 'object' ? Object.entries(corpus) : [];
+    if (declared.length === 0) return [{ word: 'corpus', verdict: 'HOLD', detail: 'human recording: the corpus declares no filler counts', evidence: {} }];
+    const rows = declared.map(([word, expected]): CorpusRow => {
+        const key = referenceKeyFor(word);
+        if (!key) return { word, verdict: 'HOLD', detail: 'the corpus word has no reference definition', evidence: {} };
+        if (typeof expected !== 'number' || !Number.isInteger(expected) || expected < 0) {
+            return { word, verdict: 'HOLD', detail: 'human recording: the corpus count is missing or malformed', evidence: {} };
+        }
+        const observed = referenceCount(transcript, key);
+        return observed === expected
+            ? { word, verdict: 'PASS', detail: 'human recording: exact count (count-only, no hesitation alignment)', evidence: { expected, transcript: observed } }
+            : { word, verdict: 'FAIL', detail: 'human recording: the count differs from the corpus (count-only, no hesitation alignment)', evidence: { expected, transcript: observed } };
+    });
+    const declaredKeys = new Set(declared.map(([word]) => referenceKeyFor(word)));
+    for (const key of REFERENCE_KEYS) {
+        const observed = declaredKeys.has(key) ? 0 : referenceCount(transcript, key);
+        if (observed > 0) rows.push({ word: key.replace('_', ' '), verdict: 'FAIL', detail: 'human recording: spoken but not declared in the corpus', evidence: { transcript: observed } });
+    }
+    return rows;
+};
+
+/**
  * The spec's `filler "<word>" vs corpus` rows. A substitution on synthetic audio is HOLD (fixture-limited, unverified),
  * never PASS. Synthetic "uh" is judged by a human observation, so its substitution or held anchor emits no row; but an
  * omitted or inserted "uh" is still a FAIL row, so equal counts cannot hide a displaced "uh" (Sam 1792992507.489959).
@@ -228,7 +257,7 @@ export interface CorpusRow { word: string; verdict: 'PASS' | 'FAIL' | 'HOLD'; de
 export const corpusRows = (
     corpus: Readonly<Record<string, number>>, transcript: string, annotations: readonly FillerAnnotation[],
     fixtureKind: 'synthetic' | 'human',
-): CorpusRow[] => Object.entries(corpusVerdicts(corpus, transcript, alignFillers(transcript, annotations), fixtureKind))
+): CorpusRow[] => (annotations.length === 0 && fixtureKind === 'human' ? humanCountRows(corpus, transcript) : Object.entries(corpusVerdicts(corpus, transcript, alignFillers(transcript, annotations), fixtureKind))
     .flatMap(([word, v]): CorpusRow[] => {
         const humanObserved = fixtureKind === 'synthetic' && word === 'uh';
         if (annotations.length === 0) {
@@ -242,7 +271,7 @@ export const corpusRows = (
         return v.verdict === 'FIXTURE_LIMITED'
             ? [{ word, verdict: 'HOLD', detail: `fixture-limited (unverified): ${v.detail}`, evidence: v.evidence }]
             : [{ word, verdict: v.verdict, detail: v.detail, evidence: v.evidence }];
-    });
+    }));
 
 /** Informational only: the hesitation total (um+uh+ah) against the corpus total. It never upgrades a per-word verdict. */
 export const hesitationTotals = (transcript: string, corpus: Readonly<Record<string, number>>) => {

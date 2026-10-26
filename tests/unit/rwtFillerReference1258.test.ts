@@ -269,3 +269,40 @@ describe('APP-G1h integrity rows stay exact (transcript / display / saved)', () 
         expect(integrityVerdict({ transcript: 1, displayed: null, saved: 1, rendered: false }).verdict).toBe('PASS');
     });
 });
+
+describe('#1720 review P2 (r4377679000): the human recording keeps an exact count comparison without annotations', () => {
+    const HUMAN = fillerAnnotationsOf({ ...ENTRY, kind: 'human', knownFixtureLimits: [] });
+    const rows = (transcript: string, kind: 'synthetic' | 'human') => Object.fromEntries(
+        corpusRows(CORPUS, transcript, kind === 'human' ? HUMAN : [], kind).map((r) => [r.word, r.verdict]));
+
+    it('the human entry still inherits no synthetic annotations', () => {
+        expect(HUMAN).toEqual([]);
+    });
+
+    it('a human transcript with every scripted filler PASSes each corpus word', () => {
+        const verdicts = rows(SCRIPT, 'human');
+        for (const word of Object.keys(CORPUS)) expect({ word, verdict: verdicts[word] }).toEqual({ word, verdict: 'PASS' });
+    });
+
+    it('a human transcript that drops a spoken "uh" or inserts an "um" FAILs that word', () => {
+        expect(rows(SCRIPT.replace('Uh, I propose', 'I propose'), 'human').uh).toBe('FAIL');
+        expect(rows(SCRIPT.replace('I will share', 'um, I will share'), 'human').um).toBe('FAIL');
+    });
+
+    it('a missing, malformed or empty corpus never becomes a zero-count PASS', () => {
+        expect(corpusRows({}, SCRIPT, HUMAN, 'human')).toEqual([expect.objectContaining({ verdict: 'HOLD' })]);
+        const malformed = Object.fromEntries(corpusRows({ ...CORPUS, um: Number.NaN, uh: -1, 'you know': 1.5 } as never, SCRIPT, HUMAN, 'human').map((r) => [r.word, r.verdict]));
+        expect([malformed.um, malformed.uh, malformed['you know']]).toEqual(['HOLD', 'HOLD', 'HOLD']);
+    });
+
+    it('a reference filler the corpus does not declare FAILs when spoken and emits no row when silent', () => {
+        expect(rows(SCRIPT, 'human').ah).toBeUndefined();
+        expect(rows(SCRIPT.replace('I will share', 'ah, I will share'), 'human').ah).toBe('FAIL');
+    });
+
+    it('CONTROL: a synthetic fixture without annotations still HOLDs (no count-based PASS)', () => {
+        const verdicts = rows(SCRIPT, 'synthetic');
+        expect(Object.values(verdicts).every((v) => v === 'HOLD')).toBe(true);
+        expect(Object.keys(verdicts)).not.toContain('uh');
+    });
+});
