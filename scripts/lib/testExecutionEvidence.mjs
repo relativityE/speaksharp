@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {registeredHelper, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
+import {registeredSourceContract,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
@@ -168,6 +169,8 @@ export function executionRoute(file, root) {
   if(fixture) return {runner:'vitest-fixture',consumer:fixture.testFile,config:'frontend/vitest.config.mjs'};
   const helper = registeredHelper(file);
   if (helper) return {runner:'vitest-helper', consumer:helper.testFile, config:HELPER_CONFIG};
+  if (registeredSourceContract(file)) return {runner:'vitest-source-contract',consumer:SOURCE_CONSUMER,
+    config:'frontend/vitest.config.mjs',liveExecution:'NOT RUN'};
   if (sqlConsumers[file]) return sqlConsumers[file];
   if (file.endsWith('.sql')) return null;
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
@@ -279,11 +282,15 @@ export function validateVitestExecution(receipt, expected, root) {
     const {testFile,phase}=result; const binding=phase?.binding;
     const helper = result.helperFile ? registeredHelper(result.helperFile) : null;
     const fixture = result.fixtureFile ? registeredFixture(result.fixtureFile) : null;
+    const sourceFiles=result.sourceFiles;
     const creditedFile = result.helperFile || result.fixtureFile || testFile;
     if ((result.helperFile && (!helper || helper.testFile !== testFile))
       || (result.fixtureFile && (!fixture || fixture.testFile!==testFile || result.helperFile))
       || executionRoute(testFile,root)?.runner!=='vitest' || files.has(creditedFile)
       || TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===testFile)) throw new Error('Wrong/duplicate execution route');
+    if(sourceFiles && (helper || fixture || testFile!==SOURCE_CONSUMER || !Array.isArray(sourceFiles)
+      || !sourceFiles.length || new Set(sourceFiles).size!==sourceFiles.length
+      || sourceFiles.some(file=>!registeredSourceContract(file) || files.has(file)))) throw new Error('Wrong source contract route');
     if (!binding || binding.phase!=='execution' || !binding.phaseId || phases.has(binding.phaseId)
       || binding.runId!==receipt.runId || !path.isAbsolute(binding.cwd || '')
       || binding.testFile!==path.join(binding.cwd,testFile)
@@ -306,7 +313,18 @@ export function validateVitestExecution(receipt, expected, root) {
       if(binding.fixture?.fixtureFile!==result.fixtureFile) throw new Error('Missing fixture phase binding');
       validateFixtureWitness(phase.fixtureWitness,binding,root,phase.report,phase.envelope);
     } else if(binding.fixture || phase.fixtureWitness) throw new Error('Unexpected fixture phase');
-    files.add(creditedFile);phases.add(binding.phaseId);
+    if(sourceFiles) {
+      if(JSON.stringify(binding.sourceContract?.files)!==JSON.stringify(sourceFiles)) throw new Error('Missing source contract phase binding');
+      validateSourceContractWitness(phase.sourceContractWitness,binding,root,phase.report,phase.envelope);
+      for(const file of sourceFiles) files.add(file);
+    } else if(binding.sourceContract || phase.sourceContractWitness) throw new Error('Unexpected source contract phase');
+    // A helper/source-contract phase really executed its consumer. Share that
+    // result only when the same ordinary test is in the changed selection.
+    if(result.consumerExecution!==undefined && result.consumerExecution!==true) throw new Error('Invalid consumer execution claim');
+    if(result.consumerExecution && (!helper && !sourceFiles || !changedEvidencePaths(root,receipt.base).includes(testFile))) throw new Error('Unselected consumer execution');
+    if(!sourceFiles || result.consumerExecution) files.add(creditedFile);
+    if(result.consumerExecution) files.add(testFile);
+    phases.add(binding.phaseId);
   }
   return files;
 }
@@ -320,14 +338,16 @@ export function executionCoverage(files, {root,expected,pilot,execution,base}={}
   if ([...executed].some(file=>!files.includes(file))) throw new Error('Unexpected execution outside changed test selection');
   const rows=files.map(file=> {
     const route=executionRoute(file,root);
-    return {file,route,status:file===proven || executed.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
+    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':file===proven || executed.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
+      ...(registeredSourceContract(file)?{liveExecution:'NOT RUN'}:{}),
       claim:file===proven?'registered analytics-truth faults only':executed.has(file)
-        ?registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
+        ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
+          :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
           :registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
   });
   return {scope:'changed tests and fixtures; not a product requirement inventory',
     pilot:{required,status:proven?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},
-    status:(required && !proven) || rows.some(row=>row.status!=='EXECUTED')?'INCOMPLETE':'COMPLETE',rows};
+    status:(required && !proven) || rows.some(row=>!['EXECUTED','SOURCE QUALIFIED'].includes(row.status))?'INCOMPLETE':'COMPLETE',rows};
 }
 
 export function readCurrentQuality(file, expected, root=process.cwd(), base=process.env.TEST_EFFICACY_BASE) {

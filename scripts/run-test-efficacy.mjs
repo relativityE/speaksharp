@@ -10,6 +10,7 @@ import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
 import { executionContext, testEnvironment, pilotAffectedByPaths, changedEvidencePaths, executionRoute,
   fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONTRACTS, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
+import {SOURCE_CONSUMER,sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -75,6 +76,25 @@ export function runVitestHelperExecution(options = {}) {
   return runTestEfficacy({...options, executionOnly: true, helpersOnly: true});
 }
 
+export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}={}) {
+  const selected=(helpersOnly?[]:evidenceFiles
+    .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
+    .map(file=>executionRoute(file,root).runner==='vitest-fixture'
+      ? {testFile:executionRoute(file,root).consumer,fixtureFile:file}:{testFile:file}))
+    .concat(HELPER_CONTRACTS.filter(contract=>helpersOnly
+      ? fs.existsSync(path.join(root,contract.helperFile)):evidenceFiles.includes(contract.helperFile))
+      .map(contract=>({...contract,helper:true})));
+  const sourceFiles=helpersOnly?[]:evidenceFiles.filter(file=>executionRoute(file,root)?.runner==='vitest-source-contract');
+  if(sourceFiles.length) selected.push({testFile:SOURCE_CONSUMER,sourceFiles});
+  // Deduplicate actual consumer execution, never a helper's callable proof.
+  for(const contract of [...selected]) if(contract.helper || contract.sourceFiles) {
+    const ordinary=selected.findIndex(item=>item!==contract && item.testFile===contract.testFile && !item.helper && !item.fixtureFile && !item.sourceFiles);
+    if(ordinary>=0) {selected.splice(ordinary,1);contract.consumerExecution=true;}
+  }
+  if(selected.length>8) throw new Error('NOT RUN: changed Vitest execution budget exceeds 8 files');
+  return selected;
+}
+
 export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false } = {}) {
   root = canonicalPath(root);
   const commit = git(root, ['rev-parse', 'HEAD']);
@@ -88,13 +108,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
     ...git(root, ['diff', '--name-only', '-z', 'HEAD']).split('\0'),
     ...git(root, ['ls-files', '--others', '--exclude-standard', '--exclude=/apt-bundle/', '-z']).split('\0'),
   ].filter(Boolean))] : null;
-  const selected = executionOnly ? (helpersOnly ? [] : changedEvidencePaths(root,base)
-    .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
-    .map(file=>executionRoute(file,root).runner==='vitest-fixture'
-      ? {testFile:executionRoute(file,root).consumer,fixtureFile:file} : {testFile:file})).concat(HELPER_CONTRACTS
-      .filter(contract => helpersOnly || changed === null || changed.includes(contract.helperFile))
-      .map(contract => ({...contract, helper: true}))) : selectContracts(root, changed);
-  if (executionOnly && selected.length > 8) throw new Error('NOT RUN: changed Vitest execution budget exceeds 8 files');
+  const evidenceFiles=executionOnly?changedEvidencePaths(root,base):[];
+  const selected=executionOnly?selectExecutionContracts(root,evidenceFiles,{helpersOnly}):selectContracts(root,changed);
   if (!executionOnly && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
     throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
   }
@@ -160,6 +175,9 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if(contract.fixtureFile) binding.fixture={fixtureFile:contract.fixtureFile,testFile:contract.testFile,
         sourceBinding:fixtureSourceBinding(temporary,contract.fixtureFile),
         witnessFile:path.join(temporary,`.fixture-${binding.phaseId}.json`)};
+      if(contract.sourceFiles) binding.sourceContract={files:contract.sourceFiles,
+        sourceBinding:sourceContractBinding(temporary,contract.sourceFiles),
+        witnessFile:path.join(temporary,`.source-contract-${binding.phaseId}.json`)};
       const environment=testEnvironment(temporary,binding,envelopeFile);
       if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';
       const result = spawnSync(command[0], command.slice(1),
@@ -206,10 +224,16 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         fixtureWitness=JSON.parse(fs.readFileSync(binding.fixture.witnessFile,'utf8'));
         validateFixtureWitness(fixtureWitness,binding,temporary,report,envelope);
       }
+      let sourceContractWitness;
+      if(contract.sourceFiles) {
+        sourceContractWitness=JSON.parse(fs.readFileSync(binding.sourceContract.witnessFile,'utf8'));
+        validateSourceContractWitness(sourceContractWitness,binding,temporary,report,envelope);
+      }
       completedPhases.push(phase);
       return { names, binding, envelope, execution:{status:result.status,signal:result.signal,error:result.error?.message || null},
         inputSha256: binding.inputSha256, report, reportSha256: hash(JSON.stringify(report)),
-        ...(helperCoverage ? {helperCoverage} : {}),...(fixtureWitness ? {fixtureWitness} : {}) };
+        ...(helperCoverage ? {helperCoverage} : {}),...(fixtureWitness ? {fixtureWitness} : {}),
+        ...(sourceContractWitness?{sourceContractWitness}:{}) };
       } catch (cause) {
         const error = new Error(`[${phase}] ${cause.message}`, {cause});
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
@@ -225,6 +249,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         receipt.tests.push({testFile:contract.testFile,
           ...(contract.helper ? {helperFile:contract.helperFile} : {}),
           ...(contract.fixtureFile ? {fixtureFile:contract.fixtureFile} : {}),
+          ...(contract.sourceFiles ? {sourceFiles:contract.sourceFiles} : {}),
+          ...(contract.consumerExecution?{consumerExecution:true}:{}),
           testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),
           phase:execute(contract,'execution')});
         continue;

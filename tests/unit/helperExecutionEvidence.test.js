@@ -6,7 +6,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
-import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage} from '../../scripts/lib/helperExecutionEvidence.mjs';
+import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage,normalizedHelperWorkerFunctions} from '../../scripts/lib/helperExecutionEvidence.mjs';
 import {runVitestHelperExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
 import {executionContext, validateVitestExecution} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
@@ -15,10 +15,43 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const contract = HELPER_CONTRACTS[0];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
+test('registers explicit canary and reader callable consumers without a generic helper exemption',()=>{
+  for(const [helperFile,testFile] of [
+    ['tests/canary/canaryStopSaveOracle.ts','tests/unit/canaryStopSaveOracle.test.ts'],
+    ['tests/e2e/canaryLanding.ts','tests/e2e/__tests__/canaryLanding.test.ts'],
+    ['tests/live/helpers/rwtJourney.ts','tests/unit/progressReaderUrlPredicates.test.ts'],
+    ['tests/live/helpers/rwtOracles.ts','tests/unit/rwtReadbackBindingReasons1258.test.ts'],
+    ['tests/live/helpers/rwtStepDiagnostics.ts','tests/unit/rwtStepDiagnostics1258.test.ts'],
+    ['tests/live/helpers/rwtFillerReference.ts','tests/unit/rwtFillerReference1258.test.ts'],
+  ]) {
+    const found=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
+    assert.equal(found?.testFile,testFile,`${helperFile} requires its actual consumer`);
+    assert.ok(found.callables.length>0);
+  }
+  assert.equal(HELPER_CONTRACTS.some(item=>item.helperFile==='tests/live/helpers/unregistered.ts'),false);
+});
+test('replays the provider normalizer on raw equal-count adjacent ranges without changing call counts',()=>{
+  const raw=[{scriptId:'1',url:'file:///independent-helper.js',functions:[{functionName:'loop',isBlockCoverage:true,ranges:[
+    {startOffset:0,endOffset:100,count:3},
+    {startOffset:10,endOffset:30,count:8},
+    {startOffset:30,endOffset:60,count:8},
+  ]}]}];
+  const before=structuredClone(raw);
+  const normalized=normalizedHelperWorkerFunctions(root,raw);
+  assert.deepEqual(raw,before,'normalization must not mutate retained worker evidence');
+  assert.deepEqual(normalized[0].ranges,[{startOffset:0,endOffset:100,count:3},{startOffset:10,endOffset:60,count:8}]);
+  const altered=structuredClone(raw);altered[0].functions[0].ranges[0].count=4;
+  assert.notDeepEqual(normalizedHelperWorkerFunctions(root,altered),normalized);
+  const identity=helperRuntimeIdentity(root).normalizer;
+  assert.equal(identity.version,'1.0.2');
+  assert.ok(identity.sources.some(file=>file.file==='merge.js' && /^[a-f0-9]{64}$/.test(file.sha256)));
+  assert.ok(identity.sources.some(file=>file.file==='normalize.js'));
+});
+
 function fixture() {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helper-evidence-')));
   const write = (name, content) => {fs.mkdirSync(path.dirname(path.join(directory,name)),{recursive:true}); fs.writeFileSync(path.join(directory,name),content);};
-  const files = ['scripts/lib/helperExecutionEvidence.mjs','scripts/efficacy-helper-vitest.config.mjs',
+  const files = ['scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/efficacy-helper-vitest.config.mjs',
     'scripts/lib/testExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
     'scripts/run-test-efficacy.mjs','scripts/efficacy-reporter.mjs','scripts/write-software-quality-evidence.mjs','scripts/coverage-thresholds.mjs',
     'pnpm-lock.yaml','package.json',...dependencyPaths(root,TEST_EFFICACY_CONTRACTS[0].testFile)];
@@ -48,8 +81,12 @@ function synthetic(prepare = () => {}) {
   const functions=contract.callables.map(name=>{const start=source.indexOf(`function ${name}`);return {functionName:name,isBlockCoverage:true,
     ranges:[{startOffset:start,endOffset:source.indexOf('\n',start),count:1}]};});
   const fnMap=Object.fromEntries(contract.callables.map((name,i)=>[String(i),{name,loc:{start:{line:i+1,column:7},end:{line:i+1,column:source.split('\n')[i].length}}}]));
+  const {TraceMap,encodedMappings}=createRequire(path.join(root,'package.json'))('@jridgewell/trace-mapping');
+  const map={version:3,sources:[url],sourcesContent:[source],names:[],mappings:source.split('\n')
+    .map((line,row)=>Array.from({length:line.length+1},(_,column)=>[column,0,row,column]))};
+  map.mappings=encodedMappings(new TraceMap(map));
   const conversion={filename:url,wrapperLength:0,sources:{originalSource:source,source,
-    sourceMap:{sourcemap:{version:3,sources:[url],sourcesContent:[source],names:[],mappings:'AAAA;AACA;AACA'}}},functions,
+    sourceMap:{sourcemap:map}},functions,
     converted:{[filename]:{path:filename,fnMap,f:{0:1,1:1,2:1}}}};
   conversion.beforeRemap={originalSourceSha256:hash(source),generatedSourceSha256:hash(source),
     sourceMapSha256:hash(JSON.stringify(conversion.sources.sourceMap)),functionsSha256:hash(JSON.stringify(functions))};
@@ -96,6 +133,8 @@ test('rejects stale phase/worker/config/source-map identities and incomplete or 
       raw=>{raw.frames[0].producer.phaseId=randomUUID();},raw=>{raw.frames[0].testFiles=['/other'];},
       raw=>{raw.frames[0].rawTestFiles=['./'+contract.testFile];},
       raw=>{raw.options.reportOnFailure=false;},raw=>{raw.options.ignoreClassMethods=['classifyMarkerTiming'];},
+      raw=>{raw.options.converter.normalizer.sources[0].sha256='0'.repeat(64);},
+      raw=>{raw.frames[0].result[0].functions[0].ranges[0].count++;},
       raw=>{raw.conversions=[];},raw=>{raw.conversions[0].filename+='?alias';},
       raw=>{raw.conversions[0].sources.sourceMap.sourcemap.sources=['file:///outside.ts'];},
       raw=>{raw.conversions[0].sources.sourceMap.sourcemap.sourcesContent=['wrong'];},
@@ -169,7 +208,7 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
     fs.unlinkSync(path.join(fixture.directory,'node_modules'));
     fs.mkdirSync(path.join(fixture.directory,'node_modules/@vitest'),{recursive:true});
     fs.symlinkSync(privateProvider,path.join(fixture.directory,'node_modules/@vitest/coverage-v8'),'dir');
-    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping']) {
+    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping','@bcoe/v8-coverage']) {
       const target=path.join(fixture.directory,'node_modules',name);
       fs.mkdirSync(path.dirname(target),{recursive:true});
       fs.symlinkSync(path.dirname(require.resolve(`${name}/package.json`)),target,'dir');
@@ -198,6 +237,54 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
 });
 
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED typed arrow spans bind only the parameter/declaration and terminal-semicolon boundaries',()=>{
+    const f=fixture();
+    try {
+      f.write(contract.helperFile,contract.callables.map(name=>`export const ${name} = (a: number = 2, b: number = 3): number => {\n  return a + b;\n};`).join('\n')+'\n');
+      const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+      const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+      assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
+      for(const alter of [loc=>{loc.start.column++;},loc=>{loc.end.column+=2;}]) {
+        const raw=structuredClone(receipt.tests[0].phase.helperCoverage.raw);
+        const filename=Object.keys(raw.report)[0];alter(raw.report[filename].fnMap['0'].loc);
+        raw.conversions[0].converted=structuredClone(raw.report);
+        assert.throws(()=>validateHelperCoverage(raw,receipt.tests[0].phase.binding,f.directory),/Invalid remapped callable span/);
+      }
+    } finally {f.clean();}
+  });
+  test('INSTALLED async declarations require the exact mapped declaration boundary',()=>{
+    const f=fixture();
+    try {
+      f.write(contract.helperFile,contract.callables.map(name=>`export async function ${name}(a = 2, b = 3) { return a + b; }`).join('\n')+'\n');
+      f.write(contract.testFile,`import {test,expect} from 'vitest';\nimport {${contract.callables.join(',')}} from '../live/helpers/rwtMarkerObserver';\n`
+        +contract.callables.map(name=>`test('${name} awaits the actual result',async()=>expect(await ${name}(2,3)).toBe(5));`).join('\n')+'\n');
+      const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+      const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+      assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
+      const raw=structuredClone(receipt.tests[0].phase.helperCoverage.raw);
+      const filename=Object.keys(raw.report)[0];
+      raw.report[filename].fnMap['0'].loc.start.column++;
+      raw.conversions[0].converted=structuredClone(raw.report);
+      assert.throws(()=>validateHelperCoverage(raw,receipt.tests[0].phase.binding,f.directory),/Invalid remapped callable span/);
+    } finally {f.clean();}
+  });
+  test('INSTALLED arrow callables retain real V8 ranges, exact mapped spans and count checks',()=>{
+    const f=fixture();
+    try {
+      f.write(contract.helperFile,contract.callables.map(name=>`export const ${name} = (a = 2, b = 3) => a + b;`).join('\n')+'\n');
+      const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+      const receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected});
+      assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
+      assert.equal(receipt.tests[0].phase.helperCoverage.validated.executed.length,3);
+      const raw=structuredClone(receipt.tests[0].phase.helperCoverage.raw);
+      const binding=receipt.tests[0].phase.binding;
+      const filename=Object.keys(raw.report)[0];
+      const fn=Object.keys(raw.report[filename].fnMap)[0];
+      raw.report[filename].fnMap[fn].loc.start.column++;
+      raw.conversions[0].converted=structuredClone(raw.report);
+      assert.throws(()=>validateHelperCoverage(raw,binding,f.directory),/Invalid remapped callable span/);
+    } finally {f.clean();}
+  });
   test('INSTALLED helper provider: actual calls qualify, static reads/type imports/uncalled helper refuse, restoration is exact',()=>{
     const f=fixture();
     try {
