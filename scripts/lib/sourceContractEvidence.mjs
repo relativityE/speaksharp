@@ -10,7 +10,25 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/canary/smoke.canary.spec.ts',
   'tests/live/rwt-open-mic-first-session.live.spec.ts',
   'tests/fixtures/rwt/rwt-fixtures.manifest.json',
+  // #1548 route contracts (#1724): the canonical /progress destinations, as wiring only.
+  'tests/live/rwt-products-navigation.live.spec.ts',
+  'tests/live/private-recording-proof.live.spec.ts',
+  'tests/live/report-page-context.live.spec.ts',
 ]);
+// Real (non-type, unrenamed) imports a wiring contract requires; route contracts require none.
+const REQUIRED_IMPORTS=Object.freeze({
+  [SOURCE_CONTRACTS[0]]:{module:'./canaryStopSaveOracle',names:['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']},
+  [SOURCE_CONTRACTS[1]]:{module:'./helpers/rwtFillerReference',names:['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals']},
+});
+const importsMissing=(ts,parsed,file)=>{
+  const required=REQUIRED_IMPORTS[file];
+  if(!required) return false;
+  const imports=parsed.statements.filter(node=>ts.isImportDeclaration(node) && node.moduleSpecifier.text===required.module)
+    .flatMap(node=>node.importClause?.namedBindings?.elements || [])
+    .filter(node=>!node.isTypeOnly && !node.parent.parent.isTypeOnly && (!node.propertyName || node.propertyName.text===node.name.text))
+    .map(node=>node.name.text);
+  return required.names.some(name=>imports.filter(value=>value===name).length!==1);
+};
 export const registeredSourceContract=file=>SOURCE_CONTRACTS.includes(file);
 
 export function sourceContractApplicability(root,file) {
@@ -26,15 +44,13 @@ export function sourceContractApplicability(root,file) {
     } else {
       const ts=createRequire(path.join(root,'package.json'))('typescript');
       const parsed=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);
-      const module=file===SOURCE_CONTRACTS[0]?'./canaryStopSaveOracle':'./helpers/rwtFillerReference';
-      const names=file===SOURCE_CONTRACTS[0]?['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']
-        :['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals'];
-      const imports=parsed.statements.filter(node=>ts.isImportDeclaration(node) && node.moduleSpecifier.text===module)
-        .flatMap(node=>node.importClause?.namedBindings?.elements || [])
-        .filter(node=>!node.isTypeOnly && !node.parent.parent.isTypeOnly && (!node.propertyName || node.propertyName.text===node.name.text))
-        .map(node=>node.name.text);
-      if(parsed.parseDiagnostics.length || names.some(name=>imports.filter(value=>value===name).length!==1)) {
+      if(parsed.parseDiagnostics.length || importsMissing(ts,parsed,file)) {
         return {supported:false,reason:'receiving source imports/schema unavailable'};
+      }
+      // A route contract has no import shape; its known shape is every required route wire being present at all.
+      if(!REQUIRED_IMPORTS[file]) {
+        const code=tokens(root,source);
+        if(wiring[file].some(fragment=>!code.includes(tokens(root,fragment)))) return {supported:false,reason:'receiving route wiring unavailable'};
       }
     }
     return {supported:true};
@@ -79,6 +95,20 @@ const wiring={
     'Object.entries(crossCheckCounts(transcript, productFillerCount))',
     'c.verdict,',
     "humanObservation(receipt, 'open_mic_uh_detected'",
+    // #1548: "Back to Dashboard" lands on exactly the canonical /progress list.
+    "page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 })",
+  ],
+  [SOURCE_CONTRACTS[3]]:[
+    "page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 })",
+  ],
+  [SOURCE_CONTRACTS[4]]:[
+    'await page.goto(`/analytics/${persistedId}`);',
+    'await expect(page).toHaveURL((url) => url.pathname === `/progress/${persistedId}`, { timeout: 45_000 });',
+  ],
+  [SOURCE_CONTRACTS[5]]:[
+    "expect(analytics.metadata.canonicalRoute).toBe('/progress');",
+    "expect(owned.metadata.canonicalRoute).toBe('/progress/:sessionId');",
+    "expect(owned.page_url).toBe('/progress/:sessionId');",
   ],
 };
 
@@ -118,14 +148,7 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
   if(wiring[file]) {
     const ts=createRequire(path.join(root,'package.json'))('typescript');
     const parsed=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);
-    const module=file===SOURCE_CONTRACTS[0]?'./canaryStopSaveOracle':'./helpers/rwtFillerReference';
-    const names=file===SOURCE_CONTRACTS[0]?['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']
-      :['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals'];
-    const imports=parsed.statements.filter(node=>ts.isImportDeclaration(node) && node.moduleSpecifier.text===module)
-      .flatMap(node=>node.importClause?.namedBindings?.elements || [])
-      .filter(node=>!node.isTypeOnly && !node.parent.parent.isTypeOnly && (!node.propertyName || node.propertyName.text===node.name.text))
-      .map(node=>node.name.text);
-    if(parsed.parseDiagnostics.length || names.some(name=>imports.filter(value=>value===name).length!==1)) throw new Error(`Source wiring contract failed: ${file}; missing real imports or invalid syntax`);
+    if(parsed.parseDiagnostics.length || importsMissing(ts,parsed,file)) throw new Error(`Source wiring contract failed: ${file}; missing real imports or invalid syntax`);
     let savedMatcher=null;
     if(file===SOURCE_CONTRACTS[0]) {
       const matches=savedMatchers(ts,parsed);
