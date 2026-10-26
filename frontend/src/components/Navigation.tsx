@@ -272,7 +272,9 @@ const Navigation = () => {
                   <span key={i} style={{ width: 3, height: h, background: 'var(--brand-signature)', borderRadius: 1 }} />
                 ))}
               </span>
-              <span className="text-lg font-bold text-foreground tracking-tight">SpeakSharp</span>
+              {/* #1475: the site uses the device's system font, so below 360px the signed-out wordmark text cannot be
+                  guaranteed to fit beside Sign In + Get Started; the brand mark and the link's accessible name remain. */}
+              <span className={session ? "text-lg font-bold text-foreground tracking-tight" : "hidden min-[360px]:inline text-base sm:text-lg font-bold text-foreground tracking-tight"}>SpeakSharp</span>
             </Link>
 
             {/* Navigation Items */}
@@ -437,11 +439,13 @@ const Navigation = () => {
               ) : (
                 // Signed-out visitors have no primary nav; these are their only nav links, so
                 // they get their own landmark rather than sitting loose in the header.
-                <nav aria-label="Account" className="flex items-center gap-2 sm:gap-4">
-                  <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground transition-colors">
+                // #1475: below `sm` the tighter gap/padding (with the smaller signed-out wordmark) keeps
+                // Get Started fully on-screen at 320px; the fixed header cannot scroll it into view.
+                <nav aria-label="Account" className="flex items-center gap-1 sm:gap-4">
+                  <Button variant="ghost" size="sm" asChild className="px-2 sm:px-3 text-muted-foreground hover:text-foreground transition-colors">
                     <Link to="/auth">Sign In</Link>
                   </Button>
-                  <Button size="sm" className="font-semibold px-5 h-9 rounded-xl cta-shadow bg-signature text-ink hover:bg-signature hover:brightness-95" asChild>
+                  <Button size="sm" className="font-semibold px-3 sm:px-5 h-9 rounded-xl cta-shadow bg-signature text-ink hover:bg-signature hover:brightness-95" asChild>
                     <Link to="/auth/signup">Get Started</Link>
                   </Button>
                 </nav>

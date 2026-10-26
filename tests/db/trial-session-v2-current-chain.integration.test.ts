@@ -4,7 +4,7 @@
 //
 // trial-journey.integration.test.ts and trial-commercial-matrix.sql prove the expired-trial save denial and the
 // 900 → 600 completion clamp through the legacy `complete_session` (v1), which 20260829120000 dropped. The shipped save
-// path is `complete_session_v2` (current definition 20260908120000). This suite applies EVERY shipped versioned
+// path is `complete_session_v2` (read from the installed current chain). This suite applies EVERY shipped versioned
 // migration in order over a minimal Supabase bootstrap, so the tier resolver, signup trigger, recording lease, create and
 // v2 are the real ones: no tier stub, no hand-written function. Each rule also has a mutant of the shipped v2 with that
 // one rule removed, which must fail only its own assertion — so the cases are proven able to fail.
@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 
 const DIR = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
 const SHIPPED = readdirSync(DIR).filter((f) => /^\d{8,14}_.+\.sql$/.test(f)).sort();
-const V2_FILE = '20260908120000_transcript_retention_newest_one.sql';
+const V2_SIGNATURE = 'public.complete_session_v2(uuid,text,integer,text,jsonb,integer,double precision,double precision,jsonb,jsonb,text)';
 
 /** Only what Supabase provides outside the migrations: roles, auth.users/uid, uuid-ossp's v4, and storage tables. */
 const SUPABASE_BOOTSTRAP = `
@@ -41,21 +41,60 @@ CREATE TABLE IF NOT EXISTS storage.objects (id uuid PRIMARY KEY DEFAULT gen_rand
 CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[] LANGUAGE sql AS $f$ SELECT string_to_array(name,'/') $f$;
 `;
 
-/** The shipped complete_session_v2 definition, verbatim, for building single-rule mutants. */
-const SHIPPED_V2 = (() => {
-    const src = readFileSync(resolve(DIR, V2_FILE), 'utf8');
-    const start = src.lastIndexOf('CREATE OR REPLACE FUNCTION public.complete_session_v2(');
-    return src.slice(start, src.indexOf('\n$$;', start) + 4);
-})();
 const TIER_CHECK = "IF COALESCE(v_effective_tier, 'free') <> 'pro' THEN";
 const CLAMP = 'LEAST(600, GREATEST(';
 
-async function shippedChain(mutant?: string): Promise<PGlite> {
+async function currentV2(db: PGlite): Promise<string> {
+    const { rows } = await db.query<{ definition: string }>(
+        'SELECT pg_get_functiondef($1::regprocedure) AS definition', [V2_SIGNATURE]);
+    expect(rows).toHaveLength(1);
+    return rows[0].definition;
+}
+
+async function compatibility(db: PGlite): Promise<boolean> {
+    return (await db.query<{ compatible: boolean }>(
+        'SELECT public.retention_content_free_compatible() AS compatible')).rows[0].compatible;
+}
+
+interface Mutant { target: string; replacement: string; rebindFixturePin?: boolean }
+
+async function installMutant(db: PGlite, mutant: Mutant): Promise<void> {
+    const definition = await currentV2(db);
+    expect(definition.split(mutant.target)).toHaveLength(2);
+    const before = (await db.query<{ signature: string; definition_md5: string }>(
+        'SELECT signature, definition_md5 FROM public.transcript_retention_function_pins ORDER BY signature')).rows;
+    expect(before).toHaveLength(8);
+    expect(await compatibility(db)).toBe(true);
+    await db.exec(definition.replace(mutant.target, mutant.replacement));
+    expect(await compatibility(db)).toBe(false);
+    if (mutant.rebindFixturePin === false) return;
+    // Isolated test database only: admit this single intentional semantic mutant.
+    // Production migration/pins remain untouched; the unrepinned control below proves the guard still refuses drift.
+    const changed = await db.query<{ signature: string }>(
+        `UPDATE public.transcript_retention_function_pins
+            SET definition_md5 = md5(pg_get_functiondef($1::regprocedure))
+          WHERE signature = $1 RETURNING signature`, [V2_SIGNATURE]);
+    expect(changed.rows).toEqual([{ signature: V2_SIGNATURE }]);
+    const after = (await db.query<{ signature: string; definition_md5: string }>(
+        'SELECT signature, definition_md5 FROM public.transcript_retention_function_pins ORDER BY signature')).rows;
+    expect(after).toHaveLength(8);
+    expect(after.filter(row => row.signature !== V2_SIGNATURE)).toEqual(before.filter(row => row.signature !== V2_SIGNATURE));
+    expect(after.find(row => row.signature === V2_SIGNATURE)?.definition_md5)
+        .not.toBe(before.find(row => row.signature === V2_SIGNATURE)?.definition_md5);
+    expect(await compatibility(db)).toBe(true);
+}
+
+async function shippedChain(mutant?: Mutant): Promise<PGlite> {
     const db = new PGlite();
-    await db.exec(SUPABASE_BOOTSTRAP);
-    for (const f of SHIPPED) await db.exec(readFileSync(resolve(DIR, f), 'utf8'));
-    if (mutant) await db.exec(mutant);
-    return db;
+    try {
+        await db.exec(SUPABASE_BOOTSTRAP);
+        for (const f of SHIPPED) await db.exec(readFileSync(resolve(DIR, f), 'utf8'));
+        if (mutant) await installMutant(db, mutant);
+        return db;
+    } catch (error) {
+        await db.close();
+        throw error;
+    }
 }
 
 const NEXT_ACTION = JSON.stringify({
@@ -148,13 +187,30 @@ describe('#1593 RF-1 — trial save rules on the shipped complete_session_v2 (al
 });
 
 describe('#1593 RF-1 — each rule is load-bearing: a shipped-v2 mutant without it fails only its own case', () => {
-    it('CONTROL: the mutation targets exist verbatim in the shipped v2 (so a mutant is a one-rule change, not a no-op)', () => {
-        expect(SHIPPED_V2.split(TIER_CHECK)).toHaveLength(2);
-        expect(SHIPPED_V2.split(CLAMP)).toHaveLength(2);
-    });
+    it('CONTROL: targets occur exactly once in the actually installed current v2', async () => {
+        const db = await shippedChain();
+        try {
+            const definition = await currentV2(db);
+            expect(definition.split(TIER_CHECK)).toHaveLength(2);
+            expect(definition.split(CLAMP)).toHaveLength(2);
+            expect(await compatibility(db)).toBe(true);
+        } finally { await db.close(); }
+    }, 120_000);
+
+    it('CONTROL: an unrepinned current-v2 mutant refuses with 55000 and cannot change session state', async () => {
+        const db = await shippedChain();
+        try {
+            await take(db, false);
+            const before = (await db.query('SELECT id, status, duration, transcript FROM public.sessions ORDER BY id')).rows;
+            await installMutant(db, { target: TIER_CHECK, replacement: 'IF false THEN', rebindFixturePin: false });
+            await expect(take(db, false)).rejects.toMatchObject({ code: '55000', message: 'retention_snapshot_incompatible' });
+            expect((await db.query('SELECT id, status, duration, transcript FROM public.sessions ORDER BY id')).rows).toEqual(before);
+            expect(await compatibility(db)).toBe(false);
+        } finally { await db.close(); }
+    }, 120_000);
 
     it('MUTANT without the tier check: the expired take saves (the denial case would fail); the clamp still holds', async () => {
-        const db = await shippedChain(SHIPPED_V2.replace(TIER_CHECK, 'IF false THEN'));
+        const db = await shippedChain({ target: TIER_CHECK, replacement: 'IF false THEN' });
         try {
             const expired = await take(db, true);
             expect(expired.tier).toBe('free');
@@ -166,7 +222,7 @@ describe('#1593 RF-1 — each rule is load-bearing: a shipped-v2 mutant without 
     }, 120_000);
 
     it('MUTANT without the 600-second clamp: the active take saves 900 (the clamp case would fail); denial still holds', async () => {
-        const db = await shippedChain(SHIPPED_V2.replace(CLAMP, 'LEAST(2147483647, GREATEST('));
+        const db = await shippedChain({ target: CLAMP, replacement: 'LEAST(2147483647, GREATEST(' });
         try {
             const active = await take(db, false);
             expect(active.result.success).toBe(true);

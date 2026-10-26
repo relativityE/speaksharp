@@ -119,8 +119,10 @@ async function screenshotMatrix(page: Page, surface: string): Promise<void> {
 
 test.describe('#1047 U3 canonical cross-page truth', () => {
   for (const target of [
-    { metric: 'filler_rate', direction: 'decrease', value: 7, units: 'percent of words', label: 'Filler rate; decrease toward 7 percent of words.' },
-    { metric: 'clear_delivery', direction: 'maintain', value: 98.78048780487805, units: 'points', label: 'Clear delivery; maintain at 99 points.' },
+    { metric: 'filler_rate', direction: 'decrease', value: 7, units: 'percent of words', label: 'Filler rate (saved target: decrease toward 7 percent of words)',
+      outcome: 'Filler rate was lower on the repeat than in the original session.' },
+    { metric: 'clear_delivery', direction: 'maintain', value: 98.78048780487805, units: 'points', label: 'Clear delivery (saved target: maintain at 99 points)',
+      outcome: 'Clear delivery stayed the same or increased compared with the original session.' },
   ] as const) {
   test(`stored repeat identifies its measured ${target.metric} target separately from saved AI advice after reopening`, async ({ page }) => {
     const progress = eligibleProgressTruth(SESSION_ID, REFERENCE_ID);
@@ -146,8 +148,12 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     for (const reopening of [false, true]) {
       if (reopening) await page.reload();
       await expect(page.getByTestId('saved-review')).toContainText('Name the price first.');
-      await expect(page.getByTestId('progress-attempt-target')).toHaveText(`Measured repeat target: ${target.label}`);
-      await expect(page.getByTestId('progress-attempt-outcome')).toHaveText('The stored repeat shows movement in the practiced direction.');
+      // #1548 A2: the saved review owns the action, so the stored metric reads as separate delivery evidence, never as a
+      // verdict on the practised AI tip.
+      await expect(page.getByTestId('progress-attempt-target')).toHaveText(`Separate delivery comparison: ${target.label}.`);
+      await expect(page.getByTestId('progress-attempt-outcome')).toHaveText(target.outcome);
+      await expect(page.getByTestId('progress-attempt-scope'))
+        .toHaveText('This comparison measures delivery, not whether the coaching tip was followed.');
       await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
       await expect(page.getByTestId('progress-accept')).toHaveCount(0);
       await expect(page.getByTestId('progress-practice-next')).toHaveCount(0);

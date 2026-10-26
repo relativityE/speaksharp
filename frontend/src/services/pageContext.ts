@@ -3,7 +3,7 @@
  *
  * Resolves the CURRENT route to a small, ALLOWLISTED, content-free page identity so a tester's report
  * says exactly which product page and journey step it came from — without storing the full URL, query
- * string, hash, or any id/token. `canonicalRoute` is a route TEMPLATE (e.g. `/analytics/:sessionId`),
+ * string, hash, or any id/token. `canonicalRoute` is a route TEMPLATE (e.g. `/progress/:sessionId`),
  * never a concrete id. This is the stable contract both the dialog (display) and the service (storage)
  * read from; it is deliberately extensible so future product pages can register their own keys.
  *
@@ -79,11 +79,16 @@ export function toCanonicalRoute(pathname: string | null | undefined): string {
 const OTHER_CONTEXT: PageContext = { pageKey: 'other', pageLabel: 'Other page', productMode: 'other', journeyStep: 'unknown', canonicalRoute: '/other' };
 
 // Explicit allowlist of known routes → their canonical (id-free) templates. Keys are the normalized
-// form produced by toCanonicalRoute (so /analytics/<uuid> matches '/analytics/:id').
+// form produced by toCanonicalRoute (so /progress/<uuid> matches '/progress/:id').
 const ROUTE_REGISTRY: Record<string, PageContext> = {
   '/': { pageKey: 'home', pageLabel: 'SpeakSharp landing', productMode: 'marketing', journeyStep: 'landing', canonicalRoute: '/' },
   '/practice': { pageKey: 'practice', pageLabel: 'SpeakSharp Practice', productMode: 'practice', journeyStep: 'chooser', canonicalRoute: '/practice' },
   '/session': { pageKey: 'session', pageLabel: 'Session · Speaking', productMode: 'session', journeyStep: 'speaking', canonicalRoute: '/session' },
+  // #1548: `/progress` is the canonical user-facing route. Internal keys (pageKey/journeyStep/productMode) are
+  // unchanged so existing telemetry and feedback attribution continue; the legacy `/analytics` templates remain
+  // registered because that path still renders momentarily before its redirect.
+  '/progress': { pageKey: 'analytics', pageLabel: 'Past Progress', productMode: 'progress', journeyStep: 'progress_list', canonicalRoute: '/progress' },
+  '/progress/:id': { pageKey: 'analytics_session', pageLabel: 'Session Analytics', productMode: 'progress', journeyStep: 'session_detail', canonicalRoute: '/progress/:sessionId' },
   '/analytics': { pageKey: 'analytics', pageLabel: 'Past Progress', productMode: 'progress', journeyStep: 'progress_list', canonicalRoute: '/analytics' },
   '/analytics/:id': { pageKey: 'analytics_session', pageLabel: 'Session Analytics', productMode: 'progress', journeyStep: 'session_detail', canonicalRoute: '/analytics/:sessionId' },
   '/pricing': { pageKey: 'pricing', pageLabel: 'Pricing', productMode: 'marketing', journeyStep: 'pricing', canonicalRoute: '/pricing' },

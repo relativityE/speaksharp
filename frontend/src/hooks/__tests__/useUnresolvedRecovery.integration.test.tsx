@@ -49,18 +49,28 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('#1033 A5/A6 — same-user recovery + cross-account isolation (integration)', () => {
-    it('1. same-user reload AUTO-ACKNOWLEDGES the owned draft (content-free status, no transcript) and rehydrates', async () => {
+    it('1. same-user reload surfaces the owned draft (no transcript, nothing restored) and rehydrates', async () => {
+        // `seed` names finalized but carries no next action, so storage keeps it as INTERRUPTED — the reload case.
         seed(USER_A, 'sess-A');
-        renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_A })));
-        // #1360: the status no longer says "Recovered an unsaved session". Nothing is recovered — the
-        // draft is content-free and this path clears it — so the message states what actually happened
-        // and what survived, and must not imply a transcript came back.
-        expect(statusSpy).toHaveBeenCalledWith(expect.objectContaining({
-            message: expect.stringMatching(/was not saved|was interrupted/),
-        }));
-        const [status] = statusSpy.mock.calls[0] as [{ message: string; detail?: string }];
-        expect(`${status.message} ${status.detail ?? ''}`).not.toMatch(/recovered|restore/i);
+        const { result } = renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_A })));
+        // A1-2 (PO option A, 10-25): an interrupted take is reported by the persistent banner until dismissed — no
+        // auto-acknowledgement into the STT status slot, which warm-up overwrote before anyone could read it.
+        expect(result.current.recoveryDraft?.sessionId).toBe('sess-A');
+        expect(result.current.recoveryDraft?.recoveryState).toBe('active_interrupted');
+        expect(statusSpy).not.toHaveBeenCalled();
         await waitFor(() => expect(rehydrate).toHaveBeenCalledWith(USER_A));
+    });
+
+    it('1a. A1-2: after a reload an owned INTERRUPTED draft is kept for the banner — not acknowledged into a status or deleted', () => {
+        saveSessionRecoveryDraft({ sessionId: 'sess-I', userId: USER_A, recoveryState: 'active_interrupted', durationSeconds: 12, mode: 'private', metrics: { totalWords: 9 } });
+        const { result } = renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_A })));
+        expect(result.current.recoveryDraft?.recoveryState).toBe('active_interrupted');
+        expect(getSessionRecoveryDraft()?.sessionId).toBe('sess-I');
+        expect(statusSpy).not.toHaveBeenCalled();
+
+        act(() => result.current.dismissRecoveryDraft(result.current.recoveryDraft!));
+        expect(result.current.recoveryDraft).toBeNull();
+        expect(getSessionRecoveryDraft()).toBeNull();
     });
 
     it('1b. with a transcript already on screen the owned draft is KEPT for the manual dismiss banner', () => {

@@ -67,7 +67,7 @@ test.describe('Private mode trust-state + save/detail', () => {
     // promise; the detail view below still identifies the Private engine). So the row-level engine
     // assertion is retired here — the trust signal is verified on the detail view instead.
     await latest.getByTestId(/session-detail-link-/).click();
-    await page.waitForURL('**/analytics/session-*');
+    await page.waitForURL('**/progress/session-*');
 
     // #1306 Step 3: the SESSION-PAGE transcript is still purged after terminal (asserted above) — that
     // privacy property is unchanged. What changed is the SAVED review: a retained session renders its

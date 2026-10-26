@@ -39,6 +39,13 @@ describe('pageContext — resolvePageContext', () => {
     expect(resolvePageContext('/auth/signin')).toMatchObject({ pageKey: 'auth', productMode: 'account' });
   });
 
+  it('#1548: canonical /progress routes keep the SAME internal keys as the legacy /analytics ones', () => {
+    expect(resolvePageContext('/progress')).toMatchObject({ pageKey: 'analytics', productMode: 'progress', journeyStep: 'progress_list', canonicalRoute: '/progress' });
+    const ctx = resolvePageContext(`/progress/${UUID}`);
+    expect(ctx).toMatchObject({ pageKey: 'analytics_session', productMode: 'progress', journeyStep: 'session_detail', canonicalRoute: '/progress/:sessionId' });
+    expect(JSON.stringify(ctx)).not.toContain(UUID);
+  });
+
   it('resolves a session-detail route to the :sessionId template (never the concrete id)', () => {
     const ctx = resolvePageContext(`/analytics/${UUID}`);
     expect(ctx).toMatchObject({ pageKey: 'analytics_session', canonicalRoute: '/analytics/:sessionId' });

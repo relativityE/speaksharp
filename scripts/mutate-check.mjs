@@ -30,6 +30,11 @@ const source = readFileSync(file, 'utf8');
 const anchor = readFileSync(anchorFile, 'utf8').replace(/\n$/, '');
 const replacement = readFileSync(replacementFile, 'utf8').replace(/\n$/, '');
 
+if (!anchor || anchor === replacement) {
+    console.error('::MUTATION-NO-OP:: empty anchor or identical replacement');
+    process.exit(1);
+}
+
 const occurrences = source.split(anchor).length - 1;
 if (occurrences === 0) {
     console.error(`::MUTATION-NO-OP:: anchor NOT FOUND in ${file}. The mutation would change nothing,`);
@@ -42,5 +47,5 @@ if (occurrences > 1) {
     process.exit(1);
 }
 
-writeFileSync(file, source.replace(anchor, replacement));
+writeFileSync(file, source.replace(anchor, () => replacement));
 console.log(`mutation APPLIED to ${file} (anchor matched exactly once)`);
