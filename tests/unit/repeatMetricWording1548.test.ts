@@ -145,7 +145,7 @@ describe('G03 prerequisites: nothing is navigated without the bindings', () => {
         ['no_recommendation', read([BOUND], null), LINKED],
         ['not_newest_attempt', read([att('completed', 'moved', false, '2026-10-26T12:30:00.000Z'), BOUND]), LINKED],
         ['repeat_unresolved', read([att('pending', null, true)]), LINKED],
-    ])('%s → HOLD without navigation', (reason, server, linkage) => {
+    ])('%s → HOLD without navigation (row %#)', (reason, server, linkage) => {
         expect(repeatMetricPrerequisites(server, linkage)).toMatchObject({ observe: false, reason });
     });
 
