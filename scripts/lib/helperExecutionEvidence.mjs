@@ -30,7 +30,8 @@ export const HELPER_CONTRACTS = Object.freeze([{
     'corpusVerdicts','corpusRows','hesitationTotals','integrityVerdict','crossCheckCounts'],
 }, {
   helperFile:'tests/live/helpers/returningSignInAttempt.ts', testFile:'tests/unit/returningSignInAttempt1495.test.ts',
-  callables:['wireErrorCode','classifyTokenResponse','pageAttemptEvents','armPasswordSignInObserver','returningSignInVerdict'],
+  callables:['wireErrorCode','classifyTokenResponse','pageAttemptEvents','armPasswordSignInObserver','returningSignInVerdict',
+    'deepLinkLanding','deepLinkReturnVerdict','runDeepLinkReturn'],
 }, {
   helperFile:'tests/live/helpers/repeatMetricWording.ts', testFile:'tests/unit/repeatMetricWording1548.test.ts',
   callables:['normalizeLine','validRecommendation','expectedTargetLine','expectedOutcomeLine','pressLinkage','repeatMetricPrerequisites','repeatMetricWordingVerdict'],
