@@ -197,7 +197,10 @@ function changedPaths(root, base) {
   return [...new Set(files.filter(Boolean))].sort();
 }
 export function changedEvidencePaths(root, base) {
-  return changedPaths(root,base).filter(file=>/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$/.test(file));
+  // Deletions still affect raw change/pilot applicability, but cannot be executed.
+  // lstat retains malformed existing entries (including dangling links) for refusal.
+  return changedPaths(root,base).filter(file=>/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$/.test(file)
+    && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
 }
 // Shared conservative policy; the consumer supplies the actual Git diff, not receipt claims.
 export function pilotAffectedByPaths(files) {

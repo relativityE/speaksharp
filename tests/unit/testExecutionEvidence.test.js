@@ -10,7 +10,7 @@ import {executionContext,assertProvenance,executionRoute,executionCoverage,valid
   registeredFixture,fixtureSourceBinding,fixturePackageManagerIdentity,validateFixtureWitness} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
-import {dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
+import {dependencyPaths,runVitestExecution} from '../../scripts/run-test-efficacy.mjs';
 const framework=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const {test:registerTest}=framework;
 const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
@@ -394,6 +394,94 @@ function executionFixture(installed=false) {
     performance:{initial_chunk_size:'412K'},total_runtime_seconds:120}));
   return {dir,write,git,commit,base,file,passing};
 }
+
+function withTrackedExecutionFixture(check) {
+  const f=executionFixture();
+  try {
+    f.git(['add',f.file]);
+    return check({...f,base:f.commit()});
+  } finally {fs.rmSync(f.dir,{recursive:true,force:true});}
+}
+
+test('deleted ordinary tests remain non-executable across dirty staged and committed snapshots',()=>withTrackedExecutionFixture(f=>{
+  fs.rmSync(path.join(f.dir,f.file));
+  for(const state of ['dirty','staged','committed']) {
+    if(state==='staged') f.git(['add',f.file]);
+    if(state==='committed') f.commit();
+    let receipt;
+    assert.doesNotThrow(()=>{receipt=runVitestExecution({root:f.dir,base:f.base});},
+      `deleted obsolete test must not reach the actual controller's absent-file read (${state})`);
+    assert.ok(receipt.changedPaths.includes(f.file),'raw deletion applicability is retained');
+    assert.equal(receipt.status,'not-applicable');assert.deepEqual(receipt.tests,[]);
+    assert.deepEqual(changedEvidencePaths(f.dir,f.base),[]);
+    retainServiceControl(`deleted-controller-${state}`,{},
+      {scope:'synthetic deletion, actual controller; no executable credit or live run',receipt});
+  }
+  // Dropping an executable obligation must not drop deleted-source pilot applicability.
+  fs.rmSync(path.join(f.dir,contract.sourceFile));
+  const expected=executionContext(f.dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+  const coverage=executionCoverage([],{root:f.dir,expected,base:f.base});
+  assert.equal(coverage.status,'INCOMPLETE');
+  assert.deepEqual(coverage.pilot,{required:true,status:'NOT RUN'});
+}));
+
+test('deleted obsolete test does not break the actual quality writer or earn execution credit',()=>withTrackedExecutionFixture(f=>{
+  fs.rmSync(path.join(f.dir,f.file));
+  const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'deleted-test-writer-'));
+  try {
+    const result=spawnSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{
+      cwd:f.dir,env:{...testEnvironment(scratch,null,''),TEST_EFFICACY_BASE:f.base},encoding:'utf8',timeout:60000});
+    retainServiceControl('deleted-test-writer',{result});
+    assert.equal(result.error,undefined);assert.equal(result.status,0,result.stderr);
+    assert.doesNotMatch(result.stderr,/ENOENT/);
+    const evidence=JSON.parse(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json'),'utf8'));
+    assert.equal(evidence.overallStatus,'QUALIFIED');
+    assert.equal(evidence.testExecution.status,'not-applicable');
+    assert.deepEqual(evidence.testExecution.tests,[]);assert.deepEqual(evidence.executionCoverage.rows,[]);
+    assert.deepEqual(evidence.executionCoverage.pilot,{required:false,status:'NOT APPLICABLE'});
+    retainServiceControl('deleted-test-writer',{result},{quality:evidence});
+    // Synthetic metric counts and a removed ordinary test claim no executed test or journey.
+  } finally {fs.rmSync(scratch,{recursive:true,force:true});}
+}));
+
+test('renames and recreated paths retain live execution obligations without receipts',()=>withTrackedExecutionFixture(f=>{
+  const destination='tests/unit/renamed-execution.test.js';
+  fs.renameSync(path.join(f.dir,f.file),path.join(f.dir,destination));
+  for(const state of ['dirty','committed']) {
+    if(state==='committed') {f.git(['add','tests']);f.commit();}
+    assert.deepEqual(changedEvidencePaths(f.dir,f.base),[destination]);
+    const expected=executionContext(f.dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    const coverage=executionCoverage([destination],{root:f.dir,expected,base:f.base});
+    assert.equal(coverage.status,'INCOMPLETE');assert.equal(coverage.rows[0].status,'NOT RUN');
+  }
+  f.write(f.file,f.passing);
+  const paths=changedEvidencePaths(f.dir,f.base);
+  assert.deepEqual(paths,[f.file,destination].sort());
+  const expected=executionContext(f.dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+  const coverage=executionCoverage(paths,{root:f.dir,expected,base:f.base});
+  assert.equal(coverage.status,'INCOMPLETE');assert.ok(coverage.rows.every(row=>row.status==='NOT RUN'));
+}));
+
+test('changed and untracked current tests stay unqualified without execution receipts',()=>withTrackedExecutionFixture(f=>{
+  const untracked='tests/unit/untracked-execution.test.js';
+  f.write(f.file,`${f.passing}\n// changed tracked input\n`);f.write(untracked,f.passing);
+  const paths=changedEvidencePaths(f.dir,f.base);
+  assert.deepEqual(paths,[f.file,untracked].sort());
+  const expected=executionContext(f.dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+  const coverage=executionCoverage(paths,{root:f.dir,expected,base:f.base});
+  assert.equal(coverage.status,'INCOMPLETE');
+  assert.deepEqual(coverage.rows.map(row=>[row.file,row.status]),paths.map(file=>[file,'NOT RUN']));
+}));
+
+test('existing malformed test paths cannot masquerade as deleted executable inputs',()=>withTrackedExecutionFixture(f=>{
+  fs.rmSync(path.join(f.dir,f.file));
+  fs.symlinkSync('missing-test-target.js',path.join(f.dir,f.file));
+  assert.deepEqual(changedEvidencePaths(f.dir,f.base),[f.file],
+    'a dangling symlink exists in the current snapshot and must remain unqualified');
+  const expected=executionContext(f.dir,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+  const coverage=executionCoverage([f.file],{root:f.dir,expected,base:f.base});
+  assert.equal(coverage.status,'INCOMPLETE');assert.equal(coverage.rows[0].status,'NOT RUN');
+}));
 
 // Execute the checked-in step bodies and upload paths. Only GitHub's download API
 // is mocked; report inputs go through run-metrics and both real paired producers.
