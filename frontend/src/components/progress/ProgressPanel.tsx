@@ -7,6 +7,7 @@ import { abandonRecommendationAttempt } from '@/services/progress/recordProgress
 import { useLinkedRepeat } from '@/hooks/useLinkedRepeat';
 import { clearOpenAttemptIfMatches } from '@/services/progress/openAttempt';
 import type { ExclusionReason } from '@/services/progress/buildProgressEvaluation';
+import type { RepeatResultView } from '@/services/progress/loadSessionProgress';
 
 const TARGET_METRIC_LABELS: Record<StructuredTarget['metric'], string> = {
     filler_rate: 'Filler rate', pace: 'Pace', clear_delivery: 'Clear delivery',
@@ -38,6 +39,34 @@ function reviewOwnedOutcome(target: StructuredTarget, lifecycle: string, outcome
         : `${metric} decreased compared with the original session.`;
     const comparative = target.direction === 'decrease' ? 'lower' : 'higher';
     return `${metric} was ${moved ? '' : 'not '}${comparative} on the repeat than in the original session.`;
+}
+
+/**
+ * #1548: the linked repeat's same-target values, original session → repeat, in the stored target units. Filler rate
+ * starts at one decimal and pace/points at whole numbers; precision grows only until two different stored values no
+ * longer print alike. It states the values, never that the target was reached.
+ */
+function formatRepeatValues(metric: StructuredTarget['metric'], before: number, after: number): [string, string] {
+    for (let digits = metric === 'filler_rate' ? 1 : 0; digits < 3; digits += 1) {
+        const pair: [string, string] = [before.toFixed(digits), after.toFixed(digits)];
+        if (pair[0] !== pair[1] || before === after) return pair;
+    }
+    return [before.toFixed(3), after.toFixed(3)];
+}
+
+function RepeatValues({ result }: { result: RepeatResultView | null | undefined }) {
+    if (!result) return null;
+    if (result.status === 'unavailable') return (
+        <p data-testid="progress-attempt-values" className="text-sm text-foreground/80">
+            The original and repeat values for this comparison are not available.
+        </p>
+    );
+    const [before, after] = formatRepeatValues(result.metric, result.before, result.after);
+    return (
+        <p data-testid="progress-attempt-values" className="text-sm text-foreground/80">
+            {TARGET_METRIC_LABELS[result.metric]}: {before} → {after} {result.units} (original session → linked repeat).
+        </p>
+    );
 }
 
 const REASON_LABELS: Record<ExclusionReason, string> = {
@@ -156,6 +185,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'>; nex
             <p data-testid="progress-attempt-outcome" className="text-sm text-foreground/80">
                 {reviewOwnedOutcome(view.takeaways.target, view.latestAttempt.lifecycle, outcome)}
             </p>
+            <RepeatValues result={view.repeatResult} />
             <p data-testid="progress-attempt-scope" className="text-xs text-foreground/70">
                 This comparison measures delivery, not whether the coaching tip was followed.
             </p>
@@ -172,6 +202,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'>; nex
                         : outcome === 'not_comparable' ? 'The stored repeat was not comparable.'
                             : 'The stored repeat was not completed.'
             }</p>
+            <RepeatValues result={view.repeatResult} />
         </div>}
         {actionError && <div role="alert" className="space-y-2"><p>{actionError}</p>{!retryBlocked && <Button ref={retryRef} type="button" onClick={() => { void onAccept(); }}>Retry {PRACTICE_THIS_NEXT_LABEL}</Button>}</div>}
         {pendingAttemptId && <div role="alert" className="space-y-2">

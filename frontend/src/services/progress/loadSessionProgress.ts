@@ -10,6 +10,27 @@ export type ProgressAttemptView = {
 };
 
 /**
+ * #1548 — the linked repeat's same-target result, in the server's own terms.
+ *
+ * `before` is the recommendation's persisted `source_metric_value`. `after` is the value the server derived for
+ * the attempt's persisted `next_comparable_session_id` (`advance_recommendation_attempt`, 20260731130000): that
+ * session's evaluation for the same formula version, eligible, in the source session's cohort; filler_rate is
+ * filler_count / word_count × 100 (percent of words), pace is wpm, clear_delivery is clarity_raw. Units are the
+ * stored target units. Present only for a resolved `completed` attempt; any missing, deleted, non-finite or
+ * incompatible evidence is `unavailable` — never a zero, never another session chosen by client history.
+ */
+export type RepeatResultView =
+    | {
+        status: 'available';
+        metric: Takeaways['target']['metric'];
+        direction: Takeaways['target']['direction'];
+        units: string;
+        before: number;
+        after: number;
+    }
+    | { status: 'unavailable' };
+
+/**
  * Inspectable evidence behind a displayed movement: exactly which validated session it was measured
  * against, in which recording cohort/mode, the raw inputs, and their units. A headline number the user
  * cannot inspect is not defensible; this makes the comparison auditable without exposing any transcript.
@@ -53,6 +74,8 @@ export type SessionProgressResult =
         takeaways: Takeaways;
         recommendationId: string | null;
         latestAttempt: ProgressAttemptView | null;
+        /** Null/absent unless the latest attempt is a resolved `completed` one. */
+        repeatResult?: RepeatResultView | null;
     };
 
 interface EvalRow {
@@ -76,6 +99,22 @@ interface RecommendationRow {
     target_value: number;
     target_units: string;
     shown_text: string;
+    source_metric_value: number | null;
+}
+
+interface AttemptRow extends ProgressAttemptView {
+    next_comparable_session_id: string | null;
+}
+
+/** The server's derivation of a session's value for the recommendation metric; null when it cannot be derived. */
+function metricValue(row: EvalRow, metric: Takeaways['target']['metric']): number | null {
+    const value = metric === 'filler_rate'
+        ? (Number.isInteger(row.word_count) && (row.word_count as number) > 0
+            && Number.isInteger(row.filler_count) && (row.filler_count as number) >= 0
+            ? ((row.filler_count as number) / (row.word_count as number)) * 100 : null)
+        : metric === 'pace' ? row.wpm
+            : row.clarity_raw;
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function toEvaluation(row: EvalRow): ProgressEvaluation {
@@ -90,6 +129,7 @@ function toEvaluation(row: EvalRow): ProgressEvaluation {
 }
 
 const EVAL_FIELDS = 'session_id, eligible, exclusion_reasons, clarity_raw, filler_count, error_marker_count, wpm, word_count, cohort_key, baseline_session_id, previous_comparable_session_id';
+const RECOMMENDATION_FIELDS = 'id, target_metric, target_direction, target_value, target_units, shown_text, source_metric_value';
 
 /** Mirrors PostgreSQL tuple ordering: (created_at, session_id) < (current.created_at, current.session_id). */
 function isEarlierSession(
@@ -216,7 +256,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
 
     const { data: rec, error: recError } = await supabase
         .from('progress_recommendations')
-        .select('id, target_metric, target_direction, target_value, target_units, shown_text')
+        .select(RECOMMENDATION_FIELDS)
         .eq('source_session_id', sessionId)
         .eq('formula_version', PROGRESS_FORMULA_VERSION)
         .maybeSingle();
@@ -230,7 +270,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         }
         const { data: recovered, error: recoveredError } = await supabase
             .from('progress_recommendations')
-            .select('id, target_metric, target_direction, target_value, target_units, shown_text')
+            .select(RECOMMENDATION_FIELDS)
             .eq('source_session_id', sessionId)
             .eq('formula_version', PROGRESS_FORMULA_VERSION)
             .maybeSingle();
@@ -251,16 +291,21 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     }
 
     let latestAttempt: ProgressAttemptView | null = null;
+    let repeatResult: RepeatResultView | null = null;
     if (recommendationId) {
         const { data: attempt, error: attemptError } = await supabase
             .from('progress_recommendation_attempts')
-            .select('id, lifecycle, outcome')
+            .select('id, lifecycle, outcome, next_comparable_session_id')
             .eq('recommendation_id', recommendationId)
             .order('accepted_at', { ascending: false })
             .limit(1)
             .maybeSingle();
         if (attemptError) return { status: 'error', sessionId, message: 'Your repeat outcome could not be loaded.' };
-        latestAttempt = (attempt as ProgressAttemptView | null) ?? null;
+        const attemptRow = (attempt as AttemptRow | null) ?? null;
+        latestAttempt = attemptRow ? { id: attemptRow.id, lifecycle: attemptRow.lifecycle, outcome: attemptRow.outcome } : null;
+        if (attemptRow?.lifecycle === 'completed') {
+            repeatResult = await loadRepeatResult(supabase, sessionId, currentRow, recommendationRow, attemptRow);
+        }
     }
 
     const direction = comparison === 'restarted'
@@ -312,5 +357,44 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         takeaways,
         recommendationId,
         latestAttempt,
+        repeatResult,
+    };
+}
+
+/**
+ * Reads the completed attempt's persisted next-comparable evaluation and applies the server's pair guards
+ * (same formula version, eligible, same cohort as the source session, a different session). A read error or any
+ * failed guard is `unavailable`: the rest of Progress still renders, and no number is shown.
+ */
+async function loadRepeatResult(
+    supabase: ReturnType<typeof getSupabaseClient>,
+    sessionId: string,
+    sourceRow: EvalRow,
+    recommendation: RecommendationRow,
+    attempt: AttemptRow,
+): Promise<RepeatResultView> {
+    const unavailable: RepeatResultView = { status: 'unavailable' };
+    const nextId = attempt.next_comparable_session_id;
+    const before = recommendation.source_metric_value;
+    if (attempt.outcome !== 'moved' && attempt.outcome !== 'did_not_move') return unavailable;
+    if (!nextId || nextId === sessionId || typeof before !== 'number' || !Number.isFinite(before)) return unavailable;
+    if (!sourceRow.cohort_key) return unavailable;
+    const { data, error } = await supabase
+        .from('session_progress_evaluations')
+        .select(EVAL_FIELDS)
+        .eq('session_id', nextId)
+        .eq('formula_version', PROGRESS_FORMULA_VERSION)
+        .maybeSingle();
+    const next = (data as EvalRow | null) ?? null;
+    if (error || !next || next.session_id !== nextId || !next.eligible || next.cohort_key !== sourceRow.cohort_key) return unavailable;
+    const after = metricValue(next, recommendation.target_metric);
+    if (after === null) return unavailable;
+    return {
+        status: 'available',
+        metric: recommendation.target_metric,
+        direction: recommendation.target_direction,
+        units: recommendation.target_units,
+        before,
+        after,
     };
 }
