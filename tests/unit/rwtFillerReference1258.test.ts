@@ -10,7 +10,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { productFillerCount } from '../live/helpers/rwtFillerOracle';
 import {
-    alignFillers, corpusWordVerdict, crossCheckCounts, fillerAnnotationsOf, hesitationTotals, integrityVerdict,
+    alignFillers, corpusVerdicts, corpusWordVerdict, crossCheckCounts, fillerAnnotationsOf, hesitationTotals, integrityVerdict,
     referenceCount, type FillerAnnotation,
 } from '../live/helpers/rwtFillerReference';
 
@@ -111,6 +111,46 @@ describe('APP-G1h corpus verdicts: exact per word, substitutions never pass', ()
             .toEqual({ classes: ['CONTESTED', 'CONTESTED'], um: 'HOLD', uh: 'HOLD' });
     });
 
+    // Sam 1792983480.096009: annotation ownership is validated before and independently of any hesitation token.
+    const ownership = (transcript: string, annotations: FillerAnnotation[]) => {
+        const aligned = alignFillers(transcript, annotations);
+        return {
+            classes: aligned.instances.map((i) => i.class),
+            um: corpusWordVerdict('um', 1, transcript, aligned, 'synthetic').verdict,
+            uh: corpusWordVerdict('uh', 1, transcript, aligned, 'synthetic').verdict,
+        };
+    };
+
+    it('g4. the same anchor declared twice with no hesitation present is AMBIGUOUS -> HOLD (not two OMITTED FAILs), in either order', () => {
+        const held = { classes: ['AMBIGUOUS', 'AMBIGUOUS'], um: 'HOLD', uh: 'HOLD' };
+        expect(ownership('Deadlines live here.', [{ word: 'um', anchor: 'deadlines live' }, { word: 'uh', anchor: 'deadlines live' }])).toEqual(held);
+        expect(ownership('Deadlines live here.', [{ word: 'uh', anchor: 'deadlines live' }, { word: 'um', anchor: 'deadlines live' }])).toEqual(held);
+    });
+
+    it('g5. partially overlapping anchors are CONTESTED -> HOLD for both, in either order', () => {
+        const held = { classes: ['CONTESTED', 'CONTESTED'], um: 'HOLD', uh: 'HOLD' };
+        expect(ownership('Um, deadlines live here.', [{ word: 'um', anchor: 'deadlines live' }, { word: 'uh', anchor: 'live here' }])).toEqual(held);
+        expect(ownership('Um, deadlines live here.', [{ word: 'uh', anchor: 'live here' }, { word: 'um', anchor: 'deadlines live' }])).toEqual(held);
+    });
+
+    it('l. an undeclared alphanumeric word is never a filler: "um2 deadlines live" does not MATCH and does not PASS', () => {
+        const t = 'um2 deadlines live here.';
+        const aligned = alignFillers(t, [{ word: 'um', anchor: 'deadlines live' }]);
+        expect(aligned.instances[0].class).toBe('OMITTED');
+        expect(corpusWordVerdict('um', 1, t, aligned, 'synthetic').verdict).toBe('FAIL');
+        expect([referenceCount('um2 um_x', 'um'), referenceCount('Um-hmm, um\'s point', 'um')]).toEqual([0, 2]);
+    });
+
+    it('m. verdicts cover the full key union: an unanchored "Ah." FAILs even though the corpus has no "ah" key', () => {
+        const exact = corpusVerdicts(CORPUS, SCRIPT, alignFillers(SCRIPT, ANNOTATIONS), 'synthetic');
+        expect(Object.keys(exact).sort()).toEqual(['ah', 'uh', 'um', 'you know']);
+        expect(Object.values(exact).every((v) => v.verdict === 'PASS')).toBe(true);
+        const t = `${SCRIPT} Ah.`;
+        const withAh = corpusVerdicts(CORPUS, t, alignFillers(t, ANNOTATIONS), 'synthetic');
+        expect(withAh.ah).toMatchObject({ verdict: 'FAIL', evidence: { expected: 0, inserted: 1 } });
+        expect(withAh.um.verdict).toBe('PASS');
+    });
+
     it('k. on human audio the same substitution is a FAIL, with no fixture leniency', () => {
         const t = SCRIPT.replace('Uh, I propose', 'Um, I propose');
         expect(verdict('um', t, 'human').verdict).toBe('FAIL');
@@ -118,7 +158,7 @@ describe('APP-G1h corpus verdicts: exact per word, substitutions never pass', ()
 });
 
 describe('APP-G1h counter independence: drift between product and reference is caught', () => {
-    const variants = 'Umm, so. Uhm, right. Uhh, well. Er, then. Ahm, okay. Ahhh. You know, and y\'know, ya know.';
+    const variants = 'Umm, so. Uhm, right. Uhh, well. Er, then. Ahm, okay. Ahhh. You know, and y\'know, ya know. Um-hmm, um\'s um2 um_x.';
 
     it('the product counter and the reference agree on the script and on every declared variant', () => {
         for (const text of [SCRIPT, variants]) {
@@ -129,7 +169,7 @@ describe('APP-G1h counter independence: drift between product and reference is c
 
     it('h. MUTANT: a product counter that stops counting "uhm" FAILs the cross-check', () => {
         const mutant = (text: string, key: string) => productFillerCount(text.replace(/\buhm\b/gi, ''), key);
-        expect(crossCheckCounts(variants, mutant).um).toMatchObject({ verdict: 'FAIL', reference: 2, product: 1 });
+        expect(crossCheckCounts(variants, mutant).um).toMatchObject({ verdict: 'FAIL', reference: 4, product: 3 });
     });
 });
 

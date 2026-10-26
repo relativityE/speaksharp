@@ -44,14 +44,17 @@ export const referenceKeyFor = (word: string): ReferenceKey | null => {
     return (REFERENCE_KEYS as string[]).includes(key) ? (key as ReferenceKey) : null;
 };
 
-const tokenize = (text: string): string[] =>
-    text.toLowerCase().replace(/[^a-z'\s]+/g, ' ').split(/\s+/).filter((t) => t.length > 0);
+/**
+ * Word tokens split at every non-word character, the same boundaries as the product's `\b` patterns: letters, digits and
+ * "_" stay joined, so "um2" or "um_x" is never "um" (Sam 1792983480.096009), while "um-hmm" and "um's" still contain "um".
+ */
+const tokenize = (text: string): string[] => text.toLowerCase().split(/[^a-z0-9_]+/).filter((t) => t.length > 0);
 
 interface Unit { key: ReferenceKey; start: number; length: number }
 
 /** Every hesitation unit in the token stream, longest variant first so "you know" is one unit. */
 const hesitationUnits = (tokens: readonly string[]): Unit[] => {
-    const variants = REFERENCE_KEYS.flatMap((key) => REFERENCE_VARIANTS[key].map((v) => ({ key, parts: v.split(' ') })))
+    const variants = REFERENCE_KEYS.flatMap((key) => REFERENCE_VARIANTS[key].map((v) => ({ key, parts: tokenize(v) })))
         .sort((a, b) => b.parts.length - a.parts.length);
     const units: Unit[] = [];
     for (let i = 0; i < tokens.length;) {
@@ -78,31 +81,43 @@ export interface InstanceResult { word: string; anchor: string; class: InstanceC
 export interface Alignment { instances: InstanceResult[]; inserted: Record<ReferenceKey, number> }
 
 /**
- * Aligns each annotation one-to-one: the anchor must occur exactly once (else ANCHOR_MISSING / AMBIGUOUS), and a
- * hesitation unit attaches to at most one anchor. When two or more annotations reach the same unit, EVERY involved
- * annotation is CONTESTED, whatever its order or word (Sam RETURN 1792983339.704229), so no claimant can still pass.
- * Unattached units are INSERTED.
+ * Aligns each annotation one-to-one. Ownership is validated before, and independently of, any hesitation token
+ * (Sam 1792983339.704229, 1792983480.096009), and every involved annotation is held, whatever its order or word:
+ * - the same normalised anchor declared twice → AMBIGUOUS for all of them;
+ * - an anchor found zero times → ANCHOR_MISSING; more than once → AMBIGUOUS;
+ * - anchors resolving to the same or overlapping transcript span → CONTESTED for all of them.
+ * Only then is the hesitation directly before the anchor classified (MATCH / SUBSTITUTED / OMITTED). Unattached units are
+ * INSERTED.
  */
 export const alignFillers = (transcript: string, annotations: readonly FillerAnnotation[]): Alignment => {
     const tokens = tokenize(transcript);
     const units = hesitationUnits(tokens);
     const unitEndingAt = new Map(units.map((u) => [u.start + u.length, u]));
-    const reached = annotations.map(({ anchor }) => {
+    const anchorKey = (anchor: string) => tokenize(anchor).join(' ');
+    const declared = new Map<string, number>();
+    for (const { anchor } of annotations) declared.set(anchorKey(anchor), (declared.get(anchorKey(anchor)) ?? 0) + 1);
+    const resolved = annotations.map(({ anchor }) => {
         const starts = anchorStarts(tokens, anchor);
-        return { starts, unit: starts.length === 1 ? unitEndingAt.get(starts[0]) : undefined };
+        return { starts, span: starts.length === 1 ? [starts[0], starts[0] + tokenize(anchor).length] as const : null };
     });
-    const claims = new Map<Unit, number>();
-    for (const { unit } of reached) if (unit) claims.set(unit, (claims.get(unit) ?? 0) + 1);
+    const overlaps = (i: number) => resolved.some((other, j) => j !== i && other.span !== null && resolved[i].span !== null
+        && other.span[0] < resolved[i].span![1] && resolved[i].span![0] < other.span[1]);
     const instances = annotations.map(({ word, anchor }, i): InstanceResult => {
-        const { starts, unit } = reached[i];
+        const { starts, span } = resolved[i];
+        const unit = span ? unitEndingAt.get(span[0]) : undefined;
+        if ((declared.get(anchorKey(anchor)) ?? 0) > 1) return { word, anchor, class: 'AMBIGUOUS', observed: null };
         if (starts.length === 0) return { word, anchor, class: 'ANCHOR_MISSING', observed: null };
         if (starts.length > 1) return { word, anchor, class: 'AMBIGUOUS', observed: null };
+        if (overlaps(i)) return { word, anchor, class: 'CONTESTED', observed: unit?.key ?? null };
         if (!unit) return { word, anchor, class: 'OMITTED', observed: null };
-        if ((claims.get(unit) ?? 0) > 1) return { word, anchor, class: 'CONTESTED', observed: unit.key };
         return { word, anchor, class: unit.key === referenceKeyFor(word) ? 'MATCH' : 'SUBSTITUTED', observed: unit.key };
     });
+    // Every unit directly before a uniquely resolved anchor is spoken for, even when that anchor is held: a contested
+    // hesitation is never also counted as inserted.
+    const attached = new Set<Unit>();
+    for (const { span } of resolved) { const u = span ? unitEndingAt.get(span[0]) : undefined; if (u) attached.add(u); }
     const inserted = Object.fromEntries(REFERENCE_KEYS.map((k) => [k, 0])) as Record<ReferenceKey, number>;
-    for (const u of units) if (!claims.has(u)) inserted[u.key] += 1;
+    for (const u of units) if (!attached.has(u)) inserted[u.key] += 1;
     return { instances, inserted };
 };
 
@@ -144,6 +159,17 @@ export const corpusWordVerdict = (
     return observed === expected
         ? { verdict: 'PASS', detail: 'the transcript holds every spoken instance', evidence }
         : { verdict: 'FAIL', detail: 'the count differs from the corpus without an aligned cause', evidence };
+};
+
+/**
+ * Verdicts over the complete key union: every corpus word plus every declared reference key, expected 0 where the corpus
+ * has none, so an unanchored "Ah." cannot hide behind a corpus with no "ah" key (Sam 1792983572.435229).
+ */
+export const corpusVerdicts = (
+    corpus: Readonly<Record<string, number>>, transcript: string, alignment: Alignment, fixtureKind: 'synthetic' | 'human',
+): Record<string, WordVerdict> => {
+    const words = [...new Set([...Object.keys(corpus), ...REFERENCE_KEYS.map((k) => k.replace('_', ' '))])];
+    return Object.fromEntries(words.map((w) => [w, corpusWordVerdict(w, corpus[w] ?? 0, transcript, alignment, fixtureKind)]));
 };
 
 /** Informational only: the hesitation total (um+uh+ah) against the corpus total. It never upgrades a per-word verdict. */
