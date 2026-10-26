@@ -43,6 +43,7 @@ import { openProductsItem, type ProductsMenuItem } from './helpers/productsMenu'
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { knownSessionCount, navigationWritesVerdict } from './helpers/rwtNavigationCounts';
+import { armPasswordSignInObserver, pageAttemptEvents, returningSignInVerdict, type SignInAttemptOutcome } from './helpers/returningSignInAttempt';
 
 const SUITE = 'returning-user-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -140,16 +141,49 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 await page.goto('/auth/signin');
                 await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
                 await requireApprovedSurface(page, receipt);
+                // G18 (#1491 item 9): judge THIS submit's own password-token exchange, not a missing uid. A refused shared
+                // credential is account repair and a setup/network/service fault is inconclusive (both HOLD); only a valid
+                // token that fails to establish its own session, or Practice, is a product FAIL.
                 const started = Date.now();
-                await page.getByTestId('email-input').fill(RETURNING_EMAIL);
-                await page.getByTestId('password-input').fill(RETURNING_PASSWORD);
-                await page.getByTestId('sign-in-submit').click();
-                const signedIn = await expect.poll(() => readUid(page), { timeout: 60_000 }).toBeTruthy().then(() => true).catch(() => false);
-                const landed = await page.getByTestId('practice-root').waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false);
-                receipt.row('returning-user sign-in', signedIn && landed ? 'PASS' : 'FAIL',
-                    signedIn ? (landed ? 'signed in with an existing credential and landed on Practice' : 'signed in but Practice did not load') : 'sign-in with the existing credential failed',
-                    { signinMs: Date.now() - started });
-                if (!signedIn) throw new Error('FAIL returning-user sign-in');
+                const after = { sessionUserMatches: false, practiceVisible: false };
+                let outcome: SignInAttemptOutcome;
+                if (await readUid(page)) {
+                    outcome = { kind: 'inconclusive', status: null, reason: 'preexisting_session' };
+                } else {
+                    const attempt = armPasswordSignInObserver(pageAttemptEvents(page), {
+                        authOrigin: SUPABASE_URL ? new URL(SUPABASE_URL).origin : '', timeoutMs: 60_000,
+                    });
+                    try {
+                        try {
+                            await page.getByTestId('email-input').fill(RETURNING_EMAIL);
+                            await page.getByTestId('password-input').fill(RETURNING_PASSWORD);
+                            await page.getByTestId('sign-in-submit').click();
+                        } catch (error) {
+                            if (!page.isClosed()) throw error;
+                        }
+                        const first = await attempt.settle();
+                        if (first.kind === 'token_ok') {
+                            const expected = first.userId;
+                            // A boolean poll, so no identifier reaches an assertion message.
+                            after.sessionUserMatches = await expect.poll(async () => (await readUid(page)) === expected, { timeout: 60_000 })
+                                .toBe(true).then(() => true, () => false);
+                            after.practiceVisible = after.sessionUserMatches && await page.getByTestId('practice-root')
+                                .waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false);
+                        }
+                        // Read AFTER the session/Practice wait: another password grant in that window could have supplied
+                        // this session, so it makes the attempt ambiguous (Sam 1793003212.501819).
+                        outcome = attempt.final();
+                        if (outcome.kind === 'token_ok' && page.isClosed()) outcome = { kind: 'inconclusive', status: null, reason: 'context_closed' };
+                    } finally {
+                        attempt.dispose();
+                    }
+                }
+                const verdict = returningSignInVerdict(outcome, after);
+                receipt.row('returning-user sign-in', verdict.verdict, verdict.detail, {
+                    outcome: outcome.kind, status: outcome.status, reason: outcome.kind === 'inconclusive' ? outcome.reason : null,
+                    signinMs: Date.now() - started,
+                });
+                if (!verdict.proceed) throw new Error(`${verdict.verdict} returning-user sign-in: ${verdict.detail}`);
             });
 
             // ── State verification (read-only): the intended account, with a profile and its history ─────
