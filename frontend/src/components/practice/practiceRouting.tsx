@@ -14,9 +14,9 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { resolvePostAuthPath } from '@/services/postAuthRouting';
+import { resolveInAppPostAuthTarget, type PostAuthFrom } from '@/services/postAuthRouting';
 
-type FromLocation = { pathname?: string; search?: string } | null | undefined;
+type FromLocation = PostAuthFrom;
 
 function GateLoader() {
   return (
@@ -27,10 +27,12 @@ function GateLoader() {
 }
 
 /**
- * Post-auth landing. A safe deep-link wins; otherwise the authenticated default is /practice.
+ * Post-auth landing. A safe deep-link wins — with its hash and its original router state (#1548) — otherwise the
+ * authenticated default is /practice. Replace-style, so Back never returns to the sign-in page.
  */
 export const PostAuthRedirect: React.FC<{ from?: FromLocation }> = ({ from }) => {
-  return <Navigate to={resolvePostAuthPath(from)} replace />;
+  const { to, state } = resolveInAppPostAuthTarget(from);
+  return <Navigate to={to} state={state} replace />;
 };
 
 /**

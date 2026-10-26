@@ -1,11 +1,12 @@
 import React, { Suspense, useEffect } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { PostAuthContinue } from './components/practice/practiceRouting';
 import { AuthIndexRedirect } from './components/AuthIndexRedirect';
+import { canonicalProgressPath } from './lib/sessionRoute';
 import { AuthAwareRoot } from './components/AuthAwareRoot';
 import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { FeedbackOpenerProvider } from './contexts/FeedbackOpenerContext';
@@ -95,6 +96,18 @@ const ProfileBoundary: React.FC<{ pathname: string; children: React.ReactNode }>
 
 const InternalRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return areInternalRoutesEnabled() ? <>{children}</> : <NotFoundPage />;
+};
+
+/**
+ * #1548: `/progress` is the canonical user-facing route; `/analytics` and `/analytics/:sessionId` are legacy aliases.
+ * A replace-redirect (no extra history entry) keeps the session segment, query, hash and router state, so saved and
+ * bookmarked links keep resolving to the same page. Signed out, it redirects first and the canonical route's
+ * ProtectedRoute then carries query, hash and state through sign-in (postAuthDestination.routing.test.tsx).
+ */
+export const LegacyProgressRedirect: React.FC = () => {
+  const location = useLocation();
+  const to = `${canonicalProgressPath(location.pathname)}${location.search}${location.hash}`;
+  return <Navigate to={to} state={location.state} replace />;
 };
 
 const PageLoader = () => (
@@ -457,20 +470,22 @@ const App: React.FC = () => {
                       </TranscriptionProvider>
                     </ProtectedRoute>
                   } />
-                  <Route path="/analytics" element={
+                  <Route path="/progress" element={
                     <ProtectedRoute>
                       <TranscriptionProvider>
                         <PageTransition><AnalyticsPage /></PageTransition>
                       </TranscriptionProvider>
                     </ProtectedRoute>
                   } />
-                  <Route path="/analytics/:sessionId" element={
+                  <Route path="/progress/:sessionId" element={
                     <ProtectedRoute>
                       <TranscriptionProvider>
                         <PageTransition><AnalyticsPage /></PageTransition>
                       </TranscriptionProvider>
                     </ProtectedRoute>
                   } />
+                  <Route path="/analytics" element={<LegacyProgressRedirect />} />
+                  <Route path="/analytics/:sessionId" element={<LegacyProgressRedirect />} />
                   <Route path="*" element={<PageTransition><NotFoundPage /></PageTransition>} />
                 </Routes>
                 </motion.div>

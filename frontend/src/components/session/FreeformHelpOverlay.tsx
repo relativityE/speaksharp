@@ -14,7 +14,7 @@ import {
  *
  * A secondary green island button rendered in the Practice Session title block. Opening it shows a
  * SHORT first-run guide in a dialog (desktop) / bottom sheet (mobile). It NEVER navigates and NEVER
- * starts recording — informational only (plus an optional "start speaking" CTA that just closes it).
+ * starts recording — informational only (its "Got it" button just closes it; "start speaking" is reserved for recording intent, #1254).
  *
  * Availability is driven ENTIRELY by the authoritative Session lifecycle projection passed in as
  * `available`. This component holds NO lifecycle state. When unavailable it is aria-disabled (still
@@ -156,14 +156,14 @@ export function FreeformHelpOverlay({
                         ))}
                     </ol>
 
-                    {/* Primary action: the modal explains how to start, so give a way to start. */}
+                    {/* Primary action: close the guide. It records nothing; the mic below is where recording starts (#1254). */}
                     <Button
                         type="button"
                         data-testid="freeform-help-start"
                         onClick={() => { setOpen(false); onStart?.(); }}
                         className="mt-7 flex w-full items-center justify-center gap-2 rounded-[10px] bg-signature py-[15px] text-[16px] font-bold text-ink hover:bg-signature hover:brightness-95"
                     >
-                        Got it — start speaking
+                        Got it
                         <ArrowRight className="h-[18px] w-[18px]" aria-hidden="true" />
                     </Button>
                 </DialogContent>
