@@ -1,4 +1,7 @@
 // src/main.tsx
+// #1643: FIRST import, on purpose. Evaluating this module captures the emailed account-deletion token into memory and
+// removes it from the URL before the router, Sentry or PostHog can record the address. Do not move it below any import.
+import './services/accountDeletionVerification';
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';

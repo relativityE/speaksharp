@@ -19,6 +19,27 @@ const TARGET_DIRECTION_LABELS: Record<StructuredTarget['direction'], string> = {
 const formatTargetValue = (target: StructuredTarget) => target.metric === 'clear_delivery'
     ? Math.round(target.targetValue) : target.targetValue;
 
+type StoredOutcome = 'moved' | 'did_not_move' | 'not_comparable' | 'not_completed' | null | undefined;
+
+/**
+ * #1548 A2: when the saved review owns the next action, the person practised the AI tip, but the stored attempt measured
+ * the recommendation's delivery metric. This copy names that metric and compares it with the original session in the
+ * server's own terms (`20260731130000` derivation: decrease = strictly lower, increase = strictly higher, maintain =
+ * same or higher). It never speaks of the practised direction, improvement or reaching a target.
+ */
+function reviewOwnedOutcome(target: StructuredTarget, lifecycle: string, outcome: StoredOutcome): string {
+    const metric = TARGET_METRIC_LABELS[target.metric];
+    if (lifecycle === 'pending') return 'Your linked repeat is pending.';
+    if (outcome === 'not_comparable') return `${metric} could not be compared for this repeat.`;
+    if (outcome !== 'moved' && outcome !== 'did_not_move') return 'The stored repeat was not completed.';
+    const moved = outcome === 'moved';
+    if (target.direction === 'maintain') return moved
+        ? `${metric} stayed the same or increased compared with the original session.`
+        : `${metric} decreased compared with the original session.`;
+    const comparative = target.direction === 'decrease' ? 'lower' : 'higher';
+    return `${metric} was ${moved ? '' : 'not '}${comparative} on the repeat than in the original session.`;
+}
+
 const REASON_LABELS: Record<ExclusionReason, string> = {
     not_completed: 'This session was not completed, so it cannot be compared.',
     too_short: 'This session was too short for a reliable comparison.',
@@ -127,7 +148,19 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'>; nex
         <dl>
             <div data-testid="progress-what-worked"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground">Evidence-backed observation</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.whatWorked}</dd></div>
         </dl>
-        {view.latestAttempt && <div className="space-y-1">
+        {view.latestAttempt && nextActionOwnedByReview && <div className="space-y-1">
+            <p data-testid="progress-attempt-target" className="text-sm text-foreground/80">
+                Separate delivery comparison: {TARGET_METRIC_LABELS[view.takeaways.target.metric]} (saved target:{' '}
+                {TARGET_DIRECTION_LABELS[view.takeaways.target.direction]} {formatTargetValue(view.takeaways.target)} {view.takeaways.target.units}).
+            </p>
+            <p data-testid="progress-attempt-outcome" className="text-sm text-foreground/80">
+                {reviewOwnedOutcome(view.takeaways.target, view.latestAttempt.lifecycle, outcome)}
+            </p>
+            <p data-testid="progress-attempt-scope" className="text-xs text-foreground/70">
+                This comparison measures delivery, not whether the coaching tip was followed.
+            </p>
+        </div>}
+        {view.latestAttempt && !nextActionOwnedByReview && <div className="space-y-1">
             <p data-testid="progress-attempt-target" className="text-sm text-foreground/80">
                 Measured repeat target: {TARGET_METRIC_LABELS[view.takeaways.target.metric]};{' '}
                 {TARGET_DIRECTION_LABELS[view.takeaways.target.direction]} {formatTargetValue(view.takeaways.target)} {view.takeaways.target.units}.

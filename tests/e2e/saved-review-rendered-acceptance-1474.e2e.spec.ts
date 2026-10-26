@@ -11,10 +11,10 @@
  * containment), fillers/pace/words in THIS RUN only (PM 6045315752 removed counts from every review-band state),
  * Practice again enabled, the microphone, and no playback transport.
  *
- * ONE UNMET REQUIREMENT on main, kept as a strict oracle in a `test.fail` (tracking, never acceptance) that flips red the
- * moment the product meets it: ALL FOUR SLOT TOPS identical across saved, pending and terminal states (Sam RETURN
- * 6235391344). Slots A and B hold, but slot B's height follows the review, so the transcript/THIS RUN row (C/D) moves
- * vertically between states.
+ * RETIRED TRACKER: the strict "ALL FOUR SLOT TOPS identical across saved, pending and terminal states" oracle (Sam RETURN
+ * 6235391344) was an expected-failure `test.fail`. The PO's natural-growth direction superseded it (#1474 comment
+ * 6240521998). Sam's source review on 2026-10-24 retired it under the provenance mapping below. Slots A and B still
+ * hold, and the C/D row may move with the review's height.
  *
  * "Count look wrong?", the spec's correction path, is now a passing check (#1474 opener, PR #1649): it renders in THIS
  * RUN and opens the existing Share Feedback dialog, with focus returning to it on close and nothing sent.
@@ -242,7 +242,7 @@ async function assertReviewStateInvariants(page: Page, state: string): Promise<L
 
 /**
  * What main meets against the saved review's slot map: slots A and B in place, and C and D in the same columns. This is
- * NOT the slot-stability criterion — that compares all four TOPS, and is the strict oracle of the unmet-requirement test.
+ * NOT the retired all-four-tops criterion (see the provenance mapping): C and D keep their columns, not their tops.
  */
 function expectSameColumns(actual: Layout, reference: Layout, state: string) {
     const columns = (l: Layout) => ({ A: l.A, B: l.B, C: { x: l.C.x, width: l.C.width }, D: { x: l.D.x, width: l.D.width } });
@@ -361,7 +361,7 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
      * PO direction, 17 October 2026 19:50 UTC (verified by Sam): "I'm ok with natural growth but I want feedback at eye
      * level, not something user should go dig for." Documented in #1474 comment 6240521998; reviewed replacements are the
      * γ suites below (#1650) and the mobile clearance fix (#1652). This block maps; it changes no assertion, and the tracker
-     * is NOT removed until this mapping is reviewed.
+     * was retired after this mapping was reviewed (Sam, 2026-10-24).
      *
      * The tracker's claim, per review state (terminal failure, scheduled retry, terminal after retry) vs the saved review:
      *   A.top, B.top identical      → STILL ASSERTED, passing: `expectSameColumns` compares A and B whole (x, top, width) in
@@ -378,20 +378,6 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
      * Those run at 1280/1024/768 (desktop) and 375×812 (mobile) for Open Mic and Focus Points, full/partial/pending/terminal.
      * Remaining obligations are NOT closed by this mapping: candidate-tree E2E (owed to CI) and deployed / real-phone proof.
      */
-    test('ALL FOUR slot tops identical across saved, pending and terminal states (UNMET: slot C/D tops move with slot B)', async ({ page }) => {
-        test.setTimeout(240_000);
-        const layouts = await reviewJourney(page);
-        // Marked only now, after the whole journey succeeded, so a setup failure can never pass as this known failure.
-        // Tracking, not acceptance: the expected failure keeps an UNMET requirement visible and never counts as its PASS.
-        test.info().annotations.push({ type: 'unmet-requirement', description: '#1474 G10 slot stability — C/D tops differ between review states on main; superseded by natural growth (see the provenance mapping above), pending review' });
-        test.fail(true, 'UNMET on main: slot C/D tops move with slot B between review states');
-        const tops = (l: Layout) => ({ A: l.A.top, B: l.B.top, C: l.C.top, D: l.D.top });
-        await test.info().attach('slot-tops-1280x800.json', { body: JSON.stringify(Object.fromEntries(Object.entries(layouts).map(([k, l]) => [k, tops(l)])), null, 2), contentType: 'application/json' });
-        for (const state of ['terminal failure', 'scheduled retry', 'terminal after retry'] as const) {
-            expect.soft(tops(layouts[state]), `${state}: every slot top matches the saved review`).toEqual(tops(layouts['saved review']));
-        }
-    });
-
     test('"Count look wrong?" — the correction path in THIS RUN opens Share Feedback; focus returns; nothing is sent', async ({ page }) => {
         test.setTimeout(120_000);
         const consoleGuard = guardConsole(page);
@@ -419,7 +405,7 @@ test.describe('#1474 G10 — the saved review, rendered, at 1280×800', () => {
 // ── #1474 γ — natural growth, useful feedback at eye level (Sam 6240521998) ─────────────────────────────────────────────
 //
 // Natural growth is accepted: section identity and order are stable, and the C/D row may move with the review's height.
-// What replaces the strict all-four-tops oracle (which stays above as `test.fail` until this is reviewed):
+// What replaced the strict all-four-tops oracle (its expected-failure tracker was retired after the mapping review):
 //   1. USEFUL COACHING AT EYE LEVEL — at the TOP OF THE PAGE (the spec scrolls there; that observation is not proof of the
 //      page's own automatic placement), the actual prescription ("Try this next run") is fully visible above any fixed
 //      bar; in pending and terminal states the truthful headline is. A card header sliver does not count. The exact

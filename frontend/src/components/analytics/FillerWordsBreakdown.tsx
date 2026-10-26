@@ -22,7 +22,7 @@ export const FillerWordsBreakdown: React.FC<{ model: FillerBreakdownModel }> = (
         return <p className="text-[14px] font-semibold text-neutral-secondary">Appears after {plural(1, 'more session', 'more sessions')}</p>;
     }
     if (previous && latest.count === 0 && previous.count === 0) {
-        return <p className="text-[15px] font-bold text-neutral-heading" data-testid="filler-breakdown-none">No filler words detected in your last two sessions.</p>;
+        return <p className="text-[15px] font-bold text-neutral-heading" data-testid="filler-breakdown-none">No filler words detected in your last two measured sessions.</p>;
     }
     return (
         <div data-testid="filler-words-breakdown">

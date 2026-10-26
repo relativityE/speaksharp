@@ -64,6 +64,18 @@ test('fence127 is observed over the same seven snapshots and retains its own 127
   assert.equal(saved.at(-1).identity.profile, 'main-t2-fence-127');
 });
 
+test('retention128 keeps the actual successor identity over the unchanged seven historical snapshots', () => {
+  const successor = { ...identity, profile: 'main-t2-retention-128' };
+  const { proof, saved, queries } = fixture(undefined, successor);
+  for (let n = 0; n < 7; n++) proof.record(n);
+  const done = proof.finish();
+  assert.equal(done.status, 'PASS');
+  assert.equal(done.stages.length, 7);
+  assert.deepEqual(done.identity, successor);
+  assert.equal(saved.at(-1).identity.profile, 'main-t2-retention-128');
+  assert.equal(queries.length, 7);
+});
+
 for (let broken = 0; broken < 7; broken++) {
   test(`stage${broken}: actual catalog digest drift is rejected and retained, later snapshots cannot repair it`, () => {
     const { proof, saved } = fixture((row, stage) => {

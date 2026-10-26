@@ -10,7 +10,7 @@ import { programmaticLoginWithRoutes, navigateToRoute, startRecording, stopRecor
  * open) while a recording is active — never navigating and never starting a recording itself.
  *
  * Redesign note (#1116): the modal was cut from six steps + intro + closing paragraph to three
- * action items + a teal "Got it — start speaking" CTA; the intro/feedback paragraphs were removed.
+ * action items + a close-only "Got it" button (#1254: "start speaking" is reserved for recording intent); the intro/feedback paragraphs were removed.
  * The at-rest status bar it used to sit "above" is suppressed (#1046 slice 0), so this asserts the
  * button's placement in the title block instead.
  */
@@ -21,7 +21,7 @@ const MOBILE = { width: 390, height: 844 };
 // One of the three Private-only step action lines — proves the current product contract, not the
 // retired multi-engine chooser copy.
 const STEP_ACTION = 'Set up Private once';
-const START_CTA = /got it — start speaking/i;
+const START_CTA = /^Got it$/;
 
 async function openSession(page: Page) {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
@@ -67,6 +67,9 @@ test.describe('#1042 PR2 Freeform help overlay', () => {
         await expect(overlay).toBeVisible();
         await page.getByTestId('freeform-help-start').click();
         await expect(overlay).toHaveCount(0);
+        // #1254: "Got it" only closes the guide. Nothing starts recording: the page stays in its before state.
+        await expect(page.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        await expect(page.locator('html')).not.toHaveAttribute('data-runtime-state', 'RECORDING');
 
         // #1222 mockup: the whole title row (which hosts "How Open Mic works") is a BEFORE-state
         // affordance only — during recording it is dropped so the transcript/slots get the room. So once
