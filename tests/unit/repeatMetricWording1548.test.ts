@@ -104,15 +104,18 @@ describe('G03 press-bound linkage', () => {
 const REC = { targetMetric: 'filler_rate', targetDirection: 'decrease', targetValue: 3, targetUnits: 'per 100 words' };
 let clock = 0;
 /** Attempts are listed newest first; each gets a strictly older accepted_at unless one is given. */
+let ids = 0;
 const att = (lifecycle: string | null, outcome: string | null, isThisRepeat: boolean, acceptedAt?: string): ServerAttempt =>
-    ({ lifecycle, outcome, isThisRepeat, acceptedAt: acceptedAt ?? new Date(Date.UTC(2026, 9, 26, 12, 0, 0) - (clock += 1000)).toISOString() });
+    ({ id: `attempt-${ids += 1}`, lifecycle, outcome, isThisRepeat, acceptedAt: acceptedAt ?? new Date(Date.UTC(2026, 9, 26, 12, 0, 0) - (clock += 1000)).toISOString() });
 /**
  * The two separate server reads from one attempt list (newest first): the newest two, and the count of attempts bound
  * to this repeat. `attempts` repeats the list in the pre-3e1dc2ff shape, so a RED run against that helper exercises its
  * logic rather than failing on a missing field.
  */
-const read = (attempts: ServerAttempt[], recommendation: typeof REC | null = REC, boundCount = attempts.filter((a) => a.isThisRepeat).length): ServerEvidence =>
-    ({ kind: 'read', recommendation, newest: attempts.slice(0, 2), boundCount, attempts } as ServerEvidence);
+const read = (
+    attempts: ServerAttempt[], recommendation: typeof REC | null = REC, boundCount = attempts.filter((a) => a.isThisRepeat).length,
+    boundId: unknown = attempts.find((a) => a.isThisRepeat)?.id ?? null,
+): ServerEvidence => ({ kind: 'read', recommendation, newest: attempts.slice(0, 2), boundCount, boundId, attempts } as ServerEvidence);
 const LINKED = { kind: 'linked', linkedAttempt: 'ok' } as const;
 const BOUND = att('completed', 'moved', true, '2026-10-26T12:00:00.000Z');
 
@@ -297,7 +300,7 @@ describe('G03 review RETURN (Sam 1793016155.858699): unknown state, ties, contra
         const spec = readFileSync(path.join(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
         const begin = spec.indexOf("await test.step('the repeat result names the measured metric'");
         const step = spec.slice(begin, spec.indexOf('} finally {\n            await finish();', begin));
-        expect(step).toMatch(/\.select\('lifecycle,outcome,accepted_at,practice_session_id'\)/);
+        expect(step).toMatch(/\.select\('id,lifecycle,outcome,accepted_at,practice_session_id'\)/);
         expect(step).toMatch(/acceptedAt: a\.accepted_at/);
         expect(step).toMatch(/const present = await el\.count\(\)\.then\(\(n\) => n > 0, \(\) => \{ readFailed = true; return false; \}\);/);
         const lastRead = step.indexOf("await line('progress-attempt-scope')");
@@ -330,8 +333,31 @@ describe('G03 narrow RETURN (Sam 1793017348.714649): pairs, not enums; duplicate
         const begin = spec.indexOf("await test.step('the repeat result names the measured metric'");
         const step = spec.slice(begin, spec.indexOf('} finally {\n            await finish();', begin));
         expect(step).toMatch(/\.select\('id'\)\s*\.eq\('recommendation_id', rec\.id\)\.eq\('user_id', capturedUid\)\.eq\('practice_session_id', repeatSessionId\)\.limit\(2\)/);
-        expect(step).toMatch(/\.select\('lifecycle,outcome,accepted_at,practice_session_id'\)\s*\.eq\('recommendation_id', rec\.id\)\.eq\('user_id', capturedUid\)\.order\('accepted_at', \{ ascending: false \}\)\.limit\(2\)/);
+        expect(step).toMatch(/\.select\('id,lifecycle,outcome,accepted_at,practice_session_id'\)\s*\.eq\('recommendation_id', rec\.id\)\.eq\('user_id', capturedUid\)\.order\('accepted_at', \{ ascending: false \}\)\.limit\(2\)/);
         expect(step).toMatch(/boundCount: \(bound \?\? \[\]\)\.length/);
         expect(step).not.toMatch(/\.limit\(10\)/);
+    });
+});
+
+describe('G03 id-equality RETURN (Sam 1793018351.121669): the bound read and the newest read must name the same row', () => {
+    it('a newest-two read holding two bound attempts is HOLD, even when the bound read reported one', () => {
+        const raced = [att('completed', 'moved', true, '2026-10-26T12:00:00.000Z'), att('completed', 'moved', true, '2026-10-26T11:00:00.000Z')];
+        expect(repeatMetricPrerequisites(read(raced, REC, 1, raced[0].id), LINKED)).toMatchObject({ observe: false, reason: 'multiple_bound_attempts' });
+    });
+
+    it('a newest bound row that is not the bound read\'s row (or no bound id) is HOLD', () => {
+        const newestTwo = [BOUND, att('completed', 'did_not_move', false, '2026-10-26T11:00:00.000Z')];
+        expect(repeatMetricPrerequisites(read(newestTwo, REC, 1, 'attempt-other'), LINKED)).toMatchObject({ observe: false, reason: 'bound_read_mismatch' });
+        expect(repeatMetricPrerequisites(read(newestTwo, REC, 1, null), LINKED)).toMatchObject({ observe: false, reason: 'bound_read_mismatch' });
+        expect(repeatMetricPrerequisites(read(newestTwo, REC, 1, BOUND.id), LINKED)).toMatchObject({ observe: true });
+    });
+
+    it('the spec carries each row\'s id in memory only, and the sole bound id from the bound read', () => {
+        const spec = readFileSync(path.join(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        const begin = spec.indexOf("await test.step('the repeat result names the measured metric'");
+        const step = spec.slice(begin, spec.indexOf('} finally {\n            await finish();', begin));
+        expect(step).toMatch(/\.select\('id,lifecycle,outcome,accepted_at,practice_session_id'\)/);
+        expect(step).toMatch(/boundId: bound\?\.length === 1 \? bound\[0\]\.id : null,/);
+        expect(step).not.toMatch(/receipt\.row\([^)]*\bid\b/);
     });
 });

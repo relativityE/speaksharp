@@ -97,7 +97,7 @@ export function pressLinkage(events: readonly PressEvent[]): Linkage {
 }
 
 /** One attempt row as read: its stored state, `accepted_at` (ordering only) and whether it is bound to this repeat. */
-export interface ServerAttempt { lifecycle: unknown; outcome: unknown; acceptedAt: unknown; isThisRepeat: boolean }
+export interface ServerAttempt { lifecycle: unknown; outcome: unknown; acceptedAt: unknown; isThisRepeat: boolean; id: unknown }
 
 /**
  * The resolved lifecycle → outcome pairs `advance_recommendation_attempt` writes (migration 20260731130000). Each
@@ -115,7 +115,7 @@ const RESOLVED_PAIRS: Readonly<Record<string, readonly string[]>> = {
  * repeat take (read with limit 2, so 2 means "more than one"). No schema constraint makes that binding unique.
  */
 export type ServerEvidence =
-    | { kind: 'read'; recommendation: RecommendationRow | null; newest: readonly ServerAttempt[]; boundCount: number }
+    | { kind: 'read'; recommendation: RecommendationRow | null; newest: readonly ServerAttempt[]; boundCount: number; boundId: unknown }
     | { kind: 'read_failed' };
 
 export interface ExpectedLines { metric: Metric; direction: Direction; target: string; outcome: string }
@@ -141,8 +141,14 @@ export function repeatMetricPrerequisites(server: ServerEvidence, linkage: Linka
     if (!server.recommendation) return hold('no_recommendation', 'no recommendation is bound to the first session');
     const rec = validRecommendation(server.recommendation);
     if (!rec) return hold('recommendation_invalid', 'the bound recommendation has no valid structured target');
+    // The two reads must agree: the sole bound attempt from the bound read IS the newest row, and the newest two contain
+    // no second bound attempt (a duplicate inserted between the reads would otherwise pass). Ids stay in memory only.
+    if (server.newest.filter((a) => a.isThisRepeat).length > 1) return hold('multiple_bound_attempts', 'the newest attempts contain more than one bound to this repeat take');
     const [attempt, next] = server.newest;
     if (!attempt?.isThisRepeat) return hold('not_newest_attempt', 'another attempt is newer than this repeat\'s, so the panel would not show it');
+    if (typeof server.boundId !== 'string' || server.boundId.length === 0 || attempt.id !== server.boundId) {
+        return hold('bound_read_mismatch', 'the bound attempt and the newest attempt are not the same row');
+    }
     // The panel reads the newest by accepted_at with no tie-break: a tie leaves which row it shows undetermined.
     const acceptedAt = (a: ServerAttempt) => (typeof a.acceptedAt === 'string' ? Date.parse(a.acceptedAt) : Number.NaN);
     if (!Number.isFinite(acceptedAt(attempt))) return hold('attempt_order_unknown', 'the bound attempt has no readable accepted_at');
