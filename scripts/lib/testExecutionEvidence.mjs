@@ -5,8 +5,8 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
-import {registeredHelper, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
-import {registeredSourceContract,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
+import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
+import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
@@ -168,9 +168,16 @@ export function executionRoute(file, root) {
   const fixture=registeredFixture(file);
   if(fixture) return {runner:'vitest-fixture',consumer:fixture.testFile,config:'frontend/vitest.config.mjs'};
   const helper = registeredHelper(file);
-  if (helper) return {runner:'vitest-helper', consumer:helper.testFile, config:HELPER_CONFIG};
-  if (registeredSourceContract(file)) return {runner:'vitest-source-contract',consumer:SOURCE_CONSUMER,
-    config:'frontend/vitest.config.mjs',liveExecution:'NOT RUN'};
+  if (helper) {
+    const availability=helperApplicability(root,file);
+    return {runner:'vitest-helper',consumer:helper.testFile,config:HELPER_CONFIG,applicable:availability.supported,
+      ...(!availability.supported?{unavailableReason:availability.reason}:{})};
+  }
+  if (registeredSourceContract(file)) {
+    const availability=sourceContractApplicability(root,file);
+    return {runner:'vitest-source-contract',consumer:SOURCE_CONSUMER,config:'frontend/vitest.config.mjs',liveExecution:'NOT RUN',
+      applicable:availability.supported,...(!availability.supported?{unavailableReason:availability.reason}:{})};
+  }
   if (sqlConsumers[file]) return sqlConsumers[file];
   if (file.endsWith('.sql')) return null;
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
@@ -204,6 +211,20 @@ export function changedEvidencePaths(root, base) {
   // lstat retains malformed existing entries (including dangling links) for refusal.
   return changedPaths(root,base).filter(file=>/^(tests\/|frontend\/tests\/|backend\/supabase\/functions\/.*(?:test|fixture))|\/(?:__tests__|__mocks__|fixtures|mocks)\/|\.(?:test|spec)\.|\.sql$/.test(file)
     && fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined);
+}
+
+export function executionRequiredFiles(root,base,kind='changed-evidence') {
+  if(kind==='changed-evidence') return changedEvidencePaths(root,base);
+  if(kind!=='registered-helpers') throw new Error('Unknown execution selection kind');
+  return HELPER_CONTRACTS.map(contract=>contract.helperFile)
+    .filter(file=>fs.lstatSync(path.join(root,file),{throwIfNoEntry:false})!==undefined).sort();
+}
+
+export function unavailableExecutionInputs(root,files) {
+  return [...new Set(files)].sort().flatMap(file=>{
+    const route=executionRoute(file,root);
+    return route?.applicable===false?[{file,reason:route.unavailableReason}]:[];
+  });
 }
 // Shared conservative policy; the consumer supplies the actual Git diff, not receipt claims.
 export function pilotAffectedByPaths(files) {
@@ -273,7 +294,11 @@ export function validateVitestExecution(receipt, expected, root) {
   assertProvenance(receipt?.provenance,expected);
   const entries=sourceEntries(root);
   if (hash(JSON.stringify(entries))!==expected.snapshotSha256) throw new Error('Execution source snapshot changed');
-  if (receipt.status!=='executed' || !receipt.tests?.length || !receipt.runId
+  const requiredFiles=executionRequiredFiles(root,receipt.base,receipt.executionKind || 'changed-evidence');
+  const unavailable=unavailableExecutionInputs(root,requiredFiles);
+  if(JSON.stringify(receipt.unavailable || [])!==JSON.stringify(unavailable)
+    || receipt.status!==(unavailable.length?'incomplete':'executed')) throw new Error('Wrong unsupported execution inventory/status');
+  if (!Array.isArray(receipt.tests) || !receipt.tests.length && !unavailable.length || !receipt.runId
     || ['commit','tree','snapshotSha256'].some(key=>receipt[key]!==expected[key])) throw new Error('Missing Vitest execution identity');
   const inputSha256=hash(JSON.stringify(entries.filter(([,digest])=>digest!=='deleted').map(([file,digest])=>[file,digest])));
   const runtime=runtimeIdentity(root);
@@ -334,7 +359,7 @@ export function executionCoverage(files, {root,expected,pilot,execution,base}={}
   const required=pilotAffectedByPaths(!base || base==='0'.repeat(40)?null:changes);
   let proven=null;
   if (pilot?.status==='executed') proven=validatePilotExecution(pilot,expected,root);
-  const executed=execution?.status==='executed'?validateVitestExecution(execution,expected,root):new Set();
+  const executed=['executed','incomplete'].includes(execution?.status)?validateVitestExecution(execution,expected,root):new Set();
   if ([...executed].some(file=>!files.includes(file))) throw new Error('Unexpected execution outside changed test selection');
   const rows=files.map(file=> {
     const route=executionRoute(file,root);

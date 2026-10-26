@@ -13,6 +13,34 @@ export const SOURCE_CONTRACTS=Object.freeze([
 ]);
 export const registeredSourceContract=file=>SOURCE_CONTRACTS.includes(file);
 
+export function sourceContractApplicability(root,file) {
+  if(!registeredSourceContract(file)) return {supported:false,reason:'unregistered source contract'};
+  try {read(root,SOURCE_CONSUMER);} catch {return {supported:false,reason:'source contract consumer unavailable or aliased'};}
+  try {
+    const source=read(root,file);
+    if(file===SOURCE_CONTRACTS[2]) {
+      const entry=JSON.parse(source).fixtures?.open_mic_tts;
+      if(!entry?.fillerAnnotations || !Array.isArray(entry.fillerAnnotations.items)
+        || typeof entry.fillerAnnotations.source!=='string') return {supported:false,reason:'receiving fixture annotations unavailable'};
+      read(root,'tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
+    } else {
+      const ts=createRequire(path.join(root,'package.json'))('typescript');
+      const parsed=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);
+      const module=file===SOURCE_CONTRACTS[0]?'./canaryStopSaveOracle':'./helpers/rwtFillerReference';
+      const names=file===SOURCE_CONTRACTS[0]?['collectCanaryStopSave','isOwnedStopSettledInPage','startOwnerId']
+        :['corpusRows','crossCheckCounts','fillerAnnotationsOf','hesitationTotals'];
+      const imports=parsed.statements.filter(node=>ts.isImportDeclaration(node) && node.moduleSpecifier.text===module)
+        .flatMap(node=>node.importClause?.namedBindings?.elements || [])
+        .filter(node=>!node.isTypeOnly && !node.parent.parent.isTypeOnly && (!node.propertyName || node.propertyName.text===node.name.text))
+        .map(node=>node.name.text);
+      if(parsed.parseDiagnostics.length || names.some(name=>imports.filter(value=>value===name).length!==1)) {
+        return {supported:false,reason:'receiving source imports/schema unavailable'};
+      }
+    }
+    return {supported:true};
+  } catch {return {supported:false,reason:'source contract inputs unavailable, aliased or unknown'};}
+}
+
 function read(root,file) {
   const target=path.join(root,file);
   if(!fs.lstatSync(target).isFile() || fs.realpathSync(target)!==target) throw new Error('Aliased source contract input');
@@ -146,6 +174,7 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
 
 export function sourceContractBinding(root,files) {
   if(!Array.isArray(files) || !files.length || new Set(files).size!==files.length || files.some(file=>!registeredSourceContract(file))) throw new Error('Unknown/duplicate source contract input');
+  if(files.some(file=>!sourceContractApplicability(root,file).supported)) throw new Error('Unsupported source contract input or consumer');
   const dependencies=[...files,SOURCE_CONSUMER,'scripts/lib/sourceContractEvidence.mjs'];
   if(files.includes(SOURCE_CONTRACTS[2])) dependencies.push('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh');
   return dependencies.map(file=>({file,sha256:hash(read(root,file))}));

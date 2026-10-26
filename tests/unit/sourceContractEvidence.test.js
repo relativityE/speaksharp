@@ -5,6 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {SOURCE_CONTRACTS,SOURCE_CONSUMER,SOURCE_ASSERTION,inspectSourceContract,sourceContractBinding,
   consumeSourceContracts,validateSourceContractWitness} from '../../scripts/lib/sourceContractEvidence.mjs';
+import {executionRoute} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const canary=`import {collectCanaryStopSave,isOwnedStopSettledInPage,startOwnerId} from './canaryStopSaveOracle';
@@ -66,6 +67,31 @@ function fixture(check) {
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 }
 
+test('baseline specs and unannotated fixture keep explicit refusal rather than a live or Vitest fallback',()=>fixture(({dir,write})=>{
+  for(const file of SOURCE_CONTRACTS) {
+    write(file,file.endsWith('.json')?JSON.stringify({fixtures:{open_mic_tts:{kind:'synthetic',groundTruthFillers:{um:4,uh:3,'you know':1}}}})
+      :'import {test} from "@playwright/test"; test("baseline",async()=>{});\n');
+    const route=executionRoute(file,dir);
+    assert.equal(route.runner,'vitest-source-contract');assert.equal(route.applicable,false);
+    assert.equal(route.liveExecution,'NOT RUN');assert.ok(route.unavailableReason);
+  }
+}));
+
+test('applicability never grants semantic credit and renamed imports remain unavailable',()=>fixture(({dir,write})=>{
+  const file=SOURCE_CONTRACTS[0];
+  assert.equal(executionRoute(file,dir).applicable,true);
+  write(file,canary.replace(".toBe('saved')",".not.toBe('saved')"));
+  assert.equal(executionRoute(file,dir).applicable,true,'known shape still needs the fault-sensitive consumer');
+  assert.throws(()=>consumeSourceContracts(dir,{phaseId:'semantic-fault',cwd:dir,testFile:path.join(dir,SOURCE_CONSUMER),
+    sourceContract:{files:[file],sourceBinding:sourceContractBinding(dir,[file])}}),/wiring contract failed/);
+  write(file,canary.replace('collectCanaryStopSave,','collectCanaryStopSave as renamedCollector,'));
+  assert.equal(executionRoute(file,dir).applicable,false);
+  write(file,canary.replace('import {','import type {'));
+  assert.equal(executionRoute(file,dir).applicable,false);
+  write(file,canary);fs.unlinkSync(path.join(dir,SOURCE_CONSUMER));
+  assert.equal(executionRoute(file,dir).applicable,false);
+}));
+
 test('source witness refuses stale bytes, missing consumer, wrong phase and fake live credit',()=>fixture(({dir,write})=>{
   const binding={phaseId:'independent-phase',cwd:dir,testFile:path.join(dir,SOURCE_CONSUMER),
     sourceContract:{files:[SOURCE_CONTRACTS[0]],sourceBinding:sourceContractBinding(dir,[SOURCE_CONTRACTS[0]]),
@@ -93,6 +119,10 @@ test('fixture contract consumes all annotations against the pinned generator, wi
     fillerAnnotations:{source:'script, not audio-bound',items},knownFixtureLimits:['needs human recording']}}};
   write('tests/fixtures/rwt/generate-rwt-tts-fixtures.sh',`OPEN_MIC="${items.map(({word,anchor})=>`${word}, ${anchor}`).join('. ')}"\n`);
   const source=JSON.stringify(manifest);
+  write(SOURCE_CONTRACTS[2],source);assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,true);
+  const absent=structuredClone(manifest);delete absent.fixtures.open_mic_tts.fillerAnnotations;
+  write(SOURCE_CONTRACTS[2],JSON.stringify(absent));assert.equal(executionRoute(SOURCE_CONTRACTS[2],dir).applicable,false);
+  write(SOURCE_CONTRACTS[2],source);
   const proof=inspectSourceContract(dir,SOURCE_CONTRACTS[2],source);
   assert.equal(proof.annotationCount,8);assert.equal(proof.audioExecution,'NOT RUN');
   const wrong=structuredClone(manifest);wrong.fixtures.open_mic_tts.groundTruthFillers.uh=2;

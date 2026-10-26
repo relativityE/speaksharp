@@ -7,9 +7,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
-import { executionContext, testEnvironment, pilotAffectedByPaths, changedEvidencePaths, executionRoute,
-  fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
-import {HELPER_CONTRACTS, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
+import { executionContext, testEnvironment, pilotAffectedByPaths, executionRoute,
+  executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
+import {HELPER_CONTRACTS,helperApplicability, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
 import {SOURCE_CONSUMER,sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -81,10 +81,12 @@ export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}=
     .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
     .map(file=>executionRoute(file,root).runner==='vitest-fixture'
       ? {testFile:executionRoute(file,root).consumer,fixtureFile:file}:{testFile:file}))
-    .concat(HELPER_CONTRACTS.filter(contract=>helpersOnly
-      ? fs.existsSync(path.join(root,contract.helperFile)):evidenceFiles.includes(contract.helperFile))
+    .concat(HELPER_CONTRACTS.filter(contract=>evidenceFiles.includes(contract.helperFile)
+      && helperApplicability(root,contract.helperFile).supported)
       .map(contract=>({...contract,helper:true})));
-  const sourceFiles=helpersOnly?[]:evidenceFiles.filter(file=>executionRoute(file,root)?.runner==='vitest-source-contract');
+  const sourceFiles=helpersOnly?[]:evidenceFiles.filter(file=>{
+    const route=executionRoute(file,root);return route?.runner==='vitest-source-contract' && route.applicable;
+  });
   if(sourceFiles.length) selected.push({testFile:SOURCE_CONSUMER,sourceFiles});
   // Deduplicate actual consumer execution, never a helper's callable proof.
   for(const contract of [...selected]) if(contract.helper || contract.sourceFiles) {
@@ -108,7 +110,9 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
     ...git(root, ['diff', '--name-only', '-z', 'HEAD']).split('\0'),
     ...git(root, ['ls-files', '--others', '--exclude-standard', '--exclude=/apt-bundle/', '-z']).split('\0'),
   ].filter(Boolean))] : null;
-  const evidenceFiles=executionOnly?changedEvidencePaths(root,base):[];
+  const executionKind=helpersOnly?'registered-helpers':'changed-evidence';
+  const evidenceFiles=executionOnly?executionRequiredFiles(root,base,executionKind):[];
+  const unavailable=executionOnly?unavailableExecutionInputs(root,evidenceFiles):[];
   const selected=executionOnly?selectExecutionContracts(root,evidenceFiles,{helpersOnly}):selectContracts(root,changed);
   if (!executionOnly && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
     throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
@@ -121,7 +125,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   const receipt = { schemaVersion: 2, runId: randomUUID(), scope: executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
     provenance,commit, tree, snapshotSha256: before.digest, base: base || null,
     selection: changed === null ? 'all-registered-no-base' : 'affected', changedPaths: changed,
-    status: selected.length ? 'executed' : 'not-applicable', contracts: [], tests: [] };
+    status: unavailable.length?'incomplete':selected.length?'executed':'not-applicable', contracts: [], tests: [],
+    ...(executionOnly?{executionKind,unavailable}:{}) };
   if (!selected.length) return receipt;
   // /tmp is a symlink on macOS. Compare real paths on both sides of the reporter boundary.
   const temporary = canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(), 'speaksharp-efficacy-')));

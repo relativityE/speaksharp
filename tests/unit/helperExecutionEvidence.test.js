@@ -7,8 +7,8 @@ import {execFileSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage,normalizedHelperWorkerFunctions,validateRawHelperFunctions} from '../../scripts/lib/helperExecutionEvidence.mjs';
-import {runVitestHelperExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
-import {executionContext, validateVitestExecution} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {runVitestHelperExecution,runVitestExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
+import {executionContext, validateVitestExecution,executionRoute,executionCoverage,changedEvidencePaths,readCurrentQuality} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 const {test} = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -66,6 +66,67 @@ function fixture() {
   git(['init']);git(['add','.']);git(['-c','user.name=Helper fixture','-c','user.email=helper@example.invalid','commit','--no-gpg-sign','-m','fixture']);
   return {directory,write,git,clean:()=>fs.rmSync(directory,{recursive:true,force:true})};
 }
+
+test('baseline landing with no receiving callable remains explicitly unsupported',()=>{
+  const f=fixture();
+  try {
+    f.write('tests/e2e/canaryLanding.ts','export function isExpectedAuthLanding(actual,expected) { return actual===expected; }\n');
+    f.write('tests/e2e/__tests__/canaryLanding.test.ts','// baseline consumer, no receiving callable\n');
+    const route=executionRoute('tests/e2e/canaryLanding.ts',f.directory);
+    assert.equal(route.applicable,false);assert.match(route.unavailableReason,/isProgressRoutePathname/);
+  } finally {f.clean();}
+});
+
+test('baseline journey without its registered consumer remains explicitly unsupported',()=>{
+  const f=fixture();
+  try {
+    f.write('tests/live/helpers/rwtJourney.ts','export async function analyticsThroughActions() {}\nexport async function backFromProgressRestoresSession() {}\n');
+    const route=executionRoute('tests/live/helpers/rwtJourney.ts',f.directory);
+    assert.equal(route.applicable,false);assert.match(route.unavailableReason,/consumer/);
+  } finally {f.clean();}
+});
+
+test('unsupported-only producer retains required paths and independently refuses empty-success or stale inventory',()=>{
+  const f=fixture();
+  try {
+    const base=f.git(['rev-parse','HEAD']);
+    const file='tests/e2e/canaryLanding.ts';
+    f.write(file,'export function isExpectedAuthLanding() { return true; }\n');
+    const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    const receipt=runVitestExecution({root:f.directory,base,provenance:expected});
+    assert.equal(receipt.status,'incomplete');assert.deepEqual(receipt.tests,[]);
+    assert.deepEqual(receipt.unavailable.map(item=>item.file),[file]);
+    assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[]);
+    const files=changedEvidencePaths(f.directory,base);
+    const coverage=executionCoverage(files,{root:f.directory,base,expected,execution:receipt});
+    assert.equal(coverage.status,'INCOMPLETE');assert.equal(coverage.rows[0].status,'NOT RUN');
+    const output=path.join(f.directory,'test-results/forged-quality.json');
+    fs.mkdirSync(path.dirname(output),{recursive:true});
+    fs.writeFileSync(output,JSON.stringify({provenance:expected,overallStatus:'QUALIFIED',testExecution:receipt,executionCoverage:coverage}));
+    assert.throws(()=>readCurrentQuality(output,expected,f.directory,base),/UNCOVERED\/NOT RUN/);
+    for(const corrupt of [r=>{r.status='executed';},r=>{r.unavailable=[];},r=>{r.unavailable[0].reason='other';},
+      r=>{r.executionKind='unknown';},r=>{r.provenance={...r.provenance,runAttempt:'wrong'};}]) {
+      const candidate=structuredClone(receipt);corrupt(candidate);
+      assert.throws(()=>validateVitestExecution(candidate,expected,f.directory));
+    }
+    // Restoring the receiving callable changes the real snapshot; its old
+    // refusal receipt cannot be reused as proof for that changed source.
+    f.write(file,'export function isExpectedAuthLanding() { return true; }\nexport function isProgressRoutePathname() { return true; }\n');
+    assert.throws(()=>validateVitestExecution(receipt,expected,f.directory),/snapshot changed/);
+  } finally {f.clean();}
+});
+
+test('renamed callable or removed consumer cannot borrow an available helper route',()=>{
+  const f=fixture();
+  try {
+    assert.equal(executionRoute(contract.helperFile,f.directory).applicable,true);
+    const original=fs.readFileSync(path.join(f.directory,contract.helperFile),'utf8');
+    f.write(contract.helperFile,original.replace(contract.callables[0],`renamed_${contract.callables[0]}`));
+    assert.equal(executionRoute(contract.helperFile,f.directory).applicable,false);
+    f.write(contract.helperFile,original);fs.unlinkSync(path.join(f.directory,contract.testFile));
+    assert.equal(executionRoute(contract.helperFile,f.directory).applicable,false);
+  } finally {f.clean();}
+});
 
 // Explicitly synthetic: these fixtures test the validation boundary, never prove
 // a real worker ran. Installed-runtime controls below retain genuine provider output.
@@ -271,6 +332,32 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
 });
 
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED mixed helper and baseline source retain real supported execution but refuse overall qualification',()=>{
+    const f=fixture();
+    try {
+      const base=f.git(['rev-parse','HEAD']);
+      f.write(contract.helperFile,fs.readFileSync(path.join(f.directory,contract.helperFile),'utf8')+'\n');
+      const landing='tests/e2e/canaryLanding.ts';
+      const source='tests/canary/smoke.canary.spec.ts';
+      f.write(landing,'export function isExpectedAuthLanding() { return true; }\n');
+      f.write(source,"import {test} from '@playwright/test'; test('baseline',async()=>{});\n");
+      const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+      for(const [run,kind,unsupported] of [[runVitestExecution,'changed-evidence',[landing,source]],
+        [runVitestHelperExecution,'registered-helpers',[landing]]]) {
+        const receipt=run({root:f.directory,base,provenance:expected});
+        assert.equal(receipt.executionKind,kind);assert.equal(receipt.status,'incomplete');
+        assert.deepEqual(receipt.unavailable.map(item=>item.file).sort(),unsupported.sort());
+        assert.equal(receipt.tests.length,1);assert.equal(receipt.tests[0].helperFile,contract.helperFile);
+        assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
+        const coverage=executionCoverage(changedEvidencePaths(f.directory,base),{root:f.directory,base,expected,execution:receipt});
+        assert.equal(coverage.rows.find(row=>row.file===contract.helperFile).status,'EXECUTED');
+        for(const file of [landing,source]) assert.equal(coverage.rows.find(row=>row.file===file).status,'NOT RUN');
+        assert.equal(coverage.status,'INCOMPLETE');
+        const forged=structuredClone(receipt);forged.unavailable=[];forged.status='executed';
+        assert.throws(()=>validateVitestExecution(forged,expected,f.directory),/unsupported execution inventory/);
+      }
+    } finally {f.clean();}
+  });
   test('INSTALLED typed arrow spans bind only the parameter/declaration and terminal-semicolon boundaries',()=>{
     const f=fixture();
     try {

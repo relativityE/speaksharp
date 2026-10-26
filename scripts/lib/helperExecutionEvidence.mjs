@@ -35,6 +35,32 @@ export function registeredHelper(file) {
   return HELPER_CONTRACTS.find(contract => contract.helperFile === file);
 }
 
+// Applicability selects an executable registered edge; it never grants credit.
+// Unsupported baseline/partial shapes remain required, explicitly unqualified
+// inputs in the producer and the independent coverage inventory.
+export function helperApplicability(root,file) {
+  const contract=registeredHelper(file);
+  if(!contract) return {supported:false,reason:'unregistered helper'};
+  try {regularFile(root,contract.helperFile);} catch {return {supported:false,reason:'helper source unavailable or aliased'};}
+  try {regularFile(root,contract.testFile);} catch {return {supported:false,reason:`registered consumer unavailable: ${contract.testFile}`};}
+  try {
+    const ts=createRequire(path.join(root,'package.json'))('typescript');
+    const parsed=ts.createSourceFile(file,fs.readFileSync(path.join(root,file),'utf8'),ts.ScriptTarget.Latest,true);
+    if(parsed.parseDiagnostics.length) return {supported:false,reason:'unknown helper syntax'};
+    for(const name of contract.callables) {
+      const declarations=[];
+      for(const node of parsed.statements) {
+        if(ts.isFunctionDeclaration(node) && node.name?.text===name && node.body) declarations.push(node);
+        if(ts.isVariableStatement(node)) for(const item of node.declarationList.declarations) {
+          if(ts.isIdentifier(item.name) && item.name.text===name && item.initializer && ts.isArrowFunction(item.initializer)) declarations.push(item);
+        }
+      }
+      if(declarations.length!==1) return {supported:false,reason:`registered callable unavailable or ambiguous: ${name}`};
+    }
+    return {supported:true};
+  } catch {return {supported:false,reason:'helper applicability could not be established'};}
+}
+
 function regularFile(root, relative) {
   if (!relative || path.isAbsolute(relative) || relative.includes('\\') || path.posix.normalize(relative) !== relative
     || relative.startsWith('../')) throw new Error('Invalid helper evidence path');
@@ -247,6 +273,7 @@ export default {
 export function validateHelperCoverage(raw, binding, root) {
   const contract = registeredHelper(binding?.helper?.helperFile);
   if (!contract || contract.testFile !== binding.helper.testFile) throw new Error('Unregistered helper/consumer edge');
+  if(!helperApplicability(root,contract.helperFile).supported) throw new Error('Unavailable helper execution route');
   if (!path.isAbsolute(binding.cwd || '') || path.normalize(binding.cwd) !== binding.cwd
     || path.dirname(binding.coverageDirectory || '') !== binding.cwd
     || !path.basename(binding.coverageDirectory).startsWith('.helper-coverage-')) throw new Error('Aliased helper phase path');

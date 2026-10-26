@@ -11,6 +11,7 @@ import {executionContext,assertProvenance,executionRoute,executionCoverage,valid
 import {runtimeIdentity,canonicalPath} from '../../scripts/efficacy-reporter.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import {dependencyPaths,runVitestExecution,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
+import {HELPER_CONTRACTS} from '../../scripts/lib/helperExecutionEvidence.mjs';
 const framework=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const {test:registerTest}=framework;
 const fixtureConsumer=registeredFixture('tests/fixtures/efficacy/service-level-evidence.adfeab34.yml');
@@ -33,6 +34,12 @@ test('routes approved source contracts separately from actual live execution',()
   assert.equal(executionRoute('tests/live/unregistered.live.spec.ts',root).runner,'playwright-live');
 });
 test('deduplicates bound helper consumers within eight phases and still refuses a ninth',()=>{
+  // A planner fixture represents the receiving shape, not a claim that future
+  // callables/consumers already exist on the main-branch baseline.
+  const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'receiving-phase-plan-')));
+  const write=(file,source)=>{fs.mkdirSync(path.dirname(path.join(dir,file)),{recursive:true});fs.writeFileSync(path.join(dir,file),source);};
+  try {
+  write('package.json','{}');fs.symlinkSync(path.join(root,'node_modules'),path.join(dir,'node_modules'),'dir');
   const pairs=[
     ['tests/canary/canaryStopSaveOracle.ts','tests/unit/canaryStopSaveOracle.test.ts'],
     ['tests/e2e/canaryLanding.ts','tests/e2e/__tests__/canaryLanding.test.ts'],
@@ -40,15 +47,23 @@ test('deduplicates bound helper consumers within eight phases and still refuses 
     ['tests/live/helpers/rwtOracles.ts','tests/unit/rwtReadbackBindingReasons1258.test.ts'],
     ['tests/live/helpers/rwtStepDiagnostics.ts','tests/unit/rwtStepDiagnostics1258.test.ts'],
   ];
+  for(const [helperFile,testFile] of pairs) {
+    const contract=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
+    write(helperFile,contract.callables.map(name=>`export function ${name}() { return true; }`).join('\n'));
+    write(testFile,'// planning identity only, no execution credit\n');
+  }
+  write('tests/unit/sourceContractEvidence.test.js','// planning consumer only\n');
+  write('tests/canary/smoke.canary.spec.ts',"import {collectCanaryStopSave,isOwnedStopSettledInPage,startOwnerId} from './canaryStopSaveOracle';\n");
   const files=[...pairs.flat(),'tests/unit/humanTestCdpTarget.test.js','tests/unit/rwtReadbackActionBinding1570.test.ts','tests/canary/smoke.canary.spec.ts'];
-  const selected=selectExecutionContracts(root,files);
+  const selected=selectExecutionContracts(dir,files);
   assert.equal(selected.length,8);
   assert.equal(selected.filter(item=>item.helper && item.consumerExecution).length,5);
   assert.equal(new Set(selected.map(item=>item.testFile)).size,8);
-  assert.throws(()=>selectExecutionContracts(root,[...files,'tests/unit/extra.test.ts']),/budget exceeds 8/);
-  const helperOnly=selectExecutionContracts(root,[pairs[0][0]]);
+  assert.throws(()=>selectExecutionContracts(dir,[...files,'tests/unit/extra.test.ts']),/budget exceeds 8/);
+  const helperOnly=selectExecutionContracts(dir,[pairs[0][0]]);
   assert.equal(helperOnly.length,1);assert.equal(helperOnly[0].consumerExecution,undefined);
-  assert.deepEqual(selectExecutionContracts(root,['tests/live/helpers/unregistered.ts']),[]);
+  assert.deepEqual(selectExecutionContracts(dir,['tests/live/helpers/unregistered.ts']),[]);
+  } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const context=()=>executionContext(root,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
