@@ -98,3 +98,19 @@ describe('the ambiguity error never echoes a raw target URL', () => {
         expect(error).toContain('(session)');
     });
 });
+
+describe.each(['/progress', '/analytics'])('Progress target classification: %s', (route) => {
+    it('keeps internal Analytics categories and redacts canonical and legacy IDs', () => {
+        for (const suffix of ['', '/', '/private-session-identity', '/private-session-identity/']) {
+            const safe = safeTargetForEvidence(page(`${APP}${route}${suffix}?token=SECRET#ALSO_SECRET`));
+            expect(safe.route).toBe('analytics');
+            expect(safe.routeHash).toMatch(/^[0-9a-f]{12}$/);
+            expect(JSON.stringify(safe)).not.toMatch(/private-session-identity|SECRET|token=|\?|#/);
+        }
+    });
+    it('does not classify lookalike paths, query-only mentions or extra segments as Analytics', () => {
+        for (const pathname of [`${route}ive`, `${route}-archive`, `${route}/s-1/extra`, `/other?next=${route}`]) {
+            expect(safeTargetForEvidence(page(`${APP}${pathname}`)).route).toBe('other');
+        }
+    });
+});
