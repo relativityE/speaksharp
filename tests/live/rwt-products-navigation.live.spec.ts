@@ -43,7 +43,9 @@ import { openProductsItem, type ProductsMenuItem } from './helpers/productsMenu'
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { knownSessionCount, navigationWritesVerdict } from './helpers/rwtNavigationCounts';
-import { armPasswordSignInObserver, pageAttemptEvents, returningSignInVerdict, type SignInAttemptOutcome } from './helpers/returningSignInAttempt';
+import {
+    armPasswordSignInObserver, pageAttemptEvents, returningSignInVerdict, runDeepLinkReturn, type MicRead, type SignInAttemptOutcome,
+} from './helpers/returningSignInAttempt';
 
 const SUITE = 'returning-user-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -69,6 +71,12 @@ const products = (page: Page, item: ProductsMenuItem): Promise<boolean> =>
 const readUid = async (page: Page) => extractUidFromAuthStorage(await page.evaluate(
     () => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })),
 ));
+
+/** G04: the current document's microphone acquisitions and that document's identity, or null when the counter is absent. */
+const readMicCounter = (page: Page): Promise<MicRead | null> => page.evaluate(() => {
+    const marks = (window as unknown as { __rwtMicAcquisitions__?: unknown }).__rwtMicAcquisitions__;
+    return Array.isArray(marks) ? { count: marks.length, document: performance.timeOrigin } : null;
+}).catch(() => null);
 
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
@@ -145,7 +153,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 // credential is account repair and a setup/network/service fault is inconclusive (both HOLD); only a valid
                 // token that fails to establish its own session, or Practice, is a product FAIL.
                 const started = Date.now();
-                const after = { sessionUserMatches: false, practiceVisible: false };
+                const after = { sessionUserMatches: false, landed: false };
                 let outcome: SignInAttemptOutcome;
                 if (await readUid(page)) {
                     outcome = { kind: 'inconclusive', status: null, reason: 'preexisting_session' };
@@ -167,7 +175,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                             // A boolean poll, so no identifier reaches an assertion message.
                             after.sessionUserMatches = await expect.poll(async () => (await readUid(page)) === expected, { timeout: 60_000 })
                                 .toBe(true).then(() => true, () => false);
-                            after.practiceVisible = after.sessionUserMatches && await page.getByTestId('practice-root')
+                            after.landed = after.sessionUserMatches && await page.getByTestId('practice-root')
                                 .waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false);
                         }
                         // Read AFTER the session/Practice wait: another password grant in that window could have supplied
@@ -178,7 +186,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                         attempt.dispose();
                     }
                 }
-                const verdict = returningSignInVerdict(outcome, after);
+                const verdict = returningSignInVerdict(outcome, after, 'Practice');
                 receipt.row('returning-user sign-in', verdict.verdict, verdict.detail, {
                     outcome: outcome.kind, status: outcome.status, reason: outcome.kind === 'inconclusive' ? outcome.reason : null,
                     signinMs: Date.now() - started,
@@ -190,6 +198,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             let uid = '';
             let sessionsBefore: number | null = null;
             let completedBefore: number | null = null;
+            let accountVerified = false;
             await test.step('the existing account is state-verified (read-only)', async () => {
                 uid = (await readUid(page)) ?? '';
                 const { data: user, error } = await admin!.auth.admin.getUserById(uid);
@@ -206,6 +215,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 }
                 sessionsBefore = all;
                 completedBefore = done;
+                accountVerified = sameAccount && Boolean(profile);
                 receipt.row('returning account state', sameAccount && profile ? 'PASS' : 'FAIL',
                     sameAccount ? (profile ? 'the signed-in account is the intended existing account, with a profile' : 'the existing account has no profile') : 'the session is not the intended account',
                     { priorCompletedSessions: completedBefore });
@@ -262,6 +272,8 @@ test.describe('RWT — returning user and Products navigation @live', () => {
 
             // ── Nothing opened the microphone; navigation wrote nothing ──────────────────────────────────
             const mic = (await micAcquisitions(page)).length;
+            // G04 binds the deep-link microphone span to this judged count and its document.
+            const micBaselineRead = await readMicCounter(page);
             receipt.row('no mic on navigation', mic === 0 ? 'PASS' : 'FAIL', mic === 0 ? 'no step opened the microphone' : 'navigation opened the microphone', { acquisitions: mic });
             const { count: after, error } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
             if (error) throw new Error(`session count failed (fail closed): ${error.code ?? 'unknown'}`);
@@ -281,6 +293,59 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 sessionCleared ? 'the product sign-out cleared the session'
                     : signOutPath === null ? 'no product sign-out control could be used' : 'sign-out did not clear the session',
                 { path: signOutPath ?? 'none', sessionCleared });
+
+            // ── G04 (#1548 / #1718): a signed-out deep link returns, after sign-in, to its exact Progress session ─────────
+            // Routing only; the rendered detail is not claimed. Gated on the verified account and its cleared first session, and
+            // the second sign-in must be that same account. The session is read by id only and forbidden in the receipt.
+            await test.step('a signed-out deep link returns to its exact Progress session after sign-in', async () => {
+                if (!accountVerified || !sessionCleared) {
+                    receipt.row('signed-in deep-link return', 'HOLD', 'routing unproven: needs the verified returning account and its cleared first session');
+                    return;
+                }
+                const { data: newest, error: newestErr } = await admin!.from('sessions').select('id')
+                    .eq('user_id', uid).eq('status', 'completed').order('created_at', { ascending: false }).limit(1).maybeSingle();
+                const targetId = !newestErr && typeof newest?.id === 'string' && newest.id.length > 0 ? newest.id : null;
+                if (!targetId) {
+                    receipt.row('signed-in deep-link return', 'HOLD', 'routing unproven: no completed session to link to, or the read failed');
+                    return;
+                }
+                receipt.forbid(targetId);
+                const target = { pathname: `/progress/${targetId}`, search: '?g04=1', hash: '#history' };
+                // The orchestration lives in `runDeepLinkReturn`; these are its Playwright and receipt adapters. Boolean
+                // polls and a pathname-only wait, so no identifier reaches an assertion message.
+                await runDeepLinkReturn({
+                    target, verifiedUserId: uid, micBaseline: mic, micBaselineRead,
+                    openLegacyLink: async () => {
+                        await page.goto(`/analytics/${targetId}?g04=1#history`);
+                        await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
+                    },
+                    armObserver: () => armPasswordSignInObserver(pageAttemptEvents(page), {
+                        authOrigin: SUPABASE_URL ? new URL(SUPABASE_URL).origin : '', timeoutMs: 60_000,
+                    }),
+                    submit: async () => {
+                        await page.getByTestId('email-input').fill(RETURNING_EMAIL);
+                        await page.getByTestId('password-input').fill(RETURNING_PASSWORD);
+                        await page.getByTestId('sign-in-submit').click();
+                    },
+                    isClosed: () => page.isClosed(),
+                    sessionUserId: () => readUid(page),
+                    awaitSessionUser: (expected) => expect.poll(async () => (await readUid(page)) === expected, { timeout: 60_000 })
+                        .toBe(true).then(() => true, () => false),
+                    awaitLanding: () => page.waitForURL((url) => url.pathname === target.pathname, { timeout: 30_000 }),
+                    url: () => new URL(page.url()),
+                    micAcquisitions: () => readMicCounter(page),
+                    signOut: () => signOutThroughProduct(page as never),
+                    awaitSessionCleared: () => expect.poll(() => readUid(page), { timeout: 30_000 }).toBeFalsy().then(() => true, () => false),
+                    recordWrites: async () => {
+                        const { count: afterDeepLink, error: countErr } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
+                        const writes = countErr ? { status: 'HOLD' as const, detail: 'the session count could not be read back' } : navigationWritesVerdict(sessionsBefore, afterDeepLink);
+                        receipt.row('deep-link return writes nothing', writes.status, writes.detail, { sessionsBefore, sessionsAfter: countErr ? null : afterDeepLink });
+                    },
+                    row: (name, verdict, detail, data) => receipt.row(name, verdict, detail, data),
+                });
+            });
+            // ── end G04 ───────────────────────────────────────────────────────────────────────────────────────────────
+
             if (historyUnproven) throw new Error('HOLD returning history: the returning-user account has no saved session, so returning history is unproven');
         } finally {
             await finish();
