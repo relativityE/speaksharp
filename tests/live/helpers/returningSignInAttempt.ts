@@ -253,6 +253,8 @@ export interface DeepLinkReturnPorts {
     verifiedUserId: string;
     /** Acquisitions the journey's own `no mic on navigation` row already judged, in the first document. */
     micBaseline: number;
+    /** The counter read taken right after that judgement, binding the baseline to its document (null when unread). */
+    micBaselineRead: MicRead | null;
     /** Hard-navigates the legacy link while signed out and waits for the auth form it produced. */
     openLegacyLink(): Promise<void>;
     armObserver(): PasswordSignInAttempt;
@@ -267,7 +269,7 @@ export interface DeepLinkReturnPorts {
     micAcquisitions(): Promise<MicRead | null>;
     signOut(): Promise<'direct' | 'menu'>;
     awaitSessionCleared(): Promise<boolean>;
-    /** Reads back the session count and writes the `deep-link return writes nothing` row. */
+    /** Reads back the session count and writes the `deep-link return writes nothing` row; rejects when it cannot. */
     recordWrites(): Promise<void>;
     row(name: string, verdict: RowVerdict, detail: string, evidence?: Record<string, string | number | boolean | null>): void;
 }
@@ -280,21 +282,45 @@ const errorClass = (error: unknown): string =>
     error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
 
 /**
+ * Microphone acquisitions from the journey's judged baseline through the end of the deep-link document, or null when
+ * that span is not observed whole: the baseline must be bound to the first document, the hard navigation must load a
+ * new document, every read must stay in its document, and no count may fall. A gap is never a zero.
+ */
+function micAcquisitionsSinceBaseline(
+    baseline: { judged: number; read: MicRead | null },
+    first: MicRead | null, deepLinkStart: MicRead | null, deepLinkEnd: MicRead | null,
+): { sinceJourney: number; deepLinkDocument: number } | null {
+    const { judged, read } = baseline;
+    if (!read || read.count !== judged || !first || !deepLinkStart || !deepLinkEnd) return null;
+    if (first.document !== read.document || first.count < read.count) return null;
+    if (deepLinkStart.document === first.document) return null;
+    if (deepLinkEnd.document !== deepLinkStart.document || deepLinkEnd.count < deepLinkStart.count) return null;
+    return { sinceJourney: first.count - read.count, deepLinkDocument: deepLinkEnd.count };
+}
+
+/**
  * G04: the deep-link return and its cleanup, in order; cleanup always runs. Nothing raw is rethrown: a harness failure is
- * a HOLD row and, after cleanup, one sanitized error naming its phase and error class.
+ * a HOLD row and, after every stage has run, one sanitized error naming the first failed phase and its error class.
  *
  * - The second attempt is armed only after a fresh read shows no session (preexisting or unobservable is HOLD).
  * - A page that closes after the token settled leaves the routing unproven (context_closed), whatever the URL read before.
- * - No microphone from the journey's sign-out through the deep-link document; the counter's document identity binds
- *   the reads, so a missed or reset counter is HOLD, never a zero.
- * - Cleanup signs out only a session it observes; a verified absent session is already clear; unobservable is HOLD.
+ * - No microphone from the journey's judged baseline through the deep-link document (`micAcquisitionsSinceBaseline`).
+ * - Finalization stages (microphone, session cleanup, write readback) are isolated: each failure is that stage's HOLD,
+ *   and the later stages still run.
+ * - Cleanup signs out only a session it observes, and judges the result tri-state again after the clear wait: absent is
+ *   PASS, a readable session still present is FAIL, a closed or unreadable page is HOLD.
  */
 export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<void> {
     const { target } = ports;
     const run: { failure: string | null; navigated: boolean; deepLinkDocument: MicRead | null } = { failure: null, navigated: false, deepLinkDocument: null };
+    /** Records the first sanitized failure; returns the closed error class for the row. */
+    const note = (phase: string, error: unknown): string => {
+        const name = errorClass(error);
+        run.failure ??= `HOLD ${DEEP_LINK_ROW}: the ${phase} failed (${name})`;
+        return name;
+    };
     const halt = (phase: string, error: unknown) => {
-        run.failure = `HOLD ${DEEP_LINK_ROW}: the ${phase} failed (${errorClass(error)})`;
-        ports.row(DEEP_LINK_ROW, 'HOLD', `routing unproven: the ${phase} failed (${errorClass(error)})`);
+        ports.row(DEEP_LINK_ROW, 'HOLD', `routing unproven: the ${phase} failed (${note(phase, error)})`);
     };
     const sessionState = async (): Promise<SessionState> => (ports.isClosed()
         ? 'unobservable'
@@ -358,37 +384,61 @@ export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<voi
         halt('deep-link return', error);
     } finally {
         const { navigated, deepLinkDocument } = run;
+        const MIC_ROW = 'no mic on the deep-link return';
+        const CLEANUP_ROW = 'signed out after the deep-link return';
+        const WRITES_ROW = 'deep-link return writes nothing';
+
         // Microphone: read in the deep-link document before the sign-out can leave it.
-        const lastRead = navigated ? await readMic() : null;
-        const sinceJourney = firstDocument === null ? null : firstDocument.count - ports.micBaseline;
-        const sameDocument = deepLinkDocument !== null && lastRead !== null && lastRead.document === deepLinkDocument.document
-            && firstDocument !== null && deepLinkDocument.document !== firstDocument.document;
-        if (sinceJourney === null || !sameDocument || !lastRead) {
-            ports.row('no mic on the deep-link return', 'HOLD', 'the microphone counter could not be read through the deep-link document',
-                { navigated, counterRead: lastRead !== null });
-        } else {
-            const acquisitions = sinceJourney + lastRead.count;
-            ports.row('no mic on the deep-link return', acquisitions === 0 ? 'PASS' : 'FAIL',
-                acquisitions === 0 ? 'nothing opened the microphone from the sign-out through the deep-link return'
-                    : 'the microphone was opened between the sign-out and the end of the deep-link return',
-                { afterSignOut: sinceJourney, deepLinkDocument: lastRead.count });
+        try {
+            const lastRead = navigated ? await readMic() : null;
+            const span = micAcquisitionsSinceBaseline({ judged: ports.micBaseline, read: ports.micBaselineRead }, firstDocument, deepLinkDocument, lastRead);
+            if (!span) {
+                ports.row(MIC_ROW, 'HOLD', 'the microphone counter was not observed whole from the journey\'s baseline through the deep-link document',
+                    { navigated, counterRead: lastRead !== null });
+            } else {
+                const acquisitions = span.sinceJourney + span.deepLinkDocument;
+                ports.row(MIC_ROW, acquisitions === 0 ? 'PASS' : 'FAIL',
+                    acquisitions === 0 ? 'nothing opened the microphone from the sign-out through the deep-link return'
+                        : 'the microphone was opened between the sign-out and the end of the deep-link return',
+                    { afterSignOut: span.sinceJourney, deepLinkDocument: span.deepLinkDocument });
+            }
+        } catch (error) {
+            ports.row(MIC_ROW, 'HOLD', `the microphone check failed (${note('microphone check', error)})`);
         }
 
-        // Sign out only a session that exists; a verified absent session needs no sign-out control.
-        const state = await sessionState();
-        if (state === 'absent') {
-            ports.row('signed out after the deep-link return', 'PASS', 'no second session exists to clear', { path: 'none', sessionCleared: true, sessionPresent: false });
-        } else if (state === 'unobservable') {
-            ports.row('signed out after the deep-link return', 'HOLD', 'the second session state could not be observed', { path: 'none', sessionCleared: null, sessionPresent: null });
-        } else {
-            let returnSignOut: 'direct' | 'menu' | null = null;
-            try { returnSignOut = await ports.signOut(); } catch { returnSignOut = null; }
-            const cleared = returnSignOut !== null && await ports.awaitSessionCleared();
-            ports.row('signed out after the deep-link return', cleared ? 'PASS' : 'FAIL',
-                cleared ? 'the product sign-out cleared the second session' : 'the second session was not cleared',
-                { path: returnSignOut ?? 'none', sessionCleared: cleared, sessionPresent: true });
+        // Sign out only a session that exists, then judge the result tri-state again: a closed or unreadable page after
+        // the sign-out is unobservable, not a product failure.
+        try {
+            const before = await sessionState();
+            if (before === 'absent') {
+                ports.row(CLEANUP_ROW, 'PASS', 'no second session exists to clear', { path: 'none', sessionCleared: true, sessionPresent: false });
+            } else if (before === 'unobservable') {
+                ports.row(CLEANUP_ROW, 'HOLD', 'the second session state could not be observed', { path: 'none', sessionCleared: null, sessionPresent: null });
+            } else {
+                let returnSignOut: 'direct' | 'menu' | null = null;
+                try { returnSignOut = await ports.signOut(); } catch { returnSignOut = null; }
+                const cleared = returnSignOut !== null && await ports.awaitSessionCleared();
+                const after: SessionState = cleared ? 'absent' : await sessionState();
+                const path = returnSignOut ?? 'none';
+                if (after === 'absent') {
+                    ports.row(CLEANUP_ROW, 'PASS', 'the product sign-out cleared the second session', { path, sessionCleared: true, sessionPresent: true });
+                } else if (after === 'unobservable') {
+                    ports.row(CLEANUP_ROW, 'HOLD', 'the second session state could not be observed after the sign-out', { path, sessionCleared: null, sessionPresent: true });
+                } else {
+                    ports.row(CLEANUP_ROW, 'FAIL',
+                        returnSignOut === null ? 'no product sign-out control could be used' : 'the second session was not cleared',
+                        { path, sessionCleared: false, sessionPresent: true });
+                }
+            }
+        } catch (error) {
+            ports.row(CLEANUP_ROW, 'HOLD', `the session cleanup failed (${note('session cleanup', error)})`, { sessionCleared: null });
         }
-        await ports.recordWrites();
+
+        try {
+            await ports.recordWrites();
+        } catch (error) {
+            ports.row(WRITES_ROW, 'HOLD', `the session count could not be read back (${note('write readback', error)})`);
+        }
     }
     if (run.failure) throw new Error(run.failure);
 }

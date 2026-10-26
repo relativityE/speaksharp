@@ -44,7 +44,7 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { knownSessionCount, navigationWritesVerdict } from './helpers/rwtNavigationCounts';
 import {
-    armPasswordSignInObserver, pageAttemptEvents, returningSignInVerdict, runDeepLinkReturn, type SignInAttemptOutcome,
+    armPasswordSignInObserver, pageAttemptEvents, returningSignInVerdict, runDeepLinkReturn, type MicRead, type SignInAttemptOutcome,
 } from './helpers/returningSignInAttempt';
 
 const SUITE = 'returning-user-navigation';
@@ -71,6 +71,12 @@ const products = (page: Page, item: ProductsMenuItem): Promise<boolean> =>
 const readUid = async (page: Page) => extractUidFromAuthStorage(await page.evaluate(
     () => Object.keys(localStorage).map((k) => ({ key: k, value: localStorage.getItem(k) ?? '' })),
 ));
+
+/** G04: the current document's microphone acquisitions and that document's identity, or null when the counter is absent. */
+const readMicCounter = (page: Page): Promise<MicRead | null> => page.evaluate(() => {
+    const marks = (window as unknown as { __rwtMicAcquisitions__?: unknown }).__rwtMicAcquisitions__;
+    return Array.isArray(marks) ? { count: marks.length, document: performance.timeOrigin } : null;
+}).catch(() => null);
 
 /** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
 const finalizer = new JourneyFinalizer();
@@ -266,6 +272,8 @@ test.describe('RWT — returning user and Products navigation @live', () => {
 
             // ── Nothing opened the microphone; navigation wrote nothing ──────────────────────────────────
             const mic = (await micAcquisitions(page)).length;
+            // G04 binds the deep-link microphone span to this judged count and its document.
+            const micBaselineRead = await readMicCounter(page);
             receipt.row('no mic on navigation', mic === 0 ? 'PASS' : 'FAIL', mic === 0 ? 'no step opened the microphone' : 'navigation opened the microphone', { acquisitions: mic });
             const { count: after, error } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
             if (error) throw new Error(`session count failed (fail closed): ${error.code ?? 'unknown'}`);
@@ -306,7 +314,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 // The orchestration lives in `runDeepLinkReturn`; these are its Playwright and receipt adapters. Boolean
                 // polls and a pathname-only wait, so no identifier reaches an assertion message.
                 await runDeepLinkReturn({
-                    target, verifiedUserId: uid, micBaseline: mic,
+                    target, verifiedUserId: uid, micBaseline: mic, micBaselineRead,
                     openLegacyLink: async () => {
                         await page.goto(`/analytics/${targetId}?g04=1#history`);
                         await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
@@ -325,10 +333,7 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                         .toBe(true).then(() => true, () => false),
                     awaitLanding: () => page.waitForURL((url) => url.pathname === target.pathname, { timeout: 30_000 }),
                     url: () => new URL(page.url()),
-                    micAcquisitions: () => page.evaluate(() => {
-                        const marks = (window as unknown as { __rwtMicAcquisitions__?: unknown }).__rwtMicAcquisitions__;
-                        return Array.isArray(marks) ? { count: marks.length, document: performance.timeOrigin } : null;
-                    }).catch(() => null),
+                    micAcquisitions: () => readMicCounter(page),
                     signOut: () => signOutThroughProduct(page as never),
                     awaitSessionCleared: () => expect.poll(() => readUid(page), { timeout: 30_000 }).toBeFalsy().then(() => true, () => false),
                     recordWrites: async () => {

@@ -141,7 +141,9 @@ describe('G04 the RWT-15 spec step is gated, hard-navigates the legacy link, and
         const run = step.indexOf('await runDeepLinkReturn({');
         const gotoLegacy = step.indexOf('await page.goto(`/analytics/${targetId}?g04=1#history`)');
         expect(run).toBeGreaterThan(step.indexOf('receipt.forbid(targetId)'));
-        expect(step).toMatch(/target, verifiedUserId: uid, micBaseline: mic,/);
+        expect(step).toMatch(/target, verifiedUserId: uid, micBaseline: mic, micBaselineRead,/);
+        expect(spec).toMatch(/const mic = \(await micAcquisitions\(page\)\)\.length;\n\s+\/\/ [^\n]*\n\s+const micBaselineRead = await readMicCounter\(page\);/);
+        expect(step).toMatch(/micAcquisitions: \(\) => readMicCounter\(page\),/);
         expect(gotoLegacy).toBeGreaterThan(run);
         expect(step).toMatch(/armObserver: \(\) => armPasswordSignInObserver\(pageAttemptEvents\(page\)/);
         expect(step).toMatch(/getByTestId\('sign-in-submit'\)\.click\(\)/);
@@ -169,10 +171,17 @@ function harness(script: {
     micAfterSignOut?: number;
     reloadAfterSubmit?: boolean;
     submitThrows?: boolean;
+    micBaseline?: number;
+    micBaselineRead?: 'bound' | 'other-document' | 'count-mismatch' | 'missing';
+    micDecrease?: 'none' | 'deep-link' | 'first-document';
+    clearWait?: 'ok' | 'close' | 'unreadable' | 'reject' | 'stuck';
+    signOutCloses?: boolean;
+    recordWritesRejects?: boolean;
 } = {}) {
     const s = {
         token: 'ok', closeAt: 'never', sessionAfterSignIn: true, preexistingSession: false, navigation: 'ok', micInDeepLink: 0,
-        micAfterSignOut: 0, reloadAfterSubmit: false, submitThrows: false, ...script,
+        micAfterSignOut: 0, reloadAfterSubmit: false, submitThrows: false, micBaseline: 0, micBaselineRead: 'bound',
+        micDecrease: 'none', clearWait: 'ok', signOutCloses: false, recordWritesRejects: false, ...script,
     };
     const rows: Row[] = [];
     const log: string[] = [];
@@ -187,19 +196,27 @@ function harness(script: {
         onClose: (l) => { listeners.close.add(l); return () => { listeners.close.delete(l); }; },
     };
     let closed = false;
+    let unreadable = false;
     let session: string | null = null;
     let document = 1;
-    let mic = s.micAfterSignOut;
+    // The journey's own mic row judged `micBaseline` in document 1; a first-document decrease starts below it.
+    let mic = s.micDecrease === 'first-document' ? 0 : s.micBaseline + s.micAfterSignOut;
+    const baselineRead = {
+        bound: { count: s.micBaseline, document: 1 },
+        'other-document': { count: s.micBaseline, document: 9 },
+        'count-mismatch': { count: s.micBaseline + 1, document: 1 },
+        missing: null,
+    }[s.micBaselineRead];
     const close = () => { closed = true; listeners.close.forEach((l) => l()); };
     const ports = {
-        target: TARGET, verifiedUserId: 'u-verified', micBaseline: 0,
+        target: TARGET, verifiedUserId: 'u-verified', micBaseline: s.micBaseline, micBaselineRead: baselineRead,
         openLegacyLink: async () => {
             log.push('goto');
             if (s.navigation === 'fail') {
                 throw new Error(`page.goto: net::ERR_ABORTED at https://speaksharp.example/analytics/${ID}?g04=1#history`);
             }
             document = 2;
-            mic = 0;
+            mic = s.micDecrease === 'deep-link' ? 1 : 0;
             if (s.preexistingSession) session = 'u-verified';
         },
         armObserver: () => { log.push('arm'); return attempt.armPasswordSignInObserver(events, { authOrigin: AUTH, timeoutMs: 50 }); },
@@ -219,11 +236,13 @@ function harness(script: {
         isClosed: () => closed,
         sessionUserId: async () => {
             if (closed) throw new Error('Target page, context or browser has been closed');
+            if (unreadable) throw new Error('page.evaluate: SecurityError: localStorage is not available');
             return session;
         },
         awaitSessionUser: async (expected: string) => session === expected,
         awaitLanding: async () => {
             log.push('landing');
+            if (s.micDecrease === 'deep-link') mic = 0;
             if (s.closeAt === 'landing') { close(); throw new Error('Target page, context or browser has been closed'); }
         },
         url: () => {
@@ -235,12 +254,23 @@ function harness(script: {
         micAcquisitions: async () => (closed ? null : { count: mic, document }),
         signOut: async () => {
             log.push('sign-out');
+            if (s.signOutCloses) { close(); throw new Error('locator.click: Target page, context or browser has been closed'); }
             if (closed || !session) throw new Error('locator.waitFor: Timeout 30000ms exceeded.');
-            session = null;
+            if (s.clearWait !== 'stuck') session = null;
             return 'direct' as const;
         },
-        awaitSessionCleared: async () => !closed && session === null,
-        recordWrites: async () => { log.push('writes'); rows.push({ name: 'deep-link return writes nothing', verdict: 'PASS', detail: 'no write' }); },
+        // Mirrors the Playwright adapter: a poll that cannot read the session times out as `false`.
+        awaitSessionCleared: async () => {
+            if (s.clearWait === 'close') { close(); return false; }
+            if (s.clearWait === 'unreadable') { unreadable = true; return false; }
+            if (s.clearWait === 'reject') throw new Error(`expect.poll: Timeout 30000ms exceeded at https://speaksharp.example/progress/${ID}`);
+            return !closed && !unreadable && session === null;
+        },
+        recordWrites: async () => {
+            log.push('writes');
+            if (s.recordWritesRejects) throw new Error(`PostgrestError: count failed for /progress/${ID}`);
+            rows.push({ name: 'deep-link return writes nothing', verdict: 'PASS', detail: 'no write' });
+        },
         row: (name: string, verdict: string, detail: string, evidence?: Record<string, unknown>) => { rows.push({ name, verdict, detail, evidence }); },
     };
     const verdictOf = (name: string) => rows.find((r) => r.name === name)?.verdict;
@@ -388,5 +418,97 @@ describe('G04 RETURN controls: closure, cleanup, microphone, navigation failure 
         await run(h);
         expect(row(h, 'signed-in deep-link return')).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'session_unobservable' } });
         expect(h.log).not.toContain('arm');
+    });
+});
+
+describe('G04 finalization RETURN (Sam 1793008575.953559): tri-state clear wait, isolated stages, monotonic microphone', () => {
+    const run = async (h: ReturnType<typeof harness>) => runFn()(h.ports).then(() => null, (error: unknown) => error);
+    const row = (h: ReturnType<typeof harness>, name: string) => h.rows.find((r) => r.name === name);
+    const sanitized = (error: unknown) => {
+        expect(error).toBeInstanceOf(Error);
+        const e = error as Error & { cause?: unknown };
+        expect(`${e.message}\n${e.stack ?? ''}`).not.toContain(ID);
+        expect(e.message).toMatch(/^HOLD signed-in deep-link return: the [a-z -]+ failed \([A-Za-z]*Error\)$/);
+        expect(e.cause).toBeUndefined();
+    };
+
+    it('a page closed during the clear wait after sign-out is HOLD (unobservable), not a product FAIL', async () => {
+        const h = harness({ clearWait: 'close' });
+        await run(h);
+        expect(row(h, 'signed out after the deep-link return')).toMatchObject({ verdict: 'HOLD' });
+        expect(h.log.slice(-1)).toEqual(['writes']);
+    });
+
+    it('session storage that becomes unreadable during the clear wait is HOLD, not a product FAIL', async () => {
+        const h = harness({ clearWait: 'unreadable' });
+        await run(h);
+        expect(row(h, 'signed out after the deep-link return')).toMatchObject({ verdict: 'HOLD' });
+    });
+
+    it('a page that closes inside the sign-out control is HOLD, not "no product sign-out control"', async () => {
+        const h = harness({ signOutCloses: true });
+        await run(h);
+        expect(row(h, 'signed out after the deep-link return')).toMatchObject({ verdict: 'HOLD' });
+        expect(h.log.slice(-1)).toEqual(['writes']);
+    });
+
+    it('CONTROL: a readable session that is still present after sign-out stays a product FAIL', async () => {
+        const h = harness({ clearWait: 'stuck' });
+        await run(h);
+        expect(row(h, 'signed out after the deep-link return')).toMatchObject({ verdict: 'FAIL' });
+    });
+
+    it('a rejected clear wait is a sanitized HOLD and the readback is still attempted', async () => {
+        const h = harness({ clearWait: 'reject' });
+        const error = await run(h);
+        sanitized(error);
+        expect(row(h, 'signed out after the deep-link return')).toMatchObject({ verdict: 'HOLD' });
+        expect(h.log.slice(-1)).toEqual(['writes']);
+    });
+
+    it('a rejected readback is a sanitized HOLD row, never the raw error', async () => {
+        const h = harness({ recordWritesRejects: true });
+        const error = await run(h);
+        sanitized(error);
+        expect(row(h, 'deep-link return writes nothing')).toMatchObject({ verdict: 'HOLD' });
+        expect(h.verdictOf('signed-in deep-link return')).toBe('PASS');
+    });
+
+    it('CONTROL: an unreadable microphone counter is HOLD and does not stop cleanup or readback', async () => {
+        const h = harness();
+        h.ports.micAcquisitions = async () => { throw new Error(`page.evaluate: Execution context was destroyed at /progress/${ID}`); };
+        expect(await run(h)).toBeNull();
+        expect(h.verdictOf('no mic on the deep-link return')).toBe('HOLD');
+        expect(h.verdictOf('signed out after the deep-link return')).toBe('PASS');
+        expect(h.log.slice(-1)).toEqual(['writes']);
+    });
+
+    it('a deep-link document count that falls (positive to zero) is HOLD, never a zero PASS', async () => {
+        const h = harness({ micDecrease: 'deep-link' });
+        await run(h);
+        expect(h.verdictOf('no mic on the deep-link return')).toBe('HOLD');
+    });
+
+    it('a first-document count below the judged baseline is HOLD', async () => {
+        const h = harness({ micBaseline: 1, micDecrease: 'first-document' });
+        await run(h);
+        expect(h.verdictOf('no mic on the deep-link return')).toBe('HOLD');
+    });
+
+    it('a baseline read from another document, with a mismatched count, or missing is HOLD: the baseline is bound to its document', async () => {
+        for (const micBaselineRead of ['other-document', 'count-mismatch', 'missing'] as const) {
+            const h = harness({ micBaselineRead });
+            await run(h);
+            expect({ micBaselineRead, verdict: h.verdictOf('no mic on the deep-link return') }).toEqual({ micBaselineRead, verdict: 'HOLD' });
+        }
+    });
+
+    it('CONTROL: a bound baseline with no acquisition PASSes, and one acquisition after it FAILs', async () => {
+        const quiet = harness({ micBaseline: 2 });
+        await run(quiet);
+        expect(row(quiet, 'no mic on the deep-link return')).toMatchObject({ verdict: 'PASS', evidence: { afterSignOut: 0 } });
+        const opened = harness({ micBaseline: 2, micAfterSignOut: 1 });
+        await run(opened);
+        expect(row(opened, 'no mic on the deep-link return')).toMatchObject({ verdict: 'FAIL', evidence: { afterSignOut: 1 } });
     });
 });
