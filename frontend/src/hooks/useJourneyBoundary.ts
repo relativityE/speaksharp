@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { beginJourney } from '@/services/telemetry/journeyIdentity';
 
 /** The product surfaces. Entering any of them from outside them starts a journey. */
-const PRODUCT_PREFIXES = ['/session', '/practice', '/analytics'] as const;
+/** `/analytics` stays listed: it is the legacy alias that redirects to `/progress` (#1548). */
+const PRODUCT_PREFIXES = ['/session', '/practice', '/progress', '/analytics'] as const;
 
 export const isProductRoute = (pathname: string): boolean =>
     PRODUCT_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

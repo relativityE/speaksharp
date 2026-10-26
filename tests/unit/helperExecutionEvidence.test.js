@@ -1,0 +1,261 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
+import {createHash, randomUUID} from 'node:crypto';
+import {createRequire} from 'node:module';
+import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage} from '../../scripts/lib/helperExecutionEvidence.mjs';
+import {runVitestHelperExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
+import {executionContext, validateVitestExecution} from '../../scripts/lib/testExecutionEvidence.mjs';
+import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
+const {test} = process.env.NODE_TEST_CONTEXT ? await import('node:test') : await import('vitest');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const contract = HELPER_CONTRACTS[0];
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+
+function fixture() {
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helper-evidence-')));
+  const write = (name, content) => {fs.mkdirSync(path.dirname(path.join(directory,name)),{recursive:true}); fs.writeFileSync(path.join(directory,name),content);};
+  const files = ['scripts/lib/helperExecutionEvidence.mjs','scripts/efficacy-helper-vitest.config.mjs',
+    'scripts/lib/testExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+    'scripts/run-test-efficacy.mjs','scripts/efficacy-reporter.mjs','scripts/write-software-quality-evidence.mjs','scripts/coverage-thresholds.mjs',
+    'pnpm-lock.yaml','package.json',...dependencyPaths(root,TEST_EFFICACY_CONTRACTS[0].testFile)];
+  for (const file of files) write(file,fs.readFileSync(path.join(root,file)));
+  write('.gitignore','node_modules\ntest-results/\nproduct_release/evidence/\n');
+  write('frontend/vitest.config.mjs',`export default {test:{environment:'node',include:['tests/unit/**/*.test.ts'],pool:'forks',maxWorkers:1,minWorkers:1}};\n`);
+  write(contract.helperFile,contract.callables.map(name=>`export function ${name}(a = 2, b = 3) { return a + b; }`).join('\n')+'\n');
+  write(contract.testFile,`import {test,expect} from 'vitest';\nimport {${contract.callables.join(',')}} from '../live/helpers/rwtMarkerObserver';\n`
+    +contract.callables.map(name=>`test('${name} computes the independently expected sum',()=>expect(${name}(2,3)).toBe(5));`).join('\n')+'\n');
+  fs.symlinkSync(path.join(root,'node_modules'),path.join(directory,'node_modules'),'dir');
+  const git = args => execFileSync('git',args,{cwd:directory,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  git(['init']);git(['add','.']);git(['-c','user.name=Helper fixture','-c','user.email=helper@example.invalid','commit','--no-gpg-sign','-m','fixture']);
+  return {directory,write,git,clean:()=>fs.rmSync(directory,{recursive:true,force:true})};
+}
+
+// Explicitly synthetic: these fixtures test the validation boundary, never prove
+// a real worker ran. Installed-runtime controls below retain genuine provider output.
+function synthetic(prepare = () => {}) {
+  const f = fixture();
+  prepare(f);
+  const cwd = f.directory;
+  const source = fs.readFileSync(path.join(cwd,contract.helperFile),'utf8');
+  const filename = path.join(cwd,contract.helperFile);
+  const url = pathToFileURL(filename).href;
+  const binding = {phaseId:randomUUID(),cwd,coverageDirectory:path.join(cwd,'.helper-coverage-fixture'),
+    helper:{...contract,sourceBinding:helperSourceBinding(cwd,contract)}};
+  const functions=contract.callables.map(name=>{const start=source.indexOf(`function ${name}`);return {functionName:name,isBlockCoverage:true,
+    ranges:[{startOffset:start,endOffset:source.indexOf('\n',start),count:1}]};});
+  const fnMap=Object.fromEntries(contract.callables.map((name,i)=>[String(i),{name,loc:{start:{line:i+1,column:7},end:{line:i+1,column:source.split('\n')[i].length}}}]));
+  const conversion={filename:url,wrapperLength:0,sources:{originalSource:source,source,
+    sourceMap:{sourcemap:{version:3,sources:[url],sourcesContent:[source],names:[],mappings:'AAAA;AACA;AACA'}}},functions,
+    converted:{[filename]:{path:filename,fnMap,f:{0:1,1:1,2:1}}}};
+  conversion.beforeRemap={originalSourceSha256:hash(source),generatedSourceSha256:hash(source),
+    sourceMapSha256:hash(JSON.stringify(conversion.sources.sourceMap)),functionsSha256:hash(JSON.stringify(functions))};
+  const raw={schemaVersion:1,phaseId:binding.phaseId,bindingSha256:hash(JSON.stringify(binding)),
+    options:{include:[contract.helperFile],exclude:[contract.testFile],reporter:[['json',{}]],reportsDirectory:binding.coverageDirectory,
+      reportOnFailure:true,ignoreClassMethods:[],experimentalAstAwareRemapping:false,
+      converter:binding.helper.sourceBinding.runtime,remappingMode:'legacy-v8-to-istanbul'},
+    report:structuredClone(conversion.converted),
+    frames:[{testFiles:[path.join(cwd,contract.testFile)],rawTestFiles:[contract.testFile],transformMode:'ssr',producer:{workerPid:123,
+      phaseId:binding.phaseId,bindingSha256:hash(JSON.stringify(binding))},result:[{url,functions:structuredClone(functions)}]}],
+    conversions:[conversion]};
+  return {...f,binding,raw};
+}
+
+test('synthetic helper receipt requires mapped callable hits, not module/import presence',()=>{
+  const f=synthetic();
+  try {
+    const accepted=validateHelperCoverage(f.raw,f.binding,f.directory);
+    assert.deepEqual(accepted.executed.map(item=>item.name),contract.callables);
+    f.raw.conversions[0].functions[0].ranges[0].count=0;
+    f.raw.frames[0].result[0].functions[0].ranges[0].count=0;
+    f.raw.conversions[0].beforeRemap.functionsSha256=hash(JSON.stringify(f.raw.conversions[0].functions));
+    assert.throws(()=>validateHelperCoverage(f.raw,f.binding,f.directory),/Uncalled helper/);
+  } finally {f.clean();}
+});
+
+test('helper coverage config is dedicated, explicit and retains failing-phase output',()=>{
+  const f=synthetic();
+  try {
+    const before=fs.readFileSync(path.join(f.directory,'frontend/vitest.config.mjs'));
+    const options=helperCoverageOptions(f.directory,f.binding);
+    assert.equal(options.reportOnFailure,true);assert.equal(options.clean,true);
+    assert.deepEqual(options.include,[contract.helperFile]);assert.deepEqual(options.reporter,['json']);
+    assert.equal(options.thresholds,undefined);
+    assert.deepEqual(fs.readFileSync(path.join(f.directory,'frontend/vitest.config.mjs')),before);
+  } finally {f.clean();}
+});
+
+test('rejects stale phase/worker/config/source-map identities and incomplete or aliased ranges',()=>{
+  const f=synthetic();
+  try {
+    for (const alter of [
+      raw=>{raw.phaseId=randomUUID();},raw=>{raw.bindingSha256='wrong';},raw=>{raw.frames=[];},
+      raw=>{raw.frames[0].producer.phaseId=randomUUID();},raw=>{raw.frames[0].testFiles=['/other'];},
+      raw=>{raw.frames[0].rawTestFiles=['./'+contract.testFile];},
+      raw=>{raw.options.reportOnFailure=false;},raw=>{raw.options.ignoreClassMethods=['classifyMarkerTiming'];},
+      raw=>{raw.conversions=[];},raw=>{raw.conversions[0].filename+='?alias';},
+      raw=>{raw.conversions[0].sources.sourceMap.sourcemap.sources=['file:///outside.ts'];},
+      raw=>{raw.conversions[0].sources.sourceMap.sourcemap.sourcesContent=['wrong'];},
+      raw=>{raw.conversions[0].sources.sourceMap.sourcemap.mappings='';},
+      raw=>{raw.conversions[0].sources.sourceMap.sourcemap.ignoreList=[0];},
+      raw=>{raw.conversions[0].sources.sourceMap.sourcemap.mappings=';AACA;AACA';},
+      raw=>{raw.conversions[0].functions[0].ranges[0].endOffset=1e9;},
+      raw=>{raw.conversions[0].converted[Object.keys(raw.conversions[0].converted)[0]].f[0]=0;},
+      raw=>{raw.report={};},
+    ]) {
+      const raw=structuredClone(f.raw);alter(raw);
+      assert.throws(()=>validateHelperCoverage(raw,f.binding,f.directory));
+    }
+    f.write(contract.helperFile,fs.readFileSync(path.join(f.directory,contract.helperFile),'utf8')+'// changed\n');
+    assert.throws(()=>validateHelperCoverage(f.raw,f.binding,f.directory),/Stale helper/);
+  } finally {f.clean();}
+});
+
+test('helper source symlinks are refused before coverage artifacts are trusted',()=>{
+  const f=fixture();
+  try {
+    const original=path.join(f.directory,contract.helperFile);
+    fs.renameSync(original,original+'.preserved');
+    fs.symlinkSync(original+'.preserved',original);
+    assert.throws(()=>helperSourceBinding(f.directory,contract),/Aliased helper source/);
+  } finally {f.clean();}
+});
+
+test('coverage ignore directives cannot turn an uncalled function into executed credit',()=>{
+  const f=synthetic();
+  try {
+    for(const directive of ['/* c8 ignore next */','/* v8 ignore start */','/* istanbul ignore next */']) {
+      const original=fs.readFileSync(path.join(f.directory,contract.helperFile));
+      f.write(contract.helperFile,directive+'\n'+original);
+      assert.throws(()=>helperSourceBinding(f.directory,contract),/Coverage-ignore/);
+      f.write(contract.helperFile,original);
+    }
+  } finally {f.clean();}
+});
+
+test('self-consistent remapped spans reject out-of-bounds, reversed, empty and wrong-body columns',()=>{
+  const f=synthetic();
+  try {
+    for(const location of [
+      {start:{line:1,column:999999},end:{line:1,column:0}},
+      {start:{line:1,column:25},end:{line:1,column:7}},
+      {start:{line:1,column:7},end:{line:1,column:7}},
+      {start:{line:1,column:7},end:{line:1,column:20}},
+      {start:{line:1,column:8},end:{line:1,column:f.raw.conversions[0].sources.originalSource.split('\n')[0].length}},
+    ]) {
+      const raw=structuredClone(f.raw);
+      const file=Object.keys(raw.conversions[0].converted)[0];
+      raw.conversions[0].converted[file].fnMap['0'].loc=location;
+      raw.report=structuredClone(raw.conversions[0].converted);
+      assert.throws(()=>validateHelperCoverage(raw,f.binding,f.directory),/Invalid remapped callable span/);
+    }
+  } finally {f.clean();}
+});
+
+test('actual embedded converter bytes are explicit and a same-lock private installed mutation is refused',()=>{
+  let privateProvider;
+  const f=synthetic(fixture => {
+    const require=createRequire(path.join(root,'package.json'));
+    const originalPackage=path.dirname(require.resolve('@vitest/coverage-v8/package.json'));
+    const privateModules=path.join(fixture.directory,'private-provider/node_modules');
+    privateProvider=path.join(privateModules,'@vitest/coverage-v8');
+    fs.mkdirSync(path.dirname(privateProvider),{recursive:true});
+    fs.cpSync(originalPackage,privateProvider,{recursive:true});
+    // Resolve only this provider from private bytes; the actual installed peers
+    // continue to resolve through the fixture's existing dependency tree.
+    fs.unlinkSync(path.join(fixture.directory,'node_modules'));
+    fs.mkdirSync(path.join(fixture.directory,'node_modules/@vitest'),{recursive:true});
+    fs.symlinkSync(privateProvider,path.join(fixture.directory,'node_modules/@vitest/coverage-v8'),'dir');
+    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping']) {
+      const target=path.join(fixture.directory,'node_modules',name);
+      fs.mkdirSync(path.dirname(target),{recursive:true});
+      fs.symlinkSync(path.dirname(require.resolve(`${name}/package.json`)),target,'dir');
+    }
+  });
+  try {
+    const before=helperRuntimeIdentity(f.directory);
+    assert.ok(before.converter,'actual embedded converter must have its own explicit byte identity');
+    assert.equal(before.converter.kind,'embedded-legacy-v8-to-istanbul');
+    assert.equal(before.converter.providerModule,'@vitest/coverage-v8/dist/provider.js');
+    assert.match(before.converter.sha256,/^[a-f0-9]{64}$/);
+    const originalLock=fs.readFileSync(path.join(f.directory,'pnpm-lock.yaml'));
+    const providerFile=path.join(privateProvider,'dist/provider.js');
+    const original=fs.readFileSync(providerFile,'utf8');
+    const needle='functions.f[`${index}`] = ignore ? 1 : fn.count;';
+    assert.equal(original.split(needle).length,2);
+    fs.writeFileSync(providerFile,original.replace(needle,'functions.f[`${index}`] = ignore ? 1 : fn.count + 1;'));
+    assert.deepEqual(fs.readFileSync(path.join(f.directory,'pnpm-lock.yaml')),originalLock);
+    const after=helperRuntimeIdentity(f.directory);
+    assert.notEqual(after.converter.sha256,before.converter.sha256);
+    assert.throws(()=>validateHelperCoverage(f.raw,f.binding,f.directory),/Stale helper source\/config\/runtime binding/);
+    fs.writeFileSync(providerFile,original);
+    assert.deepEqual(helperRuntimeIdentity(f.directory),before);
+    assert.equal(validateHelperCoverage(f.raw,f.binding,f.directory).executed.length,3);
+  } finally {f.clean();}
+});
+
+if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED helper provider: actual calls qualify, static reads/type imports/uncalled helper refuse, restoration is exact',()=>{
+    const f=fixture();
+    try {
+      const before=fs.readFileSync(path.join(f.directory,contract.testFile));
+      const run=()=>{
+        const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+        let receipt;
+        try { receipt=runVitestHelperExecution({root:f.directory,base:f.git(['rev-parse','HEAD']),provenance:expected}); }
+        catch(error) {throw new Error(JSON.stringify({message:error.message,diagnostics:error.diagnostics,outcomes:error.testOutcomes}));}
+        assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)],[contract.helperFile]);
+        return receipt;
+      };
+      const first=run();assert.equal(first.tests[0].phase.helperCoverage.validated.executed.length,3);
+      for(const code of [
+        `import {test,expect} from 'vitest';import {readFileSync} from 'node:fs';test('only reads source',()=>expect(readFileSync('${contract.helperFile}','utf8')).toContain('classifyMarkerTiming'));`,
+        `import {test,expect} from 'vitest';import type {} from '../live/helpers/rwtMarkerObserver';test('type only',()=>expect(2+3).toBe(5));`,
+        `import {test,expect} from 'vitest';import * as helper from '../live/helpers/rwtMarkerObserver';test('module only',()=>expect(typeof helper.classifyMarkerTiming).toBe('function'));`,
+      ]) {
+        f.write(contract.testFile,code+'\n');
+        assert.throws(run,/Missing\/duplicate helper worker or map|Wrong helper raw range|Missing\/ambiguous helper callable|Uncalled helper|Helper raw range\/worker mismatch/);
+      }
+      f.write(contract.testFile,before);
+      const restored=run();assert.equal(restored.tests[0].phase.inputSha256,first.tests[0].phase.inputSha256);
+    } finally {f.clean();}
+  });
+
+  test('INSTALLED actual writer: helper calls qualify, source-reading replacement refuses, exact restored source qualifies',()=>{
+    const f=fixture();
+    const evidence=path.join(f.directory,'product_release/evidence/software-quality.latest.json');
+    const original=fs.readFileSync(path.join(f.directory,contract.testFile));
+    try {
+      f.write('test-results/metrics.json',JSON.stringify({unit_tests:{passed:6,failed:0,skipped:0,total:6,
+        testFiles:MEANINGFUL_COVERAGE_MANIFEST.map(item=>item.testFile),skippedTestFiles:[]},
+        e2e_tests:{passed:1,failed:0,skipped:0,total:1},coverage:{statements:80,branches:80,functions:80,lines:80},
+        performance:{initial_chunk_size:'412K'},total_runtime_seconds:120}));
+      const head=f.git(['rev-parse','HEAD']);
+      f.write(contract.helperFile,fs.readFileSync(path.join(f.directory,contract.helperFile),'utf8')+'\n');
+      const run=()=>{
+        try {
+          execFileSync(process.execPath,['scripts/write-software-quality-evidence.mjs'],{cwd:f.directory,
+            env:{...process.env,GITHUB_ACTIONS:'true',GITHUB_SHA:head,GITHUB_RUN_ID:'902',GITHUB_RUN_ATTEMPT:'1',
+              TEST_EFFICACY_BASE:head,SOFTWARE_QUALITY_INVOCATION:randomUUID()},stdio:['ignore','pipe','pipe'],timeout:60000});
+          return {status:0,stderr:''};
+        } catch(error) {return {status:error.status,stderr:error.stderr?.toString() || String(error)};}
+      };
+      let result=run();assert.equal(result.status,0,result.stderr);
+      let output=JSON.parse(fs.readFileSync(evidence,'utf8'));
+      const firstSnapshot=output.provenance.snapshotSha256;
+      assert.equal(output.executionCoverage.rows.find(row=>row.file===contract.helperFile)?.status,'EXECUTED');
+      f.write(contract.testFile,"import {test,expect} from 'vitest';import {readFileSync} from 'node:fs';test('only reads helper source',()=>expect(readFileSync('tests/live/helpers/rwtMarkerObserver.ts','utf8')).toContain('classifyMarkerTiming'));\n");
+      result=run();assert.equal(result.status,1,result.stderr);
+      assert.match(result.stderr,/Missing\/duplicate helper worker or map|Uncalled helper|Wrong helper worker provenance/);
+      assert.equal(fs.existsSync(evidence),false);
+      f.write(contract.testFile,original);
+      result=run();assert.equal(result.status,0,result.stderr);
+      output=JSON.parse(fs.readFileSync(evidence,'utf8'));
+      assert.equal(output.provenance.snapshotSha256,firstSnapshot,'writer restoration has identical source bytes');
+      assert.equal(output.executionCoverage.rows.find(row=>row.file===contract.helperFile)?.status,'EXECUTED');
+    } finally {f.clean();}
+  });
+}
