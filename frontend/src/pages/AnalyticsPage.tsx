@@ -211,12 +211,12 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         logger.error({ err: error || profileError }, '[AnalyticsPage] Failed to load analytics');
         return (
             <div className="text-center py-24">
-                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
+                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Progress</h2>
                 <p className="mb-6 font-medium text-foreground/70">
                     We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.
                 </p>
                 <Button onClick={handleRetryAnalytics}>
-                    Retry Analytics
+                    Retry Progress
                 </Button>
             </div>
         );
