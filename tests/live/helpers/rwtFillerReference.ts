@@ -79,25 +79,30 @@ export interface Alignment { instances: InstanceResult[]; inserted: Record<Refer
 
 /**
  * Aligns each annotation one-to-one: the anchor must occur exactly once (else ANCHOR_MISSING / AMBIGUOUS), and a
- * hesitation unit attaches to at most one anchor (a second claim is CONTESTED). Unattached units are INSERTED.
+ * hesitation unit attaches to at most one anchor. When two or more annotations reach the same unit, EVERY involved
+ * annotation is CONTESTED, whatever its order or word (Sam RETURN 1792983339.704229), so no claimant can still pass.
+ * Unattached units are INSERTED.
  */
 export const alignFillers = (transcript: string, annotations: readonly FillerAnnotation[]): Alignment => {
     const tokens = tokenize(transcript);
     const units = hesitationUnits(tokens);
     const unitEndingAt = new Map(units.map((u) => [u.start + u.length, u]));
-    const claimed = new Set<Unit>();
-    const instances = annotations.map(({ word, anchor }): InstanceResult => {
+    const reached = annotations.map(({ anchor }) => {
         const starts = anchorStarts(tokens, anchor);
+        return { starts, unit: starts.length === 1 ? unitEndingAt.get(starts[0]) : undefined };
+    });
+    const claims = new Map<Unit, number>();
+    for (const { unit } of reached) if (unit) claims.set(unit, (claims.get(unit) ?? 0) + 1);
+    const instances = annotations.map(({ word, anchor }, i): InstanceResult => {
+        const { starts, unit } = reached[i];
         if (starts.length === 0) return { word, anchor, class: 'ANCHOR_MISSING', observed: null };
         if (starts.length > 1) return { word, anchor, class: 'AMBIGUOUS', observed: null };
-        const before = unitEndingAt.get(starts[0]);
-        if (!before) return { word, anchor, class: 'OMITTED', observed: null };
-        if (claimed.has(before)) return { word, anchor, class: 'CONTESTED', observed: before.key };
-        claimed.add(before);
-        return { word, anchor, class: before.key === referenceKeyFor(word) ? 'MATCH' : 'SUBSTITUTED', observed: before.key };
+        if (!unit) return { word, anchor, class: 'OMITTED', observed: null };
+        if ((claims.get(unit) ?? 0) > 1) return { word, anchor, class: 'CONTESTED', observed: unit.key };
+        return { word, anchor, class: unit.key === referenceKeyFor(word) ? 'MATCH' : 'SUBSTITUTED', observed: unit.key };
     });
     const inserted = Object.fromEntries(REFERENCE_KEYS.map((k) => [k, 0])) as Record<ReferenceKey, number>;
-    for (const u of units) if (!claimed.has(u)) inserted[u.key] += 1;
+    for (const u of units) if (!claims.has(u)) inserted[u.key] += 1;
     return { instances, inserted };
 };
 
@@ -122,7 +127,9 @@ export const corpusWordVerdict = (
     const evidence = {
         expected, transcript: observed, matched: count('MATCH'), substitutedOut: count('SUBSTITUTED'), substitutedIn: into.length,
         omitted: count('OMITTED'), inserted: key ? alignment.inserted[key] : 0,
-        held: own.filter((i) => HOLD_CLASSES.includes(i.class)).length,
+        // A contested unit OF this word also holds it, even when the contesting annotations belong to other words.
+        held: own.filter((i) => HOLD_CLASSES.includes(i.class)).length
+            + alignment.instances.filter((i) => i.class === 'CONTESTED' && i.observed === key && referenceKeyFor(i.word) !== key).length,
     };
     if (!key) return { verdict: 'HOLD', detail: 'the corpus word has no reference definition', evidence };
     if (evidence.held > 0) return { verdict: 'HOLD', detail: 'an anchor is missing, repeated or contested', evidence };

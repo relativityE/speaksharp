@@ -86,7 +86,29 @@ describe('APP-G1h corpus verdicts: exact per word, substitutions never pass', ()
         const contested = alignFillers('Um, deadlines live here.', [
             { word: 'um', anchor: 'deadlines live' }, { word: 'um', anchor: 'deadlines' },
         ]);
-        expect(contested.instances.map((i) => i.class)).toEqual(['MATCH', 'CONTESTED']);
+        expect(contested.instances.map((i) => i.class)).toEqual(['CONTESTED', 'CONTESTED']);
+    });
+
+    // Sam RETURN 1792983339.704229: a contested claim must invalidate EVERY involved attachment, in either order and across
+    // words, so neither row can PASS on a hesitation another annotation also claims.
+    const OVERLAP = 'Um, deadlines live here.';
+    const overlapVerdicts = (annotations: FillerAnnotation[]) => {
+        const aligned = alignFillers(OVERLAP, annotations);
+        return {
+            classes: aligned.instances.map((i) => i.class),
+            um: corpusWordVerdict('um', 1, OVERLAP, aligned, 'synthetic').verdict,
+            uh: corpusWordVerdict('uh', 1, OVERLAP, aligned, 'synthetic').verdict,
+        };
+    };
+
+    it('g2. cross-word overlapping anchors contest the shared hesitation: no affected row PASSes', () => {
+        expect(overlapVerdicts([{ word: 'um', anchor: 'deadlines live' }, { word: 'uh', anchor: 'deadlines' }]))
+            .toEqual({ classes: ['CONTESTED', 'CONTESTED'], um: 'HOLD', uh: 'HOLD' });
+    });
+
+    it('g3. the same overlap in reversed annotation order gives the same HOLDs', () => {
+        expect(overlapVerdicts([{ word: 'uh', anchor: 'deadlines' }, { word: 'um', anchor: 'deadlines live' }]))
+            .toEqual({ classes: ['CONTESTED', 'CONTESTED'], um: 'HOLD', uh: 'HOLD' });
     });
 
     it('k. on human audio the same substitution is a FAIL, with no fixture leniency', () => {
