@@ -688,13 +688,16 @@ export const MAIN_T2_ACCOUNT_MIGRATIONS=Object.freeze([
 // #1643 UNKNOWN-coaching fence: reviewed separately and staged after completion, never inside the 126 profile.
 export const MAIN_T2_FENCE_MIGRATION=Object.freeze({name:'20261024083000_account_coaching_unknown_fence_1643.sql',
   version:'20261024083000',sha256:'29548e27a0b33a303ff093569097367b1227251faff7e7df77af392cfa4b0d14',stage:'coaching-unknown-fence'});
-const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127'];
-const T2_PROFILES=['main-t2-account-126','main-t2-fence-127'];
+export const MAIN_T2_RETENTION_MIGRATION=Object.freeze({name:'20261025021046_content_free_retention_evidence.sql',
+  version:'20261025021046',sha256:'37af792f8abeeb0e073e229ec25cd294a20050058632f793c4635ba3af37f47d',stage:'content-free-retention'});
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128'];
+const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128'];
 function selectedAdditions(profile) {
   const rows=[...(profile!=='main-120'?[{...MAIN_U1_MIGRATION,stage:'heartbeat-u1'}]:[]),
     ...(['main-analytics-u1-122',...T2_PROFILES].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
     ...(T2_PROFILES.includes(profile)?MAIN_T2_ACCOUNT_MIGRATIONS:[]),
-    ...(profile==='main-t2-fence-127'?[MAIN_T2_FENCE_MIGRATION]:[])];
+    ...(['main-t2-fence-127','main-t2-retention-128'].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
+    ...(profile==='main-t2-retention-128'?[MAIN_T2_RETENTION_MIGRATION]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
@@ -734,7 +737,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(actual.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
@@ -764,7 +767,8 @@ export function runMainClosureProof() {
   assert.equal(new Set(migrations.map((row) => row.version)).size, migrations.length, 'duplicate migration versions');
   const plan = buildMainU1ReplayPlan(manifest, args.profile);
   const completeT2=T2_PROFILES.includes(args.profile);
-  const fenceT2=args.profile==='main-t2-fence-127';
+  const retentionT2=args.profile==='main-t2-retention-128';
+  const fenceT2=args.profile==='main-t2-fence-127'||retentionT2;
   const hasAnalytics=['main-analytics-u1-122',...T2_PROFILES].includes(args.profile);
   if (args.plan) {
     console.log(JSON.stringify({ ...plan, candidate: migrations.at(-1) }));
@@ -856,7 +860,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1078,6 +1082,36 @@ export function runMainClosureProof() {
       assert.equal(sql('SELECT enabled FROM public.account_completion_configuration;'),'f','completion proof must restore disabled configuration');
       assert.equal(sql('SELECT count(*) FROM public.account_coaching_fences;'),'0','the migration fences nothing');
       console.log('ACCOUNT COACHING UNKNOWN FENCE FULL-CHAIN INVARIANTS PASSED');
+    }
+    if(retentionT2) {
+      // This is installation/catalog proof on the real chain. Behavioral retention/concurrency
+      // evidence is separate; stage0..6 above remains the historical six-migration proof.
+      const retention=MAIN_T2_RETENTION_MIGRATION;
+      cpSync(join(root,retention.name),join(directory,'migrations',retention.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name===retention.stage).versions,'retention history is incomplete');
+      const state=JSON.parse(sql(`SELECT json_build_object(
+        'compatible',public.retention_content_free_compatible(),
+        'pinCount',(SELECT count(*) FROM public.transcript_retention_function_pins),
+        'evidenceRows',(SELECT count(*) FROM public.session_progress_content_evidence),
+        'contextRows',(SELECT count(*) FROM public.transcript_retention_replacement_context),
+        'privateRls',(SELECT bool_and(relrowsecurity) FROM pg_class WHERE oid IN
+          ('public.session_progress_content_evidence'::regclass,'public.transcript_retention_replacement_context'::regclass,
+           'public.transcript_retention_function_pins'::regclass)),
+        'privatePrivileges',(SELECT count(*) FROM unnest(ARRAY['anon','authenticated','service_role']) r,
+          unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p,
+          unnest(ARRAY['public.session_progress_content_evidence','public.transcript_retention_replacement_context',
+            'public.transcript_retention_function_pins','public.transcript_retention_expiry_grants']) t WHERE has_table_privilege(r,t,p)),
+        'expiredGuardInvoker',(SELECT NOT prosecdef FROM pg_proc WHERE oid='public._ss_retention_expired_derived_guard()'::regprocedure),
+        'expiredGuardEnabled',(SELECT count(*) FROM pg_trigger WHERE tgrelid='public.sessions'::regclass
+          AND tgname='aa_retention_expired_derived_guard' AND tgenabled='O'),
+        'completionDisabled',(SELECT NOT enabled FROM public.account_completion_configuration))::text;`));
+      writeFileSync(join(evidence,'retention-catalog.json'),JSON.stringify({profile:args.profile,
+        migration:retention,state,scope:'installation/catalog only; not retention behavioral or Production proof'},null,2));
+      assert.equal(state.completionDisabled,true,'completion must remain disabled after retention');
+      assert.deepEqual(state,{compatible:true,pinCount:8,evidenceRows:0,contextRows:0,privateRls:true,
+        privatePrivileges:0,expiredGuardInvoker:true,expiredGuardEnabled:1,completionDisabled:true},'retention catalog/ACL');
+      console.log('CONTENT-FREE RETENTION FULL-CHAIN CATALOG PASSED');
     }
   } catch (error) {
     primaryError = error;
