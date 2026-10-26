@@ -10,13 +10,14 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { productFillerCount } from '../live/helpers/rwtFillerOracle';
 import {
+    OPEN_MIC_TTS_ANNOTATIONS, OPEN_MIC_TTS_IDENTITY,
     alignFillers, corpusRows, corpusVerdicts, corpusWordVerdict, crossCheckCounts, fillerAnnotationsOf, hesitationTotals, integrityVerdict,
     referenceCount, type FillerAnnotation,
 } from '../live/helpers/rwtFillerReference';
 
 const FIXTURES = path.join(__dirname, '../fixtures/rwt');
 const MANIFEST = JSON.parse(readFileSync(path.join(FIXTURES, 'rwt-fixtures.manifest.json'), 'utf8')) as {
-    fixtures: Record<string, { groundTruthFillers: Record<string, number> }>;
+    fixtures: Record<string, { file: string; sha256: string; kind: string; groundTruthFillers: Record<string, number> }>;
 };
 const ENTRY = MANIFEST.fixtures.open_mic_tts;
 const CORPUS = ENTRY.groundTruthFillers;
@@ -25,6 +26,41 @@ const SCRIPT = /^OPEN_MIC="(.*)"$/m.exec(readFileSync(path.join(FIXTURES, 'gener
 
 const verdict = (word: string, transcript: string, kind: 'synthetic' | 'human' = 'synthetic') =>
     corpusWordVerdict(word, CORPUS[word], transcript, alignFillers(transcript, ANNOTATIONS), kind);
+
+describe('#1720 annotations live in reviewed code, bound to the canonical fixture identity (Sam 1793018351.121669)', () => {
+    it('the manifest inventory carries no annotations; the canonical synthetic entry gets exactly the eight in code', () => {
+        expect(Object.prototype.hasOwnProperty.call(ENTRY, 'fillerAnnotations')).toBe(false);
+        expect(ENTRY).toMatchObject(OPEN_MIC_TTS_IDENTITY);
+        expect(fillerAnnotationsOf(ENTRY)).toEqual([...OPEN_MIC_TTS_ANNOTATIONS]);
+        expect(OPEN_MIC_TTS_ANNOTATIONS).toHaveLength(8);
+    });
+
+    it('a human recording built from the same entry inherits no synthetic annotations', () => {
+        expect(fillerAnnotationsOf({ ...ENTRY, kind: 'human', knownFixtureLimits: [] })).toEqual([]);
+    });
+
+    it('any other identity — another sha256, another file, another or unknown fixture — gets none', () => {
+        expect(fillerAnnotationsOf({ ...ENTRY, sha256: '0'.repeat(64) })).toEqual([]);
+        expect(fillerAnnotationsOf({ ...ENTRY, file: 'focus_points_tts.wav' })).toEqual([]);
+        const others = Object.entries(MANIFEST.fixtures).filter(([key]) => key !== 'open_mic_tts');
+        expect(others.length).toBeGreaterThan(0);
+        expect(others.map(([key, entry]) => ({ key, annotations: fillerAnnotationsOf(entry) })))
+            .toEqual(others.map(([key]) => ({ key, annotations: [] })));
+        for (const odd of [null, undefined, {}, 'open_mic_tts', { fillerAnnotations: { items: [{ word: 'um', anchor: 'x' }] } }]) {
+            expect(fillerAnnotationsOf(odd)).toEqual([]);
+        }
+    });
+
+    it('callers get copies: mutating a result cannot change the reviewed table', () => {
+        // A private clone, so a shared-reference defect fails only this test instead of corrupting ENTRY for the others.
+        const entry = structuredClone(ENTRY);
+        const first = fillerAnnotationsOf(entry);
+        first[0].word = 'uh';
+        first.pop();
+        expect(fillerAnnotationsOf(entry)).toEqual([...OPEN_MIC_TTS_ANNOTATIONS]);
+        expect(Object.isFrozen(OPEN_MIC_TTS_ANNOTATIONS) && Object.isFrozen(OPEN_MIC_TTS_ANNOTATIONS[0])).toBe(true);
+    });
+});
 
 describe('APP-G1h fixture annotations are the TTS script, not the model', () => {
     it('every annotated hesitation directly precedes its unique anchor in the script, and they total the corpus', () => {

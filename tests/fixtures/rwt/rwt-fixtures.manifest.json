@@ -14,19 +14,6 @@
         "uh": 3,
         "you know": 1
       },
-      "fillerAnnotations": {
-        "source": "script (TTS input, generate-rwt-tts-fixtures.sh OPEN_MIC), not audio-bound",
-        "items": [
-          { "word": "um", "anchor": "deadlines live" },
-          { "word": "uh", "anchor": "I propose" },
-          { "word": "um", "anchor": "each morning" },
-          { "word": "you know", "anchor": "that gives" },
-          { "word": "uh", "anchor": "every Friday" },
-          { "word": "um", "anchor": "success means" },
-          { "word": "uh", "anchor": "I will share" },
-          { "word": "um", "anchor": "everyone should" }
-        ]
-      },
       "knownFixtureLimits": [
         "Local whisper-base.en baseline hears every macOS TTS voice's 'uh' as 'ah' (or drops it): 0/3 uh. um 4/4 and you know 1/1 are recognized. The filler ground-truth row is FIXTURE-LIMITED with this file and needs a human recording, which must never be committed to this public repository."
       ],

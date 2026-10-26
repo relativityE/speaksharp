@@ -30,12 +30,38 @@ export const REFERENCE_VARIANTS: Readonly<Record<ReferenceKey, readonly string[]
 
 const REFERENCE_KEYS = Object.keys(REFERENCE_VARIANTS) as ReferenceKey[];
 
-/** The manifest's `fillerAnnotations.items` for a fixture entry; [] when the entry carries none or the shape is wrong. */
+/**
+ * The exact identity of the canonical Open Mic TTS fixture (`fixtures.open_mic_tts` in rwt-fixtures.manifest.json). Only an
+ * entry with this file, sha256 AND synthetic kind carries the annotations below; the human recording is built from the same
+ * entry with `kind: 'human'`, so it never inherits them.
+ */
+export const OPEN_MIC_TTS_IDENTITY = Object.freeze({
+    file: 'open_mic_tts.wav',
+    sha256: '7f4d6bb6073b580acca4630fef04b74e04279098458782b87598099ae8b19867',
+    kind: 'synthetic',
+});
+
+/**
+ * Its scripted hesitations, in script order (#1720, Sam 1793018351.121669: kept here in reviewed executable code; the
+ * manifest stays the fixture inventory). Source: the TTS input script (generate-rwt-tts-fixtures.sh OPEN_MIC), not the
+ * realised audio.
+ */
+export const OPEN_MIC_TTS_ANNOTATIONS: readonly FillerAnnotation[] = Object.freeze([
+    { word: 'um', anchor: 'deadlines live' },
+    { word: 'uh', anchor: 'I propose' },
+    { word: 'um', anchor: 'each morning' },
+    { word: 'you know', anchor: 'that gives' },
+    { word: 'uh', anchor: 'every Friday' },
+    { word: 'um', anchor: 'success means' },
+    { word: 'uh', anchor: 'I will share' },
+    { word: 'um', anchor: 'everyone should' },
+].map((a) => Object.freeze(a)));
+
+/** The annotations for a fixture entry: the canonical Open Mic TTS fixture's, by exact identity; [] for any other entry. */
 export const fillerAnnotationsOf = (entry: unknown): FillerAnnotation[] => {
-    const items = (entry as { fillerAnnotations?: { items?: unknown } } | null)?.fillerAnnotations?.items;
-    if (!Array.isArray(items)) return [];
-    return items.filter((i): i is FillerAnnotation =>
-        typeof (i as FillerAnnotation)?.word === 'string' && typeof (i as FillerAnnotation)?.anchor === 'string');
+    const e = entry as { file?: unknown; sha256?: unknown; kind?: unknown } | null;
+    if (!e || e.file !== OPEN_MIC_TTS_IDENTITY.file || e.sha256 !== OPEN_MIC_TTS_IDENTITY.sha256 || e.kind !== OPEN_MIC_TTS_IDENTITY.kind) return [];
+    return OPEN_MIC_TTS_ANNOTATIONS.map((a) => ({ ...a }));
 };
 
 /** The corpus spells "you know" with a space; every other word is its own key. */
