@@ -120,11 +120,12 @@ export function armPasswordSignInObserver(
     let resolve!: (outcome: SignInAttemptOutcome) => void;
     const outcome = new Promise<SignInAttemptOutcome>((r) => { resolve = r; });
     const unsubscribers: Array<() => void> = [];
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    // The callback runs only after this function returns, so `finish` is defined by then.
+    const timer = setTimeout(() => finish(inconclusive(null, 'timeout')), timeoutMs);
     const finish = (result: SignInAttemptOutcome) => {
         if (done) return;
         done = true;
-        if (timer !== undefined) clearTimeout(timer);
+        clearTimeout(timer);
         unsubscribers.splice(0).forEach((unsubscribe) => unsubscribe());
         resolve(result);
     };
@@ -157,7 +158,6 @@ export function armPasswordSignInObserver(
         }),
         events.onClose(() => finish(inconclusive(null, 'context_closed'))),
     );
-    timer = setTimeout(() => finish(inconclusive(null, 'timeout')), timeoutMs);
     return { settle: () => outcome };
 }
 
