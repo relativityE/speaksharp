@@ -7,6 +7,18 @@ import {EXACT_MIGRATION_ALLOWLIST} from './exactMigrationGate.mjs';
 export const C1_VERSIONS=Object.freeze(['20261024083000','20261025021046']);
 const digest=(kind,value)=>createHash(kind).update(value).digest('hex');
 const literal=value=>`'${value.replaceAll("'","''")}'`;
+const apiRoles=['anon','authenticated','service_role'];
+// Exact firing contracts from the two immutable source pins, not trigger names alone.
+const triggerContracts=[
+  ['a_guard_account_coaching_ai_suggestions_insert','sessions',1,'guard_account_coaching_ai_suggestions_write_v1',7,[],'new.ai_suggestionsisnotnull'],
+  ['a_guard_account_coaching_ai_suggestions_update','sessions',1,'guard_account_coaching_ai_suggestions_write_v1',19,['ai_suggestions'],'new.ai_suggestionsisdistinctfromold.ai_suggestions'],
+  ['aa_retention_content_statement_lock','sessions',2,'_ss_retention_content_statement_lock',30,
+    ['transcript','transcript_state','user_id','status','created_at','engine','engine_version','model_name','product'],null],
+  ['aa_retention_content_row_guard','sessions',2,'_ss_retention_content_row_guard',23,
+    ['transcript','transcript_state','user_id','status','created_at','engine','engine_version','model_name','product'],null],
+  ['aa_retention_expired_derived_guard','sessions',2,'_ss_retention_expired_derived_guard',19,['ai_suggestions'],null],
+  ['aa_retention_recovery_write_guard','transcript_retention_tombstones',2,'_ss_retention_recovery_write_guard',31,[],null],
+];
 
 export function functionDefinitions(source) {
   const result=[];
@@ -84,13 +96,33 @@ export function c1CatalogQuery(contract) {
   }
   add('capture-column',`EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='public.transcript_retention_expiry_grants'::regclass
     AND attname='capture_id' AND NOT attisdropped AND atttypid='uuid'::regtype AND NOT attnotnull)=${contract.stage===2}`);
-  for(const [name,table,stage] of [['a_guard_account_coaching_ai_suggestions_insert','sessions',1],
-    ['a_guard_account_coaching_ai_suggestions_update','sessions',1],['aa_retention_content_statement_lock','sessions',2],
-    ['aa_retention_content_row_guard','sessions',2],['aa_retention_expired_derived_guard','sessions',2],
-    ['aa_retention_recovery_write_guard','transcript_retention_tombstones',2]]) {
+  for(const [name,table,stage,fn,type,columns,predicate] of triggerContracts) {
+    const expectedColumns=`ARRAY[${columns.slice().sort().map(literal).join(',')}]::name[]`;
+    // The two simple IS predicates contain no grouping-sensitive boolean operators. Remove only
+    // whitespace/parentheses from the server deparse; every other token remains part of the comparison.
+    const qualification=predicate===null?'t.tgqual IS NULL':
+      `lower(regexp_replace(substring(pg_get_triggerdef(t.oid,false) from ' WHEN (.*) EXECUTE FUNCTION '),'[[:space:]()]','','g'))=${literal(predicate)}`;
     add(`trigger:${name}`,contract.stage<stage?`NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname=${literal(name)} AND tgrelid='public.${table}'::regclass)`:
-      `1=(SELECT count(*) FROM pg_trigger WHERE tgname=${literal(name)} AND tgrelid='public.${table}'::regclass AND NOT tgisinternal AND tgenabled='O')`);
+      `1=(SELECT count(*) FROM pg_trigger t WHERE t.tgname=${literal(name)} AND t.tgrelid='public.${table}'::regclass
+        AND NOT t.tgisinternal AND t.tgenabled='O' AND t.tgfoid=to_regprocedure('public.${fn}()') AND t.tgtype=${type}
+        AND t.tgconstraint=0 AND NOT t.tgdeferrable AND NOT t.tginitdeferred AND t.tgnargs=0 AND t.tgargs=''::bytea
+        AND ARRAY(SELECT a.attname FROM unnest(t.tgattr::smallint[]) WITH ORDINALITY AS x(attnum,ord)
+          JOIN pg_attribute a ON a.attrelid=t.tgrelid AND a.attnum=x.attnum ORDER BY a.attname COLLATE "C")=${expectedColumns}
+        AND ${qualification})`);
   }
+  if(contract.stage>=1) {
+    for(const [signature,serviceAllowed] of [
+      ['public.fence_account_coaching_unknown_v1(uuid,uuid,uuid,uuid,text,text)',true],
+      ['public.record_ai_suggestion_cache_read_v1(uuid,uuid)',true],
+      ['public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer)',false],
+    ])add(`execute-acl:${signature}`,`to_regprocedure(${literal(signature)}) IS NOT NULL AND ${apiRoles.map(role=>
+      `has_function_privilege(${literal(role)},to_regprocedure(${literal(signature)}),'EXECUTE')=${role==='service_role'&&serviceAllowed}`).join(' AND ')}`);
+    add('receipt-service-writes-revoked',`NOT has_table_privilege('service_role','public.ai_suggestion_authority_receipts','INSERT,UPDATE')
+      AND NOT has_any_column_privilege('service_role','public.ai_suggestion_authority_receipts','INSERT,UPDATE')`);
+  }
+  if(contract.stage===2)add('expiry-grants-api-access-revoked',apiRoles.map(role=>
+    `NOT has_table_privilege(${literal(role)},'public.transcript_retention_expiry_grants','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      AND NOT has_any_column_privilege(${literal(role)},'public.transcript_retention_expiry_grants','SELECT,INSERT,UPDATE,REFERENCES')`).join(' AND '));
   if(contract.stage===2)add('retention-pins',`(SELECT count(*) FROM public.transcript_retention_function_pins)=8 AND public.retention_content_free_compatible()`);
   return {names:checks.map(sql=>/^SELECT '([^']+)'/.exec(sql)[1]),sql:`WITH checks AS (${checks.join('\nUNION ALL\n')})
     SELECT jsonb_build_object('checks',(SELECT jsonb_agg(jsonb_build_object('name',name,'ok',ok) ORDER BY name) FROM checks),

@@ -28,6 +28,49 @@ describe('C1 exact source/catalog postflight',()=>{
         prior={version,targetSha256:before.targetSha256,catalog:preimage};
         await db.exec(`SET ROLE closure_owner; ${sql(version)} RESET ROLE;`);
         expect(assertC1Catalog(await catalog(after),after,prior).passed).toBe(true);
+        const drift=version===C1_VERSIONS[0]?[
+          ['127 WHEN(false)',`DROP TRIGGER a_guard_account_coaching_ai_suggestions_insert ON public.sessions;
+            CREATE TRIGGER a_guard_account_coaching_ai_suggestions_insert BEFORE INSERT ON public.sessions
+              FOR EACH ROW WHEN(false) EXECUTE FUNCTION public.guard_account_coaching_ai_suggestions_write_v1()`],
+          ['127 wrong function',`CREATE FUNCTION public.fixture_wrong_guard() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$;
+            DROP TRIGGER a_guard_account_coaching_ai_suggestions_insert ON public.sessions;
+            CREATE TRIGGER a_guard_account_coaching_ai_suggestions_insert BEFORE INSERT ON public.sessions
+              FOR EACH ROW WHEN(NEW.ai_suggestions IS NOT NULL) EXECUTE FUNCTION public.fixture_wrong_guard()`],
+          ['127 wrong UPDATE columns',`DROP TRIGGER a_guard_account_coaching_ai_suggestions_update ON public.sessions;
+            CREATE TRIGGER a_guard_account_coaching_ai_suggestions_update BEFORE UPDATE OF total_words ON public.sessions
+              FOR EACH ROW WHEN(NEW.ai_suggestions IS DISTINCT FROM OLD.ai_suggestions)
+              EXECUTE FUNCTION public.guard_account_coaching_ai_suggestions_write_v1()`],
+          ['127 wrong timing',`DROP TRIGGER a_guard_account_coaching_ai_suggestions_update ON public.sessions;
+            CREATE TRIGGER a_guard_account_coaching_ai_suggestions_update AFTER UPDATE OF ai_suggestions ON public.sessions
+              FOR EACH ROW WHEN(NEW.ai_suggestions IS DISTINCT FROM OLD.ai_suggestions)
+              EXECUTE FUNCTION public.guard_account_coaching_ai_suggestions_write_v1()`],
+          ['127 inner writer exposed','GRANT EXECUTE ON FUNCTION public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer) TO service_role'],
+          ['127 receipt table write restored','GRANT INSERT,UPDATE ON public.ai_suggestion_authority_receipts TO service_role'],
+          ['127 receipt column write restored','GRANT INSERT(session_id) ON public.ai_suggestion_authority_receipts TO service_role'],
+          ['127 intended fence execution removed','REVOKE EXECUTE ON FUNCTION public.fence_account_coaching_unknown_v1(uuid,uuid,uuid,uuid,text,text) FROM service_role'],
+          ['127 cache execution exposed','GRANT EXECUTE ON FUNCTION public.record_ai_suggestion_cache_read_v1(uuid,uuid) TO authenticated'],
+        ]:[
+          ['128 WHEN(false)',`DROP TRIGGER aa_retention_content_row_guard ON public.sessions;
+            CREATE TRIGGER aa_retention_content_row_guard BEFORE INSERT OR UPDATE OF transcript,transcript_state,user_id,status,created_at,engine,engine_version,model_name,product ON public.sessions
+              FOR EACH ROW WHEN(false) EXECUTE FUNCTION public._ss_retention_content_row_guard()`],
+          ['128 wrong function',`DROP TRIGGER aa_retention_content_row_guard ON public.sessions;
+            CREATE TRIGGER aa_retention_content_row_guard BEFORE INSERT OR UPDATE OF transcript,transcript_state,user_id,status,created_at,engine,engine_version,model_name,product ON public.sessions
+              FOR EACH ROW EXECUTE FUNCTION public._ss_retention_expired_derived_guard()`],
+          ['128 wrong UPDATE columns',`DROP TRIGGER aa_retention_content_row_guard ON public.sessions;
+            CREATE TRIGGER aa_retention_content_row_guard BEFORE INSERT OR UPDATE OF transcript ON public.sessions
+              FOR EACH ROW EXECUTE FUNCTION public._ss_retention_content_row_guard()`],
+          ['128 wrong row mode',`DROP TRIGGER aa_retention_content_row_guard ON public.sessions;
+            CREATE TRIGGER aa_retention_content_row_guard BEFORE INSERT OR UPDATE OF transcript,transcript_state,user_id,status,created_at,engine,engine_version,model_name,product ON public.sessions
+              FOR EACH STATEMENT EXECUTE FUNCTION public._ss_retention_content_row_guard()`],
+          ['128 expiry grants exposed','GRANT SELECT ON public.transcript_retention_expiry_grants TO service_role'],
+          ['128 expiry column exposed','GRANT SELECT(capture_id) ON public.transcript_retention_expiry_grants TO authenticated'],
+        ];
+        for(const [name,mutation] of drift) {
+          await db.exec(`BEGIN; SET ROLE closure_owner; ${mutation};`);
+          try {const actual=await catalog(after);expect(()=>assertC1Catalog(actual,after,prior),name).toThrow(/C1 catalog mismatch/);}
+          finally {await db.exec('ROLLBACK; RESET ROLE;');}
+        }
+        expect(assertC1Catalog(await catalog(after),after,prior).passed).toBe(true);
       }
       const contract=c1Contract(root,'after',C1_VERSIONS[1]);
       for(const mutation of [
