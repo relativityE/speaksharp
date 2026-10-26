@@ -253,6 +253,29 @@ describe('#1704 established creation contradictions outrank unavailable exchange
         expect(binding.identities()).toEqual(identities); expect(identities).not.toContain('late');
     });
 
+    it.each(cases)('$fault arrives first, then settled $mismatch contradiction wins before detach', async ({ mismatch, fault }) => {
+        const page = fakePage(); const binding = new SessionCreateBinding(ORIGIN, () => U); binding.attach(page); binding.arm('A');
+        const opaque = deferredExchange(L1);
+        if (fault === 'unreadable-request') opaque.request.postDataJSON = () => { throw new Error('unreadable request'); };
+        page.emit(opaque.request);
+        if (fault === 'failed-header') opaque.headers.resolve({ ok: () => false, json: async () => ({}) });
+        else if (fault !== 'pending') {
+            opaque.respond();
+            opaque.body.resolve(fault === 'bad-json' ? null : fault === 'partial-record' ? { new_session: { id: 'partial' } } : {});
+        }
+        await flushExchange();
+        // The first incomplete exchange alone must not invent a contradiction.
+        expect(binding.binding('A').state).toBe('unavailable'); expect(row(binding)).toBe('HOLD');
+        const readable = rpc(L1); page.emit(readable.request);
+        await readable.created(created('left', mismatch === 'lease' ? L2 : L1, mismatch === 'owner' ? 'foreign-owner' : U));
+        const known = { state: 'contradiction', reason: `creation_${mismatch}_mismatch` };
+        expect(binding.binding('A')).toEqual(known); expect(row(binding)).toBe('FAIL');
+        binding.detach(); const identities = binding.identities();
+        opaque.respond(); opaque.body.resolve({ new_session: created('late', L1) }); await flushExchange();
+        expect(binding.binding('A')).toEqual(known); expect(row(binding)).toBe('FAIL');
+        expect(binding.identities()).toEqual(identities); expect(identities).not.toContain('late');
+    });
+
     it('a proved same-session two-lease contradiction survives other session identities and pending work', async () => {
         const page = fakePage(); const binding = new SessionCreateBinding(ORIGIN, () => U); binding.attach(page); binding.arm('A');
         const first = rpc(L1); page.emit(first.request); await first.created(created('left', L1));
