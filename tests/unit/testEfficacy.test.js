@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase as qualifyRawPhase } from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import EfficacyReporter, { canonicalPath, runtimeIdentity } from '../../scripts/efficacy-reporter.mjs';
-import { mutateBytes, dependencyPaths, selectContracts, runTestEfficacy, runVitestExecution, cleanupOwnedCopy, drainOwnedPhase } from '../../scripts/run-test-efficacy.mjs';
+import { mutateBytes, dependencyPaths, selectContracts, runTestEfficacy, runVitestExecution, cleanupOwnedCopy, drainOwnedPhase, initializeCopyRepository } from '../../scripts/run-test-efficacy.mjs';
 import {executionContext,validateVitestExecution} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {randomUUID} from 'node:crypto';
 
@@ -15,6 +15,40 @@ const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : awa
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const contract = TEST_EFFICACY_CONTRACTS[0];
 const names = contract.mutants.map(mutant => mutant.assertion).sort();
+
+test('isolated copy Git disables automatic maintenance before the initial and later commits',()=>{
+  const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'efficacy-copy-git-control-')));
+  const copy=path.join(directory,'copy'),home=path.join(directory,'home'),trace=path.join(directory,'git.trace.jsonl');
+  fs.mkdirSync(copy);fs.mkdirSync(home);fs.writeFileSync(path.join(copy,'source.txt'),'reviewed source bytes\n');
+  const globalConfig=path.join(directory,'gitconfig');
+  fs.writeFileSync(globalConfig,'[maintenance]\n auto = true\n[gc]\n auto = 1\n');
+  const env={PATH:process.env.PATH,HOME:home,LANG:'C.UTF-8',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:globalConfig,GIT_TRACE2_EVENT:trace};
+  const git=args=>execFileSync('git',args,{cwd:copy,env,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  try {
+    const sourceCopyCommit=initializeCopyRepository(copy,env);
+    assert.match(sourceCopyCommit,/^[a-f0-9]{40}$/);
+    assert.equal(git(['rev-parse','HEAD']),sourceCopyCommit);
+    assert.equal(git(['show','HEAD:source.txt']),'reviewed source bytes');
+    assert.equal(git(['config','--local','--get','maintenance.auto']),'false');
+    assert.equal(git(['config','--local','--get','gc.auto']),'0');
+    assert.equal(git(['config','--local','--get','gc.autoDetach']),'false');
+    // A later ordinary test Git command has no controller -c flags. The private
+    // repository's own config must still prevent a detached maintenance child.
+    git(['-c','user.name=Copy control','-c','user.email=control@example.invalid','commit','--allow-empty','--no-gpg-sign','-m','later test command']);
+    const events=fs.readFileSync(trace,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    assert.ok(events.some(event=>event.event==='start' && event.argv?.includes('commit')));
+    assert.deepEqual(events.filter(event=>event.event==='child_start' && event.argv?.some(arg=>['maintenance','gc'].includes(arg))),[],
+      'neither the initial snapshot commit nor a later test commit may launch auto-maintenance');
+    if(process.env.TEST_EFFICACY_CONTROL_OUTDIR) {
+      const output=process.env.TEST_EFFICACY_CONTROL_OUTDIR;
+      assert.ok(path.isAbsolute(output));fs.mkdirSync(output,{recursive:true});
+      fs.writeFileSync(path.join(output,`copy-git-maintenance-${randomUUID()}.json`),JSON.stringify({
+        scope:'disposable Git copy only; no hosted-writer identification',sourceCopyCommit,
+        gitVersion:git(['--version']),config:git(['config','--local','--list']),trace:events,
+      }),{flag:'wx'});
+    }
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
 const baselineReport = () => ({ success: true,
   numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
   testResults: [{ status: 'passed', assertionResults: names.map(fullName => ({ fullName, status: 'passed', failureMessages: [] })) }] });
