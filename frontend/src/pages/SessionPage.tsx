@@ -837,7 +837,7 @@ export const SessionPage: React.FC = () => {
                     access modals, mobile action bar — wraps it. This is the only session page. */}
                 {restoreId ? (
                     restoredSession
-                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/analytics')} ownerId={authUserId} />
+                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/progress')} ownerId={authUserId} />
                         : <div className="h-40 animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" data-testid="saved-session-return-loading" />
                 ) : (
                 <SessionOverhaulView
@@ -936,7 +936,7 @@ export const SessionPage: React.FC = () => {
                         // replacement read by itself, and the chained refetch was a second request.
                         void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
                     }}
-                    onSeeAllSessions={() => navigate('/analytics')}
+                    onSeeAllSessions={() => navigate('/progress')}
                     beforeProgress={beforeProgress}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}

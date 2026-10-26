@@ -94,7 +94,7 @@ async function expectAnalyticsShows(page: Page, sessionId: string, take: Take) {
   await expect(rowMetric('Fillers')).toHaveText(String(FILLERS));
   await expect(rowMetric('Clear delivery (%)')).toHaveText(String(take.clarity));
 
-  await navigateToRoute(page, `/analytics/${sessionId}`);
+  await navigateToRoute(page, `/progress/${sessionId}`);
   await waitForFeature(page, 'analytics');
   const card = (testId: string) => page.getByTestId(testId).locator('[data-evidence="present"]');
   const expectDetail = async () => {
@@ -122,7 +122,7 @@ test(`Gate 2 mocked private: a 10-second take shows its exact metrics on Analyti
 
   await page.reload();
   await waitForFeature(page, 'analytics');
-  await expect(page).toHaveURL(new RegExp(`/analytics/${saved.id}$`));
+  await expect(page).toHaveURL(new RegExp(`/progress/${saved.id}$`));
   // ...the same exact metrics and transcript survive a full reload, i.e. they came from the saved row.
   await expectDetail();
   await expect(page.getByTestId('session-detail-transcript')).toContainText(/target phrase should be tracked/i);
@@ -145,11 +145,11 @@ test(`Gate 2 mocked private: CONTROL — the same take at 20 seconds shows 20-se
 
 test(`Gate 2 mocked private: session detail can return to dashboard`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
-  await navigateToRoute(page, '/analytics');
+  await navigateToRoute(page, '/progress');
   await waitForFeature(page, 'analytics');
 
   const latestSession = page.getByTestId(/session-history-item-/).first();
   await openSessionDetailFromHistoryItem(page, latestSession);
   await page.getByRole('link', { name: /Back to Dashboard/i }).click();
-  await expect(page).toHaveURL('/analytics');
+  await expect(page).toHaveURL('/progress');
 });

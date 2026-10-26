@@ -57,7 +57,7 @@ export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTi
                             : <>
                                 <p className="mt-2 text-[15px] text-ink-muted">This review’s target or Focus Points set couldn’t be matched. To start a new repeat, reopen the saved review, close the pending repeat in Progress, then choose “Practice again?”.</p>
                                 <button type="button" onClick={practiceTarget.retry} className="mr-4 mt-2 text-signature underline">Retry this target</button>
-                                <Link to={`/analytics/${encodeURIComponent(practiceTarget.sourceSessionId)}`} className="text-signature underline">Reopen saved review</Link>
+                                <Link to={`/progress/${encodeURIComponent(practiceTarget.sourceSessionId)}`} className="text-signature underline">Reopen saved review</Link>
                             </>}
                 </div>
             )}

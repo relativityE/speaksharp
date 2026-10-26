@@ -104,11 +104,16 @@ import {
 } from './helpers/coachingExternal';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 import { productFillerCount } from './helpers/rwtFillerOracle';
+import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } from './helpers/rwtFillerReference';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture } from './helpers/rwtCoachingCollector';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
+import {
+    LEGACY_PHRASE, PROGRESS_FORMULA, REPEAT_METRIC_ROW, pressLinkage, repeatMetricPrerequisites, repeatMetricWordingVerdict,
+    type PanelObservation, type ServerEvidence,
+} from './helpers/repeatMetricWording';
 
 const SUITE = 'open-mic-first-session';
 /** Smoke item 2 (run 38654466793): the first take's save-time families the readback held as never received. */
@@ -754,20 +759,29 @@ test.describe('RWT — Open Mic first session @live', () => {
                     : { verdict: 'HOLD' as const, detail: 'the coaching step did not settle' };
                 receipt.row('coaching consistent with saved fillers', fillerAdviceRow.verdict, fillerAdviceRow.detail, { savedCoachable: coachable });
 
-                // Against the corpus. Synthetic "uh" is a HOLD, never a pass; the run never claims all eight were heard.
-                for (const [spoken, expected] of Object.entries(fixture.entry.groundTruthFillers ?? {})) {
-                    const key = FILLER_KEY[spoken] ?? normaliseKey(spoken);
-                    const inTranscript = productFillerCount(transcript, key);
-                    const limited = fixture.entry.kind === 'synthetic' && spoken === 'uh';
-                    if (limited) {
-                        // Synthetic audio cannot prove "uh"; the human-spoken take is the acceptance check (runbook row 4).
-                        humanObservation(receipt, 'open_mic_uh_detected', 'Product 1 row 4', 'spoken "uh" detected and saved (human speech)',
-                            `every spoken "uh" (${expected}) is marked live and saved`);
-                        continue;
-                    }
-                    receipt.row(`filler "${spoken}" vs corpus`, inTranscript === expected ? 'PASS' : 'FAIL',
-                        inTranscript === expected ? 'the transcript holds every spoken instance' : 'the transcript misses or adds instances',
-                        { expected, transcript: inTranscript });
+                // Against the corpus (APP-G1h, Sam 1792982426.848739 / 1792984801.229109). The independent reference aligns each
+                // scripted hesitation to its unique anchor, over every declared key (expected 0 where the corpus has none). The
+                // exact per-word expectation stays: a substitution on synthetic audio is fixture-limited (HOLD: unverified, never
+                // PASS); an omission or insertion FAILs. Synthetic "uh" stays a human observation (the run never claims all eight
+                // were heard), but an omitted or inserted "uh" still FAILs (Sam 1792992507.489959). Rows carry classes and counts
+                // only; the hesitation total is informational and never sets a verdict.
+                const corpus = fixture.entry.groundTruthFillers ?? {};
+                const totals = hesitationTotals(transcript, corpus);
+                if (fixture.entry.kind === 'synthetic' && corpus.uh !== undefined) {
+                    // Synthetic audio cannot prove "uh"; the human-spoken take is the acceptance check (runbook row 4).
+                    humanObservation(receipt, 'open_mic_uh_detected', 'Product 1 row 4', 'spoken "uh" detected and saved (human speech)',
+                        `every spoken "uh" (${corpus.uh}) is marked live and saved`);
+                }
+                for (const row of corpusRows(corpus, transcript, fillerAnnotationsOf(fixture.entry), fixture.entry.kind)) {
+                    receipt.row(`filler "${row.word}" vs corpus`, row.verdict, row.detail,
+                        { ...row.evidence, hesitationTotalExpected: totals.expected, hesitationTotalTranscript: totals.transcript });
+                }
+                // The independent reference and the product counter must agree on this transcript; a disagreement is drift.
+                for (const [key, c] of Object.entries(crossCheckCounts(transcript, productFillerCount))) {
+                    receipt.row(`filler count reference vs product (${key})`, c.verdict,
+                        c.verdict === 'PASS' ? 'the product counter and the independent reference agree'
+                            : 'the product counter disagrees with the independent reference (counter drift)',
+                        { product: c.product, reference: c.reference });
                 }
             });
 
@@ -805,7 +819,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                     // "Back to Dashboard" control and downloads THIS session's PDF from the list. The reload minted a new journey;
                     // the session_pdf_export stage is bound to wherever session_pdf_downloaded actually lands (pdfExport binding).
                     const back = page.getByRole('link', { name: 'Back to Dashboard' });
-                    const returned = await back.click({ timeout: 20_000 }).then(() => page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }))
+                    // #1548: "Back to Dashboard" lands on exactly the canonical /progress list.
+                    const returned = await back.click({ timeout: 20_000 }).then(() => page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 }))
                         .then(() => true).catch(() => false);
                     if (!returned) { receipt.row('session PDF', 'FAIL', 'the detail\'s Back to Dashboard control did not return to the Analytics list'); return; }
                     const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
@@ -948,6 +963,94 @@ test.describe('RWT — Open Mic first session @live', () => {
                     releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
                     captured: coachingCapture ?? undefined,
                 });
+            });
+
+            // ── G03 (#1548 A2, APP-G4): the repeat result names the measured delivery metric ─────────────────────────────
+            // Server oracle first, bound to this journey's first session and its saved repeat take; the page is opened only
+            // when those bindings hold (`loadSessionProgress` can reconcile). Read-only otherwise; closed codes in the row.
+            await test.step('the repeat result names the measured metric', async () => {
+                try {
+                    const linkage = pressLinkage(repeatWindow ? tap.events.slice(repeatWindow[0], repeatWindow[1]) : []);
+                    let server: ServerEvidence = { kind: 'read_failed' };
+                    if (persistedId && repeatSessionId && capturedUid) {
+                        const { data: rec, error: recErr } = await admin!.from('progress_recommendations')
+                            .select('id,target_metric,target_direction,target_value,target_units')
+                            .eq('source_session_id', persistedId).eq('formula_version', PROGRESS_FORMULA).eq('user_id', capturedUid).maybeSingle();
+                        // Two separate reads: this repeat's bound attempts (no schema uniqueness; limit 2 detects a duplicate
+                        // anywhere), and the newest two by accepted_at (the row the panel shows, and its tie check).
+                        const { data: bound, error: boundErr } = rec && !recErr
+                            ? await admin!.from('progress_recommendation_attempts').select('id')
+                                .eq('recommendation_id', rec.id).eq('user_id', capturedUid).eq('practice_session_id', repeatSessionId).limit(2)
+                            : { data: [], error: null };
+                        const { data: newest, error: newestErr } = rec && !recErr
+                            ? await admin!.from('progress_recommendation_attempts').select('id,lifecycle,outcome,accepted_at,practice_session_id')
+                                .eq('recommendation_id', rec.id).eq('user_id', capturedUid).order('accepted_at', { ascending: false }).limit(2)
+                            : { data: [], error: null };
+                        if (!recErr && !boundErr && !newestErr) {
+                            server = {
+                                kind: 'read',
+                                recommendation: rec ? { targetMetric: rec.target_metric, targetDirection: rec.target_direction, targetValue: rec.target_value, targetUnits: rec.target_units } : null,
+                                newest: (newest ?? []).map((a) => ({
+                                    id: a.id, lifecycle: a.lifecycle, outcome: a.outcome, acceptedAt: a.accepted_at, isThisRepeat: a.practice_session_id === repeatSessionId,
+                                })),
+                                boundCount: (bound ?? []).length,
+                                boundId: bound?.length === 1 ? bound[0].id : null,
+                            };
+                        }
+                    }
+                    const prerequisite = repeatMetricPrerequisites(server, linkage);
+                    if (!prerequisite.observe) {
+                        receipt.row(REPEAT_METRIC_ROW, 'HOLD', prerequisite.detail, { reason: prerequisite.reason, linkage: linkage.kind });
+                        return;
+                    }
+                    const route = `/progress/${persistedId}`;
+                    await page.goto(route);
+                    const panel = page.getByTestId('progress-panel');
+                    // One bounded wait for any terminal panel state, then which one it is.
+                    const terminal = {
+                        eligible: panel.getByTestId('progress-direction'),
+                        error: panel.getByRole('alert'),
+                        insufficient: panel.getByText('More evidence is needed before a reliable comparison is available.'),
+                        ineligible: panel.getByText('Comparison is unavailable for this session.'),
+                    } as const;
+                    const reached = await terminal.eligible.or(terminal.error).or(terminal.insufficient).or(terminal.ineligible).first()
+                        .waitFor({ state: 'visible', timeout: 45_000 }).then(() => true, () => false);
+                    let settled: PanelObservation['state'] = 'not_settled';
+                    if (reached) {
+                        for (const state of ['eligible', 'error', 'insufficient', 'ineligible'] as const) {
+                            if (await terminal[state].first().isVisible().catch(() => false)) { settled = state; break; }
+                        }
+                    }
+                    // Each read is text, absent (count 0) or failed; a failed read is never taken as a missing line.
+                    let readFailed = false;
+                    const line = async (id: string): Promise<string | null> => {
+                        const el = panel.getByTestId(id);
+                        const present = await el.count().then((n) => n > 0, () => { readFailed = true; return false; });
+                        if (!present) return null;
+                        return el.first().innerText({ timeout: 5_000 }).then((t) => t, () => { readFailed = true; return null; });
+                    };
+                    const stillEligible = async () => !page.isClosed() && new URL(page.url()).pathname === route
+                        && await terminal.eligible.first().isVisible().catch(() => false)
+                        && await panel.getByTestId('progress-loading').count().then((n) => n === 0, () => false);
+                    const onRoute = !page.isClosed() && new URL(page.url()).pathname === route;
+                    const state: PanelObservation['state'] = page.isClosed() ? 'closed' : !onRoute ? 'wrong_route'
+                        : settled === 'eligible' && !await stillEligible() ? 'not_settled' : settled;
+                    const target = state === 'eligible' ? await line('progress-attempt-target') : null;
+                    const outcome = state === 'eligible' ? await line('progress-attempt-outcome') : null;
+                    const scope = state === 'eligible' ? await line('progress-attempt-scope') : null;
+                    const panelText = state === 'eligible' ? await panel.innerText({ timeout: 5_000 }).then((t) => t, () => { readFailed = true; return ''; }) : '';
+                    // Re-checked after the reads: a page that closed, moved or left its eligible state meanwhile is unreadable.
+                    const readsStable = state === 'eligible' && !readFailed && await stillEligible();
+                    const observation: PanelObservation = {
+                        state, target, outcome, scope, legacyPhrase: panelText.includes(LEGACY_PHRASE), readsStable,
+                    };
+                    const verdict = repeatMetricWordingVerdict(prerequisite.expected, observation);
+                    receipt.row(REPEAT_METRIC_ROW, verdict.verdict, verdict.detail, { ...verdict.evidence, linkage: linkage.kind });
+                } catch (error) {
+                    // A Playwright message can carry the route's session id: only the error class is recorded.
+                    const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+                    receipt.row(REPEAT_METRIC_ROW, 'HOLD', `the repeat-metric observation failed (${name})`);
+                }
             });
         } finally {
             await finish();

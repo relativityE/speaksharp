@@ -13,10 +13,15 @@ export const DEFAULT_AUTH_LANDING = '/practice';
 
 /** Explicit-deep-link expectations callers may pass. */
 export const SESSION_LANDING = '/session';
-/** Analytics session-detail deep-link (`/analytics/:sessionId`). */
-export const ANALYTICS_SESSION_LANDING = /^\/analytics\/[^/]+\/?$/;
-/** Analytics index deep-link (`/analytics`, no trailing session id). */
-export const ANALYTICS_INDEX_LANDING = '/analytics';
+/** Explicit Progress detail deep-link; the legacy Analytics alias remains accepted. */
+export const ANALYTICS_SESSION_LANDING = /^\/(?:progress|analytics)\/[^/]+\/?$/;
+/** Explicit Progress index deep-link, never a substitute for the default /practice landing. */
+export const ANALYTICS_INDEX_LANDING = /^\/(?:progress|analytics)\/?$/;
+
+/** Pathname only: query-string mentions and look-alike prefixes are not Progress routes. */
+export function isProgressRoutePathname(pathname: string): boolean {
+  return /^\/(?:progress|analytics)(?:\/[^/]+)?\/?$/.test(pathname);
+}
 
 export type ExpectedAuthLanding = string | RegExp;
 

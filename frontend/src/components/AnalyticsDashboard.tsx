@@ -480,7 +480,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
             <div className="flex flex-wrap items-center gap-3">
                 {product && <ProductTag product={product} />}
                 <NavLink
-                    to={`/analytics/${session.id}`}
+                    to={`/progress/${session.id}`}
                     data-testid={`session-detail-link-${session.id}`}
                     className="rounded-sm text-[15px] font-extrabold text-neutral-heading underline decoration-neutral-border-strong underline-offset-[3px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
@@ -497,7 +497,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                 </label>
                 <div className="flex items-center gap-3" data-testid={`download-pdf-container-${session.id}`}>
                     <NavLink
-                        to={`/analytics/${session.id}`}
+                        to={`/progress/${session.id}`}
                         data-testid={`open-session-detail-${session.id}`}
                         aria-label={`Open ${product ? PRODUCT_LABEL[product] : 'session'}, ${when}`}
                         className="inline-flex h-9 items-center rounded-lg bg-ink px-4 text-[14px] font-extrabold text-white hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2"
@@ -1001,7 +1001,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                     <div className="flex justify-center pt-2">
                         <Button asChild variant="ghost" className="gap-2">
-                            <NavLink to="/analytics">
+                            <NavLink to="/progress">
                                 <BarChart className="h-4 w-4" />
                                 Back to Dashboard
                             </NavLink>
@@ -1038,7 +1038,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             sessionId={newestSession.id}
                             sessionLabel={`${shortDate(newestSession.created_at)}, ${shortTime(newestSession.created_at)}`}
                             eyebrow="Your latest review"
-                            footerLink={{ to: `/analytics/${newestSession.id}`, label: 'Open this session' }}
+                            footerLink={{ to: `/progress/${newestSession.id}`, label: 'Open this session' }}
                             onlyWhenSaved
                         />
                     )}
