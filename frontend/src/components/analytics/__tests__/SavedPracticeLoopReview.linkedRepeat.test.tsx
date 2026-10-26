@@ -111,7 +111,7 @@ describe('#1548 displayed instruction opt-in at the actual saved-review caller',
         client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
         render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/session']}><Routes>
             <Route path="/session" element={<CoachingCard sessionState="before" practiceTarget={{ kind: 'unavailable', retry: vi.fn(), sourceSessionId: 's1' }} />} />
-            <Route path="/analytics/:sessionId" element={<><SavedPracticeLoopReview sessionId="s1" /><ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview /></>} />
+            <Route path="/progress/:sessionId" element={<><SavedPracticeLoopReview sessionId="s1" /><ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview /></>} />
         </Routes></MemoryRouter></QueryClientProvider>);
         const recoveryCopy = screen.getByTestId('repeat-practice-target').textContent;
         fireEvent.click(screen.getByRole('link', { name: 'Reopen saved review' }));
@@ -255,9 +255,11 @@ describe('#1548 — the saved review names the target actually measured by its l
     });
 
     it.each([
-        ['completed', 'moved', 'The stored repeat shows movement in the practiced direction.'],
-        ['completed', 'did_not_move', 'The stored repeat did not show movement in the practiced direction.'],
-        ['not_comparable', 'not_comparable', 'The stored repeat was not comparable.'],
+        // #1548 A2: the review owns the action, so the stored filler-rate result is separate delivery evidence; the
+        // server's decrease derivation is strictly lower than the original session.
+        ['completed', 'moved', 'Filler rate was lower on the repeat than in the original session.'],
+        ['completed', 'did_not_move', 'Filler rate was not lower on the repeat than in the original session.'],
+        ['not_comparable', 'not_comparable', 'Filler rate could not be compared for this repeat.'],
     ] as const)('accepts the saved target, then qualifies the reloaded %s/%s result without crediting unrelated AI advice', async (lifecycle, outcome, resultText) => {
         // The AI suggestion is deliberately unrelated to the persisted filler-rate target, whose 7% value
         // also differs from today's computed 3% default. Neither AI prose nor a new calculation is authority.
@@ -281,14 +283,19 @@ describe('#1548 — the saved review names the target actually measured by its l
         const result = await screen.findByTestId('progress-attempt-outcome');
         expect(result).toHaveTextContent(resultText);
         const measuredTarget = screen.getByTestId('progress-attempt-target');
-        expect(measuredTarget).toHaveTextContent('Measured repeat target: Filler rate; decrease toward 7 percent of words.');
+        // The stored 7% (not today's computed 3% default) renders, labelled as a saved target.
+        expect(measuredTarget).toHaveTextContent('Separate delivery comparison: Filler rate (saved target: decrease toward 7 percent of words).');
         expect(result.parentElement).toContainElement(measuredTarget);
         expect(measuredTarget).not.toHaveTextContent(/price|3 percent/);
         expect(screen.getByTestId('saved-review')).toHaveTextContent('Name the price first.');
         expect(screen.getAllByRole('button')).toHaveLength(1); // review still owns the only practice action
         expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
         expect(recordAttempt).toHaveBeenCalledTimes(1); // reloading the outcome never accepts another attempt
-        expect(result.textContent?.includes('shows movement')).toBe(outcome === 'moved');
+        // Moved vs non-moved stays discriminated, now by the stored metric result itself, never by "practiced direction".
+        expect(result.textContent?.includes('Filler rate was lower')).toBe(outcome === 'moved');
+        expect(result).not.toHaveTextContent(/practiced direction|price|improv/i);
+        expect(screen.getByTestId('progress-attempt-scope'))
+            .toHaveTextContent('This comparison measures delivery, not whether the coaching tip was followed.');
     });
 });
 

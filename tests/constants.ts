@@ -58,8 +58,10 @@ export const ROUTES = {
 
   // Protected routes (auth required)
   SESSION: '/session',
-  ANALYTICS: '/analytics',
-  analyticsWithSession: (sessionId: string) => `/analytics/${sessionId}`,
+  // #1548: /progress is canonical; /analytics is a legacy alias that redirects (LEGACY_ANALYTICS for redirect checks).
+  ANALYTICS: '/progress',
+  analyticsWithSession: (sessionId: string) => `/progress/${sessionId}`,
+  LEGACY_ANALYTICS: '/analytics',
 } as const;
 
 // ============================================

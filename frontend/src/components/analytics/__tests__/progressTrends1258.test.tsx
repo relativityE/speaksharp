@@ -12,9 +12,14 @@ import { FillerWordsBreakdown } from '../FillerWordsBreakdown';
 import { fillerBreakdownModel, fillerSummary } from '../fillerBreakdown';
 import { TrendsCard } from '../TrendsCard';
 
+// #1472: `weekly` is per-test so the loading/unavailable summaries can be asserted; the default is the complete week.
+const COMPLETE_WEEK = { status: 'complete', count: 3, activity: [{ day: 'Mon', sessions: 2 }, { day: 'Tue', sessions: 1 }] };
+const weeklyState = vi.hoisted(() => ({ value: null as unknown }));
 vi.mock('@/hooks/useAnalytics', () => ({
-    useAnalytics: () => ({ weeklyActivity: [{ day: 'Mon', sessions: 2 }, { day: 'Tue', sessions: 1 }], loading: false, error: null }),
+    useAnalytics: () => ({ weekly: weeklyState.value, loading: false, error: null }),
 }));
+
+weeklyState.value = COMPLETE_WEEK;
 
 global.ResizeObserver = class ResizeObserver {
     observe() { }
@@ -110,6 +115,14 @@ describe('#1258 D6 Filler words: counts for the two newest measured sessions', (
         expect([model.latest?.count, model.previous?.count]).toEqual([1, 2]);
     });
 
+    it('#1254: a two-zero breakdown names its scope as the last two MEASURED sessions (unmeasured ones are skipped)', () => {
+        // Not producible by fillerBreakdownModel today (measured means observed > 0); this pins the copy for a future
+        // verified zero, built directly as a model.
+        const zero = (id: string, createdAt: string) => ({ id, createdAt, count: 0, perWord: {} });
+        render(<FillerWordsBreakdown model={{ latest: zero('a', '2026-10-07T18:12:00.000Z'), previous: zero('b', '2026-10-01T18:12:00.000Z'), rows: [] }} />);
+        expect(screen.getByTestId('filler-breakdown-none')).toHaveTextContent('No filler words detected in your last two measured sessions.');
+    });
+
     it('only one measured session: no comparison line and no second column', () => {
         render(<FillerWordsBreakdown model={fillerBreakdownModel([session(7, { um: 1 }), session(1, null)])} />);
         expect(screen.getByText('1 in your latest session')).toBeInTheDocument();
@@ -146,7 +159,21 @@ describe('#1258 D7 TrendsCard', () => {
     });
 
     it('weekly activity summarises this week\'s sessions', () => {
+        weeklyState.value = COMPLETE_WEEK;
         render(<TrendsCard slideIds={['weekly_activity']} trendData={data} sessions={sessions} />);
         expect(screen.getByTestId('trend-row-weekly_activity').textContent).toContain('3 sessions this week');
+    });
+
+    it('#1472: a week still loading or unavailable states that, never a count from a partial page', () => {
+        weeklyState.value = { status: 'loading' };
+        const { unmount } = render(<TrendsCard slideIds={['weekly_activity']} trendData={data} sessions={sessions} />);
+        expect(screen.getByTestId('trend-row-weekly_activity').textContent).toContain('Loading this week…');
+        expect(screen.getByTestId('trend-row-weekly_activity').textContent).not.toMatch(/\d+ sessions? this week/);
+        unmount();
+        weeklyState.value = { status: 'unavailable' };
+        render(<TrendsCard slideIds={['weekly_activity']} trendData={data} sessions={sessions} />);
+        expect(screen.getByTestId('trend-row-weekly_activity').textContent).toContain('This week\'s count can\'t load right now');
+        expect(screen.getByTestId('trend-row-weekly_activity').textContent).not.toMatch(/\d+ sessions? this week/);
+        weeklyState.value = COMPLETE_WEEK;
     });
 });

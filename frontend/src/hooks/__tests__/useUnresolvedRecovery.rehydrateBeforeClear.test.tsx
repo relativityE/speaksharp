@@ -58,14 +58,16 @@ describe('#1476 / #1455 — a finalized draft is rehydrated before anything dele
         expect(getRecoverableDraftForUser(USER)?.sessionId).toBe('sess-finalized');
     });
 
-    it('CONTROL: an interrupted (non-replayable) draft may still be acknowledged and cleared', async () => {
+    it('A1-2: an interrupted (non-replayable) draft is KEPT after the reload, for the banner, until the person dismisses it', async () => {
         saveSessionRecoveryDraft({
             sessionId: 'sess-interrupted', userId: USER, recoveryState: 'active_interrupted', durationSeconds: 20, mode: 'private',
             metrics: { totalWords: 10 },
         });
-        renderHook(() => useUnresolvedRecovery(args()));
+        const { result } = renderHook(() => useUnresolvedRecovery(args()));
         await waitFor(() => expect(seenAtRehydrate).toHaveLength(1));
-        expect(getRecoverableDraftForUser(USER)).toBeNull();
+        // Acknowledging it on load used to delete it while its report went to a status slot that warm-up overwrites at once.
+        expect(getRecoverableDraftForUser(USER)?.sessionId).toBe('sess-interrupted');
+        expect(result.current.recoveryDraft?.recoveryState).toBe('active_interrupted');
     });
 
     it('CONTROL: a saved session still clears the owned draft', () => {

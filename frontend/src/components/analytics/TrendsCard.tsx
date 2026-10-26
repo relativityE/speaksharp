@@ -17,8 +17,11 @@ import { WeeklyActivityChart } from './WeeklyActivityChart';
 interface TrendRow { id: string; title: string; color: string; summary: React.ReactNode; body: React.ReactNode }
 
 const WeeklySummary: React.FC = () => {
-    const { weeklyActivity } = useAnalytics();
-    const n = (weeklyActivity ?? []).reduce((sum, d) => sum + (d.sessions || 0), 0);
+    const { weekly } = useAnalytics();
+    // #1472: a count only when it covers the week; never one derived from a partial page.
+    if (weekly.status === 'loading') return <>Loading this week…</>;
+    if (weekly.status === 'unavailable') return <>This week's count can't load right now</>;
+    const n = weekly.activity.reduce((sum, d) => sum + (d.sessions || 0), 0);
     return <>{plural(n, 'session', 'sessions')} this week</>;
 };
 

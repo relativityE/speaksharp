@@ -56,8 +56,9 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     {
         id: 'analytics',
         label: 'Progress',
-        path: '/analytics',
-        matchPaths: ['/analytics'],
+        // #1548: canonical /progress; the legacy /analytics alias still marks Progress active while it redirects.
+        path: '/progress',
+        matchPaths: ['/progress', '/analytics'],
         icon: BarChart3,
         testId: TEST_IDS.NAV_ANALYTICS_LINK,
     },

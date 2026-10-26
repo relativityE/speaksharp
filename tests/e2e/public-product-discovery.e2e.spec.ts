@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { setupE2EMocks } from './mock-routes';
 import { setupE2EManifest } from './helpers/setupE2EManifest';
 import { setupBrowserLogging, goToApp, programmaticLoginWithRoutes, navigateToRoute } from './helpers';
@@ -20,6 +21,17 @@ import { TEST_IDS } from '../constants';
 const DIR = 'test-results/product-discovery';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
+
+/**
+ * #1475: full selected-WCAG check of the anonymous landing before signup. A local mirror of the spec-local helper in
+ * progress-cross-page.e2e.spec.ts (same four tags, every violation fails, no exclusions); not imported from an
+ * executable spec. Waits past the entrance animation so contrast is measured on the settled state.
+ */
+async function assertAnonymousLandingAxe(page: Page): Promise<void> {
+  await page.waitForTimeout(600);
+  const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+  expect(result.violations, JSON.stringify(result.violations, null, 2)).toEqual([]);
+}
 const PW = 'Test1234!pass';
 
 async function bootAnonymous(page: Page) {
@@ -110,11 +122,13 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('home-last-session')).toHaveCount(0);
     await settle(page);
+    await assertAnonymousLandingAxe(page);
     await page.screenshot({ path: `${DIR}/01-anonymous-root-desktop.png`, fullPage: true });
 
     await page.setViewportSize(MOBILE);
     await enterAnonLanding(page);
     await settle(page);
+    await assertAnonymousLandingAxe(page);
     await page.screenshot({ path: `${DIR}/02-anonymous-root-mobile.png`, fullPage: true });
 
     // Freeform (product card CTA) → real account access → /session (intent preserved), no auto-record.

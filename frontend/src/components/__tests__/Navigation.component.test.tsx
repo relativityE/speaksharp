@@ -340,7 +340,7 @@ describe('Navigation', () => {
 
             renderNavigation();
             const analyticsLinks = screen.getAllByRole('link', { name: /progress/i });
-            expect(analyticsLinks[0]).toHaveAttribute('href', '/analytics');
+            expect(analyticsLinks[0]).toHaveAttribute('href', '/progress');
         });
     });
 
@@ -799,8 +799,8 @@ describe('Navigation', () => {
             const mobile = screen.getByRole('navigation', { name: 'Primary mobile' });
             const row = mobile.firstElementChild as HTMLElement;
             expect(Array.from(row.children).map((el) => el.textContent?.trim())).toEqual(['Home', 'Open Mic', 'Focus Points', 'Progress']);
-            // Ids, routes and test ids are unchanged; only the label and the order move.
-            expect(screen.getByTestId('nav-analytics-link')).toHaveAttribute('href', '/analytics');
+            // Ids and test ids are unchanged; the route is the canonical /progress (#1548).
+            expect(screen.getByTestId('nav-analytics-link')).toHaveAttribute('href', '/progress');
             expect(screen.getByTestId('nav-analytics-link')).toHaveTextContent('Progress');
         });
     });
