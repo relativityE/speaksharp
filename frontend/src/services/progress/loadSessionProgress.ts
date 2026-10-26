@@ -387,6 +387,8 @@ async function loadRepeatResult(
         .maybeSingle();
     const next = (data as EvalRow | null) ?? null;
     if (error || !next || next.session_id !== nextId || !next.eligible || next.cohort_key !== sourceRow.cohort_key) return unavailable;
+    // Parity with opening that session itself: evidence the normal loader calls incomplete is never shown here.
+    if (!hasCompleteEligibleProgressEvidence(toEvaluation(next))) return unavailable;
     const after = metricValue(next, recommendation.target_metric);
     if (after === null) return unavailable;
     return {

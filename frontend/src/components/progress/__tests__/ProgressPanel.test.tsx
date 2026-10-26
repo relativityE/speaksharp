@@ -401,10 +401,28 @@ describe('#1548 the linked repeat shows the same target before → after', () =>
         ['filler_rate', 'percent of words', 3.04, 3.01, 'Filler rate: 3.04 → 3.01 percent of words'],
         ['pace', 'words per minute', 150.2, 150.4, 'Pace: 150.2 → 150.4 words per minute'],
         ['filler_rate', 'percent of words', 3, 3, 'Filler rate: 3.0 → 3.0 percent of words'],
+        // Sam 1793055143.755569: 3/1000 vs 3/1001 of words (the real filler formula) print alike at three decimals.
+        ['filler_rate', 'percent of words', (3 / 1000) * 100, (3 / 1001) * 100, 'Filler rate: 0.3000 → 0.2997 percent of words'],
+        // Sam 1793055247.293479: a recommendation-realistic pair that strict server comparison calls "decreased" but
+        // that prints 6.100 → 6.100 at three decimals.
+        ['filler_rate', 'percent of words', (61 / 1000) * 100, (33 / 541) * 100, 'Filler rate: 6.1000 → 6.0998 percent of words'],
     ] as const)('formats %s %s → %s', async (metric, units, before, after, text) => {
         loadSessionProgress.mockResolvedValue({ ...VIEW, latestAttempt: completed, repeatResult: available({ metric, units, before, after }) });
         renderPanel(true);
-        expect(await screen.findByTestId('progress-attempt-values')).toHaveTextContent(text);
+        const values = await screen.findByTestId('progress-attempt-values');
+        expect(values).toHaveTextContent(text);
+        expect(values).not.toHaveTextContent('displayed precision');
+    });
+
+    it('says a stored change below the displayed precision is below it, never printing two identical values as a change', async () => {
+        const before = 0.3;
+        const after = 0.3 - 4e-8; // a real stored difference smaller than six decimals
+        loadSessionProgress.mockResolvedValue({ ...VIEW, latestAttempt: completed, repeatResult: available({ before, after }) });
+        renderPanel(true);
+        const values = await screen.findByTestId('progress-attempt-values');
+        expect(values).toHaveTextContent('Filler rate: 0.300000 → 0.300000 percent of words (original session → linked repeat). The stored values differ by less than the displayed precision.');
+        // The server's stored outcome is shown unchanged beside it.
+        expect(screen.getByTestId('progress-attempt-outcome')).toHaveTextContent('Filler rate was lower on the repeat than in the original session.');
     });
 
     it.each([true, false])('says the values are unavailable — never a zero — when the evidence is gone (review-owned: %s)', async (reviewOwned) => {

@@ -41,17 +41,22 @@ function reviewOwnedOutcome(target: StructuredTarget, lifecycle: string, outcome
     return `${metric} was ${moved ? '' : 'not '}${comparative} on the repeat than in the original session.`;
 }
 
+/** Most decimals shown; a smaller stored difference is stated as below displayed precision instead. */
+const MAX_REPEAT_VALUE_DIGITS = 6;
+
 /**
  * #1548: the linked repeat's same-target values, original session → repeat, in the stored target units. Filler rate
  * starts at one decimal and pace/points at whole numbers; precision grows only until two different stored values no
- * longer print alike. It states the values, never that the target was reached.
+ * longer print alike (Sam 1793055143.755569: 3/1000 vs 3/1001 of words). If they still print alike at the cap,
+ * `belowPrecision` says so — the values are never rounded into a manufactured change or an implied "no change".
+ * It states the values, never that the target was reached.
  */
-function formatRepeatValues(metric: StructuredTarget['metric'], before: number, after: number): [string, string] {
-    for (let digits = metric === 'filler_rate' ? 1 : 0; digits < 3; digits += 1) {
-        const pair: [string, string] = [before.toFixed(digits), after.toFixed(digits)];
-        if (pair[0] !== pair[1] || before === after) return pair;
+function formatRepeatValues(metric: StructuredTarget['metric'], before: number, after: number): { before: string; after: string; belowPrecision: boolean } {
+    for (let digits = metric === 'filler_rate' ? 1 : 0; digits <= MAX_REPEAT_VALUE_DIGITS; digits += 1) {
+        const pair = { before: before.toFixed(digits), after: after.toFixed(digits) };
+        if (pair.before !== pair.after || before === after) return { ...pair, belowPrecision: false };
     }
-    return [before.toFixed(3), after.toFixed(3)];
+    return { before: before.toFixed(MAX_REPEAT_VALUE_DIGITS), after: after.toFixed(MAX_REPEAT_VALUE_DIGITS), belowPrecision: true };
 }
 
 function RepeatValues({ result }: { result: RepeatResultView | null | undefined }) {
@@ -61,10 +66,11 @@ function RepeatValues({ result }: { result: RepeatResultView | null | undefined 
             The original and repeat values for this comparison are not available.
         </p>
     );
-    const [before, after] = formatRepeatValues(result.metric, result.before, result.after);
+    const { before, after, belowPrecision } = formatRepeatValues(result.metric, result.before, result.after);
     return (
         <p data-testid="progress-attempt-values" className="text-sm text-foreground/80">
             {TARGET_METRIC_LABELS[result.metric]}: {before} → {after} {result.units} (original session → linked repeat).
+            {belowPrecision && ' The stored values differ by less than the displayed precision.'}
         </p>
     );
 }

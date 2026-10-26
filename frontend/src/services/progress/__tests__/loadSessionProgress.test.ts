@@ -444,6 +444,26 @@ describe('#1548 the linked repeat result reads the persisted same-target pair', 
         expect(await loadSessionProgress('s2')).toMatchObject({ repeatResult: { status: 'unavailable' } });
     });
 
+    // Sam 1793055247.293479 / 1793055263.986119: completeness parity with opening the linked session itself. The
+    // persisted eligible payload does not require every input, so an `eligible` row can still be incomplete.
+    it.each([
+        ['filler_rate next row with valid fillers/words but wpm=null', 'filler_rate', 'percent of words', { wpm: null }],
+        ['pace next row with wpm=151 but missing clarity/error evidence', 'pace', 'words per minute', { wpm: 151, clarity_raw: null, error_marker_count: null }],
+    ] as const)('parity: %s is unavailable here AND incomplete in the normal loader', async (_label, target_metric, target_units, incomplete) => {
+        recommendation = rec('rec-1548', { target_metric, target_units, source_metric_value: 4.5 });
+        evaluationsById.r1 = ev('r1', { filler_count: 8, word_count: 250, ...incomplete });
+        const view = await loadSessionProgress('s2');
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.repeatResult).toEqual({ status: 'unavailable' });
+
+        // The same row, opened as its own session by the unchanged normal loader, is "evidence is incomplete".
+        evaluationsById = {};
+        current = ev('r1', { filler_count: 8, word_count: 250, ...incomplete });
+        expect(await loadSessionProgress('r1')).toMatchObject({
+            status: 'unavailable', message: 'Progress evidence is incomplete for this session.',
+        });
+    });
+
     it.each([
         ['pending', null],
         ['not_comparable', 'not_comparable'],
