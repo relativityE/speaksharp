@@ -47,6 +47,14 @@ sleep 6
 RID="$(gh run list --workflow=setup-test-users.yml -L 1 --json databaseId --jq '.[0].databaseId')"
 gh run watch "$RID" --exit-status
 
+# The workflow's SOAK_TEST_PASSWORD generation step only runs for action=setup; say so instead of leaving it implied.
+SOAK_STEP="$(gh run view "$RID" --json jobs --jq '[.jobs[].steps[] | select(.name == "Generate and set SOAK_TEST_PASSWORD") | .conclusion] | first // ""')"
+case "$SOAK_STEP" in
+  skipped) echo "  SOAK_TEST_PASSWORD generation: SKIPPED (create neither generates nor changes SOAK_TEST_PASSWORD)";;
+  "") echo "  SOAK_TEST_PASSWORD generation: UNKNOWN (step not reported by run ${RID})";;
+  *) echo "  SOAK_TEST_PASSWORD generation: ${SOAK_STEP}";;
+esac
+
 if [ "$WIRE" = 1 ]; then
   ENVF="frontend/.env.test"; touch "$ENVF"
   if [ "$TIER" = pro ]; then EK=E2E_PRO_EMAIL; PK=E2E_PRO_PASSWORD; else EK=FREE_TEST_EMAIL; PK=FREE_TEST_PASSWORD; fi
@@ -55,10 +63,12 @@ if [ "$WIRE" = 1 ]; then
   printf '%s=%s\n%s=%s\n' "$EK" "$EMAIL" "$PK" "$PASSWORD" >> "$ENVF"
   echo "✓ ${TIER} user created + wired into ${ENVF}  (${EK} / ${PK})"
 else
-  echo "✓ ${TIER} user created (not wired — use --wire-less output below)"
+  echo "✓ ${TIER} user created (--no-wire: nothing was written to frontend/.env.test)"
 fi
 
 echo "  EMAIL=${EMAIL}"
-if [ "$SHOW_PW" = 1 ]; then echo "  PASSWORD=${PASSWORD}"; else echo "  PASSWORD=(written to ${ENVF:-frontend/.env.test}; pass --print-password to echo it)"; fi
+if [ "$SHOW_PW" = 1 ]; then echo "  PASSWORD=${PASSWORD}"
+elif [ "$WIRE" = 1 ]; then echo "  PASSWORD=(written to ${ENVF}; pass --print-password to echo it)"
+else echo "  PASSWORD=(NOT written anywhere with --no-wire; pass --print-password to echo it)"; fi
 echo ""
 echo "Next: bash scripts/run-v4-gates.sh"
