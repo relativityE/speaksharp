@@ -104,6 +104,7 @@ import {
 } from './helpers/coachingExternal';
 import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
 import { productFillerCount } from './helpers/rwtFillerOracle';
+import { alignFillers, corpusVerdicts, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } from './helpers/rwtFillerReference';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture } from './helpers/rwtCoachingCollector';
@@ -754,20 +755,35 @@ test.describe('RWT — Open Mic first session @live', () => {
                     : { verdict: 'HOLD' as const, detail: 'the coaching step did not settle' };
                 receipt.row('coaching consistent with saved fillers', fillerAdviceRow.verdict, fillerAdviceRow.detail, { savedCoachable: coachable });
 
-                // Against the corpus. Synthetic "uh" is a HOLD, never a pass; the run never claims all eight were heard.
-                for (const [spoken, expected] of Object.entries(fixture.entry.groundTruthFillers ?? {})) {
-                    const key = FILLER_KEY[spoken] ?? normaliseKey(spoken);
-                    const inTranscript = productFillerCount(transcript, key);
-                    const limited = fixture.entry.kind === 'synthetic' && spoken === 'uh';
-                    if (limited) {
+                // Against the corpus (APP-G1h, Sam 1792982426.848739 / 1792984801.229109). The independent reference aligns each
+                // scripted hesitation to its unique anchor, over every declared key (expected 0 where the corpus has none). The
+                // exact per-word expectation stays: a substitution on synthetic audio is fixture-limited (HOLD: unverified, never
+                // PASS); an omission or insertion FAILs. Synthetic "uh" stays a human observation; the run never claims all eight
+                // were heard. Rows carry classes and counts only; the hesitation total is informational and never sets a verdict.
+                const corpus = fixture.entry.groundTruthFillers ?? {};
+                const annotations = fillerAnnotationsOf(fixture.entry);
+                const alignment = alignFillers(transcript, annotations);
+                const totals = hesitationTotals(transcript, corpus);
+                for (const [spoken, v] of Object.entries(corpusVerdicts(corpus, transcript, alignment, fixture.entry.kind))) {
+                    if (fixture.entry.kind === 'synthetic' && spoken === 'uh') {
                         // Synthetic audio cannot prove "uh"; the human-spoken take is the acceptance check (runbook row 4).
                         humanObservation(receipt, 'open_mic_uh_detected', 'Product 1 row 4', 'spoken "uh" detected and saved (human speech)',
-                            `every spoken "uh" (${expected}) is marked live and saved`);
+                            `every spoken "uh" (${corpus.uh ?? 0}) is marked live and saved`);
                         continue;
                     }
-                    receipt.row(`filler "${spoken}" vs corpus`, inTranscript === expected ? 'PASS' : 'FAIL',
-                        inTranscript === expected ? 'the transcript holds every spoken instance' : 'the transcript misses or adds instances',
-                        { expected, transcript: inTranscript });
+                    const unannotated = annotations.length === 0;
+                    receipt.row(`filler "${spoken}" vs corpus`,
+                        unannotated || v.verdict === 'FIXTURE_LIMITED' ? 'HOLD' : v.verdict,
+                        unannotated ? 'the fixture carries no filler annotations'
+                            : v.verdict === 'FIXTURE_LIMITED' ? `fixture-limited (unverified): ${v.detail}` : v.detail,
+                        { ...v.evidence, hesitationTotalExpected: totals.expected, hesitationTotalTranscript: totals.transcript });
+                }
+                // The independent reference and the product counter must agree on this transcript; a disagreement is drift.
+                for (const [key, c] of Object.entries(crossCheckCounts(transcript, productFillerCount))) {
+                    receipt.row(`filler count reference vs product (${key})`, c.verdict,
+                        c.verdict === 'PASS' ? 'the product counter and the independent reference agree'
+                            : 'the product counter disagrees with the independent reference (counter drift)',
+                        { product: c.product, reference: c.reference });
                 }
             });
 
