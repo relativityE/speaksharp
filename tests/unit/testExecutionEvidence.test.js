@@ -548,6 +548,9 @@ test('fixture runtime must already match the repository pnpm pin; no runtime acq
 
 function fixtureWriterProject(weakened=false,preparationFailure=false) {
   const f=executionFixture(true);
+  const metrics=JSON.parse(fs.readFileSync(path.join(f.dir,'test-results/metrics.json'),'utf8'));
+  metrics.e2e_tests.flaky=0;
+  f.write('test-results/metrics.json',JSON.stringify(metrics));
   const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'fixture-writer-environment-'));
   const diagnosticFile=path.join(scratch,'failed-phase.json');
   for(const file of ['package.json','scripts/pnpm-only.mjs','scripts/run-metrics.sh','scripts/write-service-level-evidence.mjs',
@@ -589,7 +592,7 @@ if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==
       const evidence=JSON.parse(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality.latest.json'),'utf8'));
       assert.equal(evidence.overallStatus,'QUALIFIED');assert.equal(evidence.executionCoverage.status,'COMPLETE');
       assert.equal(evidence.tests.flaky,0);
-      assert.deepEqual(evidence.tests.e2e,{passed:1,failed:0,skipped:0,total:1});
+      assert.deepEqual(evidence.tests.e2e,{passed:1,failed:0,skipped:0,flaky:0,total:1});
       assert.ok(fs.readFileSync(path.join(f.dir,'product_release/evidence/software-quality-summary.latest.md'),'utf8')
         .includes('| Flaky (passed only on retry) | 0 | 0 |'));
       assert.deepEqual(evidence.executionCoverage.rows.map(row=>[row.file,row.status]),[[fixtureConsumer.fixtureFile,'EXECUTED']]);
