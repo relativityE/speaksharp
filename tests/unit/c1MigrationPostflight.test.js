@@ -59,7 +59,9 @@ describe('C1 exact source/catalog postflight',()=>{
     expect(after127.functions).toEqual(before128.functions);
     expect(before127.functions.some(row=>row.expected===null)).toBe(true);
     expect(after128.functions.every(row=>row.expected!==null)).toBe(true);
-    expect(c1CatalogQuery(before127).sql).not.toContain('public.retention_content_free_compatible()');
+    // The signature must be checked for absence; the not-yet-installed function must never be called.
+    expect(c1CatalogQuery(before127).sql).toContain("to_regprocedure('public.retention_content_free_compatible()') IS NULL");
+    expect(c1CatalogQuery(before127).sql).not.toMatch(/(?:AND|SELECT)\s+public\.retention_content_free_compatible\(\)/);
     expect(c1CatalogQuery(after128).sql).toContain("'retention-pins'");
   });
   it('accepts complete boolean catalog proof but refuses missing/duplicated/false/null rows and changed activation',()=>{
