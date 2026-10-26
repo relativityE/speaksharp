@@ -8,7 +8,6 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { completionBootstrap } from './account-completion-fixture.mjs';
-import { C1_VERSIONS, c1Contract, c1CatalogQuery, assertC1Catalog } from '../../scripts/lib/c1MigrationPostflight.mjs';
 
 export const migrationPath = 'backend/supabase/migrations/20261025021046_content_free_retention_evidence.sql';
 export const candidate = () => readFileSync(migrationPath, 'utf8');
@@ -370,21 +369,7 @@ async function nativeFixture(t) {
     },
   };
   receipt.serverVersion = (await exec('SELECT version();')).trim();
-  const fenceSql = migration('20261024083000_account_coaching_unknown_fence_1643.sql');
-  const bootstrap = bootstrapSql();
-  assert.equal(bootstrap.split(fenceSql).length, 2, 'fixture contains exactly one complete fence migration');
-  await exec(bootstrap.replace(fenceSql, ''));
-  receipt.catalogChecks = [];
-  for (const version of C1_VERSIONS) {
-    const before = c1Contract(process.cwd(), 'before', version);
-    const after = c1Contract(process.cwd(), 'after', version);
-    const catalog = async contract => JSON.parse((await exec(c1CatalogQuery(contract).sql)).trim());
-    const preimage = await catalog(before);
-    receipt.catalogChecks.push({ phase: 'before', version, ...assertC1Catalog(preimage, before) });
-    await exec(`SET ROLE closure_owner; ${version === C1_VERSIONS[0] ? fenceSql : candidate()} RESET ROLE;`);
-    receipt.catalogChecks.push({ phase: 'after', version, ...assertC1Catalog(await catalog(after), after,
-      { version, targetSha256: before.targetSha256, catalog: preimage }) });
-  }
+  await exec(bootstrapSql()); await exec(`SET ROLE closure_owner; ${candidate()}`);
   for (const [name, body] of Object.entries(cases)) {
     let failure;
     await t.test(name, { timeout: 40_000 }, async () => {

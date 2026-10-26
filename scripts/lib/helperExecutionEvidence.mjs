@@ -31,6 +31,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/live/helpers/returningSignInAttempt.ts', testFile:'tests/unit/returningSignInAttempt1495.test.ts',
   callables:['wireErrorCode','classifyTokenResponse','pageAttemptEvents','armPasswordSignInObserver','returningSignInVerdict'],
+}, {
+  helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/c1MigrationPostflight.test.js',
+  callables:['proveC1CatalogStages'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 

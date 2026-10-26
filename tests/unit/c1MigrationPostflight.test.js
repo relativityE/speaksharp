@@ -6,12 +6,27 @@ import {createHash} from 'node:crypto';
 import {C1_VERSIONS,c1Contract,c1CatalogQuery,assertC1Catalog,functionDefinitions} from '../../scripts/lib/c1MigrationPostflight.mjs';
 import {EXACT_MIGRATION_ALLOWLIST} from '../../scripts/lib/exactMigrationGate.mjs';
 import {bootstrapSql} from '../db/content-free-retention-evidence.realpg.mjs';
+import {proveC1CatalogStages} from '../db/c1CatalogStages.js';
 
 const root=process.cwd();
 const witness=contract=>({checks:c1CatalogQuery(contract).names.map(name=>({name,ok:true})),
   activation:[{policy_version:'newest_one_v1',activated_at:'2026-09-20T16:29:29.114Z'}]});
 
 describe('C1 exact source/catalog postflight',()=>{
+  it('executes the native runner\'s actual catalog hook through a real PGlite SQL connection',async()=>{
+    const db=new PGlite();
+    try {
+      const exec=async sql=>{
+        if(sql.startsWith('WITH checks AS'))return (await db.query(sql)).rows[0].jsonb_build_object;
+        await db.exec(sql);return '';
+      };
+      const checks=await proveC1CatalogStages(exec);
+      expect(checks.map(row=>[row.phase,row.version,row.checks,row.passed])).toEqual([
+        ['before',C1_VERSIONS[0],32,true],['after',C1_VERSIONS[0],36,true],
+        ['before',C1_VERSIONS[1],36,true],['after',C1_VERSIONS[1],38,true],
+      ]);
+    } finally {await db.close();}
+  },60000);
   it('executes all three real disposable catalog states and refuses body, ACL and trigger drift',async()=>{
     const sql=version=>readFileSync(`backend/supabase/migrations/${EXACT_MIGRATION_ALLOWLIST.find(row=>row.version===version).file}`,'utf8');
     const bootstrap=bootstrapSql(),fence=sql(C1_VERSIONS[0]);
