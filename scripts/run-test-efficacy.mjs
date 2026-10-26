@@ -59,6 +59,22 @@ export function cleanupOwnedCopy(temporary,primaryError) {
     throw error;
   }
 }
+
+// A commit can start detached Git maintenance before the owned Vitest groups
+// exist. Keep this disposable repository synchronous from its first command,
+// and persist the policy for Git commands executed inside its test phases.
+export function initializeCopyRepository(temporary,copyEnv) {
+  const copyGit=args=>execFileSync('git',['-c','maintenance.auto=false','-c','gc.auto=0','-c','gc.autoDetach=false',...args],
+    {cwd:temporary,env:copyEnv,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  copyGit(['init']);
+  for(const [key,value] of [['maintenance.auto','false'],['gc.auto','0'],['gc.autoDetach','false']]) {
+    copyGit(['config','--local',key,value]);
+  }
+  copyGit(['-c','core.hooksPath=/dev/null','add','--force','.']);
+  copyGit(['-c','core.hooksPath=/dev/null','-c','user.name=Isolated source copy','-c','user.email=copy@example.invalid',
+    'commit','--no-gpg-sign','-m','Isolated reviewed source snapshot']);
+  return copyGit(['rev-parse','HEAD']);
+}
 // Vitest setup imports application modules outside the contract's direct import closure.
 // Conservatively select the bounded pilot for every frontend source change.
 
@@ -190,12 +206,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
     // copied bytes, never a shared .git or alternates pointer into the original checkout.
     // This synthetic copy commit is NOT the reviewed head; provenance above retains that head.
     const copyEnv = testEnvironment(temporary,null,'');
-    const copyGit = args => execFileSync('git',args,{cwd:temporary,env:copyEnv,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
-    copyGit(['init']);
-    copyGit(['-c','core.hooksPath=/dev/null','add','--force','.']);
-    copyGit(['-c','core.hooksPath=/dev/null','-c','user.name=Isolated source copy','-c','user.email=copy@example.invalid',
-      'commit','--no-gpg-sign','-m','Isolated reviewed source snapshot']);
-    const sourceCopyCommit = copyGit(['rev-parse','HEAD']);
+    const sourceCopyCommit = initializeCopyRepository(temporary,copyEnv);
     for (const directory of ['node_modules', 'frontend/node_modules']) {
       const dependency = path.join(root, directory);
       if (fs.existsSync(dependency)) fs.symlinkSync(dependency, path.join(temporary, directory), 'dir');
