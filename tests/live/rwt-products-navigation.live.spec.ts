@@ -44,7 +44,7 @@ import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { knownSessionCount, navigationWritesVerdict } from './helpers/rwtNavigationCounts';
 import {
-    armPasswordSignInObserver, deepLinkLanding, deepLinkReturnVerdict, pageAttemptEvents, returningSignInVerdict, type SignInAttemptOutcome,
+    armPasswordSignInObserver, pageAttemptEvents, returningSignInVerdict, runDeepLinkReturn, type SignInAttemptOutcome,
 } from './helpers/returningSignInAttempt';
 
 const SUITE = 'returning-user-navigation';
@@ -303,54 +303,41 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                 }
                 receipt.forbid(targetId);
                 const target = { pathname: `/progress/${targetId}`, search: '?g04=1', hash: '#history' };
-                try {
-                    // A hard navigation to the legacy link while signed out, then the auth form it produced. Opening the auth
-                    // page directly would discard the return state.
-                    await page.goto(`/analytics/${targetId}?g04=1#history`);
-                    await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
-                    let sessionUserMatches = false;
-                    let landedUrl: URL | null = null;
-                    const observer = armPasswordSignInObserver(pageAttemptEvents(page), {
+                // The orchestration lives in `runDeepLinkReturn`; these are its Playwright and receipt adapters. Boolean
+                // polls and a pathname-only wait, so no identifier reaches an assertion message.
+                await runDeepLinkReturn({
+                    target, verifiedUserId: uid, micBaseline: mic,
+                    openLegacyLink: async () => {
+                        await page.goto(`/analytics/${targetId}?g04=1#history`);
+                        await expect(page.getByTestId('auth-form')).toBeVisible({ timeout: 30_000 });
+                    },
+                    armObserver: () => armPasswordSignInObserver(pageAttemptEvents(page), {
                         authOrigin: SUPABASE_URL ? new URL(SUPABASE_URL).origin : '', timeoutMs: 60_000,
-                    });
-                    try {
-                        try {
-                            await page.getByTestId('email-input').fill(RETURNING_EMAIL);
-                            await page.getByTestId('password-input').fill(RETURNING_PASSWORD);
-                            await page.getByTestId('sign-in-submit').click();
-                        } catch (error) {
-                            if (!page.isClosed()) throw error;
-                        }
-                        const first = await observer.settle();
-                        if (first.kind === 'token_ok') {
-                            const expected = first.userId;
-                            // Boolean poll and pathname-only wait, so no identifier reaches an assertion message.
-                            sessionUserMatches = await expect.poll(async () => (await readUid(page)) === expected, { timeout: 60_000 })
-                                .toBe(true).then(() => true, () => false);
-                            await page.waitForURL((url) => url.pathname === target.pathname, { timeout: 30_000 }).catch(() => undefined);
-                            landedUrl = page.isClosed() ? null : new URL(page.url());
-                        }
-                        // Read AFTER the landing wait: another password grant in that window makes the attempt ambiguous.
-                        const outcome = observer.final();
-                        const landing = landedUrl ? deepLinkLanding(landedUrl, target) : { pathnameMatches: false, searchMatches: false, hashMatches: false };
-                        const verdict = deepLinkReturnVerdict({ outcome, verifiedUserId: uid, sessionUserMatches, landing });
-                        receipt.row('signed-in deep-link return', verdict.verdict, verdict.detail, { outcome: outcome.kind, ...landing });
-                    } finally {
-                        observer.dispose();
-                    }
-                } finally {
-                    // Cleanup runs even after a failed landing: sign out again, then read back that nothing was written.
-                    let returnSignOut: 'direct' | 'menu' | null = null;
-                    try { returnSignOut = await signOutThroughProduct(page as never); } catch { returnSignOut = null; }
-                    const cleared = returnSignOut !== null
-                        && await expect.poll(() => readUid(page), { timeout: 30_000 }).toBeFalsy().then(() => true, () => false);
-                    receipt.row('signed out after the deep-link return', cleared ? 'PASS' : 'FAIL',
-                        cleared ? 'the product sign-out cleared the second session' : 'the second session was not cleared',
-                        { path: returnSignOut ?? 'none', sessionCleared: cleared });
-                    const { count: afterDeepLink, error: countErr } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
-                    const writes = countErr ? { status: 'HOLD' as const, detail: 'the session count could not be read back' } : navigationWritesVerdict(sessionsBefore, afterDeepLink);
-                    receipt.row('deep-link return writes nothing', writes.status, writes.detail, { sessionsBefore, sessionsAfter: countErr ? null : afterDeepLink });
-                }
+                    }),
+                    submit: async () => {
+                        await page.getByTestId('email-input').fill(RETURNING_EMAIL);
+                        await page.getByTestId('password-input').fill(RETURNING_PASSWORD);
+                        await page.getByTestId('sign-in-submit').click();
+                    },
+                    isClosed: () => page.isClosed(),
+                    sessionUserId: () => readUid(page),
+                    awaitSessionUser: (expected) => expect.poll(async () => (await readUid(page)) === expected, { timeout: 60_000 })
+                        .toBe(true).then(() => true, () => false),
+                    awaitLanding: () => page.waitForURL((url) => url.pathname === target.pathname, { timeout: 30_000 }),
+                    url: () => new URL(page.url()),
+                    micAcquisitions: () => page.evaluate(() => {
+                        const marks = (window as unknown as { __rwtMicAcquisitions__?: unknown }).__rwtMicAcquisitions__;
+                        return Array.isArray(marks) ? { count: marks.length, document: performance.timeOrigin } : null;
+                    }).catch(() => null),
+                    signOut: () => signOutThroughProduct(page as never),
+                    awaitSessionCleared: () => expect.poll(() => readUid(page), { timeout: 30_000 }).toBeFalsy().then(() => true, () => false),
+                    recordWrites: async () => {
+                        const { count: afterDeepLink, error: countErr } = await admin!.from('sessions').select('id', { count: 'exact', head: true }).eq('user_id', uid);
+                        const writes = countErr ? { status: 'HOLD' as const, detail: 'the session count could not be read back' } : navigationWritesVerdict(sessionsBefore, afterDeepLink);
+                        receipt.row('deep-link return writes nothing', writes.status, writes.detail, { sessionsBefore, sessionsAfter: countErr ? null : afterDeepLink });
+                    },
+                    row: (name, verdict, detail, data) => receipt.row(name, verdict, detail, data),
+                });
             });
             // ── end G04 ───────────────────────────────────────────────────────────────────────────────────────────────
 

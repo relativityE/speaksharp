@@ -241,3 +241,74 @@ export function deepLinkReturnVerdict({ outcome, verifiedUserId, sessionUserMatc
     }
     return { verdict: 'PASS', detail: 'returned to the exact deep-link destination (routing only; the rendered detail is not claimed)' };
 }
+
+export type RowVerdict = 'PASS' | 'FAIL' | 'HOLD';
+/** A microphone-acquisition read: the count in one document, and that document's identity (its time origin). */
+export interface MicRead { count: number; document: number }
+
+/** The page and receipt operations the G04 step needs, so its orchestration runs against deterministic fakes. */
+export interface DeepLinkReturnPorts {
+    target: DeepLinkTarget;
+    verifiedUserId: string;
+    /** Acquisitions the journey's own `no mic on navigation` row already judged, in the first document. */
+    micBaseline: number;
+    /** Hard-navigates the legacy link while signed out and waits for the auth form it produced. */
+    openLegacyLink(): Promise<void>;
+    armObserver(): PasswordSignInAttempt;
+    submit(): Promise<void>;
+    isClosed(): boolean;
+    /** The signed-in user id in the page's auth storage, or null when there is none. Rejects when unreadable. */
+    sessionUserId(): Promise<string | null>;
+    awaitSessionUser(expected: string): Promise<boolean>;
+    awaitLanding(): Promise<void>;
+    url(): URL;
+    /** The current document's microphone acquisitions, or null when the counter is unavailable. */
+    micAcquisitions(): Promise<MicRead | null>;
+    signOut(): Promise<'direct' | 'menu'>;
+    awaitSessionCleared(): Promise<boolean>;
+    /** Reads back the session count and writes the `deep-link return writes nothing` row. */
+    recordWrites(): Promise<void>;
+    row(name: string, verdict: RowVerdict, detail: string, evidence?: Record<string, string | number | boolean | null>): void;
+}
+
+/** G04: the deep-link return and its cleanup, in order. Cleanup always runs, even after a failed landing. */
+export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<void> {
+    const { target } = ports;
+    try {
+        // A hard navigation to the legacy link while signed out, then the auth form it produced. Opening the auth page
+        // directly would discard the return state.
+        await ports.openLegacyLink();
+        let sessionUserMatches = false;
+        let landedUrl: URL | null = null;
+        const observer = ports.armObserver();
+        try {
+            try {
+                await ports.submit();
+            } catch (error) {
+                if (!ports.isClosed()) throw error;
+            }
+            const first = await observer.settle();
+            if (first.kind === 'token_ok') {
+                sessionUserMatches = await ports.awaitSessionUser(first.userId);
+                await ports.awaitLanding().catch(() => undefined);
+                landedUrl = ports.isClosed() ? null : ports.url();
+            }
+            // Read AFTER the landing wait: another password grant in that window makes the attempt ambiguous.
+            const outcome = observer.final();
+            const landing = landedUrl ? deepLinkLanding(landedUrl, target) : { pathnameMatches: false, searchMatches: false, hashMatches: false };
+            const verdict = deepLinkReturnVerdict({ outcome, verifiedUserId: ports.verifiedUserId, sessionUserMatches, landing });
+            ports.row('signed-in deep-link return', verdict.verdict, verdict.detail, { outcome: outcome.kind, ...landing });
+        } finally {
+            observer.dispose();
+        }
+    } finally {
+        // Sign out again, then read back that nothing was written.
+        let returnSignOut: 'direct' | 'menu' | null = null;
+        try { returnSignOut = await ports.signOut(); } catch { returnSignOut = null; }
+        const cleared = returnSignOut !== null && await ports.awaitSessionCleared();
+        ports.row('signed out after the deep-link return', cleared ? 'PASS' : 'FAIL',
+            cleared ? 'the product sign-out cleared the second session' : 'the second session was not cleared',
+            { path: returnSignOut ?? 'none', sessionCleared: cleared });
+        await ports.recordWrites();
+    }
+}
