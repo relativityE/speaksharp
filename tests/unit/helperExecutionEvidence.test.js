@@ -24,6 +24,7 @@ test('registers explicit canary and reader callable consumers without a generic 
     ['tests/live/helpers/rwtStepDiagnostics.ts','tests/unit/rwtStepDiagnostics1258.test.ts'],
     ['tests/live/helpers/rwtFillerReference.ts','tests/unit/rwtFillerReference1258.test.ts'],
     ['tests/live/helpers/returningSignInAttempt.ts','tests/unit/returningSignInAttempt1495.test.ts'],
+    ['tests/live/helpers/repeatMetricWording.ts','tests/unit/repeatMetricWording1548.test.ts'],
   ]) {
     const found=HELPER_CONTRACTS.find(item=>item.helperFile===helperFile);
     assert.equal(found?.testFile,testFile,`${helperFile} requires its actual consumer`);
