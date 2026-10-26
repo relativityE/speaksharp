@@ -11,6 +11,10 @@ let priorSessions: Record<string, unknown>[] = [];
 let priorError: unknown = null;
 let chronologyRows: Record<string, unknown>[] = [];
 let priorOrFilters: string[] = [];
+// #1548: evaluations served to an exact `.eq('session_id', id)` read other than the current session's.
+let evaluationsById: Record<string, Record<string, unknown> | null> = {};
+let evaluationByIdError: unknown = null;
+let evaluationReads: string[] = [];
 
 const rec = (id: string, over: Record<string, unknown> = {}) => ({
     id,
@@ -23,10 +27,13 @@ const rec = (id: string, over: Record<string, unknown> = {}) => ({
 });
 
 function query(table: string) {
-    const state: { inMode: boolean } = { inMode: false };
+    const state: { inMode: boolean; sessionId: string | null } = { inMode: false, sessionId: null };
     const chain: Record<string, unknown> = {};
     chain.select = () => chain;
-    chain.eq = () => chain;
+    chain.eq = (column: string, value: unknown) => {
+        if (column === 'session_id' && typeof value === 'string') state.sessionId = value;
+        return chain;
+    };
     chain.neq = () => chain;
     chain.lt = () => chain;
     chain.or = (filter: string) => { priorOrFilters.push(filter); return chain; };
@@ -34,6 +41,10 @@ function query(table: string) {
     chain.order = () => chain;
     chain.limit = () => chain;
     chain.maybeSingle = async () => {
+        if (table === 'session_progress_evaluations' && state.sessionId && state.sessionId in evaluationsById) {
+            evaluationReads.push(state.sessionId);
+            return { data: evaluationsById[state.sessionId], error: evaluationByIdError };
+        }
         if (table === 'session_progress_evaluations') return { data: current, error: currentError };
         if (table === 'progress_recommendations') return { data: recommendation, error: recommendationError };
         if (table === 'sessions') return { data: currentSession, error: priorError };
@@ -64,6 +75,7 @@ beforeEach(() => {
         { id: 's2', created_at: '2026-08-03T12:00:00Z' },
     ];
     priorOrFilters = [];
+    evaluationsById = {}; evaluationByIdError = null; evaluationReads = [];
     rpc.mockReset();
     rpc.mockImplementation(async (name: string) => {
         if (name === 'record_progress_recommendation') recommendation = rec('rec-recovered');
@@ -352,5 +364,103 @@ describe('#1047 U2 loadSessionProgress', () => {
         attempt = { id: 'att-2', lifecycle: 'completed', outcome: 'moved' };
         const view = await loadSessionProgress('s2');
         expect(view).toMatchObject({ status: 'eligible', latestAttempt: { id: 'att-2', lifecycle: 'completed', outcome: 'moved' } });
+    });
+});
+
+describe('#1548 the linked repeat result reads the persisted same-target pair', () => {
+    // Source session s2: 9 fillers / 200 words = 4.5% of words; its recommendation stored source_metric_value 4.5.
+    // The attempt's persisted next-comparable session is r1 (8 / 250 = 3.2%). `s9` is an unrelated, later session
+    // the client might think of as "latest" — it must never be read.
+    const completed = (over: Record<string, unknown> = {}) => ({
+        id: 'att-done', lifecycle: 'completed', outcome: 'moved', next_comparable_session_id: 'r1', ...over,
+    });
+    beforeEach(() => {
+        current = ev('s2', { filler_count: 9, word_count: 200 });
+        recommendation = rec('rec-1548', { source_metric_value: 4.5 });
+        attempt = completed();
+        evaluationsById = {
+            r1: ev('r1', { filler_count: 8, word_count: 250, wpm: 151, clarity_raw: 93 }),
+            s9: ev('s9', { filler_count: 0, word_count: 400, wpm: 120, clarity_raw: 99 }),
+        };
+    });
+
+    it('returns the stored before value and the server-derived after value in the stored units', async () => {
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({
+            status: 'eligible',
+            latestAttempt: { id: 'att-done', lifecycle: 'completed', outcome: 'moved' },
+            repeatResult: { status: 'available', metric: 'filler_rate', direction: 'decrease', units: 'percent of words', before: 4.5, after: 3.2 },
+        });
+        expect(evaluationReads).toEqual(['r1']);
+        // The public attempt view carries no session id; only the readmodel uses it.
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.latestAttempt).toEqual({ id: 'att-done', lifecycle: 'completed', outcome: 'moved' });
+    });
+
+    it.each([
+        ['pace', 'words per minute', 160, 151],
+        ['clear_delivery', 'points', 88, 93],
+    ] as const)('derives %s exactly as the server does', async (target_metric, target_units, before, after) => {
+        recommendation = rec('rec-1548', { target_metric, target_units, target_direction: 'increase', source_metric_value: before });
+        expect(await loadSessionProgress('s2')).toMatchObject({
+            repeatResult: { status: 'available', metric: target_metric, direction: 'increase', units: target_units, before, after },
+        });
+    });
+
+    it('uses the stored before value, not a recomputation from the source evaluation', async () => {
+        recommendation = rec('rec-1548', { source_metric_value: 5.25 });
+        expect(await loadSessionProgress('s2')).toMatchObject({ repeatResult: { status: 'available', before: 5.25, after: 3.2 } });
+    });
+
+    it.each([
+        ['missing source_metric_value', () => { recommendation = rec('rec-1548', { source_metric_value: null }); }],
+        ['non-finite source_metric_value', () => { recommendation = rec('rec-1548', { source_metric_value: Number.POSITIVE_INFINITY }); }],
+        ['no next-comparable session', () => { attempt = completed({ next_comparable_session_id: null }); }],
+        ['next-comparable is the source session', () => { attempt = completed({ next_comparable_session_id: 's2' }); evaluationsById.s2 = ev('s2'); }],
+        ['deleted next evaluation', () => { evaluationsById.r1 = null; }],
+        ['next evaluation read error', () => { evaluationByIdError = { message: 'offline' }; }],
+        ['ineligible next evaluation', () => { evaluationsById.r1 = ev('r1', { eligible: false }); }],
+        ['different cohort', () => { evaluationsById.r1 = ev('r1', { cohort_key: 'cloud|v1|x|clarity_v1' }); }],
+        ['source cohort missing', () => { current = ev('s2', { filler_count: 9, word_count: 200, cohort_key: null }); }],
+        ['row for another session id', () => { evaluationsById.r1 = ev('r9'); }],
+        ['zero words', () => { evaluationsById.r1 = ev('r1', { word_count: 0 }); }],
+        ['missing filler count', () => { evaluationsById.r1 = ev('r1', { filler_count: null }); }],
+        ['non-finite filler count', () => { evaluationsById.r1 = ev('r1', { filler_count: Number.NaN }); }],
+    ])('is unavailable — never zero — for %s', async (_label, arrange) => {
+        arrange();
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({ status: 'eligible', repeatResult: { status: 'unavailable' } });
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.repeatResult).toEqual({ status: 'unavailable' });
+        expect(evaluationReads).not.toContain('s9');
+    });
+
+    it.each([
+        ['pace', { wpm: null }],
+        ['clear_delivery', { clarity_raw: Number.NaN }],
+    ] as const)('is unavailable when the next evaluation lacks the %s value', async (target_metric, missing) => {
+        recommendation = rec('rec-1548', { target_metric, source_metric_value: 100 });
+        evaluationsById.r1 = ev('r1', missing);
+        expect(await loadSessionProgress('s2')).toMatchObject({ repeatResult: { status: 'unavailable' } });
+    });
+
+    it.each([
+        ['pending', null],
+        ['not_comparable', 'not_comparable'],
+        ['abandoned', 'not_completed'],
+    ])('reads no values for a %s attempt', async (lifecycle, outcome) => {
+        attempt = completed({ lifecycle, outcome, next_comparable_session_id: lifecycle === 'not_comparable' ? 'r1' : null });
+        const view = await loadSessionProgress('s2');
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.repeatResult).toBeNull();
+        expect(evaluationReads).toEqual([]);
+    });
+
+    it('reads no values when there is no attempt yet', async () => {
+        attempt = null;
+        const view = await loadSessionProgress('s2');
+        if (view.status !== 'eligible') throw new Error('expected eligible');
+        expect(view.repeatResult).toBeNull();
+        expect(evaluationReads).toEqual([]);
     });
 });

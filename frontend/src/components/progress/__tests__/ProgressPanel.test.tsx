@@ -6,7 +6,8 @@ import React from 'react';
 
 const navigate = vi.fn();
 vi.mock('react-router-dom', async (orig) => ({ ...(await orig()), useNavigate: () => navigate }));
-vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ user: { id: 'user-1' } }) }));
+let authUserId = 'user-1';
+vi.mock('@/contexts/AuthProvider', () => ({ useAuthProvider: () => ({ user: { id: authUserId } }) }));
 const loadSessionProgress = vi.fn();
 vi.mock('@/services/progress/loadSessionProgress', () => ({ loadSessionProgress: (...a: unknown[]) => loadSessionProgress(...a) }));
 const recordRecommendationAttempt = vi.fn();
@@ -45,6 +46,7 @@ function renderPanel(nextActionOwnedByReview = false) {
 }
 
 beforeEach(() => {
+    authUserId = 'user-1';
     navigate.mockReset(); recordRecommendationAttempt.mockReset(); setOpenAttempt.mockReset();
     abandonRecommendationAttempt.mockReset(); loadSessionProgress.mockReset();
     readPendingRecommendationAttempt.mockReset(); clearOpenAttemptIfMatches.mockReset();
@@ -63,7 +65,7 @@ describe('#1047 U2 ProgressPanel', () => {
         ['clear_delivery', 'maintain', 98.78048780487805, 'points', 'Clear delivery (saved target: maintain at 99 points)'],
         ['clear_delivery', 'maintain', 98.78048780487805, 'clear-delivery points', 'Clear delivery (saved target: maintain at 99 clear-delivery points)'],
         ['filler_rate', 'decrease', 2.75, 'percent of words', 'Filler rate (saved target: decrease toward 2.75 percent of words)'],
-    ] as const)('#1548 A2: labels the stored %s comparison as separate delivery evidence when the saved review owns the action', async (metric, direction, targetValue, units, label) => {
+    ] as const)('#1548 A2: labels the stored %s comparison as separate delivery evidence when the saved review owns the action (row %#)', async (metric, direction, targetValue, units, label) => {
         loadSessionProgress.mockResolvedValue({
             ...VIEW,
             takeaways: { ...VIEW.takeaways, target: { metric, direction, targetValue, units } },
@@ -370,5 +372,75 @@ describe('#1047 U2 ProgressPanel', () => {
         expect(screen.queryByTestId('progress-practice-next')).not.toBeInTheDocument();
         expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
         expect(screen.queryAllByRole('button')).toHaveLength(0);
+    });
+});
+
+describe('#1548 the linked repeat shows the same target before → after', () => {
+    const completed = { id: 'att-done', lifecycle: 'completed', outcome: 'moved' } as const;
+    const available = (over: Record<string, unknown> = {}) => ({
+        status: 'available', metric: 'filler_rate', direction: 'decrease', units: 'percent of words', before: 4.5, after: 3.2, ...over,
+    });
+
+    it.each([true, false])('states both stored values in the stored units, without claiming the target was reached (review-owned: %s)', async (reviewOwned) => {
+        loadSessionProgress.mockResolvedValue({ ...VIEW, latestAttempt: completed, repeatResult: available() });
+        renderPanel(reviewOwned);
+        const values = await screen.findByTestId('progress-attempt-values');
+        expect(values).toHaveTextContent('Filler rate: 4.5 → 3.2 percent of words (original session → linked repeat).');
+        expect(values).not.toHaveTextContent(/reached|met the|achiev|improv|success/i);
+        // The values sit with the stored outcome and, review-owned, with the delivery-only scope line.
+        expect(screen.getByTestId('progress-attempt-outcome').parentElement).toContainElement(values);
+        // Review-owned, the delivery-only scope line stays beside the values.
+        expect(screen.queryAllByText('This comparison measures delivery, not whether the coaching tip was followed.'))
+            .toHaveLength(reviewOwned ? 1 : 0);
+    });
+
+    it.each([
+        ['pace', 'words per minute', 160.4, 151, 'Pace: 160 → 151 words per minute'],
+        ['clear_delivery', 'points', 88.2, 93.4, 'Clear delivery: 88 → 93 points'],
+        // Different stored values never print alike: precision grows until they differ.
+        ['filler_rate', 'percent of words', 3.04, 3.01, 'Filler rate: 3.04 → 3.01 percent of words'],
+        ['pace', 'words per minute', 150.2, 150.4, 'Pace: 150.2 → 150.4 words per minute'],
+        ['filler_rate', 'percent of words', 3, 3, 'Filler rate: 3.0 → 3.0 percent of words'],
+    ] as const)('formats %s %s → %s', async (metric, units, before, after, text) => {
+        loadSessionProgress.mockResolvedValue({ ...VIEW, latestAttempt: completed, repeatResult: available({ metric, units, before, after }) });
+        renderPanel(true);
+        expect(await screen.findByTestId('progress-attempt-values')).toHaveTextContent(text);
+    });
+
+    it.each([true, false])('says the values are unavailable — never a zero — when the evidence is gone (review-owned: %s)', async (reviewOwned) => {
+        loadSessionProgress.mockResolvedValue({ ...VIEW, latestAttempt: completed, repeatResult: { status: 'unavailable' } });
+        renderPanel(reviewOwned);
+        const values = await screen.findByTestId('progress-attempt-values');
+        expect(values).toHaveTextContent('The original and repeat values for this comparison are not available.');
+        expect(values).not.toHaveTextContent(/\d/);
+        expect(screen.getByTestId('progress-attempt-outcome')).toBeInTheDocument();
+    });
+
+    it.each([
+        ['pending', { id: 'att-p', lifecycle: 'pending', outcome: null }],
+        ['not comparable', { id: 'att-n', lifecycle: 'not_comparable', outcome: 'not_comparable' }],
+        ['abandoned', { id: 'att-a', lifecycle: 'abandoned', outcome: 'not_completed' }],
+    ] as const)('shows no values line for a %s attempt', async (_label, latestAttempt) => {
+        loadSessionProgress.mockResolvedValue({ ...VIEW, latestAttempt, repeatResult: null });
+        renderPanel(true);
+        await screen.findByTestId('progress-attempt-outcome');
+        expect(screen.queryByTestId('progress-attempt-values')).not.toBeInTheDocument();
+    });
+
+    it("a late response for account A never shows A's values after switching to account B", async () => {
+        let resolveA: (value: unknown) => void = () => undefined;
+        loadSessionProgress.mockImplementationOnce(() => new Promise((resolve) => { resolveA = resolve; }));
+        loadSessionProgress.mockResolvedValueOnce({ ...VIEW, latestAttempt: completed, repeatResult: available({ before: 7.5, after: 6 }) });
+        const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        const tree = () => <QueryClientProvider client={qc}><MemoryRouter><ProgressPanel session={{ id: 's1' }} nextActionOwnedByReview /></MemoryRouter></QueryClientProvider>;
+        const { rerender } = render(tree());
+        await waitFor(() => expect(loadSessionProgress).toHaveBeenCalledTimes(1));
+        authUserId = 'user-2';
+        rerender(tree());
+        expect(await screen.findByTestId('progress-attempt-values')).toHaveTextContent('Filler rate: 7.5 → 6.0 percent of words');
+        resolveA({ ...VIEW, latestAttempt: completed, repeatResult: available({ before: 4.5, after: 3.2 }) });
+        await new Promise((r) => setTimeout(r, 0));
+        expect(screen.getByTestId('progress-attempt-values')).toHaveTextContent('Filler rate: 7.5 → 6.0 percent of words');
+        expect(screen.queryByText(/4\.5 → 3\.2/)).not.toBeInTheDocument();
     });
 });
