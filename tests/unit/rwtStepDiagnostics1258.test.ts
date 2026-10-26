@@ -117,3 +117,18 @@ describe('#1258 wiring: the journey records the branch where the rows were ambig
         expect(journey).toMatch(/const ui = acknowledged \? null\s*: await readFeedbackUiState\(page,/);
     });
 });
+
+describe.each(['/progress', '/analytics'])('Progress diagnostic aliases: %s', (route) => {
+    it('preserves closed internal categories without exposing route, ID or query', async () => {
+        expect(routeClass(`https://x${route}/?token=SECRET#FRAGMENT`)).toBe('analytics');
+        expect(routeClass(`https://x${route}/private-id/?token=SECRET#FRAGMENT`)).toBe('analytics_detail');
+        const result = await readPracticeActionState(stubPage(`https://x${route}/private-id?token=SECRET`, {}), opts);
+        expect(result.route).toBe('analytics_detail');
+        expect(JSON.stringify(result)).not.toMatch(/private-id|SECRET|https|\/progress|\/analytics/);
+    });
+    it('rejects lookalike prefixes, extra segments and query-only aliases', () => {
+        for (const pathname of [`${route}ive`, `${route}-archive`, `${route}/s-1/extra`, `/other?next=${route}`]) {
+            expect(routeClass(`https://x${pathname}`)).toBe('other');
+        }
+    });
+});

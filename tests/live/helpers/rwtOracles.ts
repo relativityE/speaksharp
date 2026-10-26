@@ -265,7 +265,7 @@ export function bindReadbackJourneys(
         const routeWasObserved = binding.entry === 'route_change'
             ? lastRoute !== undefined && lastRoute.journeyId === binding.journeyId
                 && lastRoute.releaseSha === binding.releaseSha && lastRoute.trafficType === 'canary'
-                && ['/analytics', '/analytics/id'].includes(lastRoute.toRoute ?? '')
+                && ['/progress', '/progress/id', '/analytics', '/analytics/id'].includes(lastRoute.toRoute ?? '')
             : binding.entry === 'boot_load' && bootRoutes.length === 0
                 && latestControl?.journeyId === binding.journeyId;
         const identityIsValid = Boolean(binding.journeyId && binding.bootId)

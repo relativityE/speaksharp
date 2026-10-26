@@ -37,6 +37,7 @@ import {
 } from './benchmark-utils';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
+import { isProgressRoutePathname } from '../../e2e/canaryLanding';
 import {
     acquisitionTimingVerdict, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, runJourneyIds, surfaceReadinessFailures,
     type AcquisitionTiming, type ReadbackPlan, isNewPersistedSession } from './rwtOracles';
@@ -691,9 +692,9 @@ export function exactCountVerdict(count: number, expected: number, tap: BlindTim
     return count === expected ? 'PASS' : 'FAIL';
 }
 
-/** An Analytics page path (`/analytics`, `/analytics/<id>`, or the app's normalized `/analytics/id`); anything else is not. */
+/** Canonical/legacy Progress paths, including normalized /id; internal Analytics identities stay unchanged. */
 export function analyticsRoute(path: string | null | undefined): boolean {
-    return typeof path === 'string' && /^\/analytics(\/[^/]+)?\/?$/.test(path);
+    return typeof path === 'string' && isProgressRoutePathname(path);
 }
 
 /**
@@ -1905,12 +1906,18 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     const action = page.getByTestId('post-save-review-session-link').or(page.getByTestId('saved-session-return-see-all')).first();
     if (!(await action.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false))) return result;
     await action.click();
-    result.actionClicked = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.actionClicked = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === '/progress' || pathname === '/analytics';
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     const open = page.getByTestId(`open-session-detail-${sessionId}`).or(page.getByTestId(`open-session-detail-mobile-${sessionId}`)).first();
     result.listed = await open.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     if (!result.listed) return result;
     await open.click();
-    result.detailOpened = await page.waitForURL(new RegExp(`/analytics/${sessionId}`), { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.detailOpened = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === `/progress/${sessionId}` || pathname === `/analytics/${sessionId}`;
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     const detail = page.getByTestId('session-detail-transcript');
     const shown = await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     result.detailMatches = shown && savedDigest !== '' && sha256Hex(await detail.innerText()) === savedDigest;
@@ -1951,7 +1958,10 @@ export async function backFromProgressRestoresSession(page: Page, sessionId: str
     const result = { left: false, restored: false, idleShown: false, liveTracks: null as number | null, review: 'missing' as 'saved' | 'try_again' | 'not_available' | 'missing' };
     const progress = page.getByTestId('nav-analytics-link').first();
     if (!(await progress.click({ timeout: 20_000 }).then(() => true).catch(() => false))) return result;
-    result.left = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.left = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === '/progress' || pathname === '/analytics';
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     if (!result.left) return result;
     await page.getByTestId('dashboard-heading').waitFor({ state: 'visible', timeout: 45_000 }).catch(() => undefined);
     await page.waitForTimeout(2_000); // past the session page's exit transition, as the person stayed on Progress
