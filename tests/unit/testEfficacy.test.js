@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase as qualifyRawPhase } from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
 import EfficacyReporter, { canonicalPath, runtimeIdentity } from '../../scripts/efficacy-reporter.mjs';
-import { mutateBytes, dependencyPaths, selectContracts, runTestEfficacy, runVitestExecution } from '../../scripts/run-test-efficacy.mjs';
+import { mutateBytes, dependencyPaths, selectContracts, runTestEfficacy, runVitestExecution, cleanupOwnedCopy, drainOwnedPhase, initializeCopyRepository } from '../../scripts/run-test-efficacy.mjs';
 import {executionContext,validateVitestExecution} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {randomUUID} from 'node:crypto';
 
@@ -15,6 +15,40 @@ const { test } = process.env.NODE_TEST_CONTEXT ? await import('node:test') : awa
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const contract = TEST_EFFICACY_CONTRACTS[0];
 const names = contract.mutants.map(mutant => mutant.assertion).sort();
+
+test('isolated copy Git disables automatic maintenance before the initial and later commits',()=>{
+  const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'efficacy-copy-git-control-')));
+  const copy=path.join(directory,'copy'),home=path.join(directory,'home'),trace=path.join(directory,'git.trace.jsonl');
+  fs.mkdirSync(copy);fs.mkdirSync(home);fs.writeFileSync(path.join(copy,'source.txt'),'reviewed source bytes\n');
+  const globalConfig=path.join(directory,'gitconfig');
+  fs.writeFileSync(globalConfig,'[maintenance]\n auto = true\n[gc]\n auto = 1\n');
+  const env={PATH:process.env.PATH,HOME:home,LANG:'C.UTF-8',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:globalConfig,GIT_TRACE2_EVENT:trace};
+  const git=args=>execFileSync('git',args,{cwd:copy,env,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  try {
+    const sourceCopyCommit=initializeCopyRepository(copy,env);
+    assert.match(sourceCopyCommit,/^[a-f0-9]{40}$/);
+    assert.equal(git(['rev-parse','HEAD']),sourceCopyCommit);
+    assert.equal(git(['show','HEAD:source.txt']),'reviewed source bytes');
+    assert.equal(git(['config','--local','--get','maintenance.auto']),'false');
+    assert.equal(git(['config','--local','--get','gc.auto']),'0');
+    assert.equal(git(['config','--local','--get','gc.autoDetach']),'false');
+    // A later ordinary test Git command has no controller -c flags. The private
+    // repository's own config must still prevent a detached maintenance child.
+    git(['-c','user.name=Copy control','-c','user.email=control@example.invalid','commit','--allow-empty','--no-gpg-sign','-m','later test command']);
+    const events=fs.readFileSync(trace,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    assert.ok(events.some(event=>event.event==='start' && event.argv?.includes('commit')));
+    assert.deepEqual(events.filter(event=>event.event==='child_start' && event.argv?.some(arg=>['maintenance','gc'].includes(arg))),[],
+      'neither the initial snapshot commit nor a later test commit may launch auto-maintenance');
+    if(process.env.TEST_EFFICACY_CONTROL_OUTDIR) {
+      const output=process.env.TEST_EFFICACY_CONTROL_OUTDIR;
+      assert.ok(path.isAbsolute(output));fs.mkdirSync(output,{recursive:true});
+      fs.writeFileSync(path.join(output,`copy-git-maintenance-${randomUUID()}.json`),JSON.stringify({
+        scope:'disposable Git copy only; no hosted-writer identification',sourceCopyCommit,
+        gitVersion:git(['--version']),config:git(['config','--local','--list']),trace:events,
+      }),{flag:'wx'});
+    }
+  } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
 const baselineReport = () => ({ success: true,
   numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
   testResults: [{ status: 'passed', assertionResults: names.map(fullName => ({ fullName, status: 'passed', failureMessages: [] })) }] });
@@ -280,6 +314,110 @@ test('synthetic execution-only orchestration binds copy identity and enforces bu
     for(let i=0;i<8;i++)write(`tests/unit/over-budget-${i}.test.js`,'// synthetic budget control\n');
     assert.throws(()=>runVitestExecution({root:directory,base}),/budget exceeds 8 files/);
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
+});
+
+test('owned phase drains a writing descendant after a successful leader exit before deleting its copy',()=>{
+  const {directory,write,git}=fixture();
+  const observed=fs.mkdtempSync(path.join(os.tmpdir(),'efficacy-owned-writer-'));
+  let worker;
+  let cleanupError;
+  try {
+    const base=git(['rev-parse','HEAD']);
+    const file='tests/unit/nonpilot.test.js';
+    write(file,'// synthetic process-ownership control, not product execution\n');
+    const runner=path.join(directory,'node_modules/vitest/vitest.mjs');
+    const script=fs.readFileSync(runner,'utf8').replaceAll(JSON.stringify(contract.testFile),JSON.stringify(file));
+    const marker=path.join(observed,'owner.json');
+    const child=`const fs=require('node:fs');const path=require('node:path');
+      const copy=process.cwd();fs.writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid,copy}));
+      setInterval(()=>{try{fs.mkdirSync(path.join(copy,'.late-worker'),{recursive:true});fs.writeFileSync(path.join(copy,'.late-worker','heartbeat'),String(Date.now()));}catch{/* Keep the controlled writer alive across the deletion race. */}},1);`;
+    fs.writeFileSync(runner,`import {spawn} from 'node:child_process';\n${script}\n
+      spawn(process.execPath,['-e',${JSON.stringify(child)}],{stdio:'ignore'}).unref();
+      const until=Date.now()+3000;
+      while(!fs.existsSync(${JSON.stringify(marker)})){if(Date.now()>until)throw new Error('writer did not start');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5);}
+    `);
+    let receipt,error;
+    try {receipt=runVitestExecution({root:directory,base});} catch(cause) {error=cause;}
+    assert.ok(fs.existsSync(marker),'the real descendant must start, not fail during setup');
+    worker=JSON.parse(fs.readFileSync(marker,'utf8'));
+    const state=spawnSync('ps',['-p',String(worker.pid),'-o','stat='],{encoding:'utf8'});
+    assert.ok(state.status===1 || state.status===0 && /^\s*[ZX]/.test(state.stdout),
+      'successful leader exit must not leave an owned writing descendant alive');
+    assert.ifError(error);
+    assert.equal(receipt.tests[0].phase.execution.status,0);
+    assert.equal(fs.existsSync(worker.copy),false,'cleanup completes only after the writer has stopped');
+  } finally {
+    if(!worker && fs.existsSync(path.join(observed,'owner.json'))) worker=JSON.parse(fs.readFileSync(path.join(observed,'owner.json'),'utf8'));
+    if(worker) {
+      try {process.kill(worker.pid,'SIGKILL');} catch(error) {if(error.code!=='ESRCH')cleanupError=error;}
+      // Only this control's exact generated copy is eligible for cleanup.
+      if(!cleanupError && path.basename(worker.copy).startsWith('speaksharp-efficacy-')) fs.rmSync(worker.copy,{recursive:true,force:true,maxRetries:3,retryDelay:50});
+    }
+    fs.rmSync(directory,{recursive:true,force:true});fs.rmSync(observed,{recursive:true,force:true});
+  }
+  if(cleanupError)throw cleanupError;
+});
+
+test('cleanup failure preserves the original phase failure and diagnostics instead of masking it',()=>{
+  const remove=fs.rmSync;
+  const primary=new Error('controlled assertion failure');
+  primary.diagnostics={status:1,stderr:'controlled raw failure'};
+  const cleanup=Object.assign(new Error('controlled ENOTEMPTY'),{code:'ENOTEMPTY'});
+  try {
+    fs.rmSync=()=>{throw cleanup;};
+    assert.throws(()=>cleanupOwnedCopy('/synthetic-owned-copy',primary),error=>{
+      assert.ok(error instanceof AggregateError);
+      assert.deepEqual(error.errors,[primary,cleanup]);
+      assert.equal(error.diagnostics,primary.diagnostics);
+      assert.equal(error.retainedCopy,'/synthetic-owned-copy');
+      assert.match(error.message,/controlled assertion failure/);
+      return true;
+    });
+    assert.throws(()=>cleanupOwnedCopy('/synthetic-owned-copy'),error=>{
+      assert.deepEqual(error.errors,[cleanup]);return true;
+    });
+  } finally {fs.rmSync=remove;}
+});
+
+test('an unobservable owned process group fails closed; unrelated groups are never signalled',()=>{
+  const signal=process.kill;
+  const calls=[];
+  try {
+    process.kill=(pid,kind)=>{calls.push([pid,kind]);throw Object.assign(new Error('controlled permission denial'),{code:'EPERM'});};
+    assert.throws(()=>drainOwnedPhase({pid:999999,status:0}),/Cannot inspect owned phase/);
+    assert.deepEqual(calls,[[-999999,0]],'permission denial must not trigger a broad or guessed kill');
+    assert.throws(()=>drainOwnedPhase({pid:process.pid,status:0}),/Missing owned phase/);
+    assert.throws(()=>drainOwnedPhase({pid:0,status:0}),/Missing owned phase/);
+    assert.deepEqual(drainOwnedPhase({pid:0,error:new Error('spawn failed')}),{status:'not-started'});
+    process.kill=(pid,kind)=>{calls.push([pid,kind]);throw Object.assign(new Error('already exited'),{code:'ESRCH'});};
+    assert.equal(drainOwnedPhase({pid:999999,status:0}).status,'drained');
+  } finally {process.kill=signal;}
+});
+
+test('unverified phase drain retains the owned copy and refuses receipt creation',()=>{
+  const {directory,write,git}=fixture();
+  const signal=process.kill;
+  let retained;
+  try {
+    const base=git(['rev-parse','HEAD']);
+    const file='tests/unit/nonpilot.test.js';
+    write(file,'// synthetic drain-denial control\n');
+    const runner=path.join(directory,'node_modules/vitest/vitest.mjs');
+    fs.writeFileSync(runner,fs.readFileSync(runner,'utf8').replaceAll(JSON.stringify(contract.testFile),JSON.stringify(file)));
+    process.kill=()=>{throw Object.assign(new Error('controlled group inspection denial'),{code:'EPERM'});};
+    assert.throws(()=>runVitestExecution({root:directory,base}),error=>{
+      retained=error.retainedCopy;
+      assert.match(error.message,/Owned phase cleanup unverified/);
+      assert.match(error.cause.message,/Cannot inspect owned phase/);
+      assert.equal(error.diagnostics.status,0,'even a successful leader cannot establish drain');
+      assert.ok(fs.existsSync(retained),'unknown ownership must not delete the evidence');
+      return true;
+    });
+  } finally {
+    process.kill=signal;
+    if(retained)fs.rmSync(retained,{recursive:true,force:true,maxRetries:3,retryDelay:50});
+    fs.rmSync(directory,{recursive:true,force:true});
+  }
 });
 
 test('executes synthetic fixture baseline, semantic control, two mutations and restoration; never product qualification', () => {

@@ -28,19 +28,58 @@ Source acceptance, local tests, CI qualification, merge, deployment identity, mi
 
 | Identity | Recorded value | Evidence boundary |
 |---|---|---|
-| **Repository `main` reconciled source baseline (dated 23 October 2026)** | `1c2932550de0a083f159df2f2fe7c9a3cfd27b82`, `origin/main` after #1686 | Source reconciliation of `5f5f465a..1c293255` in the dated addendum below: merged source only, not qualification, deployment, served-release or acceptance evidence. The fixed #1650 integration / qualification base in the next row is unchanged. |
+| **Repository `main` reconciled source baseline (dated 26 October 2026)** | `d6be063facccf778df1c7b86742c9d3d69ed23fd`, `origin/main` after #1725 | Source reconciliation of `1c293255..d6be063f` (and the earlier `5f5f465a..1c293255`) in the dated addenda below: merged source only, not qualification, deployment, served-release or acceptance evidence. The fixed #1650 integration / qualification base in the next row is unchanged. |
 | **Repository `main` integration / qualification baseline (fixed)** | `5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf`, the reviewed integration base after #1650 | [Sam's bounded identity-label disposition](https://github.com/relativityE/speaksharp/pull/1648#issuecomment-6242262333). This records the base integrated into #1648, not an evergreen branch-pointer or deployed-release claim; re-read moving identities before operational decisions. |
-| **Deployed product release (dated snapshot observation)** | `__APP_RELEASE__ = bc1ea8eaec3d410865b832319a0e855b299693e3`, App Dev's 20:24:30 UTC observation | [Served-release receipt](https://github.com/relativityE/speaksharp/pull/1649#issuecomment-6240476368). Browser PM read back the receipt, not Production. This historical served observation is separate from the fixed integration baseline; neither establishes full RWT or human acceptance. |
+| **Deployed product release (dated 26 October 2026 observation)** | `__APP_RELEASE__ = 613a026eb8ec819c326043ebf68e03f388b6400a`, App Dev's 14:37:01 UTC read after `production-release.yml` run [40340909599](https://github.com/relativityE/speaksharp/actions/runs/40340909599) | Supersedes the historical 17 October `bc1ea8ea` observation ([served-release receipt](https://github.com/relativityE/speaksharp/pull/1649#issuecomment-6240476368)); see the 26 October addendum. A served identity is not full RWT or human acceptance, and main `d6be063f` is not released. |
 | **Canary** | [39066400126](https://github.com/relativityE/speaksharp/actions/runs/39066400126), SUCCESS; active-trial product lane passed | [Post-merge receipt](https://github.com/relativityE/speaksharp/pull/1649#issuecomment-6240476368) confirms runtime migration readiness and product execution after 118/119. This replaces the earlier migration HOLD, not the full two-product RWT requirement. |
 | **Release line** | `v0.9.0-rc`; package version remains `0.9.0-rc0` | This is not a selected new tag or permission to tag. Any release-tag choice remains a separate disposition. |
 | **Documentation scope** | First bounded #1318 current-state correction: this file and `ROADMAP.md` | [Sam's assignment](https://github.com/relativityE/speaksharp/issues/1318#issuecomment-6234300137). This is not final reconciliation of all 14 canonical documents or closure of #1318. |
+
+### Mainline reconciliation `1c293255` → `d6be063f` — 26 October 2026 (App Dev, read-only)
+
+Twenty-six commits follow `1c293255` in `1c293255..d6be063f`, all first-parent squash merges, ending at #1725 (`d6be063f`); the guard counts every commit in that range. Main CI on `d6be063f` ([40351467447](https://github.com/relativityE/speaksharp/actions/runs/40351467447)) failed only this file's currency guard, at 26 commits behind against its limit of 25. The limit is unchanged. Source, qualification and deployment are recorded separately below; none of them is RWT, human or customer acceptance.
+
+**Source (merged to `main`):**
+- Frontend source (`frontend/src`): #1687, #1707, #1699, #1711, #1716, #1718, #1719, #1722, and #1702 (telemetry schema module plus checks).
+- Backend source: #1696 (migration `20261024083000_account_coaching_unknown_fence_1643.sql`) and #1714 (migration `20261025021046_content_free_retention_evidence.sql`).
+- #1687 bounds ProfileGuard provisioning retries across identity changes (source; frontend-released with `fb30674e`).
+- #1707 receives #1683's reviewed account-deletion page byte-identically and routes it at `/account/delete` outside ProfileGuard. It adds the Account page's "Delete account" link and scrubs the emailed deletion token before router, Sentry or PostHog start (source; frontend-released with `d1a58f88`). This supersedes the 23 October text that UI #1683 is "inactive and unrouted". Entry and navigation are source facts only; completed account deletion and customer exit remain unproven and open.
+- Backend migration files and the DB proof workflow (#1696, #1714) are source delivery, not applied-database evidence. #1705's offline account-closure context tooling and #1702's telemetry readback/qualifier checks do not establish live acceptance.
+- Docs, test, harness and evidence tooling only: #1688, #1690, #1691, #1692, #1693, #1694, #1695, #1703, #1705, #1709, #1689, #1721, #1720, #1685, #1725.
+
+**Qualification (push `ci.yml` on each first-parent `main` SHA):**
+- SUCCESS on 23 of 26.
+- FAILURE on `79fcd5b5` (#1695, [40052992791](https://github.com/relativityE/speaksharp/actions/runs/40052992791)), `4527e119` (#1702, [40330157809](https://github.com/relativityE/speaksharp/actions/runs/40330157809)) and `d6be063f` (this guard).
+- The next main SHA after each of the first two failures passed. A green main run is per-SHA source evidence, not release-gate or acceptance evidence.
+
+**Deployed (`production-release.yml`; frontend unless stated):**
+- [40059856307](https://github.com/relativityE/speaksharp/actions/runs/40059856307): Edge release of `fb30674e`.
+- Frontend releases:
+  - `fb30674e`: [40060391056](https://github.com/relativityE/speaksharp/actions/runs/40060391056)
+  - `19aed5d7`: [40106664206](https://github.com/relativityE/speaksharp/actions/runs/40106664206)
+  - `d1a58f88`: [40214197134](https://github.com/relativityE/speaksharp/actions/runs/40214197134)
+  - `d9a55454`: [40225077581](https://github.com/relativityE/speaksharp/actions/runs/40225077581)
+  - `9de26334`: [40227951041](https://github.com/relativityE/speaksharp/actions/runs/40227951041)
+  - `266bd9b2`: [40232725339](https://github.com/relativityE/speaksharp/actions/runs/40232725339)
+  - `2c4f5f39`: [40251982861](https://github.com/relativityE/speaksharp/actions/runs/40251982861)
+  - `d1f0acde`: [40319113835](https://github.com/relativityE/speaksharp/actions/runs/40319113835)
+  - `9c648649`: [40325029007](https://github.com/relativityE/speaksharp/actions/runs/40325029007)
+  - `613a026e`: [40340909599](https://github.com/relativityE/speaksharp/actions/runs/40340909599)
+- All of these runs succeeded.
+- The latest release, `613a026eb8ec819c326043ebf68e03f388b6400a`, was read back by App Dev as `window.__APP_RELEASE__` at 2026-10-26 14:37:01 UTC.
+- `c8623640`, `94a5c7c0` and `d6be063f` (#1720, #1685, #1725: test and tooling only) are not released.
+- Production application of the #1696 and #1714 migrations is UNVERIFIED in this addendum.
+
+**Documented correction:** the `deployed-release` field moves from the historical `bc1ea8ea` (17 October observation, still named in the earlier dated text below) to the verified `613a026e`, and `verified-on` becomes 2026-10-26.
+
+**Unchanged and still open:** the `release-blocker`, the fixed #1650 integration base, and every unresolved acceptance gap: RWT L1–L15, human H1–H6, account-exit completion, and production schema/Edge verification.
 
 ### Mainline source reconciliation `5f5f465a` → `1c293255` — 23 October 2026 (App Dev, read-only)
 
 The 19 October addendum above read main at `c9d46b2d`. Twelve first-parent merges followed: frontend runtime #1671, #1677, #1675, #1679, #1681; backend #1675 (two migrations) and #1684 (Edge functions and four migrations); #1673, which disabled push-triggered Edge deployment (the `deploy-supabase-edge-release.yml` caller's job is `if: ${{ false }}`) and introduced the manually dispatched `production-release.yml`; test/tooling #1672, #1676, #1678, #1680, #1686. Dated supersessions of the 19 October text, which stays as history:
 
 - #1662, #1666, #1667 and #1668 closed unmerged on 22 October; [#1671](https://github.com/relativityE/speaksharp/pull/1671) integrated their reviewed heads and #1254's `aac368a7` copy.
-- #1472's analytics change landed as source in #1675. #1548 continuity (#1681) landed as source. #1684 delivered #1643 backend source wiring completion-status read/issue/ACK, not completion execution: `completePendingAccount` stays inactive, `accountClosureCurrentFacts.mjs` still fails closed, so the [producer boundary](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6247490788) stands, and UI #1683 is inactive and unrouted. Customer exit is not complete; both issues remain open.
+- #1472's analytics change landed as source in #1675. #1548 continuity (#1681) landed as source. #1684 delivered #1643 backend source wiring completion-status read/issue/ACK, not completion execution: `completePendingAccount` stays inactive, `accountClosureCurrentFacts.mjs` still fails closed, so the [producer boundary](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6247490788) stands, and UI #1683 was then inactive and unrouted (superseded 26 October: #1707 routes it; see the 26 October addendum). Customer exit is not complete; both issues remain open.
 - Served identity: App Dev's HTTP read of `window.__APP_RELEASE__` on the canonical app returned `29d7c7e54e5a58acacfaf405c469aacc796eee8d` (#1677) at 2026-10-23 03:13–04:20 UTC. That is an App-reported observation, not deployment or canary acceptance, and no deployment receipt is recorded here. #1675, #1679 and #1681 are later mainline commits than `29d7c7e5`. `deployed-release` and `verified-on` stay unchanged pending the owner's decision.
 - Effective runtime and schema state is UNVERIFIED for #1675's and #1684's migrations and #1684's Edge functions. Skipped Edge run [39893612755](https://github.com/relativityE/speaksharp/actions/runs/39893612755) shows only that that run did not deploy.
 - Edge release route: since #1673, an Edge-path merge to `main` does not deploy production. The selected deliberate frontend/Edge promotion route is a separately authorized manual dispatch of `production-release.yml` on `main`, requiring `deploy_production=true`, the exact qualified current-main SHA as `expected_head_sha` and an allowing production-policy check; for an Edge release it also requires the `edge-functions` operation and the typed confirmation `RELEASE edge-functions AT <exact SHA>` (a frontend release uses `frontend` with its matching confirmation). Product Owner authorization for the specific release is still required, and other backend operations keep their own separate authorization.
@@ -74,9 +113,9 @@ The following addenda are later owner-reported history, outside the 17 October 2
 **Subsequent frontend disposition — 18 October 2026, 09:20–09:23 UTC:** [App Dev's #1652 landing/canary/served receipt6248196339](https://github.com/relativityE/speaksharp/pull/1652#issuecomment-6248196339) reports squash merge `3540103e8d86b5a284265443312c61e643bf5304` at 09:20:24 UTC after full-lane PR CI [39111739476](https://github.com/relativityE/speaksharp/actions/runs/39111739476) SUCCESS and clean exact-head Code/Security qualification. Canary [39114943038](https://github.com/relativityE/speaksharp/actions/runs/39114943038) is reported SUCCESS, including read-only migration readiness and active-trial checks. At 09:22:46 UTC App Dev observed `VITE_VERCEL_GIT_COMMIT_SHA = 3540103e8d86b5a284265443312c61e643bf5304` in the served bundle. This records delivered #1652 source/deployment and supersedes its earlier repair/deployment assignment; do not repeat that repair or deployment. It is a dated owner receipt, not a new Production read by Browser PM or a guarantee of the moving served identity. Final campaign release binding, specifically authorized full useful Open Mic/full and partial Focus RWT, received evidence/cleanup and human/device acceptance remain open. The Products-menu/dialog race remains open with CLI Dev. No live campaign or customer-exit acceptance follows.
 
 <!-- CURRENCY-BLOCK
-baseline: 1c2932550de0a083f159df2f2fe7c9a3cfd27b82
-deployed-release: bc1ea8eaec3d410865b832319a0e855b299693e3
-verified-on: 2026-10-17
+baseline: d6be063facccf778df1c7b86742c9d3d69ed23fd
+deployed-release: 613a026eb8ec819c326043ebf68e03f388b6400a
+verified-on: 2026-10-26
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged

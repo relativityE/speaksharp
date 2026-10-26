@@ -70,8 +70,8 @@ export function routeClass(url: string): RouteClass {
     try { pathname = new URL(url).pathname.replace(/\/+$/, ''); } catch { return 'other'; }
     if (pathname === '/session') return 'session';
     if (pathname === '/practice') return 'practice';
-    if (/^\/analytics\/[^/]+$/.test(pathname)) return 'analytics_detail';
-    if (pathname === '/analytics') return 'analytics';
+    if (/^\/(?:progress|analytics)\/[^/]+$/.test(pathname)) return 'analytics_detail';
+    if (pathname === '/progress' || pathname === '/analytics') return 'analytics';
     return 'other';
 }
 
