@@ -14,6 +14,8 @@ export const SOURCE_CONTRACTS=Object.freeze([
   'tests/live/rwt-products-navigation.live.spec.ts',
   'tests/live/private-recording-proof.live.spec.ts',
   'tests/live/report-page-context.live.spec.ts',
+  // #1712 (A3-3.a under #1643): the Account page offers Delete account, read-only, as wiring only.
+  'tests/live/account-delete-entry-a3-3.live.spec.ts',
 ]);
 // Real (non-type, unrenamed) imports a wiring contract requires; route contracts require none.
 const REQUIRED_IMPORTS=Object.freeze({
@@ -109,6 +111,15 @@ const wiring={
     "expect(analytics.metadata.canonicalRoute).toBe('/progress');",
     "expect(owned.metadata.canonicalRoute).toBe('/progress/:sessionId');",
     "expect(owned.page_url).toBe('/progress/:sessionId');",
+  ],
+  [SOURCE_CONTRACTS[6]]:[
+    "if (request.url().includes('account-closure')) closureCalls.push(request.method());",
+    "await page.goto('/account');",
+    "const link = page.getByTestId('account-delete-link');",
+    "await expect(link, 'the Delete account link is on the Account page').toBeVisible({ timeout: 20_000 });",
+    "await expect(link).toHaveText('Delete account');",
+    "await expect(link).toHaveAttribute('href', '/account/delete');",
+    "expect(closureCalls, 'opening Account issues no account-closure request').toEqual([]);",
   ],
 };
 
