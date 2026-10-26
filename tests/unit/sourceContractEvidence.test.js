@@ -20,6 +20,24 @@ for(const row of corpusRows(corpus, transcript, fillerAnnotationsOf(fixture.entr
 for(const [key,c] of Object.entries(crossCheckCounts(transcript, productFillerCount))) receipt.row(key,c.verdict,{});
 humanObservation(receipt, 'open_mic_uh_detected', 'human');`;
 
+test('canary source rejects a negated saved matcher on the actual outcome',()=>{
+  const negated=canary.replace("expect(outcome.kind).toBe('saved')","expect(outcome.kind, diagnostic).not.toBe('saved')");
+  assert.notEqual(negated,canary);
+  assert.throws(()=>inspectSourceContract(root,SOURCE_CONTRACTS[0],negated),/Source wiring contract failed/);
+});
+
+test('canary source rejects disconnected outcome and saved matcher calls',()=>{
+  const disconnected=canary.replace("expect(outcome.kind).toBe('saved')","expect(outcome.kind, diagnostic); expect(unrelated).toBe('saved')");
+  assert.notEqual(disconnected,canary);
+  assert.throws(()=>inspectSourceContract(root,SOURCE_CONTRACTS[0],disconnected),/Source wiring contract failed/);
+});
+
+test('saved matcher must assert the owned collector result in the same statement scope',()=>{
+  const moved=canary.replace("expect(outcome.kind).toBe('saved')","function unused() { expect(outcome.kind).toBe('saved'); }");
+  assert.throws(()=>inspectSourceContract(root,SOURCE_CONTRACTS[0],moved),/Source wiring contract failed/);
+  assert.equal(inspectSourceContract(root,SOURCE_CONTRACTS[0],canary.replace('expect(outcome.kind)','expect(outcome.kind, diagnostic)')).savedMatcher.expected,'saved');
+});
+
 test('source contracts reject missing wires and comments posing as execution',()=>{
   for(const [file,source] of [[SOURCE_CONTRACTS[0],canary],[SOURCE_CONTRACTS[1],filler]]) {
     const proof=inspectSourceContract(root,file,source);

@@ -6,7 +6,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {createHash, randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
-import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage,normalizedHelperWorkerFunctions} from '../../scripts/lib/helperExecutionEvidence.mjs';
+import {HELPER_CONTRACTS, helperRuntimeIdentity, helperSourceBinding, helperCoverageOptions, validateHelperCoverage,normalizedHelperWorkerFunctions,validateRawHelperFunctions} from '../../scripts/lib/helperExecutionEvidence.mjs';
 import {runVitestHelperExecution,dependencyPaths} from '../../scripts/run-test-efficacy.mjs';
 import {executionContext, validateVitestExecution} from '../../scripts/lib/testExecutionEvidence.mjs';
 import {TEST_EFFICACY_CONTRACTS,MEANINGFUL_COVERAGE_MANIFEST} from '../../scripts/lib/softwareQualityEvidenceQualification.mjs';
@@ -100,6 +100,40 @@ function synthetic(prepare = () => {}) {
     conversions:[conversion]};
   return {...f,binding,raw};
 }
+
+test('raw duplicate full-span ranges cannot normalize zero-call worker evidence into called credit',()=>{
+  const f=synthetic();
+  try {
+    const raw=structuredClone(f.raw);
+    const range=raw.frames[0].result[0].functions[0].ranges[0];
+    raw.frames[0].result[0].functions[0].ranges=[{...range,count:0},{...range,count:1}];
+    assert.throws(()=>validateHelperCoverage(raw,f.binding,f.directory),/raw helper/);
+  } finally {f.clean();}
+});
+
+test('raw span validation rejects invalid counts, crossings, ordering and duplicate functions before normalization',()=>{
+  const fn={functionName:'independentLoop',isBlockCoverage:true,ranges:[
+    {startOffset:0,endOffset:100,count:2},
+    {startOffset:10,endOffset:40,count:7},
+    {startOffset:15,endOffset:20,count:3},
+    {startOffset:40,endOffset:70,count:7},
+  ]};
+  assert.equal(validateRawHelperFunctions([fn],100).get('0:100').count,2);
+  for(const change of [
+    x=>{x[0].ranges[1].count=-1;},x=>{x[0].ranges[1].count=NaN;},
+    x=>{x[0].ranges[1].count=Infinity;},x=>{x[0].ranges[1].count=1.5;},
+    x=>{x[0].ranges[1].endOffset=101;},x=>{x[0].ranges[1].startOffset=-1;},
+    x=>{x[0].ranges[1].startOffset=10.5;},x=>{x[0].ranges[1].endOffset=10;},
+    x=>{x[0].ranges[2].endOffset=50;},x=>{x[0].ranges[3].startOffset=5;},
+    x=>{x[0].ranges[0].count=0;},x=>{x[0].ranges[1].count=0;},
+    x=>{x[0].isBlockCoverage=false;},x=>{x.push(structuredClone(x[0]));},
+    x=>{x[0].ranges.splice(1,0,{...x[0].ranges[0]});},
+  ]) {
+    const invalid=[structuredClone(fn)];change(invalid);
+    assert.throws(()=>validateRawHelperFunctions(invalid,100),/raw helper/);
+    assert.throws(()=>normalizedHelperWorkerFunctions(root,[{url:'file:///loop.js',functions:invalid}],100),/raw helper/);
+  }
+});
 
 test('synthetic helper receipt requires mapped callable hits, not module/import presence',()=>{
   const f=synthetic();
@@ -208,7 +242,7 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
     fs.unlinkSync(path.join(fixture.directory,'node_modules'));
     fs.mkdirSync(path.join(fixture.directory,'node_modules/@vitest'),{recursive:true});
     fs.symlinkSync(privateProvider,path.join(fixture.directory,'node_modules/@vitest/coverage-v8'),'dir');
-    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping','@bcoe/v8-coverage']) {
+    for(const name of ['jsdom','typescript','@jridgewell/trace-mapping','@bcoe/v8-coverage','vite-node']) {
       const target=path.join(fixture.directory,'node_modules',name);
       fs.mkdirSync(path.dirname(target),{recursive:true});
       fs.symlinkSync(path.dirname(require.resolve(`${name}/package.json`)),target,'dir');

@@ -43,8 +43,6 @@ const wiring={
     'sessionId: savedId,',
     'waitForSettledTake: () => page.waitForFunction(isOwnedStopSettledInPage, savedId, { timeout: remainingMs() })',
     'reloadSavedTake: () => page.reload({ timeout: remainingMs() })',
-    'expect(outcome.kind',
-    ".toBe('saved')",
   ],
   [SOURCE_CONTRACTS[1]]:[
     'hesitationTotals(transcript, corpus)',
@@ -55,6 +53,37 @@ const wiring={
     "humanObservation(receipt, 'open_mic_uh_detected'",
   ],
 };
+
+function savedMatchers(ts,parsed) {
+  const matches=[];
+  const visit=node=>{
+    if(ts.isCallExpression(node) && !node.questionDotToken && node.arguments.length===1
+      && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text==='saved'
+      && ts.isPropertyAccessExpression(node.expression) && !node.expression.questionDotToken
+      && node.expression.name.text==='toBe') {
+      const assertion=node.expression.expression;
+      if(ts.isCallExpression(assertion) && !assertion.questionDotToken
+        && ts.isIdentifier(assertion.expression) && assertion.expression.text==='expect'
+        && [1,2].includes(assertion.arguments.length)) {
+        const actual=assertion.arguments[0];
+        if(ts.isPropertyAccessExpression(actual) && !actual.questionDotToken && actual.name.text==='kind'
+          && ts.isIdentifier(actual.expression) && actual.expression.text==='outcome'
+          && ts.isExpressionStatement(node.parent)) {
+          const statements=node.parent.parent?.statements;
+          const assertionIndex=statements?.indexOf(node.parent) ?? -1;
+          const owners=statements?.filter((statement,index)=>index<assertionIndex && ts.isVariableStatement(statement)
+            && (statement.declarationList.flags & ts.NodeFlags.Const)
+            && statement.declarationList.declarations.some(item=>ts.isIdentifier(item.name) && item.name.text==='outcome'
+              && item.initializer && ts.isAwaitExpression(item.initializer) && ts.isCallExpression(item.initializer.expression)
+              && ts.isIdentifier(item.initializer.expression.expression) && item.initializer.expression.expression.text==='collectCanaryStopSave')) || [];
+          if(owners.length===1) matches.push(node);
+        }
+      }
+    }
+    ts.forEachChild(node,visit);
+  };
+  visit(parsed);return matches;
+}
 
 export function inspectSourceContract(root,file,source=read(root,file)) {
   if(!registeredSourceContract(file)) throw new Error('Unregistered source contract');
@@ -69,6 +98,20 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
       .filter(node=>!node.isTypeOnly && !node.parent.parent.isTypeOnly && (!node.propertyName || node.propertyName.text===node.name.text))
       .map(node=>node.name.text);
     if(parsed.parseDiagnostics.length || names.some(name=>imports.filter(value=>value===name).length!==1)) throw new Error(`Source wiring contract failed: ${file}; missing real imports or invalid syntax`);
+    let savedMatcher=null;
+    if(file===SOURCE_CONTRACTS[0]) {
+      const matches=savedMatchers(ts,parsed);
+      if(matches.length!==1) throw new Error(`Source wiring contract failed: ${file}; missing unique direct positive saved matcher`);
+      const match=matches[0];
+      const receiver=match.expression.expression.getText(parsed);
+      const variants=[`${receiver}.not.toBe('saved')`,`${receiver}; expect(unrelated).toBe('saved')`];
+      for(const replacement of variants) {
+        const mutant=source.slice(0,match.getStart(parsed))+replacement+source.slice(match.end);
+        if(savedMatchers(ts,ts.createSourceFile(file,mutant,ts.ScriptTarget.Latest,true)).length!==0) throw new Error('Saved matcher fault escaped');
+      }
+      savedMatcher={receiver:'outcome.kind',matcher:'toBe',expected:'saved',
+        start:match.getStart(parsed),end:match.end,detectedFaults:variants.length};
+    }
     const code=tokens(root,source);
     const required=wiring[file].map(fragment=>tokens(root,fragment));
     if(required.some(fragment=>code.split(fragment).length!==2)) throw new Error(`Source wiring contract failed: ${file}; wire counts ${required.map(fragment=>code.split(fragment).length-1).join(',')}`);
@@ -76,7 +119,8 @@ export function inspectSourceContract(root,file,source=read(root,file)) {
     // the exact consumed bytes. Never mutate or execute the live spec itself.
     const controls=required.map(fragment=>code.replace(fragment,'BROKEN_WIRE'));
     if(controls.some(mutant=>required.every(fragment=>mutant.split(fragment).length===2))) throw new Error('Source wiring fault escaped');
-    return {file,sha256:hash(source),kind:'wiring-contract',checks:required.length,detectedFaults:controls.length,
+    return {file,sha256:hash(source),kind:'wiring-contract',checks:required.length+(savedMatcher?1:0),
+      detectedFaults:controls.length+(savedMatcher?.detectedFaults || 0),...(savedMatcher?{savedMatcher}:{}),
       liveExecution:'NOT RUN',scope:'registered wiring only; live test body not executed'};
   }
   const manifest=JSON.parse(source);
