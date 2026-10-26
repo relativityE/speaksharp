@@ -19,6 +19,12 @@ const answerOf = (id: string) =>
     FAQ_SECTIONS.flatMap((s) => s.items).find((i) => i.id === id)?.answer.join(' ') ?? '';
 
 describe('FAQ claims match the shipped contracts', () => {
+    it('CASUALTY (#1254): Focus Points vocabulary is the UI\'s "Detected", never "Covered"', () => {
+        expect(answerOf('focus-points-detect')).toMatch(/“Detected” means matching words were found/);
+        expect(answerOf('open-floor-vs-focus-points')).toMatch(/whether it was detected in your transcript/);
+        expect(text).not.toMatch(/“Covered”|evidence you covered/);
+    });
+
     it('CASUALTY: never describes Progress as four combined signals or as using pause rhythm', () => {
         expect(text).not.toMatch(/four signals|pause rhythm|pause-rhythm/i);
     });

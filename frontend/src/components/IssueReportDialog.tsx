@@ -26,10 +26,9 @@ import {
 } from '@/services/feedbackDraft';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
-import {
-  submitBlockers, lengthBand, emitFeedbackFieldState, emitFeedbackDialogOpened, emitFeedbackSubmit,
-  type FeedbackField,
-} from '@/services/telemetry/feedbackTelemetry';
+import { submitBlockers, lengthBand, emitFeedbackFieldState, emitFeedbackDialogOpened, emitFeedbackSubmit, type FeedbackField, classifyFeedbackStorageError } from '@/services/telemetry/feedbackTelemetry';
+import { coachingDiagnosticForSession } from '@/services/coachingDiagnosticLink';
+import { useFeedbackOpenRequest } from '@/contexts/feedbackOpener';
 
 interface IssueReportDialogProps {
   userId?: string | null;
@@ -230,6 +229,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   const typeRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const severityRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const draftOwnerRef = React.useRef<string | null>(userId ?? null);
+  // #1258: which Send this is in the current opening (links `attempted` to its outcome), reset on open.
+  const submitSeqRef = React.useRef(0);
 
   // #1416 — the reveal follows the CURRENT motion preference, not the one that happened to be set
   // when this component mounted. Reading it once looks harmless because a dialog is short lived, but
@@ -382,9 +383,32 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       setAttempted(null);
       setError(null);
       setShowDisclosure(false);
+      submitSeqRef.current = 0;
     }
     setOpen(next);
   };
+
+  /*
+   * #1474 (opener disposition 6239720648) — page content ("Count look wrong?") opens THIS dialog through the one typed,
+   * owner-scoped request path, never by clicking the navigation button or mounting a second form. The request goes through
+   * the same opening initialization as the button (`handleOpenChange(true)`: the session snapshot, the restored-choice →
+   * viewed → newest → No session default, the draft restore), and only when its owner is this dialog's user — a request
+   * filed for another account is acknowledged and dropped. Closing returns focus to the control that asked.
+   */
+  const openRequest = useFeedbackOpenRequest();
+  const pendingRequest = openRequest?.request ?? null;
+  const settleRequest = openRequest?.settle;
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
+  const handleOpenChangeRef = React.useRef(handleOpenChange);
+  React.useLayoutEffect(() => { handleOpenChangeRef.current = handleOpenChange; });
+  React.useEffect(() => {
+    if (!pendingRequest || !settleRequest) return;
+    if (pendingRequest.ownerId === (userId ?? null) && !open) {
+      returnFocusRef.current = pendingRequest.returnFocus;
+      handleOpenChangeRef.current(true);
+    }
+    settleRequest(pendingRequest.seq);
+  }, [pendingRequest, settleRequest, userId, open]);
 
   const cancel = () => {
     clearFeedbackDraft();
@@ -432,10 +456,13 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     }
     setIsSubmitting(true);
     setError(null);
+    const submitSeq = Math.min(100, ++submitSeqRef.current);
+    const attemptedAt = performance.now();
+    const coachingDiagnosticId = coachingDiagnosticForSession(selectedSessionId);
     // The ATTEMPT, recorded before anything can fail. Without it a submit that throws before reaching
     // storage is indistinguishable from a user who never pressed Send — and "I reported it and nothing
     // happened" is precisely the report this instrumentation exists to make legible.
-    emitFeedbackSubmit({ outcome: 'attempted' });
+    emitFeedbackSubmit({ outcome: 'attempted', submitSeq, coachingDiagnosticId });
     try {
       const feedbackKind: FeedbackKind = type === 'broke' ? 'issue' : 'comment';
       // #1416 — NULL, NOT A GUESS.
@@ -455,7 +482,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
         title: deriveTitle(body),
         description: body,
         pageUrl: pageContext.canonicalRoute,
-        metadata: buildIssueReportMetadata({ context: pageContext, issueArea, feedbackKind, feedbackType: type, feedbackSeverity: severity, plan, sttMode, runtimeState }),
+        metadata: buildIssueReportMetadata({ context: pageContext, issueArea, feedbackKind, feedbackType: type, feedbackSeverity: severity, plan, sttMode, runtimeState, coachingDiagnosticRef: coachingDiagnosticId }),
         includeAudio: false,
         audioAttachmentNote: null,
         idempotencyKey,
@@ -474,13 +501,19 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       // `acknowledgementVisible: true` from the storage path, which asserted the user had been told
       // something by code that cannot see the screen. Emitted after the toast call, so the fact follows
       // the render rather than predicting it.
-      emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: true, hasSession: selectedSessionId !== null });
-    } catch {
+      emitFeedbackSubmit({
+        outcome: 'storage_ok', acknowledgementVisible: true, hasSession: selectedSessionId !== null,
+        submitSeq, elapsedMs: performance.now() - attemptedAt, coachingDiagnosticId,
+      });
+    } catch (err) {
       setAttempted({ key: idempotencyKey, signature: draftSignature });
       setError('That didn’t go through. Try again?');
       // The user was told it failed, and the draft was kept for the retry. Both are facts about what they
       // can now see and do, and neither is knowable from the storage layer.
-      emitFeedbackSubmit({ outcome: 'storage_failed', acknowledgementVisible: true });
+      emitFeedbackSubmit({
+        outcome: 'storage_failed', acknowledgementVisible: true, errorCategory: classifyFeedbackStorageError(err),
+        submitSeq, elapsedMs: performance.now() - attemptedAt, coachingDiagnosticId,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -517,6 +550,16 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           // returning to their own draft was told, by the focus, that they had picked something else.
           event.preventDefault();
           typeRefs.current[typeIndex >= 0 ? typeIndex : 0]?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          // #1474: an opening requested by page content returns focus to the control that asked for it. An opening from
+          // the navigation button keeps Radix's default (back to that button).
+          const target = returnFocusRef.current;
+          returnFocusRef.current = null;
+          if (target && target.isConnected) {
+            event.preventDefault();
+            target.focus();
+          }
         }}
       >
         <DialogHeader><DialogTitle className="text-[24px] font-extrabold tracking-[-0.03em] text-neutral-heading">Share feedback</DialogTitle></DialogHeader>

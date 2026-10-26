@@ -6,7 +6,7 @@
  *   2. reach Open Mic without the microphone opening on navigation;
  *   3. first microphone use — the model the product actually acquires, and how long it takes;
  *   4. speak the pinned corpus — fillers seen vs saved vs the corpus's ground truth;
- *   5. Stop — the session saves and exactly two coaching phrases (≤6 words each) render on their own; they are
+ *   5. Stop — the session saves and exactly two coaching phrases (about 8–10 words each: a soft target that is measured, not a validity rule) render on their own; they are
  *      distinct and equal the saved coaching response;
  *   6. the session in Analytics — same transcript (by digest) and both saved AI suggestions, before and after
  *      a reload; then Back to Dashboard and a PDF that carries the saved transcript (the PO's manual v12 order);
@@ -27,6 +27,9 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { test } from './helpers/rwtProductionTest';
+import { MainThreadTrace, TRACE_OP_TIMEOUT_MS, TRACE_START_WORST_CASE_MS, TRACE_STOP_WORST_CASE_MS, boundedStopWithTrace, withDeadline } from './helpers/rwtMainThreadTrace';
+import { DiagnosticRecord, ProcessSampler, diagnosticWindowFor, requireWindowBudget, runBoundedWindow } from './helpers/rwtDiagnosticWindow';
+import { readFillerBreakdown } from './helpers/rwtFillerBreakdown';
 import { expect, type Response } from '@playwright/test';
 import {
     selectBenchmarkMode,
@@ -37,6 +40,8 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, aliveReceipt, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
+import { characterCeilingVerdict, fillerAdviceVerdict } from './helpers/rwtCoachingConsistency';
 import { transientPrivateDir } from './helpers/rwtTransientFile';
 import { MODEL_COMPARISON_AUTH_KEY } from './helpers/practiceLoopJourney';
 import { canonicalizeForLeakCheck, extractPdfText } from '../helpers/pdfText';
@@ -68,6 +73,7 @@ import {
     normalisePhraseText,
     performCandidateSwitch,
     readSttIdentity,
+    readCpuRuntime,
     receiptContentLeaks,
     resolveRunTarget,
     rwtLaunchArgs,
@@ -78,16 +84,69 @@ import {
     telemetryClassRows,
     canaryClaimRow,
     EntitlementTap,
+    expectedReleaseSha,
     entitlementRow,
     runOwnedIdentityFailures,
-    type RunTarget,
+    type RunTarget, readCoachingFailureReason, readCoachingFailureUi, settleCoachingReason, COACHING_REASON_UNKNOWN, bandSide,
+    sentVerdict,
+    sentDetail,
+    readbackSettlement,
+    exactCountVerdict,
+    backFromProgressRestoresSession,
+    backFromProgressRows,
+    firstTakeSavedExactlyOnce,
+    observeCoachingPhrase,
+    visibleCoachingAbsence,
 } from './helpers/rwtJourney';
-import { bindReadbackJourneys, takeStartedAfter } from './helpers/rwtOracles';
+import {
+    classifySavedCoaching, coachingParentVerdict, failureTelemetryBinding, coachingRequestBindingRow, coachingTelemetryVerdict, successDependentRow, takeExchangeEvidence,
+    type CoachingParentVerdict,
+} from './helpers/coachingExternal';
+import { bindReadbackJourneys, takeStartedAfter, practiceArrivalVerdict, feedbackOutcomeVerdict } from './helpers/rwtOracles';
+import { productFillerCount } from './helpers/rwtFillerOracle';
+import { corpusRows, crossCheckCounts, fillerAnnotationsOf, hesitationTotals } from './helpers/rwtFillerReference';
+import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
+import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
+import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture } from './helpers/rwtCoachingCollector';
+import { coachingContract } from './helpers/rwtCoachingEvidence';
+import { openProductsItem } from './helpers/productsMenu';
+import {
+    LEGACY_PHRASE, PROGRESS_FORMULA, REPEAT_METRIC_ROW, pressLinkage, repeatMetricPrerequisites, repeatMetricWordingVerdict,
+    type PanelObservation, type ServerEvidence,
+} from './helpers/repeatMetricWording';
 
 const SUITE = 'open-mic-first-session';
+/** Smoke item 2 (run 38654466793): the first take's save-time families the readback held as never received. */
+const FIRST_TAKE_SAVE_FAMILIES = ['session_saved', 'transcript_authority', 'filler_measurement', 'model_attribution_receipt'] as const;
+/** #1258: Stop plus the saved-candidate wait have 180 s inside; the page itself must answer well before this bound. */
+const STOP_BOUND_MS = 240_000;
+/**
+ * #1258 (run 36930648785): every live-page read has its own bound. The deployed-live config sets no action timeout, so
+ * an unbounded read of an element the page no longer renders waited forever — that was the reproduced "freeze".
+ */
+const LIVE_READ_TIMEOUT_MS = 15_000;
+/** The whole after-Stop FillerBreakdown read: visible wait (60 s) + bounded row and stats reads, under one deadline. */
+const BREAKDOWN_READ_BOUND_MS = 120_000;
+/**
+ * #1258 follow-up (run 36863804680 hung after the take began and wrote nothing): a Node-side deadline around the WHOLE
+ * traced take → Stop window — trace start, the speech wait, the live reads and Stop — that fires whether or not the page
+ * or browser answers. Its wanted and minimum-useful bounds come from `diagnosticWindowFor` (both include the worst-case
+ * trace start; the wanted bound also the worst-case trace stop after Stop), and it is always short of the outer test timeout.
+ */
+const windowBounds = (speechSeconds: number) => diagnosticWindowFor(speechSeconds, {
+    stopBoundMs: STOP_BOUND_MS, traceStartWorstCaseMs: TRACE_START_WORST_CASE_MS, traceStopWorstCaseMs: TRACE_STOP_WORST_CASE_MS,
+});
+/** Bound on the deadline collection: the trace stop (end + complete + cleanup, 3 × op bound) plus the page fence. */
+const DEADLINE_COLLECTION_MS = 3 * TRACE_OP_TIMEOUT_MS + 30_000;
+/** Kept free before the outer timeout: the deadline collection, then the receipt `finally` and account cleanup. */
+const WINDOW_RESERVE_MS = DEADLINE_COLLECTION_MS + 60_000;
+/** External process/resource sampling interval (#1258 PM 5932271540: modest, not profiling). */
+const PROC_SAMPLE_MS = 5_000;
 const JOURNEY = 'open_mic';
-/** PO script row 5: exactly two phrases, each at most six words (COACHING_WORD_BUDGET). */
-const COACHING_WORD_BUDGET = 6;
+/** PO 2026-10-02: about 8-10 words per phrase is a SOFT target (the Edge contract's `wordTarget`), measured — never a failure. */
+const COACHING_WORD_TARGET = 10;
+/** #1258 (Codex r4188372867): ABOUT 8-10 words — a shorter phrase is not within the target. */
+const COACHING_WORD_TARGET_MIN = 8;
 /** Accepted headings (runbook (3) row 5: Akin also accepts "What to try next"). */
 const WELL_HEADINGS = ['What went well'] as const;
 const NEXT_HEADINGS = ['Try this next run', 'What to try next'] as const;
@@ -102,9 +161,6 @@ const FILLER_KEY: Record<string, string> = { um: 'um', uh: 'uh', ah: 'ah', 'you 
  */
 const COACHABLE_KEYS = ['um', 'uh', 'ah'] as const;
 const normaliseKey = (word: string): string => word.trim().toLowerCase().replace(/\s+/g, '_');
-/** Occurrences of a spoken filler in text — counted in Node, never stored. */
-const occurrences = (text: string, spoken: string): number =>
-    (text.toLowerCase().match(new RegExp(`\\b${spoken.replace(/\s+/g, '\\s+')}\\b`, 'g')) ?? []).length;
 /** WebGPU runs need a GPU-capable runner; GitHub's hosted Linux runners have none. Declared, never inferred. */
 const WEBGPU = process.env.RWT_WEBGPU === '1';
 
@@ -125,27 +181,37 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: WEBGPU }) },
 });
 
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
+
 test.describe('RWT — Open Mic first session @live', () => {
+    let activeSampler: ProcessSampler | null = null;
+    let activeTap: AnalyticsTap | null = null;
     let createdEmail = '';
     let capturedUid = '';
     let feedbackReportId: string | null = null;
-    let accountDeletedInTest = false;
 
     test.afterEach(async () => {
-        // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product
-        // policy (user_issue_reports.user_id is SET NULL on account deletion); the test body deletes the account first
-        // and proves that retention (#1532 Codex P1 r4105978630). This is the fallback when the body did not.
-        if (!accountDeletedInTest) {
-            await cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+        // #1593 (Sam, #1662 RETURN control 1): the journey's ONE owned finalization (rows, account cleanup, receipt) — the
+        // same memoized run the body's finally starts, so a test timeout still deletes the account and writes the receipt.
+        try {
+            await finalizer.drain();
+        } finally {
+            // Process-resource backstops for a body that failed before its finalization was registered; idempotent.
+            activeSampler?.stop();
+            activeSampler = null;
+            // Smoke item 2 (PM 6182647952 §2): transport capture closes on every exit, including a body that threw.
+            activeTap?.detachTransport();
+            activeTap = null;
         }
         createdEmail = '';
         capturedUid = '';
         feedbackReportId = null;
-        accountDeletedInTest = false;
     });
 
-    test('a new person completes a first Open Mic session end to end', async ({ page }, testInfo) => {
+    test('a new person completes a first Open Mic session end to end', async ({ page, browser }, testInfo) => {
         test.setTimeout(1_500_000); // cold model acquisition + a 60 s take + coaching + Analytics + feedback
+        const testStartedAt = Date.now();
 
         const preconditions = rwtPreconditionFailures();
         if (preconditions.length > 0) throw new Error(`HOLD preconditions: ${preconditions.join('; ')}`);
@@ -159,18 +225,34 @@ test.describe('RWT — Open Mic first session @live', () => {
         receipt.meta.fixtureSha256 = fixture.entry.kind === 'human' ? '(private)' : fixture.entry.sha256;
         receipt.meta.target = run.label;
         receipt.meta.webgpu = WEBGPU;
+        // #1258: durable, content-free diagnostic evidence, written now and on every update (file + job log), so a hang
+        // that never reaches the receipt below still leaves its classification behind.
+        const diag = new DiagnosticRecord(SUITE, { release: expectedReleaseSha() });
+        diag.update({ diag_window: 'not_entered' });
+        const sampler = new ProcessSampler(diag, { suite: SUITE });
+        activeSampler = sampler;
         receipt.row('base_q4 primary', 'HOLD', 'the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence');
 
         const tap = new AnalyticsTap();
         tap.attach(page);
+        activeTap = tap;
+        // #1593 fail early: an unexpected failure, refusal or stall ends the journey in seconds, not at the timeout.
+        const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
         const entitlement = new EntitlementTap();
         entitlement.attach(page);
+        // #1258 (PM 6114590729): every coaching exchange at the request boundary — the ids the page sent and the Edge
+        // function's own answer — held in memory for the diagnostic chain and the restricted synthetic artifact only.
+        const generations = new CoachingGenerationTap();
+        generations.attach(page);
         await installMicAcquisitionCounter(page);
         await armCandidateSwitch(page, run, MODEL_COMPARISON_AUTH_KEY);
-        const coaching: { status: number | null; requests: number } = { status: null, requests: 0 };
+        const coaching: { status: number | null; requests: number; reason: string | null; reasonRead: Promise<void> | null } = { status: null, requests: 0, reason: null, reasonRead: null };
         page.on('response', (response: Response) => {
             if (response.url().includes('/functions/v1/get-ai-suggestions') && response.request().method() === 'POST') {
                 coaching.status = response.status();
+                // #1258: a failed generation names its closed, content-free reason in the receipt. External proof is NOT read
+                // from here (PM 6173420642 §3): it comes only from `generations`, the per-take request/response tuple.
+                if (response.status() >= 400) coaching.reasonRead = readCoachingFailureReason(response).then((r) => { coaching.reason = r; });
                 coaching.requests += 1; // runbook v12: Analytics must never request coaching again
             }
         });
@@ -178,13 +260,21 @@ test.describe('RWT — Open Mic first session @live', () => {
         await suppressPageSnapshot(testInfo);
 
         let persistedId: string | null = null;
+        /** #1258 (PM 6171519534): the parent coaching verdict, so the telemetry row can judge the failure path under EXTERNAL. */
+        let coachingParentOutcome: CoachingParentVerdict | null = null;
+        /** The first take's own diagnostic request id (from its request body), for binding its failure telemetry. */
+        let coachingTakeRequestId: string | null = null;
         // The take's own generation count, snapshotted before the Practice-again pass records more takes.
         let generationsForTake: number | null = null;
+        // Codex r4200925124: when the generation count was snapshotted — the end of its blind-beacon window.
+        let generationsAt = 0;
         // #1532 Codex P1 r4124290575: sent-stream windows around each take's Start, so the takes are identified by the Start the
         // page sent (takeStartedAfter), independently of whether their saves arrive.
         let firstTakeFrom = 0;
         let repeatWindow: [number, number] | null = null;
         let stoppedAt = 0;
+        // Codex r4199883470: where the inventory step starts — blind beacons before it cannot carry its events.
+        let inventoryFrom = 0;
         let transcriptDigest = ''; // compared in Node only; never written to the receipt
         let transcriptCanonical = ''; // in memory only, for the PDF match; never written anywhere
         let claimed = false;
@@ -193,6 +283,146 @@ test.describe('RWT — Open Mic first session @live', () => {
         let shownNext = '';
         let savedWell = '';
         let savedNext = '';
+        // The Practice-again pass's saved take: the coaching evidence's repeat take.
+        let repeatSessionId: string | null = null;
+        let coachingCapture: ReturnType<typeof createCoachingTakeCapture> | null = null;
+        const finish = finalizer.once(async () => {
+            // Sam, #1662 RETURN: every step is bounded and isolated, so the account cleanup and the receipt always run.
+            const steps = new FinalizationSteps();
+            // Clear transient synthetic content and prevent late observer writes before owned-account cleanup.
+            await steps.step('coaching capture disposed', () => coachingCapture?.dispose());
+            // #1258 R8/R9: wait (bounded) until the events the "sent" rows need are observed, before counting them.
+            const observed = await steps.step('telemetry observed', () => tap.awaitObserved(page, { session_saved: 1, feedback_submit: 1 }));
+            receipt.meta.finalTelemetryObserved = observed?.observed ?? false;
+            // Codex P2 r4316425029: an event-specific wait returns at once when its events were decoded after the FIRST take,
+            // so a lifecycle failure from the LAST take may still be queued — settle every attached page's own flush first.
+            await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+            await steps.step('watchdog', () => watch.record(receipt));
+            // #1593 (Sam 1792317800 §6): the WHOLE-SCENARIO coaching request count (maximum 4), from the same request-boundary
+            // tap after a bounded settle of every sent exchange. Unanswered or unreadable stays HOLD — never a zero or the max.
+            await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+            await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 4 }));
+            // #1258: stop sampling and carry the diagnostic record (content-free by construction) into the receipt.
+            sampler.stop();
+            activeSampler = null;
+            await steps.step('diagnostics', () => { Object.assign(receipt.meta, diag.snapshot()); });
+            let userJourneys: string[] = [];
+            await steps.step('telemetry rows', () => {
+                // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
+                ({ userJourneys } = telemetryClassRows(receipt, tap, claimed));
+                const telemetrySeen = tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0;
+                // The journey's capture ends here: outcome listeners are removed and any request still pending is unobservable.
+                tap.detachTransport();
+                const telemetryReceivedBy = ['session_after_open_mic', 'share_feedback'] as const;
+                receipt.row('telemetry sent', sentVerdict(telemetrySeen, tap, stoppedAt),
+                    sentDetail('session_saved and feedback_submit left the page (sent, not yet received)', telemetrySeen, tap, stoppedAt, telemetryReceivedBy),
+                    { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length, ...readbackSettlement(telemetryReceivedBy, tap, stoppedAt),
+                        // Smoke item 2 (PM 6182446740): each family's decoded request(s) and their HTTP outcome — diagnostic only.
+                        ...tap.transportEvidence(takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length), FIRST_TAKE_SAVE_FAMILIES) });
+                // #1258 (#1563 closure): the outcome telemetry must CORRELATE, not merely be sent — each Practice-again press
+                // reached its intended route (same action_seq), and each Share Feedback attempt resolved (same submit_seq).
+                // Sent here; received is the deployed PostHog readback. Closed enums and integers only.
+                // A Blob beacon can hide these events from the tap (Codex P1 4219466523); the readback stage that runs the same
+                // correlation on RECEIVED events then settles the row at finalization.
+                const practiceArrival = practiceArrivalVerdict(tap.events);
+                const practiceArrivalReceivedBy = ['practice_again'] as const;
+                receipt.row('Practice again press → arrival (sent)', practiceArrival.verdict, practiceArrival.detail,
+                    { ...practiceArrival.evidence, ...readbackSettlement(practiceArrivalReceivedBy, tap, stoppedAt) });
+                const feedbackOutcome = feedbackOutcomeVerdict(tap.events);
+                const feedbackOutcomeReceivedBy = ['share_feedback'] as const;
+                receipt.row('feedback outcome (sent)', feedbackOutcome.verdict, feedbackOutcome.detail,
+                    { ...feedbackOutcome.evidence, ...readbackSettlement(feedbackOutcomeReceivedBy, tap, stoppedAt) });
+                // Coaching telemetry the page SENT. RECEIVED is proven by the PostHog readback of the declared
+                // session_after_open_mic stage: its post-Stop chain requires a received stage_latency "review_rendered", which
+                // the app emits only once a validated two-phrase review is on screen.
+                const reviewRendered = tap.sent('stage_latency').filter((e) => e.stage === 'review_rendered').length;
+                const coachingEvents = {
+                    requested: tap.sent('practice_loop_review_requested').length,
+                    completed: tap.sent('practice_loop_review_completed').length,
+                    persisted: tap.sent('practice_loop_review_persisted').length,
+                    rendered: tap.sent('practice_loop_review_rendered').length,
+                    failed: tap.sent('practice_loop_review_failed').length,
+                    reviewRenderedStage: reviewRendered,
+                };
+                const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
+                // #1258 (PM 6171519534 §5): under a PROVED external outage the failure path (requested + failed) must have left
+                // the page instead; success events are never assumed.
+                // PM 6173420642 §2: the failure outcome bound to THIS take's request id — never whole-run counts.
+                const boundFailure = failureTelemetryBinding(tap.events, coachingTakeRequestId);
+                // Codex P1 r4277621594 (PM 6182054477): the FIRST take's request, counted in the existing first-take window (closed
+                // before Practice-again generates its own request) under the existing blind-beacon policy.
+                const firstTakeRequestCount = generationsForTake ?? tap.sent('practice_loop_review_requested').length;
+                const firstTakeRequestProof = exactCountVerdict(firstTakeRequestCount, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
+                const coachingTelemetry = coachingTelemetryVerdict(coachingParentOutcome ?? { verdict: 'FAIL', detail: '', external: null },
+                    boundFailure, sentVerdict(coachingSent, tap, stoppedAt),
+                    coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
+                        : sentDetail('a coaching outcome event did not leave the page', coachingSent, tap, stoppedAt),
+                    firstTakeRequestProof);
+                receipt.row('coaching telemetry sent', coachingTelemetry.verdict, coachingTelemetry.detail,
+                    { ...coachingEvents, boundFailureOutcome: boundFailure, blindBeacons: tap.blindBeacons, firstTakeRequestCount, firstTakeRequestProof });
+                // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
+                // RECEIVED is the deployed PostHog readback for this journey.
+                const inventory = {
+                    productsMenuOpened: tap.sent('products_menu_opened').length,
+                    pdfDownloaded: tap.sent('session_pdf_downloaded').length,
+                    savedReviewRevisited: tap.sent('saved_review_revisited').length,
+                    reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
+                };
+                const inventorySeen = inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0;
+                const inventoryReceivedBy = ['analytics_inventory', 'session_pdf_export'] as const;
+                receipt.row('inventory events sent', sentVerdict(inventorySeen, tap, inventoryFrom),
+                    sentDetail('products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventorySeen, tap, inventoryFrom, inventoryReceivedBy),
+                    { ...inventory, blindBeacons: tap.blindBeacons, ...readbackSettlement(inventoryReceivedBy, tap, inventoryFrom) });
+                // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
+                const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
+                const generationVerdict = exactCountVerdict(generationsForFirstTake, 1, tap, stoppedAt, generationsForTake === null ? Date.now() : generationsAt);
+                receipt.row('revisit is not a generation', generationVerdict,
+                    generationVerdict === 'PASS' ? 'one generated review for the take; the Analytics revisits added none'
+                        : generationVerdict === 'HOLD' ? 'unproven: a PostHog beacon in the Stop-to-count window carried a body the browser does not expose (a second request could be hidden); no readback stage counts generation requests, so this row stays HOLD'
+                            : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake, blindBeacons: tap.blindBeacons });
+                // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
+                // "analytics detail shows both AI suggestions").
+                // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
+                acquisitionTimingRow(receipt, tap, tap.journeyIds());
+            });
+            // Idempotent: capture also closes when a row above threw before the rows' own detach.
+            tap.detachTransport();
+            // Only the run-owned account is deleted (PM contract #1258 §3). The feedback report is retained by product policy
+            // (user_issue_reports.user_id is SET NULL on account deletion), so retention is proven only after the account is
+            // deleted (#1532 Codex P1 r4105978630).
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion. With a report, the retention proof deletes through it;
+            // the deletion's own settlement then decides the row — a stalled readback never deletes again, and with no report
+            // (the body ended before Share Feedback) the account is still deleted, here and only here.
+            if (capturedUid || createdEmail) {
+                const cleanup = new OwnedCleanup(() => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
+                const report = feedbackReportId;
+                await finalizeOwnedCleanup(steps, receipt, cleanup, report
+                    ? (alive) => feedbackRetentionAfterDeletionRow(aliveReceipt(receipt, alive), admin as never, report, () => cleanup.run())
+                    : undefined);
+            }
+            // Last, so it covers every row above, including cleanup.
+            await steps.step('receipt content check', () => {
+                const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
+                receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential, email or coaching text in the receipt' : 'the receipt carried a forbidden value');
+            });
+            steps.report(receipt);
+            receipt.write(testInfo, bindReadbackJourneys(tap.events, {
+                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'],
+                // #1593 (Sam 15:51): the repeat take is deliberately interrupted by the next take (rapid-repeat stress), so it
+                // proves save + request + explicit supersession + no stale render — never a full render it cannot reach.
+                repeatRecording: ['session_during', 'session_interrupted_repeat'],
+                takes: {
+                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
+                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
+                },
+                feedback: true, pdfExport: true, practiceAgain: true,
+                actionBindings: tap.actionBindings,
+                actionCaptures: tap.actionCaptures,
+                expectedReleaseSha: expectedReleaseSha(), expectedRunId: process.env.GITHUB_RUN_ID,
+                expectedRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            }),
+                tap.trafficTypes(), userJourneys);
+        });
         try {
             // ── Row 1 — sign up, then sign back in through the real form ────────────────────────────────
             await test.step('row 1 — sign up and sign in', async () => {
@@ -222,14 +452,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 if (run.mode === 'switch' && switched !== 'ok') throw new Error(`HOLD candidate switch: ${switched}`);
                 // The runbook's path: the header's Products → Open Mic (a client-side navigation, so the one-run
                 // switch made on this /practice document still governs the take).
-                const desktop = page.getByTestId('nav-products-button');
-                if (await desktop.isVisible().catch(() => false)) {
-                    await desktop.click();
-                    await page.getByTestId('nav-products-open-mic').click();
-                } else {
-                    await page.getByTestId('nav-mobile-products-button').click();
-                    await page.getByTestId('nav-mobile-products-open-mic').click();
-                }
+                await openProductsItem(page, 'open-mic');
                 const reached = await page.waitForURL(/\/session/, { timeout: 45_000 }).then(() => true).catch(() => false);
                 receipt.row('Products → Open Mic', reached ? 'PASS' : 'FAIL', reached ? 'the header Products menu opened Open Mic' : 'Products → Open Mic did not reach the session');
                 if (!reached) throw new Error('FAIL Products → Open Mic');
@@ -243,6 +466,9 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Row 3 — first microphone use: model identity and acquisition time ───────────────────────
             let takeAlreadyRunning = false;
             firstTakeFrom = tap.events.length;
+            // Sampling runs from model acquisition through Stop, so growth before the take is visible too.
+            sampler.start(PROC_SAMPLE_MS);
+            diag.mark('row3_entered');
             await test.step('row 3 — first microphone use and model acquisition', async () => {
                 const began = Date.now();
                 await selectBenchmarkMode(page, 'private');
@@ -250,7 +476,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 takeAlreadyRunning = setup.recordingAlreadyStarted;
                 if (!takeAlreadyRunning) await waitForPrivateEngineReady(page, 600_000);
                 const acquisitionMs = Date.now() - began;
-                modelIdentityRow(receipt, run, await readSttIdentity(page), acquisitionMs);
+                modelIdentityRow(receipt, run, await readSttIdentity(page), acquisitionMs, await readCpuRuntime(page));
             });
 
             // Entitlement as the page received it, before the take writes anything (one ~50 s take + next Start).
@@ -258,33 +484,82 @@ test.describe('RWT — Open Mic first session @live', () => {
 
             // ── Row 4 — the take ────────────────────────────────────────────────────────────────────────
             let visibleFillers: number | null = null;
-            const liveDisplay: Record<string, number> = {};   // the per-word badges the person sees
+            const liveDisplay: Record<string, number> = {};   // the per-word counts the person sees (after Stop: FillerBreakdown)
             const liveMarks: Record<string, number> = {};     // the highlighted words in the live transcript
-            await test.step('row 4 — speak the corpus', async () => {
-                if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
-                // Stop inside the fixture's 15 s trailing silence: all speech, and never a second loop of it.
-                await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
-                for (const text of await page.getByTestId('live-filler').allInnerTexts()) {
-                    const key = normaliseKey(text.replace(/[^a-z\s]/gi, ''));
-                    liveMarks[key] = (liveMarks[key] ?? 0) + 1;
-                }
-                const markTotal = Object.values(liveMarks).reduce((a, b) => a + b, 0);
-                receipt.row('live filler highlighting', markTotal > 0 ? 'PASS' : 'FAIL',
-                    markTotal > 0 ? 'fillers were highlighted in the live transcript' : 'no filler was highlighted live',
-                    { liveFillerMarks: markTotal });
-                for (const row of await page.locator('[data-filler-word]').all()) {
-                    const word = normaliseKey((await row.getAttribute('data-filler-word')) ?? '');
-                    const count = Number(await row.getAttribute('data-filler-count'));
-                    if (word && Number.isInteger(count)) liveDisplay[word] = count;
-                }
-                const text = (await page.getByTestId('filler-count-value').first().innerText().catch(() => '')).replace(/[()]/g, '').trim();
-                visibleFillers = text === '' ? 0 : Number.isFinite(Number(text)) ? Number(text) : null;
+            // #1258 Stop-stall diagnostic: one content-free browser-level trace across the take and Stop (summary → meta and
+            // the diagnostic record). Recording it is idempotent and bounded, so every exit path below may ask for it.
+            let mainThreadTrace: MainThreadTrace | null = null;
+            const recordTrace = async () => {
+                if (!mainThreadTrace) return;
+                const summary = await mainThreadTrace.stop();
+                Object.assign(receipt.meta, summary);
+                diag.update(summary);
+            };
+            diag.mark('row3_done');
+            // #1549 Codex P1 r4157529415: never longer than the test has left; too little left → durable HOLD-shaped exit now.
+            const windowBoundMs = requireWindowBudget(diag, {
+                ...windowBounds(fixture.entry.speechSeconds),
+                remainingMs: testInfo.timeout - (Date.now() - testStartedAt),
+                reserveMs: WINDOW_RESERVE_MS,
             });
+            try {
+                await runBoundedWindow({
+                    boundMs: windowBoundMs,
+                    record: diag,
+                    body: async () => {
+                        const started = await MainThreadTrace.start(browser);
+                        mainThreadTrace = started.trace;
+                        receipt.meta.trace_state = started.trace_state;
+                        receipt.meta.trace_cleanup = started.trace_cleanup;
+                        diag.update({ trace_state: started.trace_state, trace_cleanup: started.trace_cleanup });
+                        diag.mark('trace_start_settled');
+                        await test.step('row 4 — speak the corpus', async () => {
+                            if (!takeAlreadyRunning) await startBenchmarkRecording(page, SUITE);
+                            diag.mark('row4_take_running');
+                            // Stop inside the fixture's 15 s trailing silence: all speech, and never a second loop of it.
+                            await page.waitForTimeout(Math.round((fixture.entry.speechSeconds + 4) * 1000));
+                            diag.mark('row4_speech_wait_done');
+                            for (const text of await page.getByTestId('live-filler').allInnerTexts()) {
+                                const key = normaliseKey(text.replace(/[^a-z\s]/gi, ''));
+                                liveMarks[key] = (liveMarks[key] ?? 0) + 1;
+                            }
+                            diag.mark('row4_live_fillers_read');
+                            const markTotal = Object.values(liveMarks).reduce((a, b) => a + b, 0);
+                            receipt.row('live filler highlighting', markTotal > 0 ? 'PASS' : 'FAIL',
+                                markTotal > 0 ? 'fillers were highlighted in the live transcript' : 'no filler was highlighted live',
+                                { liveFillerMarks: markTotal });
+                            // #1258: the during-state shows fillers only as transcript highlights (above). The per-word counts
+                            // and the filler headline are read after Stop from FillerBreakdown, where the person sees them — the
+                            // during-state badges and `filler-count-value` belonged to the retired FillerWordsCard.
+                            diag.mark('row4_done');
+                        });
 
-            // ── Row 5 — Stop, save, and coaching that arrives on its own ────────────────────────────────
-            await test.step('row 5 — Stop, save, two coaching phrases', async () => {
-                stoppedAt = Date.now();
-                await stopBenchmarkRecording(page, SUITE, 180_000);
+                        // ── Row 5 — Stop ────────────────────────────────────────────────────────────────────
+                        await test.step('row 5 — Stop', async () => {
+                            stoppedAt = Date.now();
+                            diag.mark('row5_stop_entered');
+                            // Bounded: whether Stop succeeds, rejects or hangs, the trace is recorded before the step continues or fails.
+                            await boundedStopWithTrace(() => stopBenchmarkRecording(page, SUITE, 180_000), STOP_BOUND_MS, recordTrace);
+                            diag.mark('row5_stop_settled');
+                        });
+                    },
+                    onDeadlineBoundMs: DEADLINE_COLLECTION_MS,
+                    onDeadline: async () => {
+                        await recordTrace();
+                        // Fence the abandoned window: closing the page rejects every page operation it is still awaiting.
+                        await withDeadline(() => page.close(), 15_000);
+                    },
+                });
+            } finally {
+                // A Row-4 failure never reached Stop's own recording; ask once more (idempotent, bounded).
+                await withDeadline(recordTrace, TRACE_STOP_WORST_CASE_MS);
+                // #1549 Codex P1 r4158574092: the process peaks describe the first-take window only — never coaching, PDF
+                // or the repeat recording. The outer finally and afterEach remain the backstop for an earlier failure.
+                sampler.stop();
+            }
+
+            // ── Row 5 — save, and coaching that arrives on its own ─────────────────────────────────────
+            await test.step('row 5 — save and two coaching phrases', async () => {
                 await waitForBenchmarkSaveCandidate(page, SUITE, 180_000);
                 await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 120_000 });
                 persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
@@ -298,10 +573,22 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.row('saved exactly once', saved === 1 ? 'PASS' : 'FAIL',
                     saved === 1 ? 'one completed session exists for this take' : 'the take was not saved exactly once', { completedSessions: saved ?? null });
 
+                // #1258: the per-word counts and the headline the person sees after Stop (FillerBreakdown). The whole read
+                // runs inside one outer deadline (#1550 Codex P1 r4161811889): a missing or stalled display leaves them
+                // unset, so the filler rows below FAIL visibly instead of waiting.
+                const breakdown = await readFillerBreakdown(page, {
+                    boundMs: BREAKDOWN_READ_BOUND_MS, visibleTimeoutMs: 60_000, readTimeoutMs: LIVE_READ_TIMEOUT_MS, normaliseKey,
+                });
+                receipt.meta.fillerBreakdownRead = breakdown.state;
+                if (breakdown.state === 'read') {
+                    Object.assign(liveDisplay, breakdown.perWord);
+                    visibleFillers = breakdown.headline;
+                }
+
                 const card = page.getByTestId('ai-suggestions-card');
-                const terminal = await expect.poll(async () => card.getAttribute('data-review-state'), { timeout: 180_000 })
-                    .toMatch(/^(ready|error|empty)$/).then(() => true).catch(() => false);
-                const state = await card.getAttribute('data-review-state').catch(() => null);
+                const terminal = await expect.poll(async () => card.getAttribute('data-review-state', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null), { timeout: 180_000 })
+                    .toMatch(/^(ready|error|blocked)$/).then(() => true).catch(() => false);
+                const state = await card.getAttribute('data-review-state', { timeout: LIVE_READ_TIMEOUT_MS }).catch(() => null);
                 const coachingMs = Date.now() - stoppedAt;
                 // The text is held in memory for the Node-side comparisons below and never written to the receipt.
                 const phrase = async (headings: readonly string[]): Promise<string> => {
@@ -309,7 +596,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                         const title = page.getByRole('heading', { name: heading, exact: true });
                         if ((await title.count()) === 0) continue;
                         const block = card.locator('div', { has: title }).last();
-                        return (await block.locator('p').first().innerText().catch(() => '')).trim();
+                        return (await block.locator('p').first().innerText({ timeout: LIVE_READ_TIMEOUT_MS }).catch(() => '')).trim();
                     }
                     return '';
                 };
@@ -319,16 +606,56 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const well = shownWell ? countWords(shownWell) : null;
                 const next = shownNext ? countWords(shownNext) : null;
                 const twoPhrases = state === 'ready' && well !== null && next !== null;
-                const withinBudget = twoPhrases && well! <= COACHING_WORD_BUDGET && next! <= COACHING_WORD_BUDGET;
-                receipt.row('coaching rendered', terminal && twoPhrases ? 'PASS' : 'FAIL',
-                    twoPhrases ? 'exactly two coaching phrases rendered without any click' : `coaching did not render (state=${String(state)}, http=${String(coaching.status)})`,
-                    { reviewState: state, httpStatus: coaching.status, stopToCoachingMs: coachingMs });
-                receipt.row('coaching length', withinBudget ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
-                    withinBudget ? `both phrases within ${COACHING_WORD_BUDGET} words` : twoPhrases ? `a phrase exceeds ${COACHING_WORD_BUDGET} words` : 'no phrases to measure',
-                    { wellWords: well, nextWords: next });
+                const inTarget = (n: number) => n >= COACHING_WORD_TARGET_MIN && n <= COACHING_WORD_TARGET;
+                const withinTarget = twoPhrases && inTarget(well!) && inTarget(next!);
+                // The reason is read before its row is written; a read still pending at the bound is UNKNOWN, never `null`.
+                if (!(await settleCoachingReason(coaching.reasonRead))) coaching.reason = COACHING_REASON_UNKNOWN;
+                // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body.
+                // #1474 (Codex r4305107827, Sam 6243698211): read through the tap's own bounded settle; a 5 s cap read early.
+                const take = takeExchangeEvidence(await generations.settledForSession(persistedId));
+                coachingTakeRequestId = take.diagnosticRequestId;
+                // #1258 (PO 2026-10-14, PM 6171519534): a PROVED provider outage the app handled gracefully is EXTERNAL —
+                // non-blocking, never PASS.
+                const rendered = terminal && twoPhrases;
+                const ui = rendered ? { unavailableShown: false, retryEnabled: false } : await readCoachingFailureUi(card);
+                // Codex P1 r4277350691 (PM 6180758593): the save proof is re-read HERE, after the filler and coaching waits —
+                // not the save-time count. This fresh run-owned account must hold exactly one completed session and it must be
+                // this take's own row (the first take: Practice-again comes later). Missing/error/null/wrong id/duplicate can
+                // never authorize EXTERNAL.
+                const firstSave = rendered || !persistedId ? null : await firstTakeSavedExactlyOnce(admin! as never, capturedUid, persistedId);
+                const coachingParent = coachingParentVerdict({
+                    rendered,
+                    evidence: take.evidence,
+                    graceful: { savedTakeProven: firstSave?.proven ?? false, reviewState: state, ...ui, requestBoundToSession: take.unique },
+                });
+                coachingParentOutcome = coachingParent;
+                receipt.row('coaching rendered', coachingParent.verdict, coachingParent.detail,
+                    { reviewState: state, httpStatus: coaching.status, failureReason: coaching.reason, providerStatus: take.evidence.providerStatus,
+                        takeExchangeUnique: take.unique, externalOutcome: coachingParent.external, unavailableShown: rendered ? null : ui.unavailableShown,
+                        savedTakeProven: rendered ? null : firstSave?.proven ?? false,
+                        accountCompletedSessions: firstSave?.accountCompletedSessions ?? null, thisTakeCompleted: firstSave?.thisTakeCompleted ?? null,
+                        retryEnabled: rendered ? null : ui.retryEnabled, stopToCoachingMs: coachingMs });
+                // PM 6171519534 §4: request provenance is its own row on every path — never waived by an external outcome.
+                const binding = coachingRequestBindingRow(generations, persistedId);
+                receipt.row('coaching request bound to this take', binding.verdict, binding.detail, { requestBoundToSession: binding.bound });
+                const lengthRow = successDependentRow(coachingParent, {
+                    verdict: twoPhrases ? 'PASS' : 'HOLD',
+                    detail: !twoPhrases ? 'no phrases to measure'
+                        : withinTarget ? `both phrases within the ${COACHING_WORD_TARGET_MIN}-${COACHING_WORD_TARGET}-word target`
+                            : `served whole; a phrase is outside the ${COACHING_WORD_TARGET_MIN}-${COACHING_WORD_TARGET}-word band (${bandSide(well!, next!, COACHING_WORD_TARGET_MIN, COACHING_WORD_TARGET)}; a quality measure, not a failure)`,
+                });
+                receipt.row('coaching length', lengthRow.verdict, lengthRow.detail, { wellWords: well, nextWords: next, withinTarget });
                 const distinct = twoPhrases && samePhrase(shownWell, shownNext) === false;
-                receipt.row('coaching phrases distinct', distinct ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
-                    distinct ? 'the two phrases are different suggestions' : twoPhrases ? 'both headings show the same phrase' : 'no phrases to compare');
+                const distinctRow = successDependentRow(coachingParent, {
+                    verdict: distinct ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
+                    detail: distinct ? 'the two phrases are different suggestions' : twoPhrases ? 'both headings show the same phrase' : 'no phrases to compare',
+                });
+                receipt.row('coaching phrases distinct', distinctRow.verdict, distinctRow.detail);
+                // #1258 R4: the provider schema's own ceiling (240 characters per phrase), on what the person sees.
+                const ceiling = characterCeilingVerdict(shownWell ?? '', shownNext ?? '');
+                const ceilingRow = successDependentRow(coachingParent, { verdict: ceiling.status, detail: ceiling.detail });
+                receipt.row('coaching within the character ceiling', ceilingRow.verdict, ceilingRow.detail,
+                    { wellChars: (shownWell ?? '').length, nextChars: (shownNext ?? '').length });
 
                 // The visible text must BE the saved coaching response, field for field (compared in Node only).
                 const { data: savedRow, error: savedAiErr } = await admin!.from('sessions').select('ai_suggestions')
@@ -340,19 +667,43 @@ test.describe('RWT — Open Mic first session @live', () => {
                 receipt.forbid(savedWell, savedNext);
                 const wellMatches = savedWell !== '' && samePhrase(shownWell, savedWell);
                 const nextMatches = savedNext !== '' && samePhrase(shownNext, savedNext);
-                receipt.row('coaching visible = saved', wellMatches && nextMatches ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
-                    wellMatches && nextMatches ? 'both visible phrases equal the saved coaching response'
-                        : savedWell === '' || savedNext === '' ? 'the session row holds no complete saved coaching response'
-                            : 'a visible phrase differs from the saved coaching response',
-                    { wellMatchesSaved: wellMatches, nextMatchesSaved: nextMatches, savedResponsePresent: savedWell !== '' && savedNext !== '' });
+                // Under EXTERNAL a saved coaching response must still be ABSENT: a pair saved for a failed request is ours, not
+                // the provider's, so it is never waived (successDependentRow only replaces a row with no answer to compare).
+                // Codex P1 r4276817126: only a NULL column is a confirmed absence; a malformed value is present (an app defect).
+                const savedPresent = classifySavedCoaching(savedRow?.ai_suggestions ?? null).state !== 'absent';
+                // Codex P1 r4277621600 (PM 6182054477): under EXTERNAL, nothing may be SHOWN either — read as a bounded tri-state
+                // from the shared review-pair nodes; an unreadable read is never a confirmed absence.
+                const visibleCoachingAbsent = coachingParent.verdict === 'EXTERNAL'
+                    ? visibleCoachingAbsence(await observeCoachingPhrase(card, 'review-what-went-well'), await observeCoachingPhrase(card, 'review-try-next'))
+                    : null;
+                const visibleRow = coachingParent.verdict === 'EXTERNAL' && savedPresent
+                    ? { verdict: 'FAIL' as const, detail: 'a coaching response was saved for a request whose provider was unavailable' }
+                    : coachingParent.verdict === 'EXTERNAL' && visibleCoachingAbsent === false
+                        ? { verdict: 'FAIL' as const, detail: 'a coaching phrase is visible but no coaching was saved for this take' }
+                        : coachingParent.verdict === 'EXTERNAL' && visibleCoachingAbsent === null
+                            ? { verdict: 'HOLD' as const, detail: 'whether a coaching phrase is visible could not be read, so its absence is unproven' }
+                            : successDependentRow(coachingParent, {
+                        verdict: wellMatches && nextMatches ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
+                        detail: wellMatches && nextMatches ? 'both visible phrases equal the saved coaching response'
+                            : savedWell === '' || savedNext === '' ? 'the session row holds no complete saved coaching response'
+                                : 'a visible phrase differs from the saved coaching response',
+                    });
+                receipt.row('coaching visible = saved', visibleRow.verdict, visibleRow.detail,
+                    { wellMatchesSaved: wellMatches, nextMatchesSaved: nextMatches, savedResponsePresent: savedWell !== '' && savedNext !== '',
+                        // The read above fails closed, so this is a CONFIRMED absence (Codex P1 r4276518654).
+                        savedCoachingAbsent: !savedPresent, visibleCoachingAbsent });
                 humanObservation(receipt, 'open_mic_coaching_relevant', 'Product 1 row 5', 'coaching is about this speech',
                     'each phrase relates to what was said in this take — not generic advice');
 
                 const { data: authority, error } = await admin!.from('ai_suggestion_authority_receipts')
                     .select('session_id,provider_request_made').eq('session_id', persistedId).eq('user_id', capturedUid).maybeSingle();
                 if (error) throw new Error(`coaching receipt query failed (fail closed): ${error.code ?? 'unknown'}`);
-                receipt.row('coaching server receipt', authority?.provider_request_made ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
-                    authority ? 'the server recorded the provider request for this session' : 'no server receipt for this session');
+                // The success authority (written only when a pair is persisted) is inapplicable under EXTERNAL.
+                const authorityRow = successDependentRow(coachingParent, {
+                    verdict: authority?.provider_request_made ? 'PASS' : twoPhrases ? 'FAIL' : 'HOLD',
+                    detail: authority ? 'the server recorded the provider request for this session' : 'no server receipt for this session',
+                });
+                receipt.row('coaching server receipt', authorityRow.verdict, authorityRow.detail);
             });
 
             // ── Row 4 (continued) — fillers: seen vs saved vs the corpus ────────────────────────────────
@@ -369,16 +720,23 @@ test.describe('RWT — Open Mic first session @live', () => {
 
                 // Per word: what the transcript contains, what the live display showed, what was saved.
                 for (const [spoken, key] of Object.entries(FILLER_KEY)) {
-                    const inTranscript = occurrences(transcript, spoken);
-                    const shown = liveDisplay[key] ?? 0;
+                    // #1258 F2: the product's own definition (variants included), the same recount the saved row came from.
+                    const inTranscript = productFillerCount(transcript, key);
                     const marked = liveMarks[key] ?? 0;
                     const saved = counts[key] ?? 0;
-                    const consistent = shown === saved && saved === inTranscript;
+                    // #1550 Codex P1 r4161436378: the review (FillerBreakdown) renders only COACHABLE keys. A discourse
+                    // marker such as "you know" is counted and saved per key but never displayed there by design, so its
+                    // display is not compared; transcript vs saved still is.
+                    const rendered = (COACHABLE_KEYS as readonly string[]).includes(key);
+                    const shown = rendered ? liveDisplay[key] ?? 0 : null;
+                    const consistent = (!rendered || shown === saved) && saved === inTranscript;
                     receipt.row(`filler "${spoken}": transcript / display / saved`, consistent ? 'PASS' : 'FAIL',
-                        consistent ? 'the transcript, the live display and the saved count agree'
-                            : shown !== saved ? 'the count the person saw differs from the count saved (misleading display)'
+                        consistent
+                            ? rendered ? 'the transcript, the displayed breakdown and the saved count agree'
+                                : 'the transcript and the saved count agree (a discourse marker: tracked, not shown in the review by design)'
+                            : rendered && shown !== saved ? 'the count the person saw differs from the count saved (misleading display)'
                                 : 'the saved count differs from the words in the saved transcript',
-                        { transcript: inTranscript, liveHighlighted: marked, displayed: shown, saved });
+                        { transcript: inTranscript, liveHighlighted: marked, displayed: rendered ? shown : null, displayRendered: rendered, saved });
                 }
                 // Keys displayed that the saved row does not carry (or vice versa) are also a misleading display.
                 const shownOnly = Object.keys(liveDisplay).filter((k) => (counts[k] ?? 0) !== liveDisplay[k]);
@@ -394,24 +752,41 @@ test.describe('RWT — Open Mic first session @live', () => {
                     headlineOk ? 'the headline equals the saved um+uh+ah (you know excluded)'
                         : includesYouKnow ? 'the headline counts "you know", which is not coachable' : 'the headline differs from the saved coachable count',
                     { headline: visibleFillers, coachable, youKnowTracked: counts.you_know ?? 0 });
+                // #1258 R4: the advice never contradicts the saved count — no "cut your fillers" for a take with none.
+                const fillerAdvice = fillerAdviceVerdict({ next: savedNext, savedFillerTotal: coachable });
+                const fillerAdviceRow = coachingParentOutcome
+                    ? successDependentRow(coachingParentOutcome, { verdict: fillerAdvice.status, detail: fillerAdvice.detail })
+                    : { verdict: 'HOLD' as const, detail: 'the coaching step did not settle' };
+                receipt.row('coaching consistent with saved fillers', fillerAdviceRow.verdict, fillerAdviceRow.detail, { savedCoachable: coachable });
 
-                // Against the corpus. Synthetic "uh" is a HOLD, never a pass; the run never claims all eight were heard.
-                for (const [spoken, expected] of Object.entries(fixture.entry.groundTruthFillers ?? {})) {
-                    const inTranscript = occurrences(transcript, spoken);
-                    const limited = fixture.entry.kind === 'synthetic' && spoken === 'uh';
-                    if (limited) {
-                        // Synthetic audio cannot prove "uh"; the human-spoken take is the acceptance check (runbook row 4).
-                        humanObservation(receipt, 'open_mic_uh_detected', 'Product 1 row 4', 'spoken "uh" detected and saved (human speech)',
-                            `every spoken "uh" (${expected}) is marked live and saved`);
-                        continue;
-                    }
-                    receipt.row(`filler "${spoken}" vs corpus`, inTranscript === expected ? 'PASS' : 'FAIL',
-                        inTranscript === expected ? 'the transcript holds every spoken instance' : 'the transcript misses or adds instances',
-                        { expected, transcript: inTranscript });
+                // Against the corpus (APP-G1h, Sam 1792982426.848739 / 1792984801.229109). The independent reference aligns each
+                // scripted hesitation to its unique anchor, over every declared key (expected 0 where the corpus has none). The
+                // exact per-word expectation stays: a substitution on synthetic audio is fixture-limited (HOLD: unverified, never
+                // PASS); an omission or insertion FAILs. Synthetic "uh" stays a human observation (the run never claims all eight
+                // were heard), but an omitted or inserted "uh" still FAILs (Sam 1792992507.489959). Rows carry classes and counts
+                // only; the hesitation total is informational and never sets a verdict.
+                const corpus = fixture.entry.groundTruthFillers ?? {};
+                const totals = hesitationTotals(transcript, corpus);
+                if (fixture.entry.kind === 'synthetic' && corpus.uh !== undefined) {
+                    // Synthetic audio cannot prove "uh"; the human-spoken take is the acceptance check (runbook row 4).
+                    humanObservation(receipt, 'open_mic_uh_detected', 'Product 1 row 4', 'spoken "uh" detected and saved (human speech)',
+                        `every spoken "uh" (${corpus.uh}) is marked live and saved`);
+                }
+                for (const row of corpusRows(corpus, transcript, fillerAnnotationsOf(fixture.entry), fixture.entry.kind)) {
+                    receipt.row(`filler "${row.word}" vs corpus`, row.verdict, row.detail,
+                        { ...row.evidence, hesitationTotalExpected: totals.expected, hesitationTotalTranscript: totals.transcript });
+                }
+                // The independent reference and the product counter must agree on this transcript; a disagreement is drift.
+                for (const [key, c] of Object.entries(crossCheckCounts(transcript, productFillerCount))) {
+                    receipt.row(`filler count reference vs product (${key})`, c.verdict,
+                        c.verdict === 'PASS' ? 'the product counter and the independent reference agree'
+                            : 'the product counter disagrees with the independent reference (counter drift)',
+                        { product: c.product, reference: c.reference });
                 }
             });
 
             await test.step('Products menu opened on the session page (inventory, recording journey)', async () => {
+                inventoryFrom = Date.now();
                 // #1532 Codex P1 r4121232419: emitted inside the recording journey (a product route; nothing navigates), where the
                 // analytics_inventory stage proves it was received.
                 const opened = await openProductsMenuInPlace(page);
@@ -419,12 +794,24 @@ test.describe('RWT — Open Mic first session @live', () => {
                     opened ? 'the header Products menu opened and closed on the session page' : 'the header Products menu could not be opened on the session page');
             });
 
+            // ── #1258 D1 (PO 2026-10-09) — Progress → browser Back restores THIS saved session, with its review ─────────────
+            await test.step('Back from Progress restores the saved session', async () => {
+                if (!persistedId) { receipt.row('Back from Progress restores the session', 'HOLD', 'no saved session'); return; }
+                const savedCoaching = savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : undefined;
+                const before = coaching.requests;
+                const back = await backFromProgressRestoresSession(page, persistedId, savedCoaching);
+                backFromProgressRows(receipt, back, savedCoaching !== undefined, before, coaching.requests);
+            });
+
             // ── Row 6 — Analytics through the on-screen action; a PDF that carries the saved transcript ─
             await test.step('row 6 — Analytics action, PDF, session detail and reload', async () => {
                 if (!persistedId) { receipt.row('analytics', 'HOLD', 'no saved session'); return; }
                 // With a complete saved response, the detail must also show both suggestions before and after its reload.
                 const savedCoaching = savedWell !== '' && savedNext !== '' ? { well: savedWell, next: savedNext } : undefined;
-                if (!savedCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
+                // #1258 (PM 6175763509 §2): under a proved EXTERNAL outage `analyticsRows` writes every coaching-dependent row as
+                // not exercised; otherwise a missing saved pair is the existing HOLD.
+                const externalCoaching = coachingParentOutcome?.verdict === 'EXTERNAL';
+                if (!savedCoaching && !externalCoaching) receipt.row('analytics detail shows both AI suggestions', 'HOLD', 'no saved coaching response to look for');
                 let pdfAttempted = false;
                 const downloadPdf = async (): Promise<void> => {
                     pdfAttempted = true;
@@ -432,12 +819,14 @@ test.describe('RWT — Open Mic first session @live', () => {
                     // "Back to Dashboard" control and downloads THIS session's PDF from the list. The reload minted a new journey;
                     // the session_pdf_export stage is bound to wherever session_pdf_downloaded actually lands (pdfExport binding).
                     const back = page.getByRole('link', { name: 'Back to Dashboard' });
-                    const returned = await back.click({ timeout: 20_000 }).then(() => page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }))
+                    // #1548: "Back to Dashboard" lands on exactly the canonical /progress list.
+                    const returned = await back.click({ timeout: 20_000 }).then(() => page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 }))
                         .then(() => true).catch(() => false);
                     if (!returned) { receipt.row('session PDF', 'FAIL', 'the detail\'s Back to Dashboard control did not return to the Analytics list'); return; }
                     const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
                     const offered = await button.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
                     if (!offered) { receipt.row('session PDF', 'FAIL', 'no PDF download offered for this session'); return; }
+                    await tap.captureActionBindingSettled(page, 'session_pdf_export', expectedReleaseSha(), process.env.GITHUB_RUN_ID ?? '', process.env.GITHUB_RUN_ATTEMPT ?? '');
                     // Outside every uploaded path (#1532 Codex P1 r4126003354): a killed run skips `finally`.
                     const transient = transientPrivateDir('pdf');
                     const file = transient.file('rwt-session.pdf');
@@ -457,7 +846,7 @@ test.describe('RWT — Open Mic first session @live', () => {
                 };
                 const requestsBeforeAnalytics = coaching.requests;
                 // Open Mic evidence is the stored delivery measurement ("6.2 filler words a minute, above your target").
-                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching, /\ba minute\b/i, downloadPdf));
+                analyticsRows(receipt, await analyticsThroughActions(page, persistedId, transcriptDigest, savedCoaching, /\ba minute\b/i, downloadPdf), externalCoaching);
                 receipt.row('Analytics generates no coaching', coaching.requests === requestsBeforeAnalytics ? 'PASS' : 'FAIL',
                     coaching.requests === requestsBeforeAnalytics ? 'opening and reloading Analytics requested no new review'
                         : 'Analytics requested coaching again (regeneration / quota)',
@@ -470,7 +859,18 @@ test.describe('RWT — Open Mic first session @live', () => {
             // minted a new journey, so feedback is bound and qualified there for its own stages (share_feedback); the recording
             // journey keeps the take, the Products menu and the first saved-review revisit; the PDF binds where it lands. ───────────────────────────
             await test.step('row 7 — share feedback', async () => {
-                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid);
+                feedbackReportId = await shareFeedbackRows(page, receipt, admin as never, capturedUid, tap);
+            });
+
+            // ── Row 7 (continued) — the stored report resolves to the exact coaching request (#1589 → #1590, PM 6114590729).
+            // The request → session binding is the request the page SENT for the saved take; the stored link is the report's
+            // metadata.coaching_diagnostic_ref. Closed reason codes only leave this step. ─────────────────────────────────
+            await test.step('row 7 — feedback diagnostic chain', async () => {
+                await generations.settle();
+                await feedbackDiagnosticChainRow({
+                    receipt, admin: admin as never, userId: capturedUid, reportId: feedbackReportId, currentSessionId: persistedId,
+                    exchanges: generations.exchanges, observedEvents: tap.events, configuredModel: coachingContract.model, product: 'open_mic',
+                });
             });
 
             // ── The next Start is not held behind the Progress evaluation (#1471) ───────────────────────
@@ -503,17 +903,43 @@ test.describe('RWT — Open Mic first session @live', () => {
             // ── Practice again through the rendered controls: Analytics → take → the review's own repeat (#1533) ───
             await test.step('Practice again — Analytics action, then the completed review\'s repeat action', async () => {
                 generationsForTake = tap.sent('practice_loop_review_requested').length;
+                generationsAt = Date.now();
                 if (!persistedId) {
-                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null });
+                    practiceAgainRows(receipt, 'open_mic', { analyticsActionOpened: null, sameSetPending: null, reviewReached: null, afterActionEnabledMs: null, holdSeen: false, afterStartMs: null, stopped: false, liveTracksAfterStop: null, reason: 'no saved session', savedSessionId: null, actionBefore: null, actionAfter: null, saveTakePersisted: null, saveTakeNewSession: null, startFailure: null, saveTakeFailedStep: null, saveTakeStartPressed: false, saveTakeStopPressed: false, saveTakeFailure: null, enabledWhileHolding: null, stopToSaveMs: null, saveToGateClearMs: null, pressToWarmupDoneMs: null, pressToRecordingMs: null });
                     await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', []);
                     return;
                 }
                 const repeatFrom = tap.events.length;
                 let saveTakeEnd = -1;
+                coachingCapture = createCoachingTakeCapture({
+                    page, admin: admin as never, tap: generations,
+                    fixture: { key: fixture.key, kind: fixture.entry.kind, sha256: fixture.entry.kind === 'synthetic' ? fixture.entry.sha256 : undefined },
+                    suiteId: SUITE, product: 'open_mic', userId: capturedUid,
+                });
+                // Witness A while its saved inputs still exist. B is observed passively during the unchanged rapid
+                // Repeat flow; the observer never waits for coaching ahead of that press and never substitutes C.
+                await coachingCapture.sample(persistedId, shownWell && shownNext
+                    ? { version: 'gemini_coaching_v1', what_worked: shownWell, what_to_try_next: shownNext } : null);
+                coachingCapture.start();
                 const again = await practiceAgainEvidence(page, `${SUITE}-again`, persistedId, 'open_mic', [], () => { saveTakeEnd = tap.events.length; });
                 // The window closes at the SAVE take's Stop, so the review's repeat Start can never stand in for it.
                 repeatWindow = [repeatFrom, saveTakeEnd >= 0 ? saveTakeEnd : tap.events.length];
                 practiceAgainRows(receipt, 'open_mic', again);
+                repeatSessionId = again.savedSessionId;
+                // #1258 R4: not generic — the two takes (different saved evidence) must not get the identical pair.
+                await generations.settle();
+                await coachingCapture.stop();
+                if (repeatSessionId) await coachingCapture.sample(repeatSessionId);
+                const firstCaptured = coachingCapture.get(persistedId);
+                const repeatCaptured = coachingCapture.get(repeatSessionId);
+                const differ = capturedTakesDifferVerdict(firstCaptured, repeatCaptured, expectedReleaseSha());
+                const differRow = coachingParentOutcome
+                    ? successDependentRow(coachingParentOutcome, { verdict: differ.status, detail: differ.detail })
+                    : { verdict: 'HOLD' as const, detail: 'the coaching step did not settle' };
+                receipt.row('coaching differs between takes', differRow.verdict, differRow.detail,
+                    { bothPairsSaved: 'take' in firstCaptured && 'take' in repeatCaptured,
+                        evidenceDiffers: 'take' in firstCaptured && 'take' in repeatCaptured && firstCaptured.totalWords !== null && repeatCaptured.totalWords !== null
+                            ? firstCaptured.totalWords !== repeatCaptured.totalWords : null });
                 // #1258 / #1537: every session this journey saved (its take + the Practice-again take) is marked Open Mic.
                 await productMarkerRows(receipt, admin as never, capturedUid, 'open_mic', [persistedId, again.savedSessionId]);
             });
@@ -522,61 +948,112 @@ test.describe('RWT — Open Mic first session @live', () => {
                 const next = await nextStartEvidence(page, `${SUITE}-next`);
                 nextStartRows(receipt, next);
             });
+
+            // ── Real coaching provenance: the restricted synthetic artifact (PM 6114451615 / 6114547673) ──────────────
+            // Both takes' coaching is bound to their saved prompt inputs and the server generation receipt. The artifact
+            // goes ONLY to the explicitly configured private directory outside every checkout/output/upload tree; the
+            // receipt carries closed codes, the per-take binding verdicts and the artifact SHA-256.
+            await test.step('coaching prompt binding — restricted synthetic artifact', async () => {
+                await generations.settle();
+                await coachingPromptBindingRow({
+                    receipt, page, admin: admin as never, exchanges: generations.exchanges,
+                    fixture: { key: fixture.key, kind: fixture.entry.kind, sha256: fixture.entry.kind === 'synthetic' ? fixture.entry.sha256 : undefined },
+                    suiteId: SUITE, product: 'open_mic', userId: capturedUid, firstSessionId: persistedId, repeatSessionId,
+                    firstRendered: shownWell && shownNext ? { version: 'gemini_coaching_v1', what_worked: shownWell, what_to_try_next: shownNext } : null,
+                    releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
+                    captured: coachingCapture ?? undefined,
+                });
+            });
+
+            // ── G03 (#1548 A2, APP-G4): the repeat result names the measured delivery metric ─────────────────────────────
+            // Server oracle first, bound to this journey's first session and its saved repeat take; the page is opened only
+            // when those bindings hold (`loadSessionProgress` can reconcile). Read-only otherwise; closed codes in the row.
+            await test.step('the repeat result names the measured metric', async () => {
+                try {
+                    const linkage = pressLinkage(repeatWindow ? tap.events.slice(repeatWindow[0], repeatWindow[1]) : []);
+                    let server: ServerEvidence = { kind: 'read_failed' };
+                    if (persistedId && repeatSessionId && capturedUid) {
+                        const { data: rec, error: recErr } = await admin!.from('progress_recommendations')
+                            .select('id,target_metric,target_direction,target_value,target_units')
+                            .eq('source_session_id', persistedId).eq('formula_version', PROGRESS_FORMULA).eq('user_id', capturedUid).maybeSingle();
+                        // Two separate reads: this repeat's bound attempts (no schema uniqueness; limit 2 detects a duplicate
+                        // anywhere), and the newest two by accepted_at (the row the panel shows, and its tie check).
+                        const { data: bound, error: boundErr } = rec && !recErr
+                            ? await admin!.from('progress_recommendation_attempts').select('id')
+                                .eq('recommendation_id', rec.id).eq('user_id', capturedUid).eq('practice_session_id', repeatSessionId).limit(2)
+                            : { data: [], error: null };
+                        const { data: newest, error: newestErr } = rec && !recErr
+                            ? await admin!.from('progress_recommendation_attempts').select('id,lifecycle,outcome,accepted_at,practice_session_id')
+                                .eq('recommendation_id', rec.id).eq('user_id', capturedUid).order('accepted_at', { ascending: false }).limit(2)
+                            : { data: [], error: null };
+                        if (!recErr && !boundErr && !newestErr) {
+                            server = {
+                                kind: 'read',
+                                recommendation: rec ? { targetMetric: rec.target_metric, targetDirection: rec.target_direction, targetValue: rec.target_value, targetUnits: rec.target_units } : null,
+                                newest: (newest ?? []).map((a) => ({
+                                    id: a.id, lifecycle: a.lifecycle, outcome: a.outcome, acceptedAt: a.accepted_at, isThisRepeat: a.practice_session_id === repeatSessionId,
+                                })),
+                                boundCount: (bound ?? []).length,
+                                boundId: bound?.length === 1 ? bound[0].id : null,
+                            };
+                        }
+                    }
+                    const prerequisite = repeatMetricPrerequisites(server, linkage);
+                    if (!prerequisite.observe) {
+                        receipt.row(REPEAT_METRIC_ROW, 'HOLD', prerequisite.detail, { reason: prerequisite.reason, linkage: linkage.kind });
+                        return;
+                    }
+                    const route = `/progress/${persistedId}`;
+                    await page.goto(route);
+                    const panel = page.getByTestId('progress-panel');
+                    // One bounded wait for any terminal panel state, then which one it is.
+                    const terminal = {
+                        eligible: panel.getByTestId('progress-direction'),
+                        error: panel.getByRole('alert'),
+                        insufficient: panel.getByText('More evidence is needed before a reliable comparison is available.'),
+                        ineligible: panel.getByText('Comparison is unavailable for this session.'),
+                    } as const;
+                    const reached = await terminal.eligible.or(terminal.error).or(terminal.insufficient).or(terminal.ineligible).first()
+                        .waitFor({ state: 'visible', timeout: 45_000 }).then(() => true, () => false);
+                    let settled: PanelObservation['state'] = 'not_settled';
+                    if (reached) {
+                        for (const state of ['eligible', 'error', 'insufficient', 'ineligible'] as const) {
+                            if (await terminal[state].first().isVisible().catch(() => false)) { settled = state; break; }
+                        }
+                    }
+                    // Each read is text, absent (count 0) or failed; a failed read is never taken as a missing line.
+                    let readFailed = false;
+                    const line = async (id: string): Promise<string | null> => {
+                        const el = panel.getByTestId(id);
+                        const present = await el.count().then((n) => n > 0, () => { readFailed = true; return false; });
+                        if (!present) return null;
+                        return el.first().innerText({ timeout: 5_000 }).then((t) => t, () => { readFailed = true; return null; });
+                    };
+                    const stillEligible = async () => !page.isClosed() && new URL(page.url()).pathname === route
+                        && await terminal.eligible.first().isVisible().catch(() => false)
+                        && await panel.getByTestId('progress-loading').count().then((n) => n === 0, () => false);
+                    const onRoute = !page.isClosed() && new URL(page.url()).pathname === route;
+                    const state: PanelObservation['state'] = page.isClosed() ? 'closed' : !onRoute ? 'wrong_route'
+                        : settled === 'eligible' && !await stillEligible() ? 'not_settled' : settled;
+                    const target = state === 'eligible' ? await line('progress-attempt-target') : null;
+                    const outcome = state === 'eligible' ? await line('progress-attempt-outcome') : null;
+                    const scope = state === 'eligible' ? await line('progress-attempt-scope') : null;
+                    const panelText = state === 'eligible' ? await panel.innerText({ timeout: 5_000 }).then((t) => t, () => { readFailed = true; return ''; }) : '';
+                    // Re-checked after the reads: a page that closed, moved or left its eligible state meanwhile is unreadable.
+                    const readsStable = state === 'eligible' && !readFailed && await stillEligible();
+                    const observation: PanelObservation = {
+                        state, target, outcome, scope, legacyPhrase: panelText.includes(LEGACY_PHRASE), readsStable,
+                    };
+                    const verdict = repeatMetricWordingVerdict(prerequisite.expected, observation);
+                    receipt.row(REPEAT_METRIC_ROW, verdict.verdict, verdict.detail, { ...verdict.evidence, linkage: linkage.kind });
+                } catch (error) {
+                    // A Playwright message can carry the route's session id: only the error class is recorded.
+                    const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+                    receipt.row(REPEAT_METRIC_ROW, 'HOLD', `the repeat-metric observation failed (${name})`);
+                }
+            });
         } finally {
-            // ── Telemetry sent by this journey, for the PostHog readback ────────────────────────────────
-            const { userJourneys } = telemetryClassRows(receipt, tap, claimed);
-            receipt.row('telemetry sent', tap.sent('session_saved').length > 0 && tap.sent('feedback_submit').length > 0 ? 'PASS' : 'FAIL',
-                'session_saved and feedback_submit left the page (sent, not yet received)',
-                { sessionSaved: tap.sent('session_saved').length, feedbackSubmit: tap.sent('feedback_submit').length });
-            // Coaching telemetry the page SENT. RECEIVED is proven by the PostHog readback of the declared
-            // session_after_open_mic stage: its post-Stop chain requires a received stage_latency "review_rendered", which
-            // the app emits only once a validated two-phrase review is on screen.
-            const reviewRendered = tap.sent('stage_latency').filter((e) => e.stage === 'review_rendered').length;
-            const coachingEvents = {
-                requested: tap.sent('practice_loop_review_requested').length,
-                completed: tap.sent('practice_loop_review_completed').length,
-                persisted: tap.sent('practice_loop_review_persisted').length,
-                rendered: tap.sent('practice_loop_review_rendered').length,
-                failed: tap.sent('practice_loop_review_failed').length,
-                reviewRenderedStage: reviewRendered,
-            };
-            const coachingSent = coachingEvents.completed > 0 && coachingEvents.persisted > 0 && coachingEvents.rendered > 0 && reviewRendered > 0;
-            receipt.row('coaching telemetry sent', coachingSent ? 'PASS' : 'FAIL',
-                coachingSent ? 'review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)'
-                    : 'a coaching outcome event did not leave the page', coachingEvents);
-            // PM 2026-09-25 inventory decisions: these controls now send their own content-free events. SENT here;
-            // RECEIVED is the deployed PostHog readback for this journey.
-            const inventory = {
-                productsMenuOpened: tap.sent('products_menu_opened').length,
-                pdfDownloaded: tap.sent('session_pdf_downloaded').length,
-                savedReviewRevisited: tap.sent('saved_review_revisited').length,
-                reviewGenerationsRequested: tap.sent('practice_loop_review_requested').length,
-            };
-            receipt.row('inventory events sent', inventory.productsMenuOpened > 0 && inventory.pdfDownloaded > 0 && inventory.savedReviewRevisited > 0 ? 'PASS' : 'FAIL',
-                'products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)', inventory);
-            // Counted up to the Practice-again pass: that pass records its own take, which generates its own review.
-            const generationsForFirstTake = generationsForTake ?? inventory.reviewGenerationsRequested;
-            receipt.row('revisit is not a generation', generationsForFirstTake === 1 ? 'PASS' : 'FAIL',
-                generationsForFirstTake === 1 ? 'one generated review for the take; the Analytics revisits added none'
-                    : 'the generation count is not exactly one for this take', { reviewGenerationsRequested: generationsForFirstTake });
-            // Page reload has no click event by PM decision; it is proven by the persistence rows ("reopen after reload",
-            // "analytics detail shows both AI suggestions").
-            const leaks = receiptContentLeaks(receipt, [createdEmail, SERVICE_ROLE, shownWell, shownNext, savedWell, savedNext].filter(Boolean));
-            receipt.row('receipt content-free', leaks.length === 0 ? 'PASS' : 'FAIL', leaks.length === 0 ? 'no credential, email or coaching text in the receipt' : 'the receipt carried a forbidden value');
-            // v12 preflight: first-use model download vs engine setup, from the app's own acquisition receipt.
-            acquisitionTimingRow(receipt, tap, tap.journeyIds());
-            // Feedback retention is proven only after the run-owned account is deleted (#1532 Codex P1 r4105978630).
-            accountDeletedInTest = await feedbackRetentionAfterDeletionRow(receipt, admin as never, feedbackReportId,
-                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RWT_ACCOUNT_PREFIX }));
-            receipt.write(testInfo, bindReadbackJourneys(tap.events, {
-                recording: ['session_during', 'session_after_open_mic', 'analytics_inventory'], repeatRecording: ['session_during', 'session_after_open_mic'],
-                takes: {
-                    first: takeStartedAfter(tap.events, firstTakeFrom, repeatWindow?.[0] ?? tap.events.length),
-                    repeat: repeatWindow ? takeStartedAfter(tap.events, repeatWindow[0], repeatWindow[1]) : null,
-                },
-                feedback: true, pdfExport: true,
-            }),
-                tap.trafficTypes(), userJourneys);
+            await finish();
         }
     });
 });

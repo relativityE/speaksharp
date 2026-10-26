@@ -85,6 +85,7 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
+import { __resetStartAttemptsForTests, beginStartAttempt, currentStartAttempt, isRetryCancelled, markRetryCancelled } from '@/services/startAttemptRegistry';
 
 vi.mock('@/stores/useSessionStore', () => ({
     useSessionStore: vi.fn(),
@@ -436,6 +437,18 @@ describe('#1259 F01 — every intent reaches analytics through the real hook', (
         expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
     });
 
+    it('#1258 R1: a Stop pressed while the take is already STOPPING is suppressed — no second Stop, no status overwrite', async () => {
+        // Runs 38298685079 / 38304068207: the review's repeat action landed 87–97 ms after Stop, during STOPPING. The hook
+        // took it as a second Stop, which also reaches the "too short" branch and replaces the status the user sees.
+        const { result } = mountWith({ runtimeState: 'STOPPING' });
+        const statusBefore = useSessionStore.getState().sttStatus;
+        await act(async () => { await result.current.handleStartStop(); });
+
+        expect(intents().map((i) => [i.intent_kind, i.intent_outcome])).toEqual([['stop', 'suppressed_finalizing']]);
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
+        expect(useSessionStore.getState().sttStatus, 'the visible status is left alone').toEqual(statusBefore);
+    });
+
     it('a start refused by the usage limit is distinguishable from one refused for any other reason', async () => {
         vi.mocked(useUsageLimit).mockReturnValue({
             ...mockUsageLimitQuery,
@@ -464,5 +477,229 @@ describe('#1259 F01 — every intent reaches analytics through the real hook', (
         await act(async () => { await result.current.handleStartStop(); });
         expect(intents()[0].runtime_state_at_intent).toBe('ENGINE_INITIALIZING');
         expect(intents()[0].model_ready).toBe(false);
+    });
+});
+
+/**
+ * #1258 C10 (PM 6207105255 item 1) — THE START ATTEMPT IS THE AUTHORITY, ON THE REAL HOOK. The controller's start is held
+ * open (deferred), as a slow warm-up holds it; the presentation wait is cleared underneath it, as the controller's
+ * TERMINATED does. Only the hook call actually returning settles the attempt.
+ */
+describe('#1258 C10 — start-attempt identity through the real hook', () => {
+    const mountWith = (storeOverrides: Parameters<typeof createTestSessionStore>[0] = {}) => {
+        const mockStore = createTestSessionStore(storeOverrides);
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        return { store: mockStore, ...renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        }) };
+    };
+    const flush = async () => { for (let i = 0; i < 6; i += 1) await Promise.resolve(); };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(speechRuntimeController.startRecording).mockReset().mockResolvedValue(undefined as never);
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(true);
+        vi.mocked(speechRuntimeController.retireEngineForUnmount).mockResolvedValue('terminal');
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockResolvedValue('terminal');
+        __resetStartAttemptsForTests();
+        delete window.__SS_E2E__;
+        vi.mocked(useProfile).mockReturnValue({
+            profile: { id: 'test-user', subscription_status: 'free', email: 'test@example.com' } as UserProfile,
+            isVerified: true,
+        });
+        vi.mocked(useUsageLimit).mockReturnValue(mockUsageLimitQuery);
+        vi.mocked(speechRuntimeController.getState).mockReturnValue('IDLE' as never);
+    });
+
+    it('a still-busy old invocation stays UNSETTLED even after the presentation wait is cleared; it settles only on return', async () => {
+        let release: (() => void) | undefined;
+        vi.mocked(speechRuntimeController.startRecording).mockImplementation(() => new Promise<void>((r) => { release = r; }) as never);
+        const { result, store } = mountWith({ runtimeState: 'READY' });
+        let call: Promise<void> | undefined;
+        await act(async () => { call = result.current.handleStartStop(); await flush(); });
+        const attempt = currentStartAttempt();
+        expect(attempt, 'the press registered its attempt').not.toBeNull();
+        expect(attempt!.isSettled()).toBe(false);
+        act(() => { store.getState().setStartupWaitStartedAt(null); }); // the controller's TERMINATED clears the wait
+        expect(attempt!.isSettled(), 'the wait clearing is not the old call returning').toBe(false);
+        await act(async () => { release?.(); await call; });
+        expect(attempt!.isSettled()).toBe(true);
+    });
+
+    it('an OLDER invocation returning never clears a successor attempt\'s wait', async () => {
+        let release: (() => void) | undefined;
+        vi.mocked(speechRuntimeController.startRecording).mockImplementation(() => new Promise<void>((r) => { release = r; }) as never);
+        const { result, store } = mountWith({ runtimeState: 'READY' });
+        let call: Promise<void> | undefined;
+        await act(async () => { call = result.current.handleStartStop(); await flush(); });
+        const successor = beginStartAttempt().attempt; // a newer accepted press owns the page now
+        act(() => { store.getState().setStartupWaitStartedAt(424_242); });
+        await act(async () => { release?.(); await call; });
+        expect(currentStartAttempt()?.id).toBe(successor.id);
+        expect(store.getState().startupWaitStartedAt, 'the successor\'s wait survives').toBe(424_242);
+    });
+
+    it('the deliberate-cancel quiet path applies ONLY to the attempt it names', async () => {
+        const retired = new Error('RECORDING_INTENT_RETIRED:superseded');
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValue(retired as never);
+        const { result, store } = mountWith({ runtimeState: 'READY' });
+        act(() => { markRetryCancelled('start-attempt-some-other'); });
+        await act(async () => { await result.current.handleStartStop(); });
+        expect(store.getState().sttStatus.type, 'a marker for another attempt does not quiet this one').toBe('error');
+    });
+
+    it('Codex r4291244682: a Try-again cancel that timed out — the late RECORDING_INTENT_RETIRED stays quiet (no failure, no reset) and clears its own marker', async () => {
+        let reject: ((e: Error) => void) | undefined;
+        vi.mocked(speechRuntimeController.startRecording).mockImplementation(() => new Promise<void>((_r, j) => { reject = j; }) as never);
+        const { result, store } = mountWith({ runtimeState: 'READY' });
+        let call: Promise<void> | undefined;
+        await act(async () => { call = result.current.handleStartStop(); await flush(); });
+        const attempt = currentStartAttempt()!;
+        // Try again cancelled this attempt; its unwind timed out, so the marker is retained (startupRetry) and the
+        // unwind-failed message is on screen.
+        act(() => {
+            markRetryCancelled(attempt.id);
+            store.getState().setSTTStatus({ type: 'error', message: 'unwind-failed' });
+        });
+        vi.mocked(speechRuntimeController.reset).mockClear();
+        await act(async () => { reject?.(new Error('RECORDING_INTENT_RETIRED:superseded')); await call; });
+        expect(speechRuntimeController.reset, 'no start_failed reset can reach the controller').not.toHaveBeenCalled();
+        expect(store.getState().sttStatus.message, 'the unwind message is not replaced by a start failure').toBe('unwind-failed');
+        expect(isRetryCancelled(attempt.id), 'the attempt\'s own settlement clears its mark').toBe(false);
+        expect(attempt.isSettled()).toBe(true);
+    });
+
+    it('PM 6209560600 remount isolation: an old mount\'s timed-out cancelled Start rejecting late never resets or reports into the NEW mount\'s Start', async () => {
+        let rejectA: ((e: Error) => void) | undefined;
+        vi.mocked(speechRuntimeController.startRecording)
+            .mockImplementationOnce(() => new Promise<void>((_r, j) => { rejectA = j; }) as never)
+            .mockImplementationOnce(async () => { useSessionStore.getState().setRuntimeState('RECORDING'); });
+        const first = mountWith({ runtimeState: 'READY' });
+        let callA: Promise<void> | undefined;
+        await act(async () => { callA = first.result.current.handleStartStop(); await flush(); });
+        const a = currentStartAttempt()!;
+        act(() => { markRetryCancelled(a.id); }); // Try again cancelled A; its unwind timed out, so A keeps its mark
+        first.unmount(); // the user leaves and returns to /session: a NEW mount over the singleton controller
+        const second = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        await act(async () => { await second.result.current.handleStartStop(); });
+        const b = currentStartAttempt()!;
+        expect(b.id).not.toBe(a.id);
+        const waitB = first.store.getState().startupWaitStartedAt;
+        expect(waitB, 'B is waiting for real frames').not.toBeNull();
+        vi.mocked(speechRuntimeController.reset).mockClear();
+        await act(async () => { rejectA?.(new Error('RECORDING_INTENT_RETIRED:superseded')); await callA; });
+        expect(speechRuntimeController.reset, 'A\'s late rejection cannot reset B').not.toHaveBeenCalled();
+        expect(first.store.getState().sttStatus.type, 'no start failure is reported into B').not.toBe('error');
+        expect(first.store.getState().startupWaitStartedAt, 'B\'s wait survives').toBe(waitB);
+        expect(currentStartAttempt()?.id).toBe(b.id);
+        expect(isRetryCancelled(a.id), 'A\'s own settlement ended its mark').toBe(false);
+    });
+
+    it('Browser PM navigation RED: pending Start then leave is deliberate cancellation without a Try-again marker', async () => {
+        let rejectA!: (error: Error) => void;
+        vi.mocked(speechRuntimeController.startRecording).mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectA = reject; }) as never);
+        const first = mountWith({ runtimeState: 'READY' });
+        let callA: Promise<void> | undefined;
+        await act(async () => { callA = first.result.current.handleStartStop(); await flush(); });
+        expect(speechRuntimeController.startRecording).toHaveBeenCalledTimes(1);
+        const a = currentStartAttempt()!;
+        expect(isRetryCancelled(a.id), 'navigation is not a Try-again cancellation marker').toBe(false);
+        first.unmount();
+        vi.mocked(speechRuntimeController.reset).mockClear();
+        vi.mocked(analyticsBuffer.push).mockClear();
+        await act(async () => { rejectA(new Error('RECORDING_INTENT_RETIRED:page-left')); await callA; await flush(); });
+        expect(speechRuntimeController.reset, 'a departed attempt cannot reset the shared controller').not.toHaveBeenCalled();
+        expect(vi.mocked(analyticsBuffer.push).mock.calls.filter((c) => c[0] === 'recording_start_failed'), 'navigation is not a setup failure').toHaveLength(0);
+        expect(first.store.getState().sttStatus.type).not.toBe('error');
+    });
+
+    it('Browser PM navigation RED: late retired A cannot reset, report error into, or release the lease of successor B', async () => {
+        let rejectA!: (error: Error) => void;
+        vi.mocked(speechRuntimeController.startRecording)
+            .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectA = reject; }) as never)
+            .mockImplementationOnce(async () => { useSessionStore.getState().setRuntimeState('RECORDING'); });
+        const first = mountWith({ runtimeState: 'READY' });
+        let callA: Promise<void> | undefined;
+        await act(async () => { callA = first.result.current.handleStartStop(); await flush(); });
+        const a = currentStartAttempt()!;
+        first.unmount();
+        const second = renderHook(() => useSessionLifecycle(), { wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider> });
+        await act(async () => { await second.result.current.handleStartStop(); await flush(); });
+        const b = currentStartAttempt()!;
+        expect(b.id).not.toBe(a.id);
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(false);
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockResolvedValue('unconfirmed');
+        vi.mocked(speechRuntimeController.reset).mockClear();
+        leaseMock.release.mockClear();
+        vi.mocked(analyticsBuffer.push).mockClear();
+        await act(async () => { rejectA(new Error('RECORDING_INTENT_RETIRED:superseded')); await callA; await flush(); });
+        const observed = { resets: vi.mocked(speechRuntimeController.reset).mock.calls.length,
+            failures: vi.mocked(analyticsBuffer.push).mock.calls.filter((c) => c[0] === 'recording_start_failed').length,
+            releases: leaseMock.release.mock.calls.length, status: first.store.getState().sttStatus.type };
+        expect(observed).toEqual({ resets: 0, failures: 0, releases: 0, status: expect.not.stringMatching(/^error$/) });
+        expect(currentStartAttempt()?.id).toBe(b.id);
+        second.unmount();
+    });
+
+    it('Browser PM navigation control: genuine current setup failure remains an error and requests reset', async () => {
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(new Error('genuine model initialization failure') as never);
+        const live = mountWith({ runtimeState: 'READY' });
+        vi.mocked(speechRuntimeController.reset).mockClear();
+        await act(async () => { await live.result.current.handleStartStop(); await flush(); });
+        expect(live.store.getState().sttStatus.type).toBe('error');
+        expect(speechRuntimeController.reset).toHaveBeenCalledWith('start_failed');
+    });
+
+    it('Browser PM navigation control: unconfirmed shutdown does not release the account lease', async () => {
+        let rejectA!: (error: Error) => void;
+        vi.mocked(speechRuntimeController.startRecording).mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectA = reject; }) as never);
+        const live = mountWith({ runtimeState: 'READY' });
+        let callA: Promise<void> | undefined;
+        await act(async () => { callA = live.result.current.handleStartStop(); await flush(); });
+        expect(speechRuntimeController.startRecording).toHaveBeenCalledTimes(1);
+        vi.mocked(speechRuntimeController.isEngineTerminal).mockReturnValue(false);
+        vi.mocked(speechRuntimeController.retireEngineForUnmount).mockResolvedValue('unconfirmed');
+        vi.mocked(speechRuntimeController.confirmEngineShutdown).mockResolvedValue('unconfirmed');
+        leaseMock.release.mockClear();
+        live.unmount();
+        await act(async () => { rejectA(new Error('RECORDING_INTENT_RETIRED:page-left')); await callA; await flush(); });
+        expect(speechRuntimeController.retireEngineForUnmount).toHaveBeenCalled();
+        expect(leaseMock.release, 'lack of stop proof must retain the fence').not.toHaveBeenCalled();
+    });
+
+    it('PM 6207494433: Start resolves at RECORDING without real frames — the hook SETTLES while the capture wait stays on', async () => {
+        // The controller's Start resolves when the FSM reaches RECORDING; real frames have not arrived (captureLive false).
+        vi.mocked(speechRuntimeController.startRecording).mockImplementation(async () => {
+            useSessionStore.getState().setRuntimeState('RECORDING');
+        });
+        vi.mocked(speechRuntimeController.getState).mockReturnValue('RECORDING' as never);
+        const { result, store } = mountWith({ runtimeState: 'READY', captureLive: false });
+        await act(async () => { await result.current.handleStartStop(); });
+        const attempt = currentStartAttempt();
+        expect(attempt?.isSettled(), 'the hook call returned').toBe(true);
+        expect(store.getState().startupWaitStartedAt, 'the capture wait is still on — Try again must stay usable').not.toBeNull();
+        expect(store.getState().captureLive).toBe(false);
+    });
+
+    it('CI 38852128235 regression: the minimum-duration guard reads the LIVE clock, not a lagging tick — 5.3 s live saves; 3 s live is too short', async () => {
+        // The clock is re-based at the live moment; the last 1 Hz tick can still read one second short (4 for 5.3 s).
+        const live = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 4, startTime: Date.now() - 5_300 });
+        await act(async () => { await live.result.current.handleStartStop(); });
+        expect(String(live.store.getState().sttStatus.message ?? ''), 'a 5.3 s live take is not refused as too short').not.toMatch(/too short/i);
+        live.unmount();
+
+        const short = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 4, startTime: Date.now() - 3_000 });
+        await act(async () => { await short.result.current.handleStartStop(); });
+        expect(String(short.store.getState().sttStatus.message ?? '')).toMatch(/too short \(3s\)/i);
+    });
+
+    it('a Start-only call never stops a recording', async () => {
+        const { result } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 30 });
+        await act(async () => { await result.current.handleStartStop({ startOnly: true }); });
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 });

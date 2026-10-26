@@ -17,9 +17,13 @@ import {
 import {
     bootScopedReceiptFamilies,
     buildReadbackQuery,
+    READBACK_ROW_LIMIT,
+    readbackTruncated,
     resolveBootAuthority,
     receiptBelongsToBoot,
 } from '../bootScopedReceipts';
+
+import { READBACK_COLUMNS, readbackRowsByName } from '../readbackColumns';
 
 const RECEIPTS = ['account_identified', 'telemetry_positive_control'];
 const row = (event: string, journeyId: string | null, bootId: string | null) =>
@@ -196,5 +200,81 @@ describe('#1421 P1 — the boot id identifies a boot, and a reload is a new boot
         // A reload is the only thing that ends a boot.
         __resetBootIdentityForTests();
         expect(currentBootId(), 'a reload mints a different boot').not.toBe(first);
+    });
+});
+
+describe('#1258 (#1563, Codex r4196394184) — the readback selects the outcome-correlation fields, appended', () => {
+    it('closed enums and bounded integers only, after every existing column', () => {
+        const q = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['feedback_submit'], quote: (v) => `'${v}'` });
+        const order = ['suggestions_present', 'action', 'action_seq', 'intended_route', 'route_class', 'link_state', 'submit_seq', 'error_category', 'producer_ts']
+            .map((k) => q.indexOf(`AS ${k}`));
+        expect(order.every((i) => i > 0)).toBe(true);
+        expect([...order].sort((a, b) => a - b)).toEqual(order);
+        expect(q).not.toMatch(/properties\.(description|title|message|url|session_id)/);
+    });
+    // Codex r4197007868: the producer time orders correlation; the decoder reads it as cells[35].
+    it('selects the producer time `$ts` as producer_ts, at the column the decoder reads (cells[35])', () => {
+        const q = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['feedback_submit'], quote: (v) => `'${v}'` });
+        expect(q).toMatch(/properties\.\$ts AS producer_ts/);
+        const select = q.slice(q.indexOf('SELECT') + 'SELECT'.length, q.indexOf('FROM events'));
+        const columns = select.split(',').map((c) => c.trim()).filter(Boolean);
+        expect(columns.findIndex((c) => c.endsWith('AS producer_ts'))).toBe(35);
+    });
+    // #1593 (Sam 15:51): the interrupted repeat take reads the coaching lifecycle's request id, origin attempt and end reason.
+    it('appends the coaching lifecycle fields after every existing query column (37–44)', () => {
+        const q = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['ai_coaching_lifecycle'], quote: (v) => `'${v}'` });
+        const select = q.slice(q.indexOf('SELECT') + 'SELECT'.length, q.indexOf('FROM events'));
+        const columns = select.split(',').map((c) => c.trim()).filter(Boolean);
+        expect(['persisted', 'diagnostic_request_id', 'origin_attempt_id', 'end_reason', 'origin_boot_id', 'intent_kind', 'intent_outcome',
+            'step', 'option_selected']
+            .map((k) => columns.findIndex((c) => c.endsWith(`AS ${k}`)))).toEqual([36, 37, 38, 39, 40, 41, 42, 43, 44]);
+    });
+
+    it.each(['query order', 'reversed response order'] as const)('decodes distinct lifecycle values by name in %s', (order) => {
+        const lifecycle = {
+            diagnostic_request_id: 'request-37',
+            origin_attempt_id: 'attempt-38',
+            end_reason: 'end-39',
+            origin_boot_id: 'boot-40',
+            intent_kind: 'intent-41',
+            intent_outcome: 'outcome-42',
+            step: 'step-43',
+            option_selected: 'option-44',
+        };
+        const values: Record<string, unknown> = {
+            event: 'ai_coaching_lifecycle', timestamp: '2026-10-24T21:55:00Z',
+            journey_id: 'journey-under-test', boot_id: 'boot-under-test', ...lifecycle,
+        };
+        const columns = order === 'query order' ? [...READBACK_COLUMNS] : [...READBACK_COLUMNS].reverse();
+        const result = readbackRowsByName(columns, [columns.map((name) => values[name] ?? null)]);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.rows).toHaveLength(1);
+        expect(result.rows[0]).toMatchObject({
+            event: values.event, timestamp: values.timestamp,
+            journeyId: values.journey_id, bootId: values.boot_id,
+            properties: lifecycle,
+        });
+    });
+});
+
+/**
+ * #1258 (RWT run 37514078995, F1): an unbounded, unordered readback got the query API's default row cap and an arbitrary
+ * subset — the run needed 187 rows, and whole journeys read as "never observed" while PostHog held them.
+ */
+describe('#1258 F1 — the readback bounds and orders its own result, and a full result is truncated', () => {
+    const q = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['feedback_submit'], quote: (v) => `'${v}'` });
+    it('CASUALTY: orders by timestamp and carries an explicit LIMIT, after the WHERE clause', () => {
+        const where = q.indexOf('WHERE');
+        const order = q.search(/ORDER BY timestamp ASC/);
+        const limit = q.search(new RegExp(`LIMIT ${READBACK_ROW_LIMIT}\\b`));
+        expect({ where: where > 0, order: order > where, limit: limit > order }).toEqual({ where: true, order: true, limit: true });
+    });
+    it('the explicit cap is far above one run (187 rows in run 37514078995)', () => {
+        expect(READBACK_ROW_LIMIT).toBeGreaterThanOrEqual(5_000);
+    });
+    it('a result that REACHES the cap is truncated (absence cannot be proven); one below it is not', () => {
+        expect([readbackTruncated(READBACK_ROW_LIMIT - 1), readbackTruncated(READBACK_ROW_LIMIT), readbackTruncated(READBACK_ROW_LIMIT + 1)])
+            .toEqual([false, true, true]);
     });
 });

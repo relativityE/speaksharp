@@ -69,6 +69,9 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ runShape, 
                     finalizeEstimateSeconds={finalizeEstimateSeconds}
                     isPrivate
                     headerMeta={transcript.headerMeta}
+                    // #1258 punch list D10: the ended take is titled "Transcript" and fits its content. The filler strip
+                    // stays until the RWT display-vs-saved evidence has a new source (#1258 PR 3 question).
+                    ended
                     footer={fillerFooter ?? (
                         <span className="flex items-center justify-between">
                             <span data-testid="after-stats">{transcript.stats}</span>

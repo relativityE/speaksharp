@@ -1,69 +1,11 @@
-# Supabase Edge Functions
+# Supabase Edge function source reference
 
-## Overview
-This directory contains server-side logic deployed to Supabase Edge Functions (Deno).
+Owner:Engineering. Current authority:[OPERATIONS_AND_SECURITY](../../product_release/OPERATIONS_AND_SECURITY.md), [RELEASE_PROCESS](../../product_release/RELEASE_PROCESS.md). This is a developer map, not provisioning or deployment authority.
 
-## Edge Functions Overview
+Read current [functions/](./functions/) and [config.toml](./config.toml); the selected reviewed function list/path triggers are in [.github/workflows/deploy-supabase-edge-release.yml](../../.github/workflows/deploy-supabase-edge-release.yml) and its called workflow. Source presence does not prove deployed identity/configuration/generation.
 
-This project includes multiple Edge Functions to handle server-side logic:
+Customer transcription is Private on device. No assemblyai-token source directory exists on this reviewed main; obsolete Cloud-token issuance is not an MVP path. get-ai-suggestions processes transcript text; check-usage-limit supplies server-authoritative entitlement; checkout/billing-portal/webhook retain separate commercial authority.
 
-- `assemblyai-token`: Securely issue tokens for AssemblyAI.
-- `check-usage-limit`: Enforce subscription limits.
-- `create-user`: Provision users (detailed below as a primary example).
-- `format-transcript`: Restore punctuation/casing for Native/Cloud saved transcripts with word-preservation and Private hard-rejection. Enforces a per-user daily cost guard via `consume_formatter_quota` (degrade-open). Env: `FORMATTER_MODEL` (default `gemini-3.5-flash`), `FORMATTER_TIMEOUT_MS` (default `28000`), `FORMATTER_DAILY_LIMIT` (default `200`), `GEMINI_API_KEY`.
-- `get-ai-suggestions`: Retrieve AI-generated feedback.
-- `stripe-checkout`: Initiate Stripe checkout sessions.
-- `stripe-billing-portal`: Open Stripe-hosted billing management for paid customers.
-- `stripe-webhook`: Handle Stripe webhooks.
+create-user is a privileged internal fixture helper, not customer-signup policy. Retained compatibility tier inputs do not define customer entitlements. Current source clears trial timestamps rather than granting the automatic trial previously claimed here. Never call it to repair a maintained fixture. Account/provider/provisioning writes require specific authority through approved workflows; do not export secret values.
 
-### Database RPCs (Core Runtime Logic)
-
-While most logic resides in Edge Functions, the **Deterministic Speech Runtime** relies on atomic Database RPCs for session integrity:
-
-- `create_session_and_update_usage`: Atomic lock + usage increment + session creation.
-- `heartbeat_session`: Incremental usage sync and session expiry extension.
-- `complete_session`: Finalizes session with `completed` or `failed` status and reasons. Writes `transcript = COALESCE(p_final_transcript, transcript)`.
-- `consume_formatter_quota`: Atomic per-user daily cost guard for `format-transcript` (`formatter_usage_daily` table, SECURITY DEFINER). Returns `{ allowed, remaining, limit, used }`; the Edge Function degrades open if it errors.
-
-### Example: `create-user` (Synchronized Auth)
-
-This function provisions users in both Supabase Auth and the `user_profiles` table. It uses a **2-Stage Key** pattern to clear the Supabase API Gateway (Kong) while maintaining function security.
-
-### Usage
-
-**Endpoint:** `POST /functions/v1/create-user`
-
-**Headers:**
-1.  **`apikey`**: Project Anonymous Key (`SUPABASE_ANON_KEY`). Required for Gateway routing.
-2.  **`Authorization`**: `Bearer <AGENT_SECRET>`. Required for function-level access.
-
-**Payload:**
-
-```json
-{
-  "email": "user@example.com",           // Alias: "username"
-  "password": "secure-password",        // If omitted, requires user to exist
-  "subscription_status": "pro"           // Alias: "type" ('basic' or 'pro')
-}
-```
-
-### Behavior
-
-1.  **Auth Creation**: If a password is provided, creates a user in `auth.users` via Admin API. If the user exists, identifies their existing ID.
-2.  **Profile Upsert**: Creates or updates a record in `public.user_profiles` with a mapped tier and the automatic trial timestamps:
-    -   `pro`: Sets `subscription_status` to 'pro' and `usage_limit` to -1.
-    -   `basic`: Sets `subscription_status` to 'basic' and `usage_limit` to 3600 (1 hour).
-3.  **Security**: Uses constant-time `safeCompare` for `AGENT_SECRET` and defensively clears secrets from memory after validation.
-4.  **Idempotency**: Safe to run repeatedly; ensures the user and profile match the requested state.
-
-### Deployment
-
-The function is deployed via GitHub Actions:
-- **Workflow:** `.github/workflows/deploy-supabase-migrations.yml` (and `.github/workflows/deploy-create-user.yml` for manual testing)
-
-### Local Development
-
-To run locally:
-```bash
-supabase functions serve create-user --env-file .env
-```
+Session integrity follows the selected atomic recording/session RPC and schema contracts. Inspect actual called signatures/authorization and target schema state; a legacy complete_session excerpt is not proof of current retention/save behavior. No migration or function deployment is performed here.

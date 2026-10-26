@@ -73,8 +73,9 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(page.getByTestId('open-mic-practice-loop-review')).toBeVisible({ timeout: 15_000 });
     const reviewCard = page.getByTestId('ai-suggestions-card');
     await expect(reviewCard).toBeVisible();
+    // #1258 (F4): `pending` (still saving / not yet requested) is in motion too — wait for a SETTLED state, not "not loading".
     await expect(reviewCard, 'the review settles rather than spinning')
-        .not.toHaveAttribute('data-review-state', 'loading', { timeout: 20_000 });
+        .toHaveAttribute('data-review-state', /^(ready|error|blocked)$/, { timeout: 20_000 });
 
     // AND IT BLOCKS NOTHING. A review that cannot be generated must not cost the user the session they
     // just saved or the control that starts the next take.
@@ -141,7 +142,7 @@ test.describe('User-facing session and analytics regressions', () => {
     const latestSession = page.getByTestId(/session-history-item-/).first();
     await expect(latestSession).toContainText('1'); // #1231: true-filler headline (um), matches the session page
     await latestSession.getByTestId(/session-detail-link-/).click();
-    await page.waitForURL('**/analytics/session-*');
+    await page.waitForURL('**/progress/session-*');
 
     // Analytics session-DETAIL page keeps its own filler-count metric surface (unchanged by the overhaul).
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');

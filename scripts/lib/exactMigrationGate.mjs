@@ -61,7 +61,10 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // encodes operational prerequisite order, not version chronology (see validateExactMigrationAllowlist).
         version: '20260819120000',
         file: '20260819120000_complete_session_v2_atomic_retention_1314.sql',
-        sha256: 'b70efd30a0ee0f5806ef9484f5c9eb3ca889d4122eaf4773d22f47486d9c7584',
+        // Replay-only ACL correction supersedes source SHA b70efd30a0ee0f5806ef9484f5c9eb3ca889d4122eaf4773d22f47486d9c7584.
+        // The historical applied/approved identity is preserved above, not rewritten in a remote ledger.
+        // A new source pin changes the exact authorization phrase; it never permits reapplication.
+        sha256: 'da6392389dc74ab1d7cf06ca9326a089d565eff497745473ab61379d7dd5c41e',
         classification: 'staged',
     }),
     Object.freeze({
@@ -144,6 +147,101 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         version: '20260928120000',
         file: '20260928120000_focus_points_trial_capability.sql',
         sha256: 'c96f5a67027c184a904578f7e4e7d3166a26253faa70e149d7347939c6495350',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // #1258 P0 — returning users' later saves failed with 42501: the retention expiry set the superuser-only
+        // `session_replication_role`. This replaces that with an owner-only, per-transaction grant the derivation trigger
+        // honours. Applied AFTER the trial capability, before the held commercial-activation entry. Its pre-apply gate
+        // refuses to replace any body other than the reviewed 20260908120000/20260801000000 pair; its postflight proves the
+        // reviewed bodies, ACLs and the closed grants table. Allowlisting is implementation, not authorization: applying it
+        // needs the PO's exact dispatch with the derived phrase.
+        version: '20261013120000',
+        file: '20261013120000_retention_expiry_without_superuser_1258.sql',
+        sha256: 'a00a578f0d474bf319b05cf9dc6f64a205bb366959dbb8ee033db75880477adb',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // #1258 P0 follow-up — 20261013120000's apply (run 38428832342) deployed the reviewed definitions but failed the
+        // lint-delta gate on one plpgsql_check 42804 warning (untyped empty-array literal). This types the two literals.
+        // Applied AFTER 20261013120000, before the held commercial-activation entry. Its pre-apply gate refuses anything
+        // but the deployed 20261013120000 bodies; its postflight proves the typed expiry and unchanged ACLs/grants table.
+        // Allowlisting is implementation, not authorization: applying it needs the PO's exact dispatch with the phrase.
+        version: '20261013140000',
+        file: '20261013140000_retention_expiry_typed_empty_array_1258.sql',
+        sha256: 'a0116bf92e81f0a87c7bbc2528f6cc60c78b2f32a55253fcf49bbadc5eb4c6b1',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20261013180000',
+        // Disabled deletion schema only. Apply needs its exact PO phrase and
+        // mandatory schema postflight; allowlisting never authorizes activation.
+        file: '20261013180000_account_closure_tokens.sql',
+        sha256: '8647483f6ed72d99246c84cb2d07571c34c7a5393268f8acd505edf267b03688',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // Persistence only. The already-applied closure schema is required;
+        // neither registration nor this exact apply authorizes activation.
+        version: '20261016090000',
+        file: '20261016090000_account_closure_drain_persistence.sql',
+        sha256: 'd8a5b1d153890167869b2e7d366fb1ae3dd1272a67cd26f3980e6d2cd5233145',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20261016180000',
+        file: '20261016180000_account_closure_drain_enforcement.sql',
+        sha256: '2613a3921d084d008d18e94834c59d0764c108b38385afbcb280cd01760bdce1',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // Checkout rejection recovery prerequisite; separately authorized exact
+        // apply/postflight BEFORE the corrected checkout Edge release.
+        version: '20261017200000',
+        file: '20261017200000_checkout_rejection_recovery.sql',
+        sha256: '3f53ad3408a35af5cea6baac456e3b34ba433c7bd37d2c238e345df53fc05f6c',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261018090000',
+        file: '20261018090000_analytics_summary_observed_filler_rate_1472.sql',
+        sha256: '72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261018170000',
+        file: '20261018170000_account_closure_pending_checkout.sql',
+        sha256: '68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261019010000',
+        file: '20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql',
+        sha256: 'df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261019055102',
+        file: '20261019055102_account_pending_recording_admission_1643.sql',
+        sha256: 'e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261019202856',
+        file: '20261019202856_account_coaching_admission_1643.sql',
+        sha256: 'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261020230653',
+        file: '20261020230653_account_pending_completion_journal_1643.sql',
+        sha256: '76bffe1f7dc15efe487cd33faffbfd8d1b6c654a7b09508d427e53b4b88d83cf',
         classification: 'staged',
     }),
     Object.freeze({
@@ -572,6 +670,20 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20260926190000', targetFile: '20260926190000_session_product_marker_1258' }),
     // Focus Points trial capability: function identity (md5 of pg_get_functiondef) + authenticated-only ACL, read-only.
     Object.freeze({ id: 'postflight_20260928120000', targetFile: '20260928120000_focus_points_trial_capability' }),
+    // #1258 P0 retention expiry: two-routine function identity + ACLs + the closed, empty grants table, read-only.
+    Object.freeze({ id: 'postflight_20261013120000', targetFile: '20261013120000_retention_expiry_without_superuser_1258' }),
+    // #1258 P0 follow-up: typed expiry identity + unchanged trigger/ACLs/grants table, read-only.
+    Object.freeze({ id: 'postflight_20261013140000', targetFile: '20261013140000_retention_expiry_typed_empty_array_1258' }),
+    Object.freeze({ id: 'postflight_20261013180000', targetFile: '20261013180000_account_closure_tokens' }),
+    Object.freeze({ id: 'postflight_20261016090000', targetFile: '20261016090000_account_closure_drain_persistence' }),
+    Object.freeze({ id: 'postflight_20261016180000', targetFile: '20261016180000_account_closure_drain_enforcement' }),
+    Object.freeze({ id: 'postflight_20261017200000', targetFile: '20261017200000_checkout_rejection_recovery' }),
+    Object.freeze({ id: 'postflight_20261018090000', targetFile: '20261018090000_analytics_summary_observed_filler_rate_1472' }),
+    Object.freeze({ id: 'postflight_20261018170000', targetFile: '20261018170000_account_closure_pending_checkout' }),
+    Object.freeze({ id: 'postflight_20261019010000', targetFile: '20261019010000_heartbeat_session_cap_keeps_take_open_1593' }),
+    Object.freeze({ id: 'postflight_20261019055102', targetFile: '20261019055102_account_pending_recording_admission_1643' }),
+    Object.freeze({ id: 'postflight_20261019202856', targetFile: '20261019202856_account_coaching_admission_1643' }),
+    Object.freeze({ id: 'postflight_20261020230653', targetFile: '20261020230653_account_pending_completion_journal_1643' }),
 ]);
 
 /**

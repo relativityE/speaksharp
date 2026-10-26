@@ -62,7 +62,7 @@ import {
     classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
 } from '../modelAcquisitionTelemetry';
 import type { Candidate } from '../candidateRegistry';
-import { assetRequestsFor, acquisitionScopeFor } from '../candidateAssetRequests';
+import { acquisitionComponentGroupsFor, assetRequestsFor, acquisitionScopeFor } from '../candidateAssetRequests';
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
 import { receiptMatches, type AcquisitionAttempt, type AcquisitionReceipt } from '../acquisitionAttempt';
 import type { AcquisitionTrigger } from '../modelAcquisitionTelemetry';
@@ -813,6 +813,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                         // candidate declares.
                         timeline: 'shared',
                         expectedComponents: candidate?.assets.componentCount ?? null,
+                        expectedComponentGroups: candidate ? acquisitionComponentGroupsFor(candidate) : [],
                     });
                 recordAcquisitionSuccess(subject, {
                     cacheResult,

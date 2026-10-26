@@ -202,7 +202,9 @@ test.describe('#1306 Step 3 — PRODUCED newest-one retention (authenticated)', 
 
     await navigateToRoute(page, '/analytics');
     await waitForFeature(page, 'analytics');
-    await expect(page.getByTestId('session-history-item-m3-newest')).toContainText('Newest take');
+    // #1258 D9 (Rev 2 §5.9): a Recent sessions row is titled by its date and time, never `session.title`.
+    await expect(page.getByTestId('session-detail-link-m3-newest')).toHaveText(/^3 Jan 2025, \d{1,2}:\d{2}/);
+    await expect(page.getByTestId('session-history-item-m3-newest')).not.toContainText('Newest take');
 
     // The metrics-only read firewall is a property of the COLUMN LIST the client asks for. This
     // previously scanned `page.on('response')` for /rest/v1/sessions GETs — but the E2E client is the

@@ -7,11 +7,35 @@
  * suite, deployed SHA, journey ids and observation set, requires a PASS/FAIL and an observer for every observation,
  * and recomputes acceptance over ALL rows. Content-free throughout: ids, verdicts, SHAs and observer names only.
  */
+import { coherentCoachingResult } from '../../../frontend/src/services/telemetry/coachingDiagnosticReceipt';
+import { SAVE_RETRY_SUITE } from './rwtSaveRetry';
+import { ABANDON_SUITE, TWO_TAB_SUITE } from './rwtAbandonTakeover';
+import { ADVERSE_SUITE } from './rwtAdverse';
 
 /** #1532 Codex P1 r4119969323 — one journey and the qualification stages IT exercised. */
 /** `firstDownload`: this binding carries the run's first actual model download, so its readback requires the cold-download receipt. */
 /** `attemptIds`: the recording attempts this binding must show exactly one start and one save for (judged per attempt). */
 export interface ReadbackBinding { journeyId: string; stages: string[]; firstDownload?: boolean; attemptIds?: string[] }
+
+/** In-memory action-time identity captured before feedback/PDF event serialization; never written into the receipt. */
+export type ReadbackActionStage = 'share_feedback' | 'session_pdf_export';
+export interface ReadbackActionBinding {
+    stage: ReadbackActionStage;
+    journeyId: string;
+    bootId: string;
+    releaseSha: string;
+    trafficType: string;
+    runId: string;
+    runAttempt: string;
+    /**
+     * How the journey was observed (#1570 Codex P1 r4212726964, hard reload): `route_change` — the boot's latest decoded route
+     * transition into Analytics; `boot_load` — the boot loaded directly onto Analytics (a reload emits no route_change), so
+     * its journey is the one its own positive control carries.
+     */
+    entry: 'route_change' | 'boot_load';
+    /** Node-side capture time, so the oracle re-checks "latest boot / latest route" as of the action, not as of readback. */
+    capturedAt: number;
+}
 
 /** Every canary journey the run observed — bound (qualified) or reported only. Worksheet and finalizer bind to this set. */
 export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; reportedJourneyIds: readonly string[] }): string[] {
@@ -22,13 +46,159 @@ export function runJourneyIds(plan: { journeys: readonly ReadbackBinding[]; repo
  * `HUMAN`: a named human RWT observation — a runbook check no automation can judge. Never a permanent HOLD: it names
  * the question and pass criterion, and becomes PASS/FAIL only through the finalization step.
  */
-export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN';
+/**
+ * `EXTERNAL` (PO 2026-10-14, PM 6171519534): the coaching provider was PROVABLY unavailable (request-bound provider 5xx
+ * or provider timeout) AND the app independently degraded gracefully. Never PASS and never FAIL: it does not block
+ * progress, but successful-coaching coverage stays outstanding, so acceptance stays INCOMPLETE. Set only by
+ * `coachingExternal.ts`; a suite cannot otherwise declare it.
+ */
+export type Verdict = 'PASS' | 'FAIL' | 'HOLD' | 'HUMAN' | 'EXTERNAL';
 export interface ReceiptRow { step: string; verdict: Verdict; detail: string; evidence?: Record<string, string | number | boolean | null> }
 export type Acceptance = 'PASS' | 'FAIL' | 'INCOMPLETE';
 
-export interface HumanObservationState { id: string; runbookRow: string; result: 'pending' | 'PASS' | 'FAIL' }
+export interface HumanObservationState { id: string; runbookRow: string; result: 'pending' | 'PASS' | 'FAIL' | 'not_exercised' }
+
+/**
+ * #1258 (Codex P2 r4274573846, PM 6175763509 §4) — the human checks that judge the QUALITY of a coaching answer, each
+ * with the coaching row that produced (or failed to produce) that answer. When that parent is a proved EXTERNAL outage
+ * there is no answer to judge: the reviewer may record NOT_EXERCISED (or leave it blank) instead of inventing PASS/FAIL.
+ * Only for these ids, only under their own EXTERNAL parent; PASS is refused (absent coaching is never quality PASS), and a
+ * recorded FAIL still stands. Every other human check is unchanged.
+ */
+export const COACHING_QUALITY_OBSERVATIONS: Readonly<Record<string, string>> = Object.freeze({
+    open_mic_coaching_relevant: 'coaching rendered',
+    focus_coaching_covers_points: 'Focus coaching rendered',
+});
+export const NOT_EXERCISED = 'NOT_EXERCISED';
+const externalParentOf = (rows: readonly ReceiptRow[], observationId: string): boolean => {
+    const parent = COACHING_QUALITY_OBSERVATIONS[observationId];
+    return parent !== undefined && rows.some((r) => r.step === parent && r.verdict === 'EXTERNAL');
+};
 
 const isHumanObservation = (r: ReceiptRow): boolean => Boolean(r.evidence && typeof r.evidence.observationId === 'string');
+
+/**
+ * The Analytics rows that can only be measured when the take HAS a saved coaching pair. Under a proved EXTERNAL outage
+ * they are written as "not exercised" (Codex P1 r4274573837, PM 6175763509 §2), so a complete receipt carries every
+ * required row instead of silently omitting them. The navigation rows before them are always judged on their own.
+ */
+export const COACHING_DEPENDENT_ANALYTICS_ROWS = Object.freeze([
+    'analytics detail shows both AI suggestions', 'saved review is the first block', '"From this session" evidence', 'one practice action',
+] as const);
+
+/**
+ * #1258 (Codex P1 r4275387520) — EXTERNAL is a CLOSED claim. Per suite, exactly one coaching PARENT row may be EXTERNAL,
+ * and only with its own recorded proof; only that suite's success-dependent rows may follow it, and only under a proved
+ * parent. Anywhere else EXTERNAL is a validation error — it can never turn an observed FAIL into a non-blocking
+ * INCOMPLETE or report a provider outage the run did not prove.
+ */
+/** The "visible = saved" rows: EXTERNAL needs confirmed saved AND visible absence (Codex P1 r4277621600). */
+const VISIBLE_ABSENCE_ROWS: ReadonlySet<string> = new Set(['coaching visible = saved', 'Focus coaching visible = saved']);
+
+interface ExternalScope {
+    parent: string;
+    binding: string;
+    /** App-owned rows that are EXTERNAL only with a confirmed read of NO saved coaching for this take. */
+    absence: readonly string[];
+    /** The app-owned telemetry row, EXTERNAL only when this request's failure report is bound to it. */
+    telemetry: string;
+    dependents: readonly string[];
+}
+const FOCUS_EXTERNAL_SCOPE: ExternalScope = Object.freeze({
+    parent: 'Focus coaching rendered',
+    binding: 'Focus coaching request bound to this take',
+    absence: Object.freeze(['Focus coaching provenance', 'Focus coaching visible = saved']),
+    telemetry: 'Focus coaching telemetry sent',
+    dependents: Object.freeze([
+        'Focus coaching length', 'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching server receipt',
+        'Focus coaching within the character ceiling', 'Focus coaching refers to an open point',
+        'Focus coaching provenance', 'Focus coaching visible = saved', 'Focus coaching telemetry sent', ...COACHING_DEPENDENT_ANALYTICS_ROWS,
+    ]),
+});
+const EXTERNAL_SCOPES: Readonly<Record<string, ExternalScope>> = Object.freeze({
+    'open-mic-first-session': Object.freeze({
+        parent: 'coaching rendered',
+        binding: 'coaching request bound to this take',
+        absence: Object.freeze(['coaching visible = saved']),
+        telemetry: 'coaching telemetry sent',
+        dependents: Object.freeze([
+            'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt', 'coaching telemetry sent',
+            'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',
+            ...COACHING_DEPENDENT_ANALYTICS_ROWS,
+        ]),
+    }),
+    'focus-points-session': FOCUS_EXTERNAL_SCOPE,
+    'focus-points-partial': FOCUS_EXTERNAL_SCOPE,
+});
+
+/**
+ * The parent's own recorded proof, mirroring `coachingParentVerdict`: the Edge 502 carried a provider 5xx (with its
+ * integer status) or a provider timeout, from this take's unique exchange; the take was saved; the card settled on
+ * `error` with the unavailable headline and an enabled Try again. Returns what is missing (empty = proved).
+ */
+export function externalParentProofGaps(row: ReceiptRow): string[] {
+    const e = row.evidence ?? {};
+    const gaps: string[] = [];
+    if (e.httpStatus !== 502) gaps.push('httpStatus is not 502');
+    if (e.externalOutcome === 'provider_5xx') {
+        const ps = e.providerStatus;
+        if (e.failureReason !== 'provider_http_5xx') gaps.push('failureReason is not provider_http_5xx');
+        if (typeof ps !== 'number' || !Number.isInteger(ps) || ps < 500 || ps > 599) gaps.push('providerStatus is not an integer 500–599');
+    } else if (e.externalOutcome === 'provider_timeout') {
+        if (e.failureReason !== 'provider_timeout') gaps.push('failureReason is not provider_timeout');
+    } else {
+        gaps.push('externalOutcome is not provider_5xx or provider_timeout');
+    }
+    if (e.takeExchangeUnique !== true) gaps.push('the take exchange is not unique');
+    if (e.savedTakeProven !== true) gaps.push('the saved take is not proven');
+    if (e.reviewState !== 'error') gaps.push('the review card did not settle on error');
+    if (e.unavailableShown !== true) gaps.push('the unavailable message was not shown');
+    if (e.retryEnabled !== true) gaps.push('Try again was not enabled');
+    return gaps;
+}
+
+/** Every EXTERNAL row in an INPUT receipt must sit inside its suite's closed scope (see `EXTERNAL_SCOPES`). */
+function externalScopeErrors(suite: string, rows: readonly ReceiptRow[]): string[] {
+    const externalRows = rows.filter((r) => r.verdict === 'EXTERNAL');
+    if (externalRows.length === 0) return [];
+    const scope = EXTERNAL_SCOPES[suite];
+    if (!scope) return externalRows.map((r) => `row "${r.step}" is EXTERNAL, which the ${suite} suite never writes`);
+    const errors: string[] = [];
+    const parent = rows.find((r) => r.step === scope.parent && !isHumanObservation(r));
+    const parentExternal = parent?.verdict === 'EXTERNAL';
+    if (parentExternal) {
+        const gaps = externalParentProofGaps(parent);
+        if (gaps.length > 0) errors.push(`row "${scope.parent}" is EXTERNAL without its proof: ${gaps.join('; ')}`);
+        const binding = rows.find((r) => r.step === scope.binding && !isHumanObservation(r));
+        if (binding?.verdict !== 'PASS') errors.push(`row "${scope.parent}" is EXTERNAL but "${scope.binding}" is not PASS`);
+    }
+    // Codex P1 r4276518654: an APP-OWNED dependent is EXTERNAL only with its own proof — the parent alone never
+    // excuses what the app did. The success-only rows (length, distinct, omission claim, server receipt) are never
+    // written FAIL under a proved parent, so for them the parent is the whole claim.
+    // Codex P1 r4277621600: a "visible = saved" row also needs a confirmed VISIBLE absence (closed scalar, true only).
+    const absenceProved = (row: ReceiptRow | undefined) => row?.verdict === 'EXTERNAL' && row.evidence?.savedCoachingAbsent === true
+        && (!VISIBLE_ABSENCE_ROWS.has(row.step) || row.evidence?.visibleCoachingAbsent === true);
+    const absenceRows = scope.absence.map((step) => rows.find((x) => x.step === step && !isHumanObservation(x)));
+    for (const r of externalRows) {
+        if (r === parent) continue;
+        if (isHumanObservation(r)) { errors.push(`human observation "${r.step}" arrived as EXTERNAL; only finalization may record not exercised`); continue; }
+        if (!scope.dependents.includes(r.step)) { errors.push(`row "${r.step}" is EXTERNAL, but EXTERNAL is allowed only on the coaching rows of ${suite}`); continue; }
+        if (!parentExternal) { errors.push(`row "${r.step}" is EXTERNAL without an EXTERNAL "${scope.parent}" parent`); continue; }
+        if (scope.absence.includes(r.step) && !absenceProved(r)) {
+            errors.push(VISIBLE_ABSENCE_ROWS.has(r.step) && r.evidence?.savedCoachingAbsent === true
+                ? `row "${r.step}" is EXTERNAL without a confirmed visible absence of coaching (visibleCoachingAbsent)`
+                : `row "${r.step}" is EXTERNAL without a confirmed read of no saved coaching (savedCoachingAbsent)`);
+        } else if (r.step === scope.telemetry && r.evidence?.boundFailureOutcome !== 'bound') {
+            errors.push(`row "${r.step}" is EXTERNAL without this request's bound failure report (boundFailureOutcome)`);
+        } else if (r.step === scope.telemetry && (r.evidence?.firstTakeRequestProof !== 'PASS' || r.evidence?.firstTakeRequestCount !== 1)) {
+            // Codex P1 r4277621594: the first take's review request must be proved exactly once (normalized keys, both suites).
+            errors.push(`row "${r.step}" is EXTERNAL without the first take's proved review request (firstTakeRequestProof / firstTakeRequestCount)`);
+        } else if ((COACHING_DEPENDENT_ANALYTICS_ROWS as readonly string[]).includes(r.step) && !absenceRows.every(absenceProved)) {
+            errors.push(`row "${r.step}" is EXTERNAL but the take's saved-coaching absence is not proved (${scope.absence.join(', ')})`);
+        }
+    }
+    return errors;
+}
 
 /** Acceptance over ALL rows, the automated part alone, and the named human observations' state. */
 /**
@@ -47,11 +217,19 @@ export function receiptAcceptance(rows: readonly ReceiptRow[]): {
     automatedRowsAllPass: boolean;
     humanObservations: HumanObservationState[];
     nonGating: { step: string; verdict: string; reason: string }[];
+    /** Rows that recorded a proved external provider outcome — non-blocking, named, and never counted as a pass. */
+    external: { step: string; detail: string }[];
+    /** True whenever any row is EXTERNAL: a non-blocking provider outage is not proof that coaching works. */
+    successfulCoachingOutstanding: boolean;
 } {
     const gating = rows.filter((r) => !exempt(r));
+    const external = rows.filter((r) => r.verdict === 'EXTERNAL').map((r) => ({ step: r.step, detail: r.detail }));
     return {
+        // FAIL dominates; an EXTERNAL row (like a HOLD) leaves the run INCOMPLETE, never PASS.
         acceptance: gating.some((r) => r.verdict === 'FAIL') ? 'FAIL'
-            : gating.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN') ? 'INCOMPLETE' : 'PASS',
+            : gating.some((r) => r.verdict === 'HOLD' || r.verdict === 'HUMAN' || r.verdict === 'EXTERNAL') ? 'INCOMPLETE' : 'PASS',
+        external,
+        successfulCoachingOutstanding: external.length > 0,
         // #1532 Codex P2 r4126745144: every GATING automated row must be PASS; a gating HOLD is not "all pass". Rows in
         // NON_GATING_ROWS are already excluded from `gating`, and human observations are never automated.
         automatedRowsAllPass: gating.filter((r) => !isHumanObservation(r)).every((r) => r.verdict === 'PASS'),
@@ -59,7 +237,7 @@ export function receiptAcceptance(rows: readonly ReceiptRow[]): {
         humanObservations: rows.filter(isHumanObservation).map((r) => ({
             id: String(r.evidence!.observationId),
             runbookRow: String(r.evidence!.runbookRow ?? ''),
-            result: r.verdict === 'PASS' || r.verdict === 'FAIL' ? r.verdict : 'pending',
+            result: r.verdict === 'PASS' || r.verdict === 'FAIL' ? r.verdict : r.verdict === 'EXTERNAL' ? 'not_exercised' : 'pending',
         })),
     };
 }
@@ -89,6 +267,7 @@ const cell = (v: unknown) => String(v ?? '').replace(/\|/g, '/');
  */
 export function humanWorksheet(suite: string, release: string, journeyIds: readonly string[], rows: readonly ReceiptRow[]): string {
     const human = rows.filter(isHumanObservation);
+    const prefilled = human.some((r) => r.verdict === 'HUMAN' && externalParentOf(rows, String(r.evidence!.observationId)));
     const lines = [
         `# RWT human-check worksheet — ${suite}`,
         '',
@@ -100,10 +279,16 @@ export function humanWorksheet(suite: string, release: string, journeyIds: reado
         'An automated PASS is not a human check. Fill in Result (PASS or FAIL) and Observer for every row, then run',
         `\`pnpm rwt:finalize -- --receipt ${suite}.receipt.json --worksheet ${suite}.human-worksheet.md\`. Until that step`,
         'passes, this run is INCOMPLETE.',
+        ...(prefilled ? [
+            '',
+            `A Result prefilled \`${NOT_EXERCISED}\` is a coaching-quality check whose coaching was never produced: the provider was`,
+            'proved unavailable (EXTERNAL). Leave it as it is and sign the Observer cell. PASS is refused for it (there is no',
+            'coaching to approve); write FAIL only if you observed a coaching problem anyway. No other row accepts it.',
+        ] : []),
         '',
-        '| Observation id | Runbook row | Question | Observation needed to decide (pass criterion) | Result (PASS/FAIL) | Observer · date |',
+        `| Observation id | Runbook row | Question | Observation needed to decide (pass criterion) | ${prefilled ? `Result (PASS/FAIL, or prefilled ${NOT_EXERCISED})` : 'Result (PASS/FAIL)'} | Observer · date |`,
         '|---|---|---|---|---|---|',
-        ...human.map((r) => `| \`${cell(r.evidence!.observationId)}\` | ${cell(r.evidence!.runbookRow)} | ${cell(r.step.replace(/^human: /, ''))} | ${cell(r.evidence!.passCriterion)} | ${r.verdict === 'HUMAN' ? '' : r.verdict} |  |`),
+        ...human.map((r) => `| \`${cell(r.evidence!.observationId)}\` | ${cell(r.evidence!.runbookRow)} | ${cell(r.step.replace(/^human: /, ''))} | ${cell(r.evidence!.passCriterion)} | ${r.verdict === 'HUMAN' ? (externalParentOf(rows, String(r.evidence!.observationId)) ? NOT_EXERCISED : '') : r.verdict} |  |`),
     ];
     if (human.length === 0) lines.push('', '_No human observations in this run._');
     return `${lines.join('\n')}\n`;
@@ -149,7 +334,7 @@ export interface ReceiptForFinalization {
     readback?: { journeys?: ReadbackBinding[]; reportedJourneyIds?: string[]; missingBindings?: string[] };
 }
 
-const VERDICTS: ReadonlySet<string> = new Set(['PASS', 'FAIL', 'HOLD', 'HUMAN']);
+const VERDICTS: ReadonlySet<string> = new Set(['PASS', 'FAIL', 'HOLD', 'HUMAN', 'EXTERNAL']);
 
 /**
  * PM RETURN 2026-09-26 — the human observations each RWT suite MUST carry. A receipt missing one of them cannot be
@@ -166,6 +351,19 @@ export function requiredHumanObservations(receipt: ReceiptForFinalization): stri
         case 'returning-user-navigation':
             // #1532 Codex P1 r4127572196: the two release-level device checks this suite always emits.
             return ['real_microphone_permission_prompt', 'mobile_stop_confirmation_visible'];
+        // #1594 (PM 6120326867): the supplemental boundary scenarios are fully automated; they carry no human check.
+        case FEEDBACK_OLDER_TAKE_SUITE:
+        case FEEDBACK_NO_SESSION_SUITE:
+        case PENDING_START_SUITE:
+        case SAVE_RETRY_REQUEST_LOST_SUITE:
+        case SAVE_RETRY_RESPONSE_LOST_SUITE:
+        case ABANDON_NAVIGATE_SUITE:
+        case ABANDON_CLOSE_TAB_SUITE:
+        case TWO_TAB_SUITE:
+        case ADVERSE_MIC_DENIED_SUITE:
+        case ADVERSE_DOWNLOAD_FAILS_SUITE:
+        case ADVERSE_OFFLINE_SUITE:
+            return [];
         default:
             return null; // not an RWT suite this finalizer knows
     }
@@ -215,37 +413,132 @@ export async function recordRunOwnedCleanup(
  * differ between valid configurations (Focus full-only feedback rows; partial-only cleanup). Required PRESENT; the
  * telemetry/cleanup singletons above stay exactly-once. Source: the suite files and the rwtJourney helpers they call.
  */
+// #1593 (Sam decision (a); Codex on #1655): the whole-scenario `coaching request budget` row is REQUIRED for Open Mic, both
+// Focus suites and returning-user navigation (maximum 0), so a receipt with the row stripped can never finalize PASS.
 const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
-    'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
+    'coaching request budget', 'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
+    // #1258 R4: the coaching checks text can prove — ceiling, no contradiction with saved fillers, not identical across takes.
+    'coaching within the character ceiling', 'coaching consistent with saved fillers', 'coaching differs between takes',
+    // #1258 (Codex P2 r4274573839, PM 6175763509 §3): request provenance is mandatory evidence on every path.
+    'coaching request bound to this take',
     'filler display matches saved (all words)', 'coachable filler headline', 'Products menu opened in the session',
+    'Back from Progress restores the session', 'restored review', 'Back requests no coaching',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'session PDF',
     'Analytics generates no coaching', 'feedback', 'Progress evaluation', 'Progress debt',
-    'Analytics Practice again opens the product', 'review Practice again starts, no hold', 'repeated take stopped, microphone off',
+    'Analytics Practice again opens the product', 'review Practice again starts after the gate clears', 'repeated take stopped, microphone off',
     'saved product marker', 'next Start', 'next take stopped, microphone off', 'telemetry sent', 'coaching telemetry sent',
     'inventory events sent', 'revisit is not a generation', 'model download vs setup timing', 'feedback retention',
+    'Practice again press → arrival (sent)', 'feedback outcome (sent)',
+    // #1258 (PM 6114590729): the report → exact coaching request chain, and real coaching provenance (prompt binding).
+    'feedback diagnostic chain', 'coaching prompt binding',
 ]);
 const FOCUS_PRODUCT_ROWS = Object.freeze([
-    'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
+    'coaching request budget', 'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
     'pace guide', 'Head to session', 'rail legend', 'pending points labelled', 'rail before speaking', 'model identity',
-    'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved',
+    'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved', 'saved exactly once',
     'final point verdicts', 'not-detected explained', 'coverage count', 'average per point', 'final rail colours and words',
-    'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching length',
+    'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching request bound to this take',
+    'Focus coaching length',
     'Focus coaching distinct', 'Focus coaching makes no omission claim', 'Focus coaching provenance',
+    'Focus coaching within the character ceiling', 'Focus coaching refers to an open point',
     'Focus coaching visible = saved', 'Focus coaching server receipt', 'Products menu opened in the session',
+    'Focus Back from Progress and reload keep the saved session',
     'Analytics action', 'analytics session detail', 'reopen after reload', 'analytics detail shows both AI suggestions',
     'saved review is the first block', '"From this session" evidence', 'one practice action', 'Analytics generates no coaching',
-    'analytics point detail', 'Analytics Practice again opens the product', 'review Practice again starts, no hold',
+    'analytics point detail', 'Analytics Practice again opens the product', 'review Practice again starts after the gate clears',
     'repeated take stopped, microphone off', 'saved product marker', 'next Start', 'next take stopped, microphone off',
     'coverage_evaluation sent', 'Focus coaching telemetry sent', 'revisit is not a generation', 'inventory events sent',
-    'model download vs setup timing',
+    'model download vs setup timing', 'Practice again press → arrival (sent)',
+    // #1258 (PM 6114590729): real coaching provenance (prompt binding), full and partial alike.
+    'coaching prompt binding',
 ]);
-const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention']);
+const FOCUS_FULL_ONLY_PRODUCT_ROWS = Object.freeze(['feedback', 'feedback retention', 'feedback outcome (sent)', 'Focus New Set', 'Focus Edit', 'take after switching products is clean',
+    'feedback diagnostic chain']);
+/**
+ * #1594 (PM 6120326867) — the supplemental boundary scenarios (`rwt-feedback-association-boundaries`,
+ * `rwt-pending-start-navigation`). Each list is what that suite writes on its success path; a receipt missing any of them
+ * can never finalize PASS. Rows a scenario must NEVER carry are listed as absent, so it cannot borrow evidence it has no
+ * basis for:
+ *  - older take: the selected OLDER take's own request, proven by the #1590 contract and settled only by the received
+ *    coaching-diagnostic readback (`feedback diagnostic chain`); the newer take is named as current so a borrowed link FAILs;
+ *  - no session: no take and no coaching result exist, so no coaching chain or prompt-binding row may appear;
+ *  - pending Start: a navigation/abandonment check that saves nothing and qualifies no journey (like returning-user), so it
+ *    carries no journey readback rows and no recording stages are ever guessed for it; its own cleanup row is required.
+ * Every scenario ends with the whole-scenario `coaching request budget`.
+ */
+export const FEEDBACK_OLDER_TAKE_SUITE = 'feedback-association-boundaries-older-take';
+export const FEEDBACK_NO_SESSION_SUITE = 'feedback-association-boundaries-no-session';
+export const PENDING_START_SUITE = 'pending-start-navigation';
+const SUPPLEMENTAL_ACCOUNT_ROWS = Object.freeze(['run-owned signup', 'canary claim in fresh login']);
+const FEEDBACK_OLDER_TAKE_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'two saved takes', 'older take coaching request observed', 'older-take report stored once',
+    'older-take association', 'older-take diagnostic binding', 'feedback diagnostic chain', 'coaching request budget', 'feedback retention',
+]);
+const FEEDBACK_NO_SESSION_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'no-session report stored once', 'no-session association', 'no-session diagnostic binding',
+    'coaching request budget', 'feedback retention',
+]);
+const PENDING_START_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'cold Start is pending', 'Start transition observed', 'abandoned Start settles after leaving',
+    'leaving pending Start releases microphone', 'leaving pending Start creates no session',
+    'return to Open Mic exposes truthful Start state', 'return does not resume abandoned recording', 'coaching request budget',
+]);
+const NO_COACHING_RESULT_ROWS = Object.freeze(['feedback diagnostic chain', 'coaching prompt binding']);
+/**
+ * #1258 R1 (row 15) — `rwt-save-retry-recovery`, one receipt per variant. Like pending Start it qualifies no journey
+ * readback (its fault is injected on the page's own request), so it carries no journey readback rows; its own cleanup
+ * row is required. Fully automated: no human check.
+ */
+export const SAVE_RETRY_REQUEST_LOST_SUITE = `${SAVE_RETRY_SUITE}-request-lost`;
+export const SAVE_RETRY_RESPONSE_LOST_SUITE = `${SAVE_RETRY_SUITE}-response-lost`;
+const SAVE_RETRY_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'completion request altered once', 'recovery banner is truthful', 'no Discard after the save resolves',
+    'Retry Save leaves one saved session', 'next take saves only itself', 'coaching request budget',
+]);
+/**
+ * #1258 R2 (row 16) — `rwt-abandon-and-two-tabs`: leaving mid-recording (navigate away; close the tab) and the same
+ * account's two-tab take-over. No journey readback is qualified (like pending Start); each carries its own cleanup row.
+ */
+export const ABANDON_NAVIGATE_SUITE = `${ABANDON_SUITE}-navigate-away`;
+export const ABANDON_CLOSE_TAB_SUITE = `${ABANDON_SUITE}-close-tab`;
+export { TWO_TAB_SUITE };
+const ABANDON_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'take is recording before leaving', 'leaving mid-recording releases the microphone',
+    'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
+    'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
+]);
+/**
+ * Navigate away also answers the product's in-app leave prompt (#1258 run 38876623812) and, because Leave is "Stop and
+ * save", requires the left take's saved row (Codex P1 r4296551953). Closing the tab has neither.
+ */
+const ABANDON_NAVIGATE_PRODUCT_ROWS = Object.freeze([...ABANDON_PRODUCT_ROWS, 'leave prompt answered Leave', 'leaving saved the left take']);
+const TWO_TAB_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'same-browser tab is refused', 'another device is refused by the account lease',
+    'take-over moves the one engine',
+    'both takes saved, none left active', 'no Cloud STT request', 'coaching request budget',
+]);
+/**
+ * #1258 R3 (row 17) — `rwt-adverse-mic-model`: a blocked microphone, a failing model download, and offline mid-download.
+ * No journey readback is qualified; each carries its own cleanup row.
+ */
+export const ADVERSE_MIC_DENIED_SUITE = `${ADVERSE_SUITE}-mic-denied`;
+export const ADVERSE_DOWNLOAD_FAILS_SUITE = `${ADVERSE_SUITE}-download-fails`;
+export const ADVERSE_OFFLINE_SUITE = `${ADVERSE_SUITE}-offline-mid-download`;
+const ADVERSE_MIC_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'blocked microphone is stated truthfully', 'after allowing the microphone a take saves',
+    'no Cloud STT request', 'coaching request budget',
+]);
+const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
+    ...SUPPLEMENTAL_ACCOUNT_ROWS, 'model download failure is stated truthfully', 'Retry downloads the model and a take saves',
+    'no Cloud STT request', 'coaching request budget',
+]);
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
+    'coaching request budget',
 ]);
 
 export function requiredAutomatedRows(suite: string): { required: readonly string[]; product: readonly string[]; absent: readonly string[] } | null {
@@ -259,10 +552,69 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS, RUN_OWNED_CLEANUP_ROW], product: FOCUS_PRODUCT_ROWS, absent: [] };
         case 'returning-user-navigation':
             return { required: ALWAYS_AUTOMATED_ROWS, product: RETURNING_USER_PRODUCT_ROWS, absent: JOURNEY_READBACK_ROWS };
+        case FEEDBACK_OLDER_TAKE_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_OLDER_TAKE_PRODUCT_ROWS, absent: ['coaching prompt binding'] };
+        case FEEDBACK_NO_SESSION_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, ...JOURNEY_READBACK_ROWS], product: FEEDBACK_NO_SESSION_PRODUCT_ROWS, absent: NO_COACHING_RESULT_ROWS };
+        case PENDING_START_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: PENDING_START_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case SAVE_RETRY_REQUEST_LOST_SUITE:
+        case SAVE_RETRY_RESPONSE_LOST_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ABANDON_NAVIGATE_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_NAVIGATE_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ABANDON_CLOSE_TAB_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case TWO_TAB_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: TWO_TAB_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ADVERSE_MIC_DENIED_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_MIC_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
+        case ADVERSE_DOWNLOAD_FAILS_SUITE:
+        case ADVERSE_OFFLINE_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ADVERSE_DOWNLOAD_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         default:
             return null;
     }
 }
+
+/**
+ * #1258 (#1570, Codex P1 r4214120116) — THE CLOSED ROW-TO-STAGE MAP for blind-HOLD settlement. The finalizer, not the
+ * untrusted receipt, decides which readback stages may settle which sent row: a row is settled only from the stages
+ * listed here for its suite and step. A receipt row that carries `receivedByStages` / `blindSinceStep` but is not listed,
+ * or names stages other than exactly these, is a binding error — so a modified receipt cannot turn, say, `feedback
+ * retention` into PASS from the `session_after_open_mic` readback. Each entry mirrors the live spec's `*ReceivedBy`
+ * constant (source contract: tests/unit/rwtBlindHoldSettlement1258.test.ts).
+ */
+// Codex P1 4219466523: the two required CORRELATION rows settle from the stage that runs the SAME correlation rule on
+// what PostHog received (`practice_again` → press_reached_its_intended_route, `share_feedback` →
+// submit_resolves_to_its_received_outcome). The partial Focus run shares no feedback, so it maps only the Practice row.
+const PRACTICE_SETTLEMENT = { 'Practice again press → arrival (sent)': ['practice_again'] } as const;
+const FEEDBACK_SETTLEMENT = { 'feedback outcome (sent)': ['share_feedback'] } as const;
+const FOCUS_SETTLEMENT: Readonly<Record<string, readonly string[]>> = {
+    'coverage_evaluation sent': ['session_after_focus_points'],
+    'inventory events sent': ['analytics_inventory'],
+    ...PRACTICE_SETTLEMENT,
+};
+export const BLIND_HOLD_SETTLEMENT: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+    'open-mic-first-session': {
+        'telemetry sent': ['session_after_open_mic', 'share_feedback'],
+        'inventory events sent': ['analytics_inventory', 'session_pdf_export'],
+        ...PRACTICE_SETTLEMENT,
+        ...FEEDBACK_SETTLEMENT,
+    },
+    'focus-points-session': { ...FOCUS_SETTLEMENT, ...FEEDBACK_SETTLEMENT },
+    'focus-points-partial': FOCUS_SETTLEMENT,
+};
+const settlementStagesFor = (suite: string, step: string): readonly string[] | undefined =>
+    Object.prototype.hasOwnProperty.call(BLIND_HOLD_SETTLEMENT, suite) && Object.prototype.hasOwnProperty.call(BLIND_HOLD_SETTLEMENT[suite], step)
+        ? BLIND_HOLD_SETTLEMENT[suite][step] : undefined;
 
 /**
  * PM RETURN 2026-09-26 — the receipt is untrusted input. Validate its structure, every row's verdict, the run identity
@@ -319,12 +671,24 @@ export function validateReceipt(raw: unknown): { receipt: ReceiptForFinalization
     for (const step of automated.absent) {
         if (countOf(step) > 0) errors.push(`receipt carries "${step}", which the ${receipt.suite} suite never writes`);
     }
+    // Codex P1 r4214120116: settlement claims must match the finalizer's closed map exactly, or nothing is finalized.
+    for (const row of receipt.rows) {
+        if (isHumanObservation(row)) continue;
+        const ev = row.evidence ?? {};
+        if (ev.receivedByStages === undefined && ev.blindSinceStep === undefined) continue;
+        const allowed = settlementStagesFor(receipt.suite, row.step);
+        if (!allowed) { errors.push(`row "${row.step}" claims readback settlement, which the ${receipt.suite} suite never maps`); continue; }
+        if (ev.receivedByStages !== allowed.join(',') || typeof ev.blindSinceStep !== 'number' || !Number.isInteger(ev.blindSinceStep) || ev.blindSinceStep < 0) {
+            errors.push(`row "${row.step}" names settlement stages other than the mapped ${allowed.join(', ')}`);
+        }
+    }
     // The suite writes `journey telemetry received` only as HOLD; the readback merge is the ONLY path to PASS/FAIL. A
     // receipt that arrives with it already settled would finalize PASS with no readback at all.
     const received = receipt.rows.find((row) => row.step === 'journey telemetry received' && !isHumanObservation(row));
     if (received && automated.required.includes(received.step) && received.verdict !== 'HOLD') {
         errors.push(`"journey telemetry received" arrived as ${received.verdict}; only the readback merge may settle it`);
     }
+    errors.push(...externalScopeErrors(receipt.suite, receipt.rows));
     return { receipt, errors };
 }
 
@@ -336,6 +700,9 @@ export interface FinalizationResult {
     rows: ReceiptRow[];
     humanObservations: HumanObservationState[];
     automatedRowsAllPass: boolean;
+    /** PM 6171519534: proved external provider outcomes stay visible after finalization — never folded into PASS or FAIL. */
+    external: { step: string; detail: string }[];
+    successfulCoachingOutstanding: boolean;
 }
 
 /**
@@ -350,14 +717,90 @@ export interface FinalizationResult {
  * Untrusted input: it must name the SAME suite, release, bound journeys (with the same stages) and missing bindings as
  * the receipt, or it is a binding error. The row becomes PASS only when every bound journey QUALIFIED and nothing is
  * missing; otherwise it stays HOLD. No readback file leaves the row HOLD (fail closed).
+ * #1258 (#1563, Codex r4197007854): a journey whose readback RECEIVED an observed failure is `FAIL`, and the row is FAIL —
+ * an observed failure is never reported as missing evidence.
  */
 export interface ReadbackVerdicts {
     suite: string;
     release: string;
-    journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' }[];
+    journeys: { journeyId: string; stages: string[]; verdict: 'QUALIFIED' | 'HOLD' | 'FAIL' }[];
     missingBindings: string[];
+    /**
+     * #1258 H1: the received coaching-diagnostic chain (`TELEMETRY_READBACK_COACHING_DIAGNOSTIC`), when the receipt asked for
+     * it — with the exact release and binding it was computed for (PM RETURN 6115229273). A HOLD written when the readback
+     * produced no result carries no binding; it can never settle the row.
+     */
+    coachingDiagnostic?: { verdict: 'PASS' | 'FAIL' | 'HOLD'; reasons: string[]; release?: string; expected?: Record<string, unknown> };
 }
 const RECEIVED_ROW = 'journey telemetry received';
+/** The coaching rows whose EXTERNAL verdict explains a readback HOLD on the success chain (D1). */
+const EXTERNAL_COACHING_PARENTS: ReadonlySet<string> = new Set(['coaching rendered', 'Focus coaching rendered']);
+const FEEDBACK_CHAIN_ROW = 'feedback diagnostic chain';
+/** The row's sent-boundary binding, in the evaluator's expectation shape (compared field by field, exactly). */
+const rowBinding = (row: ReceiptRow): Record<string, unknown> | null => {
+    const e = row.evidence ?? {};
+    return typeof e.expectedRequestSha256 === 'string'
+        ? { requestSha256: e.expectedRequestSha256, attemptSha256: e.expectedAttemptSha256, product: e.expectedProduct,
+            configuredModel: e.expectedConfiguredModel, outcome: e.expectedOutcome }
+        : null;
+};
+const EXPECTATION_KEYS = ['requestSha256', 'attemptSha256', 'product', 'configuredModel', 'outcome'];
+const sameBinding = (a: Record<string, unknown> | undefined, b: Record<string, unknown> | null): boolean =>
+    !!a && !!b && typeof a === 'object' && Object.keys(a).sort().join() === [...EXPECTATION_KEYS].sort().join()
+    && EXPECTATION_KEYS.every((k) => typeof a[k] === 'string' && a[k] === b[k]);
+
+/**
+ * #1258 H1 (PM 6115110576) — RECEIVED EVIDENCE SETTLES THE FEEDBACK DIAGNOSTIC CHAIN, AND ONLY IT.
+ *
+ * Eligible only when the in-run row is HOLD for exactly `telemetry_not_received` (the rest of the chain already held in
+ * the browser and the database) and carries the sent-boundary digests the readback was bound to. Then the independent
+ * received verdict replaces it: PASS → PASS, FAIL → FAIL, HOLD → HOLD. An in-run FAIL, a HOLD for any other reason, or a
+ * row without the binding is never rewritten — generic journey qualification can never promote it.
+ */
+function settleFeedbackChain(row: ReceiptRow, received: ReadbackVerdicts['coachingDiagnostic']): ReceiptRow {
+    if (row.step !== FEEDBACK_CHAIN_ROW || row.verdict !== 'HOLD' || !received) return row;
+    if (row.evidence?.reasons !== 'telemetry_not_received' || !rowBinding(row)) return row;
+    // Only a result computed for THIS row's exact binding settles it (validated in applyReadback); an unbound HOLD cannot.
+    if (!sameBinding(received.expected, rowBinding(row))) return row;
+    return {
+        ...row,
+        verdict: received.verdict,
+        detail: received.verdict === 'PASS' ? 'received: the coaching diagnostic and the feedback link arrived for the exact sent request (settled at finalization)'
+            : received.verdict === 'FAIL' ? 'received evidence contradicts the run\'s sent request (settled at finalization)'
+                : 'the received coaching diagnostic chain is still incomplete',
+        evidence: { ...row.evidence, receivedReasons: received.reasons.join(',') || 'none', settledByReadback: true },
+    };
+}
+
+/**
+ * #1258 (#1570, Codex r4201644107; CLI PM option 1a, 6029321428) — RECEIVED EVIDENCE SETTLES A BLIND "SENT" HOLD.
+ *
+ * A sent row HOLDs when its event may have left inside a Blob beacon the browser does not expose. It becomes PASS only
+ * when `BLIND_HOLD_SETTLEMENT` maps the row's suite and step to the qualification stages that receive its events (the
+ * receipt's `receivedByStages` must equal that entry; it never chooses the stages) and, for EVERY mapped stage,
+ * at least one bound journey declares it and every journey declaring it QUALIFIED: received implies sent. Anything less —
+ * an unnamed stage, a stage no journey declared, a journey that HOLD or FAILed — leaves the row exactly as written. Rows
+ * whose events no stage receives (coaching outcomes, the exact generation count) carry no stages and so stay HOLD. Only
+ * a HOLD caused by a blind beacon (`blindSinceStep > 0`) is eligible; a FAIL or PASS is never rewritten.
+ */
+function settleBlindHold(suite: string, row: ReceiptRow, journeys: readonly { stages: readonly string[]; verdict: string }[]): ReceiptRow {
+    const blind = row.evidence?.blindSinceStep;
+    if (row.verdict !== 'HOLD' || isHumanObservation(row) || typeof blind !== 'number' || blind <= 0) return row;
+    // The stages come from the closed map, never from the receipt (validateReceipt already rejected any disagreement).
+    const stages = settlementStagesFor(suite, row.step);
+    if (!stages || row.evidence?.receivedByStages !== stages.join(',')) return row;
+    const settled = stages.every((stage) => {
+        const declaring = journeys.filter((j) => j.stages.includes(stage));
+        return declaring.length > 0 && declaring.every((j) => j.verdict === 'QUALIFIED');
+    });
+    if (!settled) return row;
+    return {
+        ...row,
+        verdict: 'PASS',
+        detail: `received: every bound journey declaring ${stages.join(', ')} qualified in the PostHog readback, so the events the browser could not show did arrive (settled at finalization)`,
+        evidence: { ...row.evidence, settledByReadback: true },
+    };
+}
 
 function applyReadback(receipt: ReceiptForFinalization, readback: unknown, errors: string[]): ReceiptRow[] {
     const rb = readback as Partial<ReadbackVerdicts> | null;
@@ -375,22 +818,64 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
     if (JSON.stringify([...missing].map(String).sort()) !== JSON.stringify([...(receipt.readback?.missingBindings ?? [])].sort())) {
         return bad('do not match the receipt\'s missing bindings');
     }
-    if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD')) return bad('carry an unknown journey verdict');
+    if (journeys.some((j) => j.verdict !== 'QUALIFIED' && j.verdict !== 'HOLD' && j.verdict !== 'FAIL')) return bad('carry an unknown journey verdict');
+    const coaching = rb.coachingDiagnostic;
+    if (coaching !== undefined) {
+        if (!coaching || typeof coaching !== 'object' || Array.isArray(coaching)
+            || !Object.keys(coaching).every((k) => ['verdict', 'reasons', 'release', 'expected'].includes(k))
+            || !coherentCoachingResult(coaching.verdict, coaching.reasons)) {
+            return bad('carry a malformed or incoherent coaching diagnostic result');
+        }
+        const bound = coaching.release !== undefined || coaching.expected !== undefined;
+        // A PASS or FAIL is evidence about a specific request, so it must name the release and binding it was computed for.
+        if (coaching.verdict !== 'HOLD' && !bound) return bad('carry a coaching diagnostic verdict with no binding');
+        if (bound) {
+            const chainRow = receipt.rows.find((r) => r.step === FEEDBACK_CHAIN_ROW);
+            if (coaching.release !== receipt.release) return bad('carry a coaching diagnostic result for a different release');
+            if (!chainRow || !sameBinding(coaching.expected, rowBinding(chainRow))) {
+                return bad('carry a coaching diagnostic result bound to a different request, attempt, product, model or outcome');
+            }
+        }
+    }
+    const failed = journeys.filter((j) => j.verdict === 'FAIL').length;
     const qualified = journeys.length > 0 && missing.length === 0 && journeys.every((j) => j.verdict === 'QUALIFIED');
-    return receipt.rows.map((r) => (r.step !== RECEIVED_ROW ? r : {
+    // D1 (PM 6171519534): the product completeness gate still requires a rendered review in the post-Stop chain, so a run
+    // whose coaching was provably unavailable cannot qualify it. That HOLD is named, never relabelled received PASS or
+    // EXTERNAL; an observed FAIL still dominates.
+    const externalCoaching = receipt.rows.some((r) => r.verdict === 'EXTERNAL' && EXTERNAL_COACHING_PARENTS.has(r.step));
+    return receipt.rows.map((r) => (r.step === FEEDBACK_CHAIN_ROW ? settleFeedbackChain(r, coaching) : r.step !== RECEIVED_ROW ? settleBlindHold(receipt.suite, r, journeys) : {
         ...r,
-        verdict: qualified ? 'PASS' : 'HOLD',
-        detail: qualified ? 'every bound journey qualified in the PostHog readback (merged at finalization)'
-            : 'the PostHog readback did not qualify every bound journey',
-        evidence: { ...(r.evidence ?? {}), readbackJourneys: journeys.length, readbackQualified: journeys.filter((j) => j.verdict === 'QUALIFIED').length },
+        verdict: failed > 0 ? 'FAIL' : qualified ? 'PASS' : 'HOLD',
+        detail: failed > 0 ? 'the PostHog readback RECEIVED an observed failure for a bound journey (merged at finalization)'
+            : qualified ? 'every bound journey qualified in the PostHog readback (merged at finalization)'
+                : externalCoaching
+                    ? 'the PostHog readback did not qualify every bound journey; the post-Stop success chain (review_rendered) cannot complete while the coaching provider was unavailable (EXTERNAL; product gate unchanged, D1)'
+                    : 'the PostHog readback did not qualify every bound journey',
+        evidence: { ...(r.evidence ?? {}), readbackJourneys: journeys.length, readbackQualified: journeys.filter((j) => j.verdict === 'QUALIFIED').length, readbackFailed: failed },
     }));
+}
+
+/**
+ * #1593 (Sam 1792317800 §1–2) — the AUTOMATED half of finalization, for the campaign's between-case admission: the same
+ * receipt validation and the same readback settlement `finalizeReceipt` applies, without a worksheet. Human observations
+ * are left out (they are the PO's human/device acceptance, never inferred here). Any error means the receipt or its
+ * readback cannot be trusted; a missing `readback` leaves `journey telemetry received` exactly as the receipt wrote it.
+ */
+export function automatedEvaluation(raw: unknown, readback?: unknown): { suite: string | null; release: string | null; errors: string[]; rows: ReceiptRow[] } {
+    const validated = validateReceipt(raw);
+    if (!validated.receipt) return { suite: null, release: null, errors: validated.errors, rows: [] };
+    const receipt = validated.receipt;
+    const errors = [...validated.errors];
+    const rows = readback === undefined ? receipt.rows : applyReadback(receipt, readback, errors);
+    return { suite: receipt.suite, release: receipt.release, errors, rows: rows.filter((r) => !isHumanObservation(r)) };
 }
 
 export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readback?: unknown): FinalizationResult {
     const validated = validateReceipt(raw);
     if (!validated.receipt) {
         // Unusable receipt: nothing can be finalized from it — INCOMPLETE, never PASS.
-        return { status: 'binding_error', finalAcceptance: 'INCOMPLETE', errors: validated.errors, rows: [], humanObservations: [], automatedRowsAllPass: false };
+        return { status: 'binding_error', finalAcceptance: 'INCOMPLETE', errors: validated.errors, rows: [], humanObservations: [], automatedRowsAllPass: false,
+            external: [], successfulCoachingOutstanding: false };
     }
     const receipt = validated.receipt;
     const errors: string[] = [...validated.errors];
@@ -410,8 +895,17 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
     for (const id of expectedIds) {
         const entry = seen.get(id);
         if (!entry) { errors.push(`observation missing from worksheet: ${id}`); continue; }
-        if (entry.result !== 'PASS' && entry.result !== 'FAIL') errors.push(`observation ${id} has no PASS/FAIL result`);
-        if ((entry.result === 'PASS' || entry.result === 'FAIL') && entry.observer.trim() === '') errors.push(`observation ${id} ${entry.result} has no observer`);
+        const externalParent = externalParentOf(receipt.rows, id);
+        if (entry.result === NOT_EXERCISED || entry.result === '') {
+            // Only a coaching-quality check under its own proved EXTERNAL parent may be not exercised (blank allowed) —
+            // and it is still SIGNED (Codex P2 r4275712673): an untouched prefilled row is not a reviewed one.
+            if (!externalParent) errors.push(`observation ${id} has no PASS/FAIL result`);
+            else if (entry.observer.trim() === '') errors.push(`observation ${id} ${NOT_EXERCISED} has no observer`);
+            continue;
+        }
+        if (entry.result !== 'PASS' && entry.result !== 'FAIL') { errors.push(`observation ${id} has no PASS/FAIL result`); continue; }
+        if (externalParent && entry.result === 'PASS') errors.push(`observation ${id} cannot PASS: its coaching was not exercised (external provider outage)`);
+        if (entry.observer.trim() === '') errors.push(`observation ${id} ${entry.result} has no observer`);
     }
 
     const readbackRows = readback === undefined ? receipt.rows : applyReadback(receipt, readback, errors);
@@ -419,16 +913,22 @@ export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readba
         const a = receiptAcceptance(receipt.rows);
         // A FAIL already present in the automated rows stays a FAIL; otherwise the run is INCOMPLETE, never PASS.
         return { status: 'binding_error', finalAcceptance: a.acceptance === 'FAIL' ? 'FAIL' : 'INCOMPLETE', errors, rows: receipt.rows,
-            humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass };
+            humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass,
+            external: a.external, successfulCoachingOutstanding: a.successfulCoachingOutstanding };
     }
     const rows = readbackRows.map((r) => {
         if (!isHumanObservation(r)) return r;
         const entry = seen.get(String(r.evidence!.observationId))!;
+        if (entry.result === NOT_EXERCISED || entry.result === '') {
+            return { ...r, verdict: 'EXTERNAL' as const, detail: 'not exercised: there was no coaching answer to judge (external provider outage)',
+                evidence: { ...r.evidence!, recorded: 'not_exercised', observer: entry.observer } };
+        }
         const verdict = entry.result as 'PASS' | 'FAIL';
         return { ...r, verdict, detail: `recorded by the human reviewer: ${verdict}`, evidence: { ...r.evidence!, recorded: verdict, observer: entry.observer } };
     });
     const a = receiptAcceptance(rows);
-    return { status: 'final', finalAcceptance: a.acceptance, errors: [], rows, humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass };
+    return { status: 'final', finalAcceptance: a.acceptance, errors: [], rows, humanObservations: a.humanObservations, automatedRowsAllPass: a.automatedRowsAllPass,
+        external: a.external, successfulCoachingOutstanding: a.successfulCoachingOutstanding };
 }
 
 /**

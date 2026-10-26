@@ -26,6 +26,8 @@ const PREFLIGHT = M('20260805000000_transcript_retention_preflight.sql');
 const COMPLETE_V2 = M('20260819120000_complete_session_v2_atomic_retention_1314.sql');
 /** The correction under test. Applied AFTER the shipped ones, exactly as Production would run it. */
 const NEWEST_ONE = M('20260908120000_transcript_retention_newest_one.sql');
+/** #1258 P0 — the forward-only correction that replaced the superuser-only trigger bypass. */
+const NO_SUPERUSER_EXPIRY = M('20261013120000_retention_expiry_without_superuser_1258.sql');
 
 // Execute the exact sessions-column ALTER from the historical migration in the legacy-row casualty.
 // The rest of phase2 owns unrelated tables/functions whose dependencies are outside this focused DB.
@@ -91,6 +93,7 @@ async function freshDb(): Promise<PGlite> {
     await db.exec(COMPLETE_V2);
     // ...and then the correction, in migration order.
     await db.exec(NEWEST_ONE);
+    await db.exec(NO_SUPERUSER_EXPIRY);
     // Policy mechanics in this suite run only after the explicit post-test activation boundary.
     await db.query('SELECT public.activate_transcript_retention_newest_one()');
     return db;

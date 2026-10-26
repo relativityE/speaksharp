@@ -40,6 +40,7 @@ export type MeasurementReasonCode =
     | 'scope_matched_nothing'
     | 'sizes_opaque'
     | 'requests_outside_scope'
+    | 'requests_redirected'
     // #1421 P1 — coverage could not be PROVEN, as distinct from being disproven. On a shared timeline
     // the absence of foreign traffic is not observable, so completeness must be established by
     // matching the assets the candidate declares.
@@ -120,6 +121,13 @@ export interface AcquisitionTimelineScope {
     timeline: 'exclusive' | 'shared';
     /** How many components the candidate declares (`assets.componentCount`), or null if unknown. */
     expectedComponents: number | null;
+    /** Separate required resource classes. Each must meet its own unique-resource count. */
+    expectedComponentGroups?: ReadonlyArray<{
+        prefixes: readonly string[];
+        minimumUniqueCount: number;
+        expectedResourceUrls?: readonly string[];
+        allowedResourceUrls?: readonly string[];
+    }>;
 }
 
 const SHARED_TIMELINE: AcquisitionTimelineScope = { timeline: 'shared', expectedComponents: null };
@@ -152,9 +160,20 @@ export function observeAcquisitionNetwork(
     }
 
     const inWindow = entries.filter((e) => e.startTime >= startedAt);
+    const resourceIdentity = (value: string) => {
+        try {
+            const parsed = new URL(value);
+            return `${parsed.origin}${parsed.pathname}`;
+        } catch {
+            return value.split(/[?#]/, 1)[0];
+        }
+    };
+    const exactAllowedNames = new Set((scope.expectedComponentGroups ?? [])
+        .flatMap((group) => group.allowedResourceUrls ?? []).map(resourceIdentity));
     // `includes`, not `startsWith`: a scope may be a served location OR a repository identity that
     // appears inside the request path.
-    const matched = inWindow.filter((e) => prefixes.some((p) => e.name.includes(p)));
+    const matched = inWindow.filter((e) => prefixes.some((p) => e.name.includes(p))
+        || exactAllowedNames.has(resourceIdentity(e.name)));
     /*
      * COUNTED ONLY WHERE IT MEANS SOMETHING. On a shared timeline the unmatched entries are the page's
      * own traffic, so the subtraction below would be a count of unrelated requests. Null, not zero:
@@ -192,6 +211,7 @@ export function observeAcquisitionNetwork(
     const sized = matched.filter((e) => typeof e.transferSize === 'number' && (e.transferSize > 0 || e.encodedBodySize > 0));
     const anyOpaque = matched.some((e) => e.transferSize === 0 && e.encodedBodySize === 0);
     const transferred = sized.reduce((sum, e) => sum + (e.transferSize ?? 0), 0);
+    const redirected = matched.some((e) => e.redirectStart > 0 || e.redirectEnd > 0);
 
     const firstStart = Math.min(...matched.map((e) => e.startTime));
     const lastEnd = Math.max(...matched.map((e) => e.responseEnd || e.startTime + e.duration));
@@ -216,8 +236,33 @@ export function observeAcquisitionNetwork(
      * `complete`. That is the fail-closed direction: an undeclared candidate cannot qualify by
      * omission.
      */
-    const componentsKnown = scope.expectedComponents !== null;
-    const componentsProven = componentsKnown && matched.length >= (scope.expectedComponents as number);
+    const groups = scope.expectedComponentGroups ?? [];
+    const componentsKnown = groups.length > 0 || scope.expectedComponents !== null;
+    const uniqueNames = (entries: PerformanceResourceTiming[]) => new Set(entries.map((entry) => {
+        // Query/hash changes do not make a second component. Keep the comparison content-free and
+        // local to the observer; names never cross the receipt or analytics boundary.
+        try {
+            const parsed = new URL(entry.name);
+            return `${parsed.origin}${parsed.pathname}`;
+        } catch {
+            return entry.name.split(/[?#]/, 1)[0];
+        }
+    }));
+    const componentsProven = groups.length > 0
+        ? groups.every((group) => {
+            const allowedNames = group.allowedResourceUrls === undefined ? null
+                : new Set(group.allowedResourceUrls.map(resourceIdentity));
+            const resources = matched.filter((entry) => allowedNames
+                ? allowedNames.has(resourceIdentity(entry.name))
+                : group.prefixes.some((prefix) => entry.name.includes(prefix)));
+            const observedGroupNames = uniqueNames(resources);
+            if (group.expectedResourceUrls !== undefined) {
+                return group.expectedResourceUrls.length === group.minimumUniqueCount
+                    && group.expectedResourceUrls.every((url) => observedGroupNames.has(resourceIdentity(url)));
+            }
+            return observedGroupNames.size >= group.minimumUniqueCount;
+        })
+        : componentsKnown && uniqueNames(matched).size >= (scope.expectedComponents as number);
     /*
      * THE COMPONENT CHECK APPLIES ON BOTH TIMELINES.
      *
@@ -229,9 +274,9 @@ export function observeAcquisitionNetwork(
      * Where the count is unknown, an exclusive timeline still has its own evidence and keeps its
      * previous behaviour; a shared timeline has none and cannot qualify.
      */
-    const covered = exclusive
+    const covered = !redirected && (exclusive
         ? outOfScopeCount === 0 && (!componentsKnown || componentsProven)
-        : componentsProven;
+        : componentsProven);
     const completeness: MeasurementCompleteness = covered && !sizesOpaque ? 'complete' : 'partial';
 
     // `false` IS A CLAIM ABOUT EVERY REQUEST, so only a COMPLETE observation may make it.
@@ -254,6 +299,7 @@ export function observeAcquisitionNetwork(
         // Unmatched requests first where they are evidence: an unexplained request inside the download
         // is a stronger statement than a count that fell short, and it is the more actionable one.
         : (exclusive && outOfScopeCount !== 0) ? 'requests_outside_scope'
+            : redirected ? 'requests_redirected'
             : componentsKnown ? 'component_shortfall' : 'coverage_unprovable';
     const reasonCode: MeasurementReasonCode | null = completeness === 'complete'
         ? null

@@ -1,5 +1,5 @@
 /** F-07 casualty: the real completed-session parent must expose the saved-session 1+1 review. */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, act } from '../../../tests/support/test-utils';
@@ -9,9 +9,33 @@ import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 import * as RecoveryHook from '@/hooks/useUnresolvedRecovery';
 import { getSupabaseClient } from '@/lib/supabaseClient';
+import { webcrypto } from 'node:crypto';
+import { authEpoch, setCurrentLogin } from '@/services/loginSessionLog';
+import { clearOpenAttempt, getOpenAttemptForUser, setOpenAttempt } from '@/services/progress/openAttempt';
+import { progressOutcomeAllowsNextRecording, wireProgressEvaluationOnSave } from '@/services/progress/recordProgress';
+import { validateDisplayedTarget } from '@/services/progress/repeatPracticeTarget';
 
 /** #1538 Codex P1 r4118176188: every coaching request declares the closed capability. */
 const ACCEPTED_COACHING_VERSIONS = ['gemini_coaching_v1', 'gemini_coaching_focus_v1'];
+/**
+ * #1589 diagnostics (accepted contract): every coaching invocation also carries an opaque UUIDv4 `diagnostic_request_id`
+ * (one per review lifecycle) and `diagnostic_attempt_id` (one per network invocation), plus `client_attempt`. The body is
+ * still matched EXACTLY — any other key fails — so the saved-session/product binding stays the assertion's subject.
+ * Within-lifecycle continuity across a retry is asserted in AISuggestions.component.test.tsx; here, cross-take isolation.
+ */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const coachingRequest = (sessionId: string, product: 'open_mic' | 'focus_points', clientAttempt = 1) => ({
+    body: {
+        sessionId, product, accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS,
+        diagnostic_request_id: expect.stringMatching(UUID_V4),
+        diagnostic_attempt_id: expect.stringMatching(UUID_V4),
+        client_attempt: clientAttempt,
+    },
+    // #1593 (PO route-exit requirement): the invoke carries an abort signal so leaving the review cancels the wait.
+    // A transport option, not body content: the body above is still exactly the saved session id and capability.
+    signal: expect.any(AbortSignal),
+});
+type CoachingBody = { sessionId: string; diagnostic_request_id: string; diagnostic_attempt_id: string; client_attempt: number };
 
 vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }));
 vi.mock('@/hooks/useUnresolvedRecovery', () => ({ useUnresolvedRecovery: vi.fn() }));
@@ -107,6 +131,7 @@ const publishCompletedSession = (wordCount: number, sessionId = 'session-complet
 
 beforeEach(() => {
     vi.clearAllMocks();
+    clearOpenAttempt(); setCurrentLogin('owner-1', 100);
     useSessionStore.getState().resetSession();
     mockLifecycle.mockReturnValue(lifecycle() as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
     mockRecovery.mockReturnValue({
@@ -115,6 +140,81 @@ beforeEach(() => {
     vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke } } as unknown as ReturnType<typeof getSupabaseClient>);
     // Default: the server retained the transcript, so the review is genuinely ready.
     getSessionById.mockResolvedValue(savedRow('available'));
+});
+
+describe('#1548 accepted instruction reaches the actual Session parent', () => {
+    it.each(['delayed', 'failed'] as const)('save B through the normal progress caller then start C with %s advancement: no inherited A advice', async advancement => {
+        localStorage.clear();
+        Object.defineProperty(globalThis.crypto, 'subtle', { configurable: true, value: webcrypto.subtle });
+        let releaseAdvance!: (value: { data: null; error: { code: string } }) => void;
+        const advancing = new Promise(resolve => { releaseAdvance = resolve; });
+        const rpc = vi.fn(async (name: string) => {
+            if (name === 'record_progress_evaluation') return { data: 'evaluation-B', error: null };
+            if (name === 'advance_recommendation_attempt') return advancing;
+            return { data: null, error: { code: 'downstream-unavailable' } };
+        });
+        vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke }, rpc, from: (table: string) => ({ select: () => {
+            const query = { eq: () => query, maybeSingle: async () => ({ data: table === 'sessions' ? { product: 'open_mic', ai_suggestions: {
+                version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.',
+            } } : null, error: null }) }; return query;
+        } }) } as unknown as ReturnType<typeof getSupabaseClient>);
+        const reference = await validateDisplayedTarget({ ownerId: 'owner-1', epoch: authEpoch(), sessionId: 'source-A',
+            product: 'open_mic', instruction: 'Name the price first.', focus: null, isCurrent: () => true });
+        setOpenAttempt({ userId: 'owner-1', attemptId: 'repeat-B', sourceSessionId: 'source-A',
+            acceptedAtIso: '2026-10-19T10:00:00.000Z', repeatTarget: reference });
+        const start = vi.fn();
+        mockLifecycle.mockReturnValue({ ...lifecycle(), showAnalyticsPrompt: false, handleStartStop: start } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        useSessionStore.setState({ progressGate: null, progressGateResolvedFor: 'owner-1' });
+        const page = render(<SessionPage />);
+        try {
+            expect(await screen.findByText('Name the price first.')).toBeInTheDocument();
+            let outcome: Awaited<ReturnType<typeof wireProgressEvaluationOnSave>> | undefined;
+            await act(async () => { outcome = await wireProgressEvaluationOnSave({ sessionId: 'saved-repeat-B', status: 'completed',
+                attributionStatus: 'verified', metricsPersisted: true, userId: 'owner-1', takeStartedAtIso: '2026-10-19T10:01:00.000Z' }); });
+            expect(outcome).toEqual({ kind: 'recorded' });
+            expect(progressOutcomeAllowsNextRecording(outcome!)).toBe(true);
+            expect(getOpenAttemptForUser('owner-1')).toMatchObject({ attemptId: 'repeat-B', resolutionSessionId: 'saved-repeat-B' });
+            await waitFor(() => expect(rpc).toHaveBeenCalledWith('advance_recommendation_attempt', expect.objectContaining({ p_practice_session_id: 'saved-repeat-B' })));
+            if (advancement === 'failed') await act(async () => { releaseAdvance({ data: null, error: { code: 'offline' } }); });
+            // Evaluation is durable and the existing save caller has unlocked the next recording; advancement is not its gate.
+            expect(screen.getByTestId('mic-start')).toBeEnabled();
+            screen.getByTestId('mic-start').click();
+            expect(start).toHaveBeenCalledOnce();
+            mockLifecycle.mockReturnValue({ ...lifecycle(), isListening: true, showAnalyticsPrompt: false,
+                handleStartStop: start, sttStatus: { type: 'recording', message: 'Recording active' } } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+            act(() => { useSessionStore.getState().setCaptureLive(true); page.rerender(<SessionPage />); });
+            expect(screen.getByTestId('coaching-card')).toHaveAttribute('data-coaching-state', 'during');
+            expect(screen.queryByText('Name the price first.')).not.toBeInTheDocument();
+            expect(getOpenAttemptForUser('owner-1')?.resolutionSessionId).toBe('saved-repeat-B');
+        } finally {
+            await act(async () => { releaseAdvance({ data: null, error: { code: 'offline' } }); for (let i = 0; i < 25; i++) await Promise.resolve(); });
+            clearOpenAttempt();
+        }
+    });
+    it('renders the same instruction before/during, then immediately removes it after account invalidation', async () => {
+        Object.defineProperty(globalThis.crypto, 'subtle', { configurable: true, value: webcrypto.subtle });
+        const sourceRead = vi.fn().mockResolvedValue({ data: { product: 'open_mic', ai_suggestions: {
+            version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.',
+        } }, error: null });
+        vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke }, from: () => ({ select: () => {
+            const query = { eq: () => query, maybeSingle: sourceRead }; return query;
+        } }) } as unknown as ReturnType<typeof getSupabaseClient>);
+        const reference = await validateDisplayedTarget({ ownerId: 'owner-1', epoch: authEpoch(), sessionId: 'source-1',
+            product: 'open_mic', instruction: 'Name the price first.', focus: null, isCurrent: () => true });
+        setOpenAttempt({ userId: 'owner-1', attemptId: 'repeat-1', sourceSessionId: 'source-1', repeatTarget: reference });
+        mockLifecycle.mockReturnValue({ ...lifecycle(), showAnalyticsPrompt: false } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        const page = render(<SessionPage />);
+        expect(await screen.findByText('Name the price first.')).toBeInTheDocument();
+        expect(screen.getByTestId('coaching-card')).toHaveAttribute('data-coaching-state', 'before');
+        mockLifecycle.mockReturnValue({ ...lifecycle(), isListening: true, showAnalyticsPrompt: false,
+            sttStatus: { type: 'recording', message: 'Recording active' } } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        act(() => { useSessionStore.getState().setCaptureLive(true); page.rerender(<SessionPage />); });
+        expect(screen.getByTestId('coaching-card')).toHaveAttribute('data-coaching-state', 'during');
+        expect(screen.getByTestId('repeat-practice-target')).toHaveTextContent('Name the price first.');
+        act(() => { setCurrentLogin('owner-2', 200); page.rerender(<SessionPage />); });
+        expect(screen.queryByText('Name the price first.')).not.toBeInTheDocument();
+        clearOpenAttempt();
+    });
 });
 
 describe('F-07 completed-session Practice Loop review', () => {
@@ -133,9 +233,9 @@ describe('F-07 completed-session Practice Loop review', () => {
         // #1416 P2-4 — NO CLICK. The completed session reaches post-save readiness and the review
         // requests itself. This is the parent-level proof of the PO ruling: the whole journey, from a
         // finished session to a request, with nobody pressing anything.
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
+        const [first] = invoke.mock.calls.map((call) => (call[1] as { body: CoachingBody }).body);
+        expect(first.diagnostic_attempt_id, 'the attempt id identifies the invocation, not the lifecycle').not.toBe(first.diagnostic_request_id);
         expect(await screen.findAllByText('What went well')).toHaveLength(1);
         // The fix sits in the signature `TRY THIS NEXT RUN` block (S-12b). Still exactly one of each: the
         // 1+1 contract is unchanged, only the fix's label moved to the slot a future verdict will sit above.
@@ -483,9 +583,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         render(<SessionPage />);
 
         // The automatic post-save submission fires against the PERSISTED id.
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
     });
 
     it('CASUALTY: TWO CONSECUTIVE TAKES — the second must not review the first', async () => {
@@ -509,9 +607,7 @@ describe('F-07 completed-session Practice Loop review', () => {
         });
 
         render(<SessionPage />);
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-one', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-take-one', 'open_mic')));
         invoke.mockClear();
 
         // Take two begins. The controller supersedes the previous take's finalized signal AND its
@@ -555,9 +651,7 @@ describe('F-07 completed-session Practice Loop review', () => {
 
         render(<SessionPage />);
 
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
     });
 
     it('MEASUREMENT: the whole two-attempt budget issues exactly two reads, never a third', async () => {
@@ -609,9 +703,8 @@ describe('F-07 completed-session Practice Loop review', () => {
         });
 
         render(<SessionPage />);
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-A', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-take-A', 'open_mic')));
+        const takeA = (invoke.mock.calls[invoke.mock.calls.length - 1][1] as { body: CoachingBody }).body;
 
         // ---- "Practice again": take B STARTS. The controller supersedes A's finalized signal and its
         // completed-session identity at the accepted-start boundary. Nothing unmounts the page.
@@ -632,9 +725,7 @@ describe('F-07 completed-session Practice Loop review', () => {
             publishCompletedSession(7, 'session-take-B');
         });
 
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-take-B', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-take-B', 'open_mic')));
 
         // THE CLAIM: after B started, every request belongs to B. Asserting only "B was requested"
         // would pass while A was requested too — which is the exact defect, because a duplicate
@@ -647,6 +738,12 @@ describe('F-07 completed-session Practice Loop review', () => {
         );
         expect(requestedIds, 'take A is never requested again').not.toContain('session-take-A');
         expect(requestedIds.length, 'B is reviewed exactly once').toBe(1);
+        // #1589: B is a NEW review lifecycle — its diagnostic identity is never A's, so a report about B cannot be
+        // correlated to A's request (and vice versa).
+        const takeB = (invoke.mock.calls[0][1] as { body: CoachingBody }).body;
+        expect(takeB.diagnostic_request_id, 'take B gets its own request id').not.toBe(takeA.diagnostic_request_id);
+        expect(takeB.diagnostic_attempt_id, 'take B gets its own attempt id').not.toBe(takeA.diagnostic_attempt_id);
+        expect(takeB.client_attempt, 'B starts its own lifecycle at attempt 1').toBe(1);
     });
 
     it('CASUALTY: a read RETIRED by a session change cannot publish under its old identity', async () => {
@@ -782,9 +879,7 @@ describe('F-07 completed-session Practice Loop review', () => {
                 { id: 'p2', label: 'Shared board', status: 'missing' },
             ]);
         });
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'focus_points', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'focus_points')));
         expect(invoke).toHaveBeenCalledTimes(1);
     });
 
@@ -806,8 +901,70 @@ describe('F-07 completed-session Practice Loop review', () => {
         useSessionStore.getState().setObjectiveCoverageFailed(); // irrelevant to Open Mic
         invoke.mockResolvedValue(PAIR);
         render(<SessionPage />);
-        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-            body: { sessionId: 'session-complete-1', product: 'open_mic', accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
-        }));
+        await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', coachingRequest('session-complete-1', 'open_mic')));
+    });
+});
+
+describe('#1258 PR A — next-take prewarm and page visibility (Codex r4291244687)', () => {
+    const setVisibility = (state: 'visible' | 'hidden') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+    };
+    // Only THIS block's own spies are restored — a global restore would also undo the setup's observer mocks.
+    const spies: Array<{ mockRestore: () => void }> = [];
+    const spy = <T extends { mockRestore: () => void }>(s: T): T => { spies.push(s); return s; };
+    afterEach(() => { setVisibility('visible'); spies.splice(0).forEach((s) => s.mockRestore()); });
+
+    it('a review that became eligible while HIDDEN prewarms when the tab becomes visible again', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        render(<SessionPage />);
+        await settleMicrotasks();
+        expect(prepare, 'nothing is prepared while the page is hidden').not.toHaveBeenCalled();
+
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await waitFor(() => expect(prepare).toHaveBeenCalledWith('private'));
+    });
+
+    it('a review that is NO LONGER eligible when the tab returns (an unresolved save appeared) is not prepared — visibility is not permission', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        render(<SessionPage />);
+        await settleMicrotasks();
+        act(() => { useSessionStore.getState().setEngineSelectionLock(true, 'full_save'); });
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await settleMicrotasks();
+        expect(prepare).not.toHaveBeenCalled();
+    });
+
+    it('the visibility listener is removed on unmount: a later tab return prepares nothing', async () => {
+        const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
+        const prepare = spy(vi.spyOn(speechRuntimeController, 'prepareNextTake').mockResolvedValue(undefined));
+        const added = spy(vi.spyOn(document, 'addEventListener'));
+        const removed = spy(vi.spyOn(document, 'removeEventListener'));
+        invoke.mockResolvedValue({ data: null, error: null });
+        setVisibility('hidden');
+        act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+        publishCompletedSession(4);
+        const { unmount } = render(<SessionPage />);
+        await settleMicrotasks();
+        const handlers = added.mock.calls.filter(([type]) => type === 'visibilitychange').map(([, h]) => h);
+        expect(handlers.length, 'the page listens for tab return').toBeGreaterThan(0);
+        unmount();
+        const removedHandlers = removed.mock.calls.filter(([type]) => type === 'visibilitychange').map(([, h]) => h);
+        expect(handlers.every((h) => removedHandlers.includes(h)), 'every visibility listener the page added is removed').toBe(true);
+        setVisibility('visible');
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+        await settleMicrotasks();
+        expect(prepare).not.toHaveBeenCalled();
     });
 });

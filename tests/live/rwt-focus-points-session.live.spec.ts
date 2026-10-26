@@ -20,9 +20,9 @@
  *           rwt_writes_ack=RWT-DISPOSABLE-ACCOUNT-WRITES [comparison_cell=v4:distil:q4/focus_points]
  */
 import { test } from './helpers/rwtProductionTest';
-import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
-import { RWT_ACCOUNT_PREFIX, loadRwtFixture, rwtLaunchArgs } from './helpers/rwtJourney';
-import { WEBGPU, admin, focusPointsJourney } from './helpers/rwtFocusPointsJourney';
+import { loadRwtFixture, rwtLaunchArgs } from './helpers/rwtJourney';
+import { WEBGPU, focusPointsJourney } from './helpers/rwtFocusPointsJourney';
+import { JourneyFinalizer } from './helpers/rwtWatchdog';
 
 test.use({
     permissions: ['microphone'],
@@ -33,16 +33,23 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(loadRwtFixture('focus_points_tts'), { webgpu: WEBGPU }) },
 });
 
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
+
 test.describe('RWT — Focus Points @live', () => {
     const owner = { email: '', uid: '' };
     test.afterEach(async () => {
-        await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: owner.uid, createdEmail: owner.email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
+        // #1593 (Sam, #1662 RETURN control 1): the journey's ONE owned finalization (rows, account cleanup, receipt) — the
+        // same memoized run the journey's finally starts, so a test timeout still deletes the account and writes the receipt.
+        await finalizer.drain();
         owner.email = '';
         owner.uid = '';
     });
 
     test('PO corpus — all four points detected live', async ({ page }, testInfo) => {
-        test.setTimeout(1_500_000); // cold model acquisition + a ~60 s take + review + Analytics
-        await focusPointsJourney(page, testInfo, 'focus_points_tts', 'focus-points-session', owner);
+        // PO 2026-10-10: 35 min. Cold model acquisition + the ~50 s take + review + Analytics, plus the #1258 New Set / Edit and
+        // product-switch takes (~115 s of recording, three more coaching requests); still inside the 45-min gate-3-dast job.
+        test.setTimeout(2_100_000);
+        await focusPointsJourney(page, testInfo, 'focus_points_tts', 'focus-points-session', owner, 7, finalizer);
     });
 });

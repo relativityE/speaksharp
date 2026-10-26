@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "identity": {
+    "engine": "private-v4",
+    "modelId": "onnx-community/whisper-base.en",
+    "revision": null,
+    "assetDigest": "19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644",
+    "runtime": "@huggingface/transformers@4.3.0",
+    "backend": "wasm"
+  },
+  "adapterModule": "./scripts/model-evaluator/adapters/candidate-browser.ts",
+  "adapterOptions": { "candidateId": "v4:base:q4" }
+}

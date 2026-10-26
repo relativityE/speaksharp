@@ -63,7 +63,17 @@ describe('loadSavedFocusPointsCoverage', () => {
             ],
             // The saved set, so "Practice this again" rebinds exactly these points.
             brief: { briefId: 'b1', projectId: 'proj1', topic: 'A better weekly team handoff' },
+            evidenceRows: 3,
         });
+    });
+
+    // #1577 Codex P2 4236239714: the coaching function treats zero evidence rows as pending (425), but the points still
+    // render as `unavailable`. The persisted evidence count is carried so a retry is offered only when the backend can act.
+    it('CASUALTY (Codex 4236239714): points saved but NO evidence rows → coverage with evidenceRows 0, every point unavailable', async () => {
+        tables.objective_evidence = { data: [], error: null };
+        const result = await loadSavedFocusPointsCoverage('s1');
+        expect(result).toMatchObject({ kind: 'coverage', detected: 0, total: 4, evidenceRows: 0 });
+        expect(result.kind === 'coverage' ? result.points.map((p) => p.status) : []).toEqual(['unavailable', 'unavailable', 'unavailable', 'unavailable']);
     });
 
     // #1535 Codex P2 r4116626850 (PM RETURN 5859089409): a FAILED brief read is not a missing brief.

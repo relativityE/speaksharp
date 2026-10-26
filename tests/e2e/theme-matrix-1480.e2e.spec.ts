@@ -67,10 +67,29 @@ async function analyseColour(page: Page, surface: string, band: string): Promise
 }
 
 /**
+ * #1475 — the header is `position: fixed`, so it never widens the document and the scrollWidth check cannot see it
+ * overflow: on 19aed5d7 at 320px, Get Started spanned 220→338 with scrollWidth still 320. Every rendered element in
+ * the header must lie inside the viewport instead. `fixedHeaders` is returned so a missing header cannot pass vacuously.
+ */
+async function headerOutsideViewport(page: Page): Promise<{ fixedHeaders: number; outside: string[] }> {
+  return page.evaluate(() => {
+    const viewport = document.documentElement.clientWidth;
+    // Only fixed headers: in-flow page headers (e.g. LegalPage) are already covered by the scrollWidth check.
+    const fixedHeaders = [...document.querySelectorAll('header')].filter((h) => getComputedStyle(h).position === 'fixed');
+    const outside = fixedHeaders.flatMap((h) => [...h.querySelectorAll('*')])
+      .map((el) => ({ el, rect: el.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.width > 0 && rect.height > 0 && (rect.left < -0.5 || rect.right > viewport + 0.5))
+      .map(({ el, rect }) => `${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 30)}" ${Math.round(rect.left)}→${Math.round(rect.right)} (viewport ${viewport})`);
+    return { fixedHeaders: fixedHeaders.length, outside };
+  });
+}
+
+/**
  * One pass per band: resize, settle, analyse contrast, assert no horizontal overflow, screenshot. Contrast and
  * overflow are measured against the SAME rendered layout, so a contrast finding is always attributable to a band.
+ * `headerContained` is set for the signed-out shell only: the authenticated header is outside #1475's scope.
  */
-async function evidence(page: Page, surface: string): Promise<void> {
+async function evidence(page: Page, surface: string, { headerContained = false } = {}): Promise<void> {
   for (const band of BANDS) {
     await page.setViewportSize({ width: band.width, height: band.height });
     await settle(page);
@@ -80,6 +99,11 @@ async function evidence(page: Page, surface: string): Promise<void> {
       document: document.documentElement.scrollWidth,
     }));
     expect.soft(widths.document, `${surface} overflows horizontally at ${band.name}: ${JSON.stringify(widths)}`).toBeLessThanOrEqual(widths.viewport);
+    if (headerContained) {
+      const header = await headerOutsideViewport(page);
+      expect.soft(header.fixedHeaders, `${surface} @ ${band.name}: the fixed site header is rendered`).toBeGreaterThan(0);
+      expect.soft(header.outside, `${surface} @ ${band.name}: header content outside the viewport`).toEqual([]);
+    }
     await page.screenshot({ path: `${SHOTS}/${surface}-${band.name}.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -102,9 +126,53 @@ test.describe('#1480 theme matrix — public, auth, legal, error and internal su
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await setupE2EMocks(page, { userType: 'free' });
       await goToApp(page, route);
-      await evidence(page, surface);
+      await evidence(page, surface, { headerContained: true });
     });
   }
+
+  test('#1475 signed-out header: Get Started fully on-screen at 320/340/360px and keyboard-usable at 320px', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await setupE2EMocks(page, { userType: 'free' });
+    await goToApp(page, '/');
+    const account = page.getByRole('navigation', { name: 'Account' });
+    const signIn = account.getByRole('link', { name: 'Sign In' });
+    const getStarted = account.getByRole('link', { name: 'Get Started' });
+    const geometry: Record<string, unknown> = {};
+    for (const width of [320, 340, 360]) {
+      await page.setViewportSize({ width, height: 800 });
+      await settle(page);
+      const box = await getStarted.boundingBox();
+      expect(box, `Get Started is rendered at ${width}px`).not.toBeNull();
+      geometry[`get-started-${width}`] = { left: Math.round(box!.x), right: Math.round(box!.x + box!.width), viewport: width };
+      expect(box!.x, `Get Started starts on-screen at ${width}px`).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width, `Get Started ends on-screen at ${width}px: ${JSON.stringify(geometry)}`).toBeLessThanOrEqual(width);
+    }
+
+    // Keyboard at 320px: Sign In, then Get Started, each focused fully on-screen, and Enter follows Get Started.
+    await page.setViewportSize({ width: 320, height: 800 });
+    await settle(page);
+    const reached: string[] = [];
+    for (let i = 0; i < 12 && !reached.includes('Get Started'); i += 1) {
+      await page.keyboard.press('Tab');
+      const focused = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (!el || !el.closest('nav[aria-label="Account"]')) return null;
+        const rect = el.getBoundingClientRect();
+        return { text: el.innerText.trim(), left: rect.left, right: rect.right };
+      });
+      if (!focused) continue;
+      expect(focused.left, `${focused.text} focused on-screen at 320px`).toBeGreaterThanOrEqual(0);
+      expect(focused.right, `${focused.text} focused on-screen at 320px`).toBeLessThanOrEqual(320);
+      reached.push(focused.text);
+    }
+    expect(reached, 'Tab reaches Sign In, then Get Started').toEqual(['Sign In', 'Get Started']);
+    await expect(signIn).toBeVisible();
+    fs.mkdirSync(SHOTS, { recursive: true });
+    fs.writeFileSync(`${SHOTS}/header-1475-geometry.json`, JSON.stringify(geometry, null, 2));
+    await page.screenshot({ path: `${SHOTS}/header-1475-keyboard-320.png` });
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/auth\/signup/);
+  });
 
   test('ops-status (colours only): contrast, reflow and screenshots', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -189,7 +257,8 @@ test.describe('#1480 theme matrix — authenticated product surfaces', () => {
     // the review-unavailable card — the review-failed state this migration must keep legible.
     const reviewCard = page.getByTestId('ai-suggestions-card');
     await expect(reviewCard).toBeVisible({ timeout: 15_000 });
-    await expect(reviewCard).not.toHaveAttribute('data-review-state', 'loading', { timeout: 20_000 });
+    // #1258 (F4): `pending` is still in motion — wait for a settled state, not merely "not loading".
+    await expect(reviewCard).toHaveAttribute('data-review-state', /^(ready|error|blocked)$/, { timeout: 20_000 });
     await evidence(page, 'open-mic-after-review-unavailable');
   });
 

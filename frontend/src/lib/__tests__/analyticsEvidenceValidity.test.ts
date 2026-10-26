@@ -71,18 +71,18 @@ describe('#1045 aggregate evidence validity', () => {
         expect(stats.avgFillerWordsPerMin).toBeNull();
     });
 
-    it('#1306: keeps a GENUINE MEASURED zero ({}) as a real 0.0/min — never excluded', () => {
-        // A measured `{}` (real speech, genuinely-counted zero fillers) is a true, valuable 0.0/min — included
-        // in the denominator as a genuine zero, not treated as "no evidence".
+    it('#1472 increment 3: an empty map ({}) is NOT a measured zero — excluded from the rate, never a flattering 0.0/min', () => {
+        // `{}` cannot prove that fillers were counted and none occurred (plan 6102829932), so it is unobservable, not
+        // clean delivery. With no OBSERVED row the all-key rate is absent (null), matching get_analytics_summary.
         const stats = calculateOverallStats([session({ filler_counts: {} })]);
-        expect(stats.avgFillerWordsPerMin).not.toBeNull();
-        expect(Number(stats.avgFillerWordsPerMin)).toBe(0);
+        expect(stats.avgFillerWordsPerMin).toBeNull();
     });
 
-    it('#1306: a MALFORMED filler map is excluded (null), while a measured {} is a genuine 0.0/min', () => {
-        // Measured zero → a real 0.0/min (included). Malformed/invalid data (nested / non-numeric) is NOT a
-        // measurement → excluded (never a fabricated 0.0).
-        expect(Number(calculateOverallStats([session({ filler_counts: {} })]).avgFillerWordsPerMin)).toBe(0);
+    it('#1306/#1472: a MALFORMED filler map and an empty {} are both excluded (null); an observed count is a real rate', () => {
+        // #1472 increment 3: only OBSERVED evidence is a measurement. `{}` is unobservable and malformed/invalid data
+        // (nested / non-numeric) is not a measurement — both excluded (never a fabricated 0.0).
+        expect(calculateOverallStats([session({ filler_counts: {} })]).avgFillerWordsPerMin).toBeNull();
+        expect(calculateOverallStats([session({ filler_counts: { um: 2 } })]).avgFillerWordsPerMin).not.toBeNull();
         expect(calculateOverallStats([session({ filler_counts: { um: {} } as never })]).avgFillerWordsPerMin).toBeNull();
         expect(calculateOverallStats([session({ filler_counts: { um: { count: null } } as never })]).avgFillerWordsPerMin).toBeNull();
     });

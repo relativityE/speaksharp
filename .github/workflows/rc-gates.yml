@@ -48,7 +48,7 @@ on:
           - 'v4:distil:q4/open_mic'
           - 'v4:distil:q4/focus_points'
       rwt_writes_ack:
-        description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write."
+        description: "RWT ONLY (tests/live/rwt-*.live.spec.ts) — the exact acknowledgement RWT-DISPOSABLE-ACCOUNT-WRITES. The first-visit suites create, use and delete one disposable Production account per test; the full journeys file one marked feedback report that product policy RETAINS after account deletion. Empty = the suites HOLD before any write. The SAME input also carries the distinct value RWT-INTERRUPTED-RUN-RECOVERY-DELETE@<the exact 40-hex commit this run executes>, accepted ONLY by tests/live/interrupted-run-recovery.live.spec.ts dispatched from the protected default branch (main): a SEPARATE Production-delete authorization that deletes run-owned accounts older than the gate-3 timeout + margin through the fail-closed cleanup (residue 0); a recovery value bound to any other commit fails before credentials; any other value = detect and HOLD only. The journeys refuse that value, so one dispatch never authorizes both."
         required: false
         default: ''
       rwt_canary_claim_ack:
@@ -67,6 +67,14 @@ on:
         description: "Set to 'true' to ALSO run the PAID Stripe live-readiness specs in Gate 3 (checkout / webhook / billing-portal). Default empty = CONTROLLED non-paid scope: paid Stripe readiness is a separate paid-launch concern and does NOT gate the controlled soft release."
         required: false
         default: ''
+      rwt_human_reflex_ms:
+        description: 'RWT ONLY — human think-time in ms before every press, fill, check, select and key press in tests/live/rwt-*.live.spec.ts, so a journey models a person, not a machine (PO 2026-10-12). 500 = default; 1000 only if 500 still fails. Recorded in each receipt as meta.humanReflexMs.'
+        required: false
+        default: '500'
+        type: choice
+        options:
+          - '500'
+          - '1000'
 
 permissions:
   contents: read
@@ -266,6 +274,34 @@ jobs:
             echo "::error::HOLD: comparison_release_sha is not the exact commit this run executes"; exit 1
           fi
           node scripts/human-test/mint-model-comparison-authorization.mjs
+      # #1580 P1 4237980480 — interrupted-run recovery may run ONLY from protected default-branch bytes. This step holds no
+      # credential and runs before the credential-bearing step below: a feature-ref dispatch, a checkout that is not the
+      # dispatched commit, or a recovery delete acknowledgement bound to any other commit fails HERE, before listing or cleanup.
+      - name: Interrupted-run recovery authority (default branch, exact SHA; credential-free)
+        if: ${{ github.event.inputs.diagnostic_dast_spec == 'tests/live/interrupted-run-recovery.live.spec.ts' }}
+        env:
+          RECOVERY_ACK: ${{ github.event.inputs.rwt_writes_ack }}
+        run: |
+          set -euo pipefail
+          # #1580 Code P1 4238920090: a re-run reuses this run's SHA and ref, so a SHA-bound acknowledgement would replay.
+          # Only the first attempt may run recovery; every re-run needs a fresh dispatch and fresh PO authority.
+          if [ "${GITHUB_RUN_ATTEMPT:-}" != "1" ]; then
+            echo "::error::HOLD: interrupted-run recovery refuses workflow re-runs (attempt ${GITHUB_RUN_ATTEMPT:-unset}); dispatch a fresh run"; exit 1
+          fi
+          # The protected default branch is named, not looked up (#1432 keeps branch/ancestry lookups out of this workflow).
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::HOLD: interrupted-run recovery runs only from the protected default branch (main)"; exit 1
+          fi
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::HOLD: checkout HEAD is not the dispatched commit"; exit 1
+          fi
+          case "$RECOVERY_ACK" in
+            RWT-INTERRUPTED-RUN-RECOVERY-DELETE*)
+              if [ "$RECOVERY_ACK" != "RWT-INTERRUPTED-RUN-RECOVERY-DELETE@$GITHUB_SHA" ]; then
+                echo "::error::HOLD: the recovery delete acknowledgement is not bound to this exact commit"; exit 1
+              fi ;;
+          esac
+          echo "interrupted-run recovery authority: default branch, HEAD = dispatched commit"
       - name: Run DAST Live Gate (DIAGNOSTIC single spec — NOT a Gate 3 pass)
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
@@ -305,12 +341,21 @@ jobs:
           # RWT two-product journeys: the per-dispatch write acknowledgement and the disposable-account email domain.
           RWT_WRITES_ACK: ${{ github.event.inputs.rwt_writes_ack }}
           RWT_CANARY_CLAIM_ACK: ${{ github.event.inputs.rwt_canary_claim_ack }}
+          RWT_HUMAN_REFLEX_MS: ${{ github.event.inputs.rwt_human_reflex_ms }}
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
         run: |
           echo "DIAGNOSTIC_SINGLE_SPEC=true"
           echo "::warning::DIAGNOSTIC single-spec run — NOT a full Gate 3 pass. Release gate stays FAIL until a full Gate 3 run (no diagnostic input) passes."
           echo "spec=$DIAGNOSTIC_DAST_SPEC grep=${DIAGNOSTIC_DAST_GREP:-<none>}"
           node scripts/rc-dast-live-preflight.mjs
+          # #1258 (PM 6114547673): the restricted synthetic coaching artifact goes ONLY to a fresh private directory under
+          # RUNNER_TEMP — outside the checkout and every upload path. It is never uploaded and disappears with the runner;
+          # the receipt carries only its verdict and SHA-256.
+          if [[ "$DIAGNOSTIC_DAST_SPEC" == tests/live/rwt-* ]]; then
+            RWT_PRIVATE_EVIDENCE_DIR="$(mktemp -d "$RUNNER_TEMP/rwt-private.XXXXXX")"
+            chmod 700 "$RWT_PRIVATE_EVIDENCE_DIR"
+            export RWT_PRIVATE_EVIDENCE_DIR
+          fi
           if [ -n "$DIAGNOSTIC_DAST_GREP" ]; then
             VITE_USE_LIVE_DB=true pnpm exec playwright test "$DIAGNOSTIC_DAST_SPEC" --grep "$DIAGNOSTIC_DAST_GREP" --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line
           else
@@ -362,16 +407,45 @@ jobs:
               [ "$attempts" = "-" ] && attempts=
               [ -z "$journey" ] && continue
               ok=1
+              # #1258 (#1563, Codex r4197007854): exit 3 = an OBSERVED received failure. Received rows do not un-happen, so
+              # it is recorded as FAIL at once — never retried and never reported as missing evidence (HOLD).
               for attempt in 1 2 3; do
                 log="test-results/rwt/$(basename "$receipt" .receipt.json).$journey.readback.log"
-                if TELEMETRY_READBACK_ACQUISITION_RECEIPT="$first_download" QUALIFICATION_ATTEMPT_IDS="$attempts" QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log"; then ok=0; break; fi
+                rc=0
+                TELEMETRY_READBACK_ACQUISITION_RECEIPT="$first_download" QUALIFICATION_ATTEMPT_IDS="$attempts" QUALIFICATION_STAGES="$stages" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$journey" --traffic-type canary 2>&1 | tee "$log" || rc=${PIPESTATUS[0]}
+                if [ "$rc" -eq 0 ]; then ok=0; break; fi
+                if [ "$rc" -eq 3 ]; then ok=3; break; fi
                 sleep 60
               done
-              if [ $ok -eq 0 ]; then v=QUALIFIED; else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi
+              if [ $ok -eq 0 ]; then v=QUALIFIED
+              elif [ $ok -eq 3 ]; then v=FAIL; echo "::error::FAIL: readback received an observed failure for journey $journey ($stages, $(basename "$receipt"))"; status=1
+              else v=HOLD; echo "::error::HOLD: readback did not qualify journey $journey for $stages ($(basename "$receipt"))"; status=1; fi
               printf '%s %s %s\n' "$journey" "$stages" "$v" >> "$verdicts"
             done <<< "$bindings"
-            node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const lines=fs.readFileSync(process.argv[2],"utf8").split("\n").filter(Boolean); const journeys=lines.map((l)=>{const [journeyId,stages,verdict]=l.split(" "); return {journeyId, stages: stages.split(","), verdict};}); fs.writeFileSync(process.argv[3], JSON.stringify({suite:r.suite, release:process.env.RELEASE_SHA, journeys, missingBindings:r.readback.missingBindings||[]}, null, 2)+"\n");' "$receipt" "$verdicts" "${verdicts%.jsonl}.json"
-            rm -f "$verdicts"
+            # #1258 H1 (PM 6115110576): the RECEIVED coaching-diagnostic chain, once per receipt, only when its feedback diagnostic
+            # chain row carries the sent-boundary binding (SHA-256 digests, product, configured model). Bound to the same release,
+            # canary class and the identity of the receipt's first bound journey. exit 0 PASS / 3 FAIL (final, never retried) / 1 HOLD.
+            coaching_result="${verdicts%.jsonl}.coaching.json"
+            rm -f "$coaching_result"
+            expectation=$(node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); const row=(r.rows||[]).find((x)=>x.step==="feedback diagnostic chain"&&x.evidence&&typeof x.evidence.expectedRequestSha256==="string"); if (row) { const e=row.evidence; process.stdout.write(JSON.stringify({requestSha256:e.expectedRequestSha256, attemptSha256:e.expectedAttemptSha256, product:e.expectedProduct, configuredModel:e.expectedConfiguredModel, outcome:e.expectedOutcome})); }' "$receipt")
+            anchor=$(printf '%s\n' "$bindings" | awk 'NF{print $1; exit}')
+            if [ -n "$expectation" ] && [ -n "$anchor" ]; then
+              cv=HOLD
+              for attempt in 1 2 3; do
+                clog="test-results/rwt/$(basename "$receipt" .receipt.json).coaching-diagnostic.readback.log"
+                rc=0
+                TELEMETRY_READBACK_COACHING_DIAGNOSTIC=1 COACHING_DIAGNOSTIC_EXPECTATION="$expectation" pnpm -s telemetry:readback-qualification --release-sha "$RELEASE_SHA" --journey-id "$anchor" --traffic-type canary 2>&1 | tee "$clog" || rc=${PIPESTATUS[0]}
+                if [ "$rc" -eq 0 ]; then cv=PASS; break; fi
+                if [ "$rc" -eq 3 ]; then cv=FAIL; break; fi
+                sleep 60
+              done
+              # The readback's OWN bound result (release + exact expected binding) is recorded only when its verdict agrees with the
+              # exit code; otherwise an UNBOUND HOLD is recorded, which finalization can never use to settle the row.
+              node -e 'const fs=require("fs"); const line=fs.readFileSync(process.argv[1],"utf8").split("\n").find((l)=>l.startsWith("COACHING_DIAGNOSTIC_RECEIPT ")); let o=null; try { o=line?JSON.parse(line.slice("COACHING_DIAGNOSTIC_RECEIPT ".length)):null; } catch { o=null; } const bound=o&&o.verdict===process.argv[3]&&Array.isArray(o.reasons)&&typeof o.release==="string"&&o.expected&&typeof o.expected==="object"; fs.writeFileSync(process.argv[2], JSON.stringify(bound?{verdict:o.verdict, reasons:o.reasons, release:o.release, expected:o.expected}:{verdict:"HOLD", reasons:["diagnostic_not_received"]}));' "$clog" "$coaching_result" "$cv"
+              [ "$cv" = PASS ] || { echo "::error::$cv: received coaching diagnostic chain for $(basename "$receipt")"; status=1; }
+            fi
+            node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const lines=fs.readFileSync(process.argv[2],"utf8").split("\n").filter(Boolean); const journeys=lines.map((l)=>{const [journeyId,stages,verdict]=l.split(" "); return {journeyId, stages: stages.split(","), verdict};}); const coaching=fs.existsSync(process.argv[4])?JSON.parse(fs.readFileSync(process.argv[4],"utf8")):undefined; fs.writeFileSync(process.argv[3], JSON.stringify({suite:r.suite, release:process.env.RELEASE_SHA, journeys, missingBindings:r.readback.missingBindings||[], ...(coaching?{coachingDiagnostic:coaching}:{})}, null, 2)+"\n");' "$receipt" "$verdicts" "${verdicts%.jsonl}.json" "$coaching_result"
+            rm -f "$verdicts" "$coaching_result"
           done
           exit $status
       # RWT receipts, readback outputs and human worksheets are content-free by construction (verdicts, counts, durations, ids,

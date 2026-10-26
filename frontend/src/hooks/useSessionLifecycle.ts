@@ -1,3 +1,4 @@
+import { beginStartAttempt, currentStartAttempt, isRetryCancelled } from '@/services/startAttemptRegistry';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as Sentry from '@sentry/react';
 import logger from '../lib/logger';
@@ -109,7 +110,15 @@ export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise
     // #1476 Codex P1 on 1414f0c89: bound to the retiring take's lease. A remounted page may acquire a new take's lease
     // while this retirement is still settling; that lease is never released (or reported as unresolved) from here.
     const leaseOfTake = currentTakeLeaseId();
-    const outcome = await speechRuntimeController.retireEngineForUnmount();
+    // #1593 case 4: a retirement that timed out and LATER proved the engine off releases this take's lease then — still
+    // only while this take owns it — and withdraws its own "could not confirm" status, never a newer one.
+    const onLateTerminal = () => {
+        if (currentTakeLeaseId() !== leaseOfTake) return;
+        void releaseTakeLease();
+        const store = useSessionStore.getState();
+        if (store.sttStatus.message === ENGINE_RETIRE_UNCONFIRMED_MESSAGE) store.setSTTStatus({ type: 'idle', message: 'Ready to record' });
+    };
+    const outcome = await speechRuntimeController.retireEngineForUnmount(undefined, onLateTerminal);
     if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
     if (outcome === 'terminal') {
         await releaseTakeLease();
@@ -223,7 +232,7 @@ export const useSessionLifecycle = () => {
     const isRecordingIntent = ['RECORDING', 'STOPPING'].includes(runtimeState);
 
     // Stable ref for handleStartStop to prevent dependency loops
-    const handleStartStopRef = useRef<((options?: { skipRedirect?: boolean; stopReason?: string }) => Promise<void>) | null>(null);
+    const handleStartStopRef = useRef<((options?: { skipRedirect?: boolean; stopReason?: string; startOnly?: boolean }) => Promise<void>) | null>(null);
 
     // Guards to prevent double stops in the same session
     const hasAutoStoppedRef = useRef(false);
@@ -239,6 +248,8 @@ export const useSessionLifecycle = () => {
     }), [userFillerWords, session, profile]);
 
     const isListening = useSessionStore(state => state.isListening);
+    // #1258 C10: the session clock's start (re-based at the live moment); the 1 Hz heartbeat restarts when it moves.
+    const sessionStartTime = useSessionStore(state => state.startTime);
     // #1089: post-Stop finalization is authoritative and OUTLIVES runtimeState leaving STOPPING.
     // The record control must stay non-interactive for its whole duration (see isButtonDisabled).
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
@@ -278,6 +289,19 @@ export const useSessionLifecycle = () => {
         isListeningRef.current = isListening;
     }, [isListening]);
 
+    /**
+     * #1258 RWT round 2 C — A RECOVERED SAVE ENTERS THE SAME REVIEW AS A SUCCESSFUL STOP.
+     *
+     * The Stop handler is the only writer of the after-state flag, and a Stop whose save failed ends in its catch, so a
+     * later successful Retry Save left the page outside its review: no saved-take review and no `Practice this again`.
+     * The controller publishes `recoveredSaveSessionId` only from its owner-fenced full-save settlement — never for a
+     * no-op, failed or superseded retry — and retires it when the next take begins, so it licenses exactly this.
+     */
+    const recoveredSaveSessionId = useSessionStore(state => state.recoveredSaveSessionId);
+    useEffect(() => {
+        if (recoveredSaveSessionId && !isListeningRef.current) setShowAnalyticsPrompt(true);
+    }, [recoveredSaveSessionId]);
+
     const metrics = useSessionMetrics({
         transcript: transcript.transcript,
         chunks: chunks as unknown as Array<{ transcript: string; timestamp: number }>, // Cast to structural match to avoid strict Chunk mismatch
@@ -289,7 +313,7 @@ export const useSessionLifecycle = () => {
         userWords: userFillerWords, // accepted for compat; live filler count is canonical (no recount source-routing)
     });
 
-    const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
+    const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string; startOnly?: boolean }) => {
         const startGeneration = startGenerationRef.current;
         // The person LEFT when the URL is no longer the page the Start was pressed on — checked directly, because the leaving
         // page stays mounted through its exit transition, and a late server answer in that window must not start the mic.
@@ -299,6 +323,8 @@ export const useSessionLifecycle = () => {
         const latestSessionState = useSessionStore.getState();
         const latestRuntimeState = latestSessionState.runtimeState;
         const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
+        // #1258 C10 (PM 6207105255): a Start-only caller (`Try again`'s replacement) never toggles a recording off.
+        if (options?.startOnly && shouldStop) return;
 
         // #1259 F01 — the intent is the fact. Every path below returns before recording begins, and
         // until now every one of them was silent to analytics: a refused click and a click never made
@@ -312,6 +338,14 @@ export const useSessionLifecycle = () => {
                 modelReady: modelReadyAtIntent,
             });
 
+        // #1258 R1 (runs 38298685079 / 38304068207): a Stop while the take is already STOPPING is the same Stop pressed
+        // again — the review's repeat action landed 87–97 ms after Stop. Taken as a second Stop it queued behind the
+        // first and, being "too short", replaced the status the user sees. The controller now ignores a second Stop for
+        // the same recording; the hook reports the click and leaves the take and its status alone.
+        if (shouldStop && latestRuntimeState === 'STOPPING') {
+            reportIntent('suppressed_finalizing');
+            return;
+        }
         if (isProcessingRef.current && !shouldStop) {
             // A SECOND CLICK WHILE THE FIRST IS IN FLIGHT. This returned with no log and no event, so
             // "two clicks required" and "one click, silent wait" were indistinguishable in the data —
@@ -350,7 +384,11 @@ export const useSessionLifecycle = () => {
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
             // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
-            if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
+            // #1258 C10: measured NOW from the live clock (startTime), not from the last 1 Hz tick or a render-time value,
+            // which can trail the re-based clock by up to a second and refuse a take that did reach the minimum.
+            const liveStart = useSessionStore.getState().startTime;
+            const elapsedAtStop = liveStart ? Math.floor((Date.now() - liveStart) / 1000) : elapsedTime;
+            if (elapsedAtStop < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 try {
                     await speechRuntimeController.stopRecording();
                     saveLatency.settle('discarded');
@@ -365,7 +403,7 @@ export const useSessionLifecycle = () => {
                 setShowAnalyticsPrompt(false);
                 setSTTStatus({
                     type: 'info',
-                    message: `⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
+                    message: `⚠️ Session too short (${elapsedAtStop}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
                 });
                 isProcessingRef.current = false;
                 return;
@@ -605,6 +643,12 @@ export const useSessionLifecycle = () => {
                 return;
             }
 
+            // #1258 C10 — the honest wait begins at the accepted press, before any lease check or engine work, so the
+            // `Starting…` label and the 10 s notice count from the press itself. Cleared below on any refusal/failure;
+            // once the take is RECORDING it stays until capture is live on real frames (SessionPage clears it then).
+            // #1258 C10 (PM 6207105255): this press's own identity; settled only when THIS invocation returns (finally).
+            const { attempt: startAttempt, settle: settleStartAttempt } = beginStartAttempt();
+            useSessionStore.getState().setStartupWaitStartedAt(Date.now());
             try {
                 setSTTStatus({ type: 'idle', message: 'Ready to record' });
 
@@ -847,6 +891,20 @@ export const useSessionLifecycle = () => {
                         ? (['ready', 'idle'].includes(privateModelStatus) ? 'cached' : 'cold')
                         : 'not_applicable',
                 );
+                /**
+                 * #1593 (live RWT case 4; Browser PM navigation counterexamples) — A RETIRED START THIS MOUNT NO LONGER OWNS
+                 * IS A CANCELLATION, NOT A SETUP FAILURE. Leaving the page (or a newer Start) retires the pending intent with
+                 * `RECORDING_INTENT_RETIRED:*`. Only the Try-again cancel was recognised, so a navigation fell through to a
+                 * failure: `recording_start_failed`, an error status and `reset('start_failed')` — written into whatever
+                 * attempt owns the page by then — and a lease proof that could query a successor's lease. The departed
+                 * attempt now reports nothing and touches nothing; the unmount path owns its engine and lease. A retirement
+                 * of the CURRENT, still-mounted attempt, and every genuine setup error, keep the failure path unchanged.
+                 */
+                const cancelledRetirement = (failure: unknown): boolean => {
+                    const message = (failure as { message?: unknown } | null)?.message;
+                    return typeof message === 'string' && message.startsWith('RECORDING_INTENT_RETIRED:')
+                        && (isRetryCancelled(startAttempt.id) || startCancelled() || currentStartAttempt()?.id !== startAttempt.id);
+                };
                 try {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                     if (speechRuntimeController.getState() !== 'RECORDING') {
@@ -857,6 +915,8 @@ export const useSessionLifecycle = () => {
                     }
                     startLatency.settle('recording_started');
                 } catch (error) {
+                    // A cancellation settles no outcome and leaves the lease to the unmount/successor that owns it.
+                    if (cancelledRetirement(error)) throw error;
                     startLatency.settle('failed');
                     // #1476 Codex P1 on 56cc5ad3: a Start can fail after the engine reached RECORDING (e.g. the placeholder
                     // save rejects), and the start_failed reset does not await its destroy — release only on proof.
@@ -899,6 +959,15 @@ export const useSessionLifecycle = () => {
                  */
                 if (err instanceof StartRefusedFinalizationError
                     || err?.name === 'StartRefusedFinalizationError') {
+                    isProcessingRef.current = false;
+                    return;
+                }
+                // #1258 C10 — the user chose `Try again`, which cancels this start with a confirmed release before ONE
+                // new start. Its retired intent is that deliberate cancel, not an engine failure: no failure telemetry,
+                // no error status, no reset (the cancel already tore the engine down and proved it off).
+                // #1593: likewise a retirement this mount no longer owns (the page was left, or a newer attempt is current).
+                if (typeof err?.message === 'string' && err.message.startsWith('RECORDING_INTENT_RETIRED:')
+                    && (isRetryCancelled(startAttempt.id) || startCancelled() || currentStartAttempt()?.id !== startAttempt.id)) {
                     isProcessingRef.current = false;
                     return;
                 }
@@ -964,6 +1033,12 @@ export const useSessionLifecycle = () => {
                 setSTTStatus({ type: 'error', message: `⚠️ ${message}` });
             } finally {
                 isProcessingRef.current = false;
+                // #1258 C10 — a start that did not reach RECORDING (refused, failed, cancelled) is no longer waiting. Only
+                // while it is still the CURRENT attempt: an older invocation never clears a successor's wait.
+                if (currentStartAttempt()?.id === startAttempt.id && useSessionStore.getState().runtimeState !== 'RECORDING') {
+                    useSessionStore.getState().setStartupWaitStartedAt(null);
+                }
+                settleStartAttempt(); // also ends THIS attempt's own `Try again` cancellation mark, if any
             }
         }
     }, [
@@ -1028,7 +1103,9 @@ export const useSessionLifecycle = () => {
             }, 1000);
             return () => clearInterval(interval);
         }
-    }, [isListening, tick]);
+        // #1258 C10: the clock is re-based at the live moment (setCaptureLive), so the heartbeat restarts with it — its
+        // ticks stay aligned to whole seconds of LIVE capture instead of lagging one second behind for the whole take.
+    }, [isListening, tick, sessionStartTime]);
 
     useEffect(() => {
         if (typeof document === 'undefined') return;

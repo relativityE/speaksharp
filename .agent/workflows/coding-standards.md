@@ -58,7 +58,7 @@ Remediation strategy focusing on "defense in depth" across frontend, edge functi
 
 ### CI & Reliability Patterns (2026-02-15/17)
 - **Pattern 14-16: Advanced Mocking**: Use `vi.hoisted()` for polyfills; shared isolated store factories.
-- **Pattern 17: Nuclear Clean**: Use `scripts/nuclear-clean.sh` to purge `dist` and `.vite` caches.
+- **Pattern 17: Scoped recovery**: Follow root AGENTS.md; no nuclear reset/cache deletion is authorized by this catalogue.
 - **Pattern 18: Shadowed State Prevention**: State must only be pulled from global store, never derived.
 - **Pattern 19: Isomorphic Golden Transcripts**: Standardized WER thresholds in `tests/fixtures/stt-isomorphic/`.
 - **Pattern 20: Atomic State Lock (CLEANING_UP)**: Prevents re-init until background cleanup completes.
@@ -66,7 +66,7 @@ Remediation strategy focusing on "defense in depth" across frontend, edge functi
 - **Pattern 22-24: NLP Performance**: O(1) Incremental Observer; LRU NLP Cache (10 items); Debounced interim NLP (150ms).
 - **Pattern 25: Atomic Row-locking**: Use `FOR UPDATE` in Supabase RPCs for billing consistency.
 - **Pattern 26-27: LifeCycle Orchestration**: Serial `commandChain` for lifecycle; UI-First state reversion.
-- **Pattern 28: Engine-Aware Enforcement**: Distinguish Cloud vs Native for billing logic.
+- **Pattern 28: Historical adapters**: Retired Cloud/Native examples are not customer entitlements. Customer recording is Private-only; server entitlement is authoritative.
 - **Pattern 29: CI Diagnostic Logging**: Use `FORCE_COLOR=1 ... | tee log.txt` for color-safe CI output.
 - **Pattern 30: Modular Benchmarking**: Tiered hardware spec files (`benchmark-cpu`, etc.).
 - **Pattern 31: Root-Env Resolution**: Set `envDir: '../../'` in Vite config for uniform secret loading.
@@ -75,9 +75,9 @@ Remediation strategy focusing on "defense in depth" across frontend, edge functi
 ## ⚡ Non-negotiable rules
 
 - **PNPM Mandate**: This is a pure `pnpm` project. `package-lock.json` is banned.
-- **Full Health Mandate**: Every session MUST end with a 100% clean pass of `pnpm typecheck` and `pnpm lint`.
+- **Checkpoint evidence**: Follow root AGENTS.md risk-proportionate testing and full pnpm quality at a completed source checkpoint.
 - **No code reversals**: Never undo user work without consent.
-- **Code MUST be tested locally**: Verify via `pnpm ci:full:local` before check-in.
+- **Local implementation evidence**: Use root AGENTS.md and registered package commands. pnpm ci:local is full local parity; ci:full:local is not registered.
 - **No `eslint-disable`**: Zero Tolerance. Fix root causes.
 - **Zero-Any Mandate**: The use of the `any` type is strictly forbidden.
 - **ASCII Diagrams Only**: Do not use Mermaid. Use ASCII.

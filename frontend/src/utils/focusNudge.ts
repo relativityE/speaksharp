@@ -5,7 +5,8 @@ import { paceNudgeWarranted, paceNudgeMessage, type PaceInputs } from './focusPa
  *
  * Discipline the spec makes non-negotiable:
  *   - **Silent by default.** No filler text; `activeText` is null unless a nudge is genuinely warranted.
- *   - **Minimum 8s on screen** before a nudge can clear/replace (unreadable mid-sentence otherwise).
+ *   - **Minimum 8s on screen** before a nudge can clear/replace (unreadable mid-sentence otherwise), except
+ *     that completing the final point clears it at once (#1474 N1).
  *   - **Hard cap of two per run.**
  *   - **Never after the last point is covered** (overrunning then costs nothing).
  *   - **Names the next action, never the shortfall** — message text comes from the banned-word-free builders.
@@ -48,6 +49,12 @@ function coverageFallbackWarranted(i: NudgeInputs): boolean {
 export function advanceNudge(state: NudgeState, inputs: NudgeInputs): NudgeState {
     // Only the during-state carries a nudge; before/after reset it (a fresh run starts with a clean count).
     if (inputs.sessionState !== 'during') return initialNudgeState;
+
+    // #1474 N1 (Sam 1792525677): completing the FINAL point clears an active nudge at once — its advice about the next
+    // point is stale the moment there is none. The 8s hold and the per-run cap apply only while points remain.
+    if (state.activeText != null && inputs.nextPointNumber == null) {
+        return { ...state, activeText: null, activeSinceSec: null };
+    }
 
     // Honour the minimum hold: once shown, a nudge stays put for at least 8s.
     const held =

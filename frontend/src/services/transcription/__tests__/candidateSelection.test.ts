@@ -17,7 +17,7 @@ import {
 } from '../candidateRegistry';
 import {
     activeCandidate, assertBrowserUsable, resolveCandidate, isRunningUnapprovedCandidate,
-    InactiveCandidateError, UnusableCandidateError, PRIVATE_STT_CONFIG_PATH,
+    configuredCandidateExpectation, InactiveCandidateError, UnusableCandidateError, PRIVATE_STT_CONFIG_PATH,
 } from '../candidateSelection';
 
 /** Walk up from this file to the repo root (the directory owning pnpm-lock.yaml), then read. */
@@ -397,5 +397,12 @@ describe('the escape hatch requires an INTERNAL build, and fails closed without 
 
     it('POSITIVE CONTROL: an ordinary production build runs the approved default', () => {
         expect(activeCandidate({ candidate: 'v2:base.en' }, { PROD: true }).id).toBe('v2:base.en');
+    });
+
+    it('reports configured expectation independently, even when runtime selection can fall back', () => {
+        expect(configuredCandidateExpectation()).toBe('v2:base.en');
+        // Identity is the raw checked-in expectation; activation/kill logic determines what acquires.
+        expect(configuredCandidateExpectation({ candidate: 'v4:base:q4' })).toBe('v4:base:q4');
+        expect(configuredCandidateExpectation({ candidate: 'not-a-candidate' })).toBeNull();
     });
 });

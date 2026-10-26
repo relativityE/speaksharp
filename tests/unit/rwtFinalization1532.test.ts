@@ -81,6 +81,15 @@ describe('finalizeReceipt merges the readback outcome', () => {
             { ...readbackOk, journeys: [] },
         ]) expect(finalizeReceipt(receipt, worksheetDone(), rb).finalAcceptance).toBe('INCOMPLETE');
     });
+    // #1258 (#1563, Codex r4197007854): an OBSERVED received failure is FAIL, never folded into missing evidence (HOLD).
+    it('CASUALTY r4197007854: a FAIL journey makes journey telemetry received FAIL → final FAIL (never INCOMPLETE, never PASS)', () => {
+        const r = finalizeReceipt(receipt, worksheetDone(), { ...readbackOk, journeys: [{ ...readbackOk.journeys[0], verdict: 'FAIL' }] });
+        expect(r.errors).toEqual([]);
+        const row = r.rows.find((x) => x.step === 'journey telemetry received');
+        expect(row?.verdict).toBe('FAIL');
+        expect(row?.evidence).toMatchObject({ readbackFailed: 1, readbackQualified: 0 });
+        expect(r.finalAcceptance).toBe('FAIL');
+    });
     it('CASUALTY: a readback for another suite, release, journey set or stage set is a binding error, never PASS', () => {
         for (const rb of [
             { ...readbackOk, suite: 'focus-points-session' },
@@ -143,7 +152,7 @@ describe('the suites follow the v12 order and bind each inventory event to the j
         // The PDF is reached the way the person reaches it after the reload: the detail's own Back to Dashboard control.
         const pdf = om.slice(at(om, 'const downloadPdf = async'));
         expect(at(pdf, "getByRole('link', { name: 'Back to Dashboard' })")).toBeLessThan(at(pdf, 'download-pdf-btn-${persistedId}'));
-        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\], repeatRecording: \['session_during', 'session_after_open_mic'\],[\s\S]{0,400}feedback: true, pdfExport: true,/);
+        expect(om).toMatch(/recording: \['session_during', 'session_after_open_mic', 'analytics_inventory'\],[\s\S]{0,300}repeatRecording: \['session_during', 'session_interrupted_repeat'\],[\s\S]{0,400}feedback: true, pdfExport: true,/);
     });
 
     it('analyticsThroughActions runs afterReload only after the detail opened and its reload was checked', () => {
@@ -289,13 +298,16 @@ describe('Focus partial: cleanup is verified before the receipt is written, and 
 
     it('order and idempotency: cleanup runs before write() in the partial branch; only a verified deletion clears the owner; afterEach remains the fallback', () => {
         const focus = readFileSync(path.resolve(__dirname, '../live/helpers/rwtFocusPointsJourney.ts'), 'utf8');
-        const branch = focus.slice(focus.indexOf("} else if (fixtureKey === 'focus_points_partial_tts') {"));
+        // #1593 (Sam, #1662 RETURN on f527a033 item 1): the partial run's own cleanup verdict deletes through the journey's ONE
+        // owned deletion (never a second), before the receipt is written; only a settled deletion clears the owner.
+        const branch = focus.slice(focus.indexOf("fixtureKey === 'focus_points_partial_tts'"));
         expect(branch.indexOf('recordRunOwnedCleanup(')).toBeGreaterThan(-1);
         expect(branch.indexOf('recordRunOwnedCleanup(')).toBeLessThan(branch.indexOf('receipt.write(testInfo,'));
-        expect(branch).toMatch(/if \(cleaned\) \{ owner\.uid = ''; owner\.email = ''; \}/);
+        expect(branch).toContain('() => cleanup.run())');
+        expect(branch).toMatch(/if \(await finalizeOwnedCleanup\(steps, receipt, cleanup, proof\) === 'deleted'\) \{ owner\.uid = ''; owner\.email = ''; \}/);
+        expect(branch.indexOf('finalizeOwnedCleanup(')).toBeLessThan(branch.indexOf('receipt.write(testInfo,'));
         const spec = readFileSync(path.resolve(__dirname, '../live/rwt-focus-points-partial.live.spec.ts'), 'utf8');
-        // afterEach cleans whatever the owner still names: nothing after a verified in-body deletion ('cleanup_not_required').
-        expect(spec).toMatch(/test\.afterEach\([\s\S]{0,120}cleanupRunOwnedAccount\(\{ admin: admin as never, capturedUid: owner\.uid, createdEmail: owner\.email/);
+        expect(spec).toMatch(/test\.afterEach\([\s\S]{0,300}await finalizer\.drain\(\);/);
     });
 });
 
@@ -369,8 +381,9 @@ describe('product-row inventory: a receipt missing any product outcome can never
 
     it('every product row name is one the suites actually write (the inventory cannot drift from the source)', () => {
         const src = (f: string) => readFileSync(path.resolve(__dirname, '..', f), 'utf8');
+        // #1258 (PM 6114590729): the coaching diagnostic chain and prompt-binding rows are written by their shared helpers.
         const writers = ['live/helpers/rwtJourney.ts', 'live/rwt-open-mic-first-session.live.spec.ts', 'live/helpers/rwtFocusPointsJourney.ts',
-            'live/rwt-products-navigation.live.spec.ts'].map(src).join('\n');
+            'live/rwt-products-navigation.live.spec.ts', 'live/helpers/coachingFeedbackAdapter.ts', 'live/helpers/rwtCoachingCollector.ts'].map(src).join('\n');
         for (const s of SUITES) for (const step of requiredAutomatedRows(s.suite)!.product) {
             expect({ step, written: writers.includes(`'${step}'`) }).toEqual({ step, written: true });
         }

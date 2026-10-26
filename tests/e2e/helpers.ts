@@ -8,7 +8,7 @@
 
 import { type Locator, type Page, expect } from '@playwright/test';
 import { isExpectedAuthLanding, DEFAULT_AUTH_LANDING, type ExpectedAuthLanding } from './canaryLanding';
-import { setupE2EManifest, type E2EWindow } from './helpers/setupE2EManifest';
+import { setupE2EManifest, type E2EWindow, type ProfileFault } from './helpers/setupE2EManifest';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 import { createMockSession } from '../../frontend/src/mocks/test-user-utils';
 import logger from '../../frontend/src/lib/logger';
@@ -228,14 +228,15 @@ export async function waitForRouteControls(page: Page, route: string, timeout: n
     return;
   }
 
-  if (pathname === '/analytics') {
+  // #1548: /analytics is the legacy alias of /progress; goToApp may report it before the replace-redirect lands.
+  if (pathname === '/progress' || pathname === '/analytics') {
     await waitForFeature(page, 'analytics', timeout);
     await expect(page.getByTestId('analytics-dashboard')).toBeVisible({ timeout });
     return;
   }
 
-  if (pathname.startsWith('/analytics/session-')) {
-    await page.waitForURL('**/analytics/session-*', { timeout });
+  if (pathname.startsWith('/progress/session-') || pathname.startsWith('/analytics/session-')) {
+    await page.waitForURL('**/progress/session-*', { timeout });
     await expect(page.getByRole('link', { name: /Back to Dashboard/i })).toBeVisible({ timeout });
   }
 }
@@ -254,15 +255,15 @@ export async function openSessionDetailFromHistoryItem(page: Page, historyItem: 
     const self = element instanceof HTMLAnchorElement ? element : null;
     const detailLink =
       element.querySelector<HTMLAnchorElement>('[data-testid^="session-detail-link-"]') ??
-      element.querySelector<HTMLAnchorElement>('a[href^="/analytics/session-"]') ??
-      element.querySelector<HTMLAnchorElement>('a[href^="/analytics/"]');
+      element.querySelector<HTMLAnchorElement>('a[href^="/progress/session-"]') ??
+      element.querySelector<HTMLAnchorElement>('a[href^="/progress/"]');
 
     return self?.getAttribute('href') ?? detailLink?.getAttribute('href') ?? null;
   });
 
-  expect(sessionHref).toMatch(/^\/analytics\/session-/);
+  expect(sessionHref).toMatch(/^\/progress\/session-/);
   await navigateToRoute(page, sessionHref!);
-  await page.waitForURL('**/analytics/session-*');
+  await page.waitForURL('**/progress/session-*');
 }
 
 
@@ -411,6 +412,14 @@ export async function programmaticLoginWithRoutes(
     sessions?: Partial<import('../support/factories/session.factory').MockSession>[];
     /** #1047 U3: seed Progress rows into the authoritative in-browser Supabase test client. */
     progressFixtures?: import('./helpers/setupE2EManifest').ProgressFixtures;
+    /**
+     * CO016: make the injected client's `user_profiles` read fail from the very first query, BEFORE login reaches
+     * profile readiness. The profile never becomes ready, so the readiness wait is skipped. The fault survives
+     * reloads until the spec clears it (see `clearProfileFault` in error-states.e2e.spec.ts).
+     */
+    profileFault?: ProfileFault;
+    /** A1-2: keep the app's recovery draft across reloads, as a real browser does (see setupE2EManifest). */
+    preserveRecoveryDraftAcrossLoads?: boolean;
   } = {}
 ) {
   const {
@@ -422,6 +431,8 @@ export async function programmaticLoginWithRoutes(
     mockProfile,
     sessions,
     progressFixtures,
+    profileFault,
+    preserveRecoveryDraftAcrossLoads,
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -465,12 +476,23 @@ export async function programmaticLoginWithRoutes(
     // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
     sessions,
     progressFixtures,
+    preserveRecoveryDraftAcrossLoads,
     storage: authStorage
   });
 
+  if (profileFault) {
+    // Armed before the first navigation, so the very first profile query already fails. A cleared marker in
+    // sessionStorage keeps the fault from re-arming on a later reload once the spec has cleared it.
+    await page.addInitScript((fault) => {
+      if (window.sessionStorage.getItem('__e2e_profile_fault_cleared_co016') !== '1') {
+        (window as unknown as { __E2E_PROFILE_FAULT_CO016__?: string }).__E2E_PROFILE_FAULT_CO016__ = fault;
+      }
+    }, profileFault);
+  }
+
   await page.goto('/');
   await waitForAppReady(page);
-  await waitForProfileReady(page);
+  if (!profileFault) await waitForProfileReady(page);
   return session;
 }
 

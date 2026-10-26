@@ -1,0 +1,25 @@
+name: "Review Event"
+
+# #1573 Codex P1 4233038867 — GitHub runs `pull_request_review` / `pull_request_review_comment` workflows from the PR's MERGE
+# COMMIT, so a candidate can rewrite any workflow those events start. This one therefore only marks that review activity
+# happened: no permissions, no checkout, no secrets, and nothing trusts its result. The qualification itself runs in
+# review-qualification.yml on `workflow_run`, whose definition GitHub always takes from the default branch.
+
+on:
+  pull_request_review:
+    branches: [main]
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    branches: [main]
+    types: [created, edited, deleted]
+
+permissions: {}
+
+jobs:
+  review-event:
+    name: review-event
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Review activity recorded
+        run: echo "review activity recorded"

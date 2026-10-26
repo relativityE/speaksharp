@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import posthog from 'posthog-js';
 import { sttRegistry } from '@/services/transcription/STTRegistry';
 import { CANDIDATES } from '@/services/transcription/candidateRegistry';
+import { acquisitionComponentGroupsFor } from '@/services/transcription/candidateAssetRequests';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { __resetAcquisitionTelemetry, markIdentitySettled } from '@/services/transcription/modelAcquisitionTelemetry';
 import { PrivateSTT } from '@/services/transcription/engines/PrivateSTT';
@@ -37,6 +38,9 @@ async function drain() {
 
 const PROBE_MS = 400;
 const INIT_MS = 150;
+const V2_COMPONENT_GROUPS = acquisitionComponentGroupsFor(CANDIDATES['v2:base.en']);
+const V2_MODEL_URLS = V2_COMPONENT_GROUPS[0]?.expectedResourceUrls ?? [];
+const V2_RUNTIME_URLS = V2_COMPONENT_GROUPS[1]?.allowedResourceUrls ?? [];
 
 /** A controllable clock, so the reported total is compared against a wait the test caused. */
 let clock = 0;
@@ -129,20 +133,10 @@ describe('#1259 the total acquisition clock spans the cache probe', () => {
                     // Recorded WHILE the cache was being inspected — before the load began.
                     { name: `${location.origin}/models/whisper-base.en/onnx/stray.onnx`, startTime: PROBE_MS / 2,
                       responseEnd: PROBE_MS / 2 + 10, duration: 10, transferSize: 9_999, encodedBodySize: 9_999 },
-                    /*
-                     * The real load's own requests — ALL TWELVE of the components `v2:base.en`
-                     * declares, not one standing in for them.
-                     *
-                     * #1421: completeness is now established by matching the candidate's declared
-                     * component count, because on a shared (main-window) timeline the absence of
-                     * foreign traffic is unobservable and cannot establish it. A one-component fixture
-                     * therefore describes a load that fetched 1 of 12 — a genuine shortfall — and this
-                     * case is about the total clock and the stray-probe exclusion, not about a
-                     * partially fetched model. Staging the real component count keeps the subject and
-                     * drops an incidental dependency on how coverage happens to be judged.
-                     */
-                    ...Array.from({ length: 12 }, (_, i) => ({
-                        name: `${location.origin}/models/whisper-base.en/onnx/component${i}.onnx`,
+                    // The load's own resources use the same exact identities as the candidate contract:
+                    // seven pipeline model files and one emitted ORT variant.
+                    ...[...V2_MODEL_URLS, V2_RUNTIME_URLS[0]!].map((name) => ({
+                        name,
                         startTime: PROBE_MS + 10, responseEnd: PROBE_MS + 60, duration: 50,
                         transferSize: 1_000, encodedBodySize: 1_000,
                     })),
@@ -163,10 +157,10 @@ describe('#1259 the total acquisition clock spans the cache probe', () => {
         await drain();
 
         const [ok] = success();
-        expect(ok.asset_count, 'only the requests made after the load began belong to the download').toBe(12);
+        expect(ok.asset_count, 'only the requests made after the load began belong to the download').toBe(8);
         expect(ok.network_bytes,
-            'the stray probe-window request must not inflate the transfer — 12 x 1_000, not 21_999')
-            .toBe(12_000);
+            'seven required model files plus one allowed ORT variant; exclude the pre-load stray')
+            .toBe(8_000);
         expect(ok.total_ms, 'while the total still spans the probe').toBe(PROBE_MS + INIT_MS);
     });
 

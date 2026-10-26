@@ -293,6 +293,10 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
             clearFeedbackDraft();
             // Share feedback's session list belongs to one login: retired with the draft (FEEDBACK_SESSION_SELECTOR_SPEC §5.1).
             clearLoginSessions();
+            // #1258 PR 4 (Browser PM 6050746477): the single-session cache (`['session', id]`, five-minute staleTime) is
+            // not keyed by user, so the next account must not inherit the previous account's rows. Explicit sign-out
+            // clears the whole cache; an identity change through an auth event clears these rows here.
+            queryClient.removeQueries({ queryKey: ['session'] });
           }
           setCurrentLogin(nextUserId, loginStartedAtOf(nextSession));
           sessionStateRef.current = nextSession;
@@ -377,6 +381,10 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     // Set BEFORE anything is cleared: every render in the sign-out window must already know where a
     // protected route should send the now-anonymous user.
     setSignedOutByUser(true);
+    // #1573 Codex P1 4223862191: sign-out INTENT ends the bound identity now — the auth epoch advances synchronously, so
+    // in-flight bound work (a session PDF) is discarded even if `supabase.auth.signOut()` is slow, fails or never emits
+    // SIGNED_OUT. Nothing below restores it.
+    setCurrentLogin(null, null);
     try {
       queryClient.clear();
       logger.info('[AuthProvider] QueryClient cache cleared');
@@ -410,6 +418,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       if (priorUserId !== null && priorUserId !== (s?.user?.id ?? null)) {
         clearFeedbackDraft();
         clearLoginSessions();
+        queryClient.removeQueries({ queryKey: ['session'] }); // same rule as the auth-event path (#1258 PR 4)
       }
       setCurrentLogin(s?.user?.id ?? null, loginStartedAtOf(s));
       sessionStateRef.current = s;
@@ -417,7 +426,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       setIdentityAnswered(true);
     },
     signedOutByUser,
-  }), [sessionState, loading, signOut, signedOutByUser]);
+  }), [sessionState, loading, signOut, signedOutByUser, queryClient]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -114,6 +114,15 @@ describe('#1416 the browser version must belong to the classified browser', () =
 });
 
 describe('buildIssueReportMetadata — page context + sanitization', () => {
+  it('retains only a valid exact coaching diagnostic reference for the selected session', () => {
+    const ref = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    expect(buildIssueReportMetadata({ context: resolvePageContext('/session'), coachingDiagnosticRef: ref }).coaching_diagnostic_ref)
+      .toBe(ref);
+    expect(buildIssueReportMetadata({ context: resolvePageContext('/session'), coachingDiagnosticRef: 'another user sentence' }).coaching_diagnostic_ref)
+      .toBeNull();
+    expect(buildIssueReportMetadata({ context: resolvePageContext('/session') }).coaching_diagnostic_ref).toBeNull();
+  });
+
   it('stores coarse client information without persisting the raw user agent', () => {
     const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
     expect(meta.browser).toBeTruthy();
@@ -272,11 +281,9 @@ describe('issueReportService', () => {
       idempotencyKey,
     });
 
-    expect(insert).not.toHaveBeenCalled();
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ idempotency_key: idempotencyKey }),
-      { onConflict: 'idempotency_key', ignoreDuplicates: true },
-    );
+    // #1258: a plain insert carrying the draft key (the unique index dedupes), never an ON CONFLICT upsert.
+    expect(upsert).not.toHaveBeenCalled();
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ idempotency_key: idempotencyKey }));
   });
 
   it('#1306: the persisted payload NEVER carries a transcript field, and the audio note is excluded unless opted in', async () => {

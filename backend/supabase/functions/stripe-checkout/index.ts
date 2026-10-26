@@ -1,14 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
-import { createClient } from "npm:@supabase/supabase-js@2"
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 import { corsGuard, corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
+import { accountClosureConfigProbe, readAccountClosureEffectiveConfig, stripeKeyMode, type StripeMode } from '../_shared/accountClosureConfigProbe.ts';
 
 // Port configuration for local development fallback (inlined to avoid bundler issues)
 const DEV_PORT = 5174;
 
 // Defensive Stripe initialization - validate env before crash
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+const STRIPE_CAPTURED_MODE = stripeKeyMode(STRIPE_SECRET_KEY);
 if (!STRIPE_SECRET_KEY && import.meta.main) {
   console.error("FATAL: STRIPE_SECRET_KEY environment variable is not set.");
 }
@@ -29,7 +31,11 @@ type StripePrice = {
 type StripeLike = {
   checkout: {
     sessions: {
-      create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }>;
+      create: (params: Record<string, unknown>, options?: { idempotencyKey: string; maxNetworkRetries: number }) => Promise<{ id: string; url: string | null }>;
+      retrieve?: (id: string) => Promise<{
+        id: string; status?: string | null; url: string | null;
+        client_reference_id?: string | null; metadata?: Record<string,string> | null;
+      }>;
     };
   };
   prices: {
@@ -47,6 +53,8 @@ type HandlerDeps = {
   getEnv?: EnvGetter;
   createSupabase?: SupabaseFactory;
   stripeClient?: StripeLike | null;
+  stripeClientMode?: StripeMode;
+  createAdmin?: () => SupabaseClient;
 };
 
 const normalizePlan = (value: unknown): CheckoutPlan | null => {
@@ -83,6 +91,38 @@ const fetchExistingStripeCustomerId = async (
   return customerId || null;
 };
 
+type RejectedCreate = { request_id: string; code: string; param: string };
+function rejectedBeforeExecution(error: unknown): RejectedCreate | null {
+  // Stripe documents invalid-parameter errors as preceding API execution:
+  // https://docs.stripe.com/error-low-level#content-errors
+  // Do not generalize this to all 4xx / InvalidRequest errors. Conflicts, a
+  // cached execution failure, network loss and 5xx do not prove non-creation.
+  if (!(error instanceof Stripe.errors.StripeInvalidRequestError)
+    || error.statusCode !== 400 || error.rawType !== 'invalid_request_error'
+    || !['parameter_missing', 'parameter_unknown'].includes(error.code ?? '')
+    || typeof error.param !== 'string' || !/^[A-Za-z][A-Za-z0-9_[\]]{0,199}$/.test(error.param)
+    || typeof error.requestId !== 'string' || !/^req_[A-Za-z0-9]{1,200}$/.test(error.requestId)
+    || error.headers?.['request-id'] !== error.requestId
+    || error.headers?.['stripe-should-retry'] === 'true') return null;
+  return { request_id: error.requestId, code: error.code!, param: error.param };
+}
+
+async function reconcileRejectedCreate(admin: SupabaseClient, userId: string, operationId: string, proof: RejectedCreate) {
+  // Exactly one transition call. A failed/unknown acknowledgement is held;
+  // never replay it or issue another provider create from this request.
+  const ack = await admin.rpc('reconcile_rejected_account_checkout', { p_user_id: userId, p_operation_id: operationId,
+    p_request_id: proof.request_id, p_code: proof.code, p_param: proof.param });
+  if (ack.error || ack.data !== true) throw new Error('checkout rejection reconciliation unverified');
+  const readback = await admin.rpc('inspect_rejected_account_checkout', { p_user_id: userId, p_operation_id: operationId });
+  const row = Array.isArray(readback.data) && readback.data.length === 1 ? readback.data[0] : null;
+  const evidence = row?.rejection_evidence;
+  if (readback.error || !row || row.user_id !== userId || row.operation_id !== operationId
+    || row.session_id !== null || row.phase !== 'settled' || !evidence || Object.keys(evidence).length !== 3
+    || evidence.request_id !== proof.request_id || evidence.code !== proof.code || evidence.param !== proof.param) {
+    throw new Error('checkout rejection readback unverified');
+  }
+}
+
 export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
   // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
   // env read, payments-enabled check, auth, Supabase, or Stripe API/session-creation call.
@@ -92,6 +132,13 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
   const responseHeaders = buildCorsHeaders(req);
   const getEnv: EnvGetter = deps.getEnv ?? ((key) => Deno.env.get(key) ?? undefined);
   const stripeClient = deps.stripeClient ?? stripe;
+  const capturedMode = deps.stripeClient === undefined ? STRIPE_CAPTURED_MODE : deps.stripeClientMode ?? 'unknown';
+  const effective = () => readAccountClosureEffectiveConfig(getEnv, capturedMode);
+  const probe = await accountClosureConfigProbe(req, getEnv, 'stripe-checkout', effective);
+  if (probe) {
+    for (const [key, value] of Object.entries(responseHeaders)) probe.headers.set(key, value);
+    return probe;
+  }
   const createSupabaseClient: SupabaseFactory = deps.createSupabase ?? ((authHeader) =>
     createClient(
       getEnv("SUPABASE_URL")!,
@@ -107,10 +154,11 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
   // configured. Defaults to closed, so a stray live publishable key alone can never open checkout.
   // This does NOT touch existing entitlements: it only refuses to CREATE new checkout sessions.
   {
-    const paymentsExplicitlyEnabled = getEnv("PAYMENTS_ENABLED") === "true";
+    const normalized = effective();
+    const paymentsExplicitlyEnabled = normalized.paymentsEnabled;
     const secretKey = getEnv("STRIPE_SECRET_KEY");
     const hasLiveSecret = typeof secretKey === "string" && secretKey.startsWith("sk_live_");
-    if (!paymentsExplicitlyEnabled || !hasLiveSecret) {
+    if (!paymentsExplicitlyEnabled || !hasLiveSecret || (capturedMode !== 'unknown' && !normalized.stripeModeMatches)) {
       console.warn("[Stripe Checkout] ⛔ payments disabled — refusing checkout (fail-closed beta)");
       return createErrorResponse(
         ErrorCodes.PAYMENTS_DISABLED,
@@ -314,7 +362,43 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     // 5. Stripe Session Creation
     console.log(`[Stripe Checkout] 💳 Creating Stripe Session for ${plan} with Price ID: ${priceId}`);
     try {
-      const session = await stripeClient.checkout.sessions.create({
+      // Reserve before contacting Stripe. A lost response leaves a durable issuing
+      // operation; neither another checkout nor account deletion may race past it.
+      const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+      if (!serviceKey) throw new Error('billing coordination unavailable');
+      const admin: SupabaseClient = deps.createAdmin?.() ?? createClient(getEnv('SUPABASE_URL')!,serviceKey,
+        { auth: { persistSession:false,autoRefreshToken:false } });
+      const existing=await admin.rpc('inspect_account_checkout',{p_user_id:user.id});
+      if (existing.error || !Array.isArray(existing.data) || existing.data.length>1) throw new Error('billing readback unavailable');
+      if (existing.data.length===1) {
+        const operation=existing.data[0] as {operation_id:unknown;session_id:unknown;phase:unknown};
+        if (operation.phase!=='open' || typeof operation.operation_id!=='string'
+          || typeof operation.session_id!=='string' || !stripeClient.checkout.sessions.retrieve) {
+          throw new Error('checkout issuance requires reconciliation');
+        }
+        const previous=await stripeClient.checkout.sessions.retrieve(operation.session_id);
+        if (previous.id!==operation.session_id || previous.client_reference_id!==user.id
+          || previous.metadata?.userId!==user.id) throw new Error('checkout ownership unverified');
+        if (previous.status==='open') {
+          if (!previous.url || new URL(previous.url).protocol!=='https:') throw new Error('checkout URL unavailable');
+          const reusable=await admin.rpc('confirm_account_checkout_reuse',{
+            p_user_id:user.id,p_operation_id:operation.operation_id,p_session_id:previous.id,
+          });
+          if (reusable.error || reusable.data!==true) throw new Error('checkout reuse unverified');
+          return createSuccessResponse({checkoutUrl:previous.url},responseHeaders);
+        }
+        if (previous.status!=='expired') throw new Error('checkout completion requires reconciliation');
+        const expired=await admin.rpc('reconcile_account_checkout_expiry',{
+          p_user_id:user.id,p_operation_id:operation.operation_id,p_session_id:previous.id,
+        });
+        if (expired.error) throw new Error('checkout expiry unverified');
+      }
+      const reserved = await admin.rpc('begin_account_checkout',{p_user_id:user.id});
+      if (reserved.error || typeof reserved.data!=='string' || !reserved.data) throw new Error('billing operation pending');
+      const operationId = reserved.data;
+      let session: { id: string; url: string | null };
+      try {
+        session = await stripeClient.checkout.sessions.create({
         ...customerParams,
         payment_method_types: ["card"],
         client_reference_id: user.id,
@@ -329,6 +413,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
         cancel_url: `${effectiveSiteUrl}/pricing?checkout=cancelled&conversion_source=${encodeURIComponent(conversionSource)}&utm_source=${encodeURIComponent(utmSource)}&utm_medium=${encodeURIComponent(utmMedium)}&utm_campaign=${encodeURIComponent(utmCampaign)}`,
         metadata: {
           userId: user.id,
+          billingOperationId: operationId,
           plan,
           conversionSource,
           utmSource,
@@ -345,13 +430,22 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
             utmCampaign,
           },
         },
-      })
+        }, { idempotencyKey: operationId, maxNetworkRetries: 0 });
+      } catch (createError) {
+        const proof = rejectedBeforeExecution(createError);
+        if (proof) await reconcileRejectedCreate(admin, user.id, operationId, proof);
+        throw createError;
+      }
+      const recorded = await admin.rpc('record_account_checkout',{
+        p_user_id:user.id,p_operation_id:operationId,p_session_id:session.id,
+      });
+      if (recorded.error) throw new Error('checkout delivery unverified');
       console.log(`[Stripe Checkout] ✅ Session created: ${session.id}`)
 
       return createSuccessResponse({ checkoutUrl: session.url }, responseHeaders);
     } catch (stripeError) {
       console.error('[Stripe Checkout] ❌ Stripe API Error:', stripeError);
-      const err = stripeError as { type?: string; code?: string; param?: string; message?: string };
+      const err = (stripeError && typeof stripeError === 'object' ? stripeError : {}) as { type?: string; code?: string; param?: string; message?: string };
       if (err.type) console.error('Error Type:', err.type);
       if (err.code) console.error('Error Code:', err.code);
       if (err.param) console.error('Error Param:', err.param);

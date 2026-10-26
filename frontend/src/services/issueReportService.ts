@@ -4,7 +4,6 @@ import type { TranscriptionMode } from '@/services/transcription/TranscriptionPo
 import { emitPrivateTelemetry, getLastPrivateIdentity, PRIVATE_TELEMETRY_EVENTS } from '@/services/transcription/privateTelemetry';
 import { issueAreasForContext, type PageContext } from '@/services/pageContext';
 import { pickPersistedRuntimeConfig, type PersistedRuntimeConfig } from '@/config/appRuntimeConfig';
-import { emitFeedbackSubmit } from '@/services/telemetry/feedbackTelemetry';
 
 // Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
 // are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
@@ -59,6 +58,8 @@ export interface IssueReportMetadata {
   feedback_kind?: FeedbackKind | null;
   feedback_type?: FeedbackType | null;
   feedback_severity?: FeedbackSeverity | null;
+  /** Opaque exact coaching attempt reference; never a session id or generated content. */
+  coaching_diagnostic_ref?: string | null;
   /** Build/release id (git SHA in production) so a report pins to a build, when available. */
   releaseId?: string | null;
   releaseProofEligible?: boolean;
@@ -180,6 +181,7 @@ export const buildIssueReportMetadata = (input: {
   plan?: string | null;
   sttMode?: TranscriptionMode | null;
   runtimeState?: string | null;
+  coachingDiagnosticRef?: string | null;
 }): IssueReportMetadata => {
   const runtimeConfig = typeof window !== 'undefined' ? window.__APP_RUNTIME_CONFIG__ : undefined;
   const sentry = typeof window !== 'undefined'
@@ -210,6 +212,9 @@ export const buildIssueReportMetadata = (input: {
     feedback_kind: input.feedbackKind && FEEDBACK_KINDS.includes(input.feedbackKind) ? input.feedbackKind : null,
     feedback_type: input.feedbackType ?? null,
     feedback_severity: input.feedbackType === 'broke' ? (input.feedbackSeverity ?? null) : null,
+    coaching_diagnostic_ref: input.coachingDiagnosticRef
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.coachingDiagnosticRef)
+      ? input.coachingDiagnosticRef : null,
     releaseId: runtimeConfig?.release ?? null,
     plan: input.plan ?? null,
     sttMode: input.sttMode ?? null,
@@ -226,6 +231,30 @@ export const buildIssueReportMetadata = (input: {
     sentryLastEventId: sentry?.lastEventId?.() ?? null,
   };
 };
+
+/** The unique index that makes a retried draft one row (`20260904150000_share_feedback_redesign.sql`). */
+export const FEEDBACK_IDEMPOTENCY_CONSTRAINT = 'user_issue_reports_idempotency_key_unique';
+
+/**
+ * #1258 — is this insert error the database saying THIS DRAFT IS ALREADY STORED?
+ *
+ * Only a unique violation (23505) on the idempotency index qualifies. That happens when an earlier Send of the same
+ * draft committed but its response was lost, or when two deliveries race. A collision on that index is necessarily
+ * with the key this insert carried, so it IS this draft. The index name is the verifiable signal: Postgres omits the
+ * key values from the error detail when the role cannot SELECT them, and `authenticated` cannot. Any other 23505
+ * (another unique constraint), and every other error, is a real failure the user must be told about. If a detail
+ * does name a key, it must be THIS key.
+ */
+export function isIdempotentReplay(
+  error: { code?: unknown; message?: unknown; details?: unknown } | null | undefined,
+  idempotencyKey: string | null | undefined,
+): boolean {
+  if (!error || !idempotencyKey || error.code !== '23505') return false;
+  const message = typeof error.message === 'string' ? error.message : '';
+  if (!message.includes(`"${FEEDBACK_IDEMPOTENCY_CONSTRAINT}"`)) return false;
+  const details = typeof error.details === 'string' ? error.details : '';
+  return details === '' || details.includes(`(idempotency_key)=(${idempotencyKey})`);
+}
 
 export const issueReportService = {
   async submit(input: SubmitIssueReportInput): Promise<{ id: string | null }> {
@@ -252,22 +281,19 @@ export const issueReportService = {
         audio_attachment_note: audioAttachmentNote,
         idempotency_key: input.idempotencyKey ?? null,
       };
-    const query = input.idempotencyKey
-      ? supabase.from('user_issue_reports').upsert(row, { onConflict: 'idempotency_key', ignoreDuplicates: true })
-      : supabase.from('user_issue_reports').insert(row);
-    const { error } = await query;
+    // #1258 — A PLAIN INSERT, NOT AN UPSERT. `upsert(..., { onConflict: 'idempotency_key' })` executes
+    // `INSERT … ON CONFLICT (idempotency_key)`, and Postgres requires SELECT privilege on a conflict-target column.
+    // `authenticated` is deliberately granted INSERT only on this table (20260607023000, "without granting broad
+    // read access"), so that write is refused with 42501 before any row is stored: reproduced locally under the real
+    // migrations (#1258 5999397125). The unique index still makes a retried draft ONE row; its collision on this
+    // draft's own key is the database confirming the earlier delivery, so it is success, not a new failure.
+    const { error } = await supabase.from('user_issue_reports').insert(row);
 
-    if (error) {
+    if (error && !isIdempotentReplay(error, input.idempotencyKey)) {
       logger.error({ error, category: input.category, severity: input.severity }, '[issueReportService.submit]');
-      // #1259 F09 — a storage failure currently reaches analytics as SILENCE, because
-      // `report_issue_submitted` is emitted only on the success path below. Silence is also what a
-      // user who never opened the dialog produces, so the two are indistinguishable — which is
-      // exactly the ambiguity the live session left us with.
-      // `acknowledgementVisible` is NULL, not false. This layer stores; it does not render, so it cannot
-      // observe whether the user was told anything. Reporting false from here would be a claim about a
-      // screen this code has never seen — and false is the answer that makes the product look worse than
-      // it may be, which is no better than the flattering guess.
-      emitFeedbackSubmit({ outcome: 'storage_failed', acknowledgementVisible: null });
+      // #1259 F09 / #1258 (Codex r4195165652): the failure reaches analytics ONCE, from the dialog — the only caller,
+      // which owns the submit_seq that links it to its attempt and can see what the user was told. Emitting here too
+      // doubled every outcome and left an orphan no attempt could claim. This layer throws; the dialog records it.
       throw error;
     }
 
@@ -301,10 +327,8 @@ export const issueReportService = {
     const linked = persistedSessionId !== null;
     // Verified only when the report is linked AND the identity we hold belongs to that same session.
     const attributionVerified = linked && arm.session_id === persistedSessionId;
-    // NULL for the same reason as the failure path: the acknowledgement is a toast rendered by the
-    // dialog, and `true` here asserted that the user saw something this module cannot see. The dialog
-    // reports what it actually rendered.
-    emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: null, hasSession: linked });
+    // The `feedback_submit` storage_ok is the DIALOG's (Codex r4195165652): it rendered the acknowledgement and owns
+    // the submit_seq. This layer reports only the content-free submission breadcrumb below.
     emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,

@@ -149,7 +149,7 @@ describe('sessionAnalysis metric truth', () => {
 
         const metrics = getSessionAnalysisMetrics(session);
 
-        expect(metrics.fillerCount).toBe(0);           // measured zero, not unavailable, not inflated
+        expect(metrics.fillerCount).toBeNull();        // #1472: an empty map over saved words is unobservable — never a "0 fillers" headline
         expect(metrics.fillerData.total.count).toBe(0);
         expect(metrics.wpm).toBe(8);                   // wpm from stored total_words (8 words / 1 min)
     });
@@ -256,7 +256,7 @@ describe('Live filler SSOT — live count is canonical, recount is diagnostic/fa
         expect(read({ um: -1 })).toBeNull();          // invalid value → unavailable
         expect(read({ 'a prose key': 3 })).toBeNull(); // invalid key → unavailable
         // Measured → a number (0 for `{}`), never a recount.
-        expect(read({})).toBe(0);                      // measured zero
+        expect(read({})).toBeNull();                   // #1472: `{}` alone is not a measured zero (no saved word count → unavailable)
         expect(read({ um: 4 })).toBe(4);               // measured counts
     });
 
@@ -375,12 +375,37 @@ describe('metrics-duration: pace uses the persisted RECORDING duration, not fina
 
 // #1306 P1-4: UNAVAILABLE filler evidence (null) must produce NEUTRAL N/A copy — never a fabricated
 // "no filler words were detected". A MEASURED empty map ({}) is a genuine zero and keeps the zero copy.
+// #1472 (Browser PM 6102458581) — the saved headline gates on the count it CLAIMS (the tier), exactly like the live review.
+describe('#1472 tier-aligned saved filler evidence', () => {
+    const saved = (filler_counts: unknown, extra: Partial<PracticeSession> = {}) => ({
+        id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z', duration: 60, total_words: 190, filler_counts, ...extra,
+    } as unknown as PracticeSession);
+
+    it('CASUALTY: a discourse-only map ({ like: 2 }) with the default true-filler tier is NOT a clean zero', () => {
+        const m = getSessionAnalysisMetrics(saved({ like: 2 }));
+        expect(m.fillerCount).toBeNull();
+        expect(m.fillerExplanation).not.toMatch(/no filler words were detected/i);
+        expect(m.fillerExplanation).toMatch(/could not be verified/i);
+        expect(m.clarityExplanation).not.toMatch(/no filler words/i);
+    });
+    it('CONTROL (opt-in): with discourse markers counted, the same map is an observed positive count', () => {
+        expect(getSessionAnalysisMetrics(saved({ like: 2 }), { includeDiscourseMarkers: true }).fillerCount).toBe(2);
+    });
+    it('CONTROL (mixed): a positive true-filler count stays its truthful tier count', () => {
+        expect(getSessionAnalysisMetrics(saved({ um: 1, like: 2 })).fillerCount).toBe(1);
+        expect(getSessionAnalysisMetrics(saved({ um: 1, like: 2 }), { includeDiscourseMarkers: true }).fillerCount).toBe(3);
+    });
+    it('discourse-only with zero saved words is no speech (still no zero headline)', () => {
+        expect(getSessionAnalysisMetrics(saved({ like: 2 }, { total_words: 0 })).fillerCount).toBeNull();
+    });
+});
+
 describe('#1306 P1-4 — unavailable vs measured-zero filler copy', () => {
     const PLENTY = 50; // comfortably above MIN_RELIABLE_SCORING_WORDS
 
     it('getFillerExplanation(null): N/A copy, NEVER "No filler words were detected"', () => {
         const copy = getFillerExplanation(null, PLENTY);
-        expect(copy).toMatch(/wasn.t available|not available/i);
+        expect(copy).toMatch(/could not be verified/i);
         expect(copy).not.toMatch(/no filler words were detected/i);
     });
 
@@ -406,17 +431,19 @@ describe('#1306 P1-4 — unavailable vs measured-zero filler copy', () => {
         } as unknown as PracticeSession);
         expect(metrics.fillerCount).toBeNull();
         expect(metrics.fillerExplanation).not.toMatch(/no filler words were detected/i);
-        expect(metrics.fillerExplanation).toMatch(/wasn.t available|not available/i);
+        expect(metrics.fillerExplanation).toMatch(/could not be verified/i);
         expect(metrics.clarityExplanation).not.toMatch(/no filler words or transcript errors were detected/i);
     });
 
-    it('reader: a MEASURED empty map ({}) → fillerCount 0 + genuine measured-zero copy', () => {
+    it('CASUALTY #1472 reader: an empty map ({}) over saved words → fillerCount null + "could not be verified", never a clean claim', () => {
         const metrics = getSessionAnalysisMetrics({
             id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
             duration: 60, total_words: PLENTY, filler_counts: {},
         } as unknown as PracticeSession);
-        expect(metrics.fillerCount).toBe(0);
-        expect(metrics.fillerExplanation).toMatch(/no filler words were detected/i);
+        expect(metrics.fillerCount).toBeNull();
+        expect(metrics.fillerExplanation).toMatch(/could not be verified/i);
+        expect(metrics.fillerExplanation).not.toMatch(/no filler words were detected/i);
+        expect(metrics.clarityExplanation).not.toMatch(/no filler words/i);
     });
 
     it('reader: clarity_score=NULL → NOT reconstructed; not scorable + neutral N/A copy (no performance claim)', () => {

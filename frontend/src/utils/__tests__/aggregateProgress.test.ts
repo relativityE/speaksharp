@@ -69,6 +69,13 @@ describe('signalsFromSession (#1206)', () => {
         expect(signalsFromSession(base({})).fillerRate).toBeNull();
     });
 
+    it('CASUALTY #1472 (client Progress): an empty map over saved words has NO filler rate — never a perfect 0/min', () => {
+        expect(signalsFromSession(base({ filler_counts: {}, total_words: 900 })).fillerRate).toBeNull();
+        expect(signalsFromSession(base({ filler_counts: {}, total_words: 0 })).fillerRate).toBeNull();      // no speech
+        expect(signalsFromSession(base({ filler_counts: {} })).fillerRate).toBeNull();                       // no word count
+        expect(signalsFromSession(base({ filler_counts: { um: 3 }, total_words: 0 })).fillerRate).toBeCloseTo(0.3, 5); // observed stays
+    });
+
     it('carries clarity only when scorable, and silence only with valid pause evidence', () => {
         const s = signalsFromSession(base({
             filler_counts: { um: 6 }, total_words: 200, clarity_score: 72,

@@ -25,6 +25,7 @@
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { nextInitContext } from '@/services/telemetry/reinitObservation';
 import { runtimeCandidateExpectation } from '@/services/transcription/runtimeCandidateSwitch';
+import { configuredCandidateExpectation } from '@/services/transcription/candidateSelection';
 import type {
     MeasurementCompleteness, MeasurementReasonCode,
 } from './acquisitionNetworkObservation';
@@ -267,7 +268,11 @@ export function recordAcquisitionStart(subject: AcquisitionSubject, cacheResult:
          * so the binding could only ever check that SOME model was acquired — not that it was the right
          * one. Null when no expectation is configured, never a guess.
          */
-        expected_candidate_id: runtimeCandidateExpectation() ?? null,
+        // A runtime qualification target wins while a switch is active; otherwise emit the checked-in
+        // configured default. Neither value is derived from the acquired subject or running envelope.
+        // If a safety kill forces the fallback, the configured expectation remains visible beside the
+        // acquired/running fallback identity so the mismatch is evidence, not a silent substitution.
+        expected_candidate_id: runtimeCandidateExpectation() ?? configuredCandidateExpectation(),
         ...nextInitContext(),
     });
 }

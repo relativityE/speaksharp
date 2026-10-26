@@ -3,6 +3,7 @@
  * Codex P1s on b5071da25. Content-free: verdicts, fixed details and counts only.
  */
 import type { Verdict } from './rwtAcceptance';
+import type { FocusRailStatus as IdentityRailStatus, SavedFocusEvidenceRow, SavedFocusIdentityObservation, SavedFocusPointIdentity } from './rwtSavedFocusIdentity';
 
 /**
  * r4105978609 — the pre-credential surface is approved only when the app's centralized readiness authority
@@ -144,8 +145,25 @@ export function focusCoachingProvenanceVerdict(input: { savedVersion: string | n
  * its own stage families, singletons and (no) acquisition — `exactlyOnceFamiliesForStages` / `declaresRecordingStage`.
  */
 export type { ReadbackBinding } from './rwtAcceptance';
-import type { ReadbackBinding } from './rwtAcceptance';
-export interface ReadbackPlan { journeys: ReadbackBinding[]; reportedJourneyIds: string[]; missingBindings: string[] }
+import type { ReadbackActionBinding, ReadbackActionStage, ReadbackBinding } from './rwtAcceptance';
+import { correlateFeedbackAttempts, correlatePracticePresses, type CorrelationEvent } from '../../../frontend/src/services/telemetry/outcomeCorrelation';
+export interface ReadbackPlan {
+    journeys: ReadbackBinding[];
+    reportedJourneyIds: string[];
+    missingBindings: string[];
+    /** #1258 F3: one closed, content-free reason per missing binding label; present only when something is missing. */
+    bindingReasons?: Record<string, BindingMissReason>;
+    /** #1258 F3 (PO 2026-10-11): the binding-relevant event order, ids relabelled; present only when something is missing. */
+    bindingSequence?: string;
+}
+
+/** #1258 F3 — why `AnalyticsTap.captureActionBinding` did or did not snapshot an action's identity (closed set). */
+export type ActionCaptureOutcome = 'captured' | 'invalid_identity_input' | 'not_analytics_page' | 'no_current_boot_control'
+    | 'route_not_analytics' | 'boot_not_on_analytics' | 'no_journey';
+export interface ActionCaptureAttempt { stage: ReadbackActionStage; outcome: ActionCaptureOutcome; at?: number }
+/** #1258 F3 — why the oracle left a declared binding unbound (closed set; `no_capture/<outcome>` names the capture's refusal). */
+export type BindingMissReason = 'take_not_started' | 'anchor_not_sent' | 'duplicate_capture' | 'identity_mismatch'
+    | 'boot_not_latest' | 'route_not_latest' | 'anchor_mismatch' | 'no_capture' | `no_capture/${Exclude<ActionCaptureOutcome, 'captured'>}`;
 
 /** A recording take the RUN pressed and saw record, identified by the Start the page sent — never by its save. */
 export interface ExpectedTake { attemptId: string; journeyId: string }
@@ -173,7 +191,10 @@ export function takeStartedAfter(
 }
 
 export function bindReadbackJourneys(
-    events: readonly { event: string; at: number; journeyId?: string; trafficType?: string }[],
+    events: readonly {
+        event: string; at: number; journeyId?: string; trafficType?: string; bootId?: string; releaseSha?: string;
+        journeyStep?: string; toRoute?: string;
+    }[],
     /**
      * `takes` (#1532 Codex P1 r4124290575, PM RETURNs 5873754861 / 5874333083): the recording takes the run itself pressed —
      * the first take and the save-producing Practice-again take — each identified by the Start the page sent
@@ -189,6 +210,15 @@ export function bindReadbackJourneys(
         takes?: { first: ExpectedTake | null; repeat?: ExpectedTake | null };
         feedback: boolean;
         pdfExport?: boolean;
+        /** #1258 (#1563): the journey of the first canary Practice-again press is read back for press→arrival. */
+        practiceAgain?: boolean;
+        /** Present in live suites: strict action-time binding is mandatory, even if the decoded anchor exists. */
+        actionBindings?: readonly ReadbackActionBinding[];
+        /** #1258 F3: the tap's capture outcomes, so an absent action binding reports the capture's own refusal. */
+        actionCaptures?: readonly ActionCaptureAttempt[];
+        expectedReleaseSha?: string;
+        expectedRunId?: string;
+        expectedRunAttempt?: string;
     },
 ): ReadbackPlan {
     const canary = events.filter((e) => e.trafficType === 'canary' && typeof e.journeyId === 'string' && e.journeyId !== '');
@@ -196,35 +226,127 @@ export function bindReadbackJourneys(
         [...canary].filter((e) => e.event === name).sort((a, b) => a.at - b.at)[0]?.journeyId ?? null;
     const bound = new Map<string, { stages: string[]; attemptIds: string[] }>();
     const missingBindings: string[] = [];
+    const bindingReasons: Record<string, BindingMissReason> = {};
+    let miss: BindingMissReason = 'anchor_not_sent';
     const bind = (journeyId: string | null, stages: readonly string[], label: string, attemptId?: string) => {
-        if (!journeyId) { missingBindings.push(label); return; }
+        if (!journeyId) { missingBindings.push(label); bindingReasons[label] = miss; return; }
         const prev = bound.get(journeyId) ?? { stages: [], attemptIds: [] };
         bound.set(journeyId, {
             stages: [...new Set([...prev.stages, ...stages])],
             attemptIds: attemptId && !prev.attemptIds.includes(attemptId) ? [...prev.attemptIds, attemptId] : prev.attemptIds,
         });
     };
+    const actionJourney = (stage: ReadbackActionStage, anchorName: string): string | null => {
+        // Keep legacy pure-oracle callers explicit: live RWT call sites always pass the array, including an empty one,
+        // which makes independent action-time identity mandatory and prevents fallback to the anchor under review.
+        miss = 'anchor_not_sent';
+        if (plan.actionBindings === undefined) return anchor(anchorName);
+        const candidates = plan.actionBindings.filter((binding) => binding.stage === stage);
+        if (candidates.length !== 1) {
+            const refusal = [...(plan.actionCaptures ?? [])].reverse().find((attempt) => attempt.stage === stage && attempt.outcome !== 'captured');
+            miss = candidates.length > 1 ? 'duplicate_capture' : refusal && refusal.outcome !== 'captured' ? `no_capture/${refusal.outcome}` : 'no_capture';
+            return null;
+        }
+        const binding = candidates[0];
+        const expectedRelease = plan.expectedReleaseSha ?? '';
+        const expectedRunId = plan.expectedRunId ?? '';
+        const expectedRunAttempt = plan.expectedRunAttempt ?? '';
+        // #1570 Codex P1 r4212726964: re-check the binding as of the action. Its boot's control must be the latest one sent
+        // by then (a hard reload starts a new boot), and its journey must be that boot's latest Analytics route — or, for a
+        // boot with no route_change (loaded directly on Analytics), the journey its own positive control carries.
+        const isControl = (event: (typeof events)[number]) => event.event === 'telemetry_positive_control'
+            && event.trafficType === 'canary' && event.releaseSha === binding.releaseSha;
+        const controls = events.filter((event) => isControl(event) && event.at <= binding.capturedAt).sort((a, b) => a.at - b.at);
+        const latestControl = controls[controls.length - 1];
+        const bootWasObserved = latestControl?.bootId === binding.bootId;
+        const bootRoutes = events.filter((event) => event.event === 'journey_step' && event.journeyStep === 'route_change'
+            && event.bootId === binding.bootId && event.at <= binding.capturedAt).sort((a, b) => a.at - b.at);
+        const lastRoute = bootRoutes[bootRoutes.length - 1];
+        const routeWasObserved = binding.entry === 'route_change'
+            ? lastRoute !== undefined && lastRoute.journeyId === binding.journeyId
+                && lastRoute.releaseSha === binding.releaseSha && lastRoute.trafficType === 'canary'
+                && ['/progress', '/progress/id', '/analytics', '/analytics/id'].includes(lastRoute.toRoute ?? '')
+            : binding.entry === 'boot_load' && bootRoutes.length === 0
+                && latestControl?.journeyId === binding.journeyId;
+        const identityIsValid = Boolean(binding.journeyId && binding.bootId)
+            && binding.trafficType === 'canary'
+            && /^[a-f0-9]{40}$/.test(expectedRelease)
+            && binding.releaseSha === expectedRelease
+            && /^\d{1,20}$/.test(expectedRunId) && binding.runId === expectedRunId
+            && /^\d{1,4}$/.test(expectedRunAttempt) && binding.runAttempt === expectedRunAttempt;
+        if (!identityIsValid) { miss = 'identity_mismatch'; return null; }
+        if (!bootWasObserved) { miss = 'boot_not_latest'; return null; }
+        if (!routeWasObserved) { miss = 'route_not_latest'; return null; }
+        const sentAnchor = [...canary].filter((event) => event.event === anchorName).sort((a, b) => a.at - b.at)[0];
+        if (sentAnchor && (sentAnchor.journeyId !== binding.journeyId
+            || sentAnchor.bootId !== binding.bootId || sentAnchor.releaseSha !== binding.releaseSha)) { miss = 'anchor_mismatch'; return null; }
+        return binding.journeyId;
+    };
     let firstRecording: string | null = null;
     if (plan.recording.length > 0) {
         const first = plan.takes ? plan.takes.first : null;
         firstRecording = plan.takes ? (first?.journeyId ?? null) : anchor('session_saved');
+        miss = plan.takes ? 'take_not_started' : 'anchor_not_sent';
         bind(firstRecording, plan.recording, 'recording', first?.attemptId);
     }
     if (plan.repeatRecording && plan.repeatRecording.length > 0) {
         // Declared repeat recording: the take the run pressed must be identified from its sent Start, or it is a HOLD.
         const repeat = plan.takes?.repeat ?? null;
+        miss = 'take_not_started';
         bind(repeat?.journeyId ?? null, plan.repeatRecording, 'repeat_recording', repeat?.attemptId);
     }
-    if (plan.feedback) bind(anchor('feedback_submit'), ['share_feedback'], 'share_feedback');
+    if (plan.feedback) bind(actionJourney('share_feedback', 'feedback_submit'), ['share_feedback'], 'share_feedback');
     // The v12 PDF is downloaded after the detail reload (Back to Dashboard → Download PDF), so it binds to its own journey.
-    if (plan.pdfExport) bind(anchor('session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
+    if (plan.pdfExport) bind(actionJourney('session_pdf_export', 'session_pdf_downloaded'), ['session_pdf_export'], 'session_pdf_export');
+    miss = 'anchor_not_sent';
+    if (plan.practiceAgain) bind(anchor('saved_review_practice_action'), ['practice_again'], 'practice_again');
     const journeys = [...bound].map(([journeyId, { stages, attemptIds }]) => ({
         journeyId, stages,
         ...(journeyId === firstRecording ? { firstDownload: true } : {}),
         ...(attemptIds.length > 0 ? { attemptIds } : {}),
     }));
     const reportedJourneyIds = [...new Set(canary.map((e) => e.journeyId as string))].filter((j) => !bound.has(j));
-    return { journeys, reportedJourneyIds, missingBindings };
+    return {
+        journeys, reportedJourneyIds, missingBindings,
+        ...(missingBindings.length > 0 ? { bindingReasons, bindingSequence: bindingSequence(events, plan.actionCaptures ?? []) } : {}),
+    };
+}
+
+const SEQUENCE_EVENTS: Record<string, string> = {
+    telemetry_positive_control: 'control', feedback_submit: 'feedback', session_pdf_downloaded: 'pdf',
+    saved_review_practice_action: 'practice',
+};
+const SEQUENCE_MAX_TOKENS = 60;
+
+/**
+ * #1258 F3 (PO 2026-10-11): the order the tap SAW the binding-relevant events and capture attempts, so a missing binding
+ * is diagnosable from the receipt alone. Content-free by construction: boots and journeys become B1/J1… in order of first
+ * appearance (no ids), routes are the app's route classes, times are ms after the first token (tap send time), and
+ * non-canary traffic is marked `u:`. Only the last SEQUENCE_MAX_TOKENS tokens are kept.
+ */
+export function bindingSequence(
+    events: readonly { event: string; at: number; journeyId?: string; bootId?: string; trafficType?: string; journeyStep?: string; toRoute?: string }[],
+    captures: readonly ActionCaptureAttempt[],
+): string {
+    const labels = new Map<string, string>();
+    const label = (prefix: 'B' | 'J', id: string | undefined): string => {
+        if (!id) return `${prefix}?`;
+        const key = `${prefix}:${id}`;
+        if (!labels.has(key)) labels.set(key, `${prefix}${[...labels.keys()].filter((k) => k.startsWith(`${prefix}:`)).length + 1}`);
+        return labels.get(key) as string;
+    };
+    const raw: Array<{ at: number; describe: () => string }> = [];
+    for (const e of events) {
+        const name = e.event === 'journey_step' && e.journeyStep === 'route_change' ? `route>${e.toRoute ?? '?'}` : SEQUENCE_EVENTS[e.event];
+        if (!name) continue;
+        raw.push({ at: e.at, describe: () => `${e.trafficType === 'canary' ? '' : 'u:'}${label('B', e.bootId)}/${label('J', e.journeyId)} ${name}` });
+    }
+    for (const c of captures) if (typeof c.at === 'number') raw.push({ at: c.at, describe: () => `capture ${c.stage}=${c.outcome}` });
+    // Labels are assigned in time order, after sorting, so B1/J1 is always the earliest boot/journey shown.
+    raw.sort((a, b) => a.at - b.at);
+    const tokens = raw.map((t) => ({ at: t.at, text: t.describe() }));
+    const origin = tokens[0]?.at ?? 0;
+    return tokens.slice(-SEQUENCE_MAX_TOKENS).map((t) => `+${Math.max(0, t.at - origin)} ${t.text}`).join('; ');
 }
 
 export { runJourneyIds } from './rwtAcceptance';
@@ -255,4 +377,280 @@ export function persistedVerdictMismatches(
     });
     if (ordered.length !== rail.length) mismatches.add(-1);
     return [...mismatches].sort((a, b) => a - b);
+}
+
+/**
+ * #1258 (#1563 closure) — a Practice-again press is proven only when the SAME press arrived where it meant to go.
+ * Pairs each navigating `saved_review_practice_action` with the next `saved_review_practice_arrived` carrying its
+ * `action_seq` in the SAME boot (entering a product mints a new journey, so pairing is by boot, sequence and order, never
+ * journey). A linked
+ * press whose attempt did not succeed names that outcome instead of an arrival. Closed values only.
+ */
+type OutcomeEvent = { event: string; bootId?: string; fields?: Readonly<Record<string, string | number | boolean>> };
+const asCorrelation = (events: readonly OutcomeEvent[]): CorrelationEvent[] =>
+    events.map((e) => ({ event: e.event, bootId: e.bootId ?? null, props: e.fields ?? {} }));
+export function practiceArrivalVerdict(events: readonly OutcomeEvent[]): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | number> } {
+    // The ONE pairing rule shared with the deployed readback (frontend/src/services/telemetry/outcomeCorrelation.ts).
+    const c = correlatePracticePresses(asCorrelation(events));
+    const evidence = { presses: c.presses, arrived: c.arrived, mismatched: c.mismatched, missing: c.missing, linkedFailed: c.linkedFailed, first: c.first };
+    if (c.presses === 0) return { verdict: 'HOLD', detail: 'no navigating Practice-again press was sent', evidence: { presses: 0 } };
+    // Truthful-proof rule (PM 6010721789): an OBSERVED failure (wrong route, failed linked attempt) is FAIL; a press with
+    // no arrival is missing evidence (e.g. not yet flushed) and is HOLD, never PASS and never FAIL.
+    if (c.mismatched > 0 || c.linkedFailed > 0) return { verdict: 'FAIL', detail: 'a Practice-again press reached the wrong route or its linked attempt failed', evidence };
+    return c.arrived === c.presses
+        ? { verdict: 'PASS', detail: 'every Practice-again press arrived at its intended route (same boot and action_seq)', evidence }
+        : { verdict: 'HOLD', detail: 'a Practice-again press has no observed arrival (missing evidence, not an observed failure)', evidence };
+}
+
+/** #1258 (#1563 closure) — each Share Feedback attempt resolved to a stored outcome with the SAME boot and `submit_seq`;
+ * a reused `submit_seq` (reopened dialog) never lets one outcome resolve two attempts (Codex r4196394199). */
+export function feedbackOutcomeVerdict(events: readonly OutcomeEvent[]): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | number> } {
+    const c = correlateFeedbackAttempts(asCorrelation(events));
+    if (c.attempts === 0) return { verdict: 'HOLD', detail: 'no Share Feedback attempt was sent', evidence: { attempts: 0 } };
+    const evidence = { attempts: c.attempts, stored: c.stored, failed: c.failed, unresolved: c.unresolved, errorCategory: c.errorCategory };
+    if (c.failed > 0) return { verdict: 'FAIL', detail: 'a Share Feedback attempt failed to store (see errorCategory)', evidence };
+    return c.stored === c.attempts
+        ? { verdict: 'PASS', detail: 'every Share Feedback attempt resolved to storage_ok with the same boot and submit_seq', evidence }
+        : { verdict: 'HOLD', detail: 'a Share Feedback attempt has no observed outcome (missing evidence, not an observed failure)', evidence };
+}
+
+/**
+ * #1258 (Browser PM 6087216991, option B) — Focus "Start a new set" and "Edit" on the deployed engine. The new set keeps two
+ * points the fixture SPEAKS and starts with one it never says; Edit replaces that one with a third spoken point. Scored on the
+ * edited set every point is detected (3/3); on the unedited new set the unspoken point would be missed, and on the old set the
+ * total would differ. Returns the three fixture indices, or null when the fixture expects fewer than three covered points.
+ */
+export function newSetSourcePoints(expectedFinal: readonly string[]): [number, number, number] | null {
+    const covered = expectedFinal.flatMap((e, i) => (e === 'covered' ? [i] : []));
+    return covered.length >= 3 ? [covered[0], covered[1], covered[2]] : null;
+}
+
+export interface NewSetEditObservation {
+    newSetBlank: boolean;
+    editSeeded: boolean;
+    railLabelsMatchEdit: boolean;
+    takeAId: string | null;
+    takeBId: string | null;
+    briefA: string | null;
+    briefB: string | null;
+    /** Take A's saved verdicts before New Set and after take B (sorted). */
+    takeAVerdictsBefore: readonly string[];
+    takeAVerdictsAfter: readonly string[];
+    /** The three labels the edited set was saved with, in order. */
+    editedLabels: readonly string[];
+    /** Take B's rail after Stop: label and status per point, in rail order. */
+    railOrdered: readonly { label: string; status: string | null }[];
+    /** Take B's SAVED verdicts bound to its brief: label and verdict per point, in saved sort order. */
+    takeBSavedOrdered: readonly { label: string; verdict: string }[];
+}
+
+type RowVerdict = { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string };
+
+export function newSetEditVerdicts(o: NewSetEditObservation): { newSet: RowVerdict; edit: RowVerdict } {
+    const sameA = o.takeAVerdictsBefore.length > 0 && o.takeAVerdictsBefore.join(',') === o.takeAVerdictsAfter.join(',');
+    const newSetOk = o.newSetBlank && o.takeBId !== null && o.takeBId !== o.takeAId && o.briefB !== null && o.briefB !== o.briefA && sameA;
+    const newSet: RowVerdict = newSetOk
+        ? { verdict: 'PASS', detail: 'Start a new set opened blank; the next take saved under a new set, and the earlier take kept its saved verdicts' }
+        : { verdict: 'FAIL', detail: !o.newSetBlank ? 'Start a new set did not open a blank setup'
+            : o.takeBId === null || o.takeBId === o.takeAId ? 'the take after the new set did not save as its own session'
+                : o.briefB === null || o.briefB === o.briefA ? 'the take after the new set was not saved under a new set'
+                    : 'the earlier take\'s saved verdicts changed' };
+    // Browser PM 6093772463: bound per point — the edited label, its rail status and its saved verdict at the SAME position.
+    const n = o.editedLabels.length;
+    const scored = n === 3 && o.railOrdered.length === n && o.takeBSavedOrdered.length === n
+        && o.editedLabels.every((label, i) => o.railOrdered[i].label.includes(label) && o.railOrdered[i].status === 'covered'
+            && o.takeBSavedOrdered[i].label === label && o.takeBSavedOrdered[i].verdict === 'detected');
+    const editOk = o.editSeeded && o.railLabelsMatchEdit && scored;
+    const edit: RowVerdict = editOk
+        ? { verdict: 'PASS', detail: 'Edit opened seeded with the set; the edited point replaced the unspoken one and the next take was scored 3/3 on the edited set' }
+        : { verdict: 'FAIL', detail: !o.editSeeded ? 'Edit did not open seeded with the current set'
+            : !o.railLabelsMatchEdit ? 'the rail does not show the edited set'
+                : 'the next take was not scored and saved 3/3 on the edited set' };
+    return { newSet, edit };
+}
+
+/**
+ * #1258 (Browser PM 6089313104) — "Start a new set" opened BLANK: the goal is unchosen, the topic (rendered only for a custom
+ * goal; null when absent) is empty, at least one point input is rendered and EVERY rendered point input is empty, and no
+ * value carries an old-set label. Point 0 alone is not enough: a stale goal, topic or second point must never pass.
+ */
+export function setupIsBlank(o: { goal: string; topic: string | null; pointValues: readonly string[]; staleLabels: readonly string[] }): boolean {
+    const values = [o.goal, o.topic ?? '', ...o.pointValues].map((v) => v.trim());
+    const carriesOld = values.some((v) => v !== '' && o.staleLabels.some((label) => label.trim() !== '' && v.includes(label.trim())));
+    return o.goal.trim() === '' && (o.topic ?? '').trim() === '' && o.pointValues.length > 0
+        && o.pointValues.every((v) => v.trim() === '') && !carriesOld;
+}
+
+/** Every content word of a point label appears in the transcript (case and punctuation ignored). Compared in Node only. */
+export function labelHeardIn(label: string, transcript: string): boolean {
+    const STOP = new Set(['the', 'and', 'for', 'you', 'your', 'our', 'with', 'that', 'this', 'are', 'will']);
+    const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s']/g, ' ').split(/\s+/).filter(Boolean);
+    const heard = new Set(words(transcript));
+    const content = words(label).filter((w) => w.length >= 3 && !STOP.has(w));
+    return content.length > 0 && content.every((w) => heard.has(w));
+}
+
+/**
+ * #1258 (Browser PM 6089889070, 6090552875) — a Focus take recorded right after an Open Mic take is clean. The fake microphone
+ * replays the Focus fixture from the start at each acquisition (the existing marker-timing row relies on this), so a short
+ * take hears only point 1. Points 2–4 are markers only when the earlier Open Mic take actually RECOGNISED them
+ * (`markerSupport`); then any of them detected (or partial) in the new take is carry-over, partial or whole. The proof needs
+ * exactly four readable statuses and a real `open_mic` source row; a marker the source never heard makes the row HOLD.
+ * Stale coaching is observed at the Focus pre-Start boundary, where no current Focus review can exist yet.
+ */
+export interface SwitchSourceSnapshot {
+    product: string | null;
+    digest: string | null;
+    /** Available means a positively read nonempty transcript; expired means explicit expired state + SQL NULL. */
+    state?: 'available' | 'expired' | 'missing' | 'query_error' | 'malformed';
+    sessionId?: string | null;
+    userId?: string | null;
+}
+
+export interface SwitchIsolationObservation {
+    railPendingBefore: boolean;
+    openMicId: string | null;
+    focusId: string | null;
+    savedProduct: string | null;
+    finalStatuses: readonly (string | null)[];
+    staleCoachingBeforeStart: boolean;
+    /** Points 2–4: did the earlier Open Mic take's saved transcript contain each label? */
+    markerSupport: readonly boolean[];
+    openMicBefore: SwitchSourceSnapshot;
+    openMicAfter: SwitchSourceSnapshot;
+    /** Needed to prove a retention transition; legacy unchanged-row observations do not infer one. */
+    ownerId?: string;
+}
+
+export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string } {
+    const fail = (detail: string) => ({ verdict: 'FAIL' as const, detail });
+    const hold = (detail: string) => ({ verdict: 'HOLD' as const, detail });
+    if (!o.railPendingBefore) return fail('the Focus rail was not all-pending before the take (state carried over from Open Mic)');
+    if (!o.openMicId) return fail('no saved Open Mic source take to switch from');
+    // Missing source proof cannot mask an independently observed identity, product or carry-over failure.
+    if (o.staleCoachingBeforeStart) return fail('the Open Mic take\'s coaching was shown on Focus Points before the new take started');
+    if (!o.focusId || o.focusId === o.openMicId) return fail('the take after the switch did not save as its own session');
+    if (o.savedProduct !== 'focus_points') return fail('the take after the switch was not saved as Focus Points');
+    if (o.finalStatuses.length !== 4 || o.finalStatuses.some((s) => s === null)) return fail('incomplete marker observation: the rail did not show exactly four readable point verdicts');
+    if (o.finalStatuses[0] !== 'covered') return fail('no current-take recognition: point 1, the only point this take heard, was not detected');
+    if (o.finalStatuses.slice(1).some((s) => s !== 'missing')) return fail('old-take carry-over: a point spoken only in the earlier Open Mic take was detected in the new take');
+    for (const source of [o.openMicBefore, o.openMicAfter]) {
+        if (source.state === 'malformed') return fail('the Open Mic source has contradictory transcript state');
+        if (source.state === 'expired' && source.digest !== null) return fail('the expired Open Mic source still has transcript content');
+        if (source.state && ((source.sessionId && source.sessionId !== o.openMicId) || (o.ownerId && source.userId && source.userId !== o.ownerId))) return fail('the Open Mic source identity changed');
+        if (source.product !== null && source.product !== 'open_mic') return fail('the earlier Open Mic session changed product');
+    }
+    for (const source of [o.openMicBefore, o.openMicAfter]) {
+        if (source.state === 'missing' || source.state === 'query_error') return hold('the Open Mic source row could not be read; retention and isolation are unproven');
+        if (source.state && (!o.ownerId || !source.sessionId || !source.userId)) return hold('the Open Mic source identity is incomplete');
+    }
+    if (o.openMicAfter.state === 'expired' && (o.openMicBefore.state !== 'available' || !o.openMicBefore.digest)) {
+        return hold('expiry without a prior positive saved transcript does not prove an unchanged source take');
+    }
+    if (o.openMicBefore.product !== 'open_mic' || !o.openMicBefore.digest) return fail('no saved Open Mic source take to switch from');
+    const expiredAfterWitness = o.openMicBefore.state === 'available' && o.openMicAfter.state === 'expired'
+        && o.openMicAfter.digest === null && o.openMicAfter.product === 'open_mic';
+    if (!expiredAfterWitness && (o.openMicBefore.product !== o.openMicAfter.product || o.openMicBefore.digest !== o.openMicAfter.digest)) {
+        return fail('the earlier Open Mic session changed (product or transcript)');
+    }
+    if (o.markerSupport.length !== 3 || o.markerSupport.some((heard) => !heard)) {
+        return { verdict: 'HOLD', detail: 'the earlier Open Mic take did not recognise every marker point, so their absence cannot prove isolation' };
+    }
+    return { verdict: 'PASS', detail: expiredAfterWitness
+        ? 'the Focus take heard only its own audio, saved as Focus Points, and the previously witnessed Open Mic transcript lawfully expired without changing its identity'
+        : 'the Focus take after Open Mic heard only its own audio (point 1 detected; the three points the Open Mic take recognised were absent), saved as Focus Points, and left the Open Mic take unchanged' };
+}
+
+/**
+ * #1258 (Browser PM 6093772463) — Focus Points: Progress → browser Back → the SAME saved session → reload, reusing the
+ * existing take. PASS only when both the Back and the reload restore that session read-only (no idle recorder, no live mic),
+ * its saved transcript and verdicts are unchanged, its review is shown after Back AND after the reload (the saved coaching,
+ * or Try again when none was saved), and nothing requested coaching. Verdicts that could not be read never PASS.
+ */
+export interface FocusBackReloadObservation {
+    leftForProgress: boolean;
+    restoredAfterBack: boolean;
+    /** #1576 Codex P1 4237614260: live capture tracks read right after Back (null = unreadable). */
+    liveMicTracksAfterBack: number | null;
+    restoredAfterReload: boolean;
+    sameSessionAfterReload: boolean;
+    idleRecorderShown: boolean;
+    liveMicTracks: number | null;
+    transcriptMatchesSaved: boolean;
+    reviewAfterBack: 'saved' | 'try_again' | 'not_available' | 'missing';
+    reviewAfterReload: 'saved' | 'try_again' | 'not_available' | 'missing';
+    coachingSaved: boolean;
+    verdictsBefore: readonly string[];
+    verdictsAfter: readonly string[];
+    coachingRequestsBefore: number;
+    coachingRequestsAfter: number;
+}
+
+export function focusBackReloadVerdict(o: FocusBackReloadObservation): { verdict: 'PASS' | 'FAIL'; detail: string } {
+    const fail = (detail: string) => ({ verdict: 'FAIL' as const, detail });
+    if (!o.leftForProgress) return fail('the header Progress link did not open Progress');
+    if (!o.restoredAfterBack) return fail('browser Back did not restore this saved session');
+    if (o.idleRecorderShown) return fail('the idle recorder was shown instead of the saved session');
+    if (o.liveMicTracksAfterBack !== 0) return fail('a microphone was live (or unreadable) right after Back');
+    if (!o.restoredAfterReload || !o.sameSessionAfterReload) return fail('a reload did not restore the same saved session');
+    if (o.liveMicTracks !== 0) return fail('a microphone was live on the restored session');
+    if (!o.transcriptMatchesSaved) return fail('the restored transcript is not the saved one');
+    // Browser PM RETURN on c76283d12: the rehearsal take keeps its transcript and Focus results, so with no saved coaching the
+    // only correct view is Try again — after Back AND after the reload; `not_available` is never a waiver.
+    const expected = o.coachingSaved ? 'saved' : 'try_again';
+    if (o.reviewAfterBack !== expected) return fail(`after Back the review was ${o.reviewAfterBack}, expected ${expected}`);
+    if (o.reviewAfterReload !== expected) return fail(`after the reload the review was ${o.reviewAfterReload}, expected ${expected}`);
+    if (o.verdictsBefore.length === 0 || o.verdictsBefore.join(',') !== o.verdictsAfter.join(',')) return fail('the saved point verdicts were unreadable or changed');
+    if (o.coachingRequestsAfter !== o.coachingRequestsBefore) return fail('Progress, Back or the reload requested coaching');
+    return { verdict: 'PASS', detail: 'Progress → Back and a reload restored the same saved Focus session read-only, with its saved transcript, verdicts and review, and requested nothing' };
+}
+
+/**
+ * #1258 (Browser PM 6096833549) — the Analytics identity proof's inputs for ONE take: the brief its setup created (read before
+ * any take), the labels the person entered and the rail statuses captured at that take's Stop (never derived from the saved
+ * result under test), and that take's saved points, evidence rows and visible saved-review evidence. Kept in memory only.
+ */
+export function focusIdentityObservation(input: {
+    expectedBriefId: string | null; savedBriefId: string | null; labels: readonly string[]; railStatuses: readonly (IdentityRailStatus | null)[];
+    savedPoints: readonly SavedFocusPointIdentity[]; evidence: readonly SavedFocusEvidenceRow[]; visibleEvidence: readonly string[];
+}): SavedFocusIdentityObservation {
+    return {
+        expectedBriefId: input.expectedBriefId ?? '',
+        savedBriefId: input.savedBriefId ?? '',
+        expected: input.labels.map((label, i) => ({ label, railStatus: input.railStatuses[i] ?? null })),
+        savedPoints: input.savedPoints,
+        evidence: input.evidence,
+        visibleEvidence: input.visibleEvidence,
+    };
+}
+
+/**
+ * #1576 Codex P1 4237614257 — a NEW durable save: `data-session-persisted="true"` AND a non-null id different from the
+ * predecessor. Start clears the attribute, so a bare "not the previous id" check accepts null.
+ */
+export function isNewPersistedSession(state: { persisted: string | null; id: string | null }, previous: string | null): boolean {
+    return state.persisted === 'true' && typeof state.id === 'string' && state.id !== '' && state.id !== previous;
+}
+
+/**
+ * #1407 / #1491 6180077610 — the Focus FIRST take is saved EXACTLY ONCE, and the one completed save IS the take the page bound.
+ *
+ * Measured at the first take's own save, before any later legitimate take (Practice again, product switch), so a whole-run
+ * count is never used. `session saved` proves only that a save exists; a duplicate completed row under a different primary
+ * key would pass it. Fail closed: a query error or a missing page identity never passes.
+ */
+export interface FirstTakeSaveObservation {
+    /** The id the page bound (`data-session-persisted-id`), or null when none. */
+    persistedId: string | null;
+    /** Every completed session id for this run-owned account at the first take's save; null when the query failed. */
+    completedIds: readonly string[] | null;
+}
+
+export function firstTakeSavedExactlyOnceVerdict(o: FirstTakeSaveObservation): { verdict: 'PASS' | 'FAIL'; detail: string } {
+    if (o.completedIds === null) return { verdict: 'FAIL', detail: 'the completed-session read failed (fail closed)' };
+    if (!o.persistedId) return { verdict: 'FAIL', detail: 'the page bound no saved session for the first take' };
+    if (o.completedIds.length === 0) return { verdict: 'FAIL', detail: 'no completed session exists for the first take' };
+    if (o.completedIds.length > 1) return { verdict: 'FAIL', detail: `${o.completedIds.length} completed sessions exist after one take (a duplicate save)` };
+    if (o.completedIds[0] !== o.persistedId) return { verdict: 'FAIL', detail: 'the one completed session is not the take the page bound' };
+    return { verdict: 'PASS', detail: 'exactly one completed session, and it is the take the page bound' };
 }

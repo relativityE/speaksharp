@@ -1,0 +1,198 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '../../../tests/support/test-utils';
+import AccountPage from '../AccountPage';
+import { membershipPresentation } from '../membershipPresentation';
+import { useUserProfile } from '@/hooks/useUserProfile';
+import { getSupabaseClient } from '@/lib/supabaseClient';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
+import type { UserProfile } from '@/types/user';
+import { profileService } from '@/services/domainServices';
+import { useQueryClient } from '@tanstack/react-query';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
+
+vi.mock('@/hooks/useUserProfile', () => ({ useUserProfile: vi.fn() }));
+vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: vi.fn() }));
+vi.mock('@/config/appRuntimeConfig', () => ({ arePaymentsEnabled: vi.fn() }));
+vi.mock('@/services/domainServices', () => ({ profileService: { getById: vi.fn() } }));
+vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: vi.fn() }));
+vi.mock('@tanstack/react-query', async (original) => ({
+  ...await original<typeof import('@tanstack/react-query')>(), useQueryClient: vi.fn(),
+}));
+
+const paid: UserProfile = {
+  id: 'owner', subscription_status: 'pro', stripe_customer_id: 'cus_123',
+  stripe_subscription_id: 'sub_123', usage_seconds: 0, usage_reset_date: '', created_at: '',
+};
+
+describe('Membership on Account', () => {
+  const invoke = vi.fn();
+  const setQueryData = vi.fn();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useUsageLimit).mockReturnValue({ data: { trial_active: false }, isError: false } as ReturnType<typeof useUsageLimit>);
+    vi.mocked(useQueryClient).mockReturnValue({ setQueryData } as unknown as ReturnType<typeof useQueryClient>);
+    vi.mocked(arePaymentsEnabled).mockReturnValue(true);
+    vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke } } as unknown as ReturnType<typeof getSupabaseClient>);
+    vi.mocked(useUserProfile).mockReturnValue({ data: paid, refetch: vi.fn(), isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('billing-return failures preserve confirmed membership without refetching the guarded query', async () => {
+    vi.useFakeTimers();
+    const refetch = vi.fn().mockResolvedValue({ error: new Error('profile unavailable') });
+    vi.mocked(useUserProfile).mockReturnValue({ data: paid, refetch, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    vi.mocked(profileService.getById).mockRejectedValue(new Error('profile unavailable'));
+    render(<AccountPage />, { route: { pathname: '/account', search: '?billing=returned' } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(12000); });
+    expect(refetch).not.toHaveBeenCalled();
+    expect(profileService.getById).toHaveBeenCalledWith('owner');
+    expect(setQueryData).not.toHaveBeenCalled();
+    expect(screen.getByText('Pro · Active')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Cancel membership' })).toBeEnabled();
+    expect(screen.getByText(/latest confirmed membership status/)).toBeVisible();
+  });
+
+  it('accepts only an owner-matching authoritative return snapshot', async () => {
+    const ending = { ...paid, stripe_cancel_at_period_end: true };
+    vi.mocked(profileService.getById).mockResolvedValueOnce(ending);
+    render(<AccountPage />, { route: { pathname: '/account', search: '?billing=returned' } });
+    await waitFor(() => expect(setQueryData).toHaveBeenCalledWith(['userProfile', 'owner'], ending));
+  });
+
+  it('a final in-flight read cannot update the shared cache after the bounded window closes', async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: UserProfile) => void;
+    vi.mocked(profileService.getById).mockReturnValue(new Promise<UserProfile>((done) => { resolve = done; }));
+    render(<AccountPage />, { route: { pathname: '/account', search: '?billing=returned' } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(12000); });
+    await act(async () => { resolve({ ...paid, stripe_cancel_at_period_end: true }); });
+    expect(setQueryData).not.toHaveBeenCalled();
+    expect(screen.getByText('Pro · Active')).toBeVisible();
+  });
+
+  it('rejects a different owner snapshot and ignores an in-flight response after navigation', async () => {
+    vi.useFakeTimers();
+    vi.mocked(profileService.getById).mockResolvedValueOnce({ ...paid, id: 'another-owner' });
+    let resolve!: (value: UserProfile) => void;
+    vi.mocked(profileService.getById).mockReturnValueOnce(new Promise<UserProfile>((done) => { resolve = done; }));
+    const view = render(<AccountPage />, { route: { pathname: '/account', search: '?billing=returned' } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(setQueryData).not.toHaveBeenCalled();
+    view.unmount();
+    await act(async () => { resolve(paid); await vi.advanceTimersByTimeAsync(12000); });
+    expect(setQueryData).not.toHaveBeenCalled();
+    expect(profileService.getById).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses only a server snapshot for ending state and never fabricates a date', () => {
+    expect(membershipPresentation({ ...paid, stripe_cancel_at_period_end: true })).toEqual({
+      status: 'Ending', detail: 'Cancellation is scheduled. Pro access remains active for now.',
+    });
+    expect(membershipPresentation({ ...paid, stripe_cancel_at_period_end: true, stripe_current_period_end: '2026-10-25T00:00:00Z' }).detail).toContain('2026');
+    expect(membershipPresentation({ ...paid, stripe_cancel_at_period_end: false }).status).toBe('Active');
+    expect(membershipPresentation({ ...paid, subscription_status: 'free' }, 'inactive').status).toBe('Free');
+  });
+
+  it('shows a direct cancellation action for a paid member and sends a scoped portal flow', async () => {
+    invoke.mockResolvedValue({ data: { portalUrl: 'https://billing.stripe.com/session/test' }, error: null });
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText('Membership')).toBeVisible();
+    expect(screen.getByText('Pro · Active')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel membership' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('stripe-billing-portal', { body: { flow: 'cancel' } }));
+  });
+
+  it('does not offer cancellation for Free or already ending accounts', () => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, stripe_cancel_at_period_end: true }, refetch: vi.fn() } as unknown as ReturnType<typeof useUserProfile>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+  });
+
+  it('a lapsed subscriber can manage their linked billing without gaining Pro access or cancellation eligibility', async () => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free' }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    invoke.mockResolvedValue({ data: { portalUrl: 'https://billing.stripe.com/session/test' }, error: null });
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText('Free · Free')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage billing' }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('stripe-billing-portal', { body: { flow: 'manage' } }));
+  });
+
+  it.each(['unlinked', 'payments-disabled'] as const)('does not expose billing management when %s', (boundary) => {
+    vi.mocked(arePaymentsEnabled).mockReturnValue(boundary !== 'payments-disabled');
+    vi.mocked(useUserProfile).mockReturnValue({ data: {
+      ...paid, subscription_status: 'free', stripe_customer_id: boundary === 'unlinked' ? null : paid.stripe_customer_id,
+    }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.queryByRole('button', { name: 'Manage billing' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('labels a server-confirmed active trial as Trial without paid billing controls', () => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    vi.mocked(useUsageLimit).mockReturnValue({ data: { trial_active: true }, isError: false } as ReturnType<typeof useUsageLimit>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText('Trial')).toBeVisible();
+    expect(screen.getByText(/Your trial is active/)).toBeVisible();
+    expect(screen.queryByText('Free · Free')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage billing' })).not.toBeInTheDocument();
+  });
+
+  it('does not infer a trial from client dates or override a confirmed paid membership', () => {
+    expect(membershipPresentation({ ...paid, subscription_status: 'free', trial_expires_at: '2999-01-01T00:00:00Z' }, 'inactive').status).toBe('Free');
+    expect(membershipPresentation(paid, 'active').status).toBe('Active');
+  });
+
+  it.each([
+    { state: 'expired', data: { trial_active: false }, isError: false, isLoading: false, label: 'Free · Free' },
+    { state: 'pending', data: undefined, isError: false, isLoading: true, label: 'Checking membership…' },
+    { state: 'failed', data: { trial_active: true }, isError: true, isLoading: false, label: 'Membership status unavailable' },
+    { state: 'absent flag', data: {}, isError: false, isLoading: false, label: 'Membership status unavailable' },
+    { state: 'malformed flag', data: { trial_active: 'false' }, isError: false, isLoading: false, label: 'Membership status unavailable' },
+  ])('shows truthful membership when usage is $state', (usage) => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null, trial_expires_at: '2999-01-01T00:00:00Z' }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    vi.mocked(useUsageLimit).mockReturnValue(usage as unknown as ReturnType<typeof useUsageLimit>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText(usage.label)).toBeVisible();
+    expect(screen.queryByText('Trial')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Your trial is active/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+  });
+
+  it('unavailable trial evidence does not remove linked-customer billing management', () => {
+    vi.mocked(useUserProfile).mockReturnValue({ data: { ...paid, subscription_status: 'free' }, isLoading: false } as unknown as ReturnType<typeof useUserProfile>);
+    vi.mocked(useUsageLimit).mockReturnValue({ data: { trial_active: true }, isError: true } as ReturnType<typeof useUsageLimit>);
+    render(<AccountPage />, { route: '/account' });
+    expect(screen.getByText('Membership status unavailable')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Manage billing' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Cancel membership' })).not.toBeInTheDocument();
+  });
+});
+
+describe('#1643 Delete account entry on Account', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useUsageLimit).mockReturnValue({ data: { trial_active: false }, isError: false } as ReturnType<typeof useUsageLimit>);
+    vi.mocked(useQueryClient).mockReturnValue({ setQueryData: vi.fn() } as unknown as ReturnType<typeof useQueryClient>);
+    vi.mocked(arePaymentsEnabled).mockReturnValue(true);
+    vi.mocked(getSupabaseClient).mockReturnValue({ functions: { invoke: vi.fn() } } as unknown as ReturnType<typeof getSupabaseClient>);
+  });
+
+  it.each([
+    ['a paid member', { data: paid, isLoading: false }],
+    ['a free member', { data: { ...paid, subscription_status: 'free', stripe_customer_id: null }, isLoading: false }],
+    ['an account whose membership failed to load', { data: undefined, isLoading: false, isError: true }],
+  ])('%s can reach the existing deletion page from a plain text link below membership', (_label, profileState) => {
+    vi.mocked(useUserProfile).mockReturnValue(profileState as unknown as ReturnType<typeof useUserProfile>);
+    render(<AccountPage />, { route: '/account' });
+    const link = screen.getByRole('link', { name: 'Delete account' });
+    expect(link).toHaveAttribute('href', '/account/delete');
+    // Plain text in normal ink: never the signature (practice) colour and never a destructive button.
+    expect(link.className).not.toMatch(/signature|destructive|bg-/);
+    expect(screen.queryByRole('button', { name: /delete account/i })).not.toBeInTheDocument();
+    const membershipTitle = screen.getByText('Membership');
+    expect(membershipTitle.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});

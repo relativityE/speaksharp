@@ -12,15 +12,16 @@ import { ThisRunCard } from '../ThisRunCard';
 describe('ThisRunCard (S-13 rail)', () => {
     afterEach(cleanup);
 
-    it('states the three rows with their metric colours and units', () => {
+    it('#1258 R2-2/R2-3: units live in the labels and every value is a bare, right-aligned number', () => {
         render(<ThisRunCard fillers={6} fillersPerMinute={2.9} wordsPerMinute={122} words={147} />);
+        expect(screen.getByText('Pace (wpm)')).toBeInTheDocument();
         const fillers = screen.getByTestId('this-run-card-fillers');
-        expect(fillers).toHaveTextContent('6');
-        expect(fillers).toHaveTextContent('2.9/min');
-        expect(fillers.querySelector('.text-signature-text')).not.toBeNull();
-        expect(screen.getByTestId('this-run-card-pace')).toHaveTextContent('122');
-        expect(screen.getByTestId('this-run-card-pace').querySelector('.text-status')).not.toBeNull();
-        expect(screen.getByTestId('this-run-card-words')).toHaveTextContent('147');
+        expect(fillers.textContent).toBe('6');
+        expect(fillers).toHaveClass('text-signature-text', 'text-right');
+        expect(screen.getByTestId('this-run-card-pace').textContent).toBe('122');
+        expect(screen.getByTestId('this-run-card-pace')).toHaveClass('text-neutral-heading', 'text-right');
+        expect(screen.getByTestId('this-run-card-words').textContent).toBe('147');
+        expect(screen.getByTestId('this-run-card').textContent ?? '').not.toMatch(/\d\s*wpm|\/min/);
         expect(screen.getByTestId('this-run-card').textContent).toContain('Counted on device from the transcript.');
     });
 

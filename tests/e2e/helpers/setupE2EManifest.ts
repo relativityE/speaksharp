@@ -98,6 +98,16 @@ export interface E2EWindow {
 }
 
 /**
+ * CO016 — opt-in fault for the injected client's `user_profiles` read, armed per test through
+ * `programmaticLoginWithRoutes({ profileFault })`. `error` is a genuine fetch failure (a PostgREST-shaped
+ * error the profile service rethrows); `swallowed` is the negative control (no row and no error), which the
+ * app treats as a still-provisioning account, not a failure. Every `user_profiles` query is counted in
+ * `window.__E2E_PROFILE_QUERIES_CO016__`, and every injected error in `window.__E2E_PROFILE_FAILURES_CO016__`,
+ * so a spec can prove the failure it asserts on was actually consumed.
+ */
+export type ProfileFault = 'error' | 'swallowed';
+
+/**
  * setupE2EManifest — Atomic T=0 injection.
  */
 export async function setupE2EManifest(
@@ -122,9 +132,14 @@ export async function setupE2EManifest(
     sessions?: Array<Record<string, unknown>>;
     /** #1047 U3: seed the same in-browser Supabase authority used by the Progress product path. */
     progressFixtures?: ProgressFixtures;
+    /**
+     * A1-2: keep the app's own recovery draft across document loads, as a real browser does. Off by default, so every
+     * other spec keeps the strict per-load reset; only a spec that reloads during a live take opts in.
+     */
+    preserveRecoveryDraftAcrossLoads?: boolean;
   }
 ) {
-  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, progressFixtures, ...manifest } = config;
+  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, progressFixtures, preserveRecoveryDraftAcrossLoads = false, ...manifest } = config;
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
@@ -138,7 +153,7 @@ export async function setupE2EManifest(
     globalThis.__name = __name;
   `);
 
-  await page.addInitScript(({ m, s, ut, mp, es, seed, progress }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>>; progress?: ProgressFixtures }) => {
+  await page.addInitScript(({ m, s, ut, mp, es, seed, progress, keepDraft }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>>; progress?: ProgressFixtures; keepDraft?: boolean }) => {
     // Playwright serializes this callback into the browser. Some TS/esbuild
     // transforms preserve function names by emitting __name(...) calls inside
     // the serialized body, but the helper itself is otherwise outside that
@@ -166,7 +181,8 @@ export async function setupE2EManifest(
         // #1476: the shared-lease double models ONE server shared by every tab of the context. This clear runs on every
         // document load of every page, so without this a second tab's load would wipe the first tab's lease — a thing
         // real tabs never do. Only these spec-owned keys survive; no other spec writes them.
-        const keep = ['__e2e_shared_lease_1476', '__e2e_progress_obligations_1476']
+        // A1-2: an opted-in spec also keeps the app's recovery draft, read here in the same callback before the clear.
+        const keep = ['__e2e_shared_lease_1476', '__e2e_progress_obligations_1476', ...(keepDraft ? ['speaksharp_unsaved_session_draft'] : [])]
           .map((k) => [k, win.localStorage.getItem(k)] as const)
           .filter(([, v]) => v !== null);
         win.localStorage.clear();
@@ -367,9 +383,20 @@ export async function setupE2EManifest(
       table: string,
       single: boolean = false,
       filters: QueryFilter[] = [],
-      options: { count?: string; head?: boolean; range?: [number, number] } = {}
+      options: { count?: string; head?: boolean; range?: [number, number]; ascending?: boolean } = {}
     ) => {
       if (table === 'user_profiles') {
+        const profileWin = window as unknown as {
+          __E2E_PROFILE_FAULT_CO016__?: string; __E2E_PROFILE_QUERIES_CO016__?: number; __E2E_PROFILE_FAILURES_CO016__?: number;
+        };
+        profileWin.__E2E_PROFILE_QUERIES_CO016__ = (profileWin.__E2E_PROFILE_QUERIES_CO016__ ?? 0) + 1;
+        if (profileWin.__E2E_PROFILE_FAULT_CO016__ === 'error') {
+          profileWin.__E2E_PROFILE_FAILURES_CO016__ = (profileWin.__E2E_PROFILE_FAILURES_CO016__ ?? 0) + 1;
+          return Promise.resolve({ data: null, error: { code: '08006', message: 'E2E injected profile fetch failure (CO016)', details: null, hint: null }, count: null });
+        }
+        if (profileWin.__E2E_PROFILE_FAULT_CO016__ === 'swallowed') {
+          return Promise.resolve({ data: null, error: null, count: 0 });
+        }
         return Promise.resolve({ data: single ? e2eProfile : [e2eProfile], error: null, count: 1 });
       }
       if (table === 'user_goals') {
@@ -422,6 +449,9 @@ export async function setupE2EManifest(
           rows = rows.filter((row) => matchesFilters(row as Record<string, unknown>, [filter]));
         }
         rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+        // #1258 D5: only an EXPLICIT `order('created_at', { ascending: true })` (the Progress header's oldest-session
+        // read) flips the order; every other read keeps the newest-first order it has always had.
+        if (options.ascending) rows.reverse();
         const count = rows.length;
         if (options.range) {
           const [from, to] = options.range;
@@ -442,7 +472,7 @@ export async function setupE2EManifest(
 
     const makeQueryBuilder = (table: string) => {
       const filters: QueryFilter[] = [];
-      const options: { count?: string; head?: boolean; range?: [number, number] } = {};
+      const options: { count?: string; head?: boolean; range?: [number, number]; ascending?: boolean } = {};
       let pendingMutation: { type: 'update' | 'insert' | 'upsert' | 'delete'; payload?: Record<string, unknown> | Record<string, unknown>[] } | null = null;
       const commitMutation = () => {
         if (!pendingMutation) return null;
@@ -532,7 +562,10 @@ export async function setupE2EManifest(
           return builder;
         },
         or: () => builder,
-        order: () => builder,
+        order: (column?: string, orderOptions?: { ascending?: boolean }) => {
+          if (column === 'created_at' && orderOptions?.ascending === true) options.ascending = true;
+          return builder;
+        },
         range: (from: number, to: number) => {
           options.range = [from, to];
           return builder;
@@ -1115,6 +1148,31 @@ export async function setupE2EManifest(
     win.__E2E_READY__ = true;
     win.TEST_MODE = true;
     
+    // #1258 C10 — MOCK STIMULUS (labelled): the E2E mic is a fake stream that never drives PrivateWhisper's real-frame
+    // readiness gate, and the product goes live only on that gate (one definition of "recording begins"). Like the
+    // injected transcripts stand in for speech, this stands in for "the mic delivered frames": once the runtime reaches
+    // RECORDING, the engine's own readiness status is delivered through its exposed E2E instance — the same callback the
+    // real gate fires. A spec that must observe the pre-frames start state sets `__SS_E2E_HOLD_CAPTURE_READY__ = true`
+    // and delivers it itself. Installed here so every spec that boots the E2E double gets it; nothing is in product code.
+    {
+      type Engine = { onStatusChange?: (s: { type: string; message: string }) => void };
+      const cw = window as unknown as { __PrivateWhisper_INT_TEST__?: Engine; __SS_E2E_HOLD_CAPTURE_READY__?: boolean };
+      let signalledFor: Engine | null = null;
+      const deliver = () => {
+        if (cw.__SS_E2E_HOLD_CAPTURE_READY__) return;
+        if (document.documentElement.getAttribute('data-runtime-state') !== 'RECORDING') { signalledFor = null; return; }
+        const engine = cw.__PrivateWhisper_INT_TEST__;
+        if (!engine || signalledFor === engine) return;
+        signalledFor = engine;
+        engine.onStatusChange?.({ type: 'recording', message: 'Speak now' });
+      };
+      const observeRuntime = () => {
+        if (!document.documentElement) { setTimeout(observeRuntime, 10); return; }
+        new MutationObserver(deliver).observe(document.documentElement, { attributes: true, attributeFilter: ['data-runtime-state'] });
+      };
+      observeRuntime();
+    }
+
     // Stamp the boot duration once the script finishes its T=0 setup
     // 🛡️ Safe-wait for document.documentElement if called too early in addInitScript
     const stampDuration = () => {
@@ -1127,5 +1185,5 @@ export async function setupE2EManifest(
       }
     };
     stampDuration();
-  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions, progress: progressFixtures });
+  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions, progress: progressFixtures, keepDraft: preserveRecoveryDraftAcrossLoads });
 }

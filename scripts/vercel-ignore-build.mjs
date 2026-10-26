@@ -6,7 +6,7 @@
  * INVERTED VERCEL CONTRACT — exit 1 = CONTINUE the build; exit 0 = IGNORE (skip) the build.
  *
  * Policy (branch-prefix opt-in):
- *   - production                       -> BUILD (1), always
+ *   - production                       -> SKIP (0); guarded CLI releases are separate
  *   - preview on a `preview/*` branch  -> BUILD (1), the deliberate opt-in
  *   - preview on any other branch      -> SKIP  (0), ordinary PR commits stay cheap
  *   - missing / unknown environment    -> SKIP  (0), fail safe
@@ -37,7 +37,8 @@ export const EXIT_SKIP = 0;   // Vercel: ignore the build
  * @param {string|undefined} gitRef    VERCEL_GIT_COMMIT_REF (the branch name)
  */
 export function decideExitCode(vercelEnv, gitRef) {
-    if (vercelEnv === 'production') return EXIT_BUILD;
+    // Explicit production releases use guarded CLI prebuilt deployment, never this Git build hook.
+    if (vercelEnv === 'production') return EXIT_SKIP;
     if (vercelEnv === 'preview') {
         return typeof gitRef === 'string' && gitRef.startsWith(PREVIEW_BRANCH_PREFIX)
             ? EXIT_BUILD

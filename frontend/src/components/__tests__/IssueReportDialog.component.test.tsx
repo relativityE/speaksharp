@@ -6,6 +6,7 @@ import { issueReportService } from '@/services/issueReportService';
 import { toast } from '@/lib/toast';
 import { clearLoginSessions, recordSavedSession, setCurrentLogin, LOGIN_SESSION_LOG_KEY } from '@/services/loginSessionLog';
 import { FEEDBACK_DRAFT_KEY } from '@/services/feedbackDraft';
+import { rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
 
 const emitted: Array<{ event: string; props: Record<string, unknown> }> = [];
 vi.mock('@/services/telemetry/safeEmit', () => ({
@@ -34,6 +35,7 @@ const open = async (route = '/session', userId = 'u1') => {
 
 describe('#1404 Share feedback redesign', () => {
   beforeEach(() => {
+    emitted.length = 0;
     submit.mockReset();
     submit.mockResolvedValue({ id: 'report-1' });
     vi.mocked(toast.success).mockClear();
@@ -93,6 +95,51 @@ describe('#1404 Share feedback redesign', () => {
     expect(value.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i);
     expect(JSON.stringify(value)).not.toContain('transcript');
     expect(toast.success).toHaveBeenCalledWith('Thanks — we’ve got it.');
+  });
+
+  it('attaches an exact-session coaching reference to feedback storage and telemetry only', async () => {
+    setCurrentLogin('u1', 1000);
+    recordSavedSession('u1', 1000, { key: UUID, product: 'open_mic', savedAt: Date.now() });
+    const diagnosticId = '230bbc6c-5d89-465d-91e6-51f5a5951e34';
+    rememberCoachingDiagnostic(UUID, diagnosticId);
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-broke'));
+    await user.type(screen.getByTestId('issue-report-description'), 'Coaching did not load.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].metadata.coaching_diagnostic_ref).toBe(diagnosticId);
+    const feedbackEvents = emitted.filter((row) => row.event === 'feedback_submit');
+    expect(feedbackEvents.map((row) => row.props.coaching_diagnostic_id)).toEqual([diagnosticId, diagnosticId]);
+    expect(JSON.stringify(feedbackEvents)).not.toContain(UUID);
+    expect(JSON.stringify(feedbackEvents)).not.toContain('Coaching did not load');
+  });
+
+  it('does not attach the current coaching reference to No session feedback', async () => {
+    rememberCoachingDiagnostic(UUID, '230bbc6c-5d89-465d-91e6-51f5a5951e34');
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-broke'));
+    await user.type(screen.getByTestId('issue-report-description'), 'A general comment.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].sessionId).toBeNull();
+    expect(submit.mock.calls[0][0].metadata.coaching_diagnostic_ref).toBeNull();
+    expect(emitted.filter((row) => row.event === 'feedback_submit').every((row) => !('coaching_diagnostic_id' in row.props))).toBe(true);
+  });
+
+  it('keeps the same diagnostic reference on a failed feedback storage attempt', async () => {
+    setCurrentLogin('u1', 1000);
+    recordSavedSession('u1', 1000, { key: UUID, product: 'open_mic', savedAt: Date.now() });
+    const diagnosticId = '230bbc6c-5d89-465d-91e6-51f5a5951e34';
+    rememberCoachingDiagnostic(UUID, diagnosticId);
+    submit.mockRejectedValueOnce(Object.assign(new Error('storage unavailable'), { code: 'XX000' }));
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-broke'));
+    await user.type(screen.getByTestId('issue-report-description'), 'The coaching card failed.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(screen.getByText('That didn’t go through. Try again?')).toBeInTheDocument());
+    expect(submit.mock.calls[0][0].metadata.coaching_diagnostic_ref).toBe(diagnosticId);
+    expect(emitted.filter((row) => row.event === 'feedback_submit').map((row) => row.props.coaching_diagnostic_id))
+      .toEqual([diagnosticId, diagnosticId]);
   });
 
   it.each([
@@ -771,5 +818,48 @@ describe('Share feedback — which session is this about? (spec S-1…S-16)', ()
     expect(select()).toBeDisabled();
     (release as (() => void) | null)?.();
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('#1258 Share Feedback outcome names its cause and links to its attempt', () => {
+  beforeEach(() => {
+    submit.mockReset();
+    emitted.length = 0;
+    sessionStorage.clear();
+    clearLoginSessions();
+    setCurrentLogin(null, null);
+  });
+
+  const send = async () => {
+    const user = await open('/analytics/x');
+    await user.click(screen.getByTestId('feedback-type-praise'));
+    await user.type(screen.getByTestId('issue-report-description'), 'RWT automated journey check.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    return user;
+  };
+  const submits = () => emitted.filter((e) => e.event === 'feedback_submit').map((e) => e.props);
+
+  it('a database refusal (SQLSTATE 42501) → storage_failed, error_category rls_denied, same submit_seq as its attempt', async () => {
+    submit.mockRejectedValue({ code: '42501', message: 'new row violates row-level security policy' });
+    await send();
+    await screen.findByText('That didn’t go through. Try again?');
+    // Codex r4195165652: exactly ONE outcome per Send — the dialog is the single feedback_submit emitter.
+    expect(submits()).toHaveLength(2);
+    const [attempted, failed] = submits();
+    expect(attempted).toMatchObject({ outcome: 'attempted', submit_seq: 1 });
+    expect(failed).toMatchObject({ outcome: 'storage_failed', error_category: 'rls_denied', submit_seq: 1, acknowledgement_visible: true });
+    expect(typeof failed.elapsed_ms).toBe('number');
+    expect(JSON.stringify(failed)).not.toMatch(/row-level|policy/);
+  });
+
+  it('a retry is the next submit_seq; success carries elapsed and no error category', async () => {
+    submit.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValueOnce({ id: 'report-1' });
+    const user = await send();
+    await screen.findByText('That didn’t go through. Try again?');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submits().some((p) => p.outcome === 'storage_ok')).toBe(true));
+    expect(submits().map((p) => [p.outcome, p.submit_seq, p.error_category])).toEqual([
+      ['attempted', 1, undefined], ['storage_failed', 1, 'network'], ['attempted', 2, undefined], ['storage_ok', 2, undefined],
+    ]);
   });
 });

@@ -56,6 +56,94 @@ beforeEach(() => {
 });
 
 describe('#1047 U2 ProgressPanel', () => {
+    it.each([
+        ['filler_rate', 'decrease', 7, 'percent of words', 'Filler rate (saved target: decrease toward 7 percent of words)'],
+        ['pace', 'increase', 130, 'words per minute', 'Pace (saved target: increase toward 130 words per minute)'],
+        ['clear_delivery', 'maintain', 94, 'clear-delivery points', 'Clear delivery (saved target: maintain at 94 clear-delivery points)'],
+        ['clear_delivery', 'maintain', 98.78048780487805, 'points', 'Clear delivery (saved target: maintain at 99 points)'],
+        ['clear_delivery', 'maintain', 98.78048780487805, 'clear-delivery points', 'Clear delivery (saved target: maintain at 99 clear-delivery points)'],
+        ['filler_rate', 'decrease', 2.75, 'percent of words', 'Filler rate (saved target: decrease toward 2.75 percent of words)'],
+    ] as const)('#1548 A2: labels the stored %s comparison as separate delivery evidence when the saved review owns the action', async (metric, direction, targetValue, units, label) => {
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            takeaways: { ...VIEW.takeaways, target: { metric, direction, targetValue, units } },
+            latestAttempt: { id: 'att-1', lifecycle: 'completed', outcome: 'moved' },
+        });
+        renderPanel(true);
+        const target = await screen.findByTestId('progress-attempt-target');
+        expect(target).toHaveTextContent(`Separate delivery comparison: ${label}.`);
+        expect(screen.getByTestId('progress-attempt-scope'))
+            .toHaveTextContent('This comparison measures delivery, not whether the coaching tip was followed.');
+        expect(screen.getByTestId('progress-attempt-outcome').parentElement).toContainElement(target);
+        // The persisted value is labelled as a saved target, never an observed measurement; neither the practised tip nor
+        // reaching the target is claimed from the metric.
+        expect(target.parentElement).not.toHaveTextContent(/practiced direction|Measured repeat target|recorded at|improv|reached|met the/i);
+        expect(screen.queryByTestId('progress-practice-next')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it.each([
+        ['filler_rate', 'decrease', 'completed', 'moved', 'Filler rate was lower on the repeat than in the original session.'],
+        ['filler_rate', 'decrease', 'completed', 'did_not_move', 'Filler rate was not lower on the repeat than in the original session.'],
+        ['pace', 'increase', 'completed', 'moved', 'Pace was higher on the repeat than in the original session.'],
+        ['pace', 'increase', 'completed', 'did_not_move', 'Pace was not higher on the repeat than in the original session.'],
+        // The server counts maintain equality as `moved` (v_next_val >= source), so equality reads as "stayed the same".
+        ['clear_delivery', 'maintain', 'completed', 'moved', 'Clear delivery stayed the same or increased compared with the original session.'],
+        ['clear_delivery', 'maintain', 'completed', 'did_not_move', 'Clear delivery decreased compared with the original session.'],
+        ['filler_rate', 'decrease', 'not_comparable', 'not_comparable', 'Filler rate could not be compared for this repeat.'],
+        ['pace', 'increase', 'abandoned', null, 'The stored repeat was not completed.'],
+    ] as const)('#1548 A2: review-owned %s/%s %s/%s states only the stored delivery result', async (metric, direction, lifecycle, outcome, copy) => {
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            takeaways: { ...VIEW.takeaways, target: { metric, direction, targetValue: 5, units: 'units' } },
+            latestAttempt: { id: 'att-state', lifecycle, outcome },
+        });
+        renderPanel(true);
+        const line = await screen.findByTestId('progress-attempt-outcome');
+        expect(line).toHaveTextContent(copy);
+        expect(line).not.toHaveTextContent(/practiced direction|improv|target/i);
+        expect(screen.queryByTestId('progress-practice-next')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
+    });
+
+    it('#1548 A2: a review-owned pending repeat stays pending and keeps its Close control, never a second next action', async () => {
+        loadSessionProgress.mockResolvedValue({ ...VIEW, latestAttempt: { id: 'att-pending', lifecycle: 'pending', outcome: null } });
+        renderPanel(true);
+        expect(await screen.findByTestId('progress-attempt-outcome')).toHaveTextContent('Your linked repeat is pending.');
+        expect(screen.getByRole('button', { name: 'Close pending repeat' })).toBeTruthy();
+        expect(screen.queryByTestId('progress-practice-next')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('progress-accept')).not.toBeInTheDocument();
+    });
+
+    it('#1254: renders the loader\'s comparison takeaway naming the previous COMPARABLE session, never "last session"', async () => {
+        // The string is what loadSessionProgress produces for s2 vs its persisted previous comparable s0 when an ineligible
+        // s1 sits between them (loadSessionProgress.test.ts '#1254'); this asserts the panel renders it verbatim.
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            takeaways: { ...VIEW.takeaways, whatWorked: 'Clearer than your previous comparable session' },
+        });
+        renderPanel(true);
+        const worked = await screen.findByTestId('progress-what-worked');
+        expect(worked).toHaveTextContent('Clearer than your previous comparable session');
+        expect(worked).not.toHaveTextContent(/last session/i);
+    });
+
+    it.each([
+        [true, 'Separate delivery comparison: Clear delivery (saved target: maintain at 99 points).', 'Clear delivery decreased compared with the original session.'],
+        [false, 'Clear delivery; maintain at 99 points.', 'The stored repeat did not show movement in the practiced direction.'],
+    ] as const)('rounds only the clarity label while retaining the raw target and stored comparison outcome (review-owned: %s)', async (reviewOwned, label, outcome) => {
+        const target = Object.freeze({ metric: 'clear_delivery', direction: 'maintain', targetValue: 98.78048780487805, units: 'points' });
+        loadSessionProgress.mockResolvedValue({
+            ...VIEW,
+            takeaways: { ...VIEW.takeaways, target },
+            latestAttempt: { id: 'att-fractional', lifecycle: 'completed', outcome: 'did_not_move' },
+        });
+        renderPanel(reviewOwned);
+        expect(await screen.findByTestId('progress-attempt-target')).toHaveTextContent(label);
+        expect(screen.getByTestId('progress-attempt-outcome')).toHaveTextContent(outcome);
+        expect(target.targetValue).toBe(98.78048780487805);
+    });
+
     it('renders loading without coaching or success navigation', () => {
         loadSessionProgress.mockReturnValue(new Promise(() => undefined));
         renderPanel();

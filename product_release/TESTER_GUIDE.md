@@ -67,8 +67,8 @@ How to test the Practice Loop
 
 1. Sign in to SpeakSharp. You should land on the Practice page.
 2. Start with Open Mic.
-3. If this is your first session, allow the one-time Private transcription setup. Wait until the session says “Ready — speak now.”
-4. Start recording when you are ready, speak for approximately 1–2 minutes, then stop.
+3. Press the mic once. If this is your first session, allow the one-time Private transcription setup. Recording begins from that press when setup finishes; wait until the session says “Ready — speak now.”
+4. When the session says “Ready — speak now,” speak for approximately 1–2 minutes, then stop. Do not press the mic a second time to start after setup.
 5. Keep the page open while the transcript finishes on your device.
 6. Save the session and review the transcript, delivery evidence, and suggested next action.
 7. Open the saved session again from History or Progress. If a PDF report is available, open or export it.
@@ -77,7 +77,7 @@ How to test the Practice Loop
 
 What to evaluate
 
-- Was it clear where to begin and that recording would not start automatically?
+- Was it clear where to begin, that nothing records before you press the mic, and that the same press continues into recording after setup?
 - Was the one-time Private setup clear?
 - Did the live transcript and recording visualization respond while you spoke?
 - Did the saved review preserve the beginning and end of your take?

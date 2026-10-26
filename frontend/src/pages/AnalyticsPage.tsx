@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
+import { PRODUCT_LABEL, shortDate } from '@/lib/displayFormat';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
@@ -43,10 +44,6 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
 
     // Different heading and description based on whether viewing a specific session
     const isSessionView = !!sessionId;
-    const heading = isSessionView ? 'Session Analysis' : 'Your Progress';
-    const description = isSessionView
-        ? 'A detailed breakdown of your recent practice session.'
-        : 'Track your speaking progress and improvements';
 
     // Only surface/track the upgrade CTA when payments are live — otherwise it is a dead/no-op button.
     const showUpgrade = !isSessionView && !isPro && arePaymentsEnabled();
@@ -57,12 +54,21 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
         }
     }, [showUpgrade]);
 
+    // #1258 D5: on the overview the dashboard's ink header leads; an empty wrapper would only add a top gap.
+    if (!isSessionView && !showUpgrade) return null;
+
     return (
         <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
-            {/* Solid role, not foreground/70: this copy sits on the surface-session ground, where the blended
-                value measures 3.93:1 (CI run 35033614218). surface-session-text measures 7.11:1 there. */}
-            <p className="mb-4 text-sm font-medium text-muted-foreground sm:text-base">{description}</p>
+            {/* #1258 D5 (Rev 2 §5.1): on the overview the dashboard's ink ProgressHeader owns the h1; the session view
+                keeps its own heading here. */}
+            {isSessionView && (
+                <>
+                    <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">Session Analysis</h1>
+                    {/* Solid role, not foreground/70: this copy sits on the surface-session ground, where the blended
+                        value measures 3.93:1 (CI run 35033614218). surface-session-text measures 7.11:1 there. */}
+                    <p className="mb-4 text-sm font-medium text-muted-foreground sm:text-base">A detailed breakdown of your recent practice session.</p>
+                </>
+            )}
 
             {/* Plan Banner — upgrade CTA only when payments are live (no dead/no-op button) */}
             {showUpgrade && (
@@ -97,15 +103,34 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
     );
 };
 
+/** The app's default tab title — the one `frontend/index.html` ships (AnalyticsPage tests hold the two equal). */
+const APP_DOCUMENT_TITLE = 'SpeakSharp - Private Practice. Public Impact!';
+
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const queryClient = useQueryClient();
-    const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
+    const { sessionHistory, allTime, firstSessionAt, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
     const [upgradeLoading, setUpgradeLoading] = useState(false);
 
     const { setReady } = useReadinessStore();
+
+    // #1258 punch list §1.5: "Your progress · SpeakSharp", or "{Product} · {date} · Progress · SpeakSharp" for one saved
+    // session. Product comes from the persisted `session.product`, never the title; an unknown (legacy) product is omitted.
+    // #1573 Codex P2 4222571897: this page is the app's only document.title writer, so it never leaves a session's product
+    // and date behind — a neutral title while the requested row is unavailable, and the app title once Progress is left.
+    const titledSession = sessionId ? sessionHistory?.find((s) => s.id === sessionId) : undefined;
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        if (!sessionId) { document.title = 'Your progress · SpeakSharp'; return; }
+        if (!titledSession) { document.title = 'Progress · SpeakSharp'; return; }
+        const product = titledSession.product ? PRODUCT_LABEL[titledSession.product] : null;
+        document.title = [product, shortDate(titledSession.created_at), 'Progress', 'SpeakSharp'].filter(Boolean).join(' · ');
+    }, [sessionId, titledSession]);
+    useEffect(() => () => {
+        if (typeof document !== 'undefined') document.title = APP_DOCUMENT_TITLE;
+    }, []);
 
     // Signal to E2E tests when session data has finished loading OR failing
     useEffect(() => {
@@ -177,17 +202,21 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
     const isLoading = loading || isProfileLoading;
 
-    // Show error state if either query failed
-    if (error || profileError) {
+    // Show error state if either query failed.
+    // #1472 (Code P2 r4372161385): the overview keeps a complete all-time aggregate through a recent-history failure — the
+    // dashboard receives the history error and shows the totals with its "recent sessions can't load" warning. A profile
+    // failure, a session-detail failure and an unavailable or loading aggregate still fail as the whole page.
+    const historyErrorKeepsTotals = !!error && !sessionId && allTime.status === 'complete';
+    if (profileError || (error && !historyErrorKeepsTotals)) {
         logger.error({ err: error || profileError }, '[AnalyticsPage] Failed to load analytics');
         return (
             <div className="text-center py-24">
-                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Progress</h2>
+                <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
                 <p className="mb-6 font-medium text-foreground/70">
                     We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.
                 </p>
                 <Button onClick={handleRetryAnalytics}>
-                    Retry Progress
+                    Retry Analytics
                 </Button>
             </div>
         );
@@ -201,7 +230,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 <h2 className="text-2xl font-semibold mb-4" data-testid="session-not-found-heading">Session Not Found</h2>
                 <p className="mb-6 font-medium text-foreground/70">We couldn't find the session you're looking for.</p>
                 <Button asChild>
-                    <NavLink to="/analytics"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
+                    <NavLink to="/progress"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
                 </Button>
             </div>
         );
@@ -219,8 +248,8 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                     profile={profile || null}
                     isProUser={isProUser}
                     sessionHistory={sessionHistory || []}
-                    overallStats={overallStats}
-                    fillerWordTrends={fillerWordTrends}
+                    allTime={allTime}
+                    firstSessionAt={firstSessionAt}
                     loading={isLoading}
                     error={error || null}
                     onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}

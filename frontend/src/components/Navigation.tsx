@@ -1,16 +1,17 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, LogOut, Mic, Target, Zap } from "lucide-react";
+import { ChevronDown, LogOut, Mic, Target, UserRound, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
 import { trackProductsMenuOpened } from '@/services/reviewSurfaceTelemetry';
-import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId } from "@/config/navSections";
+import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId, type NavSectionId } from "@/config/navSections";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { getEffectiveSubscriptionStatus, isPro, hasPaidProEntitlement } from "@/constants/subscriptionTiers";
 import { arePaymentsEnabled } from "@/config/appRuntimeConfig";
+import { membershipPresentation, trialPresentationState } from '@/pages/membershipPresentation';
 import logger from "@/lib/logger";
 import {
   buildCheckoutBody,
@@ -35,7 +36,8 @@ const Navigation = () => {
   const navigate = useNavigate();
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
-  const { data: usageLimit } = useUsageLimit();
+  const usage = useUsageLimit();
+  const usageLimit = usage.data;
   // Feedback carries an opaque account reference for support follow-up and never carries transcript
   // or audio. Product analytics receives only content-free feedback state through the governed boundary.
   const reportSttMode = useSessionStore(state => state.sttMode);
@@ -61,6 +63,10 @@ const Navigation = () => {
   // hasPaidProEntitlement is the canonical paid signal and is unaffected by that override.
   const hasActiveProductAccess = isPro(effectiveSubscriptionStatus) || hasPaidProEntitlement(profile);
   const isConfirmedPaidUser = hasPaidProEntitlement(profile);
+  const membershipStatus = membershipPresentation(profile, trialPresentationState(usage)).status;
+  const accountMembershipLabel = isConfirmedPaidUser ? 'Pro'
+    : membershipStatus === 'Trial' ? 'Trial' : membershipStatus === 'Free' ? 'Free'
+      : membershipStatus === 'Checking' ? 'Checking membership…' : 'Membership status unavailable';
 
   const handleSignOut = async () => {
     await signOut();
@@ -100,6 +106,52 @@ const Navigation = () => {
   // (/session and /session/abc are Session; /session-other is not).
   const activeSectionId = resolveNavSectionId(location.pathname);
 
+  // D2 (#1258): Home · Products · Progress. Each link is the same <Link> the section map used to render, so test ids,
+  // aria-current and geometry are unchanged; only the order around the Products menu moves.
+  const renderDesktopNavLink = (id: NavSectionId) => {
+    const item = NAV_SECTIONS.find((section) => section.id === id);
+    if (!item) return null;
+    const isActive = activeSectionId === item.id && !isFocusPointsActive;
+    return (
+      <Link
+        key={item.id}
+        to={item.path}
+        data-testid={item.testId}
+        // Colour alone is not an accessible indicator; aria-current is the
+        // programmatic signal for the current page.
+        aria-current={isActive ? "page" : undefined}
+        // Active adds ONE extra class that changes only background + text colour.
+        // Geometry lives in .nav-item, so the bar cannot reflow on navigation.
+        className={navItemClassName(isActive)}
+      >
+        <item.icon className="h-4 w-4" aria-hidden="true" />
+        <span>{item.label}</span>
+      </Link>
+    );
+  };
+
+  // D2 (#1258): the mobile bar reads Home · Open Mic · Focus Points · Progress.
+  const renderMobileNavLink = (id: NavSectionId) => {
+    const item = NAV_SECTIONS.find((section) => section.id === id);
+    if (!item) return null;
+    const isActive = activeSectionId === item.id && !isFocusPointsActive;
+    return (
+      <Button
+        key={item.id}
+        variant={isActive ? "secondary" : "ghost"}
+        size="sm"
+        asChild
+        className="flex flex-col h-16"
+      >
+        {/* Colour alone is not an accessible current-page indicator on mobile either. */}
+        <Link to={item.path} aria-current={isActive ? "page" : undefined}>
+          <item.icon className="h-5 w-5 mb-1" aria-hidden="true" />
+          <span className="text-xs">{item.label}</span>
+        </Link>
+      </Button>
+    );
+  };
+
   // Each bar is its own navigation landmark and each owns its own aria-current. Only one of
   // the two is ever displayed (the desktop bar is `hidden lg:flex`, i.e. display:none below
   // lg, which removes it from the accessibility tree entirely), so a screen reader never sees
@@ -110,24 +162,7 @@ const Navigation = () => {
       className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 p-2 backdrop-blur-xl surface-shadow lg:hidden"
     >
       <div className="flex justify-around items-center">
-        {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
-          const isActive = activeSectionId === item.id && !isFocusPointsActive;
-          return (
-            <Button
-              key={item.id}
-              variant={isActive ? "secondary" : "ghost"}
-              size="sm"
-              asChild
-              className="flex flex-col h-16"
-            >
-              {/* Colour alone is not an accessible current-page indicator on mobile either. */}
-              <Link to={item.path} aria-current={isActive ? "page" : undefined}>
-                <item.icon className="h-5 w-5 mb-1" aria-hidden="true" />
-                <span className="text-xs">{item.label}</span>
-              </Link>
-            </Button>
-          );
-        })}
+        {renderMobileNavLink('home')}
         <Button variant="ghost" size="sm" asChild className="flex h-16 flex-col">
           <Link to="/session" data-testid="nav-mobile-open-mic-link" onClick={selectOpenMic} aria-current={isOpenMicActive ? 'page' : undefined}>
             <Mic className="mb-1 h-5 w-5" aria-hidden="true" />
@@ -140,6 +175,7 @@ const Navigation = () => {
             <span className="text-xs">Focus Points</span>
           </Link>
         </Button>
+        {renderMobileNavLink('analytics')}
       </div>
     </nav>
   );
@@ -236,31 +272,15 @@ const Navigation = () => {
                   <span key={i} style={{ width: 3, height: h, background: 'var(--brand-signature)', borderRadius: 1 }} />
                 ))}
               </span>
-              <span className="text-lg font-bold text-foreground tracking-tight">SpeakSharp</span>
+              {/* #1475: the site uses the device's system font, so below 360px the signed-out wordmark text cannot be
+                  guaranteed to fit beside Sign In + Get Started; the brand mark and the link's accessible name remain. */}
+              <span className={session ? "text-lg font-bold text-foreground tracking-tight" : "hidden min-[360px]:inline text-base sm:text-lg font-bold text-foreground tracking-tight"}>SpeakSharp</span>
             </Link>
 
             {/* Navigation Items */}
             {session && (
               <nav aria-label="Primary" className="hidden items-center space-x-1 lg:flex">
-                {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
-                  const isActive = activeSectionId === item.id && !isFocusPointsActive;
-                  return (
-                    <Link
-                      key={item.id}
-                      to={item.path}
-                      data-testid={item.testId}
-                      // Colour alone is not an accessible indicator; aria-current is the
-                      // programmatic signal for the current page.
-                      aria-current={isActive ? "page" : undefined}
-                      // Active adds ONE extra class that changes only background + text colour.
-                      // Geometry lives in .nav-item, so the bar cannot reflow on navigation.
-                      className={navItemClassName(isActive)}
-                    >
-                      <item.icon className="h-4 w-4" aria-hidden="true" />
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                })}
+                {renderDesktopNavLink('home')}
                 <DropdownMenu onOpenChange={(open) => { if (open) trackProductsMenuOpened('desktop'); }}>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -290,6 +310,7 @@ const Navigation = () => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {renderDesktopNavLink('analytics')}
               </nav>
             )}
 
@@ -393,43 +414,38 @@ const Navigation = () => {
                       className="bg-signature-ground text-signature-text border border-signature-border shadow-none animate-in fade-in zoom-in duration-300 px-3 py-1"
                       data-testid={TEST_IDS.PRO_BADGE}
                     >
-                      <Zap className="w-3 h-3 mr-1 fill-current" />
-                      PRO
+                      <Link to="/account" aria-label="Pro membership · Account"><Zap className="w-3 h-3 mr-1 fill-current" />PRO</Link>
                     </Badge>
                   )}
-                  {/*
-                    * Account identity. The full email used to be printed here; at realistic address
-                    * lengths it pushed the right-hand action group into the primary nav links and
-                    * overflowed the bar horizontally on narrow desktops. An avatar has a fixed width,
-                    * so the header geometry no longer depends on how long a user's address is.
-                    *
-                    * The initial alone is not an accessible name, and a `title` attribute is not a
-                    * reliable one, so the element is an image with an explicit aria-label: assistive
-                    * tech gets "Signed in as <email>" while the visual header shows only the letter.
-                    */}
-                  <span
-                    role="img"
-                    aria-label={`Signed in as ${session.user?.email ?? 'your account'}`}
-                    data-testid="nav-account-avatar"
-                    className="hidden md:grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--nav-avatar-bg))] text-[hsl(var(--nav-avatar-fg))] text-sm font-bold"
-                  >
-                    <span aria-hidden="true">
-                      {(session.user?.email ?? '?').trim().charAt(0).toUpperCase() || '?'}
-                    </span>
-                  </span>
-                  <Button variant="ghost" size="sm" onClick={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON} aria-label="Sign Out" className="shrink-0 px-2 sm:px-3">
-                    <LogOut className="h-4 w-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Sign Out</span>
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" aria-label={`Account · signed in as ${session.user?.email ?? 'your account'}`}
+                        data-testid="nav-account-avatar"
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[hsl(var(--nav-avatar-bg))] text-[hsl(var(--nav-avatar-fg))] text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                        <span aria-hidden="true">{(session.user?.email ?? '?').trim().charAt(0).toUpperCase() || '?'}</span>
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="max-w-[calc(100vw-2rem)] min-w-48" opaque>
+                      <div className="max-w-64 truncate border-b border-border px-2 py-2 text-xs text-muted-foreground" title={session.user?.email}>
+                        {session.user?.email ?? 'Your account'} · {accountMembershipLabel}
+                      </div>
+                      <DropdownMenuItem asChild><Link to="/account" data-testid="nav-account-link"><UserRound className="mr-2 h-4 w-4" />Account</Link></DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON}>
+                        <LogOut className="mr-2 h-4 w-4" />Sign Out
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </>
               ) : (
                 // Signed-out visitors have no primary nav; these are their only nav links, so
                 // they get their own landmark rather than sitting loose in the header.
-                <nav aria-label="Account" className="flex items-center gap-2 sm:gap-4">
-                  <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground transition-colors">
+                // #1475: below `sm` the tighter gap/padding (with the smaller signed-out wordmark) keeps
+                // Get Started fully on-screen at 320px; the fixed header cannot scroll it into view.
+                <nav aria-label="Account" className="flex items-center gap-1 sm:gap-4">
+                  <Button variant="ghost" size="sm" asChild className="px-2 sm:px-3 text-muted-foreground hover:text-foreground transition-colors">
                     <Link to="/auth">Sign In</Link>
                   </Button>
-                  <Button size="sm" className="font-semibold px-5 h-9 rounded-xl cta-shadow bg-signature text-ink hover:bg-signature hover:brightness-95" asChild>
+                  <Button size="sm" className="font-semibold px-3 sm:px-5 h-9 rounded-xl cta-shadow bg-signature text-ink hover:bg-signature hover:brightness-95" asChild>
                     <Link to="/auth/signup">Get Started</Link>
                   </Button>
                 </nav>

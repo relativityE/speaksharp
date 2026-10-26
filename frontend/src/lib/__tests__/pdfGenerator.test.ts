@@ -19,6 +19,7 @@ vi.mock('sonner', () => ({
     info: vi.fn(),
     success: vi.fn(),
     error: vi.fn(),
+    dismiss: vi.fn(),
   },
 }));
 
@@ -263,15 +264,14 @@ describe('generateSessionPdf', () => {
     }));
   });
 
-  it('a measured filler ZERO ({}) renders NO filler table and a headline of 0', async () => {
+  it('CASUALTY #1472: an empty filler map ({}) renders NO filler table and NO zero headline (N/A, never a clean 0)', async () => {
     await generateSessionPdf({
       ...mockSession,
-      filler_counts: {}, // measured zero — a genuine "no fillers", never recounted from anything
+      filler_counts: {}, // an unverifiable zero over saved words — never "no fillers"
     } as unknown as Session);
 
-    // Measured zero is the headline, but there are no per-word rows to tabulate.
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
-      body: expect.arrayContaining([['Total Filler Words', '0']]),
+      body: expect.arrayContaining([['Total Filler Words', 'N/A']]),
     }));
     const fillerTableRendered = vi.mocked(autoTable).mock.calls.some(
       ([, opts]) => JSON.stringify((opts as { head?: unknown })?.head ?? null).includes('Filler Word'),
@@ -400,12 +400,19 @@ describe('generateSessionPdf — metric-presence: unmeasured metrics render N/A,
     }));
   });
 
-  it('a measured filler ZERO ({}) renders a headline 0, but an absent word count stays N/A', async () => {
+  it('CASUALTY #1472 (Browser PM 6102458581): a discourse-only map ({ like: 2 }) over saved words has NO "0" filler total', async () => {
+    await generateSessionPdf(base({ total_words: 190, filler_counts: { like: 2 } }), 'TestUser');
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([['Total Filler Words', 'N/A']]),
+    }));
+  });
+
+  it('CASUALTY #1472: an empty filler map ({}) with an absent word count renders N/A for both, never a zero', async () => {
     await generateSessionPdf(base({ total_words: undefined, filler_counts: {} }), 'TestUser');
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([
         ['Total Words', 'N/A'],
-        ['Total Filler Words', '0'],
+        ['Total Filler Words', 'N/A'],
       ]),
     }));
     // No legacy universal-score / coaching rows for any session.
@@ -524,5 +531,55 @@ describe('generateSessionPdf — metric-presence: unmeasured metrics render N/A,
       const { text } = await getSavedPdf();
       expect(text).not.toContain(TRANSCRIPT_MARKER);
     });
+  });
+});
+
+describe('#1573 Codex P1 (review 5460913397) — the save is bound to the initiating login', () => {
+  const boundSession = { id: '123', user_id: 'owner-a', created_at: '2026-10-08T12:00:00Z', duration: 60, total_words: 10, wpm: 100, clarity_score: 80, transcript: 'x' } as unknown as Session;
+  it('CASUALTY: a login change during the progress read means nothing is saved and false is returned', async () => {
+    let current = true;
+    let settleProgress!: () => void;
+    loadSessionProgress.mockReturnValueOnce(new Promise((resolve) => { settleProgress = () => resolve({ status: 'insufficient', sessionId: '123' }); }));
+    vi.mocked(saveAs).mockClear();
+    const pending = generateSessionPdf(boundSession, 'Ann', false, [], () => current);
+    current = false;          // the account changes while the PDF is being built
+    settleProgress();
+    await expect(pending).resolves.toBe(false);
+    expect(saveAs).not.toHaveBeenCalled();
+  });
+
+  it('CONTROL: an unchanged login saves as before', async () => {
+    vi.mocked(saveAs).mockClear();
+    await expect(generateSessionPdf(boundSession, 'Ann', false, [], () => true)).resolves.toBe(true);
+    expect(saveAs).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('#1573 Codex P1 4223029906 — no prior-account filename once the login changed', () => {
+  const boundSession2 = { id: '124', user_id: 'owner-a', created_at: '2026-10-08T12:00:00Z', duration: 60, total_words: 10, wpm: 100, clarity_score: 80 } as unknown as Session;
+  it('CASUALTY: an identity change during the DEFERRED Progress read → no filename toast, no saved file, false', async () => {
+    const { toast } = await import('sonner');
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.dismiss).mockClear();
+    vi.mocked(saveAs).mockClear();
+    let current = true;
+    let settleProgress!: () => void;
+    loadSessionProgress.mockReturnValueOnce(new Promise((resolve) => { settleProgress = () => resolve({ status: 'insufficient', sessionId: '124' }); }));
+    const pending = generateSessionPdf(boundSession2, 'previous@account.example', false, [], () => current);
+    current = false;          // sign-out / account switch while Progress is still loading
+    settleProgress();
+    await expect(pending).resolves.toBe(false);
+    expect(vi.mocked(toast.info).mock.calls.some(([msg]) => /Saving as/.test(String(msg)))).toBe(false);
+    expect(saveAs).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.dismiss).mock.calls.map(([id]) => id).sort()).toEqual(['pdf-gen', 'pdf-gen-name']);
+  });
+
+  it('CASUALTY: the "Saving as" toast (which names the previous account) is never shown, and both toasts are dismissed', async () => {
+    const { toast } = await import('sonner');
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.dismiss).mockClear();
+    await expect(generateSessionPdf(boundSession2, 'previous@account.example', false, [], () => false)).resolves.toBe(false);
+    expect(vi.mocked(toast.info).mock.calls.some(([msg]) => /Saving as/.test(String(msg)))).toBe(false);
+    expect(vi.mocked(toast.dismiss).mock.calls.map(([id]) => id).sort()).toEqual(['pdf-gen', 'pdf-gen-name']);
   });
 });

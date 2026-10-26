@@ -59,10 +59,11 @@ export function useUnresolvedRecovery({
         setRecoveredStatus({
             type: 'warning',
             message: draft.recoveryState === 'finalized_pending_save'
-                ? 'Your last session finished but was not saved.'
+                // #1474: unconfirmed, not a known loss — the save's answer may have been lost after the server committed.
+                ? 'Your last session finished, but we couldn’t confirm it was saved.'
                 : 'Your last session was interrupted before it was saved.',
             detail: draft.recoveryState === 'finalized_pending_save'
-                ? 'Its measurements were kept on this device. No transcript was stored.'
+                ? 'Its measurements were kept on this device.'
                 : 'No transcript was saved. Only partial measurements were captured.',
         });
         setRecoveryDraft(null);
@@ -90,6 +91,10 @@ export function useUnresolvedRecovery({
         const draft = getRecoverableDraftForUser(authUserId);
         setRecoveryDraft(draft);
         if (!draft || transcriptContent.trim()) return;
+        // A1-2: after a reload the transcript is always empty (#1306), so an interrupted take used to be acknowledged
+        // straight away: its report went to the STT status slot, which engine warm-up overwrites at once, and the draft
+        // was deleted — the take vanished without a word. Keep it for the persistent banner until the person dismisses it.
+        if (draft.recoveryState === 'active_interrupted') return;
         acknowledgeRecoveryDraft(draft);
     }, [isListening, sessionSaved, acknowledgeRecoveryDraft, transcriptContent, authUserId]);
 

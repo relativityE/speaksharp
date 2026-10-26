@@ -178,24 +178,46 @@ describe('StatusNotificationBar', () => {
     describe('post-save Analytics action (folded-in, single status bar)', () => {
         it('renders no action when analyticsAction is absent (default behaviour unchanged)', () => {
             mockStore();
-            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your transcript is ready.' }} />);
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved.' }} />);
             expect(screen.queryByTestId('post-save-review-session-link')).toBeNull();
             // Still exactly one status bar.
             expect(screen.getAllByTestId('live-session-header')).toHaveLength(1);
         });
 
-        it('labels the action exactly "Analytics" (not "Check out Analytics"/"View analytics") with an aria-hidden arrow', () => {
+        it('#1474: on mobile the lone Progress action shares the message row; detail text keeps the stacked layout', () => {
             mockStore();
-            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved · Your transcript is ready.' }} analyticsAction={{}} />);
+            const { unmount } = renderRouted(<StatusNotificationBar status={{ type: 'ready', message: '✓ Session saved.' }} analyticsAction={{}} />);
+            const bar = screen.getByTestId('live-session-header');
+            expect(bar.className).toMatch(/(^|\s)flex-row(\s|$)/);
+            expect(bar.className).not.toMatch(/(^|\s)flex-col(\s|$)/);
+            // Its responsive padding/margin must switch at once on a resize, never animate the page below it.
+            expect(bar.className).not.toMatch(/(^|\s)transition-all(\s|$)/);
+            // The tap target is unchanged by the compact row.
+            expect(screen.getByTestId('post-save-review-session-link').className).toMatch(/(^|\s)min-h-9(\s|$)/);
+            unmount();
+
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: '✓ Session saved.', detail: 'Finalizing your transcript.' }} analyticsAction={{}} />);
+            expect(screen.getByTestId('live-session-header').className).toMatch(/(^|\s)flex-col(\s|$)/);
+            cleanup();
+
+            // The full-width Private model progress is a second block: the bar stays stacked rather than squeeze three into a row.
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: '✓ Session saved.', progress: 100 }} analyticsAction={{}} />);
+            expect(screen.getByTestId('background-task-indicator')).toBeInTheDocument();
+            expect(screen.getByTestId('live-session-header').className).toMatch(/(^|\s)flex-col(\s|$)/);
+        });
+
+        it('labels the action exactly "Progress" (#1258 D2; not "Check out Analytics"/"View analytics") with an aria-hidden arrow', () => {
+            mockStore();
+            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved.' }} analyticsAction={{}} />);
             const action = screen.getByTestId('post-save-review-session-link');
-            // #1548: the visible label is "Progress" (route stays /analytics); the arrow icon must not contribute text.
+            // Accessible name is exactly "Progress" — the arrow icon must not contribute text.
             expect(action).toHaveAccessibleName('Progress');
             expect(action).toHaveTextContent(/^Progress$/);
             expect(screen.queryByText(/Check out Analytics/i)).toBeNull();
             expect(screen.queryByText(/View analytics/i)).toBeNull();
-            // Destination is the existing /analytics route, not a new button.
+            // Destination is the canonical /progress route (#1548), not a new button.
             expect(action.tagName).toBe('A');
-            expect(action).toHaveAttribute('href', '/analytics');
+            expect(action).toHaveAttribute('href', '/progress');
             expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
             // One bar only.
             expect(screen.getAllByTestId('live-session-header')).toHaveLength(1);
@@ -284,13 +306,13 @@ describe('StatusNotificationBar', () => {
             expect(action.querySelector('[aria-hidden="true"]')).not.toBeNull();
         });
 
-        it('clicking Analytics stops the cue immediately, clears the emphasis, and navigates to /analytics', () => {
+        it('clicking Analytics stops the cue immediately, clears the emphasis, and navigates to /progress', () => {
             mockStore();
             const onSelect = vi.fn();
             renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 'sess-1', onSelect }} />);
             const action = screen.getByTestId('post-save-review-session-link');
             expect(action).toHaveAttribute('data-cue-active', 'true');
-            expect(action).toHaveAttribute('href', '/analytics'); // navigates to the existing route
+            expect(action).toHaveAttribute('href', '/progress'); // navigates to the canonical route
             fireEvent.click(action);
             expect(onSelect).toHaveBeenCalledTimes(1);
             expect(action).toHaveAttribute('data-cue-phase', 'idle');

@@ -35,7 +35,10 @@ export interface MicCardProps {
      * can transcribe, so a first-time user must be able to trigger + watch that here.
      */
     privateModelStatus?: string;
-    /** 0..1 download/init progress while the model is loading. */
+    /**
+     * Download/init progress while the model is loading, as the session store publishes it: an integer PERCENT,
+     * 0–100 (`useSessionStore.normalizeModelLoadingProgress`), or null when there is none to show.
+     */
     modelLoadingProgress?: number | null;
     /** Begin the one-time model download (when download-required). */
     onDownloadModel?: () => void;
@@ -49,6 +52,11 @@ export interface MicCardProps {
      * contradiction this removes: the card must state the real reason instead.
      */
     blockedReason?: string | null;
+    /**
+     * #1258 C10 — a Start is in progress (press accepted, capture not yet live). The control keeps its size and place,
+     * reads `Starting…` and is disabled; `Mic ready on this device` is hidden because it is not yet true.
+     */
+    starting?: boolean;
 }
 
 const MicGlyph: React.FC = () => (
@@ -63,7 +71,7 @@ const MicGlyph: React.FC = () => (
 
 export const MicCard: React.FC<MicCardProps> = ({
     onStart, devices, selectedDeviceId, onSelectDevice, error,
-    privateModelStatus = 'ready', modelLoadingProgress, onDownloadModel, disabled, blockedReason,
+    privateModelStatus = 'ready', modelLoadingProgress, onDownloadModel, disabled, blockedReason, starting = false,
 }) => {
     const deviceList = devices ?? [];
     const hasPicker = deviceList.length > 0;
@@ -71,7 +79,10 @@ export const MicCard: React.FC<MicCardProps> = ({
     const downloadRequired = privateModelStatus === 'download-required';
     const loading = privateModelStatus === 'loading';
     const modelError = privateModelStatus === 'init-failed' || privateModelStatus === 'error';
-    const pct = typeof modelLoadingProgress === 'number' ? Math.round(Math.max(0, Math.min(1, modelLoadingProgress)) * 100) : null;
+    // #1491 6238566653 — the prop is already a PERCENT. Reading it as a 0..1 fraction made every value from 1 upwards
+    // render as 100%, so a cold Private download claimed to be complete from its first percent.
+    const pct = typeof modelLoadingProgress === 'number' && Number.isFinite(modelLoadingProgress)
+        ? Math.round(Math.max(0, Math.min(100, modelLoadingProgress))) : null;
 
     // Status line (top-left): ready / needs one-time download / DOWNLOADING (with %) / problem. While the
     // model downloads, this is the user's progress cue (it replaces the removed status-notification bar).
@@ -153,8 +164,8 @@ export const MicCard: React.FC<MicCardProps> = ({
     //
     // The retry stays unconditionally enabled: a failed model setup must never be a dead end, and
     // retrying setup starts no recording.
-    const primaryDisabled = isRetryAction ? false : (!!disabled || loading);
-    const primaryTitle = isBlockedFromStart
+    const primaryDisabled = starting || (isRetryAction ? false : (!!disabled || loading));
+    const primaryTitle = starting ? 'Starting…' : isBlockedFromStart
         ? 'Just a moment…'
         : isColdStart
         ? 'Download & start recording'
@@ -176,7 +187,8 @@ export const MicCard: React.FC<MicCardProps> = ({
                     type="button"
                     onClick={primaryHandler}
                     disabled={primaryDisabled}
-                    aria-label={isColdStart
+                    aria-disabled={primaryDisabled}
+                    aria-label={starting ? 'Starting…' : isColdStart
                         ? 'Download & start recording'
                         : modelError ? 'Retry Private setup'
                         : isBlockedFromStart ? 'Start recording — unavailable while your last session finishes'
@@ -202,10 +214,13 @@ export const MicCard: React.FC<MicCardProps> = ({
                     reading path, so slot A's left edge reads mic → label → hint and the status is never read as
                     the button's label. The input-device picker stays beside it. */}
                 <div className="flex shrink-0 items-center gap-3" data-testid="mic-status-row">
-                    <span className="flex items-center gap-1.5 text-[13px] font-extrabold" style={{ color: status.text }} data-testid="mic-status">
-                        <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: status.dot }} aria-hidden="true" />
-                        {status.label}
-                    </span>
+                    {/* #1258 C10 — hidden while a Start is in progress: "Mic ready" is not yet true. */}
+                    {!starting && (
+                        <span className="flex items-center gap-1.5 text-[13px] font-extrabold" style={{ color: status.text }} data-testid="mic-status">
+                            <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: status.dot }} aria-hidden="true" />
+                            {status.label}
+                        </span>
+                    )}
                     {hasPicker && (
                         <select
                             aria-label="Microphone input device"

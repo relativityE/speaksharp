@@ -203,7 +203,7 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
     };
 
     const bind = await send("evt_1302_checkout", "checkout.session.completed", deps.frozenTime, {
-      metadata: { userId }, client_reference_id: userId, subscription: subId, customer: customerId,
+      id: "cs_test_commercial_qualification", metadata: { userId }, client_reference_id: userId, subscription: subId, customer: customerId,
     }, "first paid binding");
     if (bind.status !== 200 || bind.tier !== "pro") {
       throw new Error(`#1302: first payment did not bind Pro (http ${bind.status}, tier ${bind.tier})`);
@@ -211,7 +211,7 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
 
     // ── 10. Duplicate and OUT-OF-ORDER delivery ───────────────────────────────
     const dup = await send("evt_1302_checkout", "checkout.session.completed", deps.frozenTime, {
-      metadata: { userId }, client_reference_id: userId, subscription: subId, customer: customerId,
+      id: "cs_test_commercial_qualification", metadata: { userId }, client_reference_id: userId, subscription: subId, customer: customerId,
     }, "DUPLICATE of the binding event");
     if (dup.tier !== "pro") throw new Error(`#1302: a duplicate event changed entitlement to '${dup.tier}'`);
 

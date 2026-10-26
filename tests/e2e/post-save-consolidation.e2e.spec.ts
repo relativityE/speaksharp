@@ -3,7 +3,7 @@
  *
  * Proves the settled post-save Session page has ONE authoritative saved-state surface: the single
  * StatusNotificationBar carrying "Session saved · Your transcript is ready.", the quiet Private CTA
- * (Native + eligible), and exactly one Analytics action (rightmost, /analytics) with the bounded →
+ * (Native + eligible), and exactly one Analytics action (rightmost, /progress) with the bounded →
  * persistent green cue. There is NO separate "Next: Analytics" toast, and the recording-card pill does
  * not duplicate the saved message (it resets to its ready state). Validated + screenshotted at
  * 320 / 375 / 390 / 1280px.
@@ -46,7 +46,7 @@ async function assertOneBarNoOldSurface(page: Page) {
   await expect(page.getByTestId('post-save-review-actions')).toHaveCount(0);
   const analytics = page.getByTestId('post-save-review-session-link');
   await expect(analytics).toHaveCount(1);
-  await expect(analytics).toHaveAttribute('href', '/analytics');
+  await expect(analytics).toHaveAttribute('href', '/progress');
 }
 
 // The status bar is the ONLY saved-state surface: no toast overlay, and the recording-card pill does
@@ -69,7 +69,7 @@ test.describe('Post-save consolidation', () => {
     await recordAndStop(page);
 
     await assertOneBarNoOldSurface(page);
-    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
+    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved( ·|\.)/);
 
     // #1184: Private is the only engine — there is no Browser→Private upsell CTA after save, and no
     // separate first-run Private setup nudge.
@@ -136,7 +136,7 @@ test.describe('Post-save consolidation', () => {
     await recordAndStop(page);
 
     await assertOneBarNoOldSurface(page);
-    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
+    await expect(page.getByTestId('live-session-header')).toContainText(/Session saved( ·|\.)/);
     await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);
     await expect(page.getByTestId('live-session-header')).not.toContainText(/Browser transcription may omit/i);
     await assertSingleSavedSurface(page);
@@ -193,7 +193,7 @@ test.describe('Post-save consolidation', () => {
     const persistedMockLine = MOCK_TRANSCRIPTS[MOCK_TRANSCRIPTS.length - 1];
     await expect(page.getByTestId('review-transcript')).toContainText(persistedMockLine, { timeout: 10000 });
 
-    await navigateToRoute(page, '/analytics');
+    await navigateToRoute(page, '/progress');
     const latest = page.getByTestId(/session-history-item-/).first();
     await openSessionDetailFromHistoryItem(page, latest);
 

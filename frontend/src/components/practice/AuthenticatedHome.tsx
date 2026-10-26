@@ -376,7 +376,7 @@ export function AuthenticatedHome({
                     identity="open-mic"
                     eyebrow="Speak freely"
                     title={PRODUCT_NAMES.freeform}
-                    sentence="Speak freely. See what worked and what to change next."
+                    sentence="Just speak. Your transcript, fillers and pace, live."
                     ctaLabel="Start your session"
                     ctaAria="Start your session"
                     onCta={onStartFreeform}

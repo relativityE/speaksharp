@@ -1,14 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview, type SavedSessionReview } from '@/services/review/savedSessionReview';
 import { useLinkedRepeat } from '@/hooks/useLinkedRepeat';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { PRODUCT_NAMES } from '@/constants/productNames';
-import { trackSavedReviewPracticeSelected, trackSavedReviewRevisited } from '@/services/reviewSurfaceTelemetry';
+import { authEpoch } from '@/services/loginSessionLog';
+import type { DisplayedRepeatTarget } from '@/services/progress/repeatPracticeTarget';
+import {
+    trackSavedReviewPracticeAction, trackSavedReviewPracticeSelected, trackSavedReviewPracticeState, trackSavedReviewRevisited,
+    type PracticeActionTaken, type PracticeBlockedReason, type PracticeIntendedRoute, type PracticeProgressStatus, type PracticeReviewState,
+} from '@/services/reviewSurfaceTelemetry';
 
-const PRACTICE_AGAIN = 'Practice this again';
+const PRACTICE_AGAIN = 'Practice again?';
 /** A MARKED Focus Points take whose saved results couldn't be read; its practice action retries the read. */
 const FOCUS_RESULTS_READ_FAILED = 'This take’s Focus Points couldn’t be loaded, so practice wasn’t started. Try again.';
 
@@ -24,35 +29,76 @@ const FOCUS_RESULTS_READ_FAILED = 'This take’s Focus Points couldn’t be load
  * With no saved review (A3) it says so, with no stand-in lesson and no generate button. (A completed session missing
  * its next-action signal keeps its data-integrity error on the detail page — PM 2026-09-25.)
  */
-export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel?: string | null }> = ({ sessionId, sessionLabel }) => {
+interface SavedPracticeLoopReviewProps {
+    sessionId: string;
+    sessionLabel?: string | null;
+    /** #1258 D5 (Rev 2 §5.4): the band's eyebrow; defaults to "Practice Loop review". */
+    eyebrow?: string;
+    /** #1258 D5: a link rendered inside the band, below the pair (the overview's "Open this session"). */
+    footerLink?: { to: string; label: string };
+    /**
+     * #1258 D5: render — and report a revisit — ONLY when this session has a saved review. The Progress overview shows
+     * its latest review this way: no loading line, no "No coaching was saved…", and never an older session instead.
+     */
+    onlyWhenSaved?: boolean;
+    /**
+     * #1258 (Rev 2 §4.2): rendered INSTEAD of the band when this session has no saved coaching (`none`). The reopened
+     * session passes its explicit Try again here; every other caller keeps the "No coaching was saved…" copy.
+     * #1577 Codex P2 4235188535 / 4235188543: it receives this review's own practice action (so the reopened session keeps
+     * its "Practice again?" path) and the RESOLVED product (a legacy row with no marker can be Focus Points by its rows).
+     */
+    noneFallback?: (ctx: { action: React.ReactNode; product: 'open_mic' | 'focus_points' | null; retryReady: boolean }) => React.ReactNode;
+}
+
+export const SavedPracticeLoopReview: React.FC<SavedPracticeLoopReviewProps> = ({ sessionId, sessionLabel, eyebrow = 'Practice Loop review', footerLink, onlyWhenSaved = false, noneFallback }) => {
     const navigate = useNavigate();
-    const [saved, setSaved] = useState<{ sessionId: string; value: SavedSessionReview } | null>(null);
+    const [saved, setSaved] = useState<{ sessionId: string; ownerId: string | null; epoch: number; value: SavedSessionReview } | null>(null);
     const [readAttempt, setReadAttempt] = useState(0);
     const repeat = useLinkedRepeat(sessionId);
+    const epoch = authEpoch();
 
     useEffect(() => {
         let active = true;
-        void loadSavedSessionReview(sessionId).then((value) => { if (active) setSaved({ sessionId, value }); });
+        if (repeat.userId === null || repeat.signedOutByUser) return () => { active = false; };
+        const ownerId = repeat.userId;
+        const readEpoch = epoch;
+        void loadSavedSessionReview(sessionId).then((value) => {
+            if (active && authEpoch() === readEpoch) setSaved({ sessionId, ownerId, epoch: readEpoch, value });
+        });
         return () => { active = false; };
-    }, [sessionId, readAttempt]);
+    }, [sessionId, readAttempt, repeat.userId, repeat.signedOutByUser, epoch]);
 
-    const review = saved && saved.sessionId === sessionId ? saved.value : null;
+    const review = saved && saved.sessionId === sessionId && saved.ownerId === repeat.userId && saved.epoch === epoch && !repeat.signedOutByUser ? saved.value : null;
+    const displayed = useRef(review);
+    displayed.current = review;
 
     // #1258 (PM 2026-09-25): showing the SAVED review is a revisit, once per session per page view — its own event,
     // never a generation. Content-free: product, which state showed, and whether an evidence line showed.
     const revisitSentFor = useRef<string | null>(null);
     useEffect(() => {
         if (!review || revisitSentFor.current === sessionId) return;
+        // A hidden band is not an impression: with `onlyWhenSaved` nothing renders unless the saved pair is shown.
+        if (onlyWhenSaved && review.coaching.kind !== 'review') return;
         revisitSentFor.current = sessionId;
         // #1538: an unverified (generic v1) Focus pair is not shown, so it is never a qualifying review impression — it is
         // reported as `none` (the closed `review_state` enum is unchanged).
         trackSavedReviewRevisited(review.product, review.coaching.kind === 'unverified' ? 'none' : review.coaching.kind, review.coaching.kind === 'review' && review.evidence.length > 0);
-    }, [review, sessionId]);
+    }, [review, sessionId, onlyWhenSaved]);
     const productName = review?.product === 'focus_points' ? PRODUCT_NAMES.objective
         : review?.product === 'open_mic' ? PRODUCT_NAMES.freeform : null;
     const label = [sessionLabel, productName].filter(Boolean).join(' · ');
 
-    const openProduct = () => {
+    const routeClass = (t: 'open_session' | 'open_focus_setup' | 'open_practice'): PracticeIntendedRoute =>
+        t === 'open_session' ? 'session' : t === 'open_focus_setup' ? 'focus_setup' : 'practice';
+    /** Where `openProduct` goes for this review — computed once, so the recorded action and the navigation agree. */
+    const productTarget = (): Extract<PracticeActionTaken, 'open_session' | 'open_focus_setup' | 'open_practice'> => {
+        if (review?.product === 'focus_points') return review.focusBrief && review.focusPoints.length > 0 ? 'open_session' : 'open_focus_setup';
+        return review?.product === 'open_mic' ? 'open_session' : 'open_practice';
+    };
+    // #1258 (Codex r4191751371): the press's `action_seq` travels in router state (memory only, never the URL), so the
+    // destination can emit `saved_review_practice_arrived` proving THIS press caused THIS arrival.
+    const openProduct = (actionSeq: number) => {
+        const go = (to: string) => navigate(to, { state: { practiceActionSeq: actionSeq } });
         const store = useSessionStore.getState();
         if (review?.product === 'focus_points') {
             if (review.focusBrief && review.focusPoints.length > 0) {
@@ -64,49 +110,105 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
                     // The pace guide is not saved with the session; the next take runs without one.
                     paceGuideSecPerPoint: null,
                 });
-                navigate('/session');
+                go('/session');
             } else {
-                navigate('/practice?product=focus-points');
+                go('/practice?product=focus-points');
             }
             return;
         }
         if (review?.product === 'open_mic') {
             store.setActiveObjectiveBrief(null);
-            navigate('/session');
+            go('/session');
             return;
         }
-        navigate('/practice');
+        go('/practice');
     };
     // #1258 (PM RETURN, #1535 cycle 1): act only on a KNOWN progress answer. While it is loading nothing navigates (a
     // fast click must not skip a valid linked repeat); a failed read stays here with its error and a retry; an eligible
     // recommendation runs its one linked attempt first; only a terminal "nothing to link" opens the product directly.
+    // #1258: every press is recorded with the branch it took (`saved_review_practice_action`); `action_seq` links a
+    // press to the linked attempt it started. Closed enums only: no session id, review text or route.
+    const actionSeqRef = useRef(0);
     const practise = () => {
-        if (!review || repeat.linkState === 'pending' || repeat.linkState === 'blocked' || repeat.accepting) return;
+        const actionSeq = Math.min(100, ++actionSeqRef.current);
+        const reviewState: PracticeReviewState = !review ? 'loading'
+            : review.reviewReadFailed ? 'read_failed' : review.focusReadFailed ? 'focus_read_failed' : 'loaded';
+        // Query state FIRST (Codex r4195165663): a failed refetch keeps the old data and sets isError, and the page then
+        // shows "Try again" — recording the stale cached status would misstate what it currently knows.
+        const progressStatus: PracticeProgressStatus = repeat.query.isPending ? 'loading'
+            : repeat.query.isError ? 'read_error' : (repeat.view?.status ?? 'unknown');
+        const record = (action: PracticeActionTaken) => trackSavedReviewPracticeAction({
+            product: review?.product ?? 'unknown', linkState: repeat.linkState, reviewState, progressStatus, action, actionSeq,
+            intendedRoute: action === 'accept_linked' ? routeClass(productTarget())
+                : action === 'open_session' || action === 'open_focus_setup' || action === 'open_practice' ? routeClass(action) : 'none',
+        });
+        if (!review || repeat.linkState === 'pending' || repeat.linkState === 'blocked' || repeat.accepting) { record('ignored'); return; }
         // PM RETURN 5849471237: a marked Focus take whose point set couldn't be read never opens a generic or unlinked
         // practice; the action re-reads the saved review, and the repeat runs only once the set is back.
         // #1535 (Codex P2 r4116859975): a failed read of the review ITSELF is retried the same way — never the generic
         // product chooser a genuinely unmarked legacy session opens.
         if (review.focusReadFailed || review.reviewReadFailed) {
+            record('reread_review');
             setSaved(null);
             setReadAttempt((n) => n + 1);
             return;
         }
         if (repeat.linkState === 'error') {
+            record('refetch_progress');
             void repeat.query.refetch();
             return;
         }
         trackSavedReviewPracticeSelected(review.product, repeat.linkState === 'linked');
-        if (repeat.linkState === 'linked') void repeat.accept(openProduct);
-        else openProduct();
+        if (repeat.linkState === 'linked') {
+            record('accept_linked');
+            const source = review;
+            // A Focus review opts into target validation only with an exact saved point set; without one (results not
+            // saved) the press keeps the linked-then-Focus-setup flow rather than failing verification.
+            const exactFocusSet = source.product === 'focus_points' && source.focusBrief && source.focusPoints.length > 0;
+            const target: DisplayedRepeatTarget | undefined = source.coaching.kind === 'review'
+                && repeat.userId && (source.product === 'open_mic' || (source.product === 'focus_points' && exactFocusSet)) ? {
+                    ownerId: repeat.userId, epoch, sessionId, product: source.product,
+                    instruction: source.coaching.review.whatToTryNext,
+                    focus: exactFocusSet && source.focusBrief ? {
+                        ...source.focusBrief, points: [...source.focusPoints],
+                    } : null,
+                    isCurrent: () => displayed.current === source,
+                } : undefined;
+            if (target) void repeat.accept(() => openProduct(actionSeq), actionSeq, routeClass(productTarget()), target);
+            else void repeat.accept(() => openProduct(actionSeq), actionSeq, routeClass(productTarget()));
+        } else {
+            record(productTarget());
+            openProduct(actionSeq);
+        }
     };
     const progressReadFailed = repeat.linkState === 'error' && !repeat.query.isFetching;
+
+    // #1258: the action's availability, recorded when it CHANGES (a disabled action emits no press, so it would
+    // otherwise be a silent gap). Same predicate as the button's `disabled`, named by its first unmet condition.
+    const blockedReason: PracticeBlockedReason = !review ? 'review_loading'
+        : repeat.accepting ? 'linking'
+            : repeat.retryBlocked ? 'retry_blocked'
+                : repeat.linkState === 'pending' ? 'progress_pending'
+                    : repeat.linkState === 'blocked' ? 'previous_attempt_pending'
+                        : repeat.linkState === 'error' && repeat.query.isFetching ? 'progress_refetching' : 'none';
+    const stateReviewState: PracticeReviewState = !review ? 'loading'
+        : review.reviewReadFailed ? 'read_failed' : review.focusReadFailed ? 'focus_read_failed' : 'loaded';
+    const stateSignature = useRef<string | null>(null);
+    useEffect(() => {
+        const state = { product: review?.product ?? 'unknown', linkState: repeat.linkState, reviewState: stateReviewState,
+            enabled: blockedReason === 'none', blockedReason } as const;
+        const signature = JSON.stringify(state);
+        if (signature === stateSignature.current) return;
+        stateSignature.current = signature;
+        trackSavedReviewPracticeState(state);
+    }, [review?.product, repeat.linkState, stateReviewState, blockedReason]);
 
     const action = (
         <div>
             <button
                 type="button"
                 onClick={practise}
-                disabled={!review || repeat.accepting || repeat.retryBlocked || repeat.linkState === 'pending' || repeat.linkState === 'blocked' || (repeat.linkState === 'error' && repeat.query.isFetching)}
+                disabled={blockedReason !== 'none'}
                 data-testid="saved-review-practice"
                 data-link-state={repeat.linkState}
                 className="rounded-lg bg-ink px-5 py-3 text-[15px] font-bold text-ink-text hover:brightness-110 disabled:opacity-60"
@@ -146,18 +248,31 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
         error: 'This session’s coaching couldn’t be loaded. Reload to try again.',
     };
 
+    if (onlyWhenSaved && coaching?.kind !== 'review') return null;
+    if (noneFallback && coaching?.kind === 'none') {
+        return <>{noneFallback({
+            action: <div className="mt-4 [&_button]:bg-signature [&_button]:text-ink">{action}</div>,
+            product: review?.product === 'open_mic' || review?.product === 'focus_points' ? review.product : null,
+            // #1577 Codex P2 4236200867 / 4236239714: the coaching function refuses a Focus take (425) until it has points AND
+            // at least one persisted evidence row, so only that VERIFIED readiness may offer a retry (Open Mic always may).
+            retryReady: review?.product === 'open_mic'
+                || (review?.product === 'focus_points' && review.focusPoints.length > 0 && review.focusEvidenceSaved === true
+                    && !review.focusReadFailed && !review.reviewReadFailed),
+        })}</>;
+    }
+
     return (
         <section
             className="rounded-2xl bg-ink p-6"
             data-testid="saved-review"
             data-review-state={coaching?.kind ?? 'loading'}
             data-product={review?.product ?? 'loading'}
-            aria-label="Practice Loop review"
+            aria-label={eyebrow}
         >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3.5 gap-y-1">
                 <h2 className="inline-flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-[0.09em] text-signature">
                     <Sparkles className="h-[15px] w-[15px]" aria-hidden="true" />
-                    Practice Loop review
+                    {eyebrow}
                 </h2>
                 {label && <span className="min-w-0 text-[12px] font-bold text-ink-muted" data-testid="saved-review-label">{label}</span>}
             </div>
@@ -183,6 +298,11 @@ export const SavedPracticeLoopReview: React.FC<{ sessionId: string; sessionLabel
                 </div>
             )}
 
+            {footerLink && (
+                <Link to={footerLink.to} className="mt-3.5 inline-block text-[14px] font-bold text-white underline underline-offset-[3px]" data-testid="saved-review-footer-link">
+                    {footerLink.label}
+                </Link>
+            )}
         </section>
     );
 };

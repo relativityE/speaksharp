@@ -101,8 +101,9 @@ describe('three-session production proof — assertion contract', () => {
   it('cleanup emits an explicit machine-readable verdict only after residue is verified', () => {
     expect(CLEANUP).toMatch(/cleanup_verified/);
     expect(CLEANUP).toMatch(/cleanup_not_required/);
-    // The verdict must come AFTER the residue readbacks, not before them.
-    const residueIdx = CLEANUP.indexOf('no run-owned residue in trial_entitlements');
+    // The verdict must come AFTER the residue readbacks, not before them. #1593: the last readback is the strict
+    // counted-zero check on trial_entitlements (requireZeroResidue — an unknown count never reads as zero).
+    const residueIdx = CLEANUP.indexOf("requireZeroResidue(teCount, 'trial_entitlements')");
     const verdictIdx = CLEANUP.lastIndexOf("writeCleanupVerdict('cleanup_verified'");
     expect(residueIdx).toBeGreaterThan(0);
     expect(verdictIdx).toBeGreaterThan(residueIdx);

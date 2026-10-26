@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { OnDeviceCountsContext } from './onDeviceCounts';
 import { Sparkles } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../../lib/logger';
@@ -15,6 +14,14 @@ import {
 } from '@/services/practiceLoopTelemetry';
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
+import { deriveReviewState } from './reviewState';
+import { FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
+import {
+  reportedProviderAttempts, snapshotCoachingOrigin, trackAiCoachingDiagnostic, trackAiCoachingLifecycle,
+  type AiCoachingDiagnosticTelemetry, type CoachingLifecycleEndReason, type CoachingLifecycleOrigin, type CoachingLifecycleStage,
+} from '@/services/practiceLoopTelemetry';
+import { providerCodeFields } from '@/services/telemetry/providerCodes';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -39,9 +46,8 @@ interface AISuggestionsProps {
   /** #1473 — delay before the single automatic retry of a recoverable failure. Product uses the default. */
   retryBackoffMs?: number;
   /**
-   * S-14 — the counts computed ON DEVICE from the transcript. They never depended on the network, which is
-   * the whole point: while the review is still coming, they fill the space the verdict will occupy, so the
-   * slot is never empty. Omit a value that is not measured; a count is never stubbed, zeroed or em-dashed.
+   * S-14 on-device counts. #1258 punch list D3: no longer rendered in the review band (THIS RUN shows them);
+   * still accepted so existing callers compile until they stop passing it.
    */
   onDeviceCounts?: { fillers: number | null; wordsPerMinute: number | null };
   /** S-12 — `Session 6 · Open Mic`, shown opposite the eyebrow when the review is not still coming. */
@@ -113,6 +119,68 @@ const isTransportFailure = (err: unknown): boolean => {
   return name === 'FunctionsFetchError' || name === 'TypeError' || name === 'AbortError';
 };
 
+const readServerDiagnostic = async (value: unknown): Promise<Record<string, unknown> | null> => {
+  const direct = (value as { diagnostics?: unknown } | null)?.diagnostics;
+  if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct as Record<string, unknown>;
+  const context = (value as { context?: unknown } | null)?.context;
+  if (context instanceof Response) {
+    try {
+      const payload: unknown = await context.clone().json();
+      const diagnostic = (payload as { diagnostics?: unknown } | null)?.diagnostics;
+      return diagnostic && typeof diagnostic === 'object' && !Array.isArray(diagnostic)
+        ? diagnostic as Record<string, unknown> : null;
+    } catch { return null; }
+  }
+  return null;
+};
+
+const validUuid = (value: unknown): value is string => typeof value === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const diagnosticEvent = (
+  server: Record<string, unknown> | null,
+  input: { requestId: string | null; attemptId: string | null; clientAttempt: number; outcome: AiCoachingDiagnosticTelemetry['outcome']; reason: string; totalMs: number; product?: 'open_mic' | 'focus_points'; },
+): AiCoachingDiagnosticTelemetry => {
+  const release = typeof window !== 'undefined' ? window.__APP_RUNTIME_CONFIG__?.release : null;
+  const boundedInt = (value: unknown, max: number): number | null =>
+    Number.isInteger(value) && Number(value) >= 0 ? Math.min(max, Number(value)) : null;
+  const knownReason = new Set([
+    'none', 'invalid_request', 'auth_failed', 'profile_unavailable', 'session_not_found', 'product_mismatch',
+    'focus_context_unavailable', 'focus_results_pending', 'transcript_unavailable', 'product_unknown',
+    'service_configuration', 'entitlement_unavailable', 'access_denied', 'quota_unavailable', 'quota_exceeded',
+    'provider_http_4xx', 'provider_http_5xx', 'provider_transport', 'provider_timeout', 'missing_text',
+    'invalid_shape', 'over_character_ceiling', 'missing_model_version', 'authority_unverified', 'persist_failed',
+    'internal_error', 'network', 'invalid_response', 'unavailable', 'provider_malformed_response',
+  ]);
+  const phase = new Set(['request', 'auth', 'session', 'focus', 'cache', 'entitlement', 'quota', 'provider', 'persist', 'complete', 'client']);
+  return {
+    ...(validUuid(server?.request_id) || input.requestId
+      ? { diagnostic_request_id: validUuid(server?.request_id) ? server!.request_id as string : input.requestId! } : {}),
+    ...(validUuid(server?.attempt_id) || input.attemptId
+      ? { diagnostic_attempt_id: validUuid(server?.attempt_id) ? server!.attempt_id as string : input.attemptId! } : {}),
+    client_attempt: input.clientAttempt,
+    outcome: input.outcome,
+    phase: typeof server?.phase === 'string' && phase.has(server.phase) ? server.phase : 'client',
+    reason: typeof server?.reason === 'string' && knownReason.has(server.reason) ? server.reason : input.reason,
+    status: boundedInt(server?.status, 599),
+    provider_status: boundedInt(server?.provider_status, 599),
+    provider: server?.provider === 'google_gemini' ? 'google_gemini' : 'none',
+    configured_model: typeof server?.configured_model === 'string' ? server.configured_model : null,
+    observed_model: typeof server?.observed_model === 'string' ? server.observed_model : null,
+    source: server?.source === 'fresh' || server?.source === 'cache' ? server.source : 'unknown',
+    provider_attempts: reportedProviderAttempts(server?.provider_attempts),
+    retry_count: boundedInt(server?.retry_count, 4) ?? 0,
+    provider_duration_ms: boundedInt(server?.provider_duration_ms, 600_000),
+    total_duration_ms: boundedInt(server?.total_duration_ms, 600_000) ?? Math.min(600_000, Math.max(0, Math.round(input.totalMs))),
+    prompt_sha256: typeof server?.prompt_sha256 === 'string' && /^[0-9a-f]{64}$/i.test(server.prompt_sha256) ? server.prompt_sha256 : null,
+    product: input.product ?? 'unknown',
+    has_session: true,
+    client_release_id: typeof release === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(release) ? release : null,
+    // #1258 (PO 2026-10-12): the provider's decoded codes and each attempt's outcome, re-validated here.
+    ...providerCodeFields(server),
+  };
+};
+
 /**
  * Classify a failed review request FROM THE SERVER'S STATUS, never from its prose.
  *
@@ -172,6 +240,16 @@ const readClosedCode = async (err: unknown): Promise<typeof SERVICE_CONFIGURATIO
  * exact review, so a malformed 200 is a contract violation, not a provider or network blip. Another attempt re-reads
  * the same stored value.
  */
+/**
+ * #1258 punch list D3 — the MANUAL Try again policy (PM disposition 6045315752). Separate from TERMINAL_REASONS, which
+ * governs only the automatic retry. A press cannot change these answers, so no futile button is offered: service setup,
+ * the request rate limit, an account without access, a saved session that was not found (404), and a session without an
+ * available transcript (409). `unavailable`, `invalid_response` and `network` keep an explicit Try again.
+ */
+const NO_MANUAL_RETRY_REASONS: ReadonlySet<PracticeLoopReviewFailureReason> = new Set<PracticeLoopReviewFailureReason>([
+  'service_configuration', 'rate_limited', 'access_denied', 'not_found', 'transcript_unavailable',
+]);
+
 const TERMINAL_REASONS: ReadonlySet<PracticeLoopReviewFailureReason> = new Set<PracticeLoopReviewFailureReason>([
   'service_configuration', 'access_denied', 'rate_limited', 'not_found', 'transcript_unavailable', 'invalid_response',
   'unavailable',
@@ -188,18 +266,6 @@ export const FOCUS_RESULTS_PENDING_WAITS = 3;
 /** #1473 — the bounded backoff before the single automatic retry of a recoverable failure. */
 export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
 
-/**
- * #1538 (PO-approved wording, Codex P1 r4117696897) — the disclosure names everything `get-ai-suggestions` sends.
- * A Focus Points take's prompt also carries its saved topic and point labels, so its line says so; Open Mic sends the
- * transcript only and keeps the transcript-only line. Exact PO wording: do not edit without PO approval.
- */
-// #1548 (PO, 1 Oct 2026): provider-neutral in the product UI; Privacy/Legal still names the actual provider.
-const OPEN_MIC_DISCLOSURE = 'Your audio stays on this device. We use an AI service to analyze your session transcript and create coaching.';
-const FOCUS_POINTS_DISCLOSURE =
-  'Your audio stays on this device. We use an AI service to analyze your session transcript, Focus Points topic, and points to create coaching.';
-
-const UNAVAILABLE_MESSAGE = 'The review is unavailable right now. Your session is saved, and you can try again.';
-
 const getSafeAiSuggestionError = (
   err: unknown,
   closedCode: typeof SERVICE_CONFIGURATION_CODE | null = null,
@@ -212,7 +278,7 @@ const getSafeAiSuggestionError = (
   if (closedCode === SERVICE_CONFIGURATION_CODE && errorStatus(err) === 503) {
     return {
       reason: 'service_configuration',
-      message: 'The review is unavailable because of a service setup problem on our side. Your session is saved, and you can check again later.',
+      message: "Review isn't available for this session. Your session is saved.",
     };
   }
 
@@ -238,9 +304,58 @@ const getSafeAiSuggestionError = (
   }
 };
 
+/**
+ * #1593 (PO via Sam, case-1 diagnosis) — ONE COACHING REQUEST LIFECYCLE, observable end to end. The server logged three
+ * successful generations while the browser record showed one unanswered exchange and no rendered review for the second
+ * take, and nothing in PostHog could say which request the user's screen was waiting on, whether its answer arrived or
+ * why it was not shown. Each request now reports content-free stages under its own diagnostic ids and the ORIGIN
+ * journey/boot/recording attempt captured when it started, plus exactly one terminal `ended` with a closed reason.
+ */
+const COACHING_LIFECYCLE_TIMEOUT_MS = 60_000; // the Edge provider budget (45 s) plus a transport allowance — not an abort
+interface CoachingLifecycle {
+  requestId: string | null;
+  attemptId: string | null;
+  clientAttempt: number | null;
+  origin: CoachingLifecycleOrigin;
+  startedAt: number;
+  sessionId: string;
+  product: 'open_mic' | 'focus_points' | 'unknown';
+  ended: boolean;
+  waitingRetry: boolean;
+  watchdog: ReturnType<typeof setTimeout> | null;
+  /**
+   * #1593 (PO route-exit requirement, 15:29) — the in-flight invoke's abort. Fired ONLY when the review leaves the page
+   * (unmount), never on a session change: a rapid repeat must let take A's already-accepted request finish and persist.
+   * Aborting stops the browser waiting; it does not prove the server stopped, so settlement stays unknown.
+   */
+  abort: AbortController | null;
+  clientAborted: boolean;
+  /**
+   * #1593 (Browser PM settlement-order controls on 889d7b21) — HOW THIS LIFECYCLE WAS RETIRED, decided once at the
+   * review's teardown: `unmounted` when the person left the page, `superseded_session` when the review was replaced on
+   * the same page. Every path that ends a lifecycle because nothing is mounted reads it, so a response or an error that
+   * settles before the deferred tick ends with the same reason the tick would have chosen. Null while mounted.
+   */
+  retiredAs: 'unmounted' | 'superseded_session' | null;
+}
+const lifecycleStage = (
+  lc: CoachingLifecycle, stage: CoachingLifecycleStage, extra: { endReason?: CoachingLifecycleEndReason; parseValid?: boolean } = {},
+): void => trackAiCoachingLifecycle({
+  stage, requestId: lc.requestId, attemptId: lc.attemptId, clientAttempt: lc.clientAttempt, origin: lc.origin,
+  elapsedMs: performance.now() - lc.startedAt, product: lc.product, ...extra,
+  ...(stage === 'ended' && extra.endReason === 'unmounted' ? { clientAborted: lc.clientAborted } : {}),
+});
+/** Exactly one terminal record per lifecycle, however many paths reach the end. */
+const endLifecycle = (lc: CoachingLifecycle | null, reason: CoachingLifecycleEndReason): void => {
+  if (!lc || lc.ended) return;
+  lc.ended = true;
+  if (lc.watchdog) { clearTimeout(lc.watchdog); lc.watchdog = null; }
+  lifecycleStage(lc, 'ended', { endReason: reason });
+};
+
 const AISuggestions: React.FC<AISuggestionsProps> = ({
   transcript = '', canReview, sessionId, initialSuggestions, retryBackoffMs = AI_REVIEW_AUTO_RETRY_BACKOFF_MS,
-  onDeviceCounts, sessionLabel, product, blockedReason,
+  sessionLabel, product, blockedReason,
 }) => {
   const activeSessionRef = useRef(sessionId);
   const requestGenerationRef = useRef(0);
@@ -256,6 +371,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     /** #1473 — a recoverable failure is showing and ONE automatic retry is scheduled; no attempt is in flight. */
     retrying: false,
   }));
+  /** #1258 D3: the closed reason behind the failure on screen, so a terminal reason renders without Try again. */
+  const [failureReasonFor, setFailureReasonFor] = useState<{ sessionId: string; reason: PracticeLoopReviewFailureReason } | null>(null);
 
   // A route change can reuse this component instance. Render the new session's persisted value
   // immediately and invalidate every request captured for the previous session.
@@ -266,6 +383,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   const reviewReady = Boolean(sessionId && (canReview ?? Boolean(transcript.trim())));
   const reviewCardRef = useRef<HTMLDivElement>(null);
   const renderedReceiptRef = useRef<string | null>(null);
+  /** #1593 — the request lifecycle in flight, and the one whose review is the one on screen (for ready/rendered). */
+  const lifecycleRef = useRef<CoachingLifecycle | null>(null);
+  const shownLifecycleRef = useRef<{ sessionId: string; lifecycle: CoachingLifecycle } | null>(null);
 
   /**
    * #1258 G20 — "From this session", read from what the session SAVED (the same reader Analytics uses), once the
@@ -332,6 +452,11 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       if (renderedReceiptRef.current === sessionId) return;
       renderedReceiptRef.current = sessionId;
       trackPracticeLoopReviewRendered();
+      const shown = shownLifecycleRef.current;
+      if (shown && shown.sessionId === sessionId) {
+        lifecycleStage(shown.lifecycle, 'rendered');
+        endLifecycle(shown.lifecycle, 'completed');
+      }
       emitPracticeLoop({
         // The validated card has intersected the viewport. This is the only phase that can claim that.
         phase: 'rendered',
@@ -385,6 +510,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
     if (!sessionId || !suggestions || readyMarkedRef.current === sessionId) return;
     readyMarkedRef.current = sessionId;
     markCompletionStage('practice_loop_ready');
+    const shown = shownLifecycleRef.current;
+    if (shown && shown.sessionId === sessionId) lifecycleStage(shown.lifecycle, 'ready');
   }, [sessionId, suggestions]);
 
   // #1466 — no forced scroll. The review is visible because `SessionOverhaulView` places it first, above the
@@ -428,13 +555,62 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    * transition genuinely is a new lifecycle.
    */
   const mountedRef = useRef(true);
+  // #1593 — the page this review was mounted on. Only leaving it is a route exit (see the unmount effect below).
+  const mountedPathRef = useRef(typeof window === 'undefined' ? '' : window.location.pathname);
   useEffect(() => {
     mountedRef.current = true;
+    // StrictMode's replay mounts again: a teardown classification from the replayed cleanup no longer applies.
+    if (lifecycleRef.current) lifecycleRef.current.retiredAs = null;
     return () => {
       mountedRef.current = false;
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, []);
+
+  /**
+   * #1593 — THE LIFECYCLE ENDS WHEN THE USER LEAVES IT, not when a late answer happens to arrive. On a session change or
+   * an unmount the in-flight request is closed at once (`superseded_session` / `unmounted` — a local abandonment, not a
+   * network abort). Deferred one tick and re-checked, so StrictMode's setup → cleanup → setup replay (same session,
+   * mounted again) never reports a false end.
+   */
+  /*
+   * WHAT A ROUTE EXIT CANCELS, stated exactly (Sam, #1657 review): only the CURRENT lifecycle's live invoke is aborted —
+   * including one the watchdog already reported as `timeout`. A request superseded earlier by a session change (a rapid
+   * repeat) is deliberately NOT aborted: the PO allows accepted work to settle, and its lifecycle already ended
+   * `superseded_*` with no abort claim. `client_aborted` is reported only on the `unmounted` end of a request whose wait
+   * was actually aborted; nothing ever claims the server stopped.
+   */
+  useEffect(() => () => {
+    const lc = lifecycleRef.current;
+    if (!lc) return;
+    // #1593 (Sam RETURN on 7b76c257, Browser PM counterexamples): the route is read HERE, at the teardown boundary, not at
+    // the deferred tick. Sampling it later could not preserve event order: an exit followed by an immediate return looked
+    // like an in-page unmount (the live request was never aborted), and a Practice-again unmount followed by an immediate
+    // exit looked like a route exit (the superseded take was aborted). Whatever happens to the URL after this teardown
+    // belongs to the next lifecycle, not this one.
+    const leftRoute = typeof window === 'undefined' || window.location.pathname !== mountedPathRef.current;
+    // The mount effect's cleanup ran first, so an unmount reads `mountedRef` false here; a session change leaves it true.
+    if (!mountedRef.current) lc.retiredAs = leftRoute ? 'unmounted' : 'superseded_session';
+    setTimeout(() => {
+      // #1593 (live RWT case 1, run 39166041750): an UNMOUNT is not a route exit. Practice again replaces the after-state
+      // review with the recording state on the SAME page, which unmounts this component — and aborting there cancelled the
+      // interrupted take's accepted request (Edge `request_cancelled`, its coaching never persisted), the opposite of the PO
+      // rule. Only leaving the page this review was mounted on aborts. Any teardown that keeps the person on that page —
+      // Practice again, or a loading/error/profile boundary re-rendering it — ends this lifecycle `superseded_session`
+      // without an abort: the accepted request may settle (the PO's superseded-A policy), and its late answer is discarded
+      // here because nothing is mounted to show it.
+      if (!mountedRef.current && !leftRoute) {
+        endLifecycle(lc, 'superseded_session');
+      } else if (!mountedRef.current) {
+        // Route exit: cancel the browser's wait for this request (supported abort propagation). Nothing new starts:
+        // the retry timer was cleared by the mount cleanup, and `isCurrentRequest` is false from here on.
+        // Codex r4307758219: the ABORT is not gated on `ended` — a request the watchdog already reported as `timeout` is
+        // still hung and must still be cancelled. Only the terminal telemetry is once-only (endLifecycle is idempotent).
+        if (lc.abort && !lc.abort.signal.aborted) { lc.clientAborted = true; lc.abort.abort(); }
+        endLifecycle(lc, 'unmounted');
+      } else if (activeSessionRef.current !== lc.sessionId) endLifecycle(lc, 'superseded_session');
+    }, 0);
+  }, [sessionId]);
 
   const fetchSuggestions = useCallback(async () => {
     if (!reviewReady || !sessionId) return;
@@ -447,7 +623,25 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
       && activeSessionRef.current === requestSessionId
       && requestGenerationRef.current === requestGeneration;
 
+    const diagnosticRequestId = createCoachingDiagnosticId();
+    if (diagnosticRequestId) rememberCoachingDiagnostic(requestSessionId, diagnosticRequestId);
+
     trackPracticeLoopReviewRequested();
+    // #1593 — a newer request replaces any lifecycle still open: a cancelled scheduled retry, another session, or a
+    // replaced request for this one. Then this request's origin is captured once, here, at its start.
+    const previous = lifecycleRef.current;
+    if (previous && !previous.ended) {
+      endLifecycle(previous, previous.sessionId !== requestSessionId ? 'superseded_session'
+        : previous.waitingRetry ? 'retry_cancelled' : 'superseded_request');
+    }
+    const lifecycle: CoachingLifecycle = {
+      requestId: diagnosticRequestId, attemptId: null, clientAttempt: null, origin: snapshotCoachingOrigin(),
+      startedAt: performance.now(), sessionId: requestSessionId, product: product ?? 'unknown',
+      ended: false, waitingRetry: false, watchdog: null, abort: null, clientAborted: false, retiredAs: null,
+    };
+    lifecycleRef.current = lifecycle;
+    const notCurrentReason = (): CoachingLifecycleEndReason => (!mountedRef.current ? (lifecycle.retiredAs ?? 'unmounted')
+      : activeSessionRef.current !== requestSessionId ? 'superseded_session' : 'superseded_request');
 
     /**
      * #1473 — ONE BOUNDED LIFECYCLE PER REQUEST (the automatic first request, or one manual press).
@@ -463,18 +657,52 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
      */
     let pendingWaits = 0;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const diagnosticAttemptId = createCoachingDiagnosticId();
+      const attemptStartedAt = performance.now();
+      lifecycle.attemptId = diagnosticAttemptId;
+      lifecycle.clientAttempt = attempt;
+      lifecycle.waitingRetry = false;
+      // A route exit before this attempt starts sends nothing new.
+      if (!mountedRef.current) { endLifecycle(lifecycle, lifecycle.retiredAs ?? 'unmounted'); return; }
+      lifecycle.abort = typeof AbortController === 'undefined' ? null : new AbortController();
+      lifecycleStage(lifecycle, 'requested');
+      // Not an abort: if the invoke has not settled within the client allowance the lifecycle ends `timeout`, and a late
+      // answer is still reported as received below.
+      if (lifecycle.watchdog) clearTimeout(lifecycle.watchdog);
+      lifecycle.watchdog = setTimeout(() => endLifecycle(lifecycle, 'timeout'), COACHING_LIFECYCLE_TIMEOUT_MS);
+      let serverDiagnostic: Record<string, unknown> | null = null;
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: true, error: null, retrying: false });
+      setFailureReasonFor(null);
       let failure: SafeSuggestionError;
       try {
         const supabase = getSupabaseClient();
         if (!supabase) throw new Error("Supabase client not available");
         const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
+          ...(lifecycle.abort ? { signal: lifecycle.abort.signal } : {}),
           // The edge function loads transcript and measurements from this authenticated saved session.
           // Never send caller-owned evidence that could be swapped between session ids.
           // #1538 Codex P1 r4118176188: `accepted_coaching_versions` is the closed capability that tells the server this
           // client reads Focus provenance. Without it (a tab on an older bundle) the server answers a v1-labelled copy.
-          body: { sessionId: sessionId || null, ...(product ? { product } : {}), accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS },
+          body: {
+            sessionId: requestSessionId,
+            ...(product ? { product } : {}),
+            accepted_coaching_versions: ACCEPTED_COACHING_VERSIONS,
+            ...(diagnosticRequestId ? { diagnostic_request_id: diagnosticRequestId } : {}),
+            ...(diagnosticAttemptId ? { diagnostic_attempt_id: diagnosticAttemptId } : {}),
+            client_attempt: attempt,
+            ...(typeof window !== 'undefined' && typeof window.__APP_RUNTIME_CONFIG__?.release === 'string'
+              ? { client_release_id: window.__APP_RUNTIME_CONFIG__.release } : {}),
+          },
         });
+
+        if (lifecycle.watchdog) { clearTimeout(lifecycle.watchdog); lifecycle.watchdog = null; }
+        lifecycle.abort = null; // settled: nothing is in flight any more, so a later route exit aborts nothing
+        // Sam (#1657 review): a response is RECEIVED only when one arrived. An HTTP error response (FunctionsHttpError /
+        // FunctionsRelayError) is a received response; a FunctionsFetchError means the browser got no response at all.
+        // Same definition the failure copy uses: a transport failure with no HTTP status reached no verdict at all.
+        const noResponse = Boolean(invokeError) && isTransportFailure(invokeError) && errorStatus(invokeError) === null;
+        lifecycleStage(lifecycle, noResponse ? 'transport_failed' : 'response_received');
+        serverDiagnostic = await readServerDiagnostic(data);
 
         if (invokeError) {
           throw invokeError;
@@ -486,29 +714,50 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         }
 
         const persistedSuggestions = parseAISuggestions(data?.suggestions, product);
+        lifecycleStage(lifecycle, 'response_parsed', { parseValid: Boolean(persistedSuggestions) });
         if (persistedSuggestions) {
+          trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+            requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+            outcome: isCurrentRequest() ? 'success' : 'superseded', reason: isCurrentRequest() ? 'none' : 'unavailable',
+            totalMs: performance.now() - attemptStartedAt, product,
+          }));
           if (isCurrentRequest()) {
             // Success from this endpoint means the exact result was persisted and read back server-side.
             trackPracticeLoopReviewCompleted();
             trackPracticeLoopReviewPersisted();
+            lifecycleStage(lifecycle, 'persisted');
+            // Ready and rendered are claimed only for THIS request's review, under its own ids and origin.
+            shownLifecycleRef.current = { sessionId: requestSessionId, lifecycle };
             setView({ sessionId: requestSessionId, suggestions: persistedSuggestions, isLoading: false, error: null, retrying: false });
+          } else {
+            endLifecycle(lifecycle, notCurrentReason());
           }
           return;
         }
         failure = { reason: 'invalid_response', message: UNAVAILABLE_MESSAGE };
       } catch (err: unknown) {
+        if (lifecycle.watchdog) { clearTimeout(lifecycle.watchdog); lifecycle.watchdog = null; }
+        lifecycle.abort = null;
+        serverDiagnostic = await readServerDiagnostic(err);
         // #1258 — Focus Points results not saved yet: nothing was spent, so wait and ask again (still "coming",
         // never an error), without consuming a lifecycle attempt. Bounded by FOCUS_RESULTS_PENDING_WAITS.
         if (errorStatus(err) === 425 && pendingWaits < FOCUS_RESULTS_PENDING_WAITS) {
+          serverDiagnostic = await readServerDiagnostic(err);
+          trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+            requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+            outcome: 'retrying', reason: 'focus_results_pending',
+            totalMs: performance.now() - attemptStartedAt, product,
+          }));
           pendingWaits += 1;
-          if (!isCurrentRequest()) return;
+          if (!isCurrentRequest()) { endLifecycle(lifecycle, notCurrentReason()); return; }
+          lifecycle.waitingRetry = true;
           const proceed = await new Promise<boolean>((resolve) => {
             retryTimerRef.current = setTimeout(() => {
               retryTimerRef.current = null;
               resolve(isCurrentRequest());
             }, retryBackoffMs);
           });
-          if (!proceed) return;
+          if (!proceed) { endLifecycle(lifecycle, notCurrentReason()); return; }
           attempt -= 1;
           continue;
         }
@@ -516,22 +765,39 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
         failure = getSafeAiSuggestionError(err, await readClosedCode(err));
       }
 
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) {
+        trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+          requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+          outcome: 'superseded', reason: 'unavailable', totalMs: performance.now() - attemptStartedAt, product,
+        }));
+        endLifecycle(lifecycle, notCurrentReason());
+        return;
+      }
 
-      if (attempt === 1 && !TERMINAL_REASONS.has(failure.reason)) {
+      const shouldRetry = attempt === 1 && !TERMINAL_REASONS.has(failure.reason);
+      trackAiCoachingDiagnostic(diagnosticEvent(serverDiagnostic, {
+        requestId: diagnosticRequestId, attemptId: diagnosticAttemptId, clientAttempt: attempt,
+        outcome: shouldRetry ? 'retrying' : failure.reason === 'network' ? 'network_failure' : 'failure',
+        reason: failure.reason, totalMs: performance.now() - attemptStartedAt, product,
+      }));
+
+      if (shouldRetry) {
         setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: true });
+        lifecycle.waitingRetry = true;
         const proceed = await new Promise<boolean>((resolve) => {
           retryTimerRef.current = setTimeout(() => {
             retryTimerRef.current = null;
             resolve(isCurrentRequest());
           }, retryBackoffMs);
         });
-        if (!proceed) return;
+        if (!proceed) { endLifecycle(lifecycle, notCurrentReason()); return; }
         continue;
       }
 
       trackPracticeLoopReviewFailed(failure.reason);
+      endLifecycle(lifecycle, failure.reason === 'invalid_response' ? 'invalid_response' : 'failed');
       setView({ sessionId: requestSessionId, suggestions: null, isLoading: false, error: failure.message, retrying: false });
+      setFailureReasonFor({ sessionId: requestSessionId, reason: failure.reason });
       return;
     }
   }, [reviewReady, sessionId, retryBackoffMs, product]);
@@ -549,14 +815,20 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
   /**
    * #1422 — ONE SETTLED/UNSETTLED SIGNAL, published where the journey can read it.
    *
-   * `loading` is the only state that is still in motion. Everything else is an answer the user can act
+   * `loading` and `pending` are still in motion. `ready`, `error` and `blocked` are answers the user can act
    * on, including `error`: a malformed review response is a real outcome, and the card says so rather
    * than spinning. The E2E lane needs this because "the review settled honestly" and "the review is
    * still loading" are otherwise indistinguishable from outside, and the previous test worked around
    * that by asserting fabricated verdict prose that was always present.
    */
   // #1473 — a scheduled automatic retry is still in motion, so it reads as `loading` to the journey lane.
-  const reviewState = (isLoading || retrying) ? 'loading' : (error ? 'error' : (suggestions ? 'ready' : 'empty'));
+  // #1258 (RWT run 37514078995, F4) — "no review yet" is NOT a settled answer. The card used to publish `empty` while the
+  // session was still saving (`!reviewReady`) and in the instant between review eligibility and the automatic request,
+  // and the journey read that as terminal: it recorded "coaching did not render" ~20 ms before the request started and
+  // navigated away, superseding a request that had in fact been made. Every settled lifecycle outcome ends in
+  // `ready` or `error`, so anything else is `pending` (still coming) — or `blocked` when a stated reason means no review
+  // can be requested for this take. `empty` is no longer published: no settled eligible outcome leaves the card empty.
+  const reviewState = deriveReviewState({ isLoading, retrying, error: Boolean(error), hasSuggestions: Boolean(suggestions), reviewReady, blocked: Boolean(blockedReason) });
 
   /**
    * S-12 / S-14 — slot B's content, on the ink ground the shell owns. It carries no card chrome of its
@@ -576,10 +848,10 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    *
    * **There is no dead end and no spinner where the verdict goes (S-14).** The old card showed
    * `Review unavailable` over an empty box with a Retry button, which made a recoverable network blip
-   * look like a lost session. The review is a network call; the counts are not — they are computed on
-   * device from the transcript — so while the review is still coming, the counts fill the space and the
-   * chip is the only progress indicator. `Practice this again` lives directly beneath this card and stays
-   * primary and enabled throughout: the loop runs without the review.
+   * look like a lost session. #1258 punch list D3: the on-device counts now live only in the THIS RUN card, so
+   * this band states the review's own status in one line, with the chip as the only progress indicator.
+   * `Practice again?` lives directly beneath this card and stays primary and enabled throughout: the loop runs
+   * without the review.
    */
   /**
    * TWO failure shapes, because only one of them is still coming (#1422 / #1473).
@@ -590,16 +862,14 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
    * `terminal` — the lifecycle has ENDED (service configuration, access, quota, not found, no transcript,
    * an invalid response, or exhaustion). Another attempt cannot change it, so claiming coaching is on its
    * way would be a false promise, and a RETRYING chip would be a lie. The server-classified copy carries
-   * what actually happened, in product language — the raw provider prose never reaches the user — and the
-   * on-device counts still fill the space, so this is not the dead end S-14 deletes either.
+   * what actually happened, in product language — the raw provider prose never reaches the user — and a
+   * manual Try again is offered only where a press could change the answer (NO_MANUAL_RETRY_REASONS).
    */
   const inFlight = isLoading || retrying;
   const terminal = Boolean(error) && !retrying && !isLoading;
   const stillComing = inFlight || terminal;
-  const publishedCounts = React.useContext(OnDeviceCountsContext);
-  const counts = onDeviceCounts ?? publishedCounts;
-  const hasCounts = counts != null
-    && (typeof counts.fillers === 'number' || typeof counts.wordsPerMinute === 'number');
+  const failureReason = failureReasonFor && failureReasonFor.sessionId === sessionId ? failureReasonFor.reason : null;
+  const manualRetryOffered = terminal && reviewReady && failureReason !== null && !NO_MANUAL_RETRY_REASONS.has(failureReason);
 
   return (
     <div
@@ -645,54 +915,53 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
       {/* ── verdict slot (S-12, awaiting the contract that carries a verdict + quote offsets) ── */}
 
-      {stillComing && (
+      {/* #1258 punch list D3 (PM disposition 6045315752): the in-flight band uses existing approved copy and no counts
+          panel — the THIS RUN card already shows them. "Session saved." is stated only once the saved session is
+          reviewable; nothing here promises that a result will necessarily arrive. */}
+      {stillComing && inFlight && (
         <div data-testid="ai-suggestions-still-coming">
-          <h4
-            className="max-w-[560px] text-[24px] font-extrabold leading-[1.3] tracking-[-0.03em] text-ink-text"
-            data-testid="ai-suggestions-headline"
-          >
-            {inFlight
-              ? 'Coaching is still coming. Here\u2019s what we counted on your device in the meantime.'
-              : error}
-          </h4>
-          <p className="mt-2 max-w-[520px] text-[14px] font-semibold leading-relaxed text-ink-muted">
-            {inFlight
-              ? 'Nothing is lost \u2014 your session is saved and the review will appear here when it lands.'
-              : 'Your session is saved, and these counts came from your device \u2014 they never needed the review.'}
+          <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="ai-suggestions-headline">
+            Your review is on its way.
           </p>
-          {/* Two counts, and only counts that exist. A third appears here ONLY when a third metric is
-              genuinely measured on device — never stubbed, zeroed or em-dashed. */}
-          {hasCounts && (
-            <div className="mt-5 flex flex-wrap gap-6 rounded-xl bg-ink-raised px-5 py-[18px]" data-testid="on-device-counts">
-              {typeof counts!.fillers === 'number' && (
-                <div>
-                  <p className="text-[30px] font-extrabold leading-none tracking-[-0.03em] text-signature [font-variant-numeric:tabular-nums]" data-testid="on-device-fillers">
-                    {counts!.fillers}
-                  </p>
-                  <p className="mt-[5px] text-[13px] font-bold text-ink-muted">fillers</p>
-                </div>
-              )}
-              {typeof counts!.wordsPerMinute === 'number' && (
-                <div>
-                  <p className="text-[30px] font-extrabold leading-none tracking-[-0.03em] text-ink-text [font-variant-numeric:tabular-nums]" data-testid="on-device-pace">
-                    {Math.round(counts!.wordsPerMinute)}
-                  </p>
-                  <p className="mt-[5px] text-[13px] font-bold text-ink-muted">words / min</p>
-                </div>
-              )}
-            </div>
+          {reviewReady && (
+            <p className="mt-2 text-[14px] font-semibold text-ink-muted" data-testid="ai-suggestions-saved-assurance">
+              Session saved.
+            </p>
           )}
-          {(error || retrying) && (
+          {retrying && (
+            <button
+              type="button"
+              disabled
+              className="mt-3.5 inline-flex h-10 items-center rounded-lg border border-ink-muted px-4 text-[14px] font-extrabold text-ink-text disabled:opacity-60"
+              data-testid="ai-suggestions-retry"
+            >
+              {'Trying again\u2026'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* #1258 punch list D3 (Rev 2 §2.2): one message, a real Try again, the disclosure directly under it, and no
+          counts panel (the THIS RUN card already shows them). A terminal reason gets the message alone. */}
+      {stillComing && !inFlight && (
+        <div data-testid="ai-suggestions-still-coming">
+          <p className="max-w-[560px] text-[17px] font-bold leading-snug text-ink-text" data-testid="ai-suggestions-headline">
+            {error}
+          </p>
+          {manualRetryOffered && (
             <button
               type="button"
               onClick={() => { void fetchSuggestions(); }}
               disabled={isLoading || retrying || !reviewReady}
-              className="mt-4 text-[14px] font-bold text-ink-muted underline-offset-2 hover:underline disabled:no-underline disabled:opacity-60"
+              className="mt-3.5 inline-flex h-10 items-center rounded-lg border border-ink-muted px-4 text-[14px] font-extrabold text-ink-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signature focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
               data-testid="ai-suggestions-retry"
             >
-              Retry review now
+              Try again
             </button>
           )}
+          <p className="mt-2 text-[12px] font-semibold text-ink-muted" data-testid="ai-suggestions-disclosure">
+            {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+          </p>
         </div>
       )}
 
@@ -722,15 +991,17 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
 
       {/*
         Persistent provider disclosure: visible before AND after generation (including when suggestions
-        are prefilled), so the user can always see where this session's transcript goes.
+        are prefilled), so the user can see which saved session inputs go to the provider.
 
         #1416 P2-4 — THIS MATTERS MORE NOW THAT THE SEND IS AUTOMATIC. A user must not learn their
-        transcript went to Google from text attached to a button they never touched, so it sits in the card
+        session inputs went to the AI service provider from text attached to a button they never touched, so it sits in the card
         body, in the same region as the review and its progress state. It is a statement, not a gate.
       */}
-      <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
-        {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
-      </p>
+      {!(stillComing && !inFlight) && (
+        <p className="mt-4 text-[12px] font-medium text-ink-muted" data-testid="ai-suggestions-disclosure">
+          {product === 'focus_points' ? FOCUS_POINTS_DISCLOSURE : OPEN_MIC_DISCLOSURE}
+        </p>
+      )}
     </div>
   );
 };

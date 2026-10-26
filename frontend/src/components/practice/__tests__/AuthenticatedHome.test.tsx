@@ -75,7 +75,7 @@ describe('AuthenticatedHome — the page asks one question and offers two answer
     it('each card is eyebrow · title · ONE sentence · CTA', () => {
         renderHome();
         expect(screen.getByTestId('practice-card-freeform-sentence'))
-            .toHaveTextContent('Speak freely. See what worked and what to change next.');
+            .toHaveTextContent('Just speak. Your transcript, fillers and pace, live.');
         expect(screen.getByTestId('practice-card-objective-sentence'))
             .toHaveTextContent('Name the points that must land, then check which ones did.');
         for (const card of cards()) {
@@ -92,6 +92,13 @@ describe('AuthenticatedHome — the page asks one question and offers two answer
         expect(props.onStartObjective).toHaveBeenCalledTimes(1);
         fireEvent.click(screen.getByTestId('home-analytics'));
         expect(props.onViewAnalytics).toHaveBeenCalledTimes(1);
+    });
+
+    it('#1548: the Progress destination is labelled Progress, never Analytics', () => {
+        renderHome();
+        const progress = screen.getByTestId('home-analytics');
+        expect(progress).toHaveTextContent('Progress');
+        expect(progress).not.toHaveTextContent(/Analytics/i);
     });
 });
 

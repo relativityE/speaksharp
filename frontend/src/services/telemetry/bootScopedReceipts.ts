@@ -121,6 +121,15 @@ export function bootScopedReceiptFamilies(
  * replaces carried a comment claiming "a rule expressed only in SQL cannot be driven by a casualty"
  * and then left the rule in SQL, where two successive defects hid.
  */
+/**
+ * #1258 (RWT run 37514078995, F1): the readback MUST bound and order its own result. Without a LIMIT the PostHog query API
+ * applies its default row cap and returns an arbitrary subset (no ORDER BY) — that run's identity needed 187 rows, and whole
+ * journeys read as "never observed" although PostHog held them. The explicit cap is far above one run's volume; a result
+ * that REACHES it is truncated and HOLDs (`readbackTruncated`), because an incomplete answer can never prove absence.
+ */
+export const READBACK_ROW_LIMIT = 10_000;
+export const readbackTruncated = (rowCount: number): boolean => rowCount >= READBACK_ROW_LIMIT;
+
 export function buildReadbackQuery(params: {
     windowHours: number;
     releaseSha: string;
@@ -147,6 +156,16 @@ export function buildReadbackQuery(params: {
      * #1538 Codex P1 r4117960368: the coaching card's receipt fields that `focusCoachingRendered` reads — a
      * closed-set surface, a closed-set phase and a boolean — appended the same way. Without them every genuine
      * Focus Points journey held as "rendered no AI coaching" although the receipt was received.
+     * #1258 (#1563, Codex r4196394184): the outcome-correlation fields — closed enums and bounded integers — appended the
+     * same way, so the received Practice-again press→arrival and feedback submit→outcome can be paired.
+     * Codex r4197007868: plus the producer time `$ts` (`producer_ts`), which orders that pairing — the received
+     * `timestamp` is the flush's capture time, shared by events drained together.
+     * #1593 (Sam 15:51, case-1 contract): the coaching lifecycle's opaque request id, the ORIGIN attempt it started under
+     * and its closed end reason, appended the same way, so an interrupted repeat take can prove its own request was
+     * explicitly superseded rather than having supersession inferred from a missing render. Plus the request's origin
+     * boot and the accepted repeat Start (`recording_intent` kind/outcome) that proves the A → repeat → B transition.
+     * Sam (16:44:51): plus the review's own Repeat press (`journey_step` step/option_selected), so the repeat is the
+     * button the review offered, never a generic Start.
      */
     return `
         SELECT event, timestamp, properties.journey_id AS journey_id, properties.boot_id AS boot_id,
@@ -166,13 +185,27 @@ export function buildReadbackQuery(params: {
                properties.dropped_count AS dropped_count,
                properties.comparison_evidence_document_id AS comparison_evidence_document_id,
                properties.review_surface AS review_surface, properties.phase AS phase,
-               properties.suggestions_present AS suggestions_present
+               properties.suggestions_present AS suggestions_present,
+               properties.action AS action, properties.action_seq AS action_seq,
+               properties.intended_route AS intended_route, properties.route_class AS route_class,
+               properties.link_state AS link_state, properties.submit_seq AS submit_seq,
+               properties.error_category AS error_category,
+               properties.$ts AS producer_ts,
+               properties.persisted AS persisted,
+               properties.diagnostic_request_id AS diagnostic_request_id,
+               properties.origin_attempt_id AS origin_attempt_id,
+               properties.end_reason AS end_reason,
+               properties.origin_boot_id AS origin_boot_id,
+               properties.intent_kind AS intent_kind, properties.intent_outcome AS intent_outcome,
+               properties.step AS step, properties.option_selected AS option_selected
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${quote(releaseSha)}
           AND properties.traffic_type = ${quote(trafficType)}
           AND distinct_id = ${quote(qualifyingIdentity)}
           AND event IN (${governedList})
+        ORDER BY timestamp ASC
+        LIMIT ${READBACK_ROW_LIMIT}
     `;
 }
 

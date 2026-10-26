@@ -21,6 +21,7 @@ import {
     __resetAcquisitionTelemetry, markIdentitySettled,
 } from '@/services/transcription/modelAcquisitionTelemetry';
 import { assetRequestsFor } from '@/services/transcription/candidateAssetRequests';
+import { TRANSFORMERS_V2_WASM_ASSET_URLS } from '@/services/transcription/engines/transformersV2WasmAssets';
 import { PrivateSTT } from '@/services/transcription/engines/PrivateSTT';
 
 vi.mock('posthog-js', () => ({
@@ -130,10 +131,14 @@ describe('#1259 the acquisition payload carries real measurements', () => {
         expect(assets.length, 'the asset list must not be empty — this is the returned defect')
             .toBeGreaterThan(0);
         stageCache([]);
-        stageResourceTiming(assets.map((a) => ({
+        stageResourceTiming([...assets.map((a) => ({
             name: a.url, transferSize: (a.bytes ?? 0) + 300, encodedBodySize: a.bytes ?? 0,
             startTime: LOAD_START, responseEnd: LOAD_START + 2500,
-        })));
+        })), {
+            name: new URL(Object.values(TRANSFORMERS_V2_WASM_ASSET_URLS)[0], window.location.origin).href,
+            transferSize: 1_000, encodedBodySize: 1_000,
+            startTime: LOAD_START, responseEnd: LOAD_START + 2500,
+        }]);
 
         await engineFor(V2).initSelectedEngine('transformers-js');
 
@@ -146,7 +151,7 @@ describe('#1259 the acquisition payload carries real measurements', () => {
         const [ok] = eventNamed('private_model_acquisition_success');
         expect(ok.network_used, 'measured from transferSize, not predicted from the probe').toBe(true);
         expect(ok.network_bytes as number).toBeGreaterThan(0);
-        expect(ok.asset_count).toBe(assets.length);
+        expect(ok.asset_count).toBe(assets.length + 1);
         expect(ok.download_ms).toBe(2500);
         expect(ok.asset_pin_digest).toBe(V2.assets.pinDigest);
     });
@@ -155,9 +160,12 @@ describe('#1259 the acquisition payload carries real measurements', () => {
         const assets = assetRequestsFor(V2).assets;
         stageCache(assets.map((a) => a.url));
         // Served from cache: a real body, nothing over the wire.
-        stageResourceTiming(assets.map((a) => ({
+        stageResourceTiming([...assets.map((a) => ({
             name: a.url, transferSize: 0, encodedBodySize: a.bytes ?? 1,
-        })));
+        })), {
+            name: new URL(Object.values(TRANSFORMERS_V2_WASM_ASSET_URLS)[0], window.location.origin).href,
+            transferSize: 0, encodedBodySize: 1_000,
+        }]);
 
         await engineFor(V2).initSelectedEngine('transformers-js');
 

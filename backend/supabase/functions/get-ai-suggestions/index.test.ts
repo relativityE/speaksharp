@@ -2,13 +2,20 @@ import {
   handler,
   GEMINI_API_URL,
   GEMINI_GENERATION_CONFIG,
-  COACHING_WORD_BUDGET,
+  COACHING_WORD_TARGET,
+  COACHING_CHARACTER_CEILING,
+  buildDeliverySignals,
+  isMetricRecital,
+  measureCoachingQuality,
   countWords,
   AI_SUGGESTION_DAILY_LIMIT,
   buildCoachingPrompt,
   buildFocusCoachingText,
   parseSuggestions,
+  COACHING_WORD_TARGET_MIN,
+  providerRetryHooks,
 } from './index.ts';
+import { MAX_PROVIDER_ATTEMPTS, PROVIDER_BUDGET_MS } from './providerRetry.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
@@ -43,11 +50,19 @@ interface MockOptions {
   sessionSelectErrors?: unknown[];
   quota?: Record<string, unknown>;
   quotaError?: unknown;
+  admission?: Record<string, unknown>;
+  admissionError?: unknown;
+  settlementError?: unknown;
   updateError?: unknown;
+  /** The persistence RPC's returned `data` (default: null with an error, else the readback). */
+  persistData?: unknown;
+  /** The persistence RPC rejects (throws) instead of returning a result. */
+  persistThrows?: unknown;
   legacyUpdateError?: unknown;
   readback?: unknown;
   authorityError?: unknown;
   authorityResult?: boolean;
+  authorityReadback?: Array<Record<string, unknown>>;
   /** #1258: the session's saved Focus Points results (objective tables). Absent = an Open Mic take. */
   focus?: {
     objective?: Record<string, unknown> | null;
@@ -87,6 +102,16 @@ let fetchStatus = 200;
 let fetchStatusQueue: number[] = [];
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
+/** #1258: the provider's reported model version (null = absent) and a transport failure, per call. */
+let geminiModelVersion: string | null = 'gemini-3.8-flash';
+let fetchThrows = false;
+let fetchFailuresRemaining = 0;
+let abortAfterBody: AbortController | null = null;
+/** #1258: what a non-OK provider answer's body says, and what a transport error's message says. */
+let providerErrorBody = 'upstream unavailable';
+let fetchErrorMessage = 'network unreachable';
+/** #1258 (PO 2026-10-12): extra top-level fields on a 200 answer (finishReason / usageMetadata cases). */
+let geminiExtra: Record<string, unknown> = {};
 let lastPrompt = '';
 let lastRequestBody: Record<string, unknown> = {};
 let lastRequestUrl = '';
@@ -99,7 +124,37 @@ let lastRequestUrl = '';
  * well-formed.
  */
 const outboundRequests: string[] = [];
+/**
+ * #1258 option A — the retry policy runs on an injected clock, random source and sleep, so no test spends real time.
+ * `providerCallMs` is how long each provider call "takes" on that clock; `sleeps` records every wait the handler asked for.
+ */
+const retryClock = { mono: 0, wall: Date.parse('2026-10-13T12:00:00Z'), random: 0.5, providerCallMs: 0, sleepOvershootMs: 0 };
+let sleeps: number[] = [];
+let providerRetryAfter: string | null = null;
+/** Abort the caller's request while the provider call is in flight / while the handler is waiting between attempts. */
+let abortDuringFetch: AbortController | null = null;
+let abortDuringSleep: AbortController | null = null;
+/** Each attempt's own timeout, as a controllable signal (no real timers): the latest one can be fired by a test. */
+let lastAttemptTimeout: AbortController | null = null;
+providerRetryHooks.runtime = {
+  timeout: () => { lastAttemptTimeout = new AbortController(); return lastAttemptTimeout.signal; },
+  now: () => retryClock.mono,
+  wallNow: () => retryClock.wall,
+  random: () => retryClock.random,
+  sleep: (ms, signal) => {
+    sleeps.push(ms);
+    if (abortDuringSleep) { abortDuringSleep.abort(); abortDuringSleep = null; }
+    if (signal.aborted) return Promise.resolve(false);
+    // PM 6205858358-style late wake: a timer can fire later than asked; `sleepOvershootMs` models that.
+    retryClock.mono += ms + retryClock.sleepOvershootMs;
+    return Promise.resolve(true);
+  },
+};
 const APPROVED_GEMINI_ORIGIN = 'https://generativelanguage.googleapis.com';
+const sessionBindingDigest = async (userId: string, sessionId: string): Promise<string> =>
+  [...new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(JSON.stringify({ user_id: userId, session_id: sessionId })),
+  ))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 
 globalThis.fetch = async (url, init) => {
   const requested = url.toString();
@@ -110,21 +165,41 @@ globalThis.fetch = async (url, init) => {
   }
   fetchCount++;
   lastRequestUrl = requested;
+  retryClock.mono += retryClock.providerCallMs;
+  if (abortDuringFetch) {
+    abortDuringFetch.abort();
+    abortDuringFetch = null;
+    throw new DOMException('The signal has been aborted', 'AbortError');
+  }
+  if (fetchThrows || fetchFailuresRemaining-- > 0) throw new TypeError(fetchErrorMessage);
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
   const thisStatus = fetchStatusQueue.length > 0 ? Number(fetchStatusQueue.shift()) : fetchStatus;
-  if (thisStatus !== 200) return new Response('upstream unavailable', { status: thisStatus });
+  if (thisStatus !== 200) {
+    return new Response(providerErrorBody, {
+      status: thisStatus,
+      headers: providerRetryAfter === null ? {} : { 'Retry-After': providerRetryAfter },
+    });
+  }
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
     : geminiText;
-  return new Response(JSON.stringify({
-    modelVersion: 'gemini-3-flash-preview',
+  const response = new Response(JSON.stringify({
+    ...(geminiModelVersion === null ? {} : { modelVersion: geminiModelVersion }),
     candidates: [{ content: { parts: [{ text }] } }],
+    ...geminiExtra,
   }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
+  if (abortAfterBody) {
+    const caller = abortAfterBody;
+    abortAfterBody = null;
+    const read = response.json.bind(response);
+    response.json = async () => { const value = await read(); caller.abort(); return value; };
+  }
+  return response;
 };
 
 function mockSupabase(options: MockOptions = {}) {
@@ -134,11 +209,15 @@ function mockSupabase(options: MockOptions = {}) {
     filters: [] as Array<[string, unknown]>,
     rpcCount: 0,
     authorityRpcCount: 0,
+    authorityReadCount: 0,
     authorityArgs: null as Record<string, unknown> | null,
     quotaArgs: null as Record<string, unknown> | null,
     // #1486 — counted on its own. `rpcCount` also counts other rpc traffic, so it cannot answer
     // "how many slots did this one generation action spend?".
     quotaCount: 0,
+    admissionArgs: null as Record<string, unknown> | null,
+    settlementArgs: null as Record<string, unknown> | null,
+    legacyUpdateCount: 0,
     sessionColumns: [] as string[],
   };
   const sessionSelectErrors = [...(options.sessionSelectErrors ?? [])];
@@ -153,6 +232,14 @@ function mockSupabase(options: MockOptions = {}) {
         : { data: { user: null }, error: { message: 'Unauthorized' } }),
     },
     rpc: (name: string, args?: Record<string, unknown>) => {
+      if (name === 'begin_account_coaching_v1') {
+        state.admissionArgs = args ?? null;
+        return Promise.resolve({ data: options.admission ?? { admitted: true, operationId: args?.p_operation_id }, error: options.admissionError ?? null });
+      }
+      if (name === 'finish_account_coaching_failure_v1') {
+        state.settlementArgs = args ?? null;
+        return Promise.resolve({ data: !options.settlementError, error: options.settlementError ?? null });
+      }
       if (name === 'check_usage_limit') {
         return Promise.resolve({
           data: options.entitlement ?? (profile === 'free'
@@ -169,15 +256,21 @@ function mockSupabase(options: MockOptions = {}) {
           error: options.authorityError ?? null,
         });
       }
-      if (name === 'persist_ai_suggestion_with_authority_v1') {
+      if (name === 'read_ai_suggestion_authority_v1') {
+        state.authorityReadCount++;
+        return Promise.resolve({ data: options.authorityReadback ?? [], error: null });
+      }
+      if (name === 'persist_ai_suggestion_with_authority_v1' || name === 'persist_account_coaching_v1') {
         state.authorityRpcCount++;
         state.authorityArgs = args ?? null;
+        if (options.persistThrows !== undefined) return Promise.reject(options.persistThrows);
         if (!options.updateError) {
           state.updated = { ai_suggestions: args?.p_suggestions };
           state.filters.push(['id', args?.p_session_id], ['user_id', args?.p_user_id]);
         }
         return Promise.resolve({
-          data: options.updateError ? null : (options.readback ?? args?.p_suggestions),
+          data: 'persistData' in options ? options.persistData
+            : options.updateError ? null : (options.readback ?? args?.p_suggestions),
           error: options.updateError ?? null,
         });
       }
@@ -228,6 +321,7 @@ function mockSupabase(options: MockOptions = {}) {
         return query;
       },
       update: (value: unknown) => {
+        state.legacyUpdateCount++;
         state.updated = value;
         const query = {
           eq: (column: string, value: unknown) => {
@@ -249,11 +343,12 @@ function mockSupabase(options: MockOptions = {}) {
   return { create: () => client as any, state };
 }
 
-function request(body: Record<string, unknown> = { sessionId: 'session-a' }) {
+function request(body: Record<string, unknown> = { sessionId: 'session-a' }, signal?: AbortSignal) {
   return new Request('http://localhost/get-ai-suggestions', {
     method: 'POST',
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
 }
 
@@ -263,14 +358,162 @@ function resetProvider() {
   fetchStatusQueue = [];
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
+  geminiModelVersion = 'gemini-3.8-flash';
+  fetchThrows = false;
+  fetchFailuresRemaining = 0;
+  abortAfterBody = null;
+  providerErrorBody = 'upstream unavailable';
+  fetchErrorMessage = 'network unreachable';
+  geminiExtra = {};
   lastPrompt = '';
   lastRequestUrl = '';
   outboundRequests.length = 0;
+  retryClock.mono = 0;
+  retryClock.sleepOvershootMs = 0;
+  retryClock.random = 0.5;
+  retryClock.providerCallMs = 0;
+  sleeps = [];
+  providerRetryAfter = null;
+  abortDuringFetch = null;
+  abortDuringSleep = null;
+  lastAttemptTimeout = null;
   Deno.env.set('GEMINI_API_KEY', 'test-key');
 }
 
 Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   resetProvider();
+
+  await t.step('#1643 pending accounts refuse fresh work before quota or provider', async () => {
+    resetProvider();
+    const mock = mockSupabase({ admission: { admitted: false, reason: 'account_closure_pending' } });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 423);
+    assertEquals((await response.json()).diagnostics.reason, 'access_denied');
+    assertEquals(mock.state.quotaCount, 0);
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.authorityRpcCount, 0);
+    assertEquals(mock.state.settlementArgs, null);
+  });
+
+  await t.step('#1643 missing or mismatched admission fails closed with no provider work', async () => {
+    for (const options of [
+      { admissionError: { code: 'PGRST202' } },
+      { admission: { admitted: true, operationId: 'wrong-operation' } },
+      { admission: { admitted: false, reason: 'operation_already_recorded' } },
+    ]) {
+      resetProvider();
+      const mock = mockSupabase(options);
+      const response = await handler(request(), mock.create);
+      assertEquals(response.status, 503);
+      assertEquals((await response.json()).diagnostics.reason, 'authority_unverified');
+      assertEquals(mock.state.quotaCount, 0);
+      assertEquals(fetchCount, 0);
+    }
+  });
+
+  await t.step('#1643 cached reads remain available without new admission schema', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }), admissionError: { code: 'PGRST202' } });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(mock.state.admissionArgs, null);
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 admitted quota refusal settles only the exact server-generated operation', async () => {
+    resetProvider();
+    const mock = mockSupabase({ quota: { allowed: false } });
+    assertEquals((await handler(request({ sessionId: 'session-a', operationId: 'caller-forged' }), mock.create)).status, 429);
+    assertEquals(mock.state.settlementArgs, { ...mock.state.admissionArgs, p_outcome: 'refused' });
+    assertNotEquals(mock.state.admissionArgs?.p_operation_id, 'caller-forged');
+    assertEquals(typeof mock.state.admissionArgs?.p_operation_id, 'string');
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 provider transport uncertainty stays fenced through failure', async () => {
+    resetProvider();
+    fetchThrows = true;
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 502);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 persistence failure never falls back around the operation ledger', async () => {
+    resetProvider();
+    const mock = mockSupabase({ updateError: { code: 'PGRST202' } });
+    assertEquals((await handler(request(), mock.create)).status, 503);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 successful authority persistence atomically binds the admitted operation', async () => {
+    resetProvider();
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(mock.state.authorityArgs?.p_operation_id, mock.state.admissionArgs?.p_operation_id);
+    assertEquals(typeof mock.state.authorityArgs?.p_operation_id, 'string');
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(mock.state.settlementArgs, null);
+    assertEquals(mock.state.legacyUpdateCount, 0);
+  });
+
+  await t.step('#1643 a recovered provider retry cannot erase the first attempt uncertainty', async () => {
+    resetProvider();
+    fetchFailuresRemaining = 1;
+    const mock = mockSupabase();
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(fetchCount, 2);
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, false);
+    assertEquals(mock.state.settlementArgs, null, 'the atomic persistence RPC retains unknown');
+  });
+
+  await t.step('#1643 an admitted valid answer completes after caller navigation', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortAfterBody = caller;
+    const mock = mockSupabase();
+    assertEquals((await handler(request({ sessionId: 'session-a' }, caller.signal), mock.create)).status, 200);
+    assertEquals(caller.signal.aborted, true);
+    assertEquals(mock.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(mock.state.updated, { ai_suggestions: suggestionA });
+  });
+
+  await t.step('#1643 cancellation during a provider call never claims definitive settlement', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortDuringFetch = caller;
+    const mock = mockSupabase();
+    assertEquals((await handler(request({ sessionId: 'session-a' }, caller.signal), mock.create)).status, 499);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown');
+    assertEquals(mock.state.updated, null);
+    assertEquals(fetchCount, 1);
+  });
+
+  await t.step('#1643 settlement transport failure never overrides the refusal or reopens admission', async () => {
+    resetProvider();
+    const mock = mockSupabase({ quota: { allowed: false }, settlementError: { message: 'reply lost' } });
+    assertEquals((await handler(request(), mock.create)).status, 429);
+    assertEquals(mock.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(mock.state.updated, null);
+    assertEquals(fetchCount, 0);
+  });
+
+  await t.step('#1643 the service client owns admission, persistence and settlement, never the caller client', async () => {
+    resetProvider();
+    const caller = mockSupabase({ admissionError: { code: '42501' }, updateError: { code: '42501' } });
+    const service = mockSupabase();
+    assertEquals((await handler(request(), caller.create, service.create)).status, 200);
+    assertEquals(caller.state.admissionArgs, null);
+    assertEquals(caller.state.authorityRpcCount, 0);
+    assertEquals(service.state.authorityArgs?.p_operation_id, service.state.admissionArgs?.p_operation_id);
+    assertEquals(caller.state.quotaCount, 1);
+    resetProvider();
+    const refused = mockSupabase({ quota: { allowed: false } });
+    const settlement = mockSupabase();
+    assertEquals((await handler(request(), refused.create, settlement.create)).status, 429);
+    assertEquals(refused.state.settlementArgs, null);
+    assertEquals(settlement.state.settlementArgs?.p_outcome, 'refused');
+  });
 
   await t.step('rejects unauthenticated users', async () => {
     const mock = mockSupabase({ profile: 'unauthenticated', userId: null });
@@ -290,6 +533,56 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     });
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertEquals(fetchCount, 1);
+  });
+
+  await t.step('#1258 diagnostics bind one provider attempt without returning prompt content', async () => {
+    resetProvider();
+    const diagnosticRequestId = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    const diagnosticAttemptId = '230bbc6c-5d89-465d-91e6-51f5a5951e34';
+    const logLines: string[] = [];
+    const originalInfo = console.info;
+    console.info = (...args: unknown[]) => { logLines.push(args.map(String).join(' ')); };
+    let response: Response;
+    try {
+      response = await handler(request({
+        sessionId: 'session-a', product: 'open_mic', diagnostic_request_id: diagnosticRequestId,
+        diagnostic_attempt_id: diagnosticAttemptId, client_attempt: 1, client_release_id: 'a'.repeat(40),
+      }), mockSupabase().create);
+    } finally {
+      console.info = originalInfo;
+    }
+    const body = await response.json() as Record<string, unknown>;
+    const diagnostic = body.diagnostics as Record<string, unknown>;
+    assertEquals(diagnostic.request_id, diagnosticRequestId);
+    assertEquals(diagnostic.attempt_id, diagnosticAttemptId);
+    assertEquals(diagnostic.client_attempt, 1);
+    assertEquals(diagnostic.configured_model, coachingContract.model);
+    assertEquals(diagnostic.observed_model, geminiModelVersion);
+    assertEquals(diagnostic.source, 'fresh');
+    assertEquals(diagnostic.provider_attempts, 1);
+    assertEquals(diagnostic.session_binding_sha256, await sessionBindingDigest('pro-user', 'session-a'));
+    assertEquals(JSON.stringify(diagnostic).includes('session-a'), false);
+    assertEquals(logLines.some((line) => line.includes('session_binding_sha256')), false);
+    assertEquals(logLines.some((line) => line.includes('session-a')), false);
+    assertEquals(typeof diagnostic.provider_duration_ms, 'number');
+    assertEquals(typeof diagnostic.total_duration_ms, 'number');
+    assertEquals(diagnostic.prompt_sha256, await crypto.subtle.digest('SHA-256', new TextEncoder().encode(lastPrompt))
+      .then((digest) => [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')));
+    const safeDiagnostic = JSON.stringify(diagnostic).toLowerCase();
+    assertEquals(safeDiagnostic.includes('support has no weekend coverage'), false);
+    assertEquals(safeDiagnostic.includes(suggestionA.what_worked.toLowerCase()), false);
+  });
+
+  await t.step('#1258 response session binding follows the selected authenticated row, not a caller-supplied owner', async () => {
+    resetProvider();
+    const response = await handler(request({
+      sessionId: 'session-b', user_id: 'forged-user', product: 'open_mic',
+    }), mockSupabase({ userId: 'actual-user' }).create);
+    const body = await response.json() as Record<string, unknown>;
+    const diagnostic = body.diagnostics as Record<string, unknown>;
+    assertEquals(response.status, 200);
+    assertEquals(diagnostic.session_binding_sha256, await sessionBindingDigest('actual-user', 'session-b'));
+    assertEquals(diagnostic.session_binding_sha256 === await sessionBindingDigest('forged-user', 'session-b'), false);
   });
 
   await t.step('fails closed when analysis entitlement is uncertain', async () => {
@@ -413,9 +706,6 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase();
     assertEquals((await handler(request(), mock.create)).status, 200);
     assertStringIncludes(lastPrompt, 'Words Per Minute (WPM): 0');
-    assertStringIncludes(lastPrompt, 'Clarity Score: 0%');
-    assertStringIncludes(lastPrompt, 'Total Words: 0');
-    assertStringIncludes(lastPrompt, 'Duration: 0 seconds');
     assertStringIncludes(lastPrompt, '"count":0');
   });
 
@@ -424,9 +714,49 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const mock = mockSupabase({ session: savedSession({ ai_suggestions: suggestionA }) });
     const res = await handler(request(), mock.create);
     assertEquals(res.status, 200);
-    assertEquals((await res.json()).suggestions, suggestionA);
+    const body = await res.json() as Record<string, unknown>;
+    assertEquals(body.suggestions, suggestionA);
     assertEquals(fetchCount, 0);
     assertEquals(mock.state.rpcCount, 0);
+    assertEquals(mock.state.authorityReadCount, 1);
+    assertEquals((body.diagnostics as Record<string, unknown>).source, 'cache');
+  });
+
+  await t.step('#1258 cache provenance requires two valid SHA-256 digests; missing or malformed digests keep coaching readable but model unknown', async () => {
+    const baseReceipt = {
+      session_id: 'session-a', user_id: 'pro-user', provider: 'google_gemini', provider_request_made: true,
+      model: 'gemini-3.6-flash-001',
+    };
+    const rows = [
+      { ...baseReceipt },
+      { ...baseReceipt, receipt_suggestion_sha256: 'bad', current_suggestion_sha256: 'bad' },
+      { ...baseReceipt, receipt_suggestion_sha256: 'a'.repeat(64) },
+      { ...baseReceipt, current_suggestion_sha256: 'a'.repeat(64) },
+    ];
+    for (const authorityReadback of rows) {
+      resetProvider();
+      const mock = mockSupabase({
+        session: savedSession({ ai_suggestions: suggestionA }),
+        authorityReadback: [authorityReadback],
+      });
+      const response = await handler(request(), mock.create);
+      const body = await response.json() as Record<string, unknown>;
+      assertEquals(response.status, 200);
+      assertEquals(body.suggestions, suggestionA);
+      assertEquals((body.diagnostics as Record<string, unknown>).observed_model, null);
+      assertEquals(fetchCount, 0);
+    }
+
+    resetProvider();
+    const digest = 'c'.repeat(64);
+    const valid = mockSupabase({
+      session: savedSession({ ai_suggestions: suggestionA }),
+      authorityReadback: [{ ...baseReceipt, receipt_suggestion_sha256: digest, current_suggestion_sha256: digest }],
+    });
+    const response = await handler(request(), valid.create);
+    const body = await response.json() as Record<string, unknown>;
+    assertEquals(response.status, 200);
+    assertEquals((body.diagnostics as Record<string, unknown>).observed_model, baseReceipt.model);
   });
 
   await t.step('returns unavailable when provider configuration is missing', async () => {
@@ -452,13 +782,11 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   await t.step('#1416 the model endpoint is not a preview channel', () => {
-    // The reason for the change, pinned. `gemini-3-flash-preview` is a preview endpoint, and preview
-    // shutdowns have run 14 days from announcement — the URL can stop resolving inside a sprint, and
-    // the failure would look like a provider outage rather than a deprecation we were told about.
+    // The selected stable model is pinned in the shared coaching contract; preview endpoints are not allowed.
     // Asserted on the exported constant rather than by reading the file: the edge suite runs without
     // `--allow-read`, and widening the sandbox for every edge test to satisfy one assertion trades a
     // real safety property for a convenience.
-    assertStringIncludes(GEMINI_API_URL, 'gemini-3.6-flash');
+    assertStringIncludes(GEMINI_API_URL, 'gemini-3.8-flash');
     assertEquals(GEMINI_API_URL.includes('-preview'), false);
   });
 
@@ -506,6 +834,24 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await handler(request(), quotaError.create)).status, 503);
   });
 
+  await t.step('#1258 (Codex r4189408877): only a SERVED pair enters the quality measurement — a 503 logs none', async () => {
+    const originalLog = console.log;
+    const logged: string[] = [];
+    console.log = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    try {
+      resetProvider();
+      assertEquals((await handler(request(), mockSupabase({ updateError: { message: 'write failed' } }).create)).status, 503);
+      resetProvider();
+      assertEquals((await handler(request(), mockSupabase({ readback: suggestionB }).create)).status, 503);
+      assertEquals(logged.filter((l) => l.startsWith('AI coaching quality')).length, 0, 'an unserved generation is not measured');
+      resetProvider();
+      assertEquals((await handler(request(), mockSupabase().create)).status, 200);
+      assertEquals(logged.filter((l) => l.startsWith('AI coaching quality')).length, 1, 'the served pair is measured once');
+    } finally {
+      console.log = originalLog;
+    }
+  });
+
   await t.step('requires exact persistence and readback before success', async () => {
     resetProvider();
     const failed = mockSupabase({ updateError: { message: 'write failed' } });
@@ -524,11 +870,13 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((saved.state.updated as { ai_suggestions: unknown }).ai_suggestions, suggestionA);
     assertEquals(saved.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
     assertEquals(saved.state.authorityArgs, {
+      p_operation_id: saved.state.admissionArgs?.p_operation_id,
+      p_provider_settled: true,
       p_session_id: 'session-a',
       p_user_id: 'pro-user',
       p_suggestions: suggestionA,
       p_provider: 'google_gemini',
-      p_model: 'gemini-3-flash-preview',
+      p_model: 'gemini-3.8-flash',
       p_quota_scope: 'user_utc_day',
       p_quota_utc_date: expectedUtcDate,
       p_quota_limit: 20,
@@ -536,19 +884,73 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     });
   });
 
-  await t.step('keeps product saves working while Edge precedes the receipt migration', async () => {
+  await t.step('fails closed when the admitted persistence RPC is unavailable, without a legacy write', async () => {
     resetProvider();
     const skewed = mockSupabase({ updateError: { code: 'PGRST202', message: 'function not in schema cache' } });
     const res = await handler(request(), skewed.create);
-    assertEquals(res.status, 200);
-    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals(res.status, 503);
+    assertEquals((await res.json()).code, 'persist_failed');
     assertEquals(skewed.state.authorityRpcCount, 1);
-    assertEquals(skewed.state.filters, [['id', 'session-a'], ['user_id', 'pro-user']]);
+    assertEquals(skewed.state.filters, []);
+    assertEquals(skewed.state.legacyUpdateCount, 0);
+    assertEquals(skewed.state.settlementArgs?.p_outcome, 'unknown');
 
     resetProvider();
     const realFailure = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
     assertEquals((await handler(request(), realFailure.create)).status, 503);
     assertEquals(realFailure.state.filters, []);
+  });
+
+  // #1684 Codex P1 r4354653671: only the persistence RPC's own definitive rejection (a returned SQLSTATE 23514 with no
+  // data, e.g. the quota-ledger check) settles `refused`, and only when the provider attempt was itself certain. An
+  // `unknown` admission can never settle again, so classifying a definitive rejection as unknown blocked deletion forever.
+  await t.step('#1643 a returned 23514 persistence rejection settles refused only after a certain provider attempt', async () => {
+    resetProvider();
+    const rejected = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), rejected.create)).status, 503);
+    assertEquals(rejected.state.authorityArgs?.p_provider_settled, true);
+    assertEquals(rejected.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(rejected.state.updated, null);
+
+    resetProvider();
+    fetchFailuresRemaining = 1;
+    const recovered = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' } });
+    assertEquals((await handler(request(), recovered.create)).status, 503);
+    assertEquals(fetchCount, 2);
+    assertEquals(recovered.state.authorityArgs?.p_provider_settled, false);
+    assertEquals(recovered.state.settlementArgs?.p_outcome, 'unknown', 'earlier provider uncertainty survives the rejection');
+  });
+
+  await t.step('#1643 every other persistence failure stays unknown and never succeeds', async () => {
+    const unknownCases: Array<[string, MockOptions]> = [
+      ['schema-cache PGRST202', { updateError: { code: 'PGRST202', message: 'function not in schema cache' } }],
+      ['connection 08006', { updateError: { code: '08006', message: 'connection failure' } }],
+      ['connection 08007', { updateError: { code: '08007', message: 'transaction resolution unknown' } }],
+      ['arbitrary 23505', { updateError: { code: '23505', message: 'duplicate key' } }],
+      ['code-less error', { updateError: { message: 'write failed' } }],
+      ['23514 with returned data', { updateError: { code: '23514', message: 'receipt rejected' }, persistData: suggestionA }],
+      ['thrown 23514', { persistThrows: { code: '23514', message: 'receipt rejected' } }],
+      ['mismatched saved value', { readback: suggestionB }],
+      ['malformed saved value', { readback: { unexpected: true } }],
+    ];
+    for (const [label, options] of unknownCases) {
+      resetProvider();
+      const mock = mockSupabase(options);
+      const status = (await handler(request(), mock.create)).status;
+      assertEquals(status >= 500, true, `${label}: never reported as success`);
+      assertEquals(mock.state.settlementArgs?.p_outcome, 'unknown', label);
+    }
+
+    resetProvider();
+    const saved = mockSupabase();
+    assertEquals((await handler(request(), saved.create)).status, 200);
+    assertEquals(saved.state.settlementArgs, null, 'a verified save records no failure settlement');
+
+    resetProvider();
+    const unsettled = mockSupabase({ updateError: { code: '23514', message: 'receipt rejected' }, settlementError: { message: 'reply lost' } });
+    assertEquals((await handler(request(), unsettled.create)).status, 503, 'a failed settlement keeps the 503');
+    assertEquals(unsettled.state.settlementArgs?.p_outcome, 'refused');
+    assertEquals(unsettled.state.updated, null);
   });
 
   await t.step('materially different saved sessions produce different grounded coaching', async () => {
@@ -570,11 +972,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   // #1424 A2. The two-phrase format was specified by the product and requested by nothing: the prompt's only
   // length instruction was "concise enough to display in the app", the model returned 22-36 words per field,
   // and nothing truncated it in the UI. These steps hold the budget at each layer it can be broken.
-  await t.step('the fixtures this suite trusts are themselves within the coaching budget', () => {
-    // A suite whose own happy-path fixtures break the contract proves the contract is not enforced.
+  await t.step('the fixtures this suite trusts are themselves within the coaching length target', () => {
     for (const s of [suggestionA, suggestionB]) {
-      assertEquals(countWords(s.what_worked) <= COACHING_WORD_BUDGET.what_worked, true, `what_worked over budget: ${s.what_worked}`);
-      assertEquals(countWords(s.what_to_try_next) <= COACHING_WORD_BUDGET.what_to_try_next, true, `what_to_try_next over budget: ${s.what_to_try_next}`);
+      assertEquals(countWords(s.what_worked) <= COACHING_WORD_TARGET.what_worked, true, `what_worked over target: ${s.what_worked}`);
+      assertEquals(countWords(s.what_to_try_next) <= COACHING_WORD_TARGET.what_to_try_next, true, `what_to_try_next over target: ${s.what_to_try_next}`);
     }
   });
 
@@ -622,15 +1023,15 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.quotaCount, 1, 'but the user was charged once');
   });
 
-  await t.step('CASUALTY: a provider 5xx that fails twice is one 502 and one charge, never a rate-limit', async () => {
+  await t.step('CASUALTY: a provider 5xx that fails every attempt is one 502 and one charge, never a rate-limit', async () => {
     resetProvider();
-    fetchStatusQueue = [502, 500];
+    fetchStatusQueue = [502, 500, 503];
     const mock = mockSupabase({ session: savedSession() });
     const response = await handler(request(), mock.create);
 
     assertEquals(response.status, 502, 'a provider outage is reported AS a provider outage');
     assertNotEquals(response.status, 429, 'never a limit the user did not reach');
-    assertEquals(fetchCount, 2, 'bounded: two attempts, not a loop');
+    assertEquals(fetchCount, 3, 'bounded: three attempts (#1258 option A), not a loop');
     assertEquals(mock.state.quotaCount, 1, 'exhausting the retry still costs exactly one slot');
   });
 
@@ -657,6 +1058,652 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.quotaCount, 1);
   });
 
+  /*
+   * #1258 option A (PM 6156942445) — BOUNDED BACKOFF INSIDE THE ONE QUOTA CHARGE.
+   *
+   * Retry set: provider 408, 429, 5xx, transport, timeout. One 45 s budget from attempt 1 covers every attempt and wait;
+   * full jitter (1 s after attempt 1, 2 s after attempt 2); a valid Retry-After replaces the jitter only when it fits.
+   * Every case runs on the injected clock, so the waits below are what the handler ASKED for — no real time passes.
+   */
+  const coach = async (signal?: AbortSignal) => {
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request({ sessionId: 'session-a' }, signal), mock.create);
+    return { response, mock, body: await response.json() as Record<string, unknown> & { diagnostics: Record<string, unknown> } };
+  };
+
+  for (const status of [408, 429, 503]) {
+    await t.step(`option A: a provider ${status} then a success is ONE jittered wait inside its 1 s cap, one charge`, async () => {
+      resetProvider();
+      fetchStatusQueue = [status, 200];
+      retryClock.random = 0.5;
+      const { response, mock, body } = await coach();
+      assertEquals(response.status, 200);
+      assertEquals(fetchCount, 2);
+      assertEquals(sleeps, [500], 'full jitter: random 0.5 of the 1 s cap');
+      assertEquals(mock.state.quotaCount, 1, 'retries stay behind the single app-quota consumption');
+      assertEquals(body.diagnostics.provider_wait_ms_total, 500);
+    });
+  }
+
+  await t.step('option A: 503, 503, then success — three attempts, waits within the 1 s and 2 s caps', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 503, 200];
+    retryClock.random = 0.999;
+    const { response, mock, body } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(fetchCount, 3);
+    assertEquals(sleeps, [999, 1998]);
+    assertEquals(mock.state.quotaCount, 1);
+    assertEquals([body.diagnostics.attempt_3_reason, body.diagnostics.attempt_3_status], ['none', 200]);
+  });
+
+  await t.step('option A: 429 with a valid Retry-After waits exactly that long, then succeeds', async () => {
+    resetProvider();
+    fetchStatusQueue = [429, 200];
+    providerRetryAfter = '2';
+    const { response, body } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(sleeps, [2000], 'the provider\'s own delay replaces the jitter');
+    assertEquals([body.diagnostics.retry_after_present, body.diagnostics.retry_after_malformed, body.diagnostics.retry_after_s], [true, false, 2]);
+  });
+
+  await t.step('option A: an HTTP-date Retry-After in the future is honoured', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = new Date(retryClock.wall + 3000).toUTCString();
+    const { response } = await coach();
+    assertEquals(response.status, 200);
+    assertEquals(sleeps, [3000]);
+  });
+
+  for (const [label, value] of [['negative', '-5'], ['fractional', '1.5'], ['garbage', 'soon'], ['past-date', new Date(Date.parse('2026-10-13T11:00:00Z')).toUTCString()]] as const) {
+    await t.step(`option A: a ${label} Retry-After is malformed and falls back to the jitter`, async () => {
+      resetProvider();
+      fetchStatusQueue = [503, 200];
+      providerRetryAfter = value;
+      const { response, body } = await coach();
+      assertEquals(response.status, 200);
+      assertEquals(sleeps, [500]);
+      assertEquals([body.diagnostics.retry_after_present, body.diagnostics.retry_after_malformed, body.diagnostics.retry_after_s], [true, true, null]);
+    });
+  }
+
+  await t.step('option A: a valid Retry-After that does not fit the budget stops at once, without sleeping', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = '40';
+    const { response, mock, body } = await coach();
+    assertEquals(response.status, 502);
+    assertEquals(fetchCount, 1, 'no further attempt');
+    assertEquals(sleeps, [], 'and no wait spent on an attempt that cannot fit');
+    assertEquals(body.reason, 'provider_http_5xx', 'the last failure is kept');
+    assertEquals(body.diagnostics.stopped_over_budget, true);
+    assertEquals(body.diagnostics.retry_after_s, 40);
+    assertEquals(mock.state.quotaCount, 1);
+  });
+
+  await t.step('option A: 429 on every attempt is exhausted at the attempt cap, inside the budget', async () => {
+    resetProvider();
+    fetchStatus = 429;
+    const { response, body } = await coach();
+    assertEquals(response.status, 502);
+    assertEquals(fetchCount, 3);
+    assertEquals(sleeps.length, 2);
+    assertEquals(body.diagnostics.stopped_over_budget, false, 'the cap, not the budget, ended it');
+  });
+
+  await t.step('option A: two 20 s timeouts leave no room for a third attempt — the budget, not the count, decides', async () => {
+    resetProvider();
+    retryClock.providerCallMs = 20_000;
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        retryClock.mono += retryClock.providerCallMs;
+        throw new DOMException('Signal timed out.', 'TimeoutError');
+      }
+      return original(url, init);
+    };
+    try {
+      const { response, body } = await coach();
+      assertEquals(response.status, 502);
+      assertEquals(fetchCount, 2);
+      assertEquals(body.reason, 'provider_timeout');
+      assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(retryClock.mono <= PROVIDER_BUDGET_MS, true, 'no overshoot past the declared budget');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  await t.step('option A: a caller abort DURING the provider call stops everything and persists nothing', async () => {
+    resetProvider();
+    const caller = new AbortController();
+    abortDuringFetch = caller;
+    const { response, mock, body } = await coach(caller.signal);
+    assertEquals(fetchCount, 1, 'no retry for a caller who is gone');
+    assertEquals(body.reason, 'request_cancelled', 'told apart from a provider timeout');
+    assertEquals(response.status, 499);
+    assertEquals(mock.state.authorityRpcCount, 0, 'no coaching pair is persisted');
+    assertEquals(mock.state.quotaCount, 1);
+  });
+
+  /**
+   * PM 6206983551 item 1 — a caller abort while the RECEIVED answer's body is being read is the caller leaving, not a
+   * malformed provider answer: no further attempt, nothing persisted, and the received 200 kept in the attempt evidence.
+   */
+  const bodyAbortingFetch = (caller: AbortController, onAttempt: number) => {
+    const original = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin !== APPROVED_GEMINI_ORIGIN) return original(url, init);
+      fetchCount++;
+      attempts += 1;
+      if (attempts < onAttempt) return new Response('upstream unavailable', { status: 503 });
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          caller.abort();
+          controller.error(new DOMException('The signal has been aborted', 'AbortError'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    return () => { globalThis.fetch = original; };
+  };
+  for (const onAttempt of [1, 3]) {
+    await t.step(`option A: a caller abort while reading attempt ${onAttempt}'s RECEIVED body is a cancellation, never a retry`, async () => {
+      resetProvider();
+      const caller = new AbortController();
+      const restore = bodyAbortingFetch(caller, onAttempt);
+      try {
+        const { response, mock, body } = await coach(caller.signal);
+        assertEquals(response.status, 499);
+        assertEquals(body.reason, 'request_cancelled', 'not provider_malformed_response');
+        assertEquals(fetchCount, onAttempt, 'no attempt after the caller left');
+        assertEquals(mock.state.authorityRpcCount, 0, 'zero persistence');
+        assertEquals(body.diagnostics[`attempt_${onAttempt}_status`], 200, 'the received 200 is kept in the attempt evidence');
+        assertEquals(body.diagnostics[`attempt_${onAttempt}_reason`], 'request_cancelled');
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  await t.step('Codex P2 r4290479629: headers then a STALLED body past the attempt timeout is provider_timeout, not malformed', async () => {
+    resetProvider();
+    const original = globalThis.fetch;
+    let attempts = 0;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin !== APPROVED_GEMINI_ORIGIN) return original(url, init);
+      fetchCount++;
+      attempts += 1;
+      if (attempts > 1) return original(url, init); // the retry is answered normally
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          lastAttemptTimeout?.abort(new DOMException('Signal timed out.', 'TimeoutError'));
+          controller.error(new DOMException('Signal timed out.', 'TimeoutError'));
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+    try {
+      const { response, body } = await coach();
+      assertEquals(body.diagnostics.attempt_1_reason, 'provider_timeout', 'a stalled body is a timeout, not a malformed answer');
+      assertEquals(body.diagnostics.attempt_1_status, 200, 'the received status is kept');
+      assertEquals(attempts, 2, 'retryable: the next attempt is made');
+      assertEquals(response.status, 200);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  /**
+   * PM 6206983551 item 2 — RE-ADMISSION AFTER THE WAIT. The wait was admitted against the budget before sleeping, but a
+   * timer can wake late. Immediately before the next attempt the fresh remaining time is checked again: under the
+   * minimum attempt window (or past the 45 s ceiling) nothing is fetched, the prior failure stands, and the stop is
+   * recorded as over budget.
+   */
+  for (const [label, overshootMs] of [['with under 10 s left', 20_000], ['past the 45 s ceiling', 30_000]] as const) {
+    await t.step(`option A: a wait that wakes late ${label} starts no further attempt`, async () => {
+      resetProvider();
+      fetchStatusQueue = [503, 200];
+      retryClock.providerCallMs = 20_000;
+      retryClock.sleepOvershootMs = overshootMs;
+      const { response, mock, body } = await coach();
+      assertEquals(fetchCount, 1, 'no fetch after a late wake that left no room for an attempt');
+      assertEquals(response.status, 502);
+      assertEquals(body.reason, 'provider_http_5xx', 'the prior failure stands');
+      assertEquals(body.diagnostics.stopped_over_budget, true);
+      assertEquals(mock.state.authorityRpcCount, 0);
+      // Codex P2 r4290479635: the wait reported is the wait actually spent, the late wake included.
+      assertEquals(body.diagnostics.provider_wait_ms_total, sleeps[0] + overshootMs);
+    });
+  }
+
+  await t.step('option A: a caller abort DURING the wait stops before the next attempt', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    const caller = new AbortController();
+    abortDuringSleep = caller;
+    const { response, mock, body } = await coach(caller.signal);
+    assertEquals(fetchCount, 1);
+    assertEquals(body.reason, 'request_cancelled');
+    assertEquals(response.status, 499);
+    assertEquals(mock.state.authorityRpcCount, 0);
+  });
+
+  for (const [label, arrange] of [
+    ['an ordinary 4xx (400)', () => { fetchStatus = 400; }],
+    ['a 404', () => { fetchStatus = 404; }],
+    ['a contract-invalid 200', () => { geminiText = 'not json at all'; }],
+    ['a 200 with no model version', () => { geminiModelVersion = null; }],
+  ] as const) {
+    await t.step(`option A CONTROL: ${label} is answered once, with no wait`, async () => {
+      resetProvider();
+      arrange();
+      const { response } = await coach();
+      assertEquals(response.status, 502);
+      assertEquals(fetchCount, 1);
+      assertEquals(sleeps, []);
+    });
+  }
+
+  await t.step('option A: the Retry-After value never appears in a log line or the response', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerRetryAfter = 'SENTINEL-retry-after-9c1e';
+    const logged: string[] = [];
+    const original = { error: console.error, info: console.info };
+    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    console.info = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let text = '';
+    try {
+      const mock = mockSupabase({ session: savedSession() });
+      text = await (await handler(request(), mock.create)).text();
+    } finally {
+      console.error = original.error;
+      console.info = original.info;
+    }
+    assertEquals(text.includes('SENTINEL-retry-after'), false);
+    assertEquals(logged.some((line) => line.includes('SENTINEL-retry-after')), false);
+  });
+
+  /*
+   * #1258 (PO 2026-10-12) — DECODE THE PROVIDER'S CODES. Alpha runs recorded only `provider_timeout` or a bare status;
+   * Gemini's own closed codes say WHY. They are decoded into the diagnostic, and the provider's free text never leaves.
+   */
+  await t.step('a Gemini 429 on every attempt decodes to RESOURCE_EXHAUSTED / RATE_LIMIT_EXCEEDED, with no provider text anywhere', async () => {
+    resetProvider();
+    const echo = 'provider echoed secret words';
+    fetchStatus = 429;
+    providerErrorBody = JSON.stringify({ error: {
+      code: 429, message: echo, status: 'RESOURCE_EXHAUSTED',
+      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'RATE_LIMIT_EXCEEDED' }],
+    } });
+    const logged: string[] = [];
+    const original = { error: console.error, info: console.info };
+    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    console.info = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let text = '';
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      text = await response.text();
+      assertEquals(response.status, 502);
+    } finally {
+      console.error = original.error;
+      console.info = original.info;
+    }
+    const diagnostics = JSON.parse(text).diagnostics;
+    assertEquals(diagnostics.reason, 'provider_http_4xx');
+    assertEquals(diagnostics.provider_status, 429);
+    assertEquals(diagnostics.provider_error_status, 'RESOURCE_EXHAUSTED');
+    assertEquals(diagnostics.provider_error_reason, 'RATE_LIMIT_EXCEEDED');
+    // #1258 option A (PM 6156942445): a provider 429 is transient and retried inside the one app-quota charge.
+    assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status, diagnostics.attempt_3_status],
+      ['provider_http_4xx', 429, 429]);
+    assertEquals(fetchCount, 3, 'a provider 429 is retried, within the attempt cap');
+    assertEquals(text.includes(echo), false, 'the response never carries provider text');
+    assertEquals(logged.some((line) => line.includes(echo)), false, 'no log line carries provider text');
+    assertEquals(logged.some((line) => line.includes('RESOURCE_EXHAUSTED')), true, 'the decoded code IS logged');
+  });
+
+  await t.step('each attempt is recorded: a 503 then a success names both, with the answer\'s token counts', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 200];
+    providerErrorBody = JSON.stringify({ error: { status: 'UNAVAILABLE', message: 'overloaded' } });
+    geminiExtra = {
+      usageMetadata: { promptTokenCount: 812, candidatesTokenCount: 46, thoughtsTokenCount: 1903, totalTokenCount: 2761 },
+    };
+    geminiText = JSON.stringify(suggestionA);
+    const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+    assertEquals(response.status, 200);
+    const diagnostics = (await response.json()).diagnostics;
+    assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
+    assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
+    assertEquals(diagnostics.provider_error_status, null, 'the codes describe the LAST attempt, which succeeded');
+    assertEquals([diagnostics.provider_prompt_tokens, diagnostics.provider_output_tokens, diagnostics.provider_thinking_tokens,
+      diagnostics.provider_total_tokens], [812, 46, 1903, 2761]);
+  });
+
+  await t.step('a timed-out attempt is recorded as provider_timeout with no status', async () => {
+    resetProvider();
+    fetchThrows = true;
+    fetchErrorMessage = 'signal timed out';
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        throw new DOMException('Signal timed out.', 'TimeoutError');
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 502);
+      const diagnostics = (await response.json()).diagnostics;
+      assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_timeout', null]);
+      assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['provider_timeout', null]);
+      assertEquals(diagnostics.provider_error_status, null, 'a timeout has no provider code to decode');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #1258 (Codex P2 r4289041570, PM 6204153627): decoding a 5xx's error body is diagnostic and bounded by one deadline, so
+  // a body that stalls cannot hold the retry; the attempt still reports its received 503 and the second attempt answers.
+  await t.step('a 503 whose error body stalls still reaches its retry promptly, with the 503 recorded', async () => {
+    resetProvider();
+    geminiText = JSON.stringify(suggestionA);
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN && fetchCount === 0) {
+        fetchCount++; // the stalled first attempt; the retry is counted by the shared provider fake
+        {
+          return new Response(new ReadableStream<Uint8Array>({
+            start(controller) { controller.enqueue(new TextEncoder().encode('{"error":{"status":"UNAVAIL')); },
+          }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 200, 'the retry answered instead of the stalled body holding the request');
+      const diagnostics = (await response.json()).diagnostics;
+      assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
+      assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
+      assertEquals(fetchCount, 2, 'the retry ceiling is unchanged');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  // #1258 (Codex P2 r4288823216, PM 6203482045): a RECEIVED answer keeps its HTTP status even when its body cannot be
+  // parsed. The status is captured as soon as fetch resolves, before either body is read. (Its reason/retry
+  // classification is unchanged here: a known limitation carried to the option-A checkpoint.)
+  await t.step('a received 200 with a malformed body keeps its 200 status in the attempt diagnostic', async () => {
+    resetProvider();
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (new URL(url.toString()).origin === APPROVED_GEMINI_ORIGIN) {
+        fetchCount++;
+        return new Response('{"candidates":[{"content":', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return original(url, init);
+    };
+    try {
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 502);
+      const text = await response.text();
+      const diagnostics = JSON.parse(text).diagnostics;
+      assertEquals(diagnostics.attempt_1_status, 200, 'the answer was received, so its status is known');
+      // #1258 (PM 6203482045): named for what it is — an answer that arrived malformed, not a transport failure.
+      assertEquals(diagnostics.attempt_1_reason, 'provider_malformed_response');
+      assertEquals(diagnostics.attempt_2_status, 200);
+      assertEquals(diagnostics.provider_status, 200);
+      // Retryable like any transient provider failure, up to option A's bounded ceiling — never beyond it.
+      assertEquals(fetchCount, MAX_PROVIDER_ATTEMPTS, 'the retry ceiling is the bounded option-A ceiling');
+      assertEquals(text.includes('"content":'), false, 'the malformed body is never echoed');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  /*
+   * #1258 (run 36955422629, PM 5945472679) — EVERY 502 NAMES ITS CAUSE, CONTENT-FREE.
+   *
+   * Every branch below used to end in the same generic line, so the Edge log could not say why coaching failed.
+   * Each failure now carries one closed reason in the log line and the 502 body. Never a provider body, a phrase
+   * or the transcript.
+   */
+  const OVER_CEILING = 'word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w';
+  const failureCases: Array<[string, () => void, string]> = [
+    ['provider 4xx', () => { fetchStatus = 400; }, 'provider_http_4xx'],
+    ['provider 5xx on every attempt', () => { fetchStatusQueue = [503, 500, 502]; }, 'provider_http_5xx'],
+    ['transport failure', () => { fetchThrows = true; }, 'provider_transport'],
+    ['200 with no text', () => { geminiText = ''; }, 'missing_text'],
+    ['200 with the wrong JSON shape', () => { geminiText = '{"advice":"speak slower"}'; }, 'invalid_shape'],
+    // Over the generous operational CHARACTER ceiling (241 > 240): the one size rule the server enforces.
+    ['200 above the 240-character ceiling', () => {
+      geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: OVER_CEILING, what_to_try_next: 'Pause before your key point.' });
+    }, 'over_character_ceiling'],
+    ['200 with no modelVersion', () => { geminiModelVersion = null; }, 'missing_model_version'],
+  ];
+  for (const [label, arrange, reason] of failureCases) {
+    await t.step(`#1258 CASUALTY: ${label} → 502 with reason "${reason}", content-free`, async () => {
+      resetProvider();
+      arrange();
+      const logged: string[] = [];
+      const originalError = console.error;
+      console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+      let response: Response;
+      try {
+        response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      } finally {
+        console.error = originalError;
+      }
+      assertEquals(response.status, 502);
+      const body = await response.json() as { error?: string; reason?: string };
+      assertEquals(body.reason, reason);
+      const line = logged.find((l) => l.includes('did not contain valid suggestions JSON'));
+      assertStringIncludes(String(line), `"reason":"${reason}"`);
+      // Nothing generated or said reaches the body or the reason line.
+      for (const text of ['You set up each point', 'Pause before your key point', 'speak slower']) {
+        assertEquals(JSON.stringify(body).includes(text), false);
+        assertEquals(String(line).includes(text), false);
+      }
+    });
+  }
+
+  /*
+   * #1258 (PM RETURN 5953504835) — NOTHING THE PROVIDER OR MODEL SAID REACHES A LOG OR A RESPONSE.
+   * A provider error body, a transport error message (which can carry the request URL — and the URL carries the API
+   * key) and unparseable model text each hold a sentinel; none may appear in any console output or in the 502 body.
+   */
+  const SENTINEL = 'SENTINEL-7f3c-provider-said-this';
+  const leakCases: Array<[string, () => void, string]> = [
+    ['a provider 4xx whose body echoes text', () => { fetchStatus = 400; providerErrorBody = `{"error":{"message":"${SENTINEL} in your prompt"}}`; }, 'provider_http_4xx'],
+    ['a provider 5xx whose body echoes text', () => { fetchStatusQueue = [503, 500, 502]; providerErrorBody = `${SENTINEL} upstream detail`; }, 'provider_http_5xx'],
+    ['a transport error whose message carries the URL and key', () => { fetchThrows = true; fetchErrorMessage = `error sending request for url (https://generativelanguage.googleapis.com/x?key=${SENTINEL})`; }, 'provider_transport'],
+    ['unparseable model text', () => { geminiText = `${SENTINEL} not json`; }, 'invalid_shape'],
+  ];
+  for (const [label, arrange, reason] of leakCases) {
+    await t.step(`#1258 CASUALTY: ${label} → ${reason}; the text appears in no log and no response`, async () => {
+      resetProvider();
+      arrange();
+      const logged: string[] = [];
+      const original = { error: console.error, log: console.log, warn: console.warn };
+      // Rendered exactly as the console renders it (Deno.inspect): JSON.stringify would print an Error as {} and hide its message.
+      const capture = (...args: unknown[]) => { logged.push(args.map((a) => (typeof a === 'string' ? a : Deno.inspect(a))).join(' ')); };
+      console.error = capture; console.log = capture; console.warn = capture;
+      let response: Response;
+      try {
+        response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      } finally {
+        console.error = original.error; console.log = original.log; console.warn = original.warn;
+      }
+      assertEquals(response.status, 502);
+      const body = await response.text();
+      assertEquals(JSON.parse(body).reason, reason);
+      // The PREFIX is checked: a JSON SyntaxError quotes only the first ~10 characters of the text — still a leak.
+      const MARK = SENTINEL.slice(0, 8);
+      assertEquals(body.includes(MARK), false, 'the 502 body carries no provider or model text');
+      for (const line of logged) assertEquals(line.includes(MARK), false, `leaked into a log line: ${line.slice(0, 80)}`);
+      assertEquals(logged.length > 0, true, 'the failure is still logged — by reason and status');
+    });
+  }
+  await t.step('#1258: the retry rule — a provider 5xx is asked up to three times (option A), a 4xx once', async () => {
+    resetProvider();
+    fetchStatusQueue = [503, 500, 502];
+    await handler(request(), mockSupabase({ session: savedSession() }).create);
+    assertEquals(fetchCount, 3);
+    resetProvider();
+    fetchStatus = 400;
+    await handler(request(), mockSupabase({ session: savedSession() }).create);
+    assertEquals(fetchCount, 1);
+  });
+
+  /*
+   * #1258 — PO DECISION 2026-10-02 (5952285329): LENGTH IS A SOFT TARGET, NOT A VALIDITY RULE.
+   * About 8-10 words is asked for; any phrase within the character ceiling is served intact, never a 502 and never
+   * truncated. Each served answer is measured content-free: word counts, within_target, metric_recital.
+   */
+  const phraseOf = (n: number) => Array.from({ length: n }, (_, i) => ['Lead', 'with', 'the', 'customer', 'risk'][i % 5]).join(' ') + '.';
+  for (const words of [7, 10, 13, 16, 18, 25]) {
+    await t.step(`#1258: a ${words}-word phrase in each field is SERVED intact — 200, exact text, measured`, async () => {
+      resetProvider();
+      const pair = { version: 'gemini_coaching_v1', what_worked: phraseOf(words), what_to_try_next: phraseOf(words) };
+      geminiText = JSON.stringify(pair);
+      const logged: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+      let response: Response;
+      try {
+        response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      } finally {
+        console.log = originalLog;
+      }
+      assertEquals(response.status, 200);
+      const body = await response.json() as { suggestions?: { what_worked?: string; what_to_try_next?: string } };
+      assertEquals(body.suggestions?.what_worked, pair.what_worked);     // never truncated
+      assertEquals(body.suggestions?.what_to_try_next, pair.what_to_try_next);
+      const quality = logged.find((l) => l.startsWith('AI coaching quality'));
+      assertStringIncludes(String(quality), `"what_worked_words":${words}`);
+      assertStringIncludes(String(quality), `"next_step_words":${words}`);
+      assertStringIncludes(String(quality), `"within_target":${words >= 8 && words <= 10}`);
+      assertEquals(String(quality).includes('Lead with the customer'), false, 'the quality record is content-free');
+    });
+  }
+
+  await t.step('#1258: the character ceiling is exact — 240 is served, 241 is refused (over_character_ceiling)', async () => {
+    const atCeiling = OVER_CEILING.slice(0, COACHING_CHARACTER_CEILING.what_worked);
+    assertEquals(atCeiling.length, 240);
+    for (const field of ['what_worked', 'what_to_try_next'] as const) {
+      resetProvider();
+      geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: field === 'what_worked' ? atCeiling : 'Clear opening.', what_to_try_next: field === 'what_to_try_next' ? atCeiling : 'Pause first.' });
+      assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 200, `${field} at the ceiling`);
+      resetProvider();
+      geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: field === 'what_worked' ? OVER_CEILING : 'Clear opening.', what_to_try_next: field === 'what_to_try_next' ? OVER_CEILING : 'Pause first.' });
+      const over = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(over.status, 502, `${field} one character over`);
+      assertEquals((await over.json() as { reason?: string }).reason, 'over_character_ceiling');
+    }
+  });
+
+  await t.step('#1258: a metric recital is SERVED and flagged, never refused', async () => {
+    assertEquals(isMetricRecital('Your pace was 148 words per minute.'), true);
+    assertEquals(isMetricRecital('You used 4 fillers.'), true);
+    assertEquals(isMetricRecital('Your WPM was 148'), true);
+    assertEquals(isMetricRecital('Clarity score was 82%.'), true);
+    // Actionable phrases that mention a number are not recitals.
+    assertEquals(isMetricRecital('Pause before the revised number so it lands.'), false);
+    assertEquals(isMetricRecital('Slow to about 140 words per minute by pausing after each point.'), false);
+    assertEquals(isMetricRecital('You used 4 fillers; pause silently instead of saying um.'), false);
+    assertEquals(isMetricRecital('Your opening clearly established the budget problem.'), false);
+    resetProvider();
+    geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: 'Your opening clearly established the budget problem.', what_to_try_next: 'You used 4 fillers.' });
+    const logged: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+    let response: Response;
+    try {
+      response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+    } finally {
+      console.log = originalLog;
+    }
+    assertEquals(response.status, 200);
+    assertStringIncludes(String(logged.find((l) => l.startsWith('AI coaching quality'))), '"metric_recital":true');
+    assertEquals(measureCoachingQuality({ version: 'gemini_coaching_v1', what_worked: 'Your opening clearly established the budget problem.', what_to_try_next: 'Pause before the revised number so it lands.' }), {
+      what_worked_words: 7, next_step_words: 8, within_target: false, metric_recital: false,
+    });
+    // #1258 (Codex r4188372867): the target is ABOUT 8-10 words — the whole band is measured, not just the ceiling.
+    const pair = (a: string, b: string) => measureCoachingQuality({ version: 'gemini_coaching_v1', what_worked: a, what_to_try_next: b }).within_target;
+    const n = (k: number) => Array.from({ length: k }, (_, i) => `w${i}`).join(' ');
+    assertEquals(pair(n(3), n(9)), false, 'a 3-word phrase is below the target');
+    assertEquals(pair(n(8), n(8)), true);
+    assertEquals(pair(n(9), n(10)), true);
+    assertEquals(pair(n(10), n(11)), false, 'an 11-word phrase is above the target');
+  });
+
+  await t.step('#1258: the target is about 8-10 words and the ceiling is characters — the prompt asks, nothing refuses by word count', () => {
+    assertEquals(COACHING_WORD_TARGET, { what_worked: 10, what_to_try_next: 10 });
+    assertEquals(COACHING_CHARACTER_CEILING, { what_worked: 240, what_to_try_next: 240 });
+    const built = buildCoachingPrompt('fabricated transcript', 'fabricated metrics');
+    assertStringIncludes(built, 'about 8-10 words each');
+    assertStringIncludes(built, 'one idea per phrase');
+    assertStringIncludes(built, 'one concrete thing the speaker can try on the very next take');
+    assertEquals(built.includes('AT MOST'), false);
+    assertEquals(built.includes('discarded'), false);
+  });
+
+  /*
+   * #1258 (PM 5952231855) — THE COACHING INPUT CONTRACT: only the reliable signals, asserted on what is SENT.
+   */
+  await t.step('#1258: Open Mic sends transcript + finalized fillers + WPM, and NOT clarity, pauses, total words or duration', async () => {
+    resetProvider();
+    const saved = {
+      transcript: 'We launch on Monday because the support rota is finally covered.',
+      wpm: 148, clarity_score: 82, total_words: 118, duration: 48,
+      pause_metrics: { totalPauses: 7, extendedPauses: 1 },
+      filler_counts: { um: 4, uh: 0, ah: 1 },
+    };
+    assertEquals((await handler(request(), mockSupabase({ session: savedSession(saved) }).create)).status, 200);
+    assertStringIncludes(lastPrompt, saved.transcript);
+    assertStringIncludes(lastPrompt, `Words Per Minute (WPM): ${saved.wpm}`);
+    assertStringIncludes(lastPrompt, `Filler Words: ${JSON.stringify(saved.filler_counts)}`);
+    for (const excluded of ['Clarity Score', 'Pause Metrics', 'Total Words', 'Duration:', '"totalPauses"', '82%']) {
+      assertEquals(lastPrompt.includes(excluded), false, `${excluded} must not be a coaching input`);
+    }
+    // The model synthesises; it does not restate a number.
+    assertStringIncludes(lastPrompt, 'Metric recital or reusable generic advice is invalid.');
+    assertStringIncludes(lastPrompt, 'Do not restate a number');
+    assertStringIncludes(lastPrompt, 'logical structure, vocabulary variety, sentence variety, transitions, specificity, and audience impact');
+  });
+
+  await t.step('#1258: Focus Points sends at most ONE delivery signal — the one its saved next action is about', () => {
+    const focus = { kind: 'focus' as const, topic: 'Weekly handoff', points: [] };
+    const base = { transcript: 't', transcript_state: 'available', duration: 48, total_words: 118, filler_words: null,
+      filler_counts: { um: 6 }, clarity_score: 82, wpm: 171, pause_metrics: { totalPauses: 7 }, ai_suggestions: null };
+    const fillersChosen = buildDeliverySignals({ ...base, next_action_signal: { metric: 'filler_rate' } }, focus);
+    assertStringIncludes(fillersChosen, 'Filler Words: {"um":6}');
+    assertEquals(fillersChosen.includes('Words Per Minute'), false);
+    const paceChosen = buildDeliverySignals({ ...base, next_action_signal: { metric: 'wpm' } }, focus);
+    assertStringIncludes(paceChosen, 'Words Per Minute (WPM): 171');
+    assertEquals(paceChosen.includes('Filler Words'), false);
+    for (const metric of ['none', 'clarity_score', 'extended_pauses', undefined]) {
+      const none = buildDeliverySignals({ ...base, next_action_signal: metric === undefined ? undefined : { metric } }, focus);
+      assertEquals(none.includes('Filler Words') || none.includes('Words Per Minute'), false, `metric ${metric} → no delivery signal`);
+      assertStringIncludes(none, 'coach from the Focus Points results');
+    }
+    for (const text of [fillersChosen, paceChosen]) {
+      for (const excluded of ['Clarity', 'Pause', 'Total Words', 'Duration']) assertEquals(text.includes(excluded), false);
+    }
+    // Open Mic, for contrast: both direct delivery signals, nothing else.
+    const openMic = buildDeliverySignals({ ...base, next_action_signal: { metric: 'filler_rate' } }, { kind: 'none' });
+    assertStringIncludes(openMic, 'Words Per Minute (WPM): 171');
+    assertStringIncludes(openMic, 'Filler Words: {"um":6}');
+  });
+
   await t.step('coaching a user ALREADY received stays readable after the budget lands', async () => {
     // Codex P1. Every review generated before today is 22-36 words - exactly what the old prompt produced.
     // Enforcing the budget on stored rows would not merely hide them: it would spend quota regenerating
@@ -665,10 +1712,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     resetProvider();
     const preBudget = {
       version: 'gemini_coaching_v1',
-      what_worked: 'You clearly identified the problem and proposed a direct solution in under twenty seconds',
-      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
+      what_worked: 'You clearly identified the problem in your opening minute and then proposed a direct, practical solution to it in under twenty seconds of speaking time',
+      what_to_try_next: 'Replace tentative phrasing and filler words with one strong, dated commitment that your audience can actually act on before the next review',
     };
-    assertEquals(countWords(preBudget.what_worked) > COACHING_WORD_BUDGET.what_worked, true, 'fixture must be over budget');
+    assertEquals(countWords(preBudget.what_worked) > COACHING_WORD_TARGET.what_worked, true, 'fixture must be over the target');
 
     const mock = mockSupabase({ session: savedSession({ ai_suggestions: preBudget }) });
     const response = await handler(request(), mock.create);
@@ -680,77 +1727,26 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(body.suggestions.what_worked, preBudget.what_worked);
   });
 
-  await t.step('the budget boundary is exact: at the limit passes, one word over is refused', async () => {
-    const atLimit = 'One two three four five six';          // exactly 6
-    const overBy1 = 'One two three four five six seven';    // exactly 7
-    assertEquals(countWords(atLimit), COACHING_WORD_BUDGET.what_worked);
-    assertEquals(countWords(overBy1), COACHING_WORD_BUDGET.what_worked + 1);
-
-    resetProvider();
-    geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: atLimit, what_to_try_next: atLimit });
-    assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 200);
-
-    // One word over on EITHER field is refused. A budget that only rejects egregious overruns is a
-    // suggestion, and the whole point of moving this out of the prompt was to stop suggesting.
-    for (const field of ['what_worked', 'what_to_try_next']) {
+  // #1258 (PO 2026-10-02): what these steps used to REFUSE is now SERVED, whole. A long answer is a quality to
+  // improve through the prompt, never an error and never truncated into something the coach did not say.
+  for (const field of ['what_worked', 'what_to_try_next'] as const) {
+    await t.step(`#1258: a long ${field} (21+ words) with the other field short is served whole`, async () => {
       resetProvider();
-      geminiText = JSON.stringify({
-        version: 'gemini_coaching_v1',
-        what_worked: field === 'what_worked' ? overBy1 : atLimit,
-        what_to_try_next: field === 'what_to_try_next' ? overBy1 : atLimit,
-      });
-      assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 502, `${field} one over must refuse`);
-    }
-  });
-
-  // Each field is broken ALONE. An over-budget fixture that breaks both at once passes even when one of the
-  // two checks is deleted, which is precisely what my first version of this casualty did.
-  await t.step('REFUSES an over-budget what_worked, with what_to_try_next left legal', async () => {
-    resetProvider();
-    geminiText = JSON.stringify({
-      version: 'gemini_coaching_v1',
-      what_worked: 'You clearly identified the problem and proposed a direct solution in twenty seconds',
-      what_to_try_next: 'End with a dated owner commitment.',
+      const long = field === 'what_worked'
+        ? 'You clearly identified the problem in your opening and then proposed a direct, practical solution to it in under twenty seconds'
+        : 'Replace tentative phrasing and filler words with one strong, dated commitment that your audience can actually act on before the next review';
+      geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: field === 'what_worked' ? long : 'Clear opening.', what_to_try_next: field === 'what_to_try_next' ? long : 'Pause first.' });
+      const response = await handler(request(), mockSupabase({ session: savedSession() }).create);
+      assertEquals(response.status, 200);
+      assertEquals((await response.json() as { suggestions: Record<string, string> }).suggestions[field], long);
     });
-    const mock = mockSupabase({ session: savedSession() });
-    assertEquals((await handler(request(), mock.create)).status, 502);
-  });
+  }
 
-  await t.step('REFUSES an over-budget what_to_try_next, with what_worked left legal', async () => {
-    resetProvider();
-    geminiText = JSON.stringify({
-      version: 'gemini_coaching_v1',
-      what_worked: 'Risk-first opening clarified the launch decision.',
-      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
-    });
-    const mock = mockSupabase({ session: savedSession() });
-    assertEquals((await handler(request(), mock.create)).status, 502);
-  });
-
-  await t.step('REFUSES an over-budget answer rather than truncating it into something never said', async () => {
-    resetProvider();
-    geminiText = JSON.stringify({
-      version: 'gemini_coaching_v1',
-      // Exactly the shape 3.6 actually returned before the budget existed: valid JSON, right keys, far too long.
-      what_worked: 'You clearly identified the problem and proposed a direct solution in under twenty seconds',
-      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
-    });
-    const mock = mockSupabase({ session: savedSession() });
-    const response = await handler(request(), mock.create);
-    assertEquals(response.status, 502);
-    // And no partial coaching leaks into the error body.
-    const body = await response.text();
-    assertEquals(body.includes('what_worked'), false);
-    assertEquals(body.includes('tentative phrasing'), false);
-  });
-
-  await t.step('the prompt ASKS for the budget it will enforce', async () => {
+  await t.step('the prompt ASKS for the length target (a request, never a refusal)', async () => {
     resetProvider();
     const mock = mockSupabase({ session: savedSession() });
     await handler(request(), mock.create);
-    // Asking and enforcing must not drift: a parser stricter than the prompt is a 502 we cause ourselves.
-    assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_worked} words`);
-    assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_to_try_next} words`);
+    assertStringIncludes(lastPrompt, 'about 8-10 words each');
   });
 
   /*
@@ -805,13 +1801,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // 3. The expected prompt is built INDEPENDENTLY from the contract — this test's own substitution over
     //    `contract.promptTemplate`, with the fabricated transcript and a metrics block assembled here —
     //    and compared for EQUALITY. Reordering it, or appending an instruction, changes the string.
+    // #1258 (PM 5952231855): the Open Mic input contract — the two direct delivery signals, nothing derived.
     const expectedMetrics = `
-      Metrics:
+      Delivery signals:
       - Words Per Minute (WPM): ${fabricated.wpm}
-      - Clarity Score: ${fabricated.clarity_score}%
-      - Total Words: ${fabricated.total_words}
-      - Duration: ${fabricated.duration} seconds
-      - Pause Metrics: ${JSON.stringify(fabricated.pause_metrics)}
       - Filler Words: ${JSON.stringify(fabricated.filler_words)}
     `;
     const expectedPrompt = coachingContract.promptTemplate.replace(
@@ -821,8 +1814,14 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(lastPrompt, expectedPrompt);
 
     // And the two enforcement values production applies are the contract's, not copies that can drift.
-    assertEquals(COACHING_WORD_BUDGET, coachingContract.wordBudget);
+    assertEquals(COACHING_WORD_TARGET, coachingContract.wordTarget);
     assertEquals(AI_SUGGESTION_DAILY_LIMIT, coachingContract.uncachedGenerationCapPerUtcDay);
+    // PO 2026-10-02: the request to the AI service carries OUR word budget, and it is the contract's number —
+    // the request and the content-free within_target measurement cannot drift apart.
+    for (const field of ['what_worked', 'what_to_try_next'] as const) {
+      // Both ends of the measured band are the ones the prompt asks for (#1258, Codex r4188372867).
+      assertStringIncludes(lastPrompt, `about ${COACHING_WORD_TARGET_MIN[field]}-${COACHING_WORD_TARGET[field]} words each`);
+    }
 
     /*
      * CASUALTIES FOR THE CHECKS THEMSELVES. Production cannot be mutated from inside its own suite, so
@@ -830,7 +1829,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
      * down-selection is exposed to, rather than passing them the way substring and body-search checks did.
      */
     // A lookalike host: a substring check for the approved host SUCCEEDS on it; the origin check refuses.
-    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.6-flash:generateContent';
+    const lookalike = 'https://generativelanguage.googleapis.com.evil.test/v1beta/models/gemini-3.8-flash:generateContent';
     assertEquals(lookalike.includes('generativelanguage.googleapis.com'), true);
     assertNotEquals(new URL(lookalike).origin, APPROVED_GEMINI_ORIGIN);
 
@@ -865,11 +1864,9 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // values the schema PERMITS must be the values the parser ACCEPTS.
     assertEquals((schema?.properties?.version as { enum?: string[] } | undefined)?.enum, ['gemini_coaching_v1']);
 
-    // The schema also has to carry a length ceiling for the two coaching fields. It cannot express "at most
-    // six words", so the exact rule lives in the parser - but a schema with no bound at all leaves the model
-    // free to write an essay that the parser then refuses, which is a 502 the provider could have prevented.
-    // The ceiling must be GENEROUS enough that a legal in-budget phrase is never rejected upstream.
-    for (const [field, budget] of Object.entries(COACHING_WORD_BUDGET)) {
+    // The schema carries the operational CHARACTER ceiling for the two coaching fields — the one size rule the server
+    // also enforces (PO 2026-10-02). It must be GENEROUS: far above any phrase near the word target.
+    for (const [field, budget] of Object.entries(COACHING_WORD_TARGET)) {
       const fieldSchema = schema?.properties?.[field] as {
         minLength?: number;
         maxLength?: number;
@@ -902,13 +1899,13 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(built.match(/Metrics:/g)?.length, 1);
   });
 
-  await t.step('the prompt exemplar obeys the same six-word contract it asks Gemini to follow', () => {
+  await t.step('the prompt exemplar obeys the same word target it asks Gemini to follow', () => {
     const built = buildCoachingPrompt('fabricated transcript', 'fabricated metrics');
     const exemplarMatch = /\{\s*"version": "gemini_coaching_v1",\s*"what_worked": "([^"]+)",\s*"what_to_try_next": "([^"]+)"\s*\}/.exec(built);
     assertEquals(exemplarMatch !== null, true, 'the exact two-field response exemplar must remain present');
     const [, whatWorked, whatToTryNext] = exemplarMatch!;
-    assertEquals(countWords(whatWorked) <= COACHING_WORD_BUDGET.what_worked, true);
-    assertEquals(countWords(whatToTryNext) <= COACHING_WORD_BUDGET.what_to_try_next, true);
+    assertEquals(countWords(whatWorked) <= COACHING_WORD_TARGET.what_worked, true);
+    assertEquals(countWords(whatToTryNext) <= COACHING_WORD_TARGET.what_to_try_next, true);
   });
 
   // ── #1258 — Focus Points context and the saved filler counts (runbook v12, PM order item 4) ─────────────────────

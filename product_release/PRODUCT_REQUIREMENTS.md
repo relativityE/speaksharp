@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for user-visible product requirements)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-10-01
-**Last Verified:** 2026-10-01 — the MVP product-polish decisions below were reconciled against `main@e4d5e9a54`; they are requirements, not claims that the polish is already shipped.
+**Last Reviewed:** 2026-09-15
+**Last Verified:** 2026-09-15 — recent shipped foundations and the approved-but-unshipped G10/G12, Practice Loop, progress, filler, and model requirements were reconciled.
 **Applies To:** The SpeakSharp individual speaking-practice product. Enterprise expansion is future direction, not current scope.
 **Class:** Product requirement.
 **Authority:** User-visible product guarantees, failure behavior, non-goals, and the feature contract.
@@ -11,117 +11,10 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 15 Sep 2026 — shipped foundation and open product contract are distinct.** #1416 shipped direct product navigation, the accepted Share feedback form, corrected labels, and the red Stop control; #1466 shipped the bounded Practice Loop placement/reveal foundation. Still required: #1473 automatic 1+1 review availability and truthful retry, #1471/#1476 durable progress, #1472 filler completeness, and comparable **v2/v4** behavior validating v4 as provisional primary against v2 as fallback (Moonshine deferred until after RWT or MVP). #1474 owns the approved G10 during/after hierarchy and theme: the Practice Loop dominates the first usable post-save viewport while metrics/transcript are secondary. #1475 owns the approved G12 landing page and its full above-fold offer: **30 days free, no card. Then $10/month. Cancel any time.** Newest-one retention remains the approved target and is not activated by this document.
+> **Shipped foundation and open product acceptance are distinct.** #1416 shipped direct product navigation, the accepted Share feedback form, corrected labels, and the red Stop control; #1466 shipped the bounded Practice Loop placement/reveal foundation. Closed #1471/#1476 retain progress implementation provenance, and closed #1473 retains automatic-review consolidation provenance; their remaining deployed journey acceptance belongs to #1258/#1593. #1472 retains filler-completeness acceptance, #1474 the approved G10 during/after hierarchy and theme, and #1254 the existing copy/comparison contract. The Practice Loop dominates the first usable post-save viewport while metrics/transcript are secondary. #1475 owns the approved G12 landing page and its full above-fold offer: **30 days free, no card. Then $10/month. Cancel any time.** Newest-one retention is the approved policy; activation and current runtime proof belong in `RELEASE_STATUS.md`, not this requirement.
 <!-- /pm-currentization:2026-09-15 -->
 
-<!-- po-mvp-polish:2026-10-01 -->
-> [!IMPORTANT]
-> **PO MVP polish contract — 1 Oct 2026.** The product center is the repeatable private Practice Loop, not a dashboard of speech statistics: **give the person one evidence-backed thing to improve, let them practise it immediately, and show whether the next attempt changed.** Audio privacy is a differentiator, but customer copy must distinguish audio staying on-device from saved transcript text used for AI coaching. These requirements are accepted MVP polish and are separate from the active #1547 Open Mic freeze diagnostic. They do not authorize merge, deploy, migration, paid model execution, or Production writes.
-<!-- /po-mvp-polish:2026-10-01 -->
-
-## MVP polish contract — 2026-10-01
-
-### Product center
-
-The experience should make one loop obvious:
-
-> **Speak → get one clear, evidence-backed improvement → practise it again → see whether it changed.**
-
-A completed session is successful only when a user can quickly answer:
-
-> **What is the one thing SpeakSharp wants me to do differently on my next attempt, and why?**
-
-Metrics, transcript, Focus Points coverage, history, charts, and AI are evidence for that loop. They are not competing destinations or independent recommendation authorities.
-
-### A. Immediate, low-risk corrections
-
-These are copy/label changes or small presentation adjustments. Dev may implement them without redesigning product behavior.
-
-1. **Sharpen the public loop + privacy line.**
-   - Replace: `Speak. See what to fix. Say it again. Your audio never leaves the browser.`
-   - With: **`Speak. Know what to improve. Repeat with purpose. Your audio stays on your device.`**
-   - Intent: clearer outcome, fewer words, device-level privacy language, and an intentional repeat loop — the next take applies what the user learned rather than merely retrying.
-
-2. **Use an accurate audio-privacy claim.**
-   - Replace: `Your practice audio stays on your device. There is no recording to leak or delete.`
-   - With: **`Your practice audio stays on your device. SpeakSharp does not upload or store it.`**
-   - Do not imply that transcript text or all session data stays local.
-
-3. **Keep inline AI disclosure provider-agnostic.**
-   - Replace vendor-specific inline copy such as `Google Gemini` with:
-     **`Your audio stays on this device. We use an AI service to analyze your session transcript and create coaching.`**
-   - Product UI names the data and purpose, not a vendor that may change.
-   - Legal/privacy documentation may name the current provider(s) and must remain truthful.
-
-4. **Rename the user-facing destination from Analytics to Progress.**
-   - Visible nav/page/action labels use **Progress**.
-   - Internal route `/analytics`, component names, telemetry names, and persistence identifiers may remain unchanged for MVP.
-   - Analytics are evidence inside Progress; they are not the user's goal.
-
-5. **Make the Open Mic choice describe the outcome, not instrumentation.**
-   - Replace: `Just speak. Your transcript, fillers and pace, live.`
-   - With: **`Speak freely. See what worked and what to change next.`**
-
-### B. Practice Loop behavior polish
-
-These require implementation and focused tests; they are not copy-only changes.
-
-6. **Keep coaching concise without crushing it into six words.**
-   - Preserve the simple 1+1 review: **What went well** + **Try this next run**.
-   - Remove the six-word hard limit as the product contract.
-   - Prompt target: one short sentence per headline, normally **12 words or fewer**; hard parser ceiling **16 words** per headline.
-   - The user must get the honest bottom line, not a paragraph or metric dump.
-   - The next action must be specific, personalized, and executable on the next take.
-   - A recommendation that merely restates a metric is not valid coaching.
-
-7. **Make the supporting evidence explain the recommendation.**
-   - `From this session` must be evidence for the displayed recommendation, not an unrelated measurement placed beside it.
-   - Use authoritative saved facts:
-     - metric + value/comparator when the recommendation is metric-driven;
-     - a short transcript phrase/pattern only when it is verifiably present in the saved transcript;
-     - Focus Point + detected/not-detected status + timing when Focus evidence drives the recommendation.
-   - Show no more than **two short evidence lines**.
-   - Where measurable, add one concise **next-run check** (for example, `All 3 points introduced before 2:00`).
-   - No invented causal explanation and no unsupported transcript quotation.
-
-8. **Establish one canonical Current Practice Target.**
-   - Session review, Home resume, saved-session Progress detail, and the linked repeat must show/carry the **same target** for the same completed session.
-   - Progress-wide trend analysis may recommend changing the target only by explicitly replacing it; it must not silently compete with the current target.
-   - The target persists into **Practice this again** and the next comparable attempt records whether movement occurred.
-   - Focus Points uses the same target concept, biased toward placement, sequencing, transitions/signposting, and pacing around the user's chosen points rather than merely repeating a detected/not-detected count.
-
-### C. Privacy timing
-
-The first automatic AI coaching send must not be a surprise.
-
-- Before the first eligible transcript is sent for automatic AI coaching, the product must visibly state the provider-agnostic disclosure in A3.
-- This is disclosure, not a new consent-click gate.
-- Audio remains on-device; saved transcript text may leave the device for AI coaching.
-- Product UI stays provider-agnostic; Privacy/Legal carries the current provider detail.
-
-### D. RWT / MVP acceptance
-
-RWT must explicitly verify the Practice Loop rather than only the existence of cards and metrics.
-
-Required sequence:
-
-> **review visible → target understood → Practice this again selected → same target carried into the repeat → next outcome measured**
-
-The tester acceptance question is:
-
-> **What is the one thing SpeakSharp wants you to do differently on your next attempt, and why?**
-
-Pass requires the tester to answer both the **action** and its **evidence** from the visible product without interpreting raw charts or inventing the connection.
-
-Under the standing observability rule, any missing telemetry needed to prove these steps becomes part of the corresponding fix.
-
-### E. Deliberate hold
-
-**Landing hero CTA wording remains unchanged for now.**
-
-`Start your session` currently routes an anonymous visitor to account creation. `Start practicing free` may predict the immediate signup step more literally, but this is not accepted as an MVP change yet. Revisit with RWT/user evidence; do not change it merely for consistency.
-
-
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 # SpeakSharp Product Requirements
 
@@ -184,7 +77,7 @@ The active customer journey is:
 
 > Public Home → Account Access → Practice Home → Open Mic or optional Focus Points → Practice Session → saved review and Progress.
 
-Existing authenticated users may skip Account Access. Public, signup, Practice, Pricing, **Progress** (internal route `/analytics`), legal, and tester surfaces must all describe the same Private-only product.
+Existing authenticated users may skip Account Access. Public, signup, Practice, Pricing, Analytics, legal, and tester surfaces must all describe the same Private-only product.
 
 Guided Rehearsal and Live Meeting Companion are not active customer products. They must not appear as available choices or entitlements.
 
@@ -213,6 +106,52 @@ The implementation and attribution contracts belong to `STT.md`.
 - During a session, the interface may show the transcript and delivery evidence supported by Private STT.
 - After save, the interface shows one authoritative completion/status surface with review and next actions.
 - A recording is evaluated only after the mode-specific save requirements are satisfied. Focus Points evaluation additionally requires confirmed objective registration.
+
+### C10 — Honest Start and repeat-take readiness
+
+> **Standalone.** Everything needed to build C10 is in this section. It's scoped to the gaps found in the App Dev gap check (mock browser, engine setup delayed 6 s, 15 Oct 2026). Behaviour that already works is listed under **Keep** so it isn't rebuilt.
+
+**Problem.** Starting a repeat take waits about 6 s: the diagnostic measured about 5.8 s in repeat-start preparation and about 0.5 s in the engine and mic start that follows. How much of the 5.8 s is releasing the previous engine versus preparing the new one isn't separately measured yet. Speech during that time isn't recorded. Today the screen doesn't say so. After `Practice again?`, the button only dims and the review stays unchanged. On a first take, the card keeps saying `Mic ready on this device`. When recording begins, the status bar still shows the previous take's `Finalizing your transcript…`.
+
+**Keep (already correct, don't change):**
+- One start at a time: the pressed button is disabled within 0.3 s, and repeat presses do nothing.
+- The live state: `● RECORDING 00:00`, the stop button, the waveform and `Live Transcript`, shown when recording begins.
+- `Speak now`, gated on real mic frames. *The existing cue is reused. If the real-frame check shows it absent or early, it remains a required RWT start-up defect to fix.*
+
+**Where the waiting state appears.** The **status bar** (the full-width bar under the header) is the single place for start-up status, because it's where the app already shows `Session saved.` and the live recording message. The pressed button shows that it's working. Nothing else on the page changes during the wait. The review, transcript and `THIS RUN` stay as they are until recording begins, as today.
+
+**One definition of "recording begins".** Recording begins when capture is ready on real microphone frames, including silence. Entering the recording state or finishing warm-up is not enough on its own. Every live indicator uses this one moment: `Speak now`, the timer, `● RECORDING` with its red dot and the live waveform. Only the Private engine's own readiness counts; no other engine state is treated as live.
+
+**Build these four things:**
+
+| # | When | What the user sees |
+|---|---|---|
+| 1 | From the press until recording begins | The pressed button keeps its size and position, is disabled, and its label changes to `Starting…`. This applies to `Practice again?` and to `Start recording` (and the space-bar start). |
+| 2 | Same period | The status bar shows a small spinner and `Getting your mic ready…`. It **replaces** whatever the bar showed (`Session saved.`, `Finalizing your transcript…`, etc.), and the bar's right-hand action (e.g. `Progress →`) is hidden. On a first take, the recorder card's `Mic ready on this device` indicator is **hidden** for this period. No timer, red dot, `RECORDING` or waveform appears anywhere until recording begins. |
+| 3 | 10 s after the press, if recording hasn't begun | The status bar adds `This is taking longer than usual.` after the message, and shows a `Try again` button in its right-hand slot. `Try again` cancels the start in progress and waits until the old engine and mic are confirmed released before beginning exactly one new start. If that release can't be confirmed, or the cancelled start doesn't finish closing, no new start begins and the status bar says so truthfully (the existing could-not-confirm message). If the take went live, or an unsaved recording is waiting to be saved, `Try again` does nothing. **It never creates a second engine.** The 10 s count restarts (back to row 2) only when the new attempt actually starts. |
+| 4 | Recording begins | The status bar's live message slot shows `Speak now`, in place of the generic `Recording active`. **Any previous take's message is cleared,** and `Finalizing your transcript…` must never show during a new take. |
+
+If the start fails, use today's start-failure message and behaviour, unchanged. The pressed button goes back to its original label, and is enabled again only once the old engine and mic are confirmed released.
+
+**Wording.**
+- New: `Getting your mic ready…` and `This is taking longer than usual.`
+- Reused: `Starting…`, `Try again` and `Speak now` (now in the status bar's live slot, replacing `Recording active`).
+
+No other copy changes.
+
+**Accessibility.**
+- The status bar's message is in a polite live region (`role="status"`), so screen readers announce `Getting your mic ready…` and then `Speak now`.
+- The pressed button keeps focus and has `aria-disabled="true"` while it shows `Starting…`.
+
+**Acceptance (mock browser, engine setup delayed 6 s, plus one real-device run):**
+1. At 0.3 s after `Practice again?` (and after `Start recording`), the button reads `Starting…` and is disabled. The status bar reads `Getting your mic ready…`.
+2. At 3 s, the same. On a first take, `Mic ready on this device` is not visible. No timer, `RECORDING` or waveform is visible.
+3. When recording begins, the status bar reads `Speak now`, not before, and `Recording active` doesn't appear. `Finalizing your transcript…` doesn't appear at any point during the new take.
+4. With setup delayed 11 s, `This is taking longer than usual.` and `Try again` appear at 10 s. Pressing `Try again` leaves exactly one engine (spy on the engine constructor). The notice clears and the count restarts only when the confirmed-released replacement attempt starts.
+5. Pressing the start button five times quickly creates one engine.
+6. On a real device, `Speak now` and the timer appear only once the mic delivers real audio frames (silence counts; the user doesn't have to speak first).
+
+**Related, separate change (no design):** pre-warm a **fresh** engine while the review is on screen, so the wait drops; the target is under 1 s, to be measured on a real device, not promised. Never reuse the previous take's engine. C10 stays for slow devices.
 
 ---
 
@@ -256,7 +195,7 @@ server" and "the transcript is never stored" are different statements, and neith
 | Raw audio leaves the device | **Never** | No audio upload path; `ARCHITECTURE.md` §"Retention boundary" |
 | Transcript text leaves the device | **Yes, on save** | `lib/storage.ts` sends `p_final_transcript` to `complete_session_v2`; a `failed`/discarded session sends `null` |
 | Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained only for the newest transcript-bearing saved session; every older transcript expires |
-| Transcript text reaches a third party | **Yes, for AI coaching** | `get-ai-suggestions` reads the saved transcript and sends the minimum required text to the configured AI coaching provider; a Focus Points take may also send its saved topic and point labels. Customer UI names the data and purpose rather than binding the product contract to one vendor; Privacy/Legal records the current provider(s). |
+| Transcript text reaches a third party | **Yes, on user request** | `get-ai-suggestions` reads the saved transcript and sends it to Google Gemini; a Focus Points take also sends its saved topic and point labels, and its disclosure says so (#1538); user-initiated, and refused unless `transcript_state = 'available'` |
 | Derived metrics are stored | **Yes** | Word counts, filler counts, clarity score, WPM, pause metrics |
 
 Customer copy may say that **audio** never leaves the device. It may **not** say or imply that nothing leaves the
