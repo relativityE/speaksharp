@@ -73,6 +73,6 @@ fi
 echo "  EMAIL=${EMAIL}"
 if [ "$SHOW_PW" = 1 ]; then echo "  PASSWORD=${PASSWORD}"
 elif [ "$WIRE" = 1 ]; then echo "  PASSWORD=(written to ${ENVF}; pass --print-password to echo it)"
-else echo "  PASSWORD=(NOT written anywhere with --no-wire; pass --print-password to echo it)"; fi
+else echo "  PASSWORD=(not written to frontend/.env.test with --no-wire; pass --print-password to echo it)"; fi
 echo ""
 echo "Next: bash scripts/run-v4-gates.sh"

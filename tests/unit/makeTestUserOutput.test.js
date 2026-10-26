@@ -73,7 +73,7 @@ describe('make-test-user.sh reports exactly what the create run did', () => {
         const { stdout, envTest } = run(['pro', '--no-wire']);
         expect(stdout).toContain('SOAK_TEST_PASSWORD generation: SKIPPED');
         expect(stdout).toContain('--no-wire: nothing was written to frontend/.env.test');
-        expect(stdout).toContain('PASSWORD=(NOT written anywhere with --no-wire');
+        expect(stdout).toContain('PASSWORD=(not written to frontend/.env.test with --no-wire');
         expect(stdout).not.toContain('PASSWORD=(written to');
         expect(stdout).not.toContain('wired into');
         expect(existsSync(envTest)).toBe(false);
