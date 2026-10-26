@@ -192,6 +192,32 @@ export const corpusVerdicts = (
     return Object.fromEntries(words.map((w) => [w, corpusWordVerdict(w, corpus[w] ?? 0, transcript, alignment, fixtureKind)]));
 };
 
+export interface CorpusRow { word: string; verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, number> }
+
+/**
+ * The spec's `filler "<word>" vs corpus` rows. A substitution on synthetic audio is HOLD (fixture-limited, unverified),
+ * never PASS. Synthetic "uh" is judged by a human observation, so its substitution or held anchor emits no row; but an
+ * omitted or inserted "uh" is still a FAIL row, so equal counts cannot hide a displaced "uh" (Sam 1792992507.489959).
+ */
+export const corpusRows = (
+    corpus: Readonly<Record<string, number>>, transcript: string, annotations: readonly FillerAnnotation[],
+    fixtureKind: 'synthetic' | 'human',
+): CorpusRow[] => Object.entries(corpusVerdicts(corpus, transcript, alignFillers(transcript, annotations), fixtureKind))
+    .flatMap(([word, v]): CorpusRow[] => {
+        const humanObserved = fixtureKind === 'synthetic' && word === 'uh';
+        if (annotations.length === 0) {
+            return humanObserved ? [] : [{ word, verdict: 'HOLD', detail: 'the fixture carries no filler annotations', evidence: v.evidence }];
+        }
+        if (humanObserved) {
+            return v.verdict === 'FAIL'
+                ? [{ word, verdict: 'FAIL', detail: `synthetic "uh" diagnostic: ${v.detail}`, evidence: v.evidence }]
+                : [];
+        }
+        return v.verdict === 'FIXTURE_LIMITED'
+            ? [{ word, verdict: 'HOLD', detail: `fixture-limited (unverified): ${v.detail}`, evidence: v.evidence }]
+            : [{ word, verdict: v.verdict, detail: v.detail, evidence: v.evidence }];
+    });
+
 /** Informational only: the hesitation total (um+uh+ah) against the corpus total. It never upgrades a per-word verdict. */
 export const hesitationTotals = (transcript: string, corpus: Readonly<Record<string, number>>) => {
     const keys: ReferenceKey[] = ['um', 'uh', 'ah'];

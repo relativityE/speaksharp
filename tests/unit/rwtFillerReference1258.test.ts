@@ -10,7 +10,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { productFillerCount } from '../live/helpers/rwtFillerOracle';
 import {
-    alignFillers, corpusVerdicts, corpusWordVerdict, crossCheckCounts, fillerAnnotationsOf, hesitationTotals, integrityVerdict,
+    alignFillers, corpusRows, corpusVerdicts, corpusWordVerdict, crossCheckCounts, fillerAnnotationsOf, hesitationTotals, integrityVerdict,
     referenceCount, type FillerAnnotation,
 } from '../live/helpers/rwtFillerReference';
 
@@ -169,6 +169,39 @@ describe('APP-G1h corpus verdicts: exact per word, substitutions never pass', ()
     it('k. on human audio the same substitution is a FAIL, with no fixture leniency', () => {
         const t = SCRIPT.replace('Uh, I propose', 'Um, I propose');
         expect(verdict('um', t, 'human').verdict).toBe('FAIL');
+    });
+});
+
+describe('APP-G1h spec rows (Sam RETURN 1792992507.489959): synthetic "uh" stays a human observation but cannot hide a FAIL', () => {
+    const rowsOf = (t: string, kind: 'synthetic' | 'human' = 'synthetic') =>
+        Object.fromEntries(corpusRows(CORPUS, t, ANNOTATIONS, kind).map((r) => [r.word, r]));
+
+    it('p. a displaced "uh" (omitted before "every Friday", inserted elsewhere) FAILs although every count is equal', () => {
+        const t = `${SCRIPT.replace('Uh, every Friday', 'Every Friday')} Uh.`;
+        expect(t).not.toBe(`${SCRIPT} Uh.`);
+        expect(hesitationTotals(t, CORPUS)).toEqual({ expected: 7, transcript: 7 });
+        expect(Object.values(crossCheckCounts(t, productFillerCount)).every((c) => c.verdict === 'PASS')).toBe(true);
+        const rows = rowsOf(t);
+        expect(rows.uh).toMatchObject({ verdict: 'FAIL', evidence: { expected: 3, transcript: 3, omitted: 1, inserted: 1 } });
+        for (const word of ['um', 'you know', 'ah']) expect(rows[word].verdict).toBe('PASS');
+    });
+
+    it('q. CONTROL: synthetic "uh" substitution or exact script emits no "uh" row; human audio always does', () => {
+        expect(rowsOf(SCRIPT).uh).toBeUndefined();
+        expect(Object.values(rowsOf(SCRIPT)).every((r) => r.verdict === 'PASS')).toBe(true);
+        const l1 = SCRIPT.replace('Uh, I propose', 'Um, I propose').replace('Uh, every Friday', 'Ah, every Friday')
+            .replace('Uh, I will share', 'Ah, I will share');
+        expect(rowsOf(l1).uh).toBeUndefined();
+        expect(rowsOf(l1).um).toMatchObject({ verdict: 'HOLD', detail: expect.stringMatching(/^fixture-limited \(unverified\): /) });
+        expect(rowsOf(SCRIPT, 'human').uh.verdict).toBe('PASS');
+    });
+
+    it('r. the Open Mic spec emits exactly these rows and keeps its human "uh" observation', () => {
+        const spec = readFileSync(path.join(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        expect(spec).toMatch(/for \(const row of corpusRows\(corpus, transcript, fillerAnnotationsOf\(fixture\.entry\), fixture\.entry\.kind\)\)/);
+        expect(spec).toMatch(/receipt\.row\(`filler "\$\{row\.word\}" vs corpus`, row\.verdict, row\.detail,/);
+        expect(spec).toMatch(/humanObservation\(receipt, 'open_mic_uh_detected'/);
+        expect(spec).not.toMatch(/corpusVerdicts\(/);
     });
 });
 
