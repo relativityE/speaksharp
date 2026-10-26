@@ -220,6 +220,91 @@ function deferredExchange(lease: string) {
 }
 const flushExchange = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+describe('#1704 established creation contradictions outrank unavailable exchanges', () => {
+    const row = (binding: SessionCreateBinding) => recoveryFenceRow(binding, {}, {
+        snapshot: { runId: 'precedence', ownerId: U, rows: { state: 'unavailable' }, authority: { state: 'unavailable' } },
+        duplicateIdentity: false,
+    }, { state: 'unavailable' }, 'precedence', U).status;
+    const cases = (['owner', 'lease'] as const).flatMap(mismatch =>
+        (['bad-json', 'missing-field', 'partial-record', 'unreadable-request', 'failed-header', 'pending'] as const)
+            .map(fault => ({ mismatch, fault })));
+    it.each(cases)('$mismatch contradiction survives $fault and terminal freeze', async ({ mismatch, fault }) => {
+        const page = fakePage(); const binding = new SessionCreateBinding(ORIGIN, () => U); binding.attach(page); binding.arm('A');
+        const first = rpc(L1); page.emit(first.request);
+        await first.created(created('left', mismatch === 'lease' ? L2 : L1, mismatch === 'owner' ? 'foreign-owner' : U));
+        const known = binding.binding('A');
+        expect(known).toEqual({ state: 'contradiction', reason: `creation_${mismatch}_mismatch` });
+        expect(row(binding)).toBe('FAIL');
+        const extra = deferredExchange(L1);
+        if (fault === 'unreadable-request') extra.request.postDataJSON = () => { throw new Error('unreadable request'); };
+        page.emit(extra.request);
+        if (fault === 'failed-header') extra.headers.resolve({ ok: () => false, json: async () => ({}) });
+        else if (fault !== 'pending') {
+            extra.respond();
+            extra.body.resolve(fault === 'bad-json' ? null : fault === 'partial-record' ? { new_session: { id: 'partial' } } : {});
+        }
+        await flushExchange();
+        // Assert both the passive capture and the final row: a HOLD must not
+        // erase a contradiction merely because another capture is unavailable.
+        expect(binding.binding('A')).toEqual(known); expect(row(binding)).toBe('FAIL');
+        binding.detach(); const identities = binding.identities();
+        extra.respond(); extra.body.resolve({ new_session: created('late', L1) }); await flushExchange();
+        expect(binding.binding('A')).toEqual(known); expect(row(binding)).toBe('FAIL');
+        expect(binding.identities()).toEqual(identities); expect(identities).not.toContain('late');
+    });
+
+    it('a proved same-session two-lease contradiction survives other session identities and pending work', async () => {
+        const page = fakePage(); const binding = new SessionCreateBinding(ORIGIN, () => U); binding.attach(page); binding.arm('A');
+        const first = rpc(L1); page.emit(first.request); await first.created(created('left', L1));
+        const second = rpc(L2); page.emit(second.request); await second.created(created('left', L2));
+        const known = { state: 'contradiction', reason: 'one_session_two_leases' };
+        expect(binding.binding('A')).toEqual(known);
+        const third = rpc(L1); page.emit(third.request); await third.created(created('other', L1));
+        expect(binding.binding('A')).toEqual(known); expect(row(binding)).toBe('FAIL');
+        const pending = deferredExchange(L1); page.emit(pending.request); await flushExchange();
+        expect(binding.binding('A')).toEqual(known);
+        binding.detach(); expect(binding.binding('A')).toEqual(known); expect(row(binding)).toBe('FAIL');
+        pending.respond(); pending.body.resolve({ new_session: null }); await flushExchange();
+        expect(binding.binding('A')).toEqual(known);
+    });
+
+    it.each([
+        { id: 'partial', user_id: U }, { id: 'partial', lease_id: L1 }, { user_id: U, lease_id: L1 },
+    ])('missing identity fields alone are unavailable, not fabricated contradiction: %j', async partial => {
+        const page = fakePage(); const binding = new SessionCreateBinding(ORIGIN, () => U); binding.attach(page); binding.arm('A');
+        const request = rpc(L1); page.emit(request.request); await request.created(partial);
+        expect(binding.binding('A')).toEqual({ state: 'unavailable', reason: 'creation_identity_unreadable' });
+        expect(row(binding)).toBe('HOLD'); binding.detach(); expect(row(binding)).toBe('HOLD');
+    });
+
+    it('an unavailable expected owner is not evidence of a foreign-owner contradiction', async () => {
+        const page = fakePage(); const binding = new SessionCreateBinding(ORIGIN, () => ''); binding.attach(page); binding.arm('A');
+        expect(binding.binding('A')).toEqual({ state: 'unavailable', reason: 'no_creation_observed' });
+        const request = rpc(L1); page.emit(request.request); await request.created(created('left', L1));
+        expect(binding.binding('A')).toEqual({ state: 'unavailable', reason: 'creation_identity_unreadable' });
+        binding.detach(); expect(row(binding)).toBe('HOLD');
+    });
+
+    it('two different sessions with distinct self-consistent leases remain ambiguous, not a fabricated two-lease contradiction', async () => {
+        const page = fakePage(); const binding = new SessionCreateBinding(ORIGIN, () => U); binding.attach(page); binding.arm('A');
+        const first = rpc(L1); page.emit(first.request); await first.created(created('left', L1));
+        const second = rpc(L2); page.emit(second.request); await second.created(created('other', L2));
+        expect(binding.binding('A')).toEqual({ state: 'unavailable', reason: 'ambiguous_creations' });
+        expect(row(binding)).toBe('HOLD'); binding.detach(); expect(row(binding)).toBe('HOLD');
+    });
+
+    it('explicit own null and a foreign-origin creation cannot erase an established mismatch', async () => {
+        const page = fakePage(); const binding = new SessionCreateBinding(ORIGIN, () => U); binding.attach(page); binding.arm('A');
+        const first = rpc(L1); page.emit(first.request); await first.created(created('left', L2));
+        const known = binding.binding('A');
+        const refusal = rpc(L1); page.emit(refusal.request); await refusal.created(null);
+        const foreign = rpc(L1, { url: 'https://foreign.example/rest/v1/rpc/create_session_and_update_usage' });
+        page.emit(foreign.request); await foreign.created(created('foreign', L1));
+        expect(binding.binding('A')).toEqual(known); expect(row(binding)).toBe('FAIL');
+        binding.detach(); expect(row(binding)).toBe('FAIL'); expect(binding.identities()).not.toContain('foreign');
+    });
+});
+
 describe('#1593 raw JSON exchange refusal', () => {
     it.each([
         ['missing', {}], ['undefined', { new_session: undefined }],

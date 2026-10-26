@@ -214,18 +214,26 @@ export class SessionCreateBinding {
     }
 
     private readBinding(phase: string): TakeBinding {
+        const list = this.records.get(phase) ?? [];
+        const owner = this.ownerId();
+        // Readable contradictions remain facts even when another exchange is
+        // opaque or unsettled. Missing fields cannot manufacture a mismatch.
+        if (owner && list.some((r) => r.userId !== '' && r.userId !== owner)) return { state: 'contradiction', reason: 'creation_owner_mismatch' };
+        if (list.some((r) => r.leaseId !== '' && r.requestLease !== '' && r.requestLease !== r.leaseId)) return { state: 'contradiction', reason: 'creation_lease_mismatch' };
+        const leasesBySession = new Map<string, string>();
+        for (const r of list) {
+            if (!owner || r.userId !== owner || r.sessionId === '' || r.leaseId === '') continue;
+            const prior = leasesBySession.get(r.sessionId);
+            if (prior !== undefined && prior !== r.leaseId) return { state: 'contradiction', reason: 'one_session_two_leases' };
+            leasesBySession.set(r.sessionId, r.leaseId);
+        }
         if ((this.pending.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_unsettled' };
         if ((this.failures.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_exchange_failed' };
         if ((this.unreadableRequests.get(phase) ?? 0) > 0) return { state: 'unavailable', reason: 'creation_request_lease_unreadable' };
-        const list = this.records.get(phase) ?? [];
-        if (list.some((r) => r.sessionId === '' || r.leaseId === '' || r.userId === '')) return { state: 'unavailable', reason: 'creation_identity_unreadable' };
-        if (list.some((r) => r.userId !== this.ownerId())) return { state: 'contradiction', reason: 'creation_owner_mismatch' };
-        if (list.some((r) => r.requestLease !== r.leaseId)) return { state: 'contradiction', reason: 'creation_lease_mismatch' };
+        if ((list.length > 0 && !owner) || list.some((r) => r.sessionId === '' || r.leaseId === '' || r.userId === '')) return { state: 'unavailable', reason: 'creation_identity_unreadable' };
         const ids = new Set(list.map((r) => r.sessionId));
         if (ids.size === 0) return { state: 'unavailable', reason: 'no_creation_observed' };
         if (ids.size > 1) return { state: 'unavailable', reason: 'ambiguous_creations' };
-        const leases = new Set(list.map((r) => r.leaseId));
-        if (leases.size > 1) return { state: 'contradiction', reason: 'one_session_two_leases' };
         return { state: 'observed', sessionId: list[0].sessionId, leaseId: list[0].leaseId };
     }
 
