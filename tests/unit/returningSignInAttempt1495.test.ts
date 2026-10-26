@@ -35,19 +35,19 @@ describe('G18 the spec judges sign-in by the attempt, not by a missing uid', () 
      * blanket rule (`signedIn && landed ? 'PASS' : 'FAIL'`), that literal rule is evaluated; otherwise the spec must route
      * the row through `returningSignInVerdict`.
      */
-    const specVerdict = (outcome: SignInAttemptOutcome, after: { sessionUserMatches: boolean; practiceVisible: boolean }) => {
+    const specVerdict = (outcome: SignInAttemptOutcome, after: { sessionUserMatches: boolean; landed: boolean }) => {
         const legacy = /receipt\.row\('returning-user sign-in', (\w+) && (\w+) \? '(\w+)' : '(\w+)'/.exec(step);
         if (legacy) {
             const signedIn = outcome.kind === 'token_ok' && after.sessionUserMatches;
-            const landed = signedIn && after.practiceVisible;
+            const landed = signedIn && after.landed;
             const value: Record<string, boolean> = { signedIn, landed };
             return value[legacy[1]] && value[legacy[2]] ? legacy[3] : legacy[4];
         }
-        expect(step).toMatch(/const verdict = returningSignInVerdict\(outcome, after\);/);
+        expect(step).toMatch(/const verdict = returningSignInVerdict\(outcome, after, 'Practice'\);/);
         expect(step).toMatch(/receipt\.row\('returning-user sign-in', verdict\.verdict, verdict\.detail,/);
-        return returningSignInVerdict(outcome, after).verdict;
+        return returningSignInVerdict(outcome, after, 'Practice').verdict;
     };
-    const none = { sessionUserMatches: false, practiceVisible: false };
+    const none = { sessionUserMatches: false, landed: false };
 
     it('a refused shared credential is account repair (HOLD), not a product FAIL', () => {
         expect(specVerdict({ kind: 'invalid_credentials', status: 400 }, none)).toBe('HOLD');
@@ -62,8 +62,8 @@ describe('G18 the spec judges sign-in by the attempt, not by a missing uid', () 
     it('CONTROL: a valid token whose session never appears, or Practice missing, is still a product FAIL; both present PASS', () => {
         const ok = { kind: 'token_ok', status: 200, userId: 'u-1' } as const;
         expect(specVerdict(ok, none)).toBe('FAIL');
-        expect(specVerdict(ok, { sessionUserMatches: true, practiceVisible: false })).toBe('FAIL');
-        expect(specVerdict(ok, { sessionUserMatches: true, practiceVisible: true })).toBe('PASS');
+        expect(specVerdict(ok, { sessionUserMatches: true, landed: false })).toBe('FAIL');
+        expect(specVerdict(ok, { sessionUserMatches: true, landed: true })).toBe('PASS');
     });
 
     it('the observer is armed before the submit, after a no-preexisting-session check, and only a PASS proceeds', () => {
@@ -76,7 +76,7 @@ describe('G18 the spec judges sign-in by the attempt, not by a missing uid', () 
         // The verdict reads the attempt only after the session/Practice wait, and observation is disposed in `finally`.
         const final = step.indexOf('outcome = attempt.final();');
         expect(final).toBeGreaterThan(step.indexOf("getByTestId('practice-root')"));
-        expect(final).toBeLessThan(step.indexOf('const verdict = returningSignInVerdict(outcome, after);'));
+        expect(final).toBeLessThan(step.indexOf("const verdict = returningSignInVerdict(outcome, after, 'Practice');"));
         expect(step).toMatch(/\} finally \{\s*attempt\.dispose\(\);\s*\}/);
         // Content-free: the row carries the outcome class, status and timing, never the token user id.
         expect(step).not.toMatch(/userId[^;]*receipt\.row|receipt\.row[^;]*userId/);
@@ -225,7 +225,7 @@ describe('G18 the observer binds only this submit\'s own password-grant exchange
         page.respond(page.request(PASSWORD_GRANT), 200, SESSION);
         const verdictOutcome = typeof attempt.final === 'function' ? attempt.final() : await attempt.settle();
         expect(verdictOutcome).toMatchObject({ kind: 'inconclusive', reason: 'ambiguous_attempt' });
-        expect(returningSignInVerdict(verdictOutcome, { sessionUserMatches: true, practiceVisible: true }).verdict).toBe('HOLD');
+        expect(returningSignInVerdict(verdictOutcome, { sessionUserMatches: true, landed: true }, 'Practice').verdict).toBe('HOLD');
         attempt.dispose?.();
         expect(page.subscriptions).toBe(0);
     });

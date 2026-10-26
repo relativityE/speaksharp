@@ -187,9 +187,12 @@ export function armPasswordSignInObserver(
 
 export interface SignInVerdict { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; proceed: boolean }
 
-/** The `returning-user sign-in` row. Anything but PASS stops the journey's branch. */
+/**
+ * The `returning-user sign-in` row, judged against the landing the CALLER expects (`landing` names it, e.g. 'Practice';
+ * `after.landed` is whether that landing was reached). Anything but PASS stops the journey's branch.
+ */
 export function returningSignInVerdict(
-    outcome: SignInAttemptOutcome, after: { sessionUserMatches: boolean; practiceVisible: boolean },
+    outcome: SignInAttemptOutcome, after: { sessionUserMatches: boolean; landed: boolean }, landing: string,
 ): SignInVerdict {
     if (outcome.kind === 'invalid_credentials') {
         return { verdict: 'HOLD', detail: 'the shared returning account was refused (invalid_credentials): account repair, not a product failure', proceed: false };
@@ -200,6 +203,41 @@ export function returningSignInVerdict(
     if (!after.sessionUserMatches) {
         return { verdict: 'FAIL', detail: 'a valid password token for this submit did not establish its own session', proceed: false };
     }
-    if (!after.practiceVisible) return { verdict: 'FAIL', detail: 'signed in, but Practice did not load', proceed: false };
-    return { verdict: 'PASS', detail: 'signed in with an existing credential and landed on Practice', proceed: true };
+    if (!after.landed) return { verdict: 'FAIL', detail: `signed in, but ${landing} did not load`, proceed: false };
+    return { verdict: 'PASS', detail: `signed in with an existing credential and landed on ${landing}`, proceed: true };
+}
+
+export interface DeepLinkTarget { pathname: string; search: string; hash: string }
+export interface DeepLinkLandingMatch { pathnameMatches: boolean; searchMatches: boolean; hashMatches: boolean }
+
+/** G04: the landed URL against the deep link's exact pathname, query and hash, each compared whole. */
+export const deepLinkLanding = (url: URL, expected: DeepLinkTarget): DeepLinkLandingMatch => ({
+    pathnameMatches: url.pathname === expected.pathname,
+    searchMatches: url.search === expected.search,
+    hashMatches: url.hash === expected.hash,
+});
+
+/**
+ * G04 (#1548 / #1718): the `signed-in deep-link return` row. Routing only — the rendered detail is not claimed. A refused,
+ * inconclusive or ambiguous sign-in, or a second token for any account but the verified one, leaves the routing unproven
+ * (HOLD). A valid token that established no session of its own, or a landing that misses the exact pathname, query or
+ * hash, is a product FAIL.
+ */
+export function deepLinkReturnVerdict({ outcome, verifiedUserId, sessionUserMatches, landing }: {
+    outcome: SignInAttemptOutcome; verifiedUserId: string; sessionUserMatches: boolean; landing: DeepLinkLandingMatch;
+}): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string } {
+    if (outcome.kind !== 'token_ok') {
+        const signIn = returningSignInVerdict(outcome, { sessionUserMatches: false, landed: false }, 'the deep-link destination');
+        return { verdict: signIn.verdict, detail: `routing unproven: ${signIn.detail}` };
+    }
+    if (outcome.userId !== verifiedUserId) {
+        return { verdict: 'HOLD', detail: 'routing unproven: the second sign-in is not the verified returning account' };
+    }
+    if (!sessionUserMatches) {
+        return { verdict: 'FAIL', detail: 'a valid password token for this submit did not establish its own session' };
+    }
+    if (!landing.pathnameMatches || !landing.searchMatches || !landing.hashMatches) {
+        return { verdict: 'FAIL', detail: 'signed in, but did not return to the exact deep-link destination' };
+    }
+    return { verdict: 'PASS', detail: 'returned to the exact deep-link destination (routing only; the rendered detail is not claimed)' };
 }
