@@ -99,13 +99,23 @@ export function pressLinkage(events: readonly PressEvent[]): Linkage {
 /** One attempt row as read: its stored state, `accepted_at` (ordering only) and whether it is bound to this repeat. */
 export interface ServerAttempt { lifecycle: unknown; outcome: unknown; acceptedAt: unknown; isThisRepeat: boolean }
 
-/** The schema's resolved states (migration 20260731130000 prec_att_* checks); anything else is not judged. */
-const RESOLVED_LIFECYCLE = new Set(['completed', 'not_comparable', 'abandoned']);
-const RESOLVED_OUTCOME = new Set(['moved', 'did_not_move', 'not_comparable', 'not_completed']);
+/**
+ * The resolved lifecycle → outcome pairs `advance_recommendation_attempt` writes (migration 20260731130000). Each
+ * value is checked as a PAIR: an incoherent combination such as abandoned + moved is not judged.
+ */
+const RESOLVED_PAIRS: Readonly<Record<string, readonly string[]>> = {
+    completed: ['moved', 'did_not_move'],
+    not_comparable: ['not_comparable'],
+    abandoned: ['not_completed'],
+};
 
-/** The server rows, newest attempt first; `isThisRepeat` is `practice_session_id` = this journey's saved repeat take. */
+/**
+ * The server rows, from two separate reads: `newest` is the recommendation's newest two attempts by accepted_at
+ * (ordering and ties), and `boundCount` is how many attempts carry `practice_session_id` = this journey's saved
+ * repeat take (read with limit 2, so 2 means "more than one"). No schema constraint makes that binding unique.
+ */
 export type ServerEvidence =
-    | { kind: 'read'; recommendation: RecommendationRow | null; attempts: readonly ServerAttempt[] }
+    | { kind: 'read'; recommendation: RecommendationRow | null; newest: readonly ServerAttempt[]; boundCount: number }
     | { kind: 'read_failed' };
 
 export interface ExpectedLines { metric: Metric; direction: Direction; target: string; outcome: string }
@@ -116,10 +126,8 @@ const hold = (reason: string, detail: string): Prerequisite => ({ observe: false
 /** Whether the page may be opened at all. Every `observe: false` is a HOLD written without navigating. */
 export function repeatMetricPrerequisites(server: ServerEvidence, linkage: Linkage): Prerequisite {
     if (server.kind === 'read_failed') return hold('server_read_failed', 'the recommendation or attempt could not be read');
-    const bound = server.attempts.filter((a) => a.isThisRepeat);
-    if (bound.length > 1) return hold('multiple_bound_attempts', 'more than one attempt is bound to this repeat take');
-    const boundIndex = server.attempts.findIndex((a) => a.isThisRepeat);
-    if (boundIndex < 0) {
+    if (server.boundCount > 1) return hold('multiple_bound_attempts', 'more than one attempt is bound to this repeat take');
+    if (server.boundCount < 1) {
         if (linkage.kind === 'unlinked') return hold('ran_unlinked', 'the repeat ran unlinked, so the review-owned comparison is not reachable');
         if (linkage.kind === 'unverified') return hold('linkage_unverified', `linkage unverified (${linkage.reason}) and no attempt is bound to this repeat`);
         return hold('repeat_unbound', 'no resolved attempt is bound to this journey\'s repeat take');
@@ -133,18 +141,19 @@ export function repeatMetricPrerequisites(server: ServerEvidence, linkage: Linka
     if (!server.recommendation) return hold('no_recommendation', 'no recommendation is bound to the first session');
     const rec = validRecommendation(server.recommendation);
     if (!rec) return hold('recommendation_invalid', 'the bound recommendation has no valid structured target');
-    if (boundIndex !== 0) return hold('not_newest_attempt', 'another attempt is newer than this repeat\'s, so the panel would not show it');
-    const attempt = server.attempts[0];
+    const [attempt, next] = server.newest;
+    if (!attempt?.isThisRepeat) return hold('not_newest_attempt', 'another attempt is newer than this repeat\'s, so the panel would not show it');
     // The panel reads the newest by accepted_at with no tie-break: a tie leaves which row it shows undetermined.
     const acceptedAt = (a: ServerAttempt) => (typeof a.acceptedAt === 'string' ? Date.parse(a.acceptedAt) : Number.NaN);
     if (!Number.isFinite(acceptedAt(attempt))) return hold('attempt_order_unknown', 'the bound attempt has no readable accepted_at');
-    if (server.attempts.length > 1 && !(acceptedAt(server.attempts[1]) < acceptedAt(attempt))) {
+    if (next && !(acceptedAt(next) < acceptedAt(attempt))) {
         return hold('newest_attempt_ambiguous', 'another attempt ties with or is not older than this repeat\'s, so the panel\'s row is undetermined');
     }
     if (attempt.lifecycle === 'pending') return hold('repeat_unresolved', 'the bound attempt is still pending');
-    if (typeof attempt.lifecycle !== 'string' || !RESOLVED_LIFECYCLE.has(attempt.lifecycle)
-        || typeof attempt.outcome !== 'string' || !RESOLVED_OUTCOME.has(attempt.outcome)) {
-        return hold('attempt_state_unknown', 'the bound attempt has an unknown lifecycle or outcome, so no copy is expected');
+    const outcomes = typeof attempt.lifecycle === 'string' && Object.prototype.hasOwnProperty.call(RESOLVED_PAIRS, attempt.lifecycle)
+        ? RESOLVED_PAIRS[attempt.lifecycle] : [];
+    if (typeof attempt.lifecycle !== 'string' || typeof attempt.outcome !== 'string' || !outcomes.includes(attempt.outcome)) {
+        return hold('attempt_state_unknown', 'the bound attempt has an unknown or incoherent lifecycle/outcome pair, so no copy is expected');
     }
     const resolved = { lifecycle: attempt.lifecycle, outcome: attempt.outcome };
     return { observe: true, expected: { metric: rec.metric, direction: rec.direction, target: expectedTargetLine(rec), outcome: expectedOutcomeLine(rec, resolved) } };

@@ -976,17 +976,24 @@ test.describe('RWT — Open Mic first session @live', () => {
                         const { data: rec, error: recErr } = await admin!.from('progress_recommendations')
                             .select('id,target_metric,target_direction,target_value,target_units')
                             .eq('source_session_id', persistedId).eq('formula_version', PROGRESS_FORMULA).eq('user_id', capturedUid).maybeSingle();
-                        const { data: attempts, error: attErr } = rec && !recErr
-                            ? await admin!.from('progress_recommendation_attempts').select('lifecycle,outcome,accepted_at,practice_session_id')
-                                .eq('recommendation_id', rec.id).eq('user_id', capturedUid).order('accepted_at', { ascending: false }).limit(10)
+                        // Two separate reads: this repeat's bound attempts (no schema uniqueness; limit 2 detects a duplicate
+                        // anywhere), and the newest two by accepted_at (the row the panel shows, and its tie check).
+                        const { data: bound, error: boundErr } = rec && !recErr
+                            ? await admin!.from('progress_recommendation_attempts').select('id')
+                                .eq('recommendation_id', rec.id).eq('user_id', capturedUid).eq('practice_session_id', repeatSessionId).limit(2)
                             : { data: [], error: null };
-                        if (!recErr && !attErr) {
+                        const { data: newest, error: newestErr } = rec && !recErr
+                            ? await admin!.from('progress_recommendation_attempts').select('lifecycle,outcome,accepted_at,practice_session_id')
+                                .eq('recommendation_id', rec.id).eq('user_id', capturedUid).order('accepted_at', { ascending: false }).limit(2)
+                            : { data: [], error: null };
+                        if (!recErr && !boundErr && !newestErr) {
                             server = {
                                 kind: 'read',
                                 recommendation: rec ? { targetMetric: rec.target_metric, targetDirection: rec.target_direction, targetValue: rec.target_value, targetUnits: rec.target_units } : null,
-                                attempts: (attempts ?? []).map((a) => ({
+                                newest: (newest ?? []).map((a) => ({
                                     lifecycle: a.lifecycle, outcome: a.outcome, acceptedAt: a.accepted_at, isThisRepeat: a.practice_session_id === repeatSessionId,
                                 })),
+                                boundCount: (bound ?? []).length,
                             };
                         }
                     }

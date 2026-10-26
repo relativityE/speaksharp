@@ -106,8 +106,13 @@ let clock = 0;
 /** Attempts are listed newest first; each gets a strictly older accepted_at unless one is given. */
 const att = (lifecycle: string | null, outcome: string | null, isThisRepeat: boolean, acceptedAt?: string): ServerAttempt =>
     ({ lifecycle, outcome, isThisRepeat, acceptedAt: acceptedAt ?? new Date(Date.UTC(2026, 9, 26, 12, 0, 0) - (clock += 1000)).toISOString() });
-const read = (attempts: ServerAttempt[], recommendation: typeof REC | null = REC): ServerEvidence =>
-    ({ kind: 'read', recommendation, attempts });
+/**
+ * The two separate server reads from one attempt list (newest first): the newest two, and the count of attempts bound
+ * to this repeat. `attempts` repeats the list in the pre-3e1dc2ff shape, so a RED run against that helper exercises its
+ * logic rather than failing on a missing field.
+ */
+const read = (attempts: ServerAttempt[], recommendation: typeof REC | null = REC, boundCount = attempts.filter((a) => a.isThisRepeat).length): ServerEvidence =>
+    ({ kind: 'read', recommendation, newest: attempts.slice(0, 2), boundCount, attempts } as ServerEvidence);
 const LINKED = { kind: 'linked', linkedAttempt: 'ok' } as const;
 const BOUND = att('completed', 'moved', true, '2026-10-26T12:00:00.000Z');
 
@@ -254,9 +259,9 @@ describe('G03 review RETURN (Sam 1793016155.858699): unknown state, ties, contra
         }
     });
 
-    it('CONTROL: every schema-resolved outcome is still observed with its exact copy', () => {
-        for (const outcome of ['moved', 'did_not_move', 'not_comparable', 'not_completed']) {
-            expect(repeatMetricPrerequisites(read([att('completed', outcome, true, '2026-10-26T12:00:00.000Z')]), LINKED)).toMatchObject({ observe: true });
+    it('CONTROL: every RPC-written lifecycle/outcome pair is still observed with its exact copy', () => {
+        for (const [lifecycle, outcome] of [['completed', 'moved'], ['completed', 'did_not_move'], ['not_comparable', 'not_comparable'], ['abandoned', 'not_completed']]) {
+            expect(repeatMetricPrerequisites(read([att(lifecycle, outcome, true, '2026-10-26T12:00:00.000Z')]), LINKED)).toMatchObject({ observe: true });
         }
     });
 
@@ -299,5 +304,34 @@ describe('G03 review RETURN (Sam 1793016155.858699): unknown state, ties, contra
         const recheck = step.indexOf('const readsStable = state === \'eligible\' && !readFailed && await stillEligible();');
         expect(lastRead).toBeGreaterThan(-1);
         expect(recheck).toBeGreaterThan(lastRead);
+    });
+});
+
+describe('G03 narrow RETURN (Sam 1793017348.714649): pairs, not enums; duplicate binding from its own read', () => {
+    it('every incoherent lifecycle/outcome pair is HOLD, though each value alone is a valid enum', () => {
+        for (const [lifecycle, outcome] of [
+            ['abandoned', 'moved'], ['abandoned', 'did_not_move'], ['abandoned', 'not_comparable'],
+            ['completed', 'not_completed'], ['completed', 'not_comparable'],
+            ['not_comparable', 'moved'], ['not_comparable', 'did_not_move'], ['not_comparable', 'not_completed'],
+        ]) {
+            const prerequisite = repeatMetricPrerequisites(read([att(lifecycle, outcome, true, '2026-10-26T12:00:00.000Z')]), LINKED);
+            expect({ lifecycle, outcome, prerequisite }).toMatchObject({ lifecycle, outcome, prerequisite: { observe: false, reason: 'attempt_state_unknown' } });
+        }
+    });
+
+    it('a second bound attempt outside the newest two (only the separate bound read sees it) is HOLD', () => {
+        const newestTwo = [BOUND, att('completed', 'did_not_move', false, '2026-10-26T11:00:00.000Z')];
+        expect(repeatMetricPrerequisites(read(newestTwo, REC, 2), LINKED)).toMatchObject({ observe: false, reason: 'multiple_bound_attempts' });
+        expect(repeatMetricPrerequisites(read(newestTwo, REC, 1), LINKED)).toMatchObject({ observe: true });
+    });
+
+    it('the spec reads the bound attempts separately (limit 2) and the newest two separately; no limit-10 scan', () => {
+        const spec = readFileSync(path.join(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        const begin = spec.indexOf("await test.step('the repeat result names the measured metric'");
+        const step = spec.slice(begin, spec.indexOf('} finally {\n            await finish();', begin));
+        expect(step).toMatch(/\.select\('id'\)\s*\.eq\('recommendation_id', rec\.id\)\.eq\('user_id', capturedUid\)\.eq\('practice_session_id', repeatSessionId\)\.limit\(2\)/);
+        expect(step).toMatch(/\.select\('lifecycle,outcome,accepted_at,practice_session_id'\)\s*\.eq\('recommendation_id', rec\.id\)\.eq\('user_id', capturedUid\)\.order\('accepted_at', \{ ascending: false \}\)\.limit\(2\)/);
+        expect(step).toMatch(/boundCount: \(bound \?\? \[\]\)\.length/);
+        expect(step).not.toMatch(/\.limit\(10\)/);
     });
 });
