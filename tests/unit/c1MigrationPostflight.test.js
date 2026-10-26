@@ -67,7 +67,11 @@ describe('C1 exact source/catalog postflight',()=>{
         ];
         for(const [name,mutation] of drift) {
           await db.exec(`BEGIN; SET ROLE closure_owner; ${mutation};`);
-          try {const actual=await catalog(after);expect(()=>assertC1Catalog(actual,after,prior),name).toThrow(/C1 catalog mismatch/);}
+          try {
+            const actual=await catalog(after);
+            expect(()=>assertC1Catalog(actual,after,prior)).toThrow(/C1 catalog mismatch/);
+            console.info(JSON.stringify({c1CatalogDrift:name,version,status:'REFUSED'}));
+          }
           finally {await db.exec('ROLLBACK; RESET ROLE;');}
         }
         expect(assertC1Catalog(await catalog(after),after,prior).passed).toBe(true);
