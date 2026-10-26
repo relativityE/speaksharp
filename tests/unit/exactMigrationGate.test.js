@@ -33,6 +33,43 @@ const PRIOR_BYTES = '-- prior\n';
 
 const t2Versions = ['20261018090000','20261018170000','20261019010000',
     '20261019055102','20261019202856','20261020230653'];
+const c1Versions = ['20261024083000','20261025021046'];
+describe('C1 ordered exact-operation enforcement', () => {
+    it.each(c1Versions)('cannot finish %s using generic or another target postflight', version => {
+        const targetFile = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file;
+        const outcomes = Object.fromEntries(TARGET_POSTFLIGHT_GATES.map(gate => [gate.id, 'skipped']));
+        const base = { apply: 'success', verify: 'success', lint: 'success', targetFile };
+        const key = `postflight_${version}`;
+        for (const value of [undefined, '', 'skipped', 'failure', 'cancelled']) {
+            expect(() => assertTerminalOutcome({ ...base, postflights: { ...outcomes, [key]: value } })).toThrow();
+        }
+        expect(assertTerminalOutcome({ ...base, postflights: { ...outcomes, [key]: 'success' } }).enforcedPostflights).toEqual([key]);
+    });
+    it('requires the C1 read-only preimage before apply and machine-enforced target checks after', () => {
+        const workflow = yaml.load(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml', 'utf8'));
+        const steps = Object.values(workflow.jobs).find(job => job.steps?.some(step => step.id === 'apply')).steps;
+        const before = steps.findIndex(step => step.run?.includes('node scripts/c1-migration-postflight.mjs before'));
+        const apply = steps.findIndex(step => step.id === 'apply');
+        const connectivity = steps.findIndex(step => step.id === 'connectivity_preflight');
+        expect(connectivity).toBeLessThan(before);
+        expect(before).toBeGreaterThan(-1);
+        expect(before).toBeLessThan(apply);
+        expect(steps[before]['continue-on-error']).not.toBe(true);
+        const terminal = steps.find(step => step.id === 'terminal').run;
+        for (const version of c1Versions) {
+            expect(workflow.on.workflow_dispatch.inputs.target_version.options).toContain(version);
+            expect(steps[connectivity].if).toContain(version);
+            expect(steps[before].if).toContain(version);
+            const after = steps.find(step => step.id === `postflight_${version}`);
+            expect(after.if).toContain("steps.apply.outcome == 'success'");
+            expect(after.if).toContain(version);
+            expect(after.run).toContain(`node scripts/c1-migration-postflight.mjs after '${version}'`);
+            expect(after.run).toContain('$RUNNER_TEMP/c1-before.json');
+            expect(after['continue-on-error']).not.toBe(true);
+            expect(terminal).toContain(`postflight_${version}=`);
+        }
+    });
+});
 describe('six-target T2 exact-operation enforcement', () => {
     it.each(t2Versions)('requires the named %s postflight and refuses missing/skipped/wrong evidence', version => {
         const targetFile = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file;
