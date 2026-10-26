@@ -70,6 +70,11 @@ describe('G18 the spec judges sign-in by the attempt, not by a missing uid', () 
         expect(step.indexOf("if (await readUid(page))")).toBeLessThan(arm);
         expect(arm).toBeLessThan(step.indexOf("getByTestId('sign-in-submit').click()"));
         expect(step).toMatch(/if \(!verdict\.proceed\) throw new Error\(`\$\{verdict\.verdict\} returning-user sign-in: \$\{verdict\.detail\}`\);/);
+        // The verdict reads the attempt only after the session/Practice wait, and observation is disposed in `finally`.
+        const final = step.indexOf('outcome = attempt.final();');
+        expect(final).toBeGreaterThan(step.indexOf("getByTestId('practice-root')"));
+        expect(final).toBeLessThan(step.indexOf('const verdict = returningSignInVerdict(outcome, after);'));
+        expect(step).toMatch(/\} finally \{\s*attempt\.dispose\(\);\s*\}/);
         // Content-free: the row carries the outcome class, status and timing, never the token user id.
         expect(step).not.toMatch(/userId[^;]*receipt\.row|receipt\.row[^;]*userId/);
     });
@@ -144,11 +149,14 @@ class FakePage implements SignInAttemptEvents {
 describe('G18 the observer binds only this submit\'s own password-grant exchange', () => {
     const arm = (page: FakePage, timeoutMs = 50) => armPasswordSignInObserver(page, { authOrigin: AUTH, timeoutMs });
 
-    it('NORMAL: the armed password grant and its own 200 session give token_ok, and every subscription is released', async () => {
+    it('NORMAL: the armed password grant and its own 200 session give token_ok; dispose releases every subscription', async () => {
         const page = new FakePage();
         const attempt = arm(page);
         page.respond(page.request(PASSWORD_GRANT), 200, SESSION);
         await expect(attempt.settle()).resolves.toEqual({ kind: 'token_ok', status: 200, userId: 'u-1' });
+        expect(attempt.final()).toEqual({ kind: 'token_ok', status: 200, userId: 'u-1' });
+        expect(page.subscriptions).toBeGreaterThan(0); // still observing through the session/Practice wait
+        attempt.dispose();
         expect(page.subscriptions).toBe(0);
     });
 
@@ -187,6 +195,8 @@ describe('G18 the observer binds only this submit\'s own password-grant exchange
         await expect(attempt.settle()).resolves.toMatchObject({ reason: 'timeout' });
         page.respond(request, 200, SESSION);
         await expect(attempt.settle()).resolves.toMatchObject({ reason: 'timeout' });
+        expect(attempt.final()).toMatchObject({ reason: 'timeout' });
+        attempt.dispose();
         expect(page.subscriptions).toBe(0);
     });
 
@@ -201,6 +211,33 @@ describe('G18 the observer binds only this submit\'s own password-grant exchange
         closed.request(PASSWORD_GRANT);
         closed.close();
         await expect(b.settle()).resolves.toMatchObject({ kind: 'inconclusive', reason: 'context_closed' });
+    });
+
+    it('a second password grant AFTER the first token_ok, before the verdict, is still ambiguous (Sam RETURN 1793003212.501819)', async () => {
+        const page = new FakePage();
+        const attempt = arm(page) as ReturnType<typeof arm> & { final?: () => SignInAttemptOutcome; dispose?: () => void };
+        page.respond(page.request(PASSWORD_GRANT), 200, SESSION);
+        await expect(attempt.settle()).resolves.toMatchObject({ kind: 'token_ok' });
+        // The spec now waits for session/Practice; a second submit in that window could supply the same user's session.
+        page.respond(page.request(PASSWORD_GRANT), 200, SESSION);
+        const verdictOutcome = typeof attempt.final === 'function' ? attempt.final() : await attempt.settle();
+        expect(verdictOutcome).toMatchObject({ kind: 'inconclusive', reason: 'ambiguous_attempt' });
+        expect(returningSignInVerdict(verdictOutcome, { sessionUserMatches: true, practiceVisible: true }).verdict).toBe('HOLD');
+        attempt.dispose?.();
+        expect(page.subscriptions).toBe(0);
+    });
+
+    it('CONTROL: with no second grant, final() keeps the first outcome; dispose() releases every subscription', async () => {
+        const page = new FakePage();
+        const attempt = arm(page) as ReturnType<typeof arm> & { final?: () => SignInAttemptOutcome; dispose?: () => void };
+        page.respond(page.request(PASSWORD_GRANT), 200, SESSION);
+        await attempt.settle();
+        page.request(`${AUTH}/auth/v1/token?grant_type=refresh_token`); // a refresh is not a second sign-in
+        expect(typeof attempt.final === 'function' ? attempt.final() : await attempt.settle()).toEqual({ kind: 'token_ok', status: 200, userId: 'u-1' });
+        attempt.dispose?.();
+        expect(page.subscriptions).toBe(0);
+        page.request(PASSWORD_GRANT); // after disposal: no listener, no change
+        expect(attempt.final?.() ?? await attempt.settle()).toMatchObject({ kind: 'token_ok' });
     });
 
     it('an unreadable 200 body for the bound request is inconclusive', async () => {

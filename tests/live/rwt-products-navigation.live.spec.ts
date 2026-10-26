@@ -154,21 +154,28 @@ test.describe('RWT — returning user and Products navigation @live', () => {
                         authOrigin: SUPABASE_URL ? new URL(SUPABASE_URL).origin : '', timeoutMs: 60_000,
                     });
                     try {
-                        await page.getByTestId('email-input').fill(RETURNING_EMAIL);
-                        await page.getByTestId('password-input').fill(RETURNING_PASSWORD);
-                        await page.getByTestId('sign-in-submit').click();
-                    } catch (error) {
-                        if (!page.isClosed()) throw error;
-                    }
-                    outcome = await attempt.settle();
-                    if (outcome.kind === 'token_ok') {
-                        const expected = outcome.userId;
-                        // A boolean poll, so no identifier reaches an assertion message.
-                        after.sessionUserMatches = await expect.poll(async () => (await readUid(page)) === expected, { timeout: 60_000 })
-                            .toBe(true).then(() => true, () => false);
-                        after.practiceVisible = after.sessionUserMatches && await page.getByTestId('practice-root')
-                            .waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false);
-                        if (page.isClosed()) outcome = { kind: 'inconclusive', status: null, reason: 'context_closed' };
+                        try {
+                            await page.getByTestId('email-input').fill(RETURNING_EMAIL);
+                            await page.getByTestId('password-input').fill(RETURNING_PASSWORD);
+                            await page.getByTestId('sign-in-submit').click();
+                        } catch (error) {
+                            if (!page.isClosed()) throw error;
+                        }
+                        const first = await attempt.settle();
+                        if (first.kind === 'token_ok') {
+                            const expected = first.userId;
+                            // A boolean poll, so no identifier reaches an assertion message.
+                            after.sessionUserMatches = await expect.poll(async () => (await readUid(page)) === expected, { timeout: 60_000 })
+                                .toBe(true).then(() => true, () => false);
+                            after.practiceVisible = after.sessionUserMatches && await page.getByTestId('practice-root')
+                                .waitFor({ state: 'visible', timeout: 60_000 }).then(() => true, () => false);
+                        }
+                        // Read AFTER the session/Practice wait: another password grant in that window could have supplied
+                        // this session, so it makes the attempt ambiguous (Sam 1793003212.501819).
+                        outcome = attempt.final();
+                        if (outcome.kind === 'token_ok' && page.isClosed()) outcome = { kind: 'inconclusive', status: null, reason: 'context_closed' };
+                    } finally {
+                        attempt.dispose();
                     }
                 }
                 const verdict = returningSignInVerdict(outcome, after);

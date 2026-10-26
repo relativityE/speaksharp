@@ -107,26 +107,39 @@ export const pageAttemptEvents = (page: Page): SignInAttemptEvents => ({
     },
 });
 
+export interface PasswordSignInAttempt {
+    /** The first outcome of this submit's own exchange (response, failure, closure or timeout). */
+    settle(): Promise<SignInAttemptOutcome>;
+    /**
+     * The outcome the verdict uses, read AFTER the session/Practice wait: the settled one, unless another password grant
+     * was seen before disposal — that grant could have supplied the session, so the attempt is ambiguous.
+     */
+    final(): SignInAttemptOutcome;
+    /** Stops observing; idempotent. Call it once the verdict is computed (the spec does so in `finally`). */
+    dispose(): void;
+}
+
 /**
  * Arm BEFORE the submit. Binds the first main-frame POST to `${authOrigin}/auth/v1/token?grant_type=password` and accepts
  * only that request's own response or failure. Requests issued before arming, refresh grants, other origins and frames
- * are ignored; a second password grant is ambiguous; anything after the outcome (including a late response) is ignored.
+ * are ignored. Observation stays bound until `dispose()`: any further password grant, before or after the first outcome,
+ * makes the attempt ambiguous. A late response for the bound request never changes a settled outcome.
  */
 export function armPasswordSignInObserver(
     events: SignInAttemptEvents, { authOrigin, timeoutMs }: { authOrigin: string; timeoutMs: number },
-): { settle(): Promise<SignInAttemptOutcome> } {
+): PasswordSignInAttempt {
     let bound: AttemptRequest | null = null;
-    let done = false;
+    let settled: SignInAttemptOutcome | null = null;
+    let secondGrant = false;
     let resolve!: (outcome: SignInAttemptOutcome) => void;
     const outcome = new Promise<SignInAttemptOutcome>((r) => { resolve = r; });
     const unsubscribers: Array<() => void> = [];
     // The callback runs only after this function returns, so `finish` is defined by then.
     const timer = setTimeout(() => finish(inconclusive(null, 'timeout')), timeoutMs);
     const finish = (result: SignInAttemptOutcome) => {
-        if (done) return;
-        done = true;
+        if (settled) return;
+        settled = result;
         clearTimeout(timer);
-        unsubscribers.splice(0).forEach((unsubscribe) => unsubscribe());
         resolve(result);
     };
     const isPasswordGrant = (request: AttemptRequest): boolean => {
@@ -140,12 +153,16 @@ export function armPasswordSignInObserver(
     };
     unsubscribers.push(
         events.onRequest((request) => {
-            if (done || !isPasswordGrant(request)) return;
-            if (bound) finish(inconclusive(null, 'ambiguous_attempt'));
-            else bound = request;
+            if (!isPasswordGrant(request)) return;
+            if (!bound && !settled) {
+                bound = request;
+                return;
+            }
+            secondGrant = true;
+            finish(inconclusive(null, 'ambiguous_attempt'));
         }),
         events.onResponse((response) => {
-            if (done || !bound || response.request() !== bound) return;
+            if (settled || !bound || response.request() !== bound) return;
             const status = response.status();
             const apiVersion = response.headers()['x-supabase-api-version'];
             void response.json().then(
@@ -154,11 +171,18 @@ export function armPasswordSignInObserver(
             ).then((body) => finish(classifyTokenResponse({ status, apiVersion, body })));
         }),
         events.onRequestFailed((request) => {
-            if (!done && bound && request === bound) finish(inconclusive(null, 'transport_failed'));
+            if (bound && request === bound) finish(inconclusive(null, 'transport_failed'));
         }),
         events.onClose(() => finish(inconclusive(null, 'context_closed'))),
     );
-    return { settle: () => outcome };
+    return {
+        settle: () => outcome,
+        final: () => (secondGrant ? inconclusive(null, 'ambiguous_attempt') : settled ?? inconclusive(null, 'timeout')),
+        dispose: () => {
+            finish(inconclusive(null, 'timeout'));
+            unsubscribers.splice(0).forEach((unsubscribe) => unsubscribe());
+        },
+    };
 }
 
 export interface SignInVerdict { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; proceed: boolean }
