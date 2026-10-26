@@ -69,8 +69,9 @@ describe('AnalyticsPage', () => {
     });
 
     const renderAnalyticsPage = (initialEntry = '/analytics') => {
-        // Map the initial entry to the correct path pattern
-        const path = initialEntry.includes('/analytics/') ? '/analytics/:sessionId' : '/analytics';
+        // Map the initial entry to the correct path pattern. #1548: /progress is canonical; /analytics is the legacy alias.
+        const base = initialEntry.startsWith('/progress') ? '/progress' : '/analytics';
+        const path = initialEntry.startsWith(`${base}/`) ? `${base}/:sessionId` : base;
         return render(<AnalyticsPage />, { route: initialEntry, path });
     };
 
@@ -156,7 +157,7 @@ describe('AnalyticsPage', () => {
 
         it('CASUALTY: the overview shows its complete totals and says the recent sessions cannot load', () => {
             withAnalytics({});
-            renderAnalyticsPage('/analytics');
+            renderAnalyticsPage('/progress');
             expect(screen.queryByText('Error Loading Analytics')).toBeNull();
             expect(screen.getByTestId('analytics-recent-history-unavailable')).toHaveTextContent('Your recent sessions can’t load right now');
             expect(screen.getByTestId('stat-card-total_sessions')).toHaveTextContent('37');
@@ -171,14 +172,14 @@ describe('AnalyticsPage', () => {
             mockUseUserProfile.mockReturnValue({
                 data: null, isLoading: false, error: { message: 'Failed to load profile' },
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
-            renderAnalyticsPage('/analytics');
+            renderAnalyticsPage('/progress');
             expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
             expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
         });
 
         it('CONTROL a session detail with a history failure still fails the whole page', () => {
             withAnalytics({});
-            renderAnalyticsPage('/analytics/session-1');
+            renderAnalyticsPage('/progress/session-1');
             expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
             expect(screen.queryByText('Session Not Found')).toBeNull();
             expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
@@ -189,7 +190,7 @@ describe('AnalyticsPage', () => {
             ['loading', { status: 'loading' }],
         ])('CONTROL an %s aggregate with a history failure still fails the whole page', (_label, allTime) => {
             withAnalytics({ allTime });
-            renderAnalyticsPage('/analytics');
+            renderAnalyticsPage('/progress');
             expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
             expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
         });
@@ -258,7 +259,7 @@ describe('AnalyticsPage', () => {
 
             renderAnalyticsPage('/analytics/missing-session');
             const link = screen.getByRole('link', { name: /view dashboard/i });
-            expect(link).toHaveAttribute('href', '/analytics');
+            expect(link).toHaveAttribute('href', '/progress');
         });
     });
 

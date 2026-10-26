@@ -26,8 +26,8 @@ vi.mock('@/lib/storage', async (importOriginal) => ({
 vi.mock('@/services/reviewSurfaceTelemetry', () => ({ trackSessionPdfDownloaded: (...args: unknown[]) => pdfDownloaded(...args) }));
 // #1258 G20: the saved review has its own tests; here only its placement and ownership of the next action matter.
 vi.mock('../analytics/SavedPracticeLoopReview', () => ({
-    SavedPracticeLoopReview: ({ sessionId, sessionLabel }: { sessionId: string; sessionLabel?: string | null }) =>
-        <section data-testid="saved-review" data-session={sessionId} data-label={sessionLabel ?? ''} />,
+    SavedPracticeLoopReview: ({ sessionId, sessionLabel, footerLink }: { sessionId: string; sessionLabel?: string | null; footerLink?: { to: string; label: string } }) =>
+        <section data-testid="saved-review" data-session={sessionId} data-label={sessionLabel ?? ''} data-footer-to={footerLink?.to} data-footer-label={footerLink?.label} />,
 }));
 
 // Mock Recharts to avoid canvas/resize observer issues in JSDOM
@@ -761,7 +761,17 @@ describe('AnalyticsDashboard', () => {
         const openLink = screen.getByTestId('open-session-detail-session-1');
         expect(openLink).toHaveTextContent('Open');
 
-        expect(openLink).toHaveAttribute('href', '/analytics/session-1');
+        expect(openLink).toHaveAttribute('href', '/progress/session-1');
+    });
+
+    it('#1548: the overview\'s latest review links "Open this session" to the canonical /progress route of that same session', () => {
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        const review = screen.getByTestId('saved-review');
+        const sessionId = review.getAttribute('data-session');
+        expect(sessionId).toBeTruthy();
+        expect(review).toHaveAttribute('data-footer-label', 'Open this session');
+        expect(review).toHaveAttribute('data-footer-to', `/progress/${sessionId}`);
     });
 
     // #1306 metrics-only: there is NO transcript pane and NO transcript_state to honor. The session detail

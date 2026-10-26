@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Raw RTL render: this suite controls its OWN MemoryRouter. useAuthProvider is mocked, so no real
 // AuthContext provider is needed.
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { PostAuthRedirect, PostAuthContinue } from '../practiceRouting';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 
@@ -15,14 +15,21 @@ vi.mock('@/contexts/AuthProvider', async (orig) => {
 const mockedAuth = vi.mocked(useAuthProvider);
 const asAuth = (id: string | null, loading: boolean) => ({ user: id ? { id } : null, loading } as ReturnType<typeof useAuthProvider>);
 
-function renderAt(initial: string, entryElement?: React.ReactNode) {
+/** Renders where it landed: full path (with search + hash) and the router state it received. */
+function Landed({ testId, label }: { testId: string; label: string }) {
+  const location = useLocation();
+  return <div data-testid={testId} data-location={`${location.pathname}${location.search}${location.hash}`}
+    data-state={JSON.stringify(location.state ?? null)}>{label}</div>;
+}
+
+function renderAt(initial: string, entryElement?: React.ReactNode, withLocation = false) {
   return render(
     <MemoryRouter initialEntries={[initial]}>
       <main id="main-content">
         <Routes>
           {entryElement ? <Route path={initial} element={entryElement} /> : null}
-          <Route path="/practice" element={<div data-testid="practice-marker">PRACTICE</div>} />
-          <Route path="/session" element={<div data-testid="session-page">SESSION</div>} />
+          <Route path="/practice" element={withLocation ? <Landed testId="practice-marker" label="PRACTICE" /> : <div data-testid="practice-marker">PRACTICE</div>} />
+          <Route path="/session" element={withLocation ? <Landed testId="session-page" label="SESSION" /> : <div data-testid="session-page">SESSION</div>} />
           <Route path="/auth/signin" element={<div data-testid="signin-page">SIGNIN</div>} />
         </Routes>
       </main>
@@ -44,6 +51,15 @@ describe('PostAuthRedirect — /practice is the flag-free default', () => {
   it('unsafe/external return path is rejected → /practice', () => {
     renderAt('/auth', <PostAuthRedirect from={{ pathname: '//evil.com' }} />);
     expect(screen.getByTestId('practice-marker')).toBeInTheDocument();
+  });  it('#1548: an unsafe destination never carries the wrapper state to /practice', () => {
+    renderAt('/auth', <PostAuthRedirect from={{ pathname: '//evil.com', state: { leak: 1 } }} />, true);
+    expect(screen.getByTestId('practice-marker')).toHaveAttribute('data-state', 'null');
+  });
+  it('#1548: a safe deep-link lands with its hash and original router state', () => {
+    renderAt('/auth', <PostAuthRedirect from={{ pathname: '/session', search: '?q=1', hash: '#top', state: { from: 'saved-review' } }} />, true);
+    const page = screen.getByTestId('session-page');
+    expect(page).toHaveAttribute('data-location', '/session?q=1#top');
+    expect(page).toHaveAttribute('data-state', JSON.stringify({ from: 'saved-review' }));
   });
 });
 

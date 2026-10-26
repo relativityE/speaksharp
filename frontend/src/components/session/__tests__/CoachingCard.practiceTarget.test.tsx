@@ -17,7 +17,7 @@ describe('#1548 visible practice instruction without replacing live coaching', (
         expect(screen.queryByText('Old advice.')).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Retry this target' }));
         expect(retry).toHaveBeenCalledOnce();
-        expect(screen.getByRole('link', { name: 'Reopen saved review' })).toHaveAttribute('href', '/analytics/source-1');
+        expect(screen.getByRole('link', { name: 'Reopen saved review' })).toHaveAttribute('href', '/progress/source-1');
     });
     it('keeps a Focus nudge and removes the inherited instruction after the take', () => {
         const view = render(<CoachingCard sessionState="during" practiceTarget={{ kind: 'ready', instruction: 'Name the price first.' }} nudge="Cover the second point." />);
