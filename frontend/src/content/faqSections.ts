@@ -110,14 +110,14 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 question: 'What is the difference between Open Mic and Focus Points?',
                 answer: [
                     'Open Mic — speak freely on anything, up to 10 minutes per recording. Good for warming up or thinking out loud.',
-                    'Focus Points — list the points you want to cover, then speak. Afterwards each point shows whether your transcript has evidence you covered it.',
+                    'Focus Points — list the points you want to cover, then speak. Afterwards each point shows whether it was detected in your transcript.',
                 ],
             },
             {
                 id: 'focus-points-detect',
                 question: 'What can Focus Points detect?',
                 answer: [
-                    'It looks in your transcript for wording that matches each point. “Covered” means matching words were found — not that you made the point well — and an unusual phrasing can be missed.',
+                    'It looks in your transcript for wording that matches each point. “Detected” means matching words were found — not that you made the point well — and an unusual phrasing can be missed.',
                 ],
             },
             {

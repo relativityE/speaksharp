@@ -173,13 +173,14 @@ test.describe('Live page-aware Issue Report context (#1018, free account)', () =
 
     const analytics = by('analytics');
     expect(analytics.metadata.pageKey).toBe('analytics');
-    expect(analytics.metadata.canonicalRoute).toBe('/analytics');
+    // #1548: these pages are reached by the canonical /progress routes (ROUTES.ANALYTICS / analyticsWithSession).
+    expect(analytics.metadata.canonicalRoute).toBe('/progress');
     expect(analytics.session_id).toBeNull();
 
     const owned = by('owned');
     expect(owned.metadata.pageKey).toBe('analytics_session');
-    expect(owned.metadata.canonicalRoute).toBe('/analytics/:sessionId');
-    expect(owned.page_url).toBe('/analytics/:sessionId');
+    expect(owned.metadata.canonicalRoute).toBe('/progress/:sessionId');
+    expect(owned.page_url).toBe('/progress/:sessionId');
     // The concrete UUID lives ONLY in session_id — never in page_url or metadata.
     expect(owned.session_id).toBe(ownedSessionId);
     expect(owned.page_url).not.toContain(ownedSessionId);

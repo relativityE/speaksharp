@@ -34,3 +34,75 @@ export function safeDeepLink(from?: { pathname?: string; search?: string } | nul
 export function resolvePostAuthPath(from?: { pathname?: string; search?: string } | null): string {
   return safeDeepLink(from) ?? '/practice';
 }
+
+/** The protected location `ProtectedRoute` hands to sign-in as `state.from` (a router location). */
+export type PostAuthFrom = { pathname?: string; search?: string; hash?: string; state?: unknown } | null | undefined;
+
+const PLACEHOLDER_ORIGIN = 'https://speaksharp.invalid';
+
+/** The pathname as the browser will resolve it (dot segments collapsed); '' if it cannot be parsed. */
+function normalizedPath(pathname: string): string {
+  try { return new URL(pathname, PLACEHOLDER_ORIGIN).pathname; } catch { return ''; }
+}
+
+/**
+ * The pathname as React Router matches it: each segment percent-decoded, with a decoded `/` kept as `%2F` so it never
+ * forms a new segment (the router's own `decodePath` rule). `null` when a segment cannot be decoded.
+ */
+function routerDecodedPath(pathname: string): string | null {
+  try {
+    return pathname.split('/').map((segment) => decodeURIComponent(segment).replace(/\//g, '%2F')).join('/');
+  } catch {
+    return null;
+  }
+}
+
+/** The joined in-app target resolves on the same origin to exactly the validated pathname. */
+function staysOnPath(target: string, pathname: string): boolean {
+  try {
+    const joined = new URL(target, PLACEHOLDER_ORIGIN);
+    return joined.origin === PLACEHOLDER_ORIGIN && joined.pathname === new URL(pathname, PLACEHOLDER_ORIGIN).pathname;
+  } catch {
+    return false;
+  }
+}
+
+/** Sign-in surfaces are never a post-auth destination: returning to one would re-enter sign-in. */
+function isAuthSurface(pathname: string): boolean {
+  return /^\/(?:auth|signup)(?:\/|$)/i.test(pathname);
+}
+
+/**
+ * #1548 — the IN-APP post-auth return, for `PostAuthRedirect`'s `<Navigate>` only. The magic-link email return URL
+ * keeps `safeDeepLink` (pathname + search, no fragment): the auth provider writes its own tokens into that URL's
+ * fragment, so a destination hash must never be put there.
+ *
+ * In-app, the validated destination keeps its hash and its ORIGINAL router state (`from.state`) — never the auth
+ * wrapper's state, and a nested `state.from` is passed through as data, never followed as a destination. State is
+ * handed to the router only; it is not serialized anywhere. Invalid, unsafe or sign-in destinations → `/practice`
+ * with no state.
+ *
+ * Each part is validated on its own before anything is joined (a router location never mixes them, so any mixing is
+ * malformed and refused): pathname is a safe in-app path with no `?`/`#`; search is empty or `?…` with no `#`; hash
+ * is empty or `#…`. Otherwise `'/'` + search `'/evil.example'` would join into `//evil.example`, and `'/auth?x=1'`
+ * would slip past the sign-in check. The joined target is then parsed against a fixed placeholder origin and must stay
+ * on that origin with the same pathname — a structural check, so colon text inside the query or fragment
+ * (`?next=https://…`, `#chapter:one`) is data, not a new destination.
+ */
+export function resolveInAppPostAuthTarget(from: PostAuthFrom): { to: string; state?: unknown } {
+  const refuse = { to: '/practice' };
+  const pathname = from?.pathname;
+  const search = from?.search ?? '';
+  const hash = from?.hash ?? '';
+  if (!isSafeInternalPath(pathname) || /[?#]/.test(pathname)) return refuse;
+  if (typeof search !== 'string' || (search !== '' && (!search.startsWith('?') || search.includes('#')))) return refuse;
+  if (typeof hash !== 'string' || (hash !== '' && !hash.startsWith('#'))) return refuse;
+  // Also on the normalized and the router-decoded path, so a dot-segment (`/x/../auth/signin`) or percent-encoded
+  // (`/%61uth/signin`) form cannot reach a sign-in surface. Undecodable percent-encoding is refused.
+  const normalized = normalizedPath(pathname);
+  const decoded = routerDecodedPath(normalized);
+  if (decoded === null || [pathname, normalized, decoded].some(isAuthSurface)) return refuse;
+  const to = `${pathname}${search}${hash}`;
+  if (!staysOnPath(to, pathname)) return refuse;
+  return from?.state === undefined ? { to } : { to, state: from.state };
+}

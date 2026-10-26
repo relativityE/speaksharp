@@ -228,14 +228,15 @@ export async function waitForRouteControls(page: Page, route: string, timeout: n
     return;
   }
 
-  if (pathname === '/analytics') {
+  // #1548: /analytics is the legacy alias of /progress; goToApp may report it before the replace-redirect lands.
+  if (pathname === '/progress' || pathname === '/analytics') {
     await waitForFeature(page, 'analytics', timeout);
     await expect(page.getByTestId('analytics-dashboard')).toBeVisible({ timeout });
     return;
   }
 
-  if (pathname.startsWith('/analytics/session-')) {
-    await page.waitForURL('**/analytics/session-*', { timeout });
+  if (pathname.startsWith('/progress/session-') || pathname.startsWith('/analytics/session-')) {
+    await page.waitForURL('**/progress/session-*', { timeout });
     await expect(page.getByRole('link', { name: /Back to Dashboard/i })).toBeVisible({ timeout });
   }
 }
@@ -254,15 +255,15 @@ export async function openSessionDetailFromHistoryItem(page: Page, historyItem: 
     const self = element instanceof HTMLAnchorElement ? element : null;
     const detailLink =
       element.querySelector<HTMLAnchorElement>('[data-testid^="session-detail-link-"]') ??
-      element.querySelector<HTMLAnchorElement>('a[href^="/analytics/session-"]') ??
-      element.querySelector<HTMLAnchorElement>('a[href^="/analytics/"]');
+      element.querySelector<HTMLAnchorElement>('a[href^="/progress/session-"]') ??
+      element.querySelector<HTMLAnchorElement>('a[href^="/progress/"]');
 
     return self?.getAttribute('href') ?? detailLink?.getAttribute('href') ?? null;
   });
 
-  expect(sessionHref).toMatch(/^\/analytics\/session-/);
+  expect(sessionHref).toMatch(/^\/progress\/session-/);
   await navigateToRoute(page, sessionHref!);
-  await page.waitForURL('**/analytics/session-*');
+  await page.waitForURL('**/progress/session-*');
 }
 
 
@@ -417,6 +418,8 @@ export async function programmaticLoginWithRoutes(
      * reloads until the spec clears it (see `clearProfileFault` in error-states.e2e.spec.ts).
      */
     profileFault?: ProfileFault;
+    /** A1-2: keep the app's recovery draft across reloads, as a real browser does (see setupE2EManifest). */
+    preserveRecoveryDraftAcrossLoads?: boolean;
   } = {}
 ) {
   const {
@@ -429,6 +432,7 @@ export async function programmaticLoginWithRoutes(
     sessions,
     progressFixtures,
     profileFault,
+    preserveRecoveryDraftAcrossLoads,
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -472,6 +476,7 @@ export async function programmaticLoginWithRoutes(
     // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
     sessions,
     progressFixtures,
+    preserveRecoveryDraftAcrossLoads,
     storage: authStorage
   });
 
