@@ -19,7 +19,16 @@ const filler=`import {corpusRows,crossCheckCounts,fillerAnnotationsOf,hesitation
 hesitationTotals(transcript, corpus);
 for(const row of corpusRows(corpus, transcript, fillerAnnotationsOf(fixture.entry), fixture.entry.kind)) receipt.row('reference', row.verdict, row.detail, {});
 for(const [key,c] of Object.entries(crossCheckCounts(transcript, productFillerCount))) receipt.row(key,c.verdict,{});
-humanObservation(receipt, 'open_mic_uh_detected', 'human');`;
+humanObservation(receipt, 'open_mic_uh_detected', 'human');
+const returned = await back.click({ timeout: 20_000 }).then(() => page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 }));`;
+// #1548 route contracts (#1724), as each spec carries them.
+const products=`const arrived = clicked && await page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 }).then(() => true).catch(() => false);`;
+const recording=`await page.goto(\`/analytics/\${persistedId}\`);
+await expect(page).toHaveURL((url) => url.pathname === \`/progress/\${persistedId}\`, { timeout: 45_000 });`;
+const pageContext=`expect(analytics.metadata.canonicalRoute).toBe('/progress');
+expect(owned.metadata.canonicalRoute).toBe('/progress/:sessionId');
+expect(owned.page_url).toBe('/progress/:sessionId');`;
+const ROUTES=[[SOURCE_CONTRACTS[3],products,1],[SOURCE_CONTRACTS[4],recording,2],[SOURCE_CONTRACTS[5],pageContext,3]];
 
 test('canary source rejects a negated saved matcher on the actual outcome',()=>{
   const negated=canary.replace("expect(outcome.kind).toBe('saved')","expect(outcome.kind, diagnostic).not.toBe('saved')");
@@ -42,7 +51,7 @@ test('saved matcher must assert the owned collector result in the same statement
 test('source contracts reject missing wires and comments posing as execution',()=>{
   for(const [file,source] of [[SOURCE_CONTRACTS[0],canary],[SOURCE_CONTRACTS[1],filler]]) {
     const proof=inspectSourceContract(root,file,source);
-    assert.equal(proof.liveExecution,'NOT RUN');assert.equal(proof.detectedFaults,file===SOURCE_CONTRACTS[0]?7:6);
+    assert.equal(proof.liveExecution,'NOT RUN');assert.equal(proof.detectedFaults,file===SOURCE_CONTRACTS[0]?7:7);
     assert.throws(()=>inspectSourceContract(root,file,`/* ${source} */`),/wiring contract failed/);
   }
   for(const [from,to] of [['sessionId: savedId','sessionId: foreignId'],['await collectCanaryStopSave','collectCanaryStopSave'],
@@ -55,6 +64,44 @@ test('source contracts reject missing wires and comments posing as execution',()
   }
   assert.throws(()=>inspectSourceContract(root,'tests/live/unregistered.live.spec.ts',canary),/Unregistered/);
 });
+
+test('route contracts accept exactly their canonical /progress wires, with no live credit',()=>{
+  for(const [file,source,wires] of ROUTES) {
+    const proof=inspectSourceContract(root,file,source);
+    assert.equal(proof.liveExecution,'NOT RUN');assert.equal(proof.kind,'wiring-contract');
+    assert.equal(proof.checks,wires);assert.equal(proof.detectedFaults,wires);
+    assert.throws(()=>inspectSourceContract(root,file,`/* ${source} */`),/wiring contract failed/);
+    assert.throws(()=>inspectSourceContract(root,file,`${source}\n${source}`),/wiring contract failed/,'a duplicated wire is not unique');
+  }
+});
+
+test('route contracts refuse the legacy /analytics destination and near-miss paths',()=>{
+  for(const [from,to] of [["url.pathname === '/progress'","url.pathname === '/analytics'"],["=== '/progress'","=== '/progressx'"],
+    ["=== '/progress'","!== '/progress'"],['{ timeout: 30_000 }','{ timeout: 1 }']]) {
+    assert.throws(()=>inspectSourceContract(root,SOURCE_CONTRACTS[3],products.replace(from,to)),/wiring contract failed/);
+    assert.throws(()=>inspectSourceContract(root,SOURCE_CONTRACTS[1],filler.replace(from,to)),/wiring contract failed/);
+  }
+  for(const [from,to] of [['`/progress/${persistedId}`','`/analytics/${persistedId}`'],['`/progress/${persistedId}`','`/progress/${otherId}`'],
+    ['await page.goto(`/analytics/${persistedId}`);','await page.goto(`/progress/${persistedId}`);'],['toHaveURL','not.toHaveURL']]) {
+    assert.throws(()=>inspectSourceContract(root,SOURCE_CONTRACTS[4],recording.replace(from,to)),/wiring contract failed/);
+  }
+  for(const [from,to] of [["toBe('/progress');","toBe('/analytics');"],["canonicalRoute).toBe('/progress/:sessionId')","canonicalRoute).toBe('/analytics/:sessionId')"],
+    ["page_url).toBe('/progress/:sessionId')","page_url).toBe('/progress')"],['expect(owned.page_url)','expect(other.page_url)']]) {
+    assert.throws(()=>inspectSourceContract(root,SOURCE_CONTRACTS[5],pageContext.replace(from,to)),/wiring contract failed/);
+  }
+});
+
+test('route specs without their wires are not applicable; with them, applicability still grants no credit',()=>fixture(({dir,write})=>{
+  for(const [file,source] of ROUTES) {
+    write(file,'import {test} from "@playwright/test"; test("baseline",async()=>{});\n');
+    assert.equal(executionRoute(file,dir).applicable,false);
+    write(file,source);
+    const route=executionRoute(file,dir);
+    assert.equal(route.applicable,true);assert.equal(route.liveExecution,'NOT RUN');
+    write(file,source.replace('/progress','/analytics'));
+    assert.equal(executionRoute(file,dir).applicable,false);
+  }
+}));
 
 function fixture(check) {
   const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'source-contract-control-')));
