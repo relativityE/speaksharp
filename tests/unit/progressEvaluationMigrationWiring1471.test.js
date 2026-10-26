@@ -38,6 +38,8 @@ const REJECTION_RECOVERY = '20261017200000'; // later checkout-rejection recover
 /** The six reviewed T2 targets, allowlisted after checkout-rejection recovery in their reviewed order: Analytics, pending
  *  checkout, U1 heartbeat, recording admission, coaching admission, completion journal. All later; excluded from this target. */
 const T2_TARGETS = ['20261018090000', '20261018170000', '20261019010000', '20261019055102', '20261019202856', '20261020230653'];
+// C1 follows the T2 queue; these later targets must remain pending and isolated.
+const C1_TARGETS = ['20261024083000', '20261025021046'];
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const SUPABASE = resolve(ROOT, 'backend/supabase');
 const WORKFLOW = readFileSync(resolve(ROOT, '.github/workflows/apply-exact-allowlisted-migration.yml'), 'utf8');
@@ -46,6 +48,11 @@ const ACTIVATION = EXACT_MIGRATION_ALLOWLIST.find((e) => e.classification === 'c
 
 describe('#1471 migration is wired into the exact allowlisted apply path, after #1476', () => {
     const entry = EXACT_MIGRATION_ALLOWLIST.find((item) => item.version === VERSION);
+
+    it.each(C1_TARGETS)('refuses an earlier-target ledger missing later C1 migration %s', (version) => {
+        const incomplete = ledger([PREVIOUS]).split('\n').filter((line) => !line.includes(version)).join('\n');
+        expect(() => assertBeforeApply(incomplete, config)).toThrow(`later allowlisted migration ${version} is absent`);
+    });
 
     it('is allowlisted as staged, directly after #1476, before the held commercial-activation entry', () => {
         expect(entry).toMatchObject({ file: FILE, classification: 'staged' });
@@ -63,7 +70,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
         expect(WORKFLOW).toContain(`- '${VERSION}'`);
         const head = 'b'.repeat(40);
         expect(expectedAuthorizationPhrase(head, config)).toBe(`APPLY ${VERSION} ${FILE} SHA256 ${entry.sha256} AT ${head}`);
-        expect(config.excludedMigrations.map(({ version }) => version), 'static: later targets include disabled deletion before held activation').toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ACTIVATION.version]);
+        expect(config.excludedMigrations.map(({ version }) => version), 'static: later targets include disabled deletion before held activation').toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ...C1_TARGETS, ACTIVATION.version]);
     });
 
     it('a dry-run is accepted only when it would push this target alone', () => {
@@ -90,6 +97,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
         ` ${ENFORCEMENT} |                | x`,
         ` ${REJECTION_RECOVERY} |                | x`,
         ...T2_TARGETS.map((v) => ` ${v} |                | x`),
+        ...C1_TARGETS.map((v) => ` ${v} |                | x`),
     ].join('\n');
 
     it('ORDERED QUEUE: REFUSED while #1476 is still pending — named, not hidden', () => {
@@ -98,7 +106,7 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
 
     it('EXECUTABLE once #1476 is applied: target-only; applied activation stays and all later targets remain pending', () => {
         const before = ledger([PREVIOUS]);
-        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS], excludedVersions: [MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS] });
+        expect(assertBeforeApply(before, config)).toEqual({ pending: [VERSION, MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ...C1_TARGETS], excludedVersions: [MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ...C1_TARGETS] });
         const root = mkdtempSync(join(tmpdir(), 'exact-1471-'));
         try {
             prepareExactMigrationWorkspace(SUPABASE, root, ledgerAwareConfig(before, config));
@@ -114,10 +122,11 @@ describe('#1471 migration is wired into the exact allowlisted apply path, after 
             expect(isolated.some((f) => f.startsWith(ENFORCEMENT)), 'the later enforcement prerequisite is excluded').toBe(false);
             expect(isolated.some((f) => f.startsWith(REJECTION_RECOVERY)), 'the later checkout-rejection recovery is excluded').toBe(false);
             for (const v of T2_TARGETS) expect(isolated.some((f) => f.startsWith(v)), `the later T2 target ${v} is excluded`).toBe(false);
+            for (const v of C1_TARGETS) expect(isolated.some((f) => f.startsWith(v)), `the later C1 target ${v} is excluded`).toBe(false);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
         const after = before.replace(new RegExp(`^\\s*${VERSION}\\s*\\|\\s*\\|.*$`, 'm'), ` ${VERSION} | ${VERSION} | x`);
-        expect(assertAfterApply(before, after, config).pending).toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS]);
+        expect(assertAfterApply(before, after, config).pending).toEqual([MARKER, TRIAL, EXPIRY_FIX, TYPED_FIX, CLOSURE, DRAIN, ENFORCEMENT, REJECTION_RECOVERY, ...T2_TARGETS, ...C1_TARGETS]);
     });
 });
