@@ -262,8 +262,9 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             // Reopen the EXACT session through the CUSTOMER UI route and prove the UI RENDERS the saved transcript —
             // by SHA-256 digest equality (rendered vs the persisted digest computed above), NEVER by raw text or by
             // mere presence/length. Only digests appear in any assertion message.
+            // #1548: the legacy /analytics/<id> link is kept deliberately; it must land on the canonical /progress/<id>.
             await page.goto(`/analytics/${persistedId}`);
-            await expect(page).toHaveURL(new RegExp(`/analytics/${persistedId}`), { timeout: 45_000 });
+            await expect(page).toHaveURL((url) => url.pathname === `/progress/${persistedId}`, { timeout: 45_000 });
             const detail = page.getByTestId('session-detail-transcript');
             await expect(detail, 'the exact session reopens in the customer UI').toBeVisible({ timeout: 45_000 });
             const uiShaBefore = sha256Hex(await detail.innerText());

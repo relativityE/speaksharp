@@ -815,7 +815,8 @@ test.describe('RWT — Open Mic first session @live', () => {
                     // "Back to Dashboard" control and downloads THIS session's PDF from the list. The reload minted a new journey;
                     // the session_pdf_export stage is bound to wherever session_pdf_downloaded actually lands (pdfExport binding).
                     const back = page.getByRole('link', { name: 'Back to Dashboard' });
-                    const returned = await back.click({ timeout: 20_000 }).then(() => page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }))
+                    // #1548: "Back to Dashboard" lands on exactly the canonical /progress list.
+                    const returned = await back.click({ timeout: 20_000 }).then(() => page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 }))
                         .then(() => true).catch(() => false);
                     if (!returned) { receipt.row('session PDF', 'FAIL', 'the detail\'s Back to Dashboard control did not return to the Analytics list'); return; }
                     const button = page.getByTestId(`download-pdf-btn-${persistedId}`).or(page.getByTestId(`download-pdf-btn-mobile-${persistedId}`)).first();
