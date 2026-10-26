@@ -110,6 +110,10 @@ import { feedbackDiagnosticChainRow } from './helpers/coachingFeedbackAdapter';
 import { capturedTakesDifferVerdict, coachingPromptBindingRow, coachingRequestBudgetRow, createCoachingTakeCapture } from './helpers/rwtCoachingCollector';
 import { coachingContract } from './helpers/rwtCoachingEvidence';
 import { openProductsItem } from './helpers/productsMenu';
+import {
+    LEGACY_PHRASE, PROGRESS_FORMULA, REPEAT_METRIC_ROW, pressLinkage, repeatMetricPrerequisites, repeatMetricWordingVerdict,
+    type PanelObservation, type ServerEvidence,
+} from './helpers/repeatMetricWording';
 
 const SUITE = 'open-mic-first-session';
 /** Smoke item 2 (run 38654466793): the first take's save-time families the readback held as never received. */
@@ -959,6 +963,72 @@ test.describe('RWT — Open Mic first session @live', () => {
                     releaseSha: expectedReleaseSha(), outputDirs: [testInfo.outputDir, testInfo.project.outputDir],
                     captured: coachingCapture ?? undefined,
                 });
+            });
+
+            // ── G03 (#1548 A2, APP-G4): the repeat result names the measured delivery metric ─────────────────────────────
+            // Server oracle first, bound to this journey's first session and its saved repeat take; the page is opened only
+            // when those bindings hold (`loadSessionProgress` can reconcile). Read-only otherwise; closed codes in the row.
+            await test.step('the repeat result names the measured metric', async () => {
+                try {
+                    const linkage = pressLinkage(repeatWindow ? tap.events.slice(repeatWindow[0], repeatWindow[1]) : []);
+                    let server: ServerEvidence = { kind: 'read_failed' };
+                    if (persistedId && repeatSessionId && capturedUid) {
+                        const { data: rec, error: recErr } = await admin!.from('progress_recommendations')
+                            .select('id,target_metric,target_direction,target_value,target_units')
+                            .eq('source_session_id', persistedId).eq('formula_version', PROGRESS_FORMULA).eq('user_id', capturedUid).maybeSingle();
+                        const { data: attempts, error: attErr } = rec && !recErr
+                            ? await admin!.from('progress_recommendation_attempts').select('lifecycle,outcome,practice_session_id')
+                                .eq('recommendation_id', rec.id).eq('user_id', capturedUid).order('accepted_at', { ascending: false }).limit(10)
+                            : { data: [], error: null };
+                        if (!recErr && !attErr) {
+                            server = {
+                                kind: 'read',
+                                recommendation: rec ? { targetMetric: rec.target_metric, targetDirection: rec.target_direction, targetValue: rec.target_value, targetUnits: rec.target_units } : null,
+                                attempts: (attempts ?? []).map((a) => ({ lifecycle: a.lifecycle, outcome: a.outcome, isThisRepeat: a.practice_session_id === repeatSessionId })),
+                            };
+                        }
+                    }
+                    const prerequisite = repeatMetricPrerequisites(server, linkage);
+                    if (!prerequisite.observe) {
+                        receipt.row(REPEAT_METRIC_ROW, 'HOLD', prerequisite.detail, { reason: prerequisite.reason, linkage: linkage.kind });
+                        return;
+                    }
+                    const route = `/progress/${persistedId}`;
+                    await page.goto(route);
+                    const panel = page.getByTestId('progress-panel');
+                    // One bounded wait for any terminal panel state, then which one it is.
+                    const terminal = {
+                        eligible: panel.getByTestId('progress-direction'),
+                        error: panel.getByRole('alert'),
+                        insufficient: panel.getByText('More evidence is needed before a reliable comparison is available.'),
+                        ineligible: panel.getByText('Comparison is unavailable for this session.'),
+                    } as const;
+                    const reached = await terminal.eligible.or(terminal.error).or(terminal.insufficient).or(terminal.ineligible).first()
+                        .waitFor({ state: 'visible', timeout: 45_000 }).then(() => true, () => false);
+                    let settled: PanelObservation['state'] = 'not_settled';
+                    if (reached) {
+                        for (const state of ['eligible', 'error', 'insufficient', 'ineligible'] as const) {
+                            if (await terminal[state].first().isVisible().catch(() => false)) { settled = state; break; }
+                        }
+                    }
+                    const line = (id: string) => panel.getByTestId(id).first().innerText({ timeout: 5_000 }).then((t) => t, () => null);
+                    const onRoute = !page.isClosed() && new URL(page.url()).pathname === route;
+                    const observation: PanelObservation = page.isClosed()
+                        ? { state: 'closed', target: null, outcome: null, scope: null, legacyPhrase: false }
+                        : {
+                            state: !onRoute ? 'wrong_route' : settled === 'eligible' && await panel.getByTestId('progress-loading').count() > 0 ? 'not_settled' : settled,
+                            target: await line('progress-attempt-target'),
+                            outcome: await line('progress-attempt-outcome'),
+                            scope: await line('progress-attempt-scope'),
+                            legacyPhrase: (await panel.innerText({ timeout: 5_000 }).catch(() => '')).includes(LEGACY_PHRASE),
+                        };
+                    const verdict = repeatMetricWordingVerdict(prerequisite.expected, observation);
+                    receipt.row(REPEAT_METRIC_ROW, verdict.verdict, verdict.detail, { ...verdict.evidence, linkage: linkage.kind });
+                } catch (error) {
+                    // A Playwright message can carry the route's session id: only the error class is recorded.
+                    const name = error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+                    receipt.row(REPEAT_METRIC_ROW, 'HOLD', `the repeat-metric observation failed (${name})`);
+                }
             });
         } finally {
             await finish();
