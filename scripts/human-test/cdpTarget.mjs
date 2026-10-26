@@ -79,7 +79,7 @@ export function selectAppTarget(targets, appOrigin) {
 function categoriseTargetRoute(pathname) {
     if (pathname === '/' || pathname === '/index.html') return 'app-shell';
     if (pathname.startsWith('/session')) return 'session';
-    if (pathname.startsWith('/analytics')) return 'analytics';
+    if (/^\/(?:progress|analytics)(?:\/[^/]+)?\/?$/.test(pathname)) return 'analytics';
     if (pathname.startsWith('/auth')) return 'auth';
     return 'other';
 }

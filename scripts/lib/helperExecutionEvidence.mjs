@@ -9,11 +9,56 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile: 'tests/live/helpers/rwtMarkerObserver.ts',
   testFile: 'tests/unit/rwtMarkerObserver1593.test.ts',
   callables: ['armMarkerObserverInPage', 'freezeMarkerObserverInPage', 'classifyMarkerTiming'],
+}, {
+  helperFile:'tests/canary/canaryStopSaveOracle.ts', testFile:'tests/unit/canaryStopSaveOracle.test.ts',
+  callables:['startOwnerId','isOwnedStopSettledInPage','responseMatchesTake','verifySavedReadback','collectCanaryStopSave'],
+}, {
+  helperFile:'tests/e2e/canaryLanding.ts', testFile:'tests/e2e/__tests__/canaryLanding.test.ts',
+  callables:['isProgressRoutePathname','isExpectedAuthLanding'],
+}, {
+  helperFile:'tests/live/helpers/rwtJourney.ts', testFile:'tests/unit/progressReaderUrlPredicates.test.ts',
+  callables:['analyticsThroughActions','backFromProgressRestoresSession'],
+}, {
+  helperFile:'tests/live/helpers/rwtOracles.ts', testFile:'tests/unit/rwtReadbackBindingReasons1258.test.ts',
+  callables:['bindReadbackJourneys'],
+}, {
+  helperFile:'tests/live/helpers/rwtStepDiagnostics.ts', testFile:'tests/unit/rwtStepDiagnostics1258.test.ts',
+  callables:['routeClass'],
+}, {
+  helperFile:'tests/live/helpers/rwtFillerReference.ts', testFile:'tests/unit/rwtFillerReference1258.test.ts',
+  callables:['fillerAnnotationsOf','referenceKeyFor','referenceCount','alignFillers','corpusWordVerdict',
+    'corpusVerdicts','corpusRows','hesitationTotals','integrityVerdict','crossCheckCounts'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
 export function registeredHelper(file) {
   return HELPER_CONTRACTS.find(contract => contract.helperFile === file);
+}
+
+// Applicability selects an executable registered edge; it never grants credit.
+// Unsupported baseline/partial shapes remain required, explicitly unqualified
+// inputs in the producer and the independent coverage inventory.
+export function helperApplicability(root,file) {
+  const contract=registeredHelper(file);
+  if(!contract) return {supported:false,reason:'unregistered helper'};
+  try {regularFile(root,contract.helperFile);} catch {return {supported:false,reason:'helper source unavailable or aliased'};}
+  try {regularFile(root,contract.testFile);} catch {return {supported:false,reason:`registered consumer unavailable: ${contract.testFile}`};}
+  try {
+    const ts=createRequire(path.join(root,'package.json'))('typescript');
+    const parsed=ts.createSourceFile(file,fs.readFileSync(path.join(root,file),'utf8'),ts.ScriptTarget.Latest,true);
+    if(parsed.parseDiagnostics.length) return {supported:false,reason:'unknown helper syntax'};
+    for(const name of contract.callables) {
+      const declarations=[];
+      for(const node of parsed.statements) {
+        if(ts.isFunctionDeclaration(node) && node.name?.text===name && node.body) declarations.push(node);
+        if(ts.isVariableStatement(node)) for(const item of node.declarationList.declarations) {
+          if(ts.isIdentifier(item.name) && item.name.text===name && item.initializer && ts.isArrowFunction(item.initializer)) declarations.push(item);
+        }
+      }
+      if(declarations.length!==1) return {supported:false,reason:`registered callable unavailable or ambiguous: ${name}`};
+    }
+    return {supported:true};
+  } catch {return {supported:false,reason:'helper applicability could not be established'};}
 }
 
 function regularFile(root, relative) {
@@ -26,7 +71,7 @@ function regularFile(root, relative) {
 
 export function helperRuntimeIdentity(root) {
   const require = createRequire(path.join(root, 'package.json'));
-  const packages = ['@vitest/coverage-v8', 'jsdom', '@jridgewell/trace-mapping', 'typescript'].map(name => {
+  const packages = ['@vitest/coverage-v8', 'jsdom', '@jridgewell/trace-mapping', 'typescript','vite-node'].map(name => {
     const location = require.resolve(`${name}/package.json`);
     const bytes = fs.readFileSync(location);
     return {name, version: JSON.parse(bytes).version, packageSha256: hash(bytes),
@@ -49,7 +94,74 @@ export function helperRuntimeIdentity(root) {
   const converter = {kind:'embedded-legacy-v8-to-istanbul', providerModule:'@vitest/coverage-v8/dist/provider.js',
     providerVersion:packages[0].version, startByte:Buffer.byteLength(code.slice(0,begin)),
     endByte:Buffer.byteLength(code.slice(0,end)), sha256:hash(code.slice(begin,end))};
-  return {packages, providerSha256: hash(bytes), converter};
+  const normalizer=rangeNormalizer(root);
+  const client=fs.readFileSync(require.resolve('vite-node/client'),'utf8');
+  const suffix='\n}}';
+  if(packages.at(-1).version!=='3.2.4' || !client.includes('${transformed}'+JSON.stringify(suffix).slice(1,-1))) throw new Error('Unsupported helper module wrapper');
+  return {packages, providerSha256: hash(bytes), converter,normalizer:normalizer.identity,
+    wrapper:{package:'vite-node',version:'3.2.4',clientSha256:hash(client),suffixLength:suffix.length}};
+}
+
+function rangeNormalizer(root) {
+  const require=createRequire(path.join(root,'package.json'));
+  const provider=fs.realpathSync(require.resolve('@vitest/coverage-v8/dist/provider.js'));
+  const providerRequire=createRequire(provider);
+  const entry=fs.realpathSync(providerRequire.resolve('@bcoe/v8-coverage'));
+  const packageFile=providerRequire.resolve('@bcoe/v8-coverage/package.json');
+  const metadata=fs.readFileSync(packageFile);
+  if(JSON.parse(metadata).version!=='1.0.2') throw new Error('Unsupported helper range normalizer');
+  const directory=path.dirname(entry);
+  const sources=fs.readdirSync(directory).filter(file=>file.endsWith('.js')).sort().map(file=>{
+    const target=path.join(directory,file);
+    if(!fs.lstatSync(target).isFile() || fs.realpathSync(target)!==target) throw new Error('Aliased helper normalizer');
+    return {file,sha256:hash(fs.readFileSync(target))};
+  });
+  return {merge:providerRequire('@bcoe/v8-coverage').mergeProcessCovs,
+    identity:{name:'@bcoe/v8-coverage',version:'1.0.2',packageSha256:hash(metadata),sources}};
+}
+
+export function validateRawHelperFunctions(functions,maxOffset=Number.MAX_SAFE_INTEGER) {
+  if(!Array.isArray(functions) || !functions.length || !Number.isSafeInteger(maxOffset) || maxOffset<1) throw new Error('Malformed raw helper function inventory');
+  const roots=new Map();
+  for(const fn of functions) {
+    if(typeof fn?.functionName!=='string' || typeof fn.isBlockCoverage!=='boolean'
+      || !Array.isArray(fn.ranges) || !fn.ranges.length || !fn.isBlockCoverage && fn.ranges.length!==1) throw new Error('Malformed raw helper function');
+    const seen=new Set(),stack=[];
+    let previousStart=-1;
+    for(const range of fn.ranges) {
+      const {startOffset:start,endOffset:end,count}=range;
+      if(!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || !Number.isSafeInteger(count)
+        || start<0 || end<=start || end>maxOffset || count<0 || start<previousStart) throw new Error('Malformed raw helper range/count');
+      const key=`${start}:${end}`;
+      if(seen.has(key)) throw new Error('Duplicate raw helper span');
+      if(stack.length) {
+        while(stack.length && start>=stack.at(-1).endOffset) stack.pop();
+        const parent=stack.at(-1);
+        if(!parent || start<parent.startOffset || end>parent.endOffset
+          || parent.count===0 && count!==0) throw new Error('Malformed raw helper nesting/count');
+      } else if(seen.size) throw new Error('Malformed raw helper root ordering');
+      seen.add(key);stack.push(range);previousStart=start;
+    }
+    const top=fn.ranges[0],key=`${top.startOffset}:${top.endOffset}`;
+    if(roots.has(key)) throw new Error('Duplicate raw helper function span');
+    roots.set(key,{name:fn.functionName,count:top.count});
+  }
+  return roots;
+}
+
+export function normalizedHelperWorkerFunctions(root,result,maxOffset=Number.MAX_SAFE_INTEGER) {
+  // Replay the provider's real pre-remap merge on an untouched single-worker
+  // payload. Adjacent equal-count branches may coalesce; counts may not change.
+  if(!Array.isArray(result) || result.length!==1) throw new Error('Malformed raw helper script inventory');
+  const roots=validateRawHelperFunctions(result[0]?.functions,maxOffset);
+  const normalized=rangeNormalizer(root).merge([{result:[]},{result:structuredClone(result)}]);
+  if(normalized.result.length!==1) throw new Error('Wrong helper normalization input');
+  const functions=normalized.result[0].functions;
+  if(functions.length!==roots.size || functions.some(fn=>{
+    const top=fn.ranges[0],raw=roots.get(`${top.startOffset}:${top.endOffset}`);
+    return !raw || raw.name!==fn.functionName || raw.count!==top.count;
+  })) throw new Error('Normalized helper call count differs from raw root');
+  return functions;
 }
 
 export function helperSourceBinding(root, contract) {
@@ -124,7 +236,7 @@ export default {
         || fs.realpathSync(meta.testFiles[0]) !== expected) throw new Error('Wrong helper worker consumer');
       frames.push({testFiles: [expected], rawTestFiles: meta.testFiles, transformMode: meta.transformMode,
         producer: meta.coverage.helperProducer,
-        result: meta.coverage.result.filter(item => item.url === new URL(`file://${path.join(binding.cwd, binding.helper.helperFile)}`).href)});
+        result: structuredClone(meta.coverage.result.filter(item => item.url === new URL(`file://${path.join(binding.cwd, binding.helper.helperFile)}`).href))});
       return originalSuite(meta);
     };
     const originalConvert = provider.v8ToIstanbul.bind(provider);
@@ -161,6 +273,7 @@ export default {
 export function validateHelperCoverage(raw, binding, root) {
   const contract = registeredHelper(binding?.helper?.helperFile);
   if (!contract || contract.testFile !== binding.helper.testFile) throw new Error('Unregistered helper/consumer edge');
+  if(!helperApplicability(root,contract.helperFile).supported) throw new Error('Unavailable helper execution route');
   if (!path.isAbsolute(binding.cwd || '') || path.normalize(binding.cwd) !== binding.cwd
     || path.dirname(binding.coverageDirectory || '') !== binding.cwd
     || !path.basename(binding.coverageDirectory).startsWith('.helper-coverage-')) throw new Error('Aliased helper phase path');
@@ -189,7 +302,11 @@ export function validateHelperCoverage(raw, binding, root) {
   const filename = path.join(binding.cwd, contract.helperFile);
   if (conversion.filename !== new URL(`file://${filename}`).href || frame.result[0].url !== conversion.filename
     || !Number.isInteger(conversion.wrapperLength) || conversion.wrapperLength < 0
-    || JSON.stringify(conversion.functions) !== JSON.stringify(frame.result[0].functions)) throw new Error('Helper raw range/worker mismatch');
+    || (frame.result[0].startOffset ?? 0)!==conversion.wrapperLength
+    || typeof conversion.sources?.source!=='string') throw new Error('Helper raw range/worker mismatch');
+  const rawMaximum=conversion.sources.source.length+conversion.wrapperLength
+    +(conversion.wrapperLength?expected.runtime.wrapper.suffixLength:0);
+  if(JSON.stringify(conversion.functions)!==JSON.stringify(normalizedHelperWorkerFunctions(root,frame.result,rawMaximum))) throw new Error('Helper raw range/worker mismatch');
   const source = fs.readFileSync(regularFile(root, contract.helperFile), 'utf8');
   const sources = conversion.sources;
   const map = sources?.sourceMap?.sourcemap;
@@ -203,7 +320,7 @@ export function validateHelperCoverage(raw, binding, root) {
   }
   const require = createRequire(path.join(root, 'package.json'));
   const ts = require('typescript');
-  const {TraceMap, originalPositionFor} = require('@jridgewell/trace-mapping');
+  const {TraceMap, originalPositionFor,generatedPositionFor,GREATEST_LOWER_BOUND,LEAST_UPPER_BOUND} = require('@jridgewell/trace-mapping');
   const parsed = ts.createSourceFile(contract.helperFile, source, ts.ScriptTarget.Latest, true);
   const trace = new TraceMap(map);
   const mapped = conversion.converted?.[filename];
@@ -214,10 +331,45 @@ export function validateHelperCoverage(raw, binding, root) {
     return originalPositionFor(trace, {line: prefix.length, column: prefix.at(-1).length});
   };
   const sourceLines = source.split('\n');
+  const generatedPoint=offset=>{
+    const lines=sources.source.slice(0,Math.max(0,Math.min(offset,sources.source.trimEnd().length))).split('\n');
+    return {line:lines.length,column:lines.at(-1).length};
+  };
+  const tryBoth=point=>{
+    let result=originalPositionFor(trace,{...point,bias:GREATEST_LOWER_BOUND});
+    if(result.line===null) result=originalPositionFor(trace,{...point,bias:LEAST_UPPER_BOUND});
+    const minimum=originalPositionFor(trace,{line:point.line,column:0,bias:GREATEST_LOWER_BOUND});
+    return minimum.line>result.line?minimum:result;
+  };
+  // Replay the pinned legacy converter's original-start/original-end mapping.
+  // AST bounds below remain independent checks; an alternate plausible AST
+  // column cannot replace the exact column established by this raw V8 range.
+  const mappedSpan=range=>{
+    const startPoint=generatedPoint(range.startOffset-conversion.wrapperLength);
+    const endPoint=generatedPoint(range.endOffset-conversion.wrapperLength);
+    const start=tryBoth(startPoint);
+    const beforeEnd=tryBoth({line:endPoint.line,column:Math.max(endPoint.column-1,1)});
+    if(start.source!==conversion.filename || beforeEnd.source!==conversion.filename) throw new Error('Unmapped helper callable boundary');
+    const afterEnd=generatedPositionFor(trace,{source:beforeEnd.source,line:beforeEnd.line,column:beforeEnd.column+1,bias:LEAST_UPPER_BOUND});
+    let end=afterEnd.line===null || originalPositionFor(trace,afterEnd).line!==beforeEnd.line
+      ? {...beforeEnd,column:Infinity}:originalPositionFor(trace,afterEnd);
+    if(start.line===end.line && start.column===end.column) {
+      end=originalPositionFor(trace,{...endPoint,bias:LEAST_UPPER_BOUND});end.column--;
+    }
+    const clamp=point=>({line:point.line,column:Math.min(point.column,sourceLines[point.line-1]?.length ?? -1)});
+    return {start:clamp(start),end:clamp(end)};
+  };
   const before = (a,b) => a.line < b.line || (a.line === b.line && a.column < b.column);
   const executed = [];
   for (const name of contract.callables) {
-    const declaration = parsed.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+    const declarations=[];
+    for(const node of parsed.statements) {
+      if(ts.isFunctionDeclaration(node) && node.name?.text===name) declarations.push(node);
+      if(ts.isVariableStatement(node)) for(const item of node.declarationList.declarations) {
+        if(ts.isIdentifier(item.name) && item.name.text===name && item.initializer && ts.isArrowFunction(item.initializer)) declarations.push(item.initializer);
+      }
+    }
+    const declaration=declarations.length===1?declarations[0]:null;
     const functions = conversion.functions.filter(fn => fn.functionName === name);
     if (!declaration?.body || functions.length !== 1) throw new Error(`Missing/ambiguous helper callable: ${name}`);
     const fn = functions[0];
@@ -248,20 +400,38 @@ export function validateHelperCoverage(raw, binding, root) {
     if (entries.length !== 1 || !(mapped.f?.[entries[0][0]] > 0)) throw new Error(`Helper remapped callable not executed: ${name}`);
     if (mapped.f[entries[0][0]] !== fn.ranges[0].count) throw new Error('Remapped helper count contradicts raw worker count');
     const location = entries[0][1].loc;
+    const expectedLocation=mappedSpan(fn.ranges[0]);
     const keyword = declaration.getChildren(parsed).find(node => node.kind === ts.SyntaxKind.FunctionKeyword);
     const bodyStart = parsed.getLineAndCharacterOfPosition(declaration.body.getStart(parsed));
     const bodyEnd = parsed.getLineAndCharacterOfPosition(declaration.body.end);
-    const functionStart = keyword && parsed.getLineAndCharacterOfPosition(keyword.getStart(parsed));
+    // The pinned legacy converter maps transformed async declarations to the
+    // declaration start (including export), not the inner function keyword.
+    // Accept that exact AST boundary only for an actual async declaration.
+    const asyncDeclaration=ts.isFunctionDeclaration(declaration)
+      && declaration.modifiers?.some(modifier=>modifier.kind===ts.SyntaxKind.AsyncKeyword);
+    const functionStart = keyword ? parsed.getLineAndCharacterOfPosition(asyncDeclaration?declaration.getStart(parsed):keyword.getStart(parsed))
+      : declaration && ts.isArrowFunction(declaration) ? parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed)) : null;
+    const typedArrow=ts.isArrowFunction(declaration) && (declaration.type || declaration.parameters.some(parameter=>parameter.type));
+    const parameterStart=typedArrow && declaration.parameters[0]
+      ? parsed.getLineAndCharacterOfPosition(declaration.parameters[0].getStart(parsed)):null;
+    const statement=typedArrow && declaration.parent?.parent?.parent;
+    const statementEnd=statement && ts.isVariableStatement(statement)
+      && source.slice(declaration.end,statement.end)===';'
+      ? parsed.getLineAndCharacterOfPosition(statement.end):null;
+    const samePoint=(point,position)=>position && point.line===position.line+1 && point.column===position.character;
+    const exactStart=samePoint(location?.start || {},functionStart)
+      || parameterStart?.line===functionStart?.line && samePoint(location?.start || {},parameterStart);
+    const exactEnd=samePoint(location?.end || {},bodyEnd) || samePoint(location?.end || {},statementEnd);
     const validPoint = point => Number.isInteger(point?.line) && point.line >= 1 && point.line <= sourceLines.length
       && Number.isInteger(point.column) && point.column >= 0 && point.column <= sourceLines[point.line - 1].length;
     if (!location || !Number.isInteger(location.start?.line) || !Number.isInteger(location.end?.line)
       || location.start.line < start.line + 1 || location.end.line > end.line + 1 || location.end.line < location.start.line
       || !Number.isInteger(location.start?.column) || !Number.isInteger(location.end?.column)
       || !validPoint(location.start) || !validPoint(location.end) || !before(location.start,location.end)
-      || !functionStart || location.start.line !== functionStart.line + 1 || location.start.column !== functionStart.character
-      || location.end.line !== bodyEnd.line + 1 || location.end.column !== bodyEnd.character
+      || JSON.stringify(location)!==JSON.stringify(expectedLocation)
+      || !functionStart || !exactStart || !exactEnd
       || before({line:bodyStart.line + 1,column:bodyStart.character},location.start)) {
-      throw new Error('Invalid remapped callable span');
+      throw new Error(`Invalid remapped callable span: ${name}`);
     }
     executed.push({name, rawRanges: fn.ranges, sourceRange: {start, end}, remapped: entries[0][1], count: mapped.f[entries[0][0]]});
   }

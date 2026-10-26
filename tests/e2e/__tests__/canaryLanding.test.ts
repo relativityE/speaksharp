@@ -5,6 +5,7 @@ import {
   SESSION_LANDING,
   ANALYTICS_INDEX_LANDING,
   ANALYTICS_SESSION_LANDING,
+  isProgressRoutePathname,
 } from '../canaryLanding';
 
 describe('canary authenticated-landing contract (default = /practice, deep-links explicit)', () => {
@@ -55,5 +56,28 @@ describe('canary authenticated-landing contract (default = /practice, deep-links
       expect(isExpectedAuthLanding('/analytics', ANALYTICS_SESSION_LANDING)).toBe(false);
       expect(isExpectedAuthLanding('/practice', ANALYTICS_SESSION_LANDING)).toBe(false);
     });
+  });
+});
+
+describe.each(['/progress', '/analytics'])('Progress reader aliases: %s', (route) => {
+  it('accepts explicit index/detail while ordinary login remains /practice only', () => {
+    for (const suffix of ['', '/']) {
+      expect(isExpectedAuthLanding(`${route}${suffix}`, ANALYTICS_INDEX_LANDING)).toBe(true);
+      expect(isExpectedAuthLanding(`${route}/s-1${suffix}`, ANALYTICS_SESSION_LANDING)).toBe(true);
+      expect(isExpectedAuthLanding(`${route}${suffix}`)).toBe(false);
+      expect(isExpectedAuthLanding(`${route}/s-1${suffix}`)).toBe(false);
+      expect(isProgressRoutePathname(`${route}${suffix}`)).toBe(true);
+      expect(isProgressRoutePathname(`${route}/s-1${suffix}`)).toBe(true);
+    }
+    expect(isExpectedAuthLanding(`${route}/s-1`, ANALYTICS_INDEX_LANDING)).toBe(false);
+    expect(isExpectedAuthLanding(route, ANALYTICS_SESSION_LANDING)).toBe(false);
+  });
+
+  it('rejects lookalike prefixes, query-only mentions and extra segments', () => {
+    for (const pathname of [`${route}ive`, `${route}-archive`, `${route}/s-1/extra`, `/session?next=${route}`, `${route}//`]) {
+      expect(isProgressRoutePathname(pathname)).toBe(false);
+      expect(isExpectedAuthLanding(pathname, ANALYTICS_INDEX_LANDING)).toBe(false);
+      expect(isExpectedAuthLanding(pathname, ANALYTICS_SESSION_LANDING)).toBe(false);
+    }
   });
 });

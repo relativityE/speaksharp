@@ -230,7 +230,8 @@ test.describe('RWT — returning user and Products navigation @live', () => {
             // ── The returning user's history through the Analytics control ───────────────────────────────
             await test.step('Analytics shows the returning user\'s history', async () => {
                 const clicked = await page.getByTestId('nav-analytics-link').first().click({ timeout: 20_000 }).then(() => true).catch(() => false);
-                const arrived = clicked && await page.waitForURL(/\/analytics/, { timeout: 30_000 }).then(() => true).catch(() => false);
+                // #1548: the Progress control lands on exactly the canonical /progress list (the /analytics alias only redirects).
+                const arrived = clicked && await page.waitForURL((url) => url.pathname === '/progress', { timeout: 30_000 }).then(() => true).catch(() => false);
                 if (!arrived) { receipt.row('returning history', 'FAIL', 'the Analytics control did not open Analytics'); return; }
                 if (completedBefore === null || completedBefore === 0) { receipt.row('returning history', 'HOLD', 'this account has no verified completed sessions to show'); return; }
                 const listed = await page.locator('[data-testid^="open-session-detail-"]').first()
