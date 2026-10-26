@@ -28,6 +28,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/rwtFillerReference.ts', testFile:'tests/unit/rwtFillerReference1258.test.ts',
   callables:['fillerAnnotationsOf','referenceKeyFor','referenceCount','alignFillers','corpusWordVerdict',
     'corpusVerdicts','corpusRows','hesitationTotals','integrityVerdict','crossCheckCounts'],
+}, {
+  helperFile:'tests/live/helpers/returningSignInAttempt.ts', testFile:'tests/unit/returningSignInAttempt1495.test.ts',
+  callables:['wireErrorCode','classifyTokenResponse','pageAttemptEvents','armPasswordSignInObserver','returningSignInVerdict'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
