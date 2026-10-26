@@ -977,14 +977,16 @@ test.describe('RWT — Open Mic first session @live', () => {
                             .select('id,target_metric,target_direction,target_value,target_units')
                             .eq('source_session_id', persistedId).eq('formula_version', PROGRESS_FORMULA).eq('user_id', capturedUid).maybeSingle();
                         const { data: attempts, error: attErr } = rec && !recErr
-                            ? await admin!.from('progress_recommendation_attempts').select('lifecycle,outcome,practice_session_id')
+                            ? await admin!.from('progress_recommendation_attempts').select('lifecycle,outcome,accepted_at,practice_session_id')
                                 .eq('recommendation_id', rec.id).eq('user_id', capturedUid).order('accepted_at', { ascending: false }).limit(10)
                             : { data: [], error: null };
                         if (!recErr && !attErr) {
                             server = {
                                 kind: 'read',
                                 recommendation: rec ? { targetMetric: rec.target_metric, targetDirection: rec.target_direction, targetValue: rec.target_value, targetUnits: rec.target_units } : null,
-                                attempts: (attempts ?? []).map((a) => ({ lifecycle: a.lifecycle, outcome: a.outcome, isThisRepeat: a.practice_session_id === repeatSessionId })),
+                                attempts: (attempts ?? []).map((a) => ({
+                                    lifecycle: a.lifecycle, outcome: a.outcome, acceptedAt: a.accepted_at, isThisRepeat: a.practice_session_id === repeatSessionId,
+                                })),
                             };
                         }
                     }
@@ -1011,17 +1013,29 @@ test.describe('RWT — Open Mic first session @live', () => {
                             if (await terminal[state].first().isVisible().catch(() => false)) { settled = state; break; }
                         }
                     }
-                    const line = (id: string) => panel.getByTestId(id).first().innerText({ timeout: 5_000 }).then((t) => t, () => null);
+                    // Each read is text, absent (count 0) or failed; a failed read is never taken as a missing line.
+                    let readFailed = false;
+                    const line = async (id: string): Promise<string | null> => {
+                        const el = panel.getByTestId(id);
+                        const present = await el.count().then((n) => n > 0, () => { readFailed = true; return false; });
+                        if (!present) return null;
+                        return el.first().innerText({ timeout: 5_000 }).then((t) => t, () => { readFailed = true; return null; });
+                    };
+                    const stillEligible = async () => !page.isClosed() && new URL(page.url()).pathname === route
+                        && await terminal.eligible.first().isVisible().catch(() => false)
+                        && await panel.getByTestId('progress-loading').count().then((n) => n === 0, () => false);
                     const onRoute = !page.isClosed() && new URL(page.url()).pathname === route;
-                    const observation: PanelObservation = page.isClosed()
-                        ? { state: 'closed', target: null, outcome: null, scope: null, legacyPhrase: false }
-                        : {
-                            state: !onRoute ? 'wrong_route' : settled === 'eligible' && await panel.getByTestId('progress-loading').count() > 0 ? 'not_settled' : settled,
-                            target: await line('progress-attempt-target'),
-                            outcome: await line('progress-attempt-outcome'),
-                            scope: await line('progress-attempt-scope'),
-                            legacyPhrase: (await panel.innerText({ timeout: 5_000 }).catch(() => '')).includes(LEGACY_PHRASE),
-                        };
+                    const state: PanelObservation['state'] = page.isClosed() ? 'closed' : !onRoute ? 'wrong_route'
+                        : settled === 'eligible' && !await stillEligible() ? 'not_settled' : settled;
+                    const target = state === 'eligible' ? await line('progress-attempt-target') : null;
+                    const outcome = state === 'eligible' ? await line('progress-attempt-outcome') : null;
+                    const scope = state === 'eligible' ? await line('progress-attempt-scope') : null;
+                    const panelText = state === 'eligible' ? await panel.innerText({ timeout: 5_000 }).then((t) => t, () => { readFailed = true; return ''; }) : '';
+                    // Re-checked after the reads: a page that closed, moved or left its eligible state meanwhile is unreadable.
+                    const readsStable = state === 'eligible' && !readFailed && await stillEligible();
+                    const observation: PanelObservation = {
+                        state, target, outcome, scope, legacyPhrase: panelText.includes(LEGACY_PHRASE), readsStable,
+                    };
                     const verdict = repeatMetricWordingVerdict(prerequisite.expected, observation);
                     receipt.row(REPEAT_METRIC_ROW, verdict.verdict, verdict.detail, { ...verdict.evidence, linkage: linkage.kind });
                 } catch (error) {

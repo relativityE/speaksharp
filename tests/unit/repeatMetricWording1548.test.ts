@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
     LEGACY_PHRASE, PROGRESS_FORMULA, REPEAT_METRIC_ROW, SCOPE_LINE, expectedOutcomeLine, expectedTargetLine, normalizeLine, pressLinkage,
     repeatMetricPrerequisites, repeatMetricWordingVerdict, validRecommendation,
-    type ExpectedLines, type PanelObservation, type PressEvent, type ServerEvidence,
+    type ExpectedLines, type PanelObservation, type PressEvent, type ServerAttempt, type ServerEvidence,
 } from '../live/helpers/repeatMetricWording';
 
 const rec = (targetMetric: string, targetDirection: string, targetValue: number, targetUnits: string) => validRecommendation({ targetMetric, targetDirection, targetValue, targetUnits })!;
@@ -102,10 +102,14 @@ describe('G03 press-bound linkage', () => {
 });
 
 const REC = { targetMetric: 'filler_rate', targetDirection: 'decrease', targetValue: 3, targetUnits: 'per 100 words' };
-const read = (attempts: { lifecycle: string; outcome: string | null; isThisRepeat: boolean }[], recommendation: typeof REC | null = REC): ServerEvidence =>
+let clock = 0;
+/** Attempts are listed newest first; each gets a strictly older accepted_at unless one is given. */
+const att = (lifecycle: string | null, outcome: string | null, isThisRepeat: boolean, acceptedAt?: string): ServerAttempt =>
+    ({ lifecycle, outcome, isThisRepeat, acceptedAt: acceptedAt ?? new Date(Date.UTC(2026, 9, 26, 12, 0, 0) - (clock += 1000)).toISOString() });
+const read = (attempts: ServerAttempt[], recommendation: typeof REC | null = REC): ServerEvidence =>
     ({ kind: 'read', recommendation, attempts });
 const LINKED = { kind: 'linked', linkedAttempt: 'ok' } as const;
-const BOUND = { lifecycle: 'completed', outcome: 'moved', isThisRepeat: true };
+const BOUND = att('completed', 'moved', true, '2026-10-26T12:00:00.000Z');
 
 describe('G03 prerequisites: nothing is navigated without the bindings', () => {
     it('a bound, newest, resolved attempt on a valid recommendation is observed, with its exact expected lines', () => {
@@ -120,19 +124,19 @@ describe('G03 prerequisites: nothing is navigated without the bindings', () => {
     });
 
     it('the server row proves the link even when the press telemetry was not observed', () => {
-        expect(repeatMetricPrerequisites(read([BOUND]), { kind: 'unverified', reason: 'no_proceeding_press' })).toMatchObject({ observe: true });
+        expect(repeatMetricPrerequisites(read([BOUND]), { kind: 'unverified', reason: 'no_proceeding_press', contradictory: false })).toMatchObject({ observe: true });
     });
 
     it.each([
         ['server_read_failed', { kind: 'read_failed' } as ServerEvidence, LINKED],
         ['ran_unlinked', read([]), { kind: 'unlinked' } as const],
-        ['linkage_unverified', read([]), { kind: 'unverified', reason: 'no_proceeding_press' } as const],
-        ['repeat_unbound', read([{ lifecycle: 'completed', outcome: 'moved', isThisRepeat: false }]), LINKED],
-        ['repeat_unbound', read([{ lifecycle: 'pending', outcome: null, isThisRepeat: false }]), LINKED],
+        ['linkage_unverified', read([]), { kind: 'unverified', reason: 'no_proceeding_press', contradictory: false } as const],
+        ['repeat_unbound', read([att('completed', 'moved', false)]), LINKED],
+        ['repeat_unbound', read([att('pending', null, false)]), LINKED],
         ['linkage_contradiction', read([BOUND]), { kind: 'unlinked' } as const],
         ['no_recommendation', read([BOUND], null), LINKED],
-        ['not_newest_attempt', read([{ lifecycle: 'completed', outcome: 'moved', isThisRepeat: false }, BOUND]), LINKED],
-        ['repeat_unresolved', read([{ lifecycle: 'pending', outcome: null, isThisRepeat: true }]), LINKED],
+        ['not_newest_attempt', read([att('completed', 'moved', false, '2026-10-26T12:30:00.000Z'), BOUND]), LINKED],
+        ['repeat_unresolved', read([att('pending', null, true)]), LINKED],
     ])('%s → HOLD without navigation', (reason, server, linkage) => {
         expect(repeatMetricPrerequisites(server, linkage)).toMatchObject({ observe: false, reason });
     });
@@ -151,7 +155,7 @@ const SHOWN: PanelObservation = {
     state: 'eligible',
     target: 'Separate delivery comparison: Filler rate (saved target:\n decrease toward 3 per 100 words).',
     outcome: 'Filler rate was lower on the repeat than in the original session.',
-    scope: SCOPE_LINE, legacyPhrase: false,
+    scope: SCOPE_LINE, legacyPhrase: false, readsStable: true,
 };
 
 describe('G03 verdict on a settled observation', () => {
@@ -178,7 +182,7 @@ describe('G03 verdict on a settled observation', () => {
             state: 'eligible',
             target: 'Measured repeat target: Filler rate; decrease toward 3 per 100 words.',
             outcome: 'The stored repeat shows movement in the practiced direction.',
-            scope: null, legacyPhrase: true,
+            scope: null, legacyPhrase: true, readsStable: true,
         };
         expect(repeatMetricWordingVerdict(EXPECTED, legacy)).toMatchObject({ verdict: 'FAIL', evidence: { targetMatches: false, outcomeMatches: false, scopeMatches: false, legacyPhrase: true } });
         expect(legacy.outcome).toContain(LEGACY_PHRASE);
@@ -186,7 +190,7 @@ describe('G03 verdict on a settled observation', () => {
 
     it('an unsettled, wrong-route, errored, non-eligible, closed or unreadable page is HOLD, even with the lines missing', () => {
         for (const state of ['wrong_route', 'not_settled', 'error', 'insufficient', 'ineligible', 'closed', 'unreadable'] as const) {
-            const verdict = repeatMetricWordingVerdict(EXPECTED, { state, target: null, outcome: null, scope: null, legacyPhrase: false });
+            const verdict = repeatMetricWordingVerdict(EXPECTED, { state, target: null, outcome: null, scope: null, legacyPhrase: false, readsStable: false });
             expect({ state, verdict: verdict.verdict }).toEqual({ state, verdict: 'HOLD' });
         }
     });
@@ -239,5 +243,61 @@ describe('G03 the Open Mic spec step: server oracle first, no navigation without
         expect(step).toMatch(/new URL\(page\.url\(\)\)\.pathname === route/);
         expect(step).toMatch(/receipt\.row\(REPEAT_METRIC_ROW, 'HOLD', `the repeat-metric observation failed \(\$\{name\}\)`\)/);
         expect(REPEAT_METRIC_ROW).toBe('repeat result names the measured metric');
+    });
+});
+
+describe('G03 review RETURN (Sam 1793016155.858699): unknown state, ties, contradictory telemetry, unstable reads', () => {
+    it('an unknown or incoherent lifecycle/outcome never falls through to "not completed" copy', () => {
+        for (const [lifecycle, outcome] of [['completed', 'mystery'], ['archived', 'moved'], ['completed', null], [null, 'moved'], ['completed', 7]] as const) {
+            const prerequisite = repeatMetricPrerequisites(read([att(lifecycle as never, outcome as never, true, '2026-10-26T12:00:00.000Z')]), LINKED);
+            expect({ lifecycle, outcome, prerequisite }).toMatchObject({ lifecycle, outcome, prerequisite: { observe: false, reason: 'attempt_state_unknown' } });
+        }
+    });
+
+    it('CONTROL: every schema-resolved outcome is still observed with its exact copy', () => {
+        for (const outcome of ['moved', 'did_not_move', 'not_comparable', 'not_completed']) {
+            expect(repeatMetricPrerequisites(read([att('completed', outcome, true, '2026-10-26T12:00:00.000Z')]), LINKED)).toMatchObject({ observe: true });
+        }
+    });
+
+    it('an accepted_at tie with the next attempt, or an unreadable accepted_at, leaves the newest undetermined → HOLD', () => {
+        const tie = read([att('completed', 'moved', true, '2026-10-26T12:00:00.000Z'), att('completed', 'did_not_move', false, '2026-10-26T12:00:00.000Z')]);
+        expect(repeatMetricPrerequisites(tie, LINKED)).toMatchObject({ observe: false, reason: 'newest_attempt_ambiguous' });
+        expect(repeatMetricPrerequisites(read([att('completed', 'moved', true, 'not a time')]), LINKED)).toMatchObject({ observe: false, reason: 'attempt_order_unknown' });
+        const older = read([att('completed', 'moved', true, '2026-10-26T12:00:00.000Z'), att('completed', 'did_not_move', false, '2026-10-26T11:59:59.999Z')]);
+        expect(repeatMetricPrerequisites(older, LINKED)).toMatchObject({ observe: true });
+    });
+
+    it('more than one attempt bound to the same repeat take → HOLD', () => {
+        const two = read([att('completed', 'moved', true, '2026-10-26T12:00:00.000Z'), att('completed', 'moved', true, '2026-10-26T11:00:00.000Z')]);
+        expect(repeatMetricPrerequisites(two, LINKED)).toMatchObject({ observe: false, reason: 'multiple_bound_attempts' });
+    });
+
+    it('contradictory press telemetry is HOLD even with a bound row; merely missing telemetry is not', () => {
+        for (const reason of ['multiple_proceeding_presses', 'linked_attempt_not_ok', 'multiple_linked_attempts', 'press_state_inconsistent']) {
+            expect(repeatMetricPrerequisites(read([BOUND]), { kind: 'unverified', reason, contradictory: true })).toMatchObject({ observe: false, reason: 'linkage_contradiction' });
+        }
+        expect(repeatMetricPrerequisites(read([BOUND]), { kind: 'unverified', reason: 'no_proceeding_press', contradictory: false })).toMatchObject({ observe: true });
+        expect(pressLinkage([])).toEqual({ kind: 'unverified', reason: 'no_proceeding_press', contradictory: false });
+        expect(pressLinkage([press({ action: 'open_session', link_state: 'linked', action_seq: 1 })])).toMatchObject({ contradictory: true });
+    });
+
+    it('a page that closed, moved or failed a read during the text reads is HOLD, never FAIL or PASS', () => {
+        expect(repeatMetricWordingVerdict(EXPECTED, { ...SHOWN, readsStable: false })).toMatchObject({ verdict: 'HOLD', evidence: { panelState: 'unreadable' } });
+        expect(repeatMetricWordingVerdict(EXPECTED, { ...SHOWN, target: null, outcome: null, scope: null, readsStable: false }).verdict).toBe('HOLD');
+        expect(repeatMetricWordingVerdict(EXPECTED, { ...SHOWN, target: null, readsStable: true }).verdict).toBe('FAIL');
+    });
+
+    it('the spec reads accepted_at, distinguishes an absent line from a failed read, and re-checks the page after the reads', () => {
+        const spec = readFileSync(path.join(__dirname, '../live/rwt-open-mic-first-session.live.spec.ts'), 'utf8');
+        const begin = spec.indexOf("await test.step('the repeat result names the measured metric'");
+        const step = spec.slice(begin, spec.indexOf('} finally {\n            await finish();', begin));
+        expect(step).toMatch(/\.select\('lifecycle,outcome,accepted_at,practice_session_id'\)/);
+        expect(step).toMatch(/acceptedAt: a\.accepted_at/);
+        expect(step).toMatch(/const present = await el\.count\(\)\.then\(\(n\) => n > 0, \(\) => \{ readFailed = true; return false; \}\);/);
+        const lastRead = step.indexOf("await line('progress-attempt-scope')");
+        const recheck = step.indexOf('const readsStable = state === \'eligible\' && !readFailed && await stillEligible();');
+        expect(lastRead).toBeGreaterThan(-1);
+        expect(recheck).toBeGreaterThan(lastRead);
     });
 });

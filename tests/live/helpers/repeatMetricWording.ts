@@ -72,7 +72,8 @@ export interface PressEvent { event: string; fields?: Readonly<Record<string, st
 export type Linkage =
     | { kind: 'linked'; linkedAttempt: 'ok' | 'unobserved' }
     | { kind: 'unlinked' }
-    | { kind: 'unverified'; reason: string };
+    /** `contradictory` is telemetry that disagrees with itself; missing telemetry is not. */
+    | { kind: 'unverified'; reason: string; contradictory: boolean };
 
 const PROCEEDING = new Set(['accept_linked', 'open_session', 'open_focus_setup', 'open_practice']);
 
@@ -82,21 +83,29 @@ const PROCEEDING = new Set(['accept_linked', 'open_session', 'open_focus_setup',
  */
 export function pressLinkage(events: readonly PressEvent[]): Linkage {
     const presses = events.filter((e) => e.event === 'saved_review_practice_action' && PROCEEDING.has(String(e.fields?.action)));
-    if (presses.length !== 1) return { kind: 'unverified', reason: presses.length === 0 ? 'no_proceeding_press' : 'multiple_proceeding_presses' };
+    if (presses.length === 0) return { kind: 'unverified', reason: 'no_proceeding_press', contradictory: false };
+    if (presses.length > 1) return { kind: 'unverified', reason: 'multiple_proceeding_presses', contradictory: true };
     const { action, link_state: linkState, action_seq: seq } = presses[0].fields ?? {};
     if (action === 'accept_linked' && linkState === 'linked') {
         const attempts = events.filter((e) => e.event === 'saved_review_linked_attempt' && e.fields?.action_seq === seq);
-        if (attempts.length > 1) return { kind: 'unverified', reason: 'multiple_linked_attempts' };
-        if (attempts.length === 1 && attempts[0].fields?.outcome !== 'ok') return { kind: 'unverified', reason: 'linked_attempt_not_ok' };
+        if (attempts.length > 1) return { kind: 'unverified', reason: 'multiple_linked_attempts', contradictory: true };
+        if (attempts.length === 1 && attempts[0].fields?.outcome !== 'ok') return { kind: 'unverified', reason: 'linked_attempt_not_ok', contradictory: true };
         return { kind: 'linked', linkedAttempt: attempts.length === 1 ? 'ok' : 'unobserved' };
     }
     if (action !== 'accept_linked' && linkState === 'direct') return { kind: 'unlinked' };
-    return { kind: 'unverified', reason: 'press_state_inconsistent' };
+    return { kind: 'unverified', reason: 'press_state_inconsistent', contradictory: true };
 }
+
+/** One attempt row as read: its stored state, `accepted_at` (ordering only) and whether it is bound to this repeat. */
+export interface ServerAttempt { lifecycle: unknown; outcome: unknown; acceptedAt: unknown; isThisRepeat: boolean }
+
+/** The schema's resolved states (migration 20260731130000 prec_att_* checks); anything else is not judged. */
+const RESOLVED_LIFECYCLE = new Set(['completed', 'not_comparable', 'abandoned']);
+const RESOLVED_OUTCOME = new Set(['moved', 'did_not_move', 'not_comparable', 'not_completed']);
 
 /** The server rows, newest attempt first; `isThisRepeat` is `practice_session_id` = this journey's saved repeat take. */
 export type ServerEvidence =
-    | { kind: 'read'; recommendation: RecommendationRow | null; attempts: readonly { lifecycle: string; outcome: string | null; isThisRepeat: boolean }[] }
+    | { kind: 'read'; recommendation: RecommendationRow | null; attempts: readonly ServerAttempt[] }
     | { kind: 'read_failed' };
 
 export interface ExpectedLines { metric: Metric; direction: Direction; target: string; outcome: string }
@@ -107,21 +116,38 @@ const hold = (reason: string, detail: string): Prerequisite => ({ observe: false
 /** Whether the page may be opened at all. Every `observe: false` is a HOLD written without navigating. */
 export function repeatMetricPrerequisites(server: ServerEvidence, linkage: Linkage): Prerequisite {
     if (server.kind === 'read_failed') return hold('server_read_failed', 'the recommendation or attempt could not be read');
+    const bound = server.attempts.filter((a) => a.isThisRepeat);
+    if (bound.length > 1) return hold('multiple_bound_attempts', 'more than one attempt is bound to this repeat take');
     const boundIndex = server.attempts.findIndex((a) => a.isThisRepeat);
     if (boundIndex < 0) {
         if (linkage.kind === 'unlinked') return hold('ran_unlinked', 'the repeat ran unlinked, so the review-owned comparison is not reachable');
         if (linkage.kind === 'unverified') return hold('linkage_unverified', `linkage unverified (${linkage.reason}) and no attempt is bound to this repeat`);
         return hold('repeat_unbound', 'no resolved attempt is bound to this journey\'s repeat take');
     }
-    // A server row bound to this repeat take proves the link; an unlinked press contradicts it.
+    // A server row bound to this repeat take proves the link. Missing telemetry does not weaken it; telemetry that
+    // contradicts itself, or an unlinked press, does.
     if (linkage.kind === 'unlinked') return hold('linkage_contradiction', 'the press ran unlinked but an attempt is bound to its repeat');
+    if (linkage.kind === 'unverified' && linkage.contradictory) {
+        return hold('linkage_contradiction', `the press telemetry is contradictory (${linkage.reason}) although an attempt is bound to its repeat`);
+    }
     if (!server.recommendation) return hold('no_recommendation', 'no recommendation is bound to the first session');
     const rec = validRecommendation(server.recommendation);
     if (!rec) return hold('recommendation_invalid', 'the bound recommendation has no valid structured target');
     if (boundIndex !== 0) return hold('not_newest_attempt', 'another attempt is newer than this repeat\'s, so the panel would not show it');
     const attempt = server.attempts[0];
+    // The panel reads the newest by accepted_at with no tie-break: a tie leaves which row it shows undetermined.
+    const acceptedAt = (a: ServerAttempt) => (typeof a.acceptedAt === 'string' ? Date.parse(a.acceptedAt) : Number.NaN);
+    if (!Number.isFinite(acceptedAt(attempt))) return hold('attempt_order_unknown', 'the bound attempt has no readable accepted_at');
+    if (server.attempts.length > 1 && !(acceptedAt(server.attempts[1]) < acceptedAt(attempt))) {
+        return hold('newest_attempt_ambiguous', 'another attempt ties with or is not older than this repeat\'s, so the panel\'s row is undetermined');
+    }
     if (attempt.lifecycle === 'pending') return hold('repeat_unresolved', 'the bound attempt is still pending');
-    return { observe: true, expected: { metric: rec.metric, direction: rec.direction, target: expectedTargetLine(rec), outcome: expectedOutcomeLine(rec, attempt) } };
+    if (typeof attempt.lifecycle !== 'string' || !RESOLVED_LIFECYCLE.has(attempt.lifecycle)
+        || typeof attempt.outcome !== 'string' || !RESOLVED_OUTCOME.has(attempt.outcome)) {
+        return hold('attempt_state_unknown', 'the bound attempt has an unknown lifecycle or outcome, so no copy is expected');
+    }
+    const resolved = { lifecycle: attempt.lifecycle, outcome: attempt.outcome };
+    return { observe: true, expected: { metric: rec.metric, direction: rec.direction, target: expectedTargetLine(rec), outcome: expectedOutcomeLine(rec, resolved) } };
 }
 
 /**
@@ -131,12 +157,21 @@ export function repeatMetricPrerequisites(server: ServerEvidence, linkage: Linka
 export interface PanelObservation {
     state: 'eligible' | 'wrong_route' | 'not_settled' | 'error' | 'insufficient' | 'ineligible' | 'closed' | 'unreadable';
     target: string | null; outcome: string | null; scope: string | null; legacyPhrase: boolean;
+    /**
+     * Whether the page stayed open, on the route and settled eligible through every text read, and every read either
+     * returned text or found the element absent. A read that failed, or a page that changed during the reads, is not
+     * evidence that a line is missing.
+     */
+    readsStable: boolean;
 }
 
 export function repeatMetricWordingVerdict(expected: ExpectedLines, page: PanelObservation): {
     verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string; evidence: Record<string, string | boolean | null>;
 } {
     const base = { metric: expected.metric, direction: expected.direction, panelState: page.state };
+    if (page.state === 'eligible' && !page.readsStable) {
+        return { verdict: 'HOLD', detail: 'the panel closed, moved or became unreadable while its lines were read', evidence: { ...base, panelState: 'unreadable' } };
+    }
     if (page.state !== 'eligible') {
         return { verdict: 'HOLD', detail: `the review-owned comparison was not observed in its eligible state (${page.state})`, evidence: base };
     }
