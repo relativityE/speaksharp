@@ -97,10 +97,10 @@ jobs:
           node tests/db/account-closure-attestation-realpg.mjs
           node tests/db/account-coaching-fence.realpg.mjs
       - name: Replay actual baseline and closure migration; prove invariants
-        run: node tests/db/account-closure-full-chain.mjs --profile=main-t2-fence-127
+        run: node tests/db/account-closure-full-chain.mjs --profile=main-t2-retention-128
       - name: Recover owned disposable resources after interruption
         if: always()
-        run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-t2-fence-127
+        run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-t2-retention-128
       - name: Retain bounded proof manifest
         if: always()
         uses: actions/upload-artifact@v6
