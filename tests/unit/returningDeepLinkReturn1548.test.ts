@@ -4,7 +4,9 @@
  * The legacy `/analytics/<id>?q#h` link redirects to `/progress/<id>?q#h`, the protected route hands it to sign-in as
  * `state.from`, and `resolveInAppPostAuthTarget` returns there. RWT-15 proves it on the verified returning account with
  * the same observed sign-in as G18. Routing only: the rendered detail is not claimed. Source, pure-logic and orchestration
- * evidence: `runDeepLinkReturn` runs against deterministic page fakes. No browser, sign-in, lookup or live run happens here.
+ * evidence: `runDeepLinkReturn` runs against deterministic page fakes (Sam 1793006584.273009 / 1793006607.086479 controls
+ * for closure, cleanup without a session, the new document's microphone, sanitized navigation failure and a preexisting
+ * session). No browser, sign-in, lookup or live run happens here.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -164,8 +166,14 @@ function harness(script: {
     preexistingSession?: boolean;
     navigation?: 'ok' | 'fail';
     micInDeepLink?: number;
+    micAfterSignOut?: number;
+    reloadAfterSubmit?: boolean;
+    submitThrows?: boolean;
 } = {}) {
-    const s = { token: 'ok', closeAt: 'never', sessionAfterSignIn: true, preexistingSession: false, navigation: 'ok', micInDeepLink: 0, ...script };
+    const s = {
+        token: 'ok', closeAt: 'never', sessionAfterSignIn: true, preexistingSession: false, navigation: 'ok', micInDeepLink: 0,
+        micAfterSignOut: 0, reloadAfterSubmit: false, submitThrows: false, ...script,
+    };
     const rows: Row[] = [];
     const log: string[] = [];
     const listeners = {
@@ -181,7 +189,7 @@ function harness(script: {
     let closed = false;
     let session: string | null = null;
     let document = 1;
-    let mic = 0;
+    let mic = s.micAfterSignOut;
     const close = () => { closed = true; listeners.close.forEach((l) => l()); };
     const ports = {
         target: TARGET, verifiedUserId: 'u-verified', micBaseline: 0,
@@ -197,6 +205,8 @@ function harness(script: {
         armObserver: () => { log.push('arm'); return attempt.armPasswordSignInObserver(events, { authOrigin: AUTH, timeoutMs: 50 }); },
         submit: async () => {
             log.push('submit');
+            if (s.submitThrows) throw new Error(`locator.click: Timeout 10000ms exceeded.\n  navigated to "https://speaksharp.example/progress/${ID}?g04=1#history"`);
+            if (s.reloadAfterSubmit) { document = 3; mic = 0; }
             if (s.token === 'none') return;
             const request = { method: () => 'POST', url: () => `${AUTH}/auth/v1/token?grant_type=password`, frame: () => 'main' };
             listeners.request.forEach((l) => l(request));
@@ -258,5 +268,125 @@ describe('G04 runDeepLinkReturn orchestration (deterministic page fakes; no brow
         await runFn()(h.ports);
         expect(h.verdictOf('signed-in deep-link return')).toBe('FAIL');
         expect(h.log.slice(-1)).toEqual(['writes']);
+    });
+});
+
+describe('G04 RETURN controls: closure, cleanup, microphone, navigation failure and preexisting session', () => {
+    const run = async (h: ReturnType<typeof harness>) => runFn()(h.ports).then(() => null, (error: unknown) => error);
+    const row = (h: ReturnType<typeof harness>, name: string) => h.rows.find((r) => r.name === name);
+
+    it('a page closed during the landing wait, after the token settled, is context_closed HOLD, not a routing FAIL', async () => {
+        const h = harness({ closeAt: 'landing' });
+        await run(h);
+        expect(row(h, 'signed-in deep-link return')).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'context_closed' } });
+    });
+
+    it('a page closed after the URL was read is context_closed HOLD, never a PASS from that earlier URL', async () => {
+        const h = harness({ closeAt: 'after-url' });
+        await run(h);
+        expect(row(h, 'signed-in deep-link return')).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'context_closed' } });
+    });
+
+    it('in both closure orders, cleanup reports an unobservable session (HOLD), not a failed sign-out, and still reads back', async () => {
+        for (const closeAt of ['landing', 'after-url'] as const) {
+            const h = harness({ closeAt });
+            await run(h);
+            expect({ closeAt, verdict: h.verdictOf('signed out after the deep-link return') }).toEqual({ closeAt, verdict: 'HOLD' });
+            expect(h.log).not.toContain('sign-out');
+            expect(h.log.slice(-1)).toEqual(['writes']);
+        }
+    });
+
+    it('a refused sign-in that created no session needs no sign-out: cleanup PASSes on the verified absent session', async () => {
+        const h = harness({ token: 'refused' });
+        await run(h);
+        expect(h.verdictOf('signed-in deep-link return')).toBe('HOLD');
+        expect(row(h, 'signed out after the deep-link return')).toMatchObject({ verdict: 'PASS', evidence: { sessionPresent: false } });
+        expect(h.log).not.toContain('sign-out');
+    });
+
+    it('an inconclusive sign-in (no token response) with no session also needs no sign-out', async () => {
+        const h = harness({ token: 'none' });
+        await run(h);
+        expect(h.verdictOf('signed-in deep-link return')).toBe('HOLD');
+        expect(row(h, 'signed out after the deep-link return')).toMatchObject({ verdict: 'PASS', evidence: { sessionPresent: false } });
+        expect(h.log).not.toContain('sign-out');
+    });
+
+    it('CONTROL: a session that exists is still signed out through the product, and a failed sign-out is still a FAIL', async () => {
+        const ok = harness();
+        await run(ok);
+        expect(row(ok, 'signed out after the deep-link return')).toMatchObject({ verdict: 'PASS', evidence: { path: 'direct', sessionCleared: true } });
+        const stuck = harness();
+        stuck.ports.signOut = async () => { throw new Error('locator.waitFor: Timeout 30000ms exceeded.'); };
+        await run(stuck);
+        expect(stuck.verdictOf('signed out after the deep-link return')).toBe('FAIL');
+    });
+
+    it('the microphone is observed through the new deep-link document: zero PASSes, an acquisition there FAILs', async () => {
+        const quiet = harness();
+        await run(quiet);
+        expect(row(quiet, 'no mic on the deep-link return')).toMatchObject({ verdict: 'PASS', evidence: { afterSignOut: 0, deepLinkDocument: 0 } });
+        const opened = harness({ micInDeepLink: 1 });
+        await run(opened);
+        expect(row(opened, 'no mic on the deep-link return')).toMatchObject({ verdict: 'FAIL', evidence: { deepLinkDocument: 1 } });
+    });
+
+    it('an acquisition in the first document after the journey\'s own mic row (the sign-out) FAILs', async () => {
+        const h = harness({ micAfterSignOut: 1 });
+        await run(h);
+        expect(row(h, 'no mic on the deep-link return')).toMatchObject({ verdict: 'FAIL', evidence: { afterSignOut: 1 } });
+    });
+
+    it('a counter reset by a further document load, or a closed page, is HOLD, never a zero', async () => {
+        const reloaded = harness({ reloadAfterSubmit: true, micInDeepLink: 0 });
+        await run(reloaded);
+        expect(reloaded.verdictOf('no mic on the deep-link return')).toBe('HOLD');
+        const closed = harness({ closeAt: 'landing' });
+        await run(closed);
+        expect(closed.verdictOf('no mic on the deep-link return')).toBe('HOLD');
+    });
+
+    it('a failed legacy navigation is a sanitized HOLD: no id or URL in the error, nothing armed, cleanup still runs', async () => {
+        const h = harness({ navigation: 'fail' });
+        const error = await run(h);
+        expect(error).toBeInstanceOf(Error);
+        const text = `${(error as Error).message}\n${(error as Error).stack ?? ''}`;
+        expect(text).not.toContain(ID);
+        expect((error as Error).message).not.toMatch(/analytics|progress|ERR_ABORTED|speaksharp\.example/);
+        expect((error as Error).message).toBe('HOLD signed-in deep-link return: the legacy deep-link navigation failed (Error)');
+        expect((error as Error & { cause?: unknown }).cause).toBeUndefined();
+        expect(h.verdictOf('signed-in deep-link return')).toBe('HOLD');
+        expect(h.rows.map((r) => r.detail).join(' ')).not.toContain(ID);
+        expect(h.log).not.toContain('arm');
+        expect(h.verdictOf('no mic on the deep-link return')).toBe('HOLD');
+        expect(h.log.slice(-1)).toEqual(['writes']);
+    });
+
+    it('a submit failure on an open page is the same sanitized HOLD, never the raw call log', async () => {
+        const h = harness({ submitThrows: true });
+        const error = await run(h);
+        expect((error as Error).message).toBe('HOLD signed-in deep-link return: the sign-in submit failed (Error)');
+        expect(`${(error as Error).message}${(error as Error).stack ?? ''}`).not.toContain(ID);
+        expect(h.log.slice(-1)).toEqual(['writes']);
+    });
+
+    it('a session present on the deep-link page before arming is preexisting_session HOLD; the attempt is never armed', async () => {
+        const h = harness({ preexistingSession: true });
+        await run(h);
+        expect(row(h, 'signed-in deep-link return')).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'preexisting_session' } });
+        expect(h.log).not.toContain('arm');
+        expect(h.log).not.toContain('submit');
+        expect(h.verdictOf('signed out after the deep-link return')).toBe('PASS');
+    });
+
+    it('an unreadable session before arming is HOLD, not an armed attempt', async () => {
+        const h = harness();
+        const read = h.ports.sessionUserId;
+        let reads = 0;
+        h.ports.sessionUserId = async () => { reads += 1; if (reads === 1) throw new Error('page.evaluate: Execution context was destroyed'); return read(); };
+        await run(h);
+        expect(row(h, 'signed-in deep-link return')).toMatchObject({ verdict: 'HOLD', evidence: { reason: 'session_unobservable' } });
+        expect(h.log).not.toContain('arm');
     });
 });

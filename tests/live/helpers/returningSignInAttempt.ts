@@ -19,7 +19,8 @@ export type InconclusiveReason =
     | 'timeout'
     | 'ambiguous_attempt'
     | 'context_closed'
-    | 'preexisting_session';
+    | 'preexisting_session'
+    | 'session_unobservable';
 
 export type SignInAttemptOutcome =
     | { kind: 'token_ok'; status: number; userId: string }
@@ -271,13 +272,56 @@ export interface DeepLinkReturnPorts {
     row(name: string, verdict: RowVerdict, detail: string, evidence?: Record<string, string | number | boolean | null>): void;
 }
 
-/** G04: the deep-link return and its cleanup, in order. Cleanup always runs, even after a failed landing. */
+const DEEP_LINK_ROW = 'signed-in deep-link return';
+type SessionState = 'absent' | 'present' | 'unobservable';
+
+/** Only a closed error-class name leaves an error: a Playwright message or call log can carry the deep link's id. */
+const errorClass = (error: unknown): string =>
+    error instanceof Error && /^[A-Za-z]{1,40}Error$/.test(error.name) ? error.name : 'Error';
+
+/**
+ * G04: the deep-link return and its cleanup, in order; cleanup always runs. Nothing raw is rethrown: a harness failure is
+ * a HOLD row and, after cleanup, one sanitized error naming its phase and error class.
+ *
+ * - The second attempt is armed only after a fresh read shows no session (preexisting or unobservable is HOLD).
+ * - A page that closes after the token settled leaves the routing unproven (context_closed), whatever the URL read before.
+ * - No microphone from the journey's sign-out through the deep-link document; the counter's document identity binds
+ *   the reads, so a missed or reset counter is HOLD, never a zero.
+ * - Cleanup signs out only a session it observes; a verified absent session is already clear; unobservable is HOLD.
+ */
 export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<void> {
     const { target } = ports;
-    try {
+    const run: { failure: string | null; navigated: boolean; deepLinkDocument: MicRead | null } = { failure: null, navigated: false, deepLinkDocument: null };
+    const halt = (phase: string, error: unknown) => {
+        run.failure = `HOLD ${DEEP_LINK_ROW}: the ${phase} failed (${errorClass(error)})`;
+        ports.row(DEEP_LINK_ROW, 'HOLD', `routing unproven: the ${phase} failed (${errorClass(error)})`);
+    };
+    const sessionState = async (): Promise<SessionState> => (ports.isClosed()
+        ? 'unobservable'
+        : ports.sessionUserId().then((id): SessionState => (id ? 'present' : 'absent'), (): SessionState => 'unobservable'));
+    const readMic = (): Promise<MicRead | null> => (ports.isClosed() ? Promise.resolve(null) : ports.micAcquisitions().catch(() => null));
+
+    // The first document's counter, read before the hard navigation, covers the journey's sign-out.
+    const firstDocument = await readMic();
+    const attemptReturn = async (): Promise<void> => {
         // A hard navigation to the legacy link while signed out, then the auth form it produced. Opening the auth page
         // directly would discard the return state.
-        await ports.openLegacyLink();
+        try {
+            await ports.openLegacyLink();
+            run.navigated = true;
+        } catch (error) {
+            halt('legacy deep-link navigation', error);
+            return;
+        }
+        run.deepLinkDocument = await readMic();
+        const before = await sessionState();
+        if (before !== 'absent') {
+            const reason: InconclusiveReason = before === 'present' ? 'preexisting_session' : 'session_unobservable';
+            const outcome = inconclusive(null, reason);
+            const verdict = deepLinkReturnVerdict({ outcome, verifiedUserId: ports.verifiedUserId, sessionUserMatches: false, landing: { pathnameMatches: false, searchMatches: false, hashMatches: false } });
+            ports.row(DEEP_LINK_ROW, verdict.verdict, verdict.detail, { outcome: outcome.kind, reason });
+            return;
+        }
         let sessionUserMatches = false;
         let landedUrl: URL | null = null;
         const observer = ports.armObserver();
@@ -285,7 +329,10 @@ export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<voi
             try {
                 await ports.submit();
             } catch (error) {
-                if (!ports.isClosed()) throw error;
+                if (!ports.isClosed()) {
+                    halt('sign-in submit', error);
+                    return;
+                }
             }
             const first = await observer.settle();
             if (first.kind === 'token_ok') {
@@ -293,22 +340,55 @@ export async function runDeepLinkReturn(ports: DeepLinkReturnPorts): Promise<voi
                 await ports.awaitLanding().catch(() => undefined);
                 landedUrl = ports.isClosed() ? null : ports.url();
             }
-            // Read AFTER the landing wait: another password grant in that window makes the attempt ambiguous.
-            const outcome = observer.final();
+            // Read AFTER the landing wait: another password grant in that window makes the attempt ambiguous, and a page
+            // closed at any point since the token settled leaves the landing unproven, whatever URL was read before.
+            let outcome = observer.final();
+            if (outcome.kind === 'token_ok' && ports.isClosed()) outcome = inconclusive(null, 'context_closed');
             const landing = landedUrl ? deepLinkLanding(landedUrl, target) : { pathnameMatches: false, searchMatches: false, hashMatches: false };
             const verdict = deepLinkReturnVerdict({ outcome, verifiedUserId: ports.verifiedUserId, sessionUserMatches, landing });
-            ports.row('signed-in deep-link return', verdict.verdict, verdict.detail, { outcome: outcome.kind, ...landing });
+            ports.row(DEEP_LINK_ROW, verdict.verdict, verdict.detail,
+                { outcome: outcome.kind, reason: outcome.kind === 'inconclusive' ? outcome.reason : null, ...landing });
         } finally {
             observer.dispose();
         }
+    };
+    try {
+        await attemptReturn();
+    } catch (error) {
+        halt('deep-link return', error);
     } finally {
-        // Sign out again, then read back that nothing was written.
-        let returnSignOut: 'direct' | 'menu' | null = null;
-        try { returnSignOut = await ports.signOut(); } catch { returnSignOut = null; }
-        const cleared = returnSignOut !== null && await ports.awaitSessionCleared();
-        ports.row('signed out after the deep-link return', cleared ? 'PASS' : 'FAIL',
-            cleared ? 'the product sign-out cleared the second session' : 'the second session was not cleared',
-            { path: returnSignOut ?? 'none', sessionCleared: cleared });
+        const { navigated, deepLinkDocument } = run;
+        // Microphone: read in the deep-link document before the sign-out can leave it.
+        const lastRead = navigated ? await readMic() : null;
+        const sinceJourney = firstDocument === null ? null : firstDocument.count - ports.micBaseline;
+        const sameDocument = deepLinkDocument !== null && lastRead !== null && lastRead.document === deepLinkDocument.document
+            && firstDocument !== null && deepLinkDocument.document !== firstDocument.document;
+        if (sinceJourney === null || !sameDocument || !lastRead) {
+            ports.row('no mic on the deep-link return', 'HOLD', 'the microphone counter could not be read through the deep-link document',
+                { navigated, counterRead: lastRead !== null });
+        } else {
+            const acquisitions = sinceJourney + lastRead.count;
+            ports.row('no mic on the deep-link return', acquisitions === 0 ? 'PASS' : 'FAIL',
+                acquisitions === 0 ? 'nothing opened the microphone from the sign-out through the deep-link return'
+                    : 'the microphone was opened between the sign-out and the end of the deep-link return',
+                { afterSignOut: sinceJourney, deepLinkDocument: lastRead.count });
+        }
+
+        // Sign out only a session that exists; a verified absent session needs no sign-out control.
+        const state = await sessionState();
+        if (state === 'absent') {
+            ports.row('signed out after the deep-link return', 'PASS', 'no second session exists to clear', { path: 'none', sessionCleared: true, sessionPresent: false });
+        } else if (state === 'unobservable') {
+            ports.row('signed out after the deep-link return', 'HOLD', 'the second session state could not be observed', { path: 'none', sessionCleared: null, sessionPresent: null });
+        } else {
+            let returnSignOut: 'direct' | 'menu' | null = null;
+            try { returnSignOut = await ports.signOut(); } catch { returnSignOut = null; }
+            const cleared = returnSignOut !== null && await ports.awaitSessionCleared();
+            ports.row('signed out after the deep-link return', cleared ? 'PASS' : 'FAIL',
+                cleared ? 'the product sign-out cleared the second session' : 'the second session was not cleared',
+                { path: returnSignOut ?? 'none', sessionCleared: cleared, sessionPresent: true });
+        }
         await ports.recordWrites();
     }
+    if (run.failure) throw new Error(run.failure);
 }
