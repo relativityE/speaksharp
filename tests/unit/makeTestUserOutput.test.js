@@ -37,6 +37,7 @@ case "$1 $2" in
   "run list") echo 4242;;
   "run watch") echo "✓ run 4242 completed";;
   "run view")
+    [ -n "$FAKE_GH_VIEW_FAIL" ] && { echo "HTTP 502: run view unavailable" >&2; exit 1; }
     expr=""; while [ $# -gt 0 ]; do [ "$1" = "--jq" ] && expr="$2"; shift; done
     jq -r "$expr" "$FAKE_GH_JOBS";;
   *) echo "unexpected gh call: $*" >&2; exit 9;;
@@ -47,12 +48,12 @@ esac
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-function run(args, jobsPayload = createRun) {
+function run(args, jobsPayload = createRun, extraEnv = {}) {
     writeFileSync(join(dir, 'jobs.json'), jobsPayload);
     const stdout = execFileSync('bash', [join(dir, 'scripts/make-test-user.sh'), ...args], {
         cwd: dir, encoding: 'utf8',
         env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
-            FAKE_GH_LOG: join(dir, 'gh.log'), FAKE_GH_JOBS: join(dir, 'jobs.json') },
+            FAKE_GH_LOG: join(dir, 'gh.log'), FAKE_GH_JOBS: join(dir, 'jobs.json'), ...extraEnv },
     });
     return { stdout, gh: readFileSync(join(dir, 'gh.log'), 'utf8'), envTest: join(dir, 'frontend/.env.test') };
 }
@@ -82,6 +83,27 @@ describe('make-test-user.sh reports exactly what the create run did', () => {
         const { stdout } = run(['pro', '--no-wire', '--print-password']);
         expect(stdout).toMatch(/^ {2}PASSWORD=Tt[A-Za-z0-9]{18}9z$/m);
         expect(stdout).not.toContain('PASSWORD=(');
+    });
+
+    it('a failed run-metadata read is UNKNOWN and the created account is still wired and reported (exit 0)', () => {
+        const { stdout, envTest } = run(['free'], createRun, { FAKE_GH_VIEW_FAIL: '1' });
+        expect(stdout).toContain('SOAK_TEST_PASSWORD generation: UNKNOWN (could not read run 4242)');
+        expect(stdout).toContain('wired into frontend/.env.test');
+        expect(stdout).toMatch(/^ {2}EMAIL=test-free-\d+@test\.com$/m);
+        expect(readFileSync(envTest, 'utf8')).toMatch(/^FREE_TEST_EMAIL=test-free-\d+@test\.com\nFREE_TEST_PASSWORD=\S+\n$/);
+    });
+
+    it('a failed run-metadata read with --no-wire --print-password still shows the generated pair', () => {
+        const { stdout } = run(['pro', '--no-wire', '--print-password'], createRun, { FAKE_GH_VIEW_FAIL: '1' });
+        expect(stdout).toContain('SOAK_TEST_PASSWORD generation: UNKNOWN (could not read run 4242)');
+        expect(stdout).toMatch(/^ {2}EMAIL=test-pro-\d+@test\.com$/m);
+        expect(stdout).toMatch(/^ {2}PASSWORD=Tt[A-Za-z0-9]{18}9z$/m);
+    });
+
+    it('a non-skipped SOAK conclusion is reported verbatim, never as SKIPPED', () => {
+        const { stdout } = run(['free', '--no-wire'], jobs([{ name: SOAK_STEP, conclusion: 'success' }]));
+        expect(stdout).toContain('SOAK_TEST_PASSWORD generation: success');
+        expect(stdout).not.toContain('SKIPPED');
     });
 
     it('a SOAK step the run does not report is UNKNOWN, never SKIPPED', () => {

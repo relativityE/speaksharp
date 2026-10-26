@@ -48,12 +48,16 @@ RID="$(gh run list --workflow=setup-test-users.yml -L 1 --json databaseId --jq '
 gh run watch "$RID" --exit-status
 
 # The workflow's SOAK_TEST_PASSWORD generation step only runs for action=setup; say so instead of leaving it implied.
-SOAK_STEP="$(gh run view "$RID" --json jobs --jq '[.jobs[].steps[] | select(.name == "Generate and set SOAK_TEST_PASSWORD") | .conclusion] | first // ""')"
-case "$SOAK_STEP" in
-  skipped) echo "  SOAK_TEST_PASSWORD generation: SKIPPED (create neither generates nor changes SOAK_TEST_PASSWORD)";;
-  "") echo "  SOAK_TEST_PASSWORD generation: UNKNOWN (step not reported by run ${RID})";;
-  *) echo "  SOAK_TEST_PASSWORD generation: ${SOAK_STEP}";;
-esac
+# This read is informational: if it fails, report UNKNOWN and carry on, so the created account is still wired/shown.
+if SOAK_STEP="$(gh run view "$RID" --json jobs --jq '[.jobs[].steps[] | select(.name == "Generate and set SOAK_TEST_PASSWORD") | .conclusion] | first // ""')"; then
+  case "$SOAK_STEP" in
+    skipped) echo "  SOAK_TEST_PASSWORD generation: SKIPPED (create neither generates nor changes SOAK_TEST_PASSWORD)";;
+    "") echo "  SOAK_TEST_PASSWORD generation: UNKNOWN (step not reported by run ${RID})";;
+    *) echo "  SOAK_TEST_PASSWORD generation: ${SOAK_STEP}";;
+  esac
+else
+  echo "  SOAK_TEST_PASSWORD generation: UNKNOWN (could not read run ${RID})"
+fi
 
 if [ "$WIRE" = 1 ]; then
   ENVF="frontend/.env.test"; touch "$ENVF"
