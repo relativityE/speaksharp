@@ -9,6 +9,7 @@
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
+import { COACHING_COLUMNS, decodeByColumns, selectAliases } from '../../frontend/src/services/telemetry/readbackColumns';
 
 vi.mock('@playwright/test', () => ({ expect: Object.assign(() => ({}), { soft: () => ({ toBe: () => undefined }) }), test: {} }));
 const { AnalyticsTap, failureClass, statusClass } = await import('../live/helpers/rwtJourney');
@@ -225,11 +226,22 @@ describe('smoke item 3 — terminal-row identity (diagnostic only; FAIL and exac
         const out = JSON.stringify(judge([diag(), diag({ uuid: U2 }), feedback]).terminalIdentity);
         for (const raw of [REQ, ATT, U1, U2]) expect(out).not.toContain(raw);
     });
-    it('the readback query selects the event uuid and client attempt and maps them by position', async () => {
+    it('the coaching query selects the declared named schema, including terminal identity', async () => {
         const { readFileSync } = await import('node:fs');
         const src = readFileSync(new URL('../../scripts/telemetry-readback-qualification.mts', import.meta.url), 'utf8');
-        expect(src).toMatch(/properties\.provider_attempts,\s*uuid, properties\.client_attempt\s*FROM events/);
-        expect(src).toContain('uuid: c[13], clientAttempt: c[14],');
+        const start = src.indexOf('const coachingRows = await runQuery(`');
+        expect(start).toBeGreaterThan(-1);
+        const aliases = selectAliases(src.slice(start, src.indexOf('FROM events', start) + 'FROM events'.length));
+        expect(aliases).toEqual([...COACHING_COLUMNS]);
+        expect(aliases.slice(-3)).toEqual(['provider_attempts', 'uuid', 'client_attempt']);
+    });
+    it.each(['query order', 'reversed response order'] as const)('preserves distinct terminal identity values with %s', (order) => {
+        const values: Record<string, unknown> = { provider_attempts: 2, uuid: U1, client_attempt: 7 };
+        const columns = order === 'query order' ? [...COACHING_COLUMNS] : [...COACHING_COLUMNS].reverse();
+        const decoded = decodeByColumns(COACHING_COLUMNS, columns, [columns.map(name => values[name] ?? null)]);
+        expect(decoded.ok).toBe(true);
+        if (!decoded.ok) return;
+        expect(decoded.rows[0]).toMatchObject(values);
     });
 });
 

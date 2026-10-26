@@ -7,12 +7,58 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TEST_EFFICACY_CONTRACTS, qualifyEfficacyPhase } from './lib/softwareQualityEvidenceQualification.mjs';
 import { canonicalPath, runtimeIdentity } from './efficacy-reporter.mjs';
-import { executionContext, testEnvironment, pilotAffectedByPaths, changedEvidencePaths, executionRoute,
-  fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
-import {HELPER_CONTRACTS, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
+import { executionContext, testEnvironment, pilotAffectedByPaths, executionRoute,
+  executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
+import {HELPER_CONTRACTS,helperApplicability, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
+import {SOURCE_CONSUMER,sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
+
+// A completed leader is not proof that its detached group has stopped writing.
+// Operate only on the group created for this phase, never a name-based process match.
+export function drainOwnedPhase(result) {
+  if (process.platform === 'win32') throw new Error('Owned phase group drain requires POSIX process groups');
+  const group = result.pid;
+  if (!Number.isInteger(group) || group <= 1 || group === process.pid) {
+    if (result.error && !group) return {status:'not-started'};
+    throw new Error('Missing owned phase process-group identity');
+  }
+  try { process.kill(-group,0); }
+  catch (error) {
+    if (error.code === 'ESRCH') return {status:'drained',group,signalled:false,zombies:[]};
+    throw new Error('Cannot inspect owned phase process group',{cause:error});
+  }
+  try { process.kill(-group,'SIGKILL'); }
+  catch (error) { if (error.code !== 'ESRCH') throw new Error('Cannot stop owned phase process group',{cause:error}); }
+  const deadline = Date.now()+1000;
+  do {
+    const output = execFileSync('ps',['-axo','pid=,pgid=,stat='],
+      {encoding:'utf8',timeout:1000,maxBuffer:2*1024*1024});
+    const members = output.trim().split('\n').filter(Boolean).map(line=>{
+      const match=/^\s*(\d+)\s+(\d+)\s+(\S+)\s*$/.exec(line);
+      if (!match) throw new Error('Unparseable process-group drain observation');
+      return {pid:Number(match[1]),group:Number(match[2]),state:match[3]};
+    }).filter(item=>item.group===group);
+    // A zombie has already exited and cannot write; reaping belongs to its new parent.
+    if (members.every(item=>/^[ZX]/.test(item.state))) {
+      return {status:'drained',group,signalled:true,zombies:members.map(item=>item.pid)};
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);
+  } while (Date.now()<deadline);
+  throw new Error('Owned phase process group did not drain within 1000ms');
+}
+
+export function cleanupOwnedCopy(temporary,primaryError) {
+  try { fs.rmSync(temporary,{recursive:true,force:true,maxRetries:3,retryDelay:50}); }
+  catch (cleanupError) {
+    const error=new AggregateError(primaryError?[primaryError,cleanupError]:[cleanupError],
+      `Efficacy cleanup failed; retained copy: ${temporary}${primaryError?`; primary failure: ${primaryError.message}`:''}`);
+    error.retainedCopy=temporary;
+    if (primaryError?.diagnostics) error.diagnostics=primaryError.diagnostics;
+    throw error;
+  }
+}
 // Vitest setup imports application modules outside the contract's direct import closure.
 // Conservatively select the bounded pilot for every frontend source change.
 
@@ -75,6 +121,27 @@ export function runVitestHelperExecution(options = {}) {
   return runTestEfficacy({...options, executionOnly: true, helpersOnly: true});
 }
 
+export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}={}) {
+  const selected=(helpersOnly?[]:evidenceFiles
+    .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
+    .map(file=>executionRoute(file,root).runner==='vitest-fixture'
+      ? {testFile:executionRoute(file,root).consumer,fixtureFile:file}:{testFile:file}))
+    .concat(HELPER_CONTRACTS.filter(contract=>evidenceFiles.includes(contract.helperFile)
+      && helperApplicability(root,contract.helperFile).supported)
+      .map(contract=>({...contract,helper:true})));
+  const sourceFiles=helpersOnly?[]:evidenceFiles.filter(file=>{
+    const route=executionRoute(file,root);return route?.runner==='vitest-source-contract' && route.applicable;
+  });
+  if(sourceFiles.length) selected.push({testFile:SOURCE_CONSUMER,sourceFiles});
+  // Deduplicate actual consumer execution, never a helper's callable proof.
+  for(const contract of [...selected]) if(contract.helper || contract.sourceFiles) {
+    const ordinary=selected.findIndex(item=>item!==contract && item.testFile===contract.testFile && !item.helper && !item.fixtureFile && !item.sourceFiles);
+    if(ordinary>=0) {selected.splice(ordinary,1);contract.consumerExecution=true;}
+  }
+  if(selected.length>8) throw new Error('NOT RUN: changed Vitest execution budget exceeds 8 files');
+  return selected;
+}
+
 export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false } = {}) {
   root = canonicalPath(root);
   const commit = git(root, ['rev-parse', 'HEAD']);
@@ -88,13 +155,10 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
     ...git(root, ['diff', '--name-only', '-z', 'HEAD']).split('\0'),
     ...git(root, ['ls-files', '--others', '--exclude-standard', '--exclude=/apt-bundle/', '-z']).split('\0'),
   ].filter(Boolean))] : null;
-  const selected = executionOnly ? (helpersOnly ? [] : changedEvidencePaths(root,base)
-    .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
-    .map(file=>executionRoute(file,root).runner==='vitest-fixture'
-      ? {testFile:executionRoute(file,root).consumer,fixtureFile:file} : {testFile:file})).concat(HELPER_CONTRACTS
-      .filter(contract => helpersOnly || changed === null || changed.includes(contract.helperFile))
-      .map(contract => ({...contract, helper: true}))) : selectContracts(root, changed);
-  if (executionOnly && selected.length > 8) throw new Error('NOT RUN: changed Vitest execution budget exceeds 8 files');
+  const executionKind=helpersOnly?'registered-helpers':'changed-evidence';
+  const evidenceFiles=executionOnly?executionRequiredFiles(root,base,executionKind):[];
+  const unavailable=executionOnly?unavailableExecutionInputs(root,evidenceFiles):[];
+  const selected=executionOnly?selectExecutionContracts(root,evidenceFiles,{helpersOnly}):selectContracts(root,changed);
   if (!executionOnly && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
     throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
   }
@@ -106,10 +170,13 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   const receipt = { schemaVersion: 2, runId: randomUUID(), scope: executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
     provenance,commit, tree, snapshotSha256: before.digest, base: base || null,
     selection: changed === null ? 'all-registered-no-base' : 'affected', changedPaths: changed,
-    status: selected.length ? 'executed' : 'not-applicable', contracts: [], tests: [] };
+    status: unavailable.length?'incomplete':selected.length?'executed':'not-applicable', contracts: [], tests: [],
+    ...(executionOnly?{executionKind,unavailable}:{}) };
   if (!selected.length) return receipt;
   // /tmp is a symlink on macOS. Compare real paths on both sides of the reporter boundary.
   const temporary = canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(), 'speaksharp-efficacy-')));
+  let primaryError;
+  let ownedGroupsDrained=true;
   try {
     for (const [file, digest, mode] of before.entries) {
       if (digest === 'deleted') continue;
@@ -160,19 +227,20 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if(contract.fixtureFile) binding.fixture={fixtureFile:contract.fixtureFile,testFile:contract.testFile,
         sourceBinding:fixtureSourceBinding(temporary,contract.fixtureFile),
         witnessFile:path.join(temporary,`.fixture-${binding.phaseId}.json`)};
+      if(contract.sourceFiles) binding.sourceContract={files:contract.sourceFiles,
+        sourceBinding:sourceContractBinding(temporary,contract.sourceFiles),
+        witnessFile:path.join(temporary,`.source-contract-${binding.phaseId}.json`)};
       const environment=testEnvironment(temporary,binding,envelopeFile);
       if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';
+      ownedGroupsDrained=false;
       const result = spawnSync(command[0], command.slice(1),
       { cwd: temporary, timeout: 60000, killSignal: 'SIGKILL', detached: process.platform !== 'win32',
         maxBuffer: 8 * 1024 * 1024,
         env: environment });
-      if (result.error && result.pid && process.platform !== 'win32') {
-        try { process.kill(-result.pid, 'SIGKILL'); }
-        catch (error) {
-          // ESRCH means the entire process group has already exited.
-          if (error.code !== 'ESRCH') throw error;
-        }
-      }
+      diagnostics={status:result.status,signal:result.signal,error:result.error?.code || null,
+        stdout:result.stdout?.toString() || '',stderr:result.stderr?.toString() || ''};
+      const processCleanup=drainOwnedPhase(result);
+      ownedGroupsDrained=true;
       for (const [file, digest] of inputHashes) {
         if (hash(fs.readFileSync(path.join(temporary, file))) !== digest) {
           throw new Error(`Input changed during test phase: ${file}`);
@@ -206,10 +274,16 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         fixtureWitness=JSON.parse(fs.readFileSync(binding.fixture.witnessFile,'utf8'));
         validateFixtureWitness(fixtureWitness,binding,temporary,report,envelope);
       }
+      let sourceContractWitness;
+      if(contract.sourceFiles) {
+        sourceContractWitness=JSON.parse(fs.readFileSync(binding.sourceContract.witnessFile,'utf8'));
+        validateSourceContractWitness(sourceContractWitness,binding,temporary,report,envelope);
+      }
       completedPhases.push(phase);
-      return { names, binding, envelope, execution:{status:result.status,signal:result.signal,error:result.error?.message || null},
+      return { names, binding, envelope, execution:{status:result.status,signal:result.signal,error:result.error?.message || null,processCleanup},
         inputSha256: binding.inputSha256, report, reportSha256: hash(JSON.stringify(report)),
-        ...(helperCoverage ? {helperCoverage} : {}),...(fixtureWitness ? {fixtureWitness} : {}) };
+        ...(helperCoverage ? {helperCoverage} : {}),...(fixtureWitness ? {fixtureWitness} : {}),
+        ...(sourceContractWitness?{sourceContractWitness}:{}) };
       } catch (cause) {
         const error = new Error(`[${phase}] ${cause.message}`, {cause});
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
@@ -225,6 +299,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         receipt.tests.push({testFile:contract.testFile,
           ...(contract.helper ? {helperFile:contract.helperFile} : {}),
           ...(contract.fixtureFile ? {fixtureFile:contract.fixtureFile} : {}),
+          ...(contract.sourceFiles ? {sourceFiles:contract.sourceFiles} : {}),
+          ...(contract.consumerExecution?{consumerExecution:true}:{}),
           testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),
           phase:execute(contract,'execution')});
         continue;
@@ -265,10 +341,19 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         testSha256: hash(fs.readFileSync(path.join(temporary, contract.testFile))), baseline, control, mutants, restored });
     }
     if (snapshot(root).digest !== before.digest) throw new Error('Working tree changed during efficacy run');
-    return receipt;
-  } finally {
-    fs.rmSync(temporary, { recursive: true, force: true });
+  } catch(error) {
+    primaryError=error;
   }
+  if (!ownedGroupsDrained) {
+    const error=new Error(`Owned phase cleanup unverified; retained copy: ${temporary}; ${primaryError?.message || 'phase did not return'}`,
+      {cause:primaryError});
+    error.retainedCopy=temporary;
+    if(primaryError?.diagnostics) error.diagnostics=primaryError.diagnostics;
+    throw error;
+  }
+  cleanupOwnedCopy(temporary,primaryError);
+  if(primaryError)throw primaryError;
+  return receipt;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

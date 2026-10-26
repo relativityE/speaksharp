@@ -33,6 +33,13 @@ export function ObjectiveSetupDialog({
             <DialogContent
                 data-testid="objective-setup-dialog"
                 className="max-w-lg border-0 bg-transparent p-0 shadow-none"
+                // G17: Radix judges Escape against this layer's index from its last render. When the closing Products
+                // menu's layer leaves just before the key, that index is stale and Radix drops the Escape. Radix marks
+                // every Escape it handles (preventDefault), as does a child that consumes it, so close only on one
+                // that nothing handled.
+                onKeyDown={(event) => {
+                    if (event.key === 'Escape' && !event.defaultPrevented) onOpenChange(false);
+                }}
             >
                 <DialogTitle className="sr-only">Set your {PRODUCT_NAMES.objective}</DialogTitle>
                 <ObjectiveSetupForm onReady={onReady} initial={initial} />
