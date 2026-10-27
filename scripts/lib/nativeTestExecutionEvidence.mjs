@@ -113,23 +113,56 @@ export function parseNodeEvents(raw,binding) {
 export function parseDenoJunit(raw,binding,root) {
   const require=createRequire(path.join(root,'node_modules/jsdom/package.json'));
   const {SaxesParser}=require('saxes');
-  const parser=new SaxesParser({xmlns:false});let malformed=false,rootSeen=false,depth=0;
-  const suites=[],cases=[];let current=null;
+  const parser=new SaxesParser({xmlns:false});let malformed=false,rootSeen=false;
+  const suites=[],cases=[],stack=[];
   parser.on('doctype',()=>{malformed=true;});parser.on('error',()=>{malformed=true;});
   parser.on('opentag',tag=>{
-    depth++;
-    if(depth===1){if(!['testsuites','testsuite'].includes(tag.name))malformed=true;rootSeen=true;}
-    if(tag.name==='testsuite')suites.push(tag.attributes);
-    if(tag.name==='testcase'){if(current)malformed=true;current={...tag.attributes};cases.push(current);}
-    if(['failure','error','skipped'].includes(tag.name))malformed=true;
+    const parent=stack.at(-1),depth=stack.length;
+    if(depth===0){if(!['testsuites','testsuite'].includes(tag.name))malformed=true;rootSeen=true;}
+    else if(tag.name==='testsuites')malformed=true;
+    if(tag.name==='testsuite') {
+      if(depth!==0&&!(depth===1&&parent==='testsuites'))malformed=true;
+      suites.push(tag.attributes);
+    } else if(tag.name==='testcase') {
+      if(parent!=='testsuite'||!((depth===1&&stack[0]==='testsuite')||(depth===2&&stack[0]==='testsuites')))malformed=true;
+      cases.push({...tag.attributes});
+    } else if(['system-out','system-err'].includes(tag.name)) {
+      if(!['testsuite','testcase'].includes(parent))malformed=true;
+    } else if(tag.name!=='testsuites')malformed=true;
+    stack.push(tag.name);
   });
-  parser.on('closetag',tag=>{if(tag.name==='testcase')current=null;depth--;});
+  parser.on('closetag',tag=>{if(stack.pop()!==tag.name)malformed=true;});
   try{parser.write(raw).close();}catch{malformed=true;}
   const expected=path.join(binding.cwd,binding.testFile),matches=value=>value===binding.testFile||value===`./${binding.testFile}`||value===expected||value===pathToFileURL(expected).href;
-  if(malformed||!rootSeen||depth!==0||suites.length!==1||!matches(suites[0].name)||!cases.length
+  if(malformed||!rootSeen||stack.length!==0||suites.length!==1||!matches(suites[0].name)||!cases.length
     ||Number(suites[0].tests)!==cases.length||Number(suites[0].failures)!==0||Number(suites[0].errors)!==0
     ||Number(suites[0].skipped??0)!==0||Number(suites[0].disabled??0)!==0||cases.some(item=>!item.name||!matches(item.classname)))fail('Deno JUnit collection absent, failed, skipped or wrong-file');
   return {collected:1,assertions:cases.length};
+}
+// One tracker spans warmup and test children. Every spawn invalidates drainage
+// before it starts; a failed second drain cannot inherit the first child's PASS.
+export function nativeChildTracker(drain,{spawn=spawnSync}={}) {
+  let drained=true;
+  return {
+    run(command,options) {
+      drained=false;
+      const result=spawn(command[0],command.slice(1),options);
+      let processCleanup;
+      try {
+        processCleanup=drain(result);
+        if(!['drained','not-started'].includes(processCleanup?.status))fail('Native child drainage unverified');
+      }catch(error){error.diagnostics={command,pid:result.pid,status:result.status,signal:result.signal,
+        stdout:result.stdout?.toString()??'',stderr:result.stderr?.toString()??''};throw error;}
+      drained=true;
+      return {result,execution:{status:result.status,signal:result.signal,error:result.error?.code??null,processCleanup}};
+    },
+    assertDrained(copy) {
+      if(!drained) {
+        const error=new Error(`Native child cleanup unverified; retained copy: ${copy}`);
+        error.retainedCopy=copy;throw error;
+      }
+    },
+  };
 }
 function callableNodes(root,source,name) {
   const require=createRequire(path.join(root,'package.json')),ts=require('typescript');
@@ -171,7 +204,7 @@ export function validateNativeCallables(raw,binding,root,helpers) {
   }
   return credited;
 }
-export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sourceCopyCommit,runId,environment,drain}) {
+export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sourceCopyCommit,runId,environment,drain,children=nativeChildTracker(drain)}) {
   const runtime=nativeRuntime(root,contract.runner),coverageDirectory=fs.mkdtempSync(path.join(cwd,'.native-coverage-'));
   const binding={phase:'native-execution',phaseId:randomUUID(),runId,provenance,cwd,testFile:contract.testFile,
     inputSha256,sourceCopyCommit,runtime,coverageDirectory,repoLockSha256:hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))};
@@ -187,16 +220,14 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
     env.DENO_NO_PROMPT='1';
     env.TEST_EFFICACY_BINDING=JSON.stringify(binding);
     const command=nativeWarmupCommand(binding),before=nativeRuntime(cwd,contract.runner);
-    const result=spawnSync(command[0],command.slice(1),{cwd,env,timeout:60000,killSignal:'SIGKILL',detached:true,
+    const {result,execution}=children.run(command,{cwd,env,timeout:60000,killSignal:'SIGKILL',detached:true,
       maxBuffer:4*1024*1024,encoding:'utf8'});
     warmup={command,before,after:nativeRuntime(cwd,contract.runner),cacheDirectory:binding.cacheDirectory,
-      stdout:result.stdout??'',stderr:result.stderr??'',execution:{status:result.status,signal:result.signal,
-        error:result.error?.code??null,processCleanup:drain(result)}};
+      stdout:result.stdout??'',stderr:result.stderr??'',execution};
     try{validateWarmup(warmup,binding);}catch(error){error.diagnostics={warmup};throw error;}
   }
-  const result=spawnSync(binding.command[0],binding.command.slice(1),{cwd,env,timeout:60000,killSignal:'SIGKILL',
+  const {result,execution}=children.run(binding.command,{cwd,env,timeout:60000,killSignal:'SIGKILL',
     detached:true,maxBuffer:16*1024*1024,encoding:'utf8'});
-  const execution={status:result.status,signal:result.signal,error:result.error?.code??null,processCleanup:drain(result)};
   const coverage=contract.runner==='node-test'?fs.readdirSync(coverageDirectory).filter(file=>file.endsWith('.json'))
     .sort().map(file=>JSON.parse(fs.readFileSync(path.join(coverageDirectory,file),'utf8')))
     .map(report=>({...report,result:report.result.filter(script=>contract.helpers.some(file=>script.url===pathToFileURL(path.join(cwd,file)).href))})):[];

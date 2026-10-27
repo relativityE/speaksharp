@@ -7,7 +7,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,
-  nativeCommand,nativeWarmupCommand,validateWarmup,produceNativePhase,validateNativePhase,validateNativeReceipt,
+  nativeCommand,nativeWarmupCommand,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
   parseDenoJunit,validateNativeCallables,sqlSourceBinding,validateSqlWitness} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment} from '../../scripts/lib/testExecutionEvidence.mjs';
@@ -50,7 +50,29 @@ for(const [name,raw] of [
   ['skipped element',xml('<testcase name="skipped" classname="./backend/supabase/functions/fixture.test.ts"><skipped/></testcase>')],
   ['disabled',xml().replace('disabled="0"','disabled="1"')],['mismatched count',xml().replace('tests="1"','tests="2"')],
   ['doctype','<!DOCTYPE testsuites [<!ENTITY x "fake">]>'+xml().replace('<?xml version="1.0"?>','')],
+  ['sibling outside suite',xml('').replace('</testsuite></testsuites>',
+    '</testsuite><testcase name="actual assertion" classname="./backend/supabase/functions/fixture.test.ts"/></testsuites>')],
+  ['nested inside system-out',xml('<system-out><testcase name="actual assertion" classname="./backend/supabase/functions/fixture.test.ts"/></system-out>')],
 ])test(`Deno ${name} receipt is refused`,()=>assert.throws(()=>parseDenoJunit(raw,denoBinding,root),/JUnit/));
+
+for(const failure of ['throws','unverified'])test(`warmup drain PASS cannot authorize cleanup after actual-child drain ${failure}`,()=>{
+  const copy=fs.mkdtempSync(path.join(os.tmpdir(),'native-drain-retain-'));
+  const evidence=path.join(copy,'owned-evidence.json');fs.writeFileSync(evidence,'retained evidence');
+  let drains=0;
+  const children=nativeChildTracker(()=>{
+    if(++drains===1)return {status:'drained'};
+    if(failure==='throws')throw new Error('second child permission denial');
+    return {status:'unknown'};
+  },{spawn:()=>({pid:1700001,status:0,signal:null,stdout:'actual child output',stderr:''})});
+  try {
+    children.run(['fixture-runtime','warmup'],{});children.assertDrained(copy);
+    assert.throws(()=>children.run(['fixture-runtime','actual-test'],{}),error=>{
+      assert.equal(error.diagnostics.pid,1700001);assert.match(error.diagnostics.stdout,/actual child output/);return true;
+    });
+    assert.throws(()=>children.assertDrained(copy),error=>error.retainedCopy===copy);
+    assert.equal(fs.readFileSync(evidence,'utf8'),'retained evidence');
+  }finally{fs.rmSync(copy,{recursive:true,force:true});}
+});
 
 function fixture(source="import test from 'node:test'; import assert from 'node:assert/strict'; test('actual assertion',()=>assert.equal(2+3,5));") {
   const dir=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'native-evidence-control-')));
