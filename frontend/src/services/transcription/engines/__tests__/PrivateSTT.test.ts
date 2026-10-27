@@ -705,6 +705,104 @@ describe('PrivateSTT (Routing Logic)', () => {
             pstt = null;
         });
 
+        it('Sam r6 #1: a failed replacement release is sticky: a later init refuses and acquires nothing', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const initA = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await initA).isOk).toBe(true);
+
+            created[0].onDestroy.mockRejectedValueOnce(new Error('old engine stuck'));
+            const initB = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await initB).isOk).toBe(false);
+
+            const retry = pstt.init();
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(created, 'a retry after an uncertain release must not acquire engine C').toHaveLength(2);
+            gates[2]?.(Result.ok(undefined)); // only reached if a retry wrongly acquired
+            const retried = await retry;
+            expect(retried.isOk).toBe(false);
+            expect(retried.isOk ? '' : retried.error.message).toMatch(/release uncertain\).*old engine stuck/);
+            expect(mockTJInit).toHaveBeenCalledTimes(2);
+        });
+
+        it('Sam r6 #2: Start while the replaced engine is still being retired rejects instead of starting nothing', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const initA = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await initA).isOk).toBe(true);
+
+            let releaseA!: () => void;
+            created[0].onDestroy.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseA = resolve; }));
+            const initB = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            await vi.waitFor(() => expect(created[0].onDestroy).toHaveBeenCalledTimes(1)); // A's retirement is held
+
+            await expect(pstt.start()).rejects.toThrow(/not initialized/);
+            expect(created[1].onStart).not.toHaveBeenCalled();
+            releaseA();
+            expect((await initB).isOk).toBe(true);
+            await pstt.start(); // the owned replacement, once adopted, is the engine that starts
+            expect(created[1].onStart).toHaveBeenCalledTimes(1);
+        });
+
+        it('Sam r6 #3: a teardown in the post-adoption window cancels the init instead of reading the detached engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            const facade = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            pstt = facade;
+            const internals = facade as unknown as { adoptEngine: (...args: unknown[]) => Promise<Result<void, Error>> };
+            const adopt = internals.adoptEngine.bind(facade);
+            vi.spyOn(internals, 'adoptEngine').mockImplementationOnce(async (...args: unknown[]) => {
+                const adopted = await adopt(...args);
+                await facade.destroy(); // detaches and releases the engine before the init resumes
+                return adopted;
+            });
+            const pending = facade.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            const result = await pending; // must settle as a cancellation, not reject with a null dereference
+
+            expect(result.isOk).toBe(false);
+            expect(result.isOk ? '' : result.error.message).toMatch(/init cancelled/);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            await expect(facade.start()).rejects.toThrow(/not initialized/);
+        });
+
+        it.each([
+            { releaseOutcome: 'completes', releaseError: null, teardownStatus: 'fulfilled', teardownMessage: /^$/ },
+            { releaseOutcome: 'fails', releaseError: new Error('injected stuck'), teardownStatus: 'rejected', teardownMessage: /release uncertain\): injected stuck/ },
+        ] as const)('Sam r6 #4: an injected init cancelled while its release is held (and $releaseOutcome) never claims the engine was released', async ({ releaseError, teardownStatus, teardownMessage }) => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            const injected = new StubTJ({});
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() }, injected as never);
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            let completeRelease!: () => void;
+            let failRelease!: (error: Error) => void;
+            injected.onDestroy.mockImplementationOnce(() => new Promise<void>((resolve, reject) => { completeRelease = resolve; failRelease = reject; }));
+            const tearingDown = pstt.destroy();
+            gates[0](Result.ok(undefined));
+            const result = await pending; // settles while the release is still held
+
+            expect(result.isOk).toBe(false);
+            const message = result.isOk ? '' : result.error.message;
+            expect(message).toMatch(/init cancelled/);
+            expect(message).not.toMatch(/was released/);
+            if (releaseError) failRelease(releaseError);
+            else completeRelease();
+            const [teardown] = await Promise.allSettled([tearingDown]);
+            expect(teardown.status).toBe(teardownStatus);
+            expect(teardown.status === 'rejected' ? String((teardown.reason as Error).message) : '').toMatch(teardownMessage);
+            expect(injected.onDestroy).toHaveBeenCalledTimes(1);
+            if (teardown.status === 'rejected') pstt = null; // its teardown failed by design; afterEach must not replay it
+        });
+
         it('preservation: a completed destroy -> init reuses the facade with a fresh engine', async () => {
             const { PrivateSTT } = await import('../PrivateSTT');
             pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });

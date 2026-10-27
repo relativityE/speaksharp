@@ -246,6 +246,14 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     return teardown;
   }
 
+  /**
+   * #1635: an engine release that FAILED outside a teardown (e.g. retiring a replaced engine) is as uncertain as a
+   * failed teardown: it is sticky, and every later init refuses without acquiring anything.
+   */
+  protected recordReleaseFailure(error: Error): void {
+    this.teardownFailure ??= error;
+  }
+
   /** #1635: a destroy/terminate that found a termination already begun still waits for its teardown. */
   protected async awaitTeardown(): Promise<void> {
     // The shared outcome: every concurrent or later waiter sees the same success or the same failure.

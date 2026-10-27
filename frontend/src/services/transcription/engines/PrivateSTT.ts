@@ -296,7 +296,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const injected = this.engine;
             validateEngine(injected);
             const initResult = await injected.init(timeoutMs, isMock);
-            if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError());
+            // #1635: the teardown that cancelled us owns this engine's release and reports its outcome; it may still
+            // be pending or fail, so this init never claims the engine was released.
+            if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError(false));
             const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
             if (!isOk) {
                 await injected.terminate?.();
@@ -558,9 +560,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected async onStart(mic?: MicStream, userWords: string[] = []): Promise<void> {
-        if (this.engine) {
-            await this.engine.start(mic, userWords);
-        }
+        // #1635: Start never "succeeds" with no engine running.
+        if (!this.engine) throw new Error('[PrivateSTT] Cannot start: no engine is adopted.');
+        await this.engine.start(mic, userWords);
     }
 
     protected async onStop(): Promise<void> {
@@ -604,13 +606,18 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         }
     }
 
-    /** #1635: release an engine through its supported teardown contract; returns the failure, never swallows it. */
+    /**
+     * #1635: release an engine through its supported teardown contract; returns the failure, never swallows it.
+     * A failed release is also STICKY: whichever path it happened on, the facade refuses every later init.
+     */
     private async releaseEngine(engine: IPrivateSTTEngine): Promise<Error | null> {
         try {
             await engine.terminate();
             return null;
         } catch (error) {
-            return error instanceof Error ? error : new Error(String(error));
+            const failure = error instanceof Error ? error : new Error(String(error));
+            this.recordReleaseFailure(failure);
+            return failure;
         }
     }
 
@@ -619,8 +626,11 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         return generation !== this.lifecycleGeneration || this.isTerminated;
     }
 
-    private cancelledInitError(): Error {
-        return new Error('[PrivateSTT] init cancelled by destroy/terminate; the acquired engine was released.');
+    /** `released` only when THIS init verified the release; otherwise the cancelling teardown reports it. */
+    private cancelledInitError(released: boolean): Error {
+        return new Error(released
+            ? '[PrivateSTT] init cancelled by destroy/terminate; the acquired engine was released.'
+            : '[PrivateSTT] init cancelled by destroy/terminate; the engine release belongs to that teardown.');
     }
 
     /**
@@ -634,20 +644,24 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const failure = await this.releaseEngine(engine);
             return Result.err(failure
                 ? new Error(`[PrivateSTT] init cancelled, and releasing the acquired engine FAILED (release uncertain): ${failure.message}`)
-                : this.cancelledInitError());
+                : this.cancelledInitError(true));
         };
         if (this.acquisitionCancelled(generation)) return release();
         const previous = this.engine;
         if (previous && previous !== engine) {
+            // This init still owns the facade (checked synchronously above). While the previous engine is being
+            // retired there is no engine to start, so the facade is not initialised: Start rejects instead of
+            // resolving with nothing running. A successful adoption re-marks it initialised.
+            this.isInitialized = false;
             this.engine = null;
             const retireFailure = await this.releaseEngine(previous);
             if (retireFailure) {
                 // The replacement is refused: the facade cannot claim a clean hand-over from an engine whose
                 // release failed. The new candidate is released too, and both outcomes are reported.
                 const candidateFailure = await this.releaseEngine(engine);
-                // No engine is adopted now, but only the init that still OWNS the facade may change its readiness:
-                // after these awaits a destroy and a newer, successful init may already have taken over.
-                if (!this.acquisitionCancelled(generation)) this.isInitialized = false;
+                // Readiness was already cleared when the retirement began; only the init that still OWNS the facade
+                // could change it, and after these awaits a destroy and a newer, successful init may have taken over.
+                // Both failures are sticky (releaseEngine), so no later init can acquire an engine on this facade.
                 return Result.err(new Error(`[PrivateSTT] releasing the replaced engine FAILED (release uncertain): ${retireFailure.message}`
                     + (candidateFailure ? `; releasing the new engine also FAILED: ${candidateFailure.message}` : '; the new engine was released')));
             }
@@ -847,7 +861,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         recordAcquisitionStart(subject, cacheResult);
 
         try {
-            const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock, generation);
+            const acquired = await this.initSelectedEngineInner(engineType, timeoutMs, isMock, generation);
+            // #1635: ownership is rechecked after this await too, BEFORE the adopted engine's receipt is read; a
+            // teardown that detached it meanwhile cancels this init rather than leaving a null to dereference.
+            const outcome: Result<EngineType, Error> = acquired.isOk && this.acquisitionCancelled(generation)
+                ? { isOk: false, error: this.cancelledInitError(false) }
+                : acquired;
             const totalMs = Math.round(performance.now() - acquisitionStartedAt);
             if (outcome.isOk) {
                 this.publishResolvedIdentity();
@@ -983,6 +1002,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 if (result.isOk) {
                     const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
                     if (!adopted.isOk) return { isOk: false, error: adopted.error };
+                    // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
+                    if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
                     this._engineType = 'mock';
                     return Result.ok('mock' as EngineType);
                 }
@@ -1038,6 +1059,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             }
             const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
             if (!adopted.isOk) return { isOk: false, error: adopted.error };
+            // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
+            if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
             this._engineType = 'moonshine-streaming';
             // Recorded only after a successful init, and recorded as the ARCH that was actually loaded
             // rather than the candidate that was requested, so metadata cannot describe a model the
@@ -1067,6 +1090,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 }
                 const adopted = await this.adoptEngine(engine, generation);
                 if (!adopted.isOk) return { isOk: false, error: adopted.error };
+                // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
+                if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
                 this._engineType = 'transformers-js';
                 return { isOk: true, data: 'transformers-js' as EngineType };
             }
@@ -1084,6 +1109,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
             const adopted = await this.adoptEngine(engine, generation);
             if (!adopted.isOk) return { isOk: false, error: adopted.error };
+            // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
+            if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
             this._engineType = 'transformers-js';
             return { isOk: true, data: 'transformers-js' as EngineType };
         } catch (error) {
@@ -1109,6 +1136,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 }
                 const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
                 if (!adopted.isOk) return { isOk: false, error: adopted.error };
+                // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
+                if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
                 this._engineType = 'transformers-js-v4';
                 return { isOk: true, data: 'transformers-js-v4' as EngineType };
             }
@@ -1125,6 +1154,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
             const adopted = await this.adoptEngine(engine, generation);
             if (!adopted.isOk) return { isOk: false, error: adopted.error };
+            // #1635: a teardown in the post-adoption window owns the engine now; nothing is published for it.
+            if (this.acquisitionCancelled(generation)) return { isOk: false, error: this.cancelledInitError(false) };
             this._engineType = 'transformers-js-v4';
             return { isOk: true, data: 'transformers-js-v4' as EngineType };
         } catch (error) {
