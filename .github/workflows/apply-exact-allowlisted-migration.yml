@@ -127,6 +127,13 @@ jobs:
             [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active or pending'; exit 1; }
           done
 
+      - name: Require existing C1 database password before linked CLI setup
+        if: ${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' }}
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || { echo '::error::C1 requires existing hosted database password injection before any linked CLI command; refusing credential setup'; exit 1; }
+          echo 'C1 existing database password injection present'
+
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
