@@ -93,6 +93,13 @@ describe('AuthenticatedHome — the page asks one question and offers two answer
         fireEvent.click(screen.getByTestId('home-analytics'));
         expect(props.onViewAnalytics).toHaveBeenCalledTimes(1);
     });
+
+    it('#1548: the Progress destination is labelled Progress, never Analytics', () => {
+        renderHome();
+        const progress = screen.getByTestId('home-analytics');
+        expect(progress).toHaveTextContent('Progress');
+        expect(progress).not.toHaveTextContent(/Analytics/i);
+    });
 });
 
 describe('H-1 / H-2 — the two products are peers', () => {

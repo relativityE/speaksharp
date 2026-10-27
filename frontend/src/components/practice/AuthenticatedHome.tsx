@@ -341,7 +341,7 @@ export function AuthenticatedHome({
                             disabled={!last.canReview}
                         />
                     )}
-                    <HeaderButton label="Analytics" Icon={BarChart3} onClick={onViewAnalytics} testid="home-analytics" />
+                    <HeaderButton label="Progress" Icon={BarChart3} onClick={onViewAnalytics} testid="home-analytics" />
                 </div>
             </div>
 
