@@ -36,6 +36,9 @@ export const HELPER_CONTRACTS = Object.freeze([{
   helperFile:'tests/live/helpers/repeatMetricWording.ts', testFile:'tests/unit/repeatMetricWording1548.test.ts',
   callables:['normalizeLine','validRecommendation','expectedTargetLine','expectedOutcomeLine','pressLinkage','repeatMetricPrerequisites','repeatMetricWordingVerdict'],
 }, {
+  helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/exactMigrationGate.test.js',
+  callables:['proveC1CatalogStages'],
+}, {
   helperFile:'tests/live/helpers/rwtRecoveryCapture.ts',testFile:'tests/unit/rwtRecoveryCapture1593.test.ts',
   callables:['SessionCreateBinding#onRequest','SessionCreateBinding#binding','SessionCreateBinding#readBinding',
     'SessionCreateBinding#detach','recoveryFenceRow'],
