@@ -225,6 +225,7 @@ try {
   ({COVERAGE_RELEASE_FLOOR,assertSoftwareQualityEvidence,parseCiAuditOverride}=await import('./lib/softwareQualityEvidenceQualification.mjs'));
   const {runTestEfficacy,runVitestExecution}=await import('./run-test-efficacy.mjs');
   const {executionContext,changedEvidencePaths,executionCoverage,resolveComparisonBase}=await import('./lib/testExecutionEvidence.mjs');
+  const {collectPlaywrightExecution}=await import('./lib/playwrightExecutionEvidence.mjs');
   // Standalone local writes get a new identity; consumers must receive this identity from the
   // invoking controller, never adopt it from the receipt they are trying to validate.
   process.env.SOFTWARE_QUALITY_INVOCATION ??= randomUUID();
@@ -236,8 +237,11 @@ try {
   evidence.provenance=provenance;
   evidence.testEfficacy = runTestEfficacy({provenance});
   evidence.testExecution = runVitestExecution({provenance});
+  const changed=changedEvidencePaths(process.cwd(),process.env.TEST_EFFICACY_BASE);
+  evidence.playwrightExecution=collectPlaywrightExecution({root:process.cwd(),expected:provenance,
+    requiredFiles:changed.filter(file=>/^tests\/e2e\/.+\.spec\.[jt]s$/.test(file))});
   evidence.executionCoverage=executionCoverage(changedEvidencePaths(process.cwd(),process.env.TEST_EFFICACY_BASE),
-    {root:process.cwd(),expected:provenance,pilot:evidence.testEfficacy,execution:evidence.testExecution,base:process.env.TEST_EFFICACY_BASE});
+    {root:process.cwd(),expected:provenance,pilot:evidence.testEfficacy,execution:evidence.testExecution,playwright:evidence.playwrightExecution,base:process.env.TEST_EFFICACY_BASE});
   evidence.overallStatus=evidence.executionCoverage.status==='COMPLETE'?'QUALIFIED':'UNQUALIFIED';
   evidence.trust='candidate-controlled observation; independent checker/runtime isolation not established';
   if (evidence.run.source === 'github-actions' && evidence.run.commitSha !== evidence.testEfficacy.commit) {
