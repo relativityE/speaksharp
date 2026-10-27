@@ -8,6 +8,7 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
+import {nativeTestRoute,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness} from './nativeTestExecutionEvidence.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
@@ -179,6 +180,8 @@ export function executionRoute(file, root) {
     return {runner:'vitest-source-contract',consumer:SOURCE_CONSUMER,config:'frontend/vitest.config.mjs',liveExecution:'NOT RUN',
       applicable:availability.supported,...(!availability.supported?{unavailableReason:availability.reason}:{})};
   }
+  const native=nativeTestRoute(file,root);
+  if(native)return native;
   if (sqlConsumers[file]) return sqlConsumers[file];
   if (file.endsWith('.sql')) return null;
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
@@ -309,6 +312,7 @@ export function validateVitestExecution(receipt, expected, root) {
     const helper = result.helperFile ? registeredHelper(result.helperFile) : null;
     const fixture = result.fixtureFile ? registeredFixture(result.fixtureFile) : null;
     const sourceFiles=result.sourceFiles;
+    const sqlFiles=result.sqlFiles;
     const creditedFile = result.helperFile || result.fixtureFile || testFile;
     if ((result.helperFile && (!helper || helper.testFile !== testFile))
       || (result.fixtureFile && (!fixture || fixture.testFile!==testFile || result.helperFile))
@@ -344,18 +348,27 @@ export function validateVitestExecution(receipt, expected, root) {
       validateSourceContractWitness(phase.sourceContractWitness,binding,root,phase.report,phase.envelope);
       for(const file of sourceFiles) files.add(file);
     } else if(binding.sourceContract || phase.sourceContractWitness) throw new Error('Unexpected source contract phase');
+    if(sqlFiles) {
+      if(helper||fixture||sourceFiles||testFile!==SQL_CONSUMER||!Array.isArray(sqlFiles)||!sqlFiles.length
+        ||new Set(sqlFiles).size!==sqlFiles.length||sqlFiles.some(file=>!SQL_INPUTS.includes(file)||!changedEvidencePaths(root,receipt.base).includes(file))
+        ||JSON.stringify(binding.sql?.files)!==JSON.stringify(sqlFiles)
+        ||JSON.stringify(binding.sql?.sourceBinding)!==JSON.stringify(sqlSourceBinding(root))
+        ||binding.sql?.witnessFile!==path.join(binding.cwd,`.sql-${binding.phaseId}.json`))throw new Error('Wrong SQL fixture source/phase binding');
+      validateSqlWitness(phase.sqlWitness,binding,root);
+      for(const file of sqlFiles)files.add(file);
+    }else if(binding.sql||phase.sqlWitness)throw new Error('Unexpected SQL fixture phase');
     // A helper/source-contract phase really executed its consumer. Share that
     // result only when the same ordinary test is in the changed selection.
     if(result.consumerExecution!==undefined && result.consumerExecution!==true) throw new Error('Invalid consumer execution claim');
     if(result.consumerExecution && (!helper && !sourceFiles || !changedEvidencePaths(root,receipt.base).includes(testFile))) throw new Error('Unselected consumer execution');
-    if(!sourceFiles || result.consumerExecution) files.add(creditedFile);
+    if((!sourceFiles && (!sqlFiles||changedEvidencePaths(root,receipt.base).includes(testFile))) || result.consumerExecution) files.add(creditedFile);
     if(result.consumerExecution) files.add(testFile);
     phases.add(binding.phaseId);
   }
   return files;
 }
 
-export function executionCoverage(files, {root,expected,pilot,execution,playwright,base}={}) {
+export function executionCoverage(files, {root,expected,pilot,execution,native,playwright,base}={}) {
   const changes=changedPaths(root,base);
   const required=pilotAffectedByPaths(!base || base==='0'.repeat(40)?null:changes);
   let proven=null;
@@ -363,15 +376,24 @@ export function executionCoverage(files, {root,expected,pilot,execution,playwrig
   const executed=['executed','incomplete'].includes(execution?.status)?validateVitestExecution(execution,expected,root):new Set();
   const ordinary=files.filter(file=>executionRoute(file,root)?.runner==='playwright');
   const browser=playwright ? validatePlaywrightExecution(playwright,{root,expected,requiredFiles:ordinary}):new Set();
+  let nativeFiles=new Set();
+  if(native) {
+    assertProvenance(native.provenance,expected);
+    if(native.base!==(base||null))throw new Error('Wrong native execution comparison base');
+    const entries=sourceEntries(root);
+    if(hash(JSON.stringify(entries))!==expected.snapshotSha256)throw new Error('Native source snapshot changed');
+    nativeFiles=validateNativeReceipt(native,{root,provenance:expected,files,
+      inputSha256:hash(JSON.stringify(entries.filter(([,digest])=>digest!=='deleted').map(([file,digest])=>[file,digest])))});
+  }
   if ([...executed].some(file=>!files.includes(file))) throw new Error('Unexpected execution outside changed test selection');
   const rows=files.map(file=> {
     const route=executionRoute(file,root);
-    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':file===proven || executed.has(file) || browser.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
+    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':file===proven || executed.has(file) || browser.has(file)||nativeFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
       ...(registeredSourceContract(file)?{liveExecution:'NOT RUN'}:{}),
-      claim:file===proven?'registered analytics-truth faults only':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
+      claim:file===proven?'registered analytics-truth faults only':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
-          :registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
+          :SQL_INPUTS.includes(file)?'actual SQL consumed in PGlite fixture; native database NOT RUN':registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
   });
   return {scope:'changed tests and fixtures; not a product requirement inventory',
     pilot:{required,status:proven?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},
@@ -381,7 +403,7 @@ export function executionCoverage(files, {root,expected,pilot,execution,playwrig
 export function readCurrentQuality(file, expected, root=process.cwd(), base=process.env.TEST_EFFICACY_BASE) {
   const evidence=JSON.parse(fs.readFileSync(file,'utf8'));
   assertProvenance(evidence.provenance,expected);
-  const actualCoverage=executionCoverage(changedEvidencePaths(root,base),{root,expected,pilot:evidence.testEfficacy,execution:evidence.testExecution,playwright:evidence.playwrightExecution,base});
+  const actualCoverage=executionCoverage(changedEvidencePaths(root,base),{root,expected,pilot:evidence.testEfficacy,execution:evidence.testExecution,native:evidence.nativeTestExecution,playwright:evidence.playwrightExecution,base});
   if (evidence.overallStatus!=='QUALIFIED' || actualCoverage.status!=='COMPLETE'
     || JSON.stringify(actualCoverage)!==JSON.stringify(evidence.executionCoverage)) {
     throw new Error('Quality execution coverage is UNCOVERED/NOT RUN');

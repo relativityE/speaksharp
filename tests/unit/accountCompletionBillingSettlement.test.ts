@@ -2,13 +2,23 @@
 // Executes the actual migrations in PostgreSQL WASM; native race proof is separate.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { completionBootstrap } from '../db/account-completion-fixture.mjs';
 
 const scope = 'a'.repeat(64);
 const candidate = 'backend/supabase/migrations/20261027192550_account_completion_billing_settlement.sql';
 const signature = 'public.settle_account_completion_billing_v1(uuid,uuid,uuid,text,jsonb)';
 let db: PGlite, serial = 0, beforeTables: unknown;
+const consumed = new Map<string, { file: string; sha256: string; beforeSha256: string; afterSha256: string }>();
+async function executeSource(file: string) {
+  const bytes = readFileSync(file), beforeSha256 = createHash('sha256').update(bytes).digest('hex');
+  const result = await db.exec(bytes.toString('utf8'));
+  const afterSha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
+  expect(afterSha256, 'SQL bytes remain unchanged across actual execution').toBe(beforeSha256);
+  consumed.set(file, { file, sha256: beforeSha256, beforeSha256, afterSha256 });
+  return result;
+}
 type Account = { user: string; request: string; execution: string; customer: string; subscription: string };
 async function query<T extends Record<string, unknown>>(text: string, args: unknown[] = [], role?: string) {
   await db.exec('RESET ROLE');
@@ -56,10 +66,16 @@ beforeAll(async () => {
   db = new PGlite(); await db.exec(completionBootstrap());
   await db.exec(readFileSync('backend/supabase/migrations/20261020230653_account_pending_completion_journal_1643.sql', 'utf8'));
   beforeTables = await tableAcls();
-  await db.exec(readFileSync(candidate, 'utf8'));
+  await executeSource(candidate);
 }, 30000);
 beforeEach(async () => { await query('UPDATE account_completion_configuration SET enabled=true,scope_digest=$1', [scope]); });
-afterAll(async () => { await db?.close(); });
+afterAll(async () => {
+  await db?.close();
+  const binding = JSON.parse(process.env.TEST_EFFICACY_BINDING ?? 'null');
+  if (binding?.sql) writeFileSync(binding.sql.witnessFile, JSON.stringify({ schemaVersion: 1,
+    phaseId: binding.phaseId, bindingSha256: createHash('sha256').update(JSON.stringify(binding)).digest('hex'),
+    consumer: 'tests/unit/accountCompletionBillingSettlement.test.ts', consumed: [...consumed.values()] }));
+});
 
 describe('completion-grant billing settlement: actual SQL/ACLs', () => {
   it('admits only service_role on the new narrow surface, preserving existing table and base-RPC ACLs', async () => {
@@ -107,7 +123,8 @@ describe('completion-grant billing settlement: actual SQL/ACLs', () => {
     // columns only permit the real-chain INSERT syntax; hosted replay still proves real Auth/signup behavior.
     await db.exec('RESET ROLE; ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb, ADD COLUMN raw_user_meta_data jsonb;');
     await query('UPDATE account_completion_configuration SET enabled=false,scope_digest=NULL');
-    await db.exec(readFileSync('tests/db/account-completion-billing-full-chain-invariants.sql','utf8'));
+    const result = await executeSource('tests/db/account-completion-billing-full-chain-invariants.sql');
+    expect(result.at(-1)?.rows).toEqual([{ '?column?': 'ACCOUNT COMPLETION BILLING REAL-SCHEMA INVARIANTS PASSED' }]);
     expect(await value('SELECT enabled FROM account_completion_configuration')).toBe(false);
     expect(await value('SELECT scope_digest FROM account_completion_configuration')).toBeNull();
     expect(await value("SELECT count(*)::int FROM auth.users WHERE id='b9190000-0000-4000-8000-000000000001'")).toBe(0);
