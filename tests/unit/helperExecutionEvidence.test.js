@@ -51,11 +51,58 @@ test('replays the provider normalizer on raw equal-count adjacent ranges without
   assert.ok(identity.sources.some(file=>file.file==='normalize.js'));
 });
 
+function recoveryClassFixture() {
+  const f=fixture();
+  const helper='tests/live/helpers/rwtRecoveryCapture.ts';
+  const consumer='tests/unit/rwtRecoveryCapture1593.test.ts';
+  const source=`export class SessionCreateBinding {
+    onRequest() { return 5; }
+    binding() { return this.readBinding(); }
+    private readBinding() { return 5; }
+    detach() { return 5; }
+  }
+  export function recoveryFenceRow() { return 5; }\n`;
+  const testSource=`import {test,expect} from 'vitest';
+    import {SessionCreateBinding,recoveryFenceRow} from '../live/helpers/rwtRecoveryCapture';
+    test('named recovery callables compute the independent expected value',()=>{
+      const binding=new SessionCreateBinding();
+      expect(binding.onRequest()).toBe(5);expect(binding.binding()).toBe(5);
+      expect(binding.detach()).toBe(5);expect(recoveryFenceRow()).toBe(5);
+    });\n`;
+  f.write(helper,source);f.write(consumer,testSource);
+  return {...f,helper,consumer,source,testSource};
+}
+
+test('recovery registration requires the exact class methods and actual named consumer',()=>{
+  const selected=HELPER_CONTRACTS.find(item=>item.helperFile==='tests/live/helpers/rwtRecoveryCapture.ts');
+  assert.equal(selected?.testFile,'tests/unit/rwtRecoveryCapture1593.test.ts');
+  assert.deepEqual(selected?.callables,['SessionCreateBinding#onRequest','SessionCreateBinding#binding',
+    'SessionCreateBinding#readBinding','SessionCreateBinding#detach','recoveryFenceRow']);
+  const f=recoveryClassFixture();
+  try {
+    assert.equal(executionRoute(f.helper,f.directory).applicable,true);
+    for(const edit of [
+      source=>source.replace('class SessionCreateBinding','class AnotherBinding'),
+      source=>source.replace('private readBinding()','private otherBinding()'),
+      source=>source.replace('private readBinding()','static readBinding()'),
+      source=>source.replace('private readBinding()','get readBinding()'),
+      source=>source.replace('private readBinding()','private ["readBinding"]()'),
+      source=>source+'\nexport class SessionCreateBinding { readBinding() { return 5; } }',
+    ]) {
+      f.write(f.helper,edit(f.source));
+      const route=executionRoute(f.helper,f.directory);
+      assert.equal(route.applicable,false,'a neighboring/renamed/static/ambiguous method cannot borrow the edge');
+    }
+    f.write(f.helper,f.source);fs.rmSync(path.join(f.directory,f.consumer));
+    assert.equal(executionRoute(f.helper,f.directory).applicable,false,'consumer presence is mandatory');
+  } finally {f.clean();}
+});
+
 function fixture() {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'helper-evidence-')));
   const write = (name, content) => {fs.mkdirSync(path.dirname(path.join(directory,name)),{recursive:true}); fs.writeFileSync(path.join(directory,name),content);};
   const files = ['scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs','scripts/efficacy-helper-vitest.config.mjs',
-    'scripts/lib/testExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
+    'scripts/lib/testExecutionEvidence.mjs','scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/softwareQualityEvidenceQualification.mjs',
     'scripts/run-test-efficacy.mjs','scripts/efficacy-reporter.mjs','scripts/write-software-quality-evidence.mjs','scripts/coverage-thresholds.mjs',
     'pnpm-lock.yaml','package.json',...dependencyPaths(root,TEST_EFFICACY_CONTRACTS[0].testFile)];
   for (const file of files) write(file,fs.readFileSync(path.join(root,file)));
@@ -335,6 +382,54 @@ test('actual embedded converter bytes are explicit and a same-lock private insta
 });
 
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
+  test('INSTALLED exact recovery class methods require real mapped calls, not a neighboring passing body',()=>{
+    const f=recoveryClassFixture();
+    const base=f.git(['rev-parse','HEAD']);
+    const retain=(name,payload)=>{
+      const output=process.env.TEST_EFFICACY_CONTROL_OUTDIR;
+      if(!output)return;
+      assert.equal(path.isAbsolute(output),true);
+      fs.mkdirSync(output,{recursive:true});
+      fs.writeFileSync(path.join(output,`${name}-${randomUUID()}.json`),JSON.stringify(payload),{flag:'wx'});
+    };
+    const run=()=>{
+      const expected=executionContext(f.directory,{SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+      const receipt=runVitestExecution({root:f.directory,base,provenance:expected});
+      assert.deepEqual([...validateVitestExecution(receipt,expected,f.directory)].sort(),[f.helper,f.consumer].sort());
+      return receipt;
+    };
+    try {
+      let first;
+      try {first=run();}catch(error){retain('class-positive-refusal',{message:error.message,diagnostics:error.diagnostics});throw error;}
+      const executed=first.tests[0].phase.helperCoverage.validated.executed;
+      assert.deepEqual(executed.map(item=>item.name),['SessionCreateBinding#onRequest','SessionCreateBinding#binding',
+        'SessionCreateBinding#readBinding','SessionCreateBinding#detach','recoveryFenceRow']);
+      assert.ok(executed.every(item=>item.count>0));
+      retain('class-positive',{scope:'synthetic class, actual installed V8 provider and independent validator; no journey acceptance',receipt:first});
+      f.write(f.consumer,f.testSource.replace('expect(binding.binding()).toBe(5);','expect(2+3).toBe(5);'));
+      assert.throws(run,error=>{
+        retain('class-uncalled-refusal',{message:error.message,diagnostics:error.diagnostics});
+        assert.match(error.message,/Uncalled helper|Helper remapped callable not executed/);
+        assert.equal(error.diagnostics.status,0,'passing consumer is insufficient when the named method was never called');
+        assert.equal(error.diagnostics.report.success,true);
+        return true;
+      });
+      f.write(f.consumer,f.testSource);
+      f.write(f.helper,f.source.replace('return this.readBinding();','return 5;'));
+      assert.throws(run,error=>{
+        retain('class-private-method-uncalled',{message:error.message,diagnostics:error.diagnostics});
+        assert.match(error.message,/Uncalled helper: SessionCreateBinding#readBinding|Helper remapped callable not executed: SessionCreateBinding#readBinding/);
+        assert.equal(error.diagnostics.status,0);
+        assert.equal(error.diagnostics.report.success,true,'all public calls passing must not hide an uncalled registered private method');
+        return true;
+      });
+      f.write(f.helper,f.source);
+      const restored=run();
+      assert.equal(restored.tests[0].phase.inputSha256,first.tests[0].phase.inputSha256);
+      retain('class-restored',{receipt:restored});
+    }finally{f.clean();}
+  });
+
   test('INSTALLED mixed helper and baseline source retain real supported execution but refuse overall qualification',()=>{
     const f=fixture();
     try {

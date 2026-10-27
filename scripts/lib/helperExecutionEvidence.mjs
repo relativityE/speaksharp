@@ -38,11 +38,39 @@ export const HELPER_CONTRACTS = Object.freeze([{
 }, {
   helperFile:'tests/db/c1CatalogStages.js', testFile:'tests/unit/exactMigrationGate.test.js',
   callables:['proveC1CatalogStages'],
+}, {
+  helperFile:'tests/live/helpers/rwtRecoveryCapture.ts',testFile:'tests/unit/rwtRecoveryCapture1593.test.ts',
+  callables:['SessionCreateBinding#onRequest','SessionCreateBinding#binding','SessionCreateBinding#readBinding',
+    'SessionCreateBinding#detach','recoveryFenceRow'],
 }]);
 export const HELPER_CONFIG = 'scripts/efficacy-helper-vitest.config.mjs';
 
 export function registeredHelper(file) {
   return HELPER_CONTRACTS.find(contract => contract.helperFile === file);
+}
+
+function callableDeclarations(ts,parsed,name) {
+  const declarations=[];
+  const qualified=/^([A-Za-z_$][\w$]*)#([A-Za-z_$][\w$]*)$/.exec(name);
+  for(const node of parsed.statements) {
+    if(qualified) {
+      if(ts.isClassDeclaration(node) && node.name?.text===qualified[1]) {
+        for(const member of node.members) {
+          if(ts.isMethodDeclaration(member) && ts.isIdentifier(member.name)
+            && member.name.text===qualified[2] && member.body
+            && !member.modifiers?.some(modifier=>modifier.kind===ts.SyntaxKind.StaticKeyword))declarations.push(member);
+        }
+      }
+      continue;
+    }
+    if(ts.isFunctionDeclaration(node) && node.name?.text===name && node.body)declarations.push(node);
+    if(ts.isVariableStatement(node))for(const item of node.declarationList.declarations) {
+      if(ts.isIdentifier(item.name) && item.name.text===name && item.initializer && ts.isArrowFunction(item.initializer)) {
+        declarations.push(item.initializer);
+      }
+    }
+  }
+  return declarations;
 }
 
 // Applicability selects an executable registered edge; it never grants credit.
@@ -58,13 +86,7 @@ export function helperApplicability(root,file) {
     const parsed=ts.createSourceFile(file,fs.readFileSync(path.join(root,file),'utf8'),ts.ScriptTarget.Latest,true);
     if(parsed.parseDiagnostics.length) return {supported:false,reason:'unknown helper syntax'};
     for(const name of contract.callables) {
-      const declarations=[];
-      for(const node of parsed.statements) {
-        if(ts.isFunctionDeclaration(node) && node.name?.text===name && node.body) declarations.push(node);
-        if(ts.isVariableStatement(node)) for(const item of node.declarationList.declarations) {
-          if(ts.isIdentifier(item.name) && item.name.text===name && item.initializer && ts.isArrowFunction(item.initializer)) declarations.push(item);
-        }
-      }
+      const declarations=callableDeclarations(ts,parsed,name);
       if(declarations.length!==1) return {supported:false,reason:`registered callable unavailable or ambiguous: ${name}`};
     }
     return {supported:true};
@@ -372,15 +394,10 @@ export function validateHelperCoverage(raw, binding, root) {
   const before = (a,b) => a.line < b.line || (a.line === b.line && a.column < b.column);
   const executed = [];
   for (const name of contract.callables) {
-    const declarations=[];
-    for(const node of parsed.statements) {
-      if(ts.isFunctionDeclaration(node) && node.name?.text===name) declarations.push(node);
-      if(ts.isVariableStatement(node)) for(const item of node.declarationList.declarations) {
-        if(ts.isIdentifier(item.name) && item.name.text===name && item.initializer && ts.isArrowFunction(item.initializer)) declarations.push(item.initializer);
-      }
-    }
+    const declarations=callableDeclarations(ts,parsed,name);
     const declaration=declarations.length===1?declarations[0]:null;
-    const functions = conversion.functions.filter(fn => fn.functionName === name);
+    const runtimeName=name.includes('#')?name.split('#')[1]:name;
+    const functions = conversion.functions.filter(fn => fn.functionName === runtimeName);
     if (!declaration?.body || functions.length !== 1) throw new Error(`Missing/ambiguous helper callable: ${name}`);
     const fn = functions[0];
     if (fn.isBlockCoverage !== true || !fn.ranges?.length || fn.ranges[0].count <= 0) throw new Error(`Uncalled helper: ${name}`);
@@ -406,7 +423,7 @@ export function validateHelperCoverage(raw, binding, root) {
         }
       }
     }
-    const entries = Object.entries(mapped.fnMap || {}).filter(([, value]) => value.name === name);
+    const entries = Object.entries(mapped.fnMap || {}).filter(([, value]) => value.name === runtimeName);
     if (entries.length !== 1 || !(mapped.f?.[entries[0][0]] > 0)) throw new Error(`Helper remapped callable not executed: ${name}`);
     if (mapped.f[entries[0][0]] !== fn.ranges[0].count) throw new Error('Remapped helper count contradicts raw worker count');
     const location = entries[0][1].loc;
@@ -420,7 +437,8 @@ export function validateHelperCoverage(raw, binding, root) {
     const asyncDeclaration=ts.isFunctionDeclaration(declaration)
       && declaration.modifiers?.some(modifier=>modifier.kind===ts.SyntaxKind.AsyncKeyword);
     const functionStart = keyword ? parsed.getLineAndCharacterOfPosition(asyncDeclaration?declaration.getStart(parsed):keyword.getStart(parsed))
-      : declaration && ts.isArrowFunction(declaration) ? parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed)) : null;
+      : declaration && ts.isArrowFunction(declaration) ? parsed.getLineAndCharacterOfPosition(declaration.getStart(parsed))
+        : ts.isMethodDeclaration(declaration) ? parsed.getLineAndCharacterOfPosition(declaration.name.getStart(parsed)) : null;
     const typedArrow=ts.isArrowFunction(declaration) && (declaration.type || declaration.parameters.some(parameter=>parameter.type));
     const parameterStart=typedArrow && declaration.parameters[0]
       ? parsed.getLineAndCharacterOfPosition(declaration.parameters[0].getStart(parsed)):null;

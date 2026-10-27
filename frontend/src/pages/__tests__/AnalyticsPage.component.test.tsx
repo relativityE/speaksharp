@@ -110,7 +110,11 @@ describe('AnalyticsPage', () => {
 
             renderAnalyticsPage();
             expect(screen.getByText('We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.')).toBeInTheDocument();
-            expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
+            expect(screen.getByText('Error Loading Progress')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'Retry Progress' })).toBeInTheDocument();
+            // #1254 / #1548: the page is Progress; the old Analytics labels are gone.
+            expect(screen.queryByText('Error Loading Analytics')).toBeNull();
+            expect(screen.queryByText('Retry Analytics')).toBeNull();
         });
 
         it('should render error message when profile fails', () => {
@@ -133,7 +137,7 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
-            fireEvent.click(screen.getByText('Retry Analytics'));
+            fireEvent.click(screen.getByText('Retry Progress'));
             expect(mockReload).not.toHaveBeenCalled();
         });
     });
@@ -158,6 +162,7 @@ describe('AnalyticsPage', () => {
         it('CASUALTY: the overview shows its complete totals and says the recent sessions cannot load', () => {
             withAnalytics({});
             renderAnalyticsPage('/progress');
+            expect(screen.queryByText('Error Loading Progress')).toBeNull();
             expect(screen.queryByText('Error Loading Analytics')).toBeNull();
             expect(screen.getByTestId('analytics-recent-history-unavailable')).toHaveTextContent('Your recent sessions can’t load right now');
             expect(screen.getByTestId('stat-card-total_sessions')).toHaveTextContent('37');
@@ -173,14 +178,14 @@ describe('AnalyticsPage', () => {
                 data: null, isLoading: false, error: { message: 'Failed to load profile' },
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
             renderAnalyticsPage('/progress');
-            expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
+            expect(screen.getByText('Error Loading Progress')).toBeInTheDocument();
             expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
         });
 
         it('CONTROL a session detail with a history failure still fails the whole page', () => {
             withAnalytics({});
             renderAnalyticsPage('/progress/session-1');
-            expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
+            expect(screen.getByText('Error Loading Progress')).toBeInTheDocument();
             expect(screen.queryByText('Session Not Found')).toBeNull();
             expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
         });
@@ -191,7 +196,7 @@ describe('AnalyticsPage', () => {
         ])('CONTROL an %s aggregate with a history failure still fails the whole page', (_label, allTime) => {
             withAnalytics({ allTime });
             renderAnalyticsPage('/progress');
-            expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
+            expect(screen.getByText('Error Loading Progress')).toBeInTheDocument();
             expect(screen.queryByTestId('stat-card-total_sessions')).toBeNull();
         });
     });
