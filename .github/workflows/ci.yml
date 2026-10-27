@@ -781,6 +781,7 @@ jobs:
             artifacts/ci-job-timing.json
             artifacts/software-quality-input-origin.json
             artifacts/metrics/native-deno-conformance.json
+            artifacts/metrics/native-coaching-policy-conformance.json
             test-results/metrics.json
             product_release/evidence/software-quality.latest.json
             product_release/evidence/software-quality-summary.latest.md

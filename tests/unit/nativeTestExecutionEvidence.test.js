@@ -7,8 +7,8 @@ import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,nativeTestRoute,selectNativeContracts,
-  nativeCommand,nativeWarmupCommand,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
-  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
+  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -155,6 +155,29 @@ test('native child drops inherited key/sentinels and never reinjects after the m
       {names:['GEMINI_API_KEY'],initial:'absent',inherit:false,syntheticValue:'test-key',reinject:false});
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
+test('frozen source refuses global, aliased and imported setters even while all expected literal calls remain',()=>{
+  const f=fixture(),entry='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+  const files=[...new Set([...dependencyPaths(root,entry),'package.json','pnpm-lock.yaml',
+    'backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock'])];
+  for(const file of files)f.write(file,fs.readFileSync(path.join(root,file)));
+  fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
+  try {
+    const admitted=validateSyntheticSource(f.dir,entry);
+    assert.equal(admitted.files[entry],hash(fs.readFileSync(path.join(root,entry))));
+    for(const [file,suffix] of [
+      [entry,"\nglobalThis.Deno.env.set('GEMINI_API_KEY','unapproved-value');\n"],
+      [entry,"\nconst setter=Deno.env.set;setter('GEMINI_API_KEY','unapproved-value');\n"],
+      ['backend/supabase/functions/get-ai-suggestions/index.ts',"\nconst environment=Deno.env;environment.set('GEMINI_API_KEY','unapproved-value');\n"],
+    ]) {
+      const original=fs.readFileSync(path.join(root,file),'utf8');f.write(file,original+suffix);
+      assert.throws(()=>validateSyntheticSource(f.dir,entry),/Synthetic-key test\/import profile/);
+      f.write(file,original);
+    }
+    // A caller may alter its returned receipt without mutating the trusted pins.
+    admitted.files[entry]='0'.repeat(64);
+    assert.equal(validateSyntheticSource(f.dir,entry).files[entry],hash(fs.readFileSync(path.join(root,entry))));
+  }finally{f.clean();}
+});
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
   const binding={cwd:'/owned/copy',cacheDirectory:'/owned/copy/.native-deno-cache',testFile:'actual.test.ts',
     runtime:{runner:'deno',execPath:'/installed/deno',configSha256:'a'.repeat(64),lockSha256:'b'.repeat(64)}};
@@ -229,16 +252,46 @@ if(process.env.TEST_EFFICACY_DENO_REAL_RUNTIME==='1') {
       await denied(()=>new Deno.Command(${JSON.stringify(process.execPath)}).output());
     });`;
     f.write(file,source);
-    const contract={testFile:file,runner:'deno',helpers:[]},children=nativeChildTracker(drainOwnedPhase);
+    const children=nativeChildTracker(drainOwnedPhase),runtime=nativeRuntime(f.dir,'deno');
     try {
-      const phase=produceNativePhase({root:f.dir,cwd:f.dir,contract,provenance,inputSha256,runId,
-        sourceCopyCommit:'e'.repeat(40),environment:{GEMINI_API_KEY:'inherited-sentinel',OTHER_SECRET:'sentinel'},children});
-      assert.equal(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract}).counts.assertions,1);
+      // This deliberately synthetic file is NOT an admitted producer source. Here
+      // we test the real Deno permission flags independently of product receipts.
+      const binding={runtime,testFile:file,cwd:f.dir},environment=nativeEnvironment(f.dir,{GEMINI_API_KEY:'inherited-sentinel',OTHER_SECRET:'sentinel'});
+      environment.DENO_DIR=path.join(f.dir,'.owned-cache');fs.mkdirSync(environment.DENO_DIR);
+      for(const command of [nativeWarmupCommand(binding),nativeCommand(binding)]) {
+        const {result}=children.run(command,{cwd:f.dir,env:environment,timeout:60000,killSignal:'SIGKILL',detached:true,encoding:'utf8'});
+        assert.equal(result.status,0,result.stderr);
+        if(!command.includes('--no-run'))assert.equal(parseDenoJunit(result.stdout,binding,f.dir).assertions,1);
+      }
+      assert.throws(()=>produceNativePhase({root:f.dir,cwd:f.dir,contract:{testFile:file,runner:'deno',helpers:[]},
+        provenance,inputSha256,runId,sourceCopyCommit:'e'.repeat(40),environment:{},children}),/Synthetic-key test\/import profile/);
+    }finally{children.assertDrained(f.dir);f.clean();}
+  });
+  test('INSTALLED fixed coaching closure rejects indirect/aliased/imported unapproved setters and forged profile receipts',()=>{
+    const f=fixture(),file='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+    const files=[...new Set([...dependencyPaths(root,file),'package.json','pnpm-lock.yaml',
+      'backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock'])].sort();
+    for(const entry of files)f.write(entry,fs.readFileSync(path.join(root,entry)));
+    const provenance=executionContext(root,{...process.env,SOFTWARE_QUALITY_INVOCATION:randomUUID()});
+    const sourceManifest=files.map(file=>({file,sha256:hash(fs.readFileSync(path.join(root,file)))}));
+    const inputSha256=hash(JSON.stringify(sourceManifest)),runId=randomUUID();
+    const sourceCopyCommit=initializeCopyRepository(f.dir,testEnvironment(f.dir,null,''));
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
+    const artifact=path.join(root,'artifacts/metrics/native-coaching-policy-conformance.json');
+    fs.rmSync(artifact,{force:true});
+    const contract={testFile:file,runner:'deno',helpers:[]},children=nativeChildTracker(drainOwnedPhase);
+    const execute=()=>produceNativePhase({root:f.dir,cwd:f.dir,contract,provenance,inputSha256,runId,
+      sourceCopyCommit,environment:{GEMINI_API_KEY:'inherited-sentinel'},children});
+    let phase;
+    try {
+      phase=execute();
+      assert.ok(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract}).counts.assertions>100);
       for(const change of [
         p=>{p.binding.permissionPolicy.environment.names.push('OTHER_SECRET');},
         p=>{p.binding.permissionPolicy.environment.syntheticValue='other';},
         p=>{p.binding.permissionPolicy.environment.inherit=true;},
         p=>{p.binding.permissionPolicy.environment.reinject=true;},
+        p=>{p.binding.syntheticSource.files[file]='0'.repeat(64);},
         p=>{p.binding.command=p.binding.command.map(arg=>arg==='--allow-env=GEMINI_API_KEY'?'--allow-env':arg);},
         p=>{p.binding.permissionPolicy.environment.names=[];p.binding.command=p.binding.command.map(arg=>arg==='--allow-env=GEMINI_API_KEY'?'--deny-env':arg);},
         p=>{p.warmup.command=p.warmup.command.map(arg=>arg==='--deny-env'?'--allow-env=GEMINI_API_KEY':arg);},
@@ -247,12 +300,21 @@ if(process.env.TEST_EFFICACY_DENO_REAL_RUNTIME==='1') {
         const changed=structuredClone(phase);change(changed);
         assert.throws(()=>validateNativePhase(changed,{root:f.dir,provenance,inputSha256,runId,contract}));
       }
-      for(const changed of [source.replace("'test-key'","'unapproved-value'"),source.replace("Deno.env.delete('GEMINI_API_KEY')","Deno.env.toObject()")]) {
-        f.write(file,changed);
-        assert.throws(()=>produceNativePhase({root:f.dir,cwd:f.dir,contract,provenance,inputSha256,runId,
-          sourceCopyCommit:'e'.repeat(40),environment:{},children}),/Synthetic-key/);
+      const source=fs.readFileSync(path.join(root,file),'utf8');
+      const helper='backend/supabase/functions/get-ai-suggestions/index.ts',originalHelper=fs.readFileSync(path.join(root,helper),'utf8');
+      for(const [changedFile,changed] of [
+        [file,source+"\nglobalThis.Deno.env.set('GEMINI_API_KEY','unapproved-value');\n"],
+        [file,source+"\nconst setter=Deno.env.set;setter('GEMINI_API_KEY','unapproved-value');\n"],
+        [helper,originalHelper+"\nglobalThis.Deno.env.set('GEMINI_API_KEY','unapproved-value');\n"],
+      ]) {
+        f.write(changedFile,changed);assert.throws(execute,/Synthetic-key test\/import profile/);
+        f.write(changedFile,fs.readFileSync(path.join(root,changedFile)));
       }
+      assert.deepEqual(sourceIdentity(root),{commit:provenance.commit,tree:provenance.tree,snapshotSha256:provenance.snapshotSha256});
     }finally{children.assertDrained(f.dir);f.clean();}
+    fs.mkdirSync(path.dirname(artifact),{recursive:true});fs.writeFileSync(artifact,JSON.stringify({status:'PASS',phase,
+      scope:'actual frozen unchanged-main coaching mocks, not provider/Production proof',provenance,sourceManifest,
+      copyCleanup:'REMOVED_AFTER_VERIFIED_DRAINS'},null,2)+'\n');
   });
   test('INSTALLED cold Deno executes the unchanged main CORS suite with frozen imports and no effect permissions',()=>{
     const entry='backend/supabase/functions/_shared/cors.test.ts';
