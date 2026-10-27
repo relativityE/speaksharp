@@ -27,6 +27,7 @@ import {
     TARGET_POSTFLIGHT_GATES,
 } from '../../scripts/lib/exactMigrationGate.mjs';
 import yaml from 'js-yaml';
+import { spawnSync } from 'node:child_process';
 
 const matched = ' 20260810120000 | 20260810120000 | 2026-08-10 12:00:00';
 const heldPending = ' 20260811143000 |                | 2026-08-11 14:30:00';
@@ -40,6 +41,43 @@ const t2Versions = ['20261018090000','20261018170000','20261019010000',
     '20261019055102','20261019202856','20261020230653'];
 const c1Versions = ['20261024083000','20261025021046'];
 describe('C1 ordered exact-operation enforcement', () => {
+    const workflow = yaml.load(readFileSync('.github/workflows/apply-exact-allowlisted-migration.yml', 'utf8'));
+    const job = workflow.jobs['apply-one-allowlisted-migration'];
+    const guardName = 'Require existing C1 database password before linked CLI setup';
+
+    it('requires the existing C1 password after authorization and before setup or any Supabase invocation', () => {
+        const index = job.steps.findIndex(step => step.name === guardName);
+        expect(index).toBeGreaterThan(job.steps.findIndex(step => step.name === 'Validate exact main identity and authorization phrase'));
+        expect(index).toBeLessThan(job.steps.findIndex(step => step.uses?.startsWith('supabase/setup-cli@')));
+        expect(index).toBeLessThan(job.steps.findIndex(step => /\bsupabase\s/.test(step.run ?? '')));
+        const guard = job.steps[index];
+        expect(guard.if).toBe("${{ inputs.target_version == '20261024083000' || inputs.target_version == '20261025021046' }}");
+        expect(guard['continue-on-error']).toBeUndefined();
+        expect(guard.env).toBeUndefined();
+        expect(job.env.SUPABASE_DB_PASSWORD).toBe('${{ secrets.SUPABASE_DB_PASSWORD }}');
+        expect(guard.run).not.toMatch(/\b(?:supabase|curl|wget)\s|set\s+-x/);
+    });
+
+    it.each(['absent', 'empty', 'present'])('executes the YAML shell with %s synthetic injection before the downstream sentinel', state => {
+        const guard = job.steps.find(step => step.name === guardName);
+        expect(guard?.run).toEqual(expect.any(String));
+        const syntheticPassword = 'synthetic-only-not-a-credential-guard-control';
+        // Deliberately do not inherit real database credentials, tokens or user shell configuration.
+        const env = { PATH: process.env.PATH ?? '/usr/bin:/bin' };
+        if (state !== 'absent') env.SUPABASE_DB_PASSWORD = state === 'empty' ? '' : syntheticPassword;
+        const child = spawnSync('bash', ['--noprofile', '--norc', '-c', `${guard.run}\nprintf 'DOWNSTREAM_SENTINEL\\n'`], {
+            env, encoding: 'utf8', timeout: 5_000,
+        });
+        expect(child.error).toBeUndefined();
+        expect(child.signal).toBeNull();
+        const output = `${child.stdout}${child.stderr}`;
+        expect(output).not.toContain(syntheticPassword);
+        expect(child.status).toBe(state === 'present' ? 0 : 1);
+        expect(output.includes('C1 existing database password injection present')).toBe(state === 'present');
+        expect(output.includes('DOWNSTREAM_SENTINEL')).toBe(state === 'present');
+        expect(output.includes('refusing credential setup')).toBe(state !== 'present');
+    });
+
     it.each(c1Versions)('cannot finish %s using generic or another target postflight', version => {
         const targetFile = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file;
         const outcomes = Object.fromEntries(TARGET_POSTFLIGHT_GATES.map(gate => [gate.id, 'skipped']));
