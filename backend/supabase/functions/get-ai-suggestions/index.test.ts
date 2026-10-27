@@ -114,6 +114,7 @@ let fetchErrorMessage = 'network unreachable';
 let geminiExtra: Record<string, unknown> = {};
 let lastPrompt = '';
 let lastRequestBody: Record<string, unknown> = {};
+const capturedProviderRequests: Array<{ url: string; body: Record<string, unknown> }> = [];
 let lastRequestUrl = '';
 /**
  * #1424 correction 1 — EVERY outbound request is recorded BEFORE it is classified.
@@ -165,6 +166,8 @@ globalThis.fetch = async (url, init) => {
   }
   fetchCount++;
   lastRequestUrl = requested;
+  const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
+  capturedProviderRequests.push({ url: requested, body: body as Record<string, unknown> });
   retryClock.mono += retryClock.providerCallMs;
   if (abortDuringFetch) {
     abortDuringFetch.abort();
@@ -172,7 +175,6 @@ globalThis.fetch = async (url, init) => {
     throw new DOMException('The signal has been aborted', 'AbortError');
   }
   if (fetchThrows || fetchFailuresRemaining-- > 0) throw new TypeError(fetchErrorMessage);
-  const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
   const thisStatus = fetchStatusQueue.length > 0 ? Number(fetchStatusQueue.shift()) : fetchStatus;
@@ -356,6 +358,7 @@ function resetProvider() {
   fetchCount = 0;
   fetchStatus = 200;
   fetchStatusQueue = [];
+  capturedProviderRequests.length = 0;
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
   geminiModelVersion = 'gemini-3.8-flash';
@@ -1034,6 +1037,29 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(fetchCount, 3, 'bounded: three attempts (#1258 option A), not a loop');
     assertEquals(mock.state.quotaCount, 1, 'exhausting the retry still costs exactly one slot');
   });
+
+  for (const statuses of [[200], [503, 200], [503, 503, 200], [503, 500, 502]]) {
+    await t.step(`explicit low thinking is sent on every actual mocked attempt: ${statuses.join('/')}`, async () => {
+      resetProvider();
+      fetchStatusQueue = [...statuses];
+      const mock = mockSupabase({ session: savedSession() });
+      const response = await handler(request(), mock.create);
+      assertEquals(response.status, statuses.at(-1) === 200 ? 200 : 502);
+      assertEquals(capturedProviderRequests.length, statuses.length, 'every initial/retry request was captured');
+      assertEquals(mock.state.quotaCount, 1, 'one coaching action still consumes one slot');
+      for (const sent of capturedProviderRequests) {
+        const url = new URL(sent.url);
+        assertEquals(url.origin, APPROVED_GEMINI_ORIGIN);
+        assertEquals(url.pathname, '/v1beta/models/gemini-3.8-flash:generateContent');
+        const config = sent.body.generationConfig as Record<string, unknown>;
+        // Literal wire expectation: changing the contract and sender together cannot hide a regression.
+        assertEquals(config.thinkingConfig, { thinkingLevel: 'low' });
+        assertEquals('maxOutputTokens' in config, false, 'the existing output-token default remains unchanged');
+        assertEquals(config.responseMimeType, 'application/json');
+        assertEquals(config.responseSchema, coachingContract.generationConfig.responseSchema);
+      }
+    });
+  }
 
   await t.step('CONTROL: a provider 4xx is not retried — a second identical ask cannot change it', async () => {
     resetProvider();
