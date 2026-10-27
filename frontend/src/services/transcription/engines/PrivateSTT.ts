@@ -301,10 +301,17 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError(false));
             const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
             if (!isOk) {
-                await injected.terminate?.();
-                const error = initResult ? (initResult as { error?: Error }).error : new Error('Injected private engine failed to initialize');
+                const error = (initResult ? (initResult as { error?: Error }).error : undefined)
+                    || new Error('Injected private engine failed to initialize');
                 logger.warn({ error }, '[PrivateSTT] Injected engine failed to initialize.');
-                return { isOk: false, error: error || new Error('Injected private engine failed to initialize') };
+                // #1635: released through the recording path. An injected child is not assumed to carry its own sticky
+                // protection: a failed release is recorded on THIS facade, and the uncertain engine is never re-invoked.
+                const releaseFailure = await this.releaseEngine(injected);
+                if (releaseFailure) {
+                    if (this.engine === injected) this.engine = null;
+                    return Result.err(new Error(`${error.message}; releasing the injected engine FAILED (release uncertain): ${releaseFailure.message}`));
+                }
+                return { isOk: false, error };
             }
             this._engineType = injected.type;
             return Result.ok(undefined);
@@ -647,6 +654,14 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 : this.cancelledInitError(true));
         };
         if (this.acquisitionCancelled(generation)) return release();
+        // A release failure recorded while this acquisition was pending (e.g. a stale, cancelled acquisition whose
+        // cleanup failed): refuse to adopt, and dispose only this init's own candidate.
+        const retained = this.retainedReleaseFailure();
+        if (retained) {
+            const candidateFailure = await this.releaseEngine(engine);
+            return Result.err(new Error(`[PrivateSTT] a previous engine release FAILED (release uncertain): ${retained.message}`
+                + (candidateFailure ? `; releasing the new engine also FAILED: ${candidateFailure.message}` : '; the new engine was released')));
+        }
         const previous = this.engine;
         if (previous && previous !== engine) {
             // This init still owns the facade (checked synchronously above). While the previous engine is being

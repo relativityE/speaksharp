@@ -198,6 +198,13 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
       // Keep a subclass's own, more precise failure (e.g. an uncertain release); only a success is replaced.
       return result.isOk ? Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`)) : result;
     }
+    // A release failure recorded WHILE this init was pending (e.g. a stale acquisition whose cleanup failed): the
+    // facade's release is uncertain, so it must not newly become ready.
+    if (result.isOk && this.teardownFailure) {
+      return Result.err(new Error(
+        `[STTEngine] ${this.type} cannot become ready: a previous engine release failed (release uncertain). ${this.teardownFailure.message}`,
+      ));
+    }
     if (result.isOk) {
       this.isInitialized = true;
       this.updateHeartbeat();
@@ -234,6 +241,9 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     void (async () => {
       try {
         await work();
+        // Owned cleanup was still attempted, but a RETAINED release failure (e.g. a replaced engine whose release
+        // failed earlier) means the facade's release is still uncertain: never report that as a confirmed release.
+        if (this.teardownFailure) throw this.teardownFailure;
         settle.resolve?.();
       } catch (error) {
         this.teardownFailure ??= error instanceof Error ? error : new Error(String(error));
@@ -254,11 +264,19 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     this.teardownFailure ??= error;
   }
 
+  /** #1635: the retained release failure, if any; an init still pending when it was recorded must not adopt. */
+  protected retainedReleaseFailure(): Error | null {
+    return this.teardownFailure;
+  }
+
   /** #1635: a destroy/terminate that found a termination already begun still waits for its teardown. */
   protected async awaitTeardown(): Promise<void> {
     // The shared outcome: every concurrent or later waiter sees the same success or the same failure.
     const teardown = this.teardownInFlight ?? this.lastTeardown;
     if (teardown) await teardown;
+    // A release failure retained AFTER that teardown settled (e.g. a cancelled acquisition whose release failed)
+    // still makes a later destroy/terminate uncertain.
+    if (this.teardownFailure) throw this.teardownFailure;
   }
 
   /**
