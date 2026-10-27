@@ -451,4 +451,453 @@ describe('PrivateSTT (Routing Logic)', () => {
 
         vi.useRealTimers();
     });
+
+    describe('#1635 cancellation/recovery of an in-flight acquisition', () => {
+        type Gate = (result: Result<void, Error>) => void;
+        let created: StubTJ[];
+        let gates: Gate[];
+        beforeEach(async () => {
+            created = [];
+            gates = [];
+            mockTJInit.mockImplementation(() => new Promise((resolve) => { gates.push(resolve); }));
+            const { sttRegistry } = await import('../../STTRegistry');
+            sttRegistry.register('transformers-js', (options) => {
+                const engine = new StubTJ(options);
+                created.push(engine);
+                return engine;
+            });
+        });
+        afterEach(() => { mockTJInit.mockReset(); mockTJInit.mockResolvedValue({ isOk: true, data: undefined }); });
+
+        it.each(['destroy', 'terminate'] as const)('a %s during the model load releases the acquired engine exactly once and never adopts it', async (teardown) => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt[teardown]();
+            gates[0](Result.ok(undefined));
+            const result = await pending;
+
+            expect(result.isOk).toBe(false);
+            expect(created).toHaveLength(1);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            await expect(pstt.start()).rejects.toThrow(/not initialized/);
+        });
+
+        it('destroy then re-init: the old load settling last is released and cannot replace the new engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const old = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt.destroy();
+            const fresh = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await fresh).isOk).toBe(true);
+            gates[0](Result.ok(undefined));
+            expect((await old).isOk).toBe(false);
+
+            expect(created).toHaveLength(2);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1); // the cancelled acquisition, released once
+            expect(created[1].onDestroy).not.toHaveBeenCalled(); // the newer engine is never destroyed here
+            await pstt.terminate();
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1); // and it is the one the facade owned
+            pstt = null;
+        });
+
+        it('overlapping init() calls acquire ONE engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            const second = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+            expect((await second).isOk).toBe(true);
+            expect(created).toHaveLength(1);
+            expect(mockTJInit).toHaveBeenCalledTimes(1);
+        });
+
+        it('an injected engine destroyed during its own init is torn down once, with no read of the nulled engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            const injected = new StubTJ({});
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() }, injected as never);
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt.destroy();
+            gates[0](Result.ok(undefined));
+            const result = await pending; // must settle, not throw a TypeError on `this.engine.type`
+            expect(result.isOk).toBe(false);
+            expect(injected.onDestroy).toHaveBeenCalledTimes(1);
+        });
+
+        it.each(['terminate', 'destroy'] as const)('Sam counterexample: a slow %s of engine A cannot destroy engine B adopted by a fresh init', async (teardown) => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+
+            // Engine A's own teardown is slow: its child terminate/destroy waits on a gate.
+            let releaseA!: () => void;
+            created[0].onDestroy.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseA = resolve; }));
+            const tearingDown = pstt[teardown]();
+            const fresh = pstt.init(); // init B, requested while A's teardown is still in progress
+            await vi.waitFor(() => expect(created[0].onDestroy).toHaveBeenCalledTimes(1));
+            expect(created).toHaveLength(1); // B is not even constructed until A's teardown settles
+            releaseA();
+            await tearingDown;
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await fresh).isOk).toBe(true);
+
+            expect(created).toHaveLength(2);
+            expect(created[1].onDestroy).not.toHaveBeenCalled(); // A's teardown never acted on B
+            await pstt.start(); // the facade is initialised with a live engine, not left with engine null
+            await pstt.terminate();
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1);
+            pstt = null;
+        });
+
+        /**
+         * Moonshine's real engine implements terminate() (it closes the transcriber) and NO destroy(); validateEngine
+         * then injects a no-op destroy. A release through destroy() would report success with the transcriber open.
+         */
+        const moonshineShaped = () => {
+            const state = { transcriberOpen: false, terminations: 0, settleInit: (() => undefined) as (result: Result<void, Error>) => void };
+            const engine = {
+                init: vi.fn(() => new Promise<Result<void, Error>>((resolve) => {
+                    state.settleInit = (result) => { state.transcriberOpen = true; resolve(result); };
+                })),
+                transcribe: vi.fn(async () => ({ isOk: true, data: '' })),
+                start: vi.fn(async () => {}), stop: vi.fn(async () => {}),
+                pause: vi.fn(async () => {}), resume: vi.fn(async () => {}),
+                terminate: vi.fn(async () => { state.terminations += 1; state.transcriberOpen = false; }),
+                getTranscript: vi.fn(async () => ''), getInterimTranscript: vi.fn(() => ''),
+            };
+            return { engine, state };
+        };
+
+        it.each(['destroy', 'terminate'] as const)('a cancelled Moonshine-shaped acquisition is released through terminate() exactly once, closing its transcriber (%s)', async (teardown) => {
+            const selection = await import('../../candidateSelection');
+            const { CANDIDATES } = await import('../../candidateRegistry');
+            vi.spyOn(selection, 'effectiveCandidate').mockReturnValue({ candidate: CANDIDATES['moonshine:streaming-medium'], fallbackCause: null } as never);
+            const moonshine = moonshineShaped();
+            const { sttRegistry } = await import('../../STTRegistry');
+            sttRegistry.register('moonshine-streaming', () => moonshine.engine as never);
+
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'moonshine-streaming' } as never);
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(moonshine.engine.init).toHaveBeenCalledTimes(1));
+            await pstt[teardown]();
+            moonshine.state.settleInit(Result.ok(undefined));
+            const result = await pending;
+
+            expect(result.isOk).toBe(false);
+            expect(moonshine.engine.terminate).toHaveBeenCalledTimes(1);
+            expect(moonshine.state.transcriberOpen, 'a no-op destroy() would leave the transcriber open').toBe(false);
+        });
+
+        it('a cancelled acquisition whose release FAILS reports an uncertain release, never a clean cancel', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            created[0].onDestroy.mockRejectedValueOnce(new Error('dispose exploded'));
+            await pstt.destroy();
+            gates[0](Result.ok(undefined));
+            const result = await pending;
+            expect(result.isOk).toBe(false);
+            expect(result.isOk ? '' : result.error.message).toMatch(/release uncertain/);
+            expect(result.isOk ? '' : result.error.message).toMatch(/dispose exploded/);
+            pstt = null; // its release is uncertain by design; afterEach must not replay it
+        });
+
+        it('a replaced engine whose release FAILS refuses the replacement, releases the new engine, and says so', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            // The explicit-provider path acquires a NEW engine on every init; the default path re-inits the adopted one.
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+
+            created[0].onDestroy.mockRejectedValueOnce(new Error('old engine stuck'));
+            const replacing = pstt.init(); // a completed init re-run while engine A is still adopted: acquires engine B
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            const result = await replacing;
+
+            expect(result.isOk).toBe(false);
+            expect(result.isOk ? '' : result.error.message).toMatch(/replaced engine FAILED \(release uncertain\): old engine stuck; the new engine was released/);
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1); // the refused replacement is released, not adopted
+            await expect(pstt.start()).rejects.toThrow(/not initialized/);
+            pstt = null; // its release is uncertain by design; afterEach must not replay it
+        });
+
+        it('a failed engine release rejects public destroy() as uncertain, and a repeat replays it', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+            created[0].onDestroy.mockRejectedValueOnce(new Error('engine dispose failed'));
+            await expect(pstt.destroy()).rejects.toThrow(/release uncertain\): engine dispose failed/);
+            await expect(pstt.destroy()).rejects.toThrow(/release uncertain\): engine dispose failed/);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            // The facade whose release is uncertain refuses to initialise again; no new engine is acquired.
+            const reinit = await pstt.init();
+            expect(reinit.isOk).toBe(false);
+            expect(reinit.isOk ? '' : reinit.error.message).toMatch(/previous teardown failed \(release uncertain\)/);
+            expect(created).toHaveLength(1);
+            pstt = null; // its teardown failed by design; afterEach must not replay it
+        });
+
+        it('concurrent terminate/destroy waiters all see the SAME failed release, never a success', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+            created[0].onDestroy.mockRejectedValueOnce(new Error('engine stuck'));
+            const outcomes = await Promise.allSettled([pstt.terminate(), pstt.destroy(), pstt.terminate()]);
+            expect(outcomes.map((outcome) => outcome.status)).toEqual(['rejected', 'rejected', 'rejected']);
+            const [reason, ...others] = outcomes.map((outcome) => (outcome as PromiseRejectedResult).reason as Error);
+            expect(reason.message).toBe('engine stuck');
+            for (const other of others) expect(other).toBe(reason);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            pstt = null;
+        });
+
+        it('Sam counterexample: a stale failed retirement cannot clear the readiness of a newer, successful init', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            // The explicit-provider path acquires a new engine per init, so init B must retire engine A.
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const initA = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await initA).isOk).toBe(true);
+
+            let rejectA!: (error: Error) => void;
+            created[0].onDestroy.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectA = reject; }));
+            const initB = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            await vi.waitFor(() => expect(created[0].onDestroy).toHaveBeenCalledTimes(1)); // A's retirement is pending
+
+            await pstt.destroy();
+            const initC = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(3));
+            gates[2](Result.ok(undefined));
+            expect((await initC).isOk).toBe(true);
+
+            rejectA(new Error('A stuck'));
+            const resultB = await initB;
+            expect(resultB.isOk).toBe(false);
+
+            await pstt.start(); // C is still initialised: B's stale failure did not clear its readiness
+            expect(pstt.getEngineType()).toBe('transformers-js');
+            expect(created[2].onDestroy).not.toHaveBeenCalled();
+            // C is released, but A's failed release is retained, so the teardown is still reported uncertain.
+            await expect(pstt.terminate()).rejects.toThrow(/A stuck/);
+            expect(created[2].onDestroy).toHaveBeenCalledTimes(1); // and C is the engine the facade owned
+            pstt = null;
+        });
+
+        it('Sam r6 #1: a failed replacement release is sticky: a later init refuses and acquires nothing', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const initA = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await initA).isOk).toBe(true);
+
+            created[0].onDestroy.mockRejectedValueOnce(new Error('old engine stuck'));
+            const initB = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await initB).isOk).toBe(false);
+
+            const retry = pstt.init();
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(created, 'a retry after an uncertain release must not acquire engine C').toHaveLength(2);
+            gates[2]?.(Result.ok(undefined)); // only reached if a retry wrongly acquired
+            const retried = await retry;
+            expect(retried.isOk).toBe(false);
+            expect(retried.isOk ? '' : retried.error.message).toMatch(/release uncertain\).*old engine stuck/);
+            expect(mockTJInit).toHaveBeenCalledTimes(2);
+            pstt = null; // its release is uncertain by design; afterEach must not replay it
+        });
+
+        it('Sam r7 #1 residual: after a failed replacement release, concurrent and repeated destroy/terminate all reject with the retained failure', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const initA = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await initA).isOk).toBe(true);
+
+            const retained = new Error('old engine stuck');
+            created[0].onDestroy.mockRejectedValueOnce(retained);
+            const initB = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await initB).isOk).toBe(false); // A's release rejected; B's cleanup completed
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1);
+
+            const concurrent = await Promise.allSettled([pstt.destroy(), pstt.terminate(), pstt.destroy()]);
+            const repeated = await Promise.allSettled([pstt.terminate(), pstt.destroy()]);
+            for (const outcome of [...concurrent, ...repeated]) {
+                expect(outcome.status).toBe('rejected');
+                expect((outcome as PromiseRejectedResult).reason).toBe(retained); // the ORIGINAL failure, never a new one
+            }
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1); // A is never closed a second time
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1);
+            pstt = null; // its release is uncertain by design; afterEach must not replay it
+        });
+
+        it('Sam r6 #2: Start while the replaced engine is still being retired rejects instead of starting nothing', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const initA = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await initA).isOk).toBe(true);
+
+            let releaseA!: () => void;
+            created[0].onDestroy.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseA = resolve; }));
+            const initB = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            await vi.waitFor(() => expect(created[0].onDestroy).toHaveBeenCalledTimes(1)); // A's retirement is held
+
+            await expect(pstt.start()).rejects.toThrow(/not initialized/);
+            expect(created[1].onStart).not.toHaveBeenCalled();
+            releaseA();
+            expect((await initB).isOk).toBe(true);
+            await pstt.start(); // the owned replacement, once adopted, is the engine that starts
+            expect(created[1].onStart).toHaveBeenCalledTimes(1);
+        });
+
+        it('Sam r6 #3: a teardown in the post-adoption window cancels the init instead of reading the detached engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            const facade = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            pstt = facade;
+            const internals = facade as unknown as { adoptEngine: (...args: unknown[]) => Promise<Result<void, Error>> };
+            const adopt = internals.adoptEngine.bind(facade);
+            vi.spyOn(internals, 'adoptEngine').mockImplementationOnce(async (...args: unknown[]) => {
+                const adopted = await adopt(...args);
+                await facade.destroy(); // detaches and releases the engine before the init resumes
+                return adopted;
+            });
+            const pending = facade.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            const result = await pending; // must settle as a cancellation, not reject with a null dereference
+
+            expect(result.isOk).toBe(false);
+            expect(result.isOk ? '' : result.error.message).toMatch(/init cancelled/);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            await expect(facade.start()).rejects.toThrow(/not initialized/);
+        });
+
+        it.each([
+            { releaseOutcome: 'completes', releaseError: null, teardownStatus: 'fulfilled', teardownMessage: /^$/ },
+            { releaseOutcome: 'fails', releaseError: new Error('injected stuck'), teardownStatus: 'rejected', teardownMessage: /release uncertain\): injected stuck/ },
+        ] as const)('Sam r6 #4: an injected init cancelled while its release is held (and $releaseOutcome) never claims the engine was released', async ({ releaseError, teardownStatus, teardownMessage }) => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            const injected = new StubTJ({});
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() }, injected as never);
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            let completeRelease!: () => void;
+            let failRelease!: (error: Error) => void;
+            injected.onDestroy.mockImplementationOnce(() => new Promise<void>((resolve, reject) => { completeRelease = resolve; failRelease = reject; }));
+            const tearingDown = pstt.destroy();
+            gates[0](Result.ok(undefined));
+            const result = await pending; // settles while the release is still held
+
+            expect(result.isOk).toBe(false);
+            const message = result.isOk ? '' : result.error.message;
+            expect(message).toMatch(/init cancelled/);
+            expect(message).not.toMatch(/was released/);
+            if (releaseError) failRelease(releaseError);
+            else completeRelease();
+            const [teardown] = await Promise.allSettled([tearingDown]);
+            expect(teardown.status).toBe(teardownStatus);
+            expect(teardown.status === 'rejected' ? String((teardown.reason as Error).message) : '').toMatch(teardownMessage);
+            expect(injected.onDestroy).toHaveBeenCalledTimes(1);
+            if (teardown.status === 'rejected') pstt = null; // its teardown failed by design; afterEach must not replay it
+        });
+
+        it('Sam r7 adjacent #1: a pending init B does not become ready after stale A\'s cleanup fails; only B\'s candidate is disposed', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const initA = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1)); // pending A
+            await pstt.destroy(); // cancel A
+            const initB = pstt.init(); // start pending B: it passes the sticky check at entry
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            const staleFailure = new Error('stale A cleanup failed');
+            created[0].onDestroy.mockRejectedValueOnce(staleFailure);
+            gates[0](Result.ok(undefined)); // A settles cancelled, and its cleanup rejects
+            const resultA = await initA;
+            expect(resultA.isOk ? '' : resultA.error.message).toMatch(/release uncertain\): stale A cleanup failed/);
+            gates[1](Result.ok(undefined)); // B settles after the uncertainty is known
+            const resultB = await initB;
+
+            expect(resultB.isOk).toBe(false);
+            expect(resultB.isOk ? '' : resultB.error.message).toMatch(/release uncertain\): stale A cleanup failed/);
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1); // B's own candidate is disposed
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1); // A is not closed a second time
+            await expect(pstt.start()).rejects.toThrow(/not initialized/);
+            pstt = null; // its release is uncertain by design; afterEach must not replay it
+        });
+
+        it('Sam r7 adjacent #2: an injected engine whose init fails and whose release rejects is recorded and never re-invoked', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            // A contract-valid injected double that is NOT an STTEngine: no sticky protection of its own.
+            const injected = {
+                init: vi.fn(async () => Result.err(new Error('injected init failed'))),
+                start: vi.fn(async () => {}), stop: vi.fn(async () => {}),
+                terminate: vi.fn(async () => { throw new Error('injected release stuck'); }),
+                transcribe: vi.fn(async () => Result.ok('')),
+                getTranscript: vi.fn(async () => ''), getInterimTranscript: vi.fn(() => ''),
+            };
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() }, injected as never);
+            const first = await pstt.init(); // must settle as a Result, not reject
+
+            expect(first.isOk).toBe(false);
+            expect(first.isOk ? '' : first.error.message).toMatch(/injected init failed; releasing the injected engine FAILED \(release uncertain\): injected release stuck/);
+            const again = await pstt.init();
+            expect(again.isOk).toBe(false);
+            expect(again.isOk ? '' : again.error.message).toMatch(/release uncertain\).*injected release stuck/);
+            expect(injected.init).toHaveBeenCalledTimes(1); // the uncertain engine is never re-invoked
+            expect(injected.terminate).toHaveBeenCalledTimes(1);
+            pstt = null; // its release is uncertain by design; afterEach must not replay it
+        });
+
+        it('preservation: a completed destroy -> init reuses the facade with a fresh engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+            await pstt.destroy();
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            const again = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await again).isOk).toBe(true);
+            expect(pstt.getEngineType()).toBe('transformers-js');
+            expect(created).toHaveLength(2);
+            expect(created[1].onDestroy).not.toHaveBeenCalled();
+        });
+    });
 });
