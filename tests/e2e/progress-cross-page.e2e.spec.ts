@@ -161,6 +161,53 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
   });
   }
 
+  test('#1548: a resolved linked repeat shows its persisted same-target values after reopening, never the latest unrelated session', async ({ page }) => {
+    // Source session-4: 4 fillers / 245 words. The recommendation stored that as source_metric_value (1.63…%).
+    // The attempt's persisted next-comparable session is session-5 (2 / 250 = 0.8%). session-6 is NEWER and
+    // unrelated (0 / 300 = 0%): a reader that picked "the latest session" would print 0.0 — it must not.
+    const REPEAT_ID = 'session-5';
+    const UNRELATED_LATEST_ID = 'session-6';
+    const progress = eligibleProgressTruth(SESSION_ID, REFERENCE_ID);
+    Object.assign(progress.recommendations[0], { source_metric_value: (4 / 245) * 100 });
+    progress.evaluations.push(
+      { ...progress.evaluations[0], session_id: REPEAT_ID, filler_count: 2, word_count: 250, baseline_session_id: REFERENCE_ID, previous_comparable_session_id: SESSION_ID },
+      { ...progress.evaluations[0], session_id: UNRELATED_LATEST_ID, filler_count: 0, word_count: 300, baseline_session_id: REFERENCE_ID, previous_comparable_session_id: REPEAT_ID },
+    );
+    progress.attempts = [{
+      id: 'attempt-1548-values', recommendation_id: 'recommendation-u3', lifecycle: 'completed', outcome: 'moved',
+      accepted_at: '2025-01-17T14:01:00.000Z', next_comparable_session_id: REPEAT_ID,
+    }];
+    const savedSession = (id: string, createdAt: string, words: number, fillers: number) => ({
+      id, user_id: 'test-user-123', created_at: createdAt,
+      duration: 420, total_words: words, engine: 'private', clarity_score: 88, wpm: 142,
+      status: 'completed', product: 'open_mic', transcript_state: 'available',
+      transcript: 'The price includes onboarding and support.', filler_counts: fillers ? { um: fillers } : {},
+      ai_suggestions: { version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.' },
+    });
+    await programmaticLoginWithRoutes(page, {
+      userType: 'free', progressFixtures: progress,
+      sessions: [
+        savedSession(SESSION_ID, '2025-01-17T14:00:00.000Z', 245, 4),
+        savedSession(REPEAT_ID, '2025-01-17T15:00:00.000Z', 250, 2),
+        savedSession(UNRELATED_LATEST_ID, '2025-01-17T16:00:00.000Z', 300, 0),
+      ],
+    });
+    await navigateToRoute(page, `/analytics/${SESSION_ID}`);
+    for (const reopening of [false, true]) {
+      if (reopening) await page.reload();
+      const values = page.getByTestId('progress-attempt-values');
+      await expect(values).toHaveText('Filler rate: 1.6 → 0.8 percent of words (original session → linked repeat).');
+      await expect(values).toHaveCount(1);
+      await expect(values).not.toContainText('0.0');
+      await expect(values).not.toContainText(/reached|met the|improv/i);
+      await expect(page.getByTestId('progress-attempt-outcome')).toHaveText('Filler rate was lower on the repeat than in the original session.');
+      await expect(page.getByTestId('progress-attempt-scope'))
+        .toHaveText('This comparison measures delivery, not whether the coaching tip was followed.');
+      await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
+      await expect(page.getByTestId('progress-accept')).toHaveCount(0);
+    }
+  });
+
   test('Marketing is testimonial-free, accessible, and has no viewport overflow', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await setupE2EMocks(page, { userType: 'free' });
