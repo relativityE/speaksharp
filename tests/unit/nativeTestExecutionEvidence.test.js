@@ -8,7 +8,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {NATIVE_REPORTER,NATIVE_HELPERS,nativeTestRoute,selectNativeContracts,
   nativeCommand,nativeWarmupCommand,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
-  parseDenoJunit,validateNativeCallables} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
 import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
@@ -130,6 +130,31 @@ test('native command has no filter/skip and frozen imports never grant test effe
   const warmup=nativeWarmupCommand({runtime:{runner:'deno',execPath:'/installed/deno'},testFile:'actual.test.ts'});
   assert.ok(warmup.includes('--no-run'));assert.ok(!warmup.includes('--cached-only'));
 });
+test('only the exact coaching test receives the named synthetic-key permission; warmup never does',()=>{
+  const selected='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+  for(const file of [selected,selected.replace('index.test.ts','other.test.ts'),`./${selected}`,'actual.test.ts']) {
+    const binding={testFile:file,runtime:{runner:'deno',execPath:'/installed/deno'}};
+    const command=nativeCommand(binding),policy=nativeDenoPolicy(file);
+    assert.deepEqual(policy.environment.names,file===selected?['GEMINI_API_KEY']:[]);
+    assert.equal(command.includes('--allow-env=GEMINI_API_KEY'),file===selected);
+    assert.equal(command.includes('--deny-env'),file!==selected);
+    for(const flag of ['--deny-net','--deny-read','--deny-write','--deny-run','--no-prompt'])assert.ok(command.includes(flag));
+    assert.equal(command.some(flag=>flag==='--allow-env'||flag.includes('OTHER_SECRET')),false);
+    const warmup=nativeWarmupCommand(binding);
+    assert.ok(warmup.includes('--deny-env'));assert.equal(warmup.some(flag=>flag.startsWith('--allow-env')),false);
+  }
+});
+test('native child drops inherited key/sentinels and never reinjects after the missing-key test',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'native-env-control-'));
+  try {
+    const environment=nativeEnvironment(dir,{GEMINI_API_KEY:'inherited-sentinel',OTHER_SECRET:'other-sentinel',
+      NODE_OPTIONS:'--import=untrusted',TEST_EFFICACY_BINDING:'forged'});
+    for(const name of ['GEMINI_API_KEY','OTHER_SECRET','NODE_OPTIONS','TEST_EFFICACY_BINDING'])assert.equal(name in environment,false);
+    assert.equal(Object.values(environment).some(value=>value.includes('sentinel')),false);
+    assert.deepEqual(nativeDenoPolicy('backend/supabase/functions/get-ai-suggestions/index.test.ts').environment,
+      {names:['GEMINI_API_KEY'],initial:'absent',inherit:false,syntheticValue:'test-key',reinject:false});
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{
   const binding={cwd:'/owned/copy',cacheDirectory:'/owned/copy/.native-deno-cache',testFile:'actual.test.ts',
     runtime:{runner:'deno',execPath:'/installed/deno',configSha256:'a'.repeat(64),lockSha256:'b'.repeat(64)}};
@@ -184,6 +209,51 @@ test('full-evidence provisions Deno on its own runner; the Edge job is not its r
 // Explicit conformance evidence is independent of changed-file inventory. Unit shards do
 // not have Deno; full-evidence explicitly provisions it and selects this real test route.
 if(process.env.TEST_EFFICACY_DENO_REAL_RUNTIME==='1') {
+  test('INSTALLED Deno enforces synthetic key, missing key and all denied environment/effect boundaries',()=>{
+    const f=fixture();
+    const file='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
+    for(const entry of ['backend/supabase/functions/deno.json','backend/supabase/functions/deno.lock'])f.write(entry,fs.readFileSync(path.join(root,entry)));
+    const source=`Deno.test('synthetic key and denied boundaries',async()=>{
+      if(Deno.env.get('GEMINI_API_KEY')!==undefined)throw Error('inherited key');
+      Deno.env.set('GEMINI_API_KEY','test-key');
+      if(Deno.env.get('GEMINI_API_KEY')!=='test-key')throw Error('wrong synthetic key');
+      Deno.env.delete('GEMINI_API_KEY');
+      if(Deno.env.get('GEMINI_API_KEY')!==undefined)throw Error('missing key reinjected');
+      async function denied(effect:()=>unknown){let blocked=false;try{await effect();}catch(error){blocked=error instanceof Deno.errors.NotCapable;}if(!blocked)throw Error('permission broadened');}
+      await denied(()=>globalThis.Deno.env.get('OTHER_SECRET'));
+      await denied(()=>globalThis.Deno.env.toObject());
+      await denied(()=>fetch('https://example.invalid'));
+      await denied(()=>Deno.readTextFile('/unreachable'));
+      await denied(()=>Deno.writeTextFile('/unreachable','x'));
+      await denied(()=>new Deno.Command(${JSON.stringify(process.execPath)}).output());
+    });`;
+    f.write(file,source);
+    const contract={testFile:file,runner:'deno',helpers:[]},children=nativeChildTracker(drainOwnedPhase);
+    try {
+      const phase=produceNativePhase({root:f.dir,cwd:f.dir,contract,provenance,inputSha256,runId,
+        sourceCopyCommit:'e'.repeat(40),environment:{GEMINI_API_KEY:'inherited-sentinel',OTHER_SECRET:'sentinel'},children});
+      assert.equal(validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract}).counts.assertions,1);
+      for(const change of [
+        p=>{p.binding.permissionPolicy.environment.names.push('OTHER_SECRET');},
+        p=>{p.binding.permissionPolicy.environment.syntheticValue='other';},
+        p=>{p.binding.permissionPolicy.environment.inherit=true;},
+        p=>{p.binding.permissionPolicy.environment.reinject=true;},
+        p=>{p.binding.command=p.binding.command.map(arg=>arg==='--allow-env=GEMINI_API_KEY'?'--allow-env':arg);},
+        p=>{p.binding.permissionPolicy.environment.names=[];p.binding.command=p.binding.command.map(arg=>arg==='--allow-env=GEMINI_API_KEY'?'--deny-env':arg);},
+        p=>{p.warmup.command=p.warmup.command.map(arg=>arg==='--deny-env'?'--allow-env=GEMINI_API_KEY':arg);},
+        p=>{p.binding.testFile=file.replace('index.test.ts','other.test.ts');p.binding.permissionPolicy=nativeDenoPolicy(p.binding.testFile);p.binding.command=nativeCommand(p.binding);},
+      ]) {
+        const changed=structuredClone(phase);change(changed);
+        assert.throws(()=>validateNativePhase(changed,{root:f.dir,provenance,inputSha256,runId,contract}));
+      }
+      for(const changed of [source.replace("'test-key'","'unapproved-value'"),source.replace("Deno.env.delete('GEMINI_API_KEY')","Deno.env.toObject()")]) {
+        f.write(file,changed);
+        assert.throws(()=>produceNativePhase({root:f.dir,cwd:f.dir,contract,provenance,inputSha256,runId,
+          sourceCopyCommit:'e'.repeat(40),environment:{},children}),/Synthetic-key/);
+      }
+    }finally{children.assertDrained(f.dir);f.clean();}
+  });
   test('INSTALLED cold Deno executes the unchanged main CORS suite with frozen imports and no effect permissions',()=>{
     const entry='backend/supabase/functions/_shared/cors.test.ts';
     const files=[...new Set([...dependencyPaths(root,entry),NATIVE_REPORTER,'package.json','pnpm-lock.yaml',

@@ -69,13 +69,49 @@ export function nativeCommand(binding) {
   const file=binding.testFile;
   return binding.runtime.runner==='deno'
     ?[binding.runtime.execPath,'test','--config','backend/supabase/functions/deno.json','--cached-only','--frozen',
-      '--lock=backend/supabase/functions/deno.lock','--node-modules-dir=none','--no-prompt','--deny-net','--deny-env','--deny-read','--deny-write',
+      '--lock=backend/supabase/functions/deno.lock','--node-modules-dir=none','--no-prompt','--deny-net',
+      ...(nativeDenoPolicy(file).environment.names.length?['--allow-env=GEMINI_API_KEY']:['--deny-env']),
+      '--deny-read','--deny-write','--deny-run',
       '--reporter=junit',file]
     :[binding.runtime.execPath,'--test','--test-concurrency=1',`--test-reporter=./${NATIVE_REPORTER}`,file];
 }
 export function nativeWarmupCommand(binding) {
   if(binding.runtime.runner!=='deno')fail('Only Deno has an import warmup');
-  return nativeCommand(binding).filter(arg=>arg!=='--cached-only').toSpliced(2,0,'--no-run');
+  return nativeCommand(binding).map(arg=>arg==='--allow-env=GEMINI_API_KEY'?'--deny-env':arg)
+    .filter(arg=>arg!=='--cached-only').toSpliced(2,0,'--no-run');
+}
+const coachingTest='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+export function nativeDenoPolicy(file) {
+  return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:[],
+    initial:'absent',inherit:false,syntheticValue:file===coachingTest?'test-key':null,reinject:false},
+    network:'denied',read:'denied',write:'denied',run:'denied',prompt:'denied',warmupEnvironment:'denied'};
+}
+function validateSyntheticSource(root,file) {
+  if(file!==coachingTest)return;
+  const require=createRequire(path.join(root,'package.json')),ts=require('typescript');
+  const source=ts.createSourceFile(file,fs.readFileSync(regular(root,file),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+  if(source.parseDiagnostics.length)fail('Invalid synthetic-key test source');
+  const operations=[];
+  const visit=node=>{
+    if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)
+      &&node.expression.expression.getText(source)==='Deno.env') {
+      const operation=node.expression.name.text,args=node.arguments;
+      if(!['get','set','delete'].includes(operation)||!ts.isStringLiteral(args[0])||args[0].text!=='GEMINI_API_KEY'
+        ||args.length!==(operation==='set'?2:1)
+        ||(operation==='set'&&(!ts.isStringLiteral(args[1])||args[1].text!=='test-key')))fail('Synthetic-key source policy violation');
+      operations.push(operation);
+    }
+    ts.forEachChild(node,visit);
+  };visit(source);
+  if(!operations.includes('set')||!operations.includes('delete'))fail('Synthetic-key initialization/reset absent');
+}
+export function nativeEnvironment(cwd,environment) {
+  // Rebuild from a fixed allowlist even when a caller supplies an inherited secret.
+  if(environment?.DENO_DIR)fail('Unowned inherited Deno cache');
+  const home=path.join(cwd,'.native-home'),temporary=path.join(cwd,'.native-tmp');
+  fs.mkdirSync(home,{recursive:true});fs.mkdirSync(temporary,{recursive:true});
+  return {PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),HOME:home,USERPROFILE:home,
+    TMPDIR:temporary,TMP:temporary,TEMP:temporary,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true',NODE_ENV:'test'};
 }
 // Runs in Node's real test reporter, observing the runner's raw event stream.
 export default async function* nativeReporter(events) {
@@ -202,8 +238,12 @@ export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sou
   const runtime=nativeRuntime(root,contract.runner),coverageDirectory=fs.mkdtempSync(path.join(cwd,'.native-coverage-'));
   const binding={phase:'native-execution',phaseId:randomUUID(),runId,provenance,cwd,testFile:contract.testFile,
     inputSha256,sourceCopyCommit,runtime,coverageDirectory,repoLockSha256:hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))};
+  if(contract.runner==='deno') {
+    validateSyntheticSource(root,contract.testFile);
+    binding.permissionPolicy=nativeDenoPolicy(contract.testFile);
+  }
   binding.command=nativeCommand(binding);
-  const env={...environment,TEST_EFFICACY_BINDING:JSON.stringify(binding),NODE_V8_COVERAGE:contract.runner==='node-test'?coverageDirectory:''};
+  const env={...nativeEnvironment(cwd,environment),TEST_EFFICACY_BINDING:JSON.stringify(binding),NODE_V8_COVERAGE:contract.runner==='node-test'?coverageDirectory:''};
   let warmup;
   if(contract.runner==='deno') {
     // Frozen-lock import acquisition is a separate no-run phase in an owned cache.
@@ -240,7 +280,11 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
     ||JSON.stringify(b.command)!==JSON.stringify(nativeCommand(b)))fail('Wrong native source/runtime/provenance/command binding');
   if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null
     ||phase.execution.processCleanup?.status!=='drained')fail('Native execution failed or did not drain');
-  if(contract.runner==='deno')validateWarmup(phase.warmup,b);
+  if(contract.runner==='deno') {
+    if(JSON.stringify(b.permissionPolicy)!==JSON.stringify(nativeDenoPolicy(contract.testFile)))fail('Wrong native test permission policy');
+    validateSyntheticSource(root,contract.testFile);
+    validateWarmup(phase.warmup,b);
+  }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
   const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
