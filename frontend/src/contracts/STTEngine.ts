@@ -91,6 +91,25 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   protected currentTranscript: string = '';
   protected isTerminated: boolean = false;
   protected isStopped: boolean = true;
+  /**
+   * #1635: advanced at the ENTRY of every destroy/terminate. An init settles only for the generation that
+   * started it, so a destroy (or destroy then re-init) while a load is in flight can never be revived by it.
+   */
+  protected lifecycleGeneration: number = 0;
+  /** #1635: the one init in flight; concurrent callers join it instead of starting a second acquisition. */
+  private initInFlight: Promise<Result<void, Error>> | null = null;
+  /** #1635: the teardown in progress. A fresh init waits for it, so an old teardown can never act on a new engine. */
+  private teardownInFlight: Promise<void> | null = null;
+  /**
+   * #1635: the last settled teardown of this terminated instance. A later destroy/terminate replays its outcome,
+   * so a failed release is never followed by a silent success; a fresh init clears it.
+   */
+  private lastTeardown: Promise<void> | null = null;
+  /**
+   * #1635: set when a teardown FAILED. Its release is uncertain, so this instance never initialises again; a caller
+   * that needs the engine back must create a new one. A genuinely successful teardown never sets it.
+   */
+  private teardownFailure: Error | null = null;
 
   protected options: TranscriptionModeOptions | EngineCallbacks = {};
 
@@ -124,7 +143,48 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Common Initialization Logic
    */
   async init(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+    // #1635: join an in-flight init BEFORE touching the termination fence, so a second caller can neither
+    // start a second acquisition nor un-terminate a destroy that is cancelling the first.
+    if (this.initInFlight) return this.initInFlight;
+    // PUBLISH the attempt before any work runs: onInit starts synchronously, and a hook that re-enters init()
+    // from inside it must join this attempt rather than start a second acquisition.
+    let resolveAttempt!: (result: Result<void, Error>) => void;
+    let rejectAttempt!: (error: unknown) => void;
+    const attempt = new Promise<Result<void, Error>>((resolve, reject) => { resolveAttempt = resolve; rejectAttempt = reject; });
+    this.initInFlight = attempt;
+    // Settles `attempt`, which every caller awaits; the chain itself has both handlers.
+    void this.initAfterTeardown(this.lifecycleGeneration, timeoutMs, isMock).then(resolveAttempt, rejectAttempt);
+    try {
+      return await attempt;
+    } finally {
+      // Cleared on success, Result failure and thrown rejection alike; a newer init is never cleared.
+      if (this.initInFlight === attempt) this.initInFlight = null;
+    }
+  }
+
+  /**
+   * #1635: a fresh init starts only after any teardown in progress has settled, and only if no destroy/terminate
+   * was requested meanwhile. With no teardown pending it runs synchronously into onInit, as before.
+   */
+  private async initAfterTeardown(generation: number, timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+    while (this.teardownInFlight) {
+      try { await this.teardownInFlight; } catch { /* a teardown failure is reported to its own caller */ }
+    }
+    if (generation !== this.lifecycleGeneration) {
+      return Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`));
+    }
+    // Settling is not success: an init that waited on a FAILED teardown must not proceed as if the release worked.
+    if (this.teardownFailure) {
+      return Result.err(new Error(
+        `[STTEngine] ${this.type} cannot initialise: its previous teardown failed (release uncertain); create a new engine. ${this.teardownFailure.message}`,
+      ));
+    }
+    this.lastTeardown = null;
     this.isTerminated = false;
+    return this.initForGeneration(generation, timeoutMs, isMock);
+  }
+
+  private async initForGeneration(generation: number, timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
     logger.info({
       type: this.type,
       instanceId: this.instanceId,
@@ -133,12 +193,90 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
 
     const result = await this.onInit(timeoutMs, isMock);
 
+    // A destroy/terminate that began while this init awaited owns the engine now: never mark it initialised.
+    if (generation !== this.lifecycleGeneration || this.isTerminated) {
+      // Keep a subclass's own, more precise failure (e.g. an uncertain release); only a success is replaced.
+      return result.isOk ? Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`)) : result;
+    }
+    // A release failure recorded WHILE this init was pending (e.g. a stale acquisition whose cleanup failed): the
+    // facade's release is uncertain, so it must not newly become ready.
+    if (result.isOk && this.teardownFailure) {
+      return Result.err(new Error(
+        `[STTEngine] ${this.type} cannot become ready: a previous engine release failed (release uncertain). ${this.teardownFailure.message}`,
+      ));
+    }
     if (result.isOk) {
       this.isInitialized = true;
       this.updateHeartbeat();
     }
 
     return result;
+  }
+
+  /**
+   * #1635: invalidate at the ENTRY of destroy/terminate, before any awaited child teardown, so an init that
+   * settles during that teardown sees it. EVERY call advances the generation (a destroy that arrives while an
+   * init is waiting cancels it); it returns false when a termination already began, so its work runs once.
+   */
+  protected beginTermination(): boolean {
+    this.lifecycleGeneration += 1;
+    this.isInitialized = false;
+    this.initInFlight = null;
+    if (this.isTerminated) return false;
+    this.isTerminated = true;
+    return true;
+  }
+
+  /** #1635: run teardown work as THE teardown in progress; a fresh init waits until it settles. */
+  protected runTeardown(work: () => Promise<void>): Promise<void> {
+    // PUBLISH the teardown before `work()` runs: its hooks start synchronously, and a re-entrant destroy/terminate
+    // or init from inside them must see this teardown (wait for it, or share its outcome), never a missing latch.
+    const settle: { resolve?: () => void; reject?: (error: unknown) => void } = {};
+    const teardown = new Promise<void>((resolve, reject) => { settle.resolve = resolve; settle.reject = reject; });
+    this.teardownInFlight = teardown;
+    this.lastTeardown = teardown;
+    // Every caller awaits (or replays) this promise; this handler only keeps a failure from being reported as
+    // unhandled before the first awaiter attaches. It does not swallow it for them.
+    teardown.catch(() => undefined);
+    void (async () => {
+      try {
+        await work();
+        // Owned cleanup was still attempted, but a RETAINED release failure (e.g. a replaced engine whose release
+        // failed earlier) means the facade's release is still uncertain: never report that as a confirmed release.
+        if (this.teardownFailure) throw this.teardownFailure;
+        settle.resolve?.();
+      } catch (error) {
+        this.teardownFailure ??= error instanceof Error ? error : new Error(String(error));
+        settle.reject?.(error);
+      } finally {
+        // Synchronously after settling, before any awaiter resumes; a newer teardown is never cleared.
+        if (this.teardownInFlight === teardown) this.teardownInFlight = null;
+      }
+    })();
+    return teardown;
+  }
+
+  /**
+   * #1635: an engine release that FAILED outside a teardown (e.g. retiring a replaced engine) is as uncertain as a
+   * failed teardown: it is sticky, and every later init refuses without acquiring anything.
+   */
+  protected recordReleaseFailure(error: Error): void {
+    this.teardownFailure ??= error;
+  }
+
+  /** #1635: the retained release failure, if any; an init still pending when it was recorded must not adopt. */
+  protected retainedReleaseFailure(): Error | null {
+    return this.teardownFailure;
+  }
+
+  /** #1635: a destroy/terminate that found a termination already begun still waits for its teardown. */
+  protected async awaitTeardown(): Promise<void> {
+    // The shared outcome: every concurrent or later waiter sees the same success or the same failure.
+    const teardown = this.teardownInFlight ?? this.lastTeardown;
+    if (teardown) await teardown;
+    // A release failure retained AFTER that teardown settled (e.g. a cancelled acquisition whose release failed)
+    // still makes a later destroy/terminate uncertain.
+    if (this.teardownFailure) throw this.teardownFailure;
   }
 
   /**
@@ -212,11 +350,11 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Implementation of destroy from IPrivateSTTEngine
    */
   async destroy(): Promise<void> {
-    if (this.isTerminated) return;
-    this.isTerminated = true; // BLOCK RE-ENTRY IMMEDIATELY
-    await this.stop();
-    await this.onDestroy();
-    this.isInitialized = false;
+    if (!this.beginTermination()) return this.awaitTeardown(); // INVALIDATE IMMEDIATELY; TEAR DOWN ONCE
+    await this.runTeardown(async () => {
+      await this.stop();
+      await this.onDestroy();
+    });
   }
 
   protected abstract onDestroy(): Promise<void>;
@@ -234,8 +372,11 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Hardened to ensure settlement by calling destroy().
    */
   async terminate(): Promise<void> {
-    if (this.isTerminated) return;
-    logger.info({ type: this.type, instanceId: this.instanceId }, `[STTEngine] 🛑 Nuclear termination requested for ${this.type}`);
+    // #1635: always routed through destroy(), so a terminate that arrives while an init waits on an earlier
+    // teardown still cancels that init.
+    if (!this.isTerminated) {
+      logger.info({ type: this.type, instanceId: this.instanceId }, `[STTEngine] 🛑 Nuclear termination requested for ${this.type}`);
+    }
     await this.destroy();
   }
 
