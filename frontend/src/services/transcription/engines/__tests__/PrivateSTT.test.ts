@@ -646,6 +646,11 @@ describe('PrivateSTT (Routing Logic)', () => {
             await expect(pstt.destroy()).rejects.toThrow(/release uncertain\): engine dispose failed/);
             await expect(pstt.destroy()).rejects.toThrow(/release uncertain\): engine dispose failed/);
             expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            // The facade whose release is uncertain refuses to initialise again; no new engine is acquired.
+            const reinit = await pstt.init();
+            expect(reinit.isOk).toBe(false);
+            expect(reinit.isOk ? '' : reinit.error.message).toMatch(/previous teardown failed \(release uncertain\)/);
+            expect(created).toHaveLength(1);
             pstt = null; // its teardown failed by design; afterEach must not replay it
         });
 
@@ -663,6 +668,40 @@ describe('PrivateSTT (Routing Logic)', () => {
             expect(reason.message).toBe('engine stuck');
             for (const other of others) expect(other).toBe(reason);
             expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            pstt = null;
+        });
+
+        it('Sam counterexample: a stale failed retirement cannot clear the readiness of a newer, successful init', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            // The explicit-provider path acquires a new engine per init, so init B must retire engine A.
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const initA = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await initA).isOk).toBe(true);
+
+            let rejectA!: (error: Error) => void;
+            created[0].onDestroy.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectA = reject; }));
+            const initB = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            await vi.waitFor(() => expect(created[0].onDestroy).toHaveBeenCalledTimes(1)); // A's retirement is pending
+
+            await pstt.destroy();
+            const initC = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(3));
+            gates[2](Result.ok(undefined));
+            expect((await initC).isOk).toBe(true);
+
+            rejectA(new Error('A stuck'));
+            const resultB = await initB;
+            expect(resultB.isOk).toBe(false);
+
+            await pstt.start(); // C is still initialised: B's stale failure did not clear its readiness
+            expect(pstt.getEngineType()).toBe('transformers-js');
+            expect(created[2].onDestroy).not.toHaveBeenCalled();
+            await pstt.terminate();
+            expect(created[2].onDestroy).toHaveBeenCalledTimes(1); // and C is the engine the facade owned
             pstt = null;
         });
 

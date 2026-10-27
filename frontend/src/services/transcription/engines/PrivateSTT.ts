@@ -645,7 +645,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 // The replacement is refused: the facade cannot claim a clean hand-over from an engine whose
                 // release failed. The new candidate is released too, and both outcomes are reported.
                 const candidateFailure = await this.releaseEngine(engine);
-                this.isInitialized = false; // no engine is adopted now; the facade must not read as initialised
+                // No engine is adopted now, but only the init that still OWNS the facade may change its readiness:
+                // after these awaits a destroy and a newer, successful init may already have taken over.
+                if (!this.acquisitionCancelled(generation)) this.isInitialized = false;
                 return Result.err(new Error(`[PrivateSTT] releasing the replaced engine FAILED (release uncertain): ${retireFailure.message}`
                     + (candidateFailure ? `; releasing the new engine also FAILED: ${candidateFailure.message}` : '; the new engine was released')));
             }

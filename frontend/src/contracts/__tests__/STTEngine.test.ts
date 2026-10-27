@@ -211,7 +211,7 @@ describe('#1635 STTEngine init/destroy lifecycle', () => {
         await expect(engine.start()).rejects.toThrow(/not initialized/);
     });
 
-    it('a failed teardown rejects destroy, every concurrent destroy/terminate waiter and a later repeat; a fresh init clears it', async () => {
+    it('a failed teardown rejects destroy, every concurrent destroy/terminate waiter and a later repeat', async () => {
         const engine = new GatedEngine();
         const first = engine.init();
         engine.gates[0](Result.ok(undefined));
@@ -220,16 +220,45 @@ describe('#1635 STTEngine init/destroy lifecycle', () => {
         engine.failTeardown = failure;
         const outcomes = await Promise.allSettled([engine.destroy(), engine.terminate(), engine.destroy()]);
         expect(outcomes.map((outcome) => outcome.status)).toEqual(['rejected', 'rejected', 'rejected']);
-        expect(outcomes.map((outcome) => (outcome as PromiseRejectedResult).reason)).toEqual([failure, failure, failure]);
-        expect((outcomes[1] as PromiseRejectedResult).reason).toBe(failure); // the same failure, not a fresh success
-        await expect(engine.destroy()).rejects.toBe(failure); // replayed after it settled
+        for (const outcome of outcomes) expect((outcome as PromiseRejectedResult).reason).toBe(failure);
+        await expect(engine.destroy()).rejects.toBe(failure); // replayed after it settled, never a success
+        await expect(engine.terminate()).rejects.toBe(failure);
         expect(engine.destroys).toBe(1);
-        const again = engine.init();
+    });
+
+    it('an init that waited on a FAILED teardown refuses (release uncertain) instead of proceeding', async () => {
+        const engine = new GatedEngine();
+        const first = engine.init();
+        engine.gates[0](Result.ok(undefined));
+        await first;
+        engine.holdTeardown = true;
+        engine.failTeardown = new Error('dispose failed');
+        const destroying = engine.destroy().catch((error: Error) => error);
+        const waiting = engine.init(); // waits on the in-flight teardown, which then FAILS
         await flush();
+        engine.teardownGates[0]();
+        expect(await destroying).toBeInstanceOf(Error);
+        const result = await waiting;
+        expect(result.isOk).toBe(false);
+        expect(result.isOk ? '' : result.error.message).toMatch(/previous teardown failed \(release uncertain\).*dispose failed/);
+        expect(engine.inits).toBe(1); // never reached onInit
+        const later = await engine.init(); // and the uncertainty is not cleared merely because time passed
+        expect(later.isOk).toBe(false);
+        expect(engine.inits).toBe(1);
+        await expect(engine.start()).rejects.toThrow(/not initialized/);
+    });
+
+    it('preservation: reuse stays valid after a genuinely SUCCESSFUL teardown', async () => {
+        const engine = new GatedEngine();
+        const first = engine.init();
+        engine.gates[0](Result.ok(undefined));
+        await first;
+        await engine.destroy();
+        const again = engine.init();
         engine.gates[1](Result.ok(undefined));
         expect((await again).isOk).toBe(true);
-        await engine.destroy(); // a clean teardown of the fresh engine resolves
-        expect(engine.destroys).toBe(2);
+        await engine.start();
+        expect(engine.inits).toBe(2);
     });
 
     it('preservation: a Result failure and a thrown rejection both clear single-flight, so a retry runs', async () => {

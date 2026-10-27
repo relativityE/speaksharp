@@ -105,6 +105,11 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * so a failed release is never followed by a silent success; a fresh init clears it.
    */
   private lastTeardown: Promise<void> | null = null;
+  /**
+   * #1635: set when a teardown FAILED. Its release is uncertain, so this instance never initialises again; a caller
+   * that needs the engine back must create a new one. A genuinely successful teardown never sets it.
+   */
+  private teardownFailure: Error | null = null;
 
   protected options: TranscriptionModeOptions | EngineCallbacks = {};
 
@@ -162,6 +167,12 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     if (generation !== this.lifecycleGeneration) {
       return Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`));
     }
+    // Settling is not success: an init that waited on a FAILED teardown must not proceed as if the release worked.
+    if (this.teardownFailure) {
+      return Result.err(new Error(
+        `[STTEngine] ${this.type} cannot initialise: its previous teardown failed (release uncertain); create a new engine. ${this.teardownFailure.message}`,
+      ));
+    }
     this.lastTeardown = null;
     this.isTerminated = false;
     return this.initForGeneration(generation, timeoutMs, isMock);
@@ -210,6 +221,9 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     const teardown = (async () => {
       try {
         await work();
+      } catch (error) {
+        this.teardownFailure ??= error instanceof Error ? error : new Error(String(error));
+        throw error;
       } finally {
         if (this.teardownInFlight === self.teardown) this.teardownInFlight = null;
       }
