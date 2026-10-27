@@ -221,16 +221,16 @@ jobs:
       - name: Deploy Edge Functions
         working-directory: backend/supabase
         run: |
-          supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy attest-session-engine --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy objective-register-source --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy attest-session-engine --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy objective-register-source --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
 
   verify-edge-functions:
     needs: [validate-edge-configuration, deploy-edge-functions]
