@@ -130,7 +130,9 @@ function installedFixture() {
 }
 
 if(process.env.GITHUB_ACTIONS==='true'||process.env.TEST_EFFICACY_REAL_RUNTIME==='1') {
-  test('INSTALLED producer callbacks and original four SDK blobs qualify only ordinary E2E execution',async()=>{
+  // This aggregate control runs thirteen SDK commands plus independent blob decoders.
+  // Keep each command's 30s cap; bound the aggregate separately for contended CI hosts.
+  test('INSTALLED producer callbacks and original four SDK blobs qualify only ordinary E2E execution',{timeout:120_000},async()=>{
     const f=installedFixture();
     const retain=(label,value)=>{
       const target=process.env.TEST_EFFICACY_CONTROL_OUTDIR;
