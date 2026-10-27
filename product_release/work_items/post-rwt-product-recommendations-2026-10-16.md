@@ -1,10 +1,10 @@
 # Post-RWT product recommendations — 16 October 2026
 
-**Status:** Draft research collection; decisions PENDING  
-**Owner:** UNASSIGNED  
-**As of:** 2026-10-16  
-**Class:** Unverified hypotheses and proposed post-RWT work  
-**Authority:** None; a collection for later Product Owner triage  
+**Status:** Draft research collection; decisions PENDING\
+**Owner:** UNASSIGNED\
+**As of:** 2026-10-16\
+**Class:** Unverified hypotheses and proposed post-RWT work\
+**Authority:** None; a collection for later Product Owner triage\
 **Not authoritative for:** existing ticket acceptance, release gates, scheduling, deployed behavior, or implementation approval
 
 ## Scope and decision boundary
