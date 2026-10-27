@@ -4,6 +4,7 @@ import {
     EXACTLY_ONCE_RECEIPT_FAMILIES,
     type DeliveryReceiptRow,
 } from '../deliveryReceiptGate';
+import { READBACK_COLUMNS, readbackRowsByName } from '../readbackColumns';
 
 const row = (event: string, properties: Record<string, unknown> = {}, timestamp?: string): DeliveryReceiptRow => ({
     event,
@@ -15,6 +16,54 @@ const complete = (): DeliveryReceiptRow[] => EXACTLY_ONCE_RECEIPT_FAMILIES.map((
     row(event, event === 'session_started' || event === 'session_saved'
         ? { attempt_id: 'attempt-1' }
         : {}));
+
+describe('#1490 canonical boolean readback at the delivery gate', () => {
+    const cases = [
+        { label: 'boolean false', value: false, disabled: true },
+        { label: 'canonical string false', value: 'false', disabled: true },
+        { label: 'boolean true', value: true, disabled: false },
+        { label: 'canonical string true', value: 'true', disabled: false },
+    ];
+    const received = (value: unknown, missing = false) => {
+        // Replace the one boot control's field; adding another control would HOLD
+        // for duplication and conceal the false-qualification defect.
+        const rows = complete().map((entry) => entry.event === 'telemetry_positive_control'
+            ? { ...entry, properties: { ...entry.properties, transport_initialized: value } } : entry)
+            .filter((entry) => !missing || entry.event !== 'session_started');
+        const wire = rows.map((entry) => READBACK_COLUMNS.map((column) =>
+            column === 'event' ? entry.event : column === 'timestamp' ? entry.timestamp ?? null
+                : entry.properties?.[column] ?? null));
+        const decoded = readbackRowsByName(READBACK_COLUMNS, wire);
+        expect(decoded.ok).toBe(true);
+        if (!decoded.ok) throw new Error(decoded.reason);
+        expect(decoded.rows[0].properties.transport_initialized).toBe(value);
+        return evaluateDeliveryReceipts(decoded.rows);
+    };
+
+    it.each(cases)('complete receipts with $label preserve the transport verdict', ({ value, disabled }) => {
+        const result = received(value);
+        expect(result.receivedCounts).toEqual({ telemetry_positive_control: 1, session_started: 1, session_saved: 1 });
+        expect(result.missingFamilies).toEqual([]);
+        expect(result.duplicateFamilies).toEqual([]);
+        expect(result.attemptBindingProblems).toEqual([]);
+        expect(result.verdict).toBe(disabled ? 'HOLD' : 'QUALIFIED');
+        expect(result.deliveryFailures).toEqual(disabled ? [{
+            category: 'transport_not_initialized', affectedFamilies: [...EXACTLY_ONCE_RECEIPT_FAMILIES],
+        }] : []);
+    });
+
+    it.each(cases)('missing start with $label keeps the correct closed failure reason', ({ value, disabled }) => {
+        const result = received(value, true);
+        expect(result.receivedCounts).toEqual({ telemetry_positive_control: 1, session_started: 0, session_saved: 1 });
+        expect(result.duplicateFamilies).toEqual([]);
+        expect(result.attemptBindingProblems).toEqual([]);
+        expect(result.verdict).toBe('HOLD');
+        expect(result.deliveryFailures).toEqual([{
+            category: disabled ? 'transport_not_initialized' : 'unaccounted_delivery_gap',
+            affectedFamilies: ['session_started'],
+        }]);
+    });
+});
 
 describe('#1259 P2 — received-vendor receipt cardinality and named delivery failures', () => {
     it('QUALIFIES when every singleton receipt was read back exactly once', () => {

@@ -99,7 +99,13 @@ case $STAGE in
             if [[ "$subarg" =~ ^[0-9]+$ ]]; then SHARD="$subarg"; fi
         done
         if [ -n "$SHARD" ]; then
-            pnpm exec playwright test --project=full-suite --no-deps --shard="${SHARD}/4" --reporter=blob --output=test-results/playwright
+            # The producer belongs to this CI shard, not the later report invocation.
+            # Local/debug runs keep their existing reporter and earn no CI receipt.
+            REPORTERS=blob
+            if [ "${GITHUB_ACTIONS:-}" = true ] && [ "${GITHUB_JOB:-}" = e2e ]; then
+                REPORTERS=blob,./scripts/efficacy-playwright-reporter.mjs
+            fi
+            pnpm exec playwright test --project=full-suite --no-deps --shard="${SHARD}/4" --reporter="$REPORTERS" --output=test-results/playwright
         else
             pnpm exec playwright test --project=full-suite --no-deps --reporter=blob --output=test-results/playwright
         fi
