@@ -635,6 +635,37 @@ describe('PrivateSTT (Routing Logic)', () => {
             await expect(pstt.start()).rejects.toThrow(/not initialized/);
         });
 
+        it('a failed engine release rejects public destroy() as uncertain, and a repeat replays it', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+            created[0].onDestroy.mockRejectedValueOnce(new Error('engine dispose failed'));
+            await expect(pstt.destroy()).rejects.toThrow(/release uncertain\): engine dispose failed/);
+            await expect(pstt.destroy()).rejects.toThrow(/release uncertain\): engine dispose failed/);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            pstt = null; // its teardown failed by design; afterEach must not replay it
+        });
+
+        it('concurrent terminate/destroy waiters all see the SAME failed release, never a success', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+            created[0].onDestroy.mockRejectedValueOnce(new Error('engine stuck'));
+            const outcomes = await Promise.allSettled([pstt.terminate(), pstt.destroy(), pstt.terminate()]);
+            expect(outcomes.map((outcome) => outcome.status)).toEqual(['rejected', 'rejected', 'rejected']);
+            const [reason, ...others] = outcomes.map((outcome) => (outcome as PromiseRejectedResult).reason as Error);
+            expect(reason.message).toBe('engine stuck');
+            for (const other of others) expect(other).toBe(reason);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            pstt = null;
+        });
+
         it('preservation: a completed destroy -> init reuses the facade with a fresh engine', async () => {
             const { PrivateSTT } = await import('../PrivateSTT');
             pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });

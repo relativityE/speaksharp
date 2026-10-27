@@ -106,6 +106,8 @@ class GatedEngine extends STTEngine {
     /** When set, the next onDestroy waits on a gate pushed here (a slow teardown). */
     public holdTeardown = false;
     public readonly teardownGates: Array<() => void> = [];
+    /** When set, the next onDestroy rejects with it (a failed release). */
+    public failTeardown: Error | null = null;
     protected onInit(): Promise<Result<void, Error>> {
         this.inits += 1;
         return new Promise((resolve, reject) => {
@@ -119,6 +121,11 @@ class GatedEngine extends STTEngine {
         if (this.holdTeardown) {
             this.holdTeardown = false;
             await new Promise<void>((resolve) => { this.teardownGates.push(resolve); });
+        }
+        if (this.failTeardown) {
+            const failure = this.failTeardown;
+            this.failTeardown = null;
+            throw failure;
         }
     }
     async transcribe() { return Result.ok('test'); }
@@ -202,6 +209,27 @@ describe('#1635 STTEngine init/destroy lifecycle', () => {
         expect(engine.inits).toBe(1); // the cancelled init never reached onInit
         expect(engine.destroys).toBe(1); // teardown ran exactly once
         await expect(engine.start()).rejects.toThrow(/not initialized/);
+    });
+
+    it('a failed teardown rejects destroy, every concurrent destroy/terminate waiter and a later repeat; a fresh init clears it', async () => {
+        const engine = new GatedEngine();
+        const first = engine.init();
+        engine.gates[0](Result.ok(undefined));
+        await first;
+        const failure = new Error('dispose failed');
+        engine.failTeardown = failure;
+        const outcomes = await Promise.allSettled([engine.destroy(), engine.terminate(), engine.destroy()]);
+        expect(outcomes.map((outcome) => outcome.status)).toEqual(['rejected', 'rejected', 'rejected']);
+        expect(outcomes.map((outcome) => (outcome as PromiseRejectedResult).reason)).toEqual([failure, failure, failure]);
+        expect((outcomes[1] as PromiseRejectedResult).reason).toBe(failure); // the same failure, not a fresh success
+        await expect(engine.destroy()).rejects.toBe(failure); // replayed after it settled
+        expect(engine.destroys).toBe(1);
+        const again = engine.init();
+        await flush();
+        engine.gates[1](Result.ok(undefined));
+        expect((await again).isOk).toBe(true);
+        await engine.destroy(); // a clean teardown of the fresh engine resolves
+        expect(engine.destroys).toBe(2);
     });
 
     it('preservation: a Result failure and a thrown rejection both clear single-flight, so a retry runs', async () => {

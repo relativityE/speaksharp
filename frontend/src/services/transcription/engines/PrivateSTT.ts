@@ -596,7 +596,11 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // #1635: the SUPPORTED release is terminate(). Moonshine implements only terminate(); its destroy()
             // is validateEngine's no-op, which would report a release while leaving the transcriber open.
             const failure = await this.releaseEngine(engine);
-            if (failure) logger.warn({ error: failure, engineType }, '[PrivateSTT] Engine release failed during Private STT teardown');
+            if (failure) {
+                // #1635: the shared teardown rejects, so public destroy() and every concurrent waiter see it.
+                logger.warn({ error: failure, engineType }, '[PrivateSTT] Engine release failed during Private STT teardown');
+                throw new Error(`[PrivateSTT] engine release FAILED during teardown (release uncertain): ${failure.message}`);
+            }
         }
     }
 
@@ -1145,21 +1149,24 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // Cleanup still completes first; every caller (TranscriptionService destroy/reset/mode switch) handles the throw.
         // #1635: the whole teardown is THE teardown in progress, so a fresh init waits for it and this teardown
         // can only ever act on the engine it detached here.
-        // A holder, not a `let`: the assignment happens inside the teardown closure.
-        const outcome: { engineFailure: unknown } = { engineFailure: null };
+        // The child failure is raised INSIDE the shared teardown, so its promise itself rejects: every concurrent
+        // or later terminate/destroy waiter sees the same failure, never a success for the same failed release.
         await this.runTeardown(async () => {
             const engine = this.engine;
             const engineType = this._engineType;
             this.engine = null;
             this._engineType = null;
+            let engineFailure: Error | null = null;
             if (engine) {
-                try { await engine.terminate(); } catch (error) { logger.warn({ error, engineType }, '[PrivateSTT] Engine terminate failed during forced termination'); outcome.engineFailure = error; }
+                try { await engine.terminate(); } catch (error) {
+                    logger.warn({ error, engineType }, '[PrivateSTT] Engine terminate failed during forced termination');
+                    engineFailure = error instanceof Error ? error : new Error(String(error));
+                }
             }
             await this.stop();
             await this.onDestroy();
+            if (engineFailure) throw engineFailure;
         });
-        const { engineFailure } = outcome;
-        if (engineFailure !== null) throw engineFailure instanceof Error ? engineFailure : new Error(String(engineFailure));
     }
 }
 

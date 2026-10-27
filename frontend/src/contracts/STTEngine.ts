@@ -100,6 +100,11 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   private initInFlight: Promise<Result<void, Error>> | null = null;
   /** #1635: the teardown in progress. A fresh init waits for it, so an old teardown can never act on a new engine. */
   private teardownInFlight: Promise<void> | null = null;
+  /**
+   * #1635: the last settled teardown of this terminated instance. A later destroy/terminate replays its outcome,
+   * so a failed release is never followed by a silent success; a fresh init clears it.
+   */
+  private lastTeardown: Promise<void> | null = null;
 
   protected options: TranscriptionModeOptions | EngineCallbacks = {};
 
@@ -157,6 +162,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     if (generation !== this.lifecycleGeneration) {
       return Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`));
     }
+    this.lastTeardown = null;
     this.isTerminated = false;
     return this.initForGeneration(generation, timeoutMs, isMock);
   }
@@ -210,12 +216,18 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     })();
     self.teardown = teardown;
     this.teardownInFlight = teardown;
+    this.lastTeardown = teardown;
+    // Every caller awaits (or replays) this promise; this handler only keeps a failure from being reported as
+    // unhandled before the first awaiter attaches. It does not swallow it for them.
+    teardown.catch(() => undefined);
     return teardown;
   }
 
   /** #1635: a destroy/terminate that found a termination already begun still waits for its teardown. */
   protected async awaitTeardown(): Promise<void> {
-    if (this.teardownInFlight) await this.teardownInFlight;
+    // The shared outcome: every concurrent or later waiter sees the same success or the same failure.
+    const teardown = this.teardownInFlight ?? this.lastTeardown;
+    if (teardown) await teardown;
   }
 
   /**
