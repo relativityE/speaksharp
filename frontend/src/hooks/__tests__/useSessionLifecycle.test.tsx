@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor, fireEvent, screen } from '@testing-library/react';
 import { useSessionLifecycle } from '../useSessionLifecycle';
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -15,6 +15,8 @@ import type { UserProfile } from '@/types/user';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { consumeModelComparisonTakeAuthorization } from '@/services/transcription/modelComparisonAuthorization';
 import { authorizeProduction, resetAuthorization } from '@/services/transcription/__tests__/modelComparisonAuthorization.helper';
+import { MicCard } from '@/components/session/MicCard';
+import * as supabaseClientModule from '@/lib/supabaseClient';
 
 // Mock ALL hooks used inside useSessionLifecycle
 // #1476: the account-wide recording lease. Granted by default so these suites exercise the Start flow beyond it;
@@ -268,6 +270,123 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             } as UserProfile,
             isVerified: true
         });
+    });
+
+    const failedStartView = (error: Error) => {
+        const store = createTestSessionStore({ isListening: false, runtimeState: 'READY', sttMode: 'private' });
+        (useSessionStore as unknown as Mock).mockImplementation(store);
+        (useSessionStore as unknown as { getState: typeof store.getState }).getState = store.getState;
+        (useSessionStore as unknown as { setState: typeof store.setState }).setState = store.setState;
+        vi.mocked(useProfile).mockReturnValue({ profile: { id: 'test-user', subscription_status: 'pro' } as UserProfile, isVerified: true });
+        vi.mocked(useUsageLimit).mockReturnValue(mockUsageLimitQuery);
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(error);
+        const Probe = () => {
+            const lifecycle = useSessionLifecycle();
+            const status = useSessionStore(state => state.sttStatus);
+            return <MicCard onStart={() => { void lifecycle.handleStartStop(); }}
+                error={status.type === 'error' ? status.message : null} privateModelStatus="ready" />;
+        };
+        const view = render(<Probe />);
+        return { store, view };
+    };
+    const deniedCopy = '⚠️ Microphone access is blocked. Allow microphone access and try again.';
+    const setupCopy = '⚠️ Private transcription could not finish setup. Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.';
+
+    it.each([
+        ['NotAllowedError', false], ['PermissionDeniedError', false],
+        ['NotAllowedError', true], ['PermissionDeniedError', true],
+    ] as const)('AHT12 actual mic alert classifies %s (wrapped=%s) and retains an actionable retry', async (name, wrapped) => {
+        const leaf = Object.assign(new Error('private diagnostic text'), { name });
+        const error = wrapped ? Object.assign(new Error('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED'), { cause: leaf }) : leaf;
+        const { store, view } = failedStartView(error);
+        fireEvent.click(screen.getByTestId('mic-start'));
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(deniedCopy));
+        expect(screen.getByRole('alert')).not.toHaveTextContent('private diagnostic text');
+        expect(speechRuntimeController.reset).toHaveBeenCalledWith('start_failed');
+        expect(store.getState().startupWaitStartedAt).toBeNull();
+        expect(store.getState().isListening).toBe(false);
+        expect(screen.getByTestId('mic-start')).toBeEnabled();
+        vi.mocked(speechRuntimeController.startRecording).mockResolvedValueOnce(undefined);
+        fireEvent.click(screen.getByTestId('mic-start'));
+        await waitFor(() => expect(speechRuntimeController.startRecording).toHaveBeenCalledTimes(2));
+        view.unmount();
+    });
+    it.each([
+        ['NotReadableError', true], ['ModelLoadError', true], ['AudioWorkletError', true],
+        ['NotReadableError', false], ['ModelLoadError', false], ['AudioWorkletError', false],
+    ] as const)('AHT12 %s (wrapped=%s) keeps setup guidance rather than claiming mic denial', async (name, wrapped) => {
+        const leaf = Object.assign(new Error('permission private diagnostic text'), { name });
+        const error = wrapped ? Object.assign(new Error('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED'), { cause: leaf }) : leaf;
+        const { view } = failedStartView(error);
+        fireEvent.click(screen.getByTestId('mic-start'));
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(setupCopy));
+        expect(screen.getByRole('alert')).not.toHaveTextContent('private diagnostic text');
+        view.unmount();
+    });
+    it('AHT12 the real controller wraps a denied service start and the actual hook renders the safe mic alert', async () => {
+        const store = createTestSessionStore({ runtimeState: 'READY', sttMode: 'private', progressGateResolvedFor: 'test-user' });
+        (useSessionStore as unknown as Mock).mockImplementation(store);
+        (useSessionStore as unknown as { getState: typeof store.getState }).getState = store.getState;
+        (useSessionStore as unknown as { setState: typeof store.setState }).setState = store.setState;
+        const originalGlobals = { service: window.__TRANSCRIPTION_SERVICE__, controller: window.__SpeechRuntimeController__,
+            debug: window.__SPEECH_RUNTIME_DEBUG__, engine: window.STTEngine, result: window.Result };
+        const actual = await vi.importActual<typeof import('@/services/SpeechRuntimeController')>('@/services/SpeechRuntimeController');
+        const Controller = actual.SpeechRuntimeController as unknown as new () => typeof actual.speechRuntimeController;
+        const controller = new Controller();
+        let serviceState = 'READY', destroyed = false;
+        const service = {
+            isServiceDestroyed: () => destroyed,
+            warmUp: vi.fn(async () => undefined),
+            getStrategy: () => null,
+            getMode: () => 'private',
+            getState: () => serviceState,
+            getStartError: () => new DOMException('private diagnostic text', 'NotAllowedError'),
+            getMetadata: () => ({ engineVersion: 'fixture', modelName: 'fixture', deviceType: 'browser' }),
+            startTranscription: vi.fn(async () => { serviceState = 'FAILED'; }),
+            destroy: vi.fn(async () => { destroyed = true; serviceState = 'TERMINATED'; }),
+            updateCallbacks: vi.fn(), setSessionId: vi.fn(),
+            fsm: { is: (state: string) => serviceState === state },
+        };
+        Object.assign(controller, { state: 'READY', service, isEngineReady: true, isEmissionsSafe: true });
+        const client = {
+            auth: { getSession: vi.fn(async () => ({ data: { session: { user: { id: 'test-user' } } } })) },
+            from: vi.fn(() => { throw new Error('unexpected persistence call'); }),
+            functions: { invoke: vi.fn(async () => ({ data: null, error: { message: 'synthetic offline attestation boundary' } })) },
+        };
+        const clientSpy = vi.spyOn(supabaseClientModule, 'getSupabaseClient').mockReturnValue(client as unknown as ReturnType<typeof supabaseClientModule.getSupabaseClient>);
+        let wrapped: unknown;
+        try {
+            try {
+                await controller.startRecording({ allowPrivate: true, allowNative: false, allowCloud: false,
+                    preferredMode: 'private', allowFallback: false, executionIntent: 'test' }, []);
+            } catch (error) { wrapped = error; }
+            expect(wrapped).toMatchObject({ message: 'TRANSCRIPTION_START_DID_NOT_RECORD:FAILED', cause: { name: 'NotAllowedError' } });
+            expect(service.startTranscription).toHaveBeenCalledTimes(1);
+            expect(client.from).not.toHaveBeenCalled();
+            expect(client.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(client.functions.invoke.mock.calls[0]).toMatchObject(['attest-session-engine', { body: { op: 'register' } }]);
+        } finally {
+            await controller.hardResetAwaited('aht12_test_cleanup');
+            controller.stopLockWatchdog();
+            clientSpy.mockRestore();
+            if (originalGlobals.service === undefined) delete window.__TRANSCRIPTION_SERVICE__;
+            else window.__TRANSCRIPTION_SERVICE__ = originalGlobals.service;
+            if (originalGlobals.controller === undefined) delete window.__SpeechRuntimeController__;
+            else window.__SpeechRuntimeController__ = originalGlobals.controller;
+            if (originalGlobals.debug === undefined) delete window.__SPEECH_RUNTIME_DEBUG__;
+            else window.__SPEECH_RUNTIME_DEBUG__ = originalGlobals.debug;
+            if (originalGlobals.engine === undefined) delete window.STTEngine;
+            else window.STTEngine = originalGlobals.engine;
+            if (originalGlobals.result === undefined) delete window.Result;
+            else window.Result = originalGlobals.result;
+        }
+        expect(service.destroy).toHaveBeenCalled();
+        expect(controller.getState()).toBe('IDLE');
+        const { view } = failedStartView(wrapped as Error);
+        fireEvent.click(screen.getByTestId('mic-start'));
+        await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(deniedCopy));
+        expect(screen.getByRole('alert')).not.toHaveTextContent('private diagnostic text');
+        view.unmount();
     });
 
     it('#1432 CASUALTY: emits the signed document and exact persisted-session binding on save', async () => {
