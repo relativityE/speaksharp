@@ -20,7 +20,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Reuse CI's image/lock/prefetch-bound bundle producer in this same run.
+  # Both jobs check out the reviewed SHA; the consumer never borrows another run's artifact.
+  deps-prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout reviewed commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
+
+      - name: Validate exact reviewed SHA
+        shell: bash
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "reviewed_sha must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$REVIEWED_SHA" || {
+            echo "checked-out HEAD $ACTUAL_SHA does not match reviewed SHA $REVIEWED_SHA" >&2
+            exit 1
+          }
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-dependencies: 'false'
+          install-native-deps: 'false'
+          install-playwright: 'false'
+          apt-bundle: 'false'
+      - name: Capture runner image version
+        id: img
+        shell: bash
+        run: |
+          [ -n "${ImageVersion:-}" ] || { echo "::error::ImageVersion empty — cannot version the bundle cache"; exit 1; }
+          echo "version=${ImageOS:-unknown}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+      - name: Cache prefetched apt bundle
+        id: apt-bundle-cache
+        uses: actions/cache@v4
+        with:
+          path: apt-bundle
+          key: apt-deps-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.version }}-noble-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('scripts/ci/apt-prefetch.sh') }}
+      - name: Prefetch apt dependency bundle (download-only, one retry)
+        if: steps.apt-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash scripts/ci/apt-prefetch.sh apt-bundle
+      - name: Upload apt dependency bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: apt-deps-bundle
+          path: apt-bundle
+          if-no-files-found: error
+          retention-days: 1
+
   cross-page-evidence:
+    needs: [deps-prep]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -49,6 +108,9 @@ jobs:
         uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
+          apt-bundle: 'true'
+          apt-bundle-manifest: 'playwright'
+          apt-bundle-artifact: apt-deps-bundle
 
       - name: Build production app
         env:

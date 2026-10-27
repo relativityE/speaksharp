@@ -16,6 +16,7 @@ const actionDoc = yaml.load(actionText);
 const steps = actionDoc.runs.steps;
 const stepByName = (name) => steps.find((s) => s.name === name);
 const ci = yaml.load(readText('.github/workflows/ci.yml'));
+const u3 = yaml.load(readText('.github/workflows/1047-u3-cross-page.yml'));
 const prefetch = readText('scripts/ci/apt-prefetch.sh');
 const offline = readText('scripts/ci/apt-install-offline.sh');
 
@@ -178,6 +179,83 @@ describe('shards consume the bundle offline (#1311)', () => {
     expect(unitSetup.with['apt-bundle-manifest']).toBe('canvas-sharp');
     expect(e2eSetup.with['apt-bundle']).toBe('true');
     expect(e2eSetup.with['apt-bundle-manifest']).toBe('playwright');
+  });
+});
+
+describe('U3 uses the reviewed same-run dependency bundle', () => {
+  const producer = u3.jobs['deps-prep'];
+  const consumer = u3.jobs['cross-page-evidence'];
+  const reviewedRef = '${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}';
+
+  it('checks out the identical reviewed SHA in producer and consumer before preparing or installing', () => {
+    expect(producer, 'U3 must produce its own reviewed bundle').toBeDefined();
+    for (const job of [producer, consumer]) {
+      const checkout = job.steps.find((step) => step.uses === 'actions/checkout@v6');
+      expect(checkout.with.ref).toBe(reviewedRef);
+      const validate = job.steps.find((step) => step.name === 'Validate exact reviewed SHA');
+      expect(validate.env.REVIEWED_SHA).toBe(reviewedRef);
+      expect(validate.run).toContain('git rev-parse HEAD');
+      expect(validate.run).toContain('test "$ACTUAL_SHA" = "$REVIEWED_SHA"');
+      expect(job.steps.indexOf(validate)).toBeLessThan(job.steps.findIndex((step) => step.name === 'Setup Environment'));
+    }
+  });
+
+  it('blocks the consumer when preparation fails and retains both job backstops', () => {
+    expect(consumer.needs).toEqual(['deps-prep']);
+    expect(producer['timeout-minutes']).toBe(ci.jobs['deps-prep']['timeout-minutes']);
+    expect(consumer['timeout-minutes']).toBe(30);
+    for (const job of [producer, consumer]) {
+      expect(job.if).toBeUndefined();
+      expect(job['continue-on-error']).toBeUndefined();
+      for (const step of job.steps) expect(step['continue-on-error']).toBeUndefined();
+    }
+  });
+
+  it('reuses the exact image, lockfile and prefetch-source cache identity without broad restores', () => {
+    expect(producer, 'U3 needs an identity-bound bundle producer').toBeDefined();
+    const cache = producer.steps.find((step) => step.id === 'apt-bundle-cache');
+    const reference = ci.jobs['deps-prep'].steps.find((step) => step.id === 'apt-bundle-cache');
+    expect(cache.uses).toBe(reference.uses);
+    expect(cache.with).toEqual(reference.with);
+    expect(cache.with['restore-keys']).toBeUndefined();
+    expect(producer.steps.find((step) => step.id === 'img').run)
+      .toBe(ci.jobs['deps-prep'].steps.find((step) => step.id === 'img').run);
+    const download = producer.steps.find((step) => step.name === 'Prefetch apt dependency bundle (download-only, one retry)');
+    expect(download.if).toBe("steps.apt-bundle-cache.outputs.cache-hit != 'true'");
+    expect(download.run).toBe('bash scripts/ci/apt-prefetch.sh apt-bundle');
+    expect(producer.steps.find((step) => step.name === 'Setup Environment').with)
+      .toEqual(ci.jobs['deps-prep'].steps.find((step) => step.name === 'Setup Environment').with);
+  });
+
+  it('installs the playwright manifest via the existing fail-closed same-run artifact path', () => {
+    const setup = consumer.steps.find((step) => step.name === 'Setup Environment');
+    expect(setup.with['apt-bundle']).toBe('true');
+    expect(setup.with['apt-bundle-manifest']).toBe('playwright');
+    expect(setup.with['install-playwright']).toBe('true');
+    const upload = producer.steps.find((step) => step.uses === 'actions/upload-artifact@v6');
+    expect(upload.with.name).toBe(setup.with['apt-bundle-artifact']);
+    expect(upload.with.path).toBe('apt-bundle');
+    expect(upload.with['if-no-files-found']).toBe('error');
+    expect(upload.with['retention-days']).toBe(1);
+    const download = stepByName('Download prefetched apt bundle');
+    expect(download.with.name).toBe('${{ inputs.apt-bundle-artifact }}');
+    for (const key of ['run-id', 'repository', 'github-token', 'pattern', 'merge-multiple']) {
+      expect(download.with[key]).toBeUndefined();
+    }
+  });
+
+  it('retains the production build, exact U3 matrix and SHA-bound evidence upload', () => {
+    expect(consumer.steps.find((step) => step.name === 'Build production app').run).toBe('pnpm ci:build');
+    const matrix = consumer.steps.find((step) => step.name === 'Run U3 evidence matrix');
+    expect(matrix.run).toBe('pnpm exec playwright test tests/e2e/progress-cross-page.e2e.spec.ts --project=full-suite --reporter=line');
+    expect(matrix.env.STT_ENGINE).toBe('mock');
+    const capture = consumer.steps.find((step) => step.name === 'Collect approved screenshots and sanitized manifest');
+    expect(capture.env.REVIEWED_SHA).toBe(reviewedRef);
+    expect(capture.run).toContain('sha256');
+    expect(capture.run).toContain('exit 1');
+    const upload = consumer.steps.find((step) => step.name === 'Upload U3 review evidence');
+    expect(upload.with.name).toContain(reviewedRef);
+    expect(upload.with['if-no-files-found']).toBe('error');
   });
 });
 
