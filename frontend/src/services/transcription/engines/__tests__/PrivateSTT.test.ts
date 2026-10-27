@@ -560,6 +560,81 @@ describe('PrivateSTT (Routing Logic)', () => {
             pstt = null;
         });
 
+        /**
+         * Moonshine's real engine implements terminate() (it closes the transcriber) and NO destroy(); validateEngine
+         * then injects a no-op destroy. A release through destroy() would report success with the transcriber open.
+         */
+        const moonshineShaped = () => {
+            const state = { transcriberOpen: false, terminations: 0, settleInit: (() => undefined) as (result: Result<void, Error>) => void };
+            const engine = {
+                init: vi.fn(() => new Promise<Result<void, Error>>((resolve) => {
+                    state.settleInit = (result) => { state.transcriberOpen = true; resolve(result); };
+                })),
+                transcribe: vi.fn(async () => ({ isOk: true, data: '' })),
+                start: vi.fn(async () => {}), stop: vi.fn(async () => {}),
+                pause: vi.fn(async () => {}), resume: vi.fn(async () => {}),
+                terminate: vi.fn(async () => { state.terminations += 1; state.transcriberOpen = false; }),
+                getTranscript: vi.fn(async () => ''), getInterimTranscript: vi.fn(() => ''),
+            };
+            return { engine, state };
+        };
+
+        it.each(['destroy', 'terminate'] as const)('a cancelled Moonshine-shaped acquisition is released through terminate() exactly once, closing its transcriber (%s)', async (teardown) => {
+            const selection = await import('../../candidateSelection');
+            const { CANDIDATES } = await import('../../candidateRegistry');
+            vi.spyOn(selection, 'effectiveCandidate').mockReturnValue({ candidate: CANDIDATES['moonshine:streaming-medium'], fallbackCause: null } as never);
+            const moonshine = moonshineShaped();
+            const { sttRegistry } = await import('../../STTRegistry');
+            sttRegistry.register('moonshine-streaming', () => moonshine.engine as never);
+
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'moonshine-streaming' } as never);
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(moonshine.engine.init).toHaveBeenCalledTimes(1));
+            await pstt[teardown]();
+            moonshine.state.settleInit(Result.ok(undefined));
+            const result = await pending;
+
+            expect(result.isOk).toBe(false);
+            expect(moonshine.engine.terminate).toHaveBeenCalledTimes(1);
+            expect(moonshine.state.transcriberOpen, 'a no-op destroy() would leave the transcriber open').toBe(false);
+        });
+
+        it('a cancelled acquisition whose release FAILS reports an uncertain release, never a clean cancel', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            created[0].onDestroy.mockRejectedValueOnce(new Error('dispose exploded'));
+            await pstt.destroy();
+            gates[0](Result.ok(undefined));
+            const result = await pending;
+            expect(result.isOk).toBe(false);
+            expect(result.isOk ? '' : result.error.message).toMatch(/release uncertain/);
+            expect(result.isOk ? '' : result.error.message).toMatch(/dispose exploded/);
+        });
+
+        it('a replaced engine whose release FAILS refuses the replacement, releases the new engine, and says so', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            // The explicit-provider path acquires a NEW engine on every init; the default path re-inits the adopted one.
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+
+            created[0].onDestroy.mockRejectedValueOnce(new Error('old engine stuck'));
+            const replacing = pstt.init(); // a completed init re-run while engine A is still adopted: acquires engine B
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            const result = await replacing;
+
+            expect(result.isOk).toBe(false);
+            expect(result.isOk ? '' : result.error.message).toMatch(/replaced engine FAILED \(release uncertain\): old engine stuck; the new engine was released/);
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1); // the refused replacement is released, not adopted
+            await expect(pstt.start()).rejects.toThrow(/not initialized/);
+        });
+
         it('preservation: a completed destroy -> init reuses the facade with a fresh engine', async () => {
             const { PrivateSTT } = await import('../PrivateSTT');
             pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });

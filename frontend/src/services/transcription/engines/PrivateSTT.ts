@@ -593,7 +593,20 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         this.engine = null;
         this._engineType = null;
         if (engine) {
-            try { await engine.destroy(); } catch (error) { logger.warn({ error, engineType }, '[PrivateSTT] Engine destroy failed during Private STT teardown'); }
+            // #1635: the SUPPORTED release is terminate(). Moonshine implements only terminate(); its destroy()
+            // is validateEngine's no-op, which would report a release while leaving the transcriber open.
+            const failure = await this.releaseEngine(engine);
+            if (failure) logger.warn({ error: failure, engineType }, '[PrivateSTT] Engine release failed during Private STT teardown');
+        }
+    }
+
+    /** #1635: release an engine through its supported teardown contract; returns the failure, never swallows it. */
+    private async releaseEngine(engine: IPrivateSTTEngine): Promise<Error | null> {
+        try {
+            await engine.terminate();
+            return null;
+        } catch (error) {
+            return error instanceof Error ? error : new Error(String(error));
         }
     }
 
@@ -612,15 +625,26 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * adopted meanwhile by a newer owner is never destroyed here.
      */
     private async adoptEngine(engine: IPrivateSTTEngine, generation: number): Promise<Result<void, Error>> {
+        // A failed cleanup is never reported as a release: the error says the release is UNCERTAIN.
         const release = async (): Promise<Result<void, Error>> => {
-            try { await engine.destroy(); } catch (error) { logger.warn({ error }, '[PrivateSTT] Cancelled acquisition failed to release'); }
-            return Result.err(this.cancelledInitError());
+            const failure = await this.releaseEngine(engine);
+            return Result.err(failure
+                ? new Error(`[PrivateSTT] init cancelled, and releasing the acquired engine FAILED (release uncertain): ${failure.message}`)
+                : this.cancelledInitError());
         };
         if (this.acquisitionCancelled(generation)) return release();
         const previous = this.engine;
         if (previous && previous !== engine) {
             this.engine = null;
-            try { await previous.destroy(); } catch (error) { logger.warn({ error }, '[PrivateSTT] Replaced engine failed to release'); }
+            const retireFailure = await this.releaseEngine(previous);
+            if (retireFailure) {
+                // The replacement is refused: the facade cannot claim a clean hand-over from an engine whose
+                // release failed. The new candidate is released too, and both outcomes are reported.
+                const candidateFailure = await this.releaseEngine(engine);
+                this.isInitialized = false; // no engine is adopted now; the facade must not read as initialised
+                return Result.err(new Error(`[PrivateSTT] releasing the replaced engine FAILED (release uncertain): ${retireFailure.message}`
+                    + (candidateFailure ? `; releasing the new engine also FAILED: ${candidateFailure.message}` : '; the new engine was released')));
+            }
             if (this.acquisitionCancelled(generation) || (this.engine !== null && this.engine !== engine)) return release();
         }
         this.engine = engine;

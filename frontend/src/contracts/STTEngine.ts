@@ -172,7 +172,8 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
 
     // A destroy/terminate that began while this init awaited owns the engine now: never mark it initialised.
     if (generation !== this.lifecycleGeneration || this.isTerminated) {
-      return Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`));
+      // Keep a subclass's own, more precise failure (e.g. an uncertain release); only a success is replaced.
+      return result.isOk ? Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`)) : result;
     }
     if (result.isOk) {
       this.isInitialized = true;
