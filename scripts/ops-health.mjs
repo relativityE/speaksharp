@@ -35,17 +35,9 @@ await row('Supabase API', 'Can clients reach Auth and SpeakSharp Edge Functions?
     headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
   });
   const usageLimitEdge = await edgePreflight('check-usage-limit');
-  const tokenEdge = await edgeExpectedStatus('assemblyai-token', {
-    method: 'POST',
-    // Unauthenticated remains 401; authenticated customer denial/no-provider-call is covered by
-    // the Edge contract tests and deployed canary.
-    expectedStatus: 401,
-    detailPrefix: 'assemblyai-token',
-  });
   return combined([
     { ok: auth.ok, detail: `auth=${auth.status}` },
     usageLimitEdge,
-    tokenEdge,
   ], 'https://supabase.com/dashboard');
 });
 
@@ -205,24 +197,6 @@ async function edgePreflight(functionName) {
   return {
     ok: response.ok,
     detail: `${functionName}=${response.status}`,
-  };
-}
-
-async function edgeExpectedStatus(functionName, { method, expectedStatus, detailPrefix }) {
-  const supabaseUrl = env('SUPABASE_URL', ['VITE_SUPABASE_URL']).replace(/\/$/, '');
-  const anonKey = env('SUPABASE_ANON_KEY', ['VITE_SUPABASE_ANON_KEY']);
-  const response = await http(`${supabaseUrl}/functions/v1/${functionName}`, {
-    method,
-    headers: {
-      apikey: anonKey,
-      Origin: baseUrl,
-      'Content-Type': 'application/json',
-    },
-    body: method === 'GET' || method === 'HEAD' ? undefined : JSON.stringify({}),
-  });
-  return {
-    ok: response.status === expectedStatus,
-    detail: `${detailPrefix}=${response.status}${response.status === expectedStatus ? ':expected' : ''}`,
   };
 }
 
