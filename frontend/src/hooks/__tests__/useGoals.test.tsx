@@ -48,7 +48,7 @@ describe('useGoals', () => {
 
     it('initializes from localStorage if available', async () => {
         const customGoals = { weeklyGoal: 10, clarityGoal: 95 };
-        localStorage.setItem('speaksharp:user-goals', JSON.stringify(customGoals));
+        localStorage.setItem('speaksharp:user-goals:anonymous', JSON.stringify(customGoals));
 
         const { result } = renderHook(() => useGoals(), { wrapper });
         await waitFor(() => {
@@ -72,7 +72,7 @@ describe('useGoals', () => {
         });
 
         expect(goalsService.get).toHaveBeenCalledWith('user-123');
-        expect(JSON.parse(localStorage.getItem('speaksharp:user-goals')!)).toEqual({
+        expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!)).toEqual({
             weeklyGoal: 7,
             clarityGoal: 85,
         });
@@ -92,7 +92,7 @@ describe('useGoals', () => {
 
         await waitFor(() => {
             expect(result.current.goals).toEqual(newGoals);
-            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals')!)).toEqual(newGoals);
+            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!)).toEqual(newGoals);
         });
         expect(goalsService.upsert).toHaveBeenCalledWith('user-123', newGoals);
     });
@@ -111,13 +111,14 @@ describe('useGoals', () => {
 
         await waitFor(() => {
             expect(result.current.goals).toEqual(newGoals);
-            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals')!)).toEqual(newGoals);
+            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!)).toEqual(newGoals);
+            expect(result.current.syncError).toEqual(new Error('upsert unavailable'));
         });
         expect(goalsService.upsert).toHaveBeenCalledWith('user-123', newGoals);
     });
 
     it('resets goals to defaults', async () => {
-        localStorage.setItem('speaksharp:user-goals', JSON.stringify({ weeklyGoal: 20, clarityGoal: 50 }));
+        localStorage.setItem('speaksharp:user-goals:anonymous', JSON.stringify({ weeklyGoal: 20, clarityGoal: 50 }));
         const { result } = renderHook(() => useGoals(), { wrapper });
 
         act(() => {
@@ -126,7 +127,7 @@ describe('useGoals', () => {
 
         await waitFor(() => {
             expect(result.current.goals).toEqual(DEFAULT_GOALS);
-            expect(localStorage.getItem('speaksharp:user-goals')).toBeNull();
+            expect(localStorage.getItem('speaksharp:user-goals:anonymous')).toBeNull();
         });
     });
 });
