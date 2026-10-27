@@ -357,7 +357,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         let wrapped: unknown;
         try {
             try {
-                await controller.startRecording({ allowPrivate: true, allowNative: false, allowCloud: false,
+                await controller.startRecording({ allowPrivate: true, allowNative: false,
                     preferredMode: 'private', allowFallback: false, executionIntent: 'test' }, []);
             } catch (error) { wrapped = error; }
             expect(wrapped).toMatchObject({ message: 'TRANSCRIPTION_START_DID_NOT_RECORD:FAILED', cause: { name: 'NotAllowedError' } });
