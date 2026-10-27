@@ -15,7 +15,7 @@ const keys = ['projectId', 'environment', 'url', 'scopeDigest'] as const;
 const same = (actual: unknown, expected: CompletionBinding) => object(actual)
   && Object.keys(actual).length === keys.length && keys.every(key => actual[key] === expected[key]);
 
-/** Disabled, unregistered server composition. No default client, provider, route or credential acquisition. */
+/** Server-only composition; absent selection stays disabled. No default client/provider or credential acquisition. */
 export function createAccountCompletionExecutor(input: CompletionBinding, ports: CompletionExecutorPorts) {
   const binding = structuredClone(input);
   return {

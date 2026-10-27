@@ -12,7 +12,7 @@ $guard$;
 CREATE FUNCTION public.settle_account_completion_billing_v1(
   p_user_id uuid,p_request_id uuid,p_execution_id uuid,p_scope_digest text,p_subscriptions jsonb)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE billing_customer text;
+DECLARE billing_customer text; subscription_row jsonb; tombstone_customer text; tombstone_status text;
 BEGIN
   -- Preserve profile -> per-account advisory -> configuration/execution order.
   -- The existing helper rechecks actual time after its serialization waits.
@@ -39,6 +39,17 @@ BEGIN
   -- The legacy implementation stays internal. Customer comes only from this
   -- executor's bound grant; no provider call takes place while SQL locks are held.
   PERFORM public.settle_account_closure_billing(p_user_id,p_request_id,billing_customer,p_subscriptions);
+  -- The legacy precheck can precede a uniqueness wait. Re-read and lock each
+  -- actual post-conflict row before accepting its customer/terminal evidence.
+  -- A foreign row committed while INSERT waited rolls back the entire settlement.
+  FOR subscription_row IN SELECT s.value FROM jsonb_array_elements(p_subscriptions) s ORDER BY s.value->>'id' LOOP
+    SELECT customer_id,terminal_status INTO tombstone_customer,tombstone_status
+      FROM public.stripe_subscription_tombstones WHERE subscription_id=subscription_row->>'id' FOR SHARE;
+    IF NOT FOUND OR tombstone_customer IS DISTINCT FROM billing_customer
+      OR tombstone_status NOT IN ('canceled','incomplete_expired') THEN
+      RAISE EXCEPTION 'completion settlement customer mismatch';
+    END IF;
+  END LOOP;
   IF NOT public._account_completion_lock_v1(p_user_id,p_request_id,p_execution_id,p_scope_digest) THEN
     RAISE EXCEPTION 'completion settlement authority expired';
   END IF;

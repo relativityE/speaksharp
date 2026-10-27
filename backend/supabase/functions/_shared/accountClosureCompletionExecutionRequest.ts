@@ -34,7 +34,7 @@ async function bodyOf(request: Request): Promise<unknown> {
   }
 }
 
-/** Not registered. A future caller must apply existing CORS; status read/ACK never calls this adapter. */
+/** The account-closure handler applies existing CORS; status read/ACK never calls this effect adapter. */
 export async function handleAccountCompletionExecutionRequest(request: Request,
   executor: ReturnType<typeof createAccountCompletionExecutor>): Promise<Response> {
   const url = new URL(request.url);

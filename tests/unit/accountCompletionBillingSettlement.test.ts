@@ -102,4 +102,14 @@ describe('completion-grant billing settlement: actual SQL/ACLs', () => {
     const a = await seed(); await query('UPDATE account_completion_executions SET customer_id=$2 WHERE execution_id=$1', [a.execution, 'cus_foreign']);
     await expect(settle(a)).rejects.toThrow('billing identity mismatch'); await unchanged(a);
   });
+  it('executes the full-chain SQL oracle in the bounded fixture as a syntax/logic preflight, not real-schema proof', async () => {
+    // The fixture intentionally has a minimal Auth schema. These two unused metadata
+    // columns only permit the real-chain INSERT syntax; hosted replay still proves real Auth/signup behavior.
+    await db.exec('RESET ROLE; ALTER TABLE auth.users ADD COLUMN raw_app_meta_data jsonb, ADD COLUMN raw_user_meta_data jsonb;');
+    await query('UPDATE account_completion_configuration SET enabled=false,scope_digest=NULL');
+    await db.exec(readFileSync('tests/db/account-completion-billing-full-chain-invariants.sql','utf8'));
+    expect(await value('SELECT enabled FROM account_completion_configuration')).toBe(false);
+    expect(await value('SELECT scope_digest FROM account_completion_configuration')).toBeNull();
+    expect(await value("SELECT count(*)::int FROM auth.users WHERE id='b9190000-0000-4000-8000-000000000001'")).toBe(0);
+  });
 });
