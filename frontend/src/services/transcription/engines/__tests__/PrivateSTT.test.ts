@@ -451,4 +451,102 @@ describe('PrivateSTT (Routing Logic)', () => {
 
         vi.useRealTimers();
     });
+
+    describe('#1635 cancellation/recovery of an in-flight acquisition', () => {
+        type Gate = (result: Result<void, Error>) => void;
+        let created: StubTJ[];
+        let gates: Gate[];
+        beforeEach(async () => {
+            created = [];
+            gates = [];
+            mockTJInit.mockImplementation(() => new Promise((resolve) => { gates.push(resolve); }));
+            const { sttRegistry } = await import('../../STTRegistry');
+            sttRegistry.register('transformers-js', (options) => {
+                const engine = new StubTJ(options);
+                created.push(engine);
+                return engine;
+            });
+        });
+        afterEach(() => { mockTJInit.mockReset(); mockTJInit.mockResolvedValue({ isOk: true, data: undefined }); });
+
+        it.each(['destroy', 'terminate'] as const)('a %s during the model load releases the acquired engine exactly once and never adopts it', async (teardown) => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt[teardown]();
+            gates[0](Result.ok(undefined));
+            const result = await pending;
+
+            expect(result.isOk).toBe(false);
+            expect(created).toHaveLength(1);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            await expect(pstt.start()).rejects.toThrow(/not initialized/);
+        });
+
+        it('destroy then re-init: the old load settling last is released and cannot replace the new engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const old = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt.destroy();
+            const fresh = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await fresh).isOk).toBe(true);
+            gates[0](Result.ok(undefined));
+            expect((await old).isOk).toBe(false);
+
+            expect(created).toHaveLength(2);
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1); // the cancelled acquisition, released once
+            expect(created[1].onDestroy).not.toHaveBeenCalled(); // the newer engine is never destroyed here
+            await pstt.terminate();
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1); // and it is the one the facade owned
+            pstt = null;
+        });
+
+        it('overlapping init() calls acquire ONE engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            const second = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+            expect((await second).isOk).toBe(true);
+            expect(created).toHaveLength(1);
+            expect(mockTJInit).toHaveBeenCalledTimes(1);
+        });
+
+        it('an injected engine destroyed during its own init is torn down once, with no read of the nulled engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            const injected = new StubTJ({});
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() }, injected as never);
+            const pending = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            await pstt.destroy();
+            gates[0](Result.ok(undefined));
+            const result = await pending; // must settle, not throw a TypeError on `this.engine.type`
+            expect(result.isOk).toBe(false);
+            expect(injected.onDestroy).toHaveBeenCalledTimes(1);
+        });
+
+        it('preservation: a completed destroy -> init reuses the facade with a fresh engine', async () => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+            await pstt.destroy();
+            expect(created[0].onDestroy).toHaveBeenCalledTimes(1);
+            const again = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await again).isOk).toBe(true);
+            expect(pstt.getEngineType()).toBe('transformers-js');
+            expect(created).toHaveLength(2);
+            expect(created[1].onDestroy).not.toHaveBeenCalled();
+        });
+    });
 });

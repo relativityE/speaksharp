@@ -91,6 +91,13 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   protected currentTranscript: string = '';
   protected isTerminated: boolean = false;
   protected isStopped: boolean = true;
+  /**
+   * #1635: advanced at the ENTRY of every destroy/terminate. An init settles only for the generation that
+   * started it, so a destroy (or destroy then re-init) while a load is in flight can never be revived by it.
+   */
+  protected lifecycleGeneration: number = 0;
+  /** #1635: the one init in flight; concurrent callers join it instead of starting a second acquisition. */
+  private initInFlight: Promise<Result<void, Error>> | null = null;
 
   protected options: TranscriptionModeOptions | EngineCallbacks = {};
 
@@ -124,7 +131,21 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Common Initialization Logic
    */
   async init(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+    // #1635: join an in-flight init BEFORE touching the termination fence, so a second caller can neither
+    // start a second acquisition nor un-terminate a destroy that is cancelling the first.
+    if (this.initInFlight) return this.initInFlight;
     this.isTerminated = false;
+    const attempt = this.initForGeneration(this.lifecycleGeneration, timeoutMs, isMock);
+    this.initInFlight = attempt;
+    try {
+      return await attempt;
+    } finally {
+      // Cleared on success, Result failure and thrown rejection alike; a newer init is never cleared.
+      if (this.initInFlight === attempt) this.initInFlight = null;
+    }
+  }
+
+  private async initForGeneration(generation: number, timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
     logger.info({
       type: this.type,
       instanceId: this.instanceId,
@@ -133,12 +154,29 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
 
     const result = await this.onInit(timeoutMs, isMock);
 
+    // A destroy/terminate that began while this init awaited owns the engine now: never mark it initialised.
+    if (generation !== this.lifecycleGeneration || this.isTerminated) {
+      return Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`));
+    }
     if (result.isOk) {
       this.isInitialized = true;
       this.updateHeartbeat();
     }
 
     return result;
+  }
+
+  /**
+   * #1635: invalidate at the ENTRY of destroy/terminate, before any awaited child teardown, so an init that
+   * settles during that teardown sees it. Returns false when a termination already began.
+   */
+  protected beginTermination(): boolean {
+    if (this.isTerminated) return false;
+    this.isTerminated = true;
+    this.lifecycleGeneration += 1;
+    this.isInitialized = false;
+    this.initInFlight = null;
+    return true;
   }
 
   /**
@@ -212,11 +250,9 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Implementation of destroy from IPrivateSTTEngine
    */
   async destroy(): Promise<void> {
-    if (this.isTerminated) return;
-    this.isTerminated = true; // BLOCK RE-ENTRY IMMEDIATELY
+    if (!this.beginTermination()) return; // BLOCK RE-ENTRY AND INVALIDATE ANY IN-FLIGHT INIT IMMEDIATELY
     await this.stop();
     await this.onDestroy();
-    this.isInitialized = false;
   }
 
   protected abstract onDestroy(): Promise<void>;

@@ -272,6 +272,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected override async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+        // #1635: captured synchronously at entry, i.e. the generation of the init() that called us. Every engine
+        // this init acquires is adopted only while that generation still owns the facade.
+        const generation = this.lifecycleGeneration;
         const options = this.options as PrivateSTTInitOptions;
 
         this.serviceId = options.serviceId || 'unknown';
@@ -289,16 +292,19 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         if (this.engine && !overrideEngine) {
             logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🧪 Initializing injected engine');
-            validateEngine(this.engine);
-            const initResult = await this.engine.init(timeoutMs, isMock);
+            // #1635: a destroy during this await nulls `this.engine` (and disposes it); keep our own reference.
+            const injected = this.engine;
+            validateEngine(injected);
+            const initResult = await injected.init(timeoutMs, isMock);
+            if (this.acquisitionCancelled(generation)) return Result.err(this.cancelledInitError());
             const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
             if (!isOk) {
-                await this.engine.terminate?.();
+                await injected.terminate?.();
                 const error = initResult ? (initResult as { error?: Error }).error : new Error('Injected private engine failed to initialize');
                 logger.warn({ error }, '[PrivateSTT] Injected engine failed to initialize.');
                 return { isOk: false, error: error || new Error('Injected private engine failed to initialize') };
             }
-            this._engineType = this.engine.type;
+            this._engineType = injected.type;
             return Result.ok(undefined);
         }
 
@@ -318,7 +324,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 publishPrivateRuntimeDebug(decision);
                 logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, selectedEngine, source: 'override' }, '[PrivateSTT] Published explicit CPU runtime decision');
             }
-            const res = await this.initSelectedEngine(selectedEngine, timeoutMs, isMock);
+            const res = await this.initSelectedEngine(selectedEngine, timeoutMs, isMock, generation);
             return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
         }
 
@@ -342,15 +348,17 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const explicitlySelected = this.runtimePath?.selectionSource === 'config'
             || this.runtimePath?.selectionSource === 'runtime_switch';
 
-        const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock);
+        const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock, generation);
         if (primary.isOk) {
             this.emitV4FlagTelemetry(null, Math.round(performance.now() - initStart));
             return Result.ok(undefined);
         }
 
+        // #1635: a cancelled init never falls back to acquire a second engine for a destroyed facade.
+        if (this.acquisitionCancelled(generation)) return primary as Result<void, Error>;
         if (autoEngine === 'transformers-js-v4' && !explicitlySelected) {
             logger.warn({ sId: this.serviceId, rId: this.runId, error: (primary as { error?: Error }).error }, '[PrivateSTT] v4 init failed; falling back to v2-base');
-            const fallback = await this.initSafeEngine(timeoutMs, isMock);
+            const fallback = await this.initSafeEngine(timeoutMs, isMock, generation);
             this.emitV4FlagTelemetry('v4_init_failed', Math.round(performance.now() - initStart));
             return fallback.isOk ? Result.ok(undefined) : (fallback as Result<void, Error>);
         }
@@ -579,11 +587,44 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected async onDestroy(): Promise<void> {
-        if (this.engine) {
-            try { await this.engine.destroy(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine destroy failed during Private STT teardown'); }
-            this.engine = null;
-            this._engineType = null;
+        // #1635: detach before awaiting, so nothing adopted or read during the teardown sees a dying engine.
+        const engine = this.engine;
+        const engineType = this._engineType;
+        this.engine = null;
+        this._engineType = null;
+        if (engine) {
+            try { await engine.destroy(); } catch (error) { logger.warn({ error, engineType }, '[PrivateSTT] Engine destroy failed during Private STT teardown'); }
         }
+    }
+
+    /** #1635: the init that started in `generation` no longer owns this facade. */
+    private acquisitionCancelled(generation: number): boolean {
+        return generation !== this.lifecycleGeneration || this.isTerminated;
+    }
+
+    private cancelledInitError(): Error {
+        return new Error('[PrivateSTT] init cancelled by destroy/terminate; the acquired engine was released.');
+    }
+
+    /**
+     * #1635: adopt an engine acquired by the init that started in `generation`, or release it exactly once.
+     * A different previous engine is retired first; ownership is rechecked after that await, and an engine
+     * adopted meanwhile by a newer owner is never destroyed here.
+     */
+    private async adoptEngine(engine: IPrivateSTTEngine, generation: number): Promise<Result<void, Error>> {
+        const release = async (): Promise<Result<void, Error>> => {
+            try { await engine.destroy(); } catch (error) { logger.warn({ error }, '[PrivateSTT] Cancelled acquisition failed to release'); }
+            return Result.err(this.cancelledInitError());
+        };
+        if (this.acquisitionCancelled(generation)) return release();
+        const previous = this.engine;
+        if (previous && previous !== engine) {
+            this.engine = null;
+            try { await previous.destroy(); } catch (error) { logger.warn({ error }, '[PrivateSTT] Replaced engine failed to release'); }
+            if (this.acquisitionCancelled(generation) || (this.engine !== null && this.engine !== engine)) return release();
+        }
+        this.engine = engine;
+        return Result.ok(undefined);
     }
 
     /**
@@ -744,9 +785,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * The cache is probed BEFORE the load, from real Cache Storage, so `cache_result` is an observation
      * rather than an inference. A load that turns out fast is not evidence of a hit.
      */
-    private async initSelectedEngine(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+    // #1635: `generation` is the owning init's; a direct call (no init in progress) adopts for the current one.
+    private async initSelectedEngine(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
         // The mock engine is not an acquisition: nothing is fetched and nothing is cached.
-        if (engineType === 'mock') return this.initSelectedEngineInner(engineType, timeoutMs, isMock);
+        if (engineType === 'mock') return this.initSelectedEngineInner(engineType, timeoutMs, isMock, generation);
 
         // THE SUBJECT IS FROZEN BEFORE THE LOAD, FROM THE SELECTED CANDIDATE.
         //
@@ -775,7 +817,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         recordAcquisitionStart(subject, cacheResult);
 
         try {
-            const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock);
+            const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock, generation);
             const totalMs = Math.round(performance.now() - acquisitionStartedAt);
             if (outcome.isOk) {
                 this.publishResolvedIdentity();
@@ -901,7 +943,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         };
     }
 
-    private async initSelectedEngineInner(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+    private async initSelectedEngineInner(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
         if (engineType === 'mock') {
             const factory = getEngine('mock');
             if (factory) {
@@ -909,7 +951,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 validateEngine(engine);
                 const result = await engine.init(timeoutMs, isMock);
                 if (result.isOk) {
-                    this.engine = engine as unknown as IPrivateSTTEngine;
+                    const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
+                    if (!adopted.isOk) return { isOk: false, error: adopted.error };
                     this._engineType = 'mock';
                     return Result.ok('mock' as EngineType);
                 }
@@ -917,9 +960,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             }
             return { isOk: false, error: new Error('Mock engine requested but not registered in STTRegistry') };
         }
-        if (engineType === 'transformers-js') return this.initSafeEngine(timeoutMs, isMock);
-        if (engineType === 'transformers-js-v4') return this.initV4Engine(timeoutMs, isMock);
-        if (engineType === 'moonshine-streaming') return this.initMoonshineEngine(timeoutMs, isMock);
+        if (engineType === 'transformers-js') return this.initSafeEngine(timeoutMs, isMock, generation);
+        if (engineType === 'transformers-js-v4') return this.initV4Engine(timeoutMs, isMock, generation);
+        if (engineType === 'moonshine-streaming') return this.initMoonshineEngine(timeoutMs, isMock, generation);
         return { isOk: false as const, error: new Error(`Unknown private provider: ${engineType}`) };
     }
 
@@ -933,7 +976,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * The arch is derived from the CANDIDATE ID rather than passed in, so the running weights and the
      * reported identity cannot disagree.
      */
-    private async initMoonshineEngine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+    private async initMoonshineEngine(timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
         const options = this.options as TranscriptionModeOptions;
         try {
             const candidate = effectiveCandidate().candidate;
@@ -963,7 +1006,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
                 return { isOk: false, error: (result as { error: Error }).error };
             }
-            this.engine = engine as unknown as IPrivateSTTEngine;
+            const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
+            if (!adopted.isOk) return { isOk: false, error: adopted.error };
             this._engineType = 'moonshine-streaming';
             // Recorded only after a successful init, and recorded as the ARCH that was actually loaded
             // rather than the candidate that was requested, so metadata cannot describe a model the
@@ -978,7 +1022,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     /**
      * Initialize the safe (transformers-js) engine
      */
-    private async initSafeEngine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+    private async initSafeEngine(timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
         const options = this.options as TranscriptionModeOptions;
         try {
             // 1. Registry Lookup (Mocks)
@@ -991,7 +1035,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
                     return { isOk: false, error: (result as { error: Error }).error };
                 }
-                this.engine = engine;
+                const adopted = await this.adoptEngine(engine, generation);
+                if (!adopted.isOk) return { isOk: false, error: adopted.error };
                 this._engineType = 'transformers-js';
                 return { isOk: true, data: 'transformers-js' as EngineType };
             }
@@ -1007,7 +1052,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 return { isOk: false, error: result.error as Error };
             }
 
-            this.engine = engine;
+            const adopted = await this.adoptEngine(engine, generation);
+            if (!adopted.isOk) return { isOk: false, error: adopted.error };
             this._engineType = 'transformers-js';
             return { isOk: true, data: 'transformers-js' as EngineType };
         } catch (error) {
@@ -1016,7 +1062,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         }
     }
 
-    private async initV4Engine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+    private async initV4Engine(timeoutMs?: number, isMock?: boolean, generation: number = this.lifecycleGeneration): Promise<Result<EngineType, Error>> {
         // Thread the resolver-chosen v4 model variant (base_q4 floor / distil_q4 tier)
         // into the engine via options. Override path (no resolver) defaults to base_q4.
         const variant = this.runtimePath?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT;
@@ -1031,7 +1077,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
                     return { isOk: false, error: (result as { error: Error }).error };
                 }
-                this.engine = engine as unknown as IPrivateSTTEngine;
+                const adopted = await this.adoptEngine(engine as unknown as IPrivateSTTEngine, generation);
+                if (!adopted.isOk) return { isOk: false, error: adopted.error };
                 this._engineType = 'transformers-js-v4';
                 return { isOk: true, data: 'transformers-js-v4' as EngineType };
             }
@@ -1046,7 +1093,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 return { isOk: false, error: result.error as Error };
             }
 
-            this.engine = engine;
+            const adopted = await this.adoptEngine(engine, generation);
+            if (!adopted.isOk) return { isOk: false, error: adopted.error };
             this._engineType = 'transformers-js-v4';
             return { isOk: true, data: 'transformers-js-v4' as EngineType };
         } catch (error) {
@@ -1064,17 +1112,23 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     async terminate(): Promise<void> {
-        if (this.isTerminated) return;
+        // #1635: invalidate at ENTRY, before the awaited child terminate, so an init settling meanwhile is
+        // cancelled and releases its engine instead of adopting it.
+        if (!this.beginTermination()) return;
+        logger.info({ type: this.type, instanceId: this.instanceId }, `[STTEngine] 🛑 Nuclear termination requested for ${this.type}`);
 
         // #1476: a failed engine termination is reported, not swallowed — callers must not read it as "engine off".
         // Cleanup still completes first; every caller (TranscriptionService destroy/reset/mode switch) handles the throw.
         let engineFailure: unknown = null;
-        if (this.engine) {
-            try { await this.engine.terminate(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine terminate failed during forced termination'); engineFailure = error; }
-            this.engine = null;
-            this._engineType = null;
+        const engine = this.engine;
+        const engineType = this._engineType;
+        this.engine = null;
+        this._engineType = null;
+        if (engine) {
+            try { await engine.terminate(); } catch (error) { logger.warn({ error, engineType }, '[PrivateSTT] Engine terminate failed during forced termination'); engineFailure = error; }
         }
-        await super.terminate();
+        await this.stop();
+        await this.onDestroy();
         if (engineFailure !== null) throw engineFailure instanceof Error ? engineFailure : new Error(String(engineFailure));
     }
 }
