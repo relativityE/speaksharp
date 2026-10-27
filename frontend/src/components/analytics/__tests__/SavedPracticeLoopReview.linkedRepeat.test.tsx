@@ -297,6 +297,39 @@ describe('#1548 — the saved review names the target actually measured by its l
         expect(screen.getByTestId('progress-attempt-scope'))
             .toHaveTextContent('This comparison measures delivery, not whether the coaching tip was followed.');
     });
+
+    it('#1548: the reopened review shows the persisted same-target values once, from the one Progress readmodel', async () => {
+        loadProgress.mockResolvedValue({
+            ...persistedProgress,
+            latestAttempt: { id: 'attempt-1', lifecycle: 'completed', outcome: 'moved' },
+            repeatResult: { status: 'available', metric: 'filler_rate', direction: 'decrease', units: 'percent of words', before: 9.2, after: 6.4 },
+        });
+        renderReview(true);
+        const values = await screen.findByTestId('progress-attempt-values');
+        expect(values).toHaveTextContent('Filler rate: 9.2 → 6.4 percent of words (original session → linked repeat).');
+        expect(screen.getAllByTestId('progress-attempt-values')).toHaveLength(1);
+        expect(values).not.toHaveTextContent(/reached|met the|improv|price/i);
+        expect(screen.getByTestId('progress-attempt-scope'))
+            .toHaveTextContent('This comparison measures delivery, not whether the coaching tip was followed.');
+        expect(screen.getAllByRole('button')).toHaveLength(1); // still no second next action
+        expect(loadProgress).toHaveBeenCalledWith('s1');
+        expect(new Set(loadProgress.mock.calls.map(([id]) => id))).toEqual(new Set(['s1']));
+    });
+
+    it('#1548: expired coaching text does not erase the retained numeric values, and nothing reconstructs the text', async () => {
+        loadReview.mockResolvedValue({ ...FOCUS, coaching: { kind: 'expired' } });
+        loadProgress.mockResolvedValue({
+            ...persistedProgress,
+            latestAttempt: { id: 'attempt-1', lifecycle: 'completed', outcome: 'did_not_move' },
+            repeatResult: { status: 'available', metric: 'filler_rate', direction: 'decrease', units: 'percent of words', before: 4.1, after: 4.4 },
+        });
+        renderReview(true);
+        expect(await screen.findByTestId('progress-attempt-values'))
+            .toHaveTextContent('Filler rate: 4.1 → 4.4 percent of words (original session → linked repeat).');
+        expect(screen.getByTestId('progress-attempt-outcome'))
+            .toHaveTextContent('Filler rate was not lower on the repeat than in the original session.');
+        expect(document.body).not.toHaveTextContent('Name the price first.');
+    });
 });
 
 describe('#1258 Codex P1 r4273670998 — acceptance time is the PRESS, not the end of the network calls', () => {
