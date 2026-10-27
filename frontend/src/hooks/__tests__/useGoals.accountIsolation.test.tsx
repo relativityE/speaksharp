@@ -24,12 +24,67 @@ beforeEach(()=>{
 afterEach(()=>{cleanup();client.clear();localStorage.clear();});
 
 describe('actual goals hook keeps fallback data bound to its account',()=>{
+    it('failed sync remains visible after unmount/remount with the same QueryClient',async()=>{
+        vi.mocked(goalsService.get).mockResolvedValue(null);
+        vi.mocked(goalsService.upsert).mockRejectedValue(new Error('unavailable'));
+        const first=renderHook(()=>useGoals(),{wrapper});
+        await act(async()=>{await first.result.current.setGoals(a);});
+        await waitFor(()=>expect(first.result.current.syncError).toBeTruthy());
+        expect(client.getQueryData(['userGoals','synthetic-a'])).toMatchObject({syncError:true});
+        expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:synthetic-a')!)).toMatchObject({pending:true});
+        first.unmount();
+        expect(client.getQueryData(['userGoals','synthetic-a'])).toMatchObject({syncError:true});
+        const remounted=renderHook(()=>useGoals(),{wrapper});
+        await waitFor(()=>expect(remounted.result.current.goals).toEqual(a));
+        expect(remounted.result.current.syncError).toBeTruthy();
+    });
+    it('a second observer sees failed sync and the verified save clears both observers',async()=>{
+        vi.mocked(goalsService.get).mockResolvedValue(null);
+        vi.mocked(goalsService.upsert).mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue(a);
+        const first=renderHook(()=>useGoals(),{wrapper});
+        await act(async()=>{await first.result.current.setGoals(a);});
+        const second=renderHook(()=>useGoals(),{wrapper});
+        await waitFor(()=>expect(second.result.current.goals).toEqual(a));
+        expect(second.result.current.syncError).toBeTruthy();
+        await act(async()=>{await second.result.current.setGoals(a);});
+        await waitFor(()=>expect(first.result.current.syncError).toBeFalsy());
+        expect(second.result.current.syncError).toBeFalsy();
+    });
+    it('pending local sync survives a fresh QueryClient instead of silently accepting older account goals',async()=>{
+        vi.mocked(goalsService.get).mockResolvedValue(null);
+        vi.mocked(goalsService.upsert).mockRejectedValue(new Error('unavailable'));
+        const first=renderHook(()=>useGoals(),{wrapper});
+        await act(async()=>{await first.result.current.setGoals(a);});
+        first.unmount();client.clear();
+        client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
+        vi.mocked(goalsService.get).mockClear().mockResolvedValue(b);
+        const remounted=renderHook(()=>useGoals(),{wrapper});
+        await waitFor(()=>expect(remounted.result.current.syncError).toBe(true));
+        expect(remounted.result.current.goals).toEqual(a);
+        expect(goalsService.get).not.toHaveBeenCalled();
+    });
+    it('a verified account-A save never clears account B pending sync',async()=>{
+        vi.mocked(goalsService.get).mockResolvedValue(null);
+        vi.mocked(goalsService.upsert).mockRejectedValueOnce(new Error('A unavailable'))
+            .mockRejectedValueOnce(new Error('B unavailable')).mockResolvedValue(a);
+        const hook=renderHook(()=>useGoals(),{wrapper});
+        await act(async()=>{await hook.result.current.setGoals(a);});
+        owner('synthetic-b');hook.rerender();
+        await act(async()=>{await hook.result.current.setGoals(b);});
+        owner('synthetic-a');hook.rerender();
+        await act(async()=>{await hook.result.current.setGoals(a);});
+        await waitFor(()=>expect(hook.result.current.syncError).toBe(false));
+        owner('synthetic-b');hook.rerender();
+        await waitFor(()=>expect(hook.result.current.goals).toEqual(b));
+        expect(hook.result.current.syncError).toBe(true);
+        expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:synthetic-b')!)).toMatchObject({pending:true});
+    });
     it('exposes an unavailable account read while showing only that account fallback',async()=>{
         const error=Object.assign(new Error('permission denied'),{code:'42501'});
         vi.mocked(goalsService.get).mockRejectedValue(error);
         localStorage.setItem('speaksharp:user-goals:user:synthetic-a',JSON.stringify(a));
         const {result}=renderHook(()=>useGoals(),{wrapper});
-        await waitFor(()=>expect(result.current.syncError).toBe(error));
+        await waitFor(()=>expect(result.current.syncError).toBe(true));
         expect(result.current.goals).toEqual(a);
         expect(goalsService.get).toHaveBeenCalledTimes(1);
     });

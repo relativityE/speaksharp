@@ -72,7 +72,7 @@ describe('useGoals', () => {
         });
 
         expect(goalsService.get).toHaveBeenCalledWith('user-123');
-        expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!)).toEqual({
+        expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!).goals).toEqual({
             weeklyGoal: 7,
             clarityGoal: 85,
         });
@@ -92,7 +92,7 @@ describe('useGoals', () => {
 
         await waitFor(() => {
             expect(result.current.goals).toEqual(newGoals);
-            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!)).toEqual(newGoals);
+            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!).goals).toEqual(newGoals);
         });
         expect(goalsService.upsert).toHaveBeenCalledWith('user-123', newGoals);
     });
@@ -106,13 +106,13 @@ describe('useGoals', () => {
         (goalsService.upsert as Mock).mockRejectedValue(new Error('upsert unavailable'));
 
         await act(async () => {
-            await expect(result.current.setGoals(newGoals)).resolves.toEqual(newGoals);
+            await expect(result.current.setGoals(newGoals)).resolves.toEqual({ goals: newGoals, status: 'local-only', syncError: true });
         });
 
         await waitFor(() => {
             expect(result.current.goals).toEqual(newGoals);
-            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!)).toEqual(newGoals);
-            expect(result.current.syncError).toEqual(new Error('upsert unavailable'));
+            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals:user:user-123')!).goals).toEqual(newGoals);
+            expect(result.current.syncError).toBe(true);
         });
         expect(goalsService.upsert).toHaveBeenCalledWith('user-123', newGoals);
     });
