@@ -29,7 +29,8 @@ test.describe('A3-3.a Delete account entry on the deployed Account page', () => 
         await page.getByTestId(TEST_IDS.EMAIL_INPUT).fill(email);
         await page.getByTestId(TEST_IDS.PASSWORD_INPUT).fill(password);
         await page.getByTestId(TEST_IDS.SIGN_IN_SUBMIT).click();
-        await page.waitForURL(ROUTES.SESSION, { timeout: 30_000 });
+        // Direct sign-in has no protected-route return target; the authenticated default is /practice.
+        await page.waitForURL((url) => url.pathname === '/practice', { timeout: 30_000 });
 
         await page.goto('/account');
         const link = page.getByTestId('account-delete-link');

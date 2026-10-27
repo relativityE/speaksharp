@@ -114,6 +114,7 @@ const wiring={
   ],
   [SOURCE_CONTRACTS[6]]:[
     "if (request.url().includes('account-closure')) closureCalls.push(request.method());",
+    "await page.waitForURL((url) => url.pathname === '/practice', { timeout: 30_000 });",
     "await page.goto('/account');",
     "const link = page.getByTestId('account-delete-link');",
     "await expect(link, 'the Delete account link is on the Account page').toBeVisible({ timeout: 20_000 });",

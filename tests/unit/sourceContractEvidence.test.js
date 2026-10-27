@@ -32,13 +32,14 @@ expect(owned.page_url).toBe('/progress/:sessionId');`;
 const deleteEntry=`page.on('request', (request) => {
     if (request.url().includes('account-closure')) closureCalls.push(request.method());
 });
+await page.waitForURL((url) => url.pathname === '/practice', { timeout: 30_000 });
 await page.goto('/account');
 const link = page.getByTestId('account-delete-link');
 await expect(link, 'the Delete account link is on the Account page').toBeVisible({ timeout: 20_000 });
 await expect(link).toHaveText('Delete account');
 await expect(link).toHaveAttribute('href', '/account/delete');
 expect(closureCalls, 'opening Account issues no account-closure request').toEqual([]);`;
-const ROUTES=[[SOURCE_CONTRACTS[3],products,1],[SOURCE_CONTRACTS[4],recording,2],[SOURCE_CONTRACTS[5],pageContext,3],[SOURCE_CONTRACTS[6],deleteEntry,7]];
+const ROUTES=[[SOURCE_CONTRACTS[3],products,1],[SOURCE_CONTRACTS[4],recording,2],[SOURCE_CONTRACTS[5],pageContext,3],[SOURCE_CONTRACTS[6],deleteEntry,8]];
 
 test('canary source rejects a negated saved matcher on the actual outcome',()=>{
   const negated=canary.replace("expect(outcome.kind).toBe('saved')","expect(outcome.kind, diagnostic).not.toBe('saved')");
@@ -114,6 +115,24 @@ test('#1712 delete-entry contract refuses a changed lookup, text, href, visibili
     ["await page.goto('/account');","await page.goto('/account/delete');"],
   ]) {
     assert.throws(()=>inspectSourceContract(root,SOURCE_CONTRACTS[6],deleteEntry.replace(from,to)),/wiring contract failed/,`${from} -> ${to}`);
+  }
+});
+
+test('#1712 actual entry spec settles the default post-auth route before Account; the old session wait is rejected',()=>{
+  const file=SOURCE_CONTRACTS[6];
+  const actual=fs.readFileSync(path.join(root,file),'utf8');
+  const wire="await page.waitForURL((url) => url.pathname === '/practice', { timeout: 30_000 });";
+  assert.ok(actual.includes(wire),'the real entry spec waits for the authenticated /practice landing');
+  assert.equal(inspectSourceContract(root,file,actual).checks,8);
+  for(const replacement of [
+    'await page.waitForURL(ROUTES.SESSION, { timeout: 30_000 });',
+    "await page.waitForURL((url) => url.pathname === '/session', { timeout: 30_000 });",
+    "page.waitForURL((url) => url.pathname === '/practice', { timeout: 30_000 });",
+    "await page.waitForURL((url) => url.pathname !== '/practice', { timeout: 30_000 });",
+  ]) {
+    const wrong=actual.replace(wire,replacement);
+    assert.notEqual(wrong,actual);
+    assert.throws(()=>inspectSourceContract(root,file,wrong),/wiring contract failed/);
   }
 });
 
