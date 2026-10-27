@@ -108,14 +108,24 @@ class GatedEngine extends STTEngine {
     public readonly teardownGates: Array<() => void> = [];
     /** When set, the next onDestroy rejects with it (a failed release). */
     public failTeardown: Error | null = null;
+    /** One-shot hooks that run SYNCHRONOUSLY inside onInit / onStop (a child callback re-entering the engine). */
+    public onInitHook: (() => void) | null = null;
+    public onStopHook: (() => void) | null = null;
     protected onInit(): Promise<Result<void, Error>> {
         this.inits += 1;
+        const hook = this.onInitHook;
+        this.onInitHook = null;
+        hook?.();
         return new Promise((resolve, reject) => {
             this.gates.push((outcome) => (outcome instanceof Error ? reject(outcome) : resolve(outcome)));
         });
     }
     protected async onStart() {}
-    protected async onStop() {}
+    protected async onStop() {
+        const hook = this.onStopHook;
+        this.onStopHook = null;
+        hook?.();
+    }
     protected async onDestroy() {
         this.destroys += 1;
         if (this.holdTeardown) {
@@ -259,6 +269,65 @@ describe('#1635 STTEngine init/destroy lifecycle', () => {
         expect((await again).isOk).toBe(true);
         await engine.start();
         expect(engine.inits).toBe(2);
+    });
+
+    it('Jensen (1): an onInit hook that re-enters init() synchronously joins the SAME acquisition', async () => {
+        const engine = new GatedEngine();
+        let reentrant: Promise<Result<void, Error>> | null = null;
+        engine.onInitHook = () => { reentrant = engine.init(); };
+        const outer = engine.init();
+        expect(engine.inits).toBe(1); // the re-entrant call joined the published attempt: no second acquisition
+        expect(reentrant).not.toBeNull();
+        engine.gates[0](Result.ok(undefined));
+        expect(await outer).toEqual(Result.ok(undefined));
+        expect(await (reentrant as unknown as Promise<Result<void, Error>>)).toEqual(Result.ok(undefined));
+        expect(engine.inits).toBe(1);
+        expect(engine.gates).toHaveLength(1);
+    });
+
+    it('Jensen (2): an onStop hook that re-enters destroy() during a held, then FAILING, cleanup gets the same failure', async () => {
+        const engine = new GatedEngine();
+        const first = engine.init();
+        engine.gates[0](Result.ok(undefined));
+        await first;
+        await engine.start();
+        const failure = new Error('release failed late');
+        engine.holdTeardown = true;
+        engine.failTeardown = failure;
+        let nested: Promise<void> | null = null;
+        engine.onStopHook = () => { nested = engine.destroy(); };
+        const outer = engine.destroy();
+        expect(nested).not.toBeNull();
+        let nestedSettled = false;
+        void (nested as unknown as Promise<void>).then(() => { nestedSettled = true; }, () => { nestedSettled = true; });
+        await flush();
+        expect(nestedSettled).toBe(false); // still waiting on the real release, not a premature success
+        engine.teardownGates[0]();
+        const outcomes = await Promise.allSettled([outer, nested as unknown as Promise<void>]);
+        expect(outcomes).toEqual([{ status: 'rejected', reason: failure }, { status: 'rejected', reason: failure }]);
+        expect(engine.destroys).toBe(1);
+    });
+
+    it('Jensen (3): a synchronous init() from inside cleanup does not reach onInit until the release SUCCEEDS', async () => {
+        const engine = new GatedEngine();
+        const first = engine.init();
+        engine.gates[0](Result.ok(undefined));
+        await first;
+        await engine.start();
+        engine.holdTeardown = true;
+        let reinit: Promise<Result<void, Error>> | null = null;
+        engine.onStopHook = () => { reinit = engine.init(); };
+        const outer = engine.destroy();
+        await flush();
+        expect(reinit).not.toBeNull();
+        expect(engine.inits).toBe(1); // cleanup still in progress: no acquisition yet
+        engine.teardownGates[0]();
+        await outer;
+        await flush();
+        expect(engine.inits).toBe(2);
+        engine.gates[1](Result.ok(undefined));
+        expect(await (reinit as unknown as Promise<Result<void, Error>>)).toEqual(Result.ok(undefined));
+        await engine.start();
     });
 
     it('preservation: a Result failure and a thrown rejection both clear single-flight, so a retry runs', async () => {

@@ -146,8 +146,14 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     // #1635: join an in-flight init BEFORE touching the termination fence, so a second caller can neither
     // start a second acquisition nor un-terminate a destroy that is cancelling the first.
     if (this.initInFlight) return this.initInFlight;
-    const attempt = this.initAfterTeardown(this.lifecycleGeneration, timeoutMs, isMock);
+    // PUBLISH the attempt before any work runs: onInit starts synchronously, and a hook that re-enters init()
+    // from inside it must join this attempt rather than start a second acquisition.
+    let resolveAttempt!: (result: Result<void, Error>) => void;
+    let rejectAttempt!: (error: unknown) => void;
+    const attempt = new Promise<Result<void, Error>>((resolve, reject) => { resolveAttempt = resolve; rejectAttempt = reject; });
     this.initInFlight = attempt;
+    // Settles `attempt`, which every caller awaits; the chain itself has both handlers.
+    void this.initAfterTeardown(this.lifecycleGeneration, timeoutMs, isMock).then(resolveAttempt, rejectAttempt);
     try {
       return await attempt;
     } finally {
@@ -216,24 +222,27 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
 
   /** #1635: run teardown work as THE teardown in progress; a fresh init waits until it settles. */
   protected runTeardown(work: () => Promise<void>): Promise<void> {
-    // A holder: the promise is compared from inside its own body, which settles only after `work()` awaits.
-    const self: { teardown: Promise<void> | null } = { teardown: null };
-    const teardown = (async () => {
-      try {
-        await work();
-      } catch (error) {
-        this.teardownFailure ??= error instanceof Error ? error : new Error(String(error));
-        throw error;
-      } finally {
-        if (this.teardownInFlight === self.teardown) this.teardownInFlight = null;
-      }
-    })();
-    self.teardown = teardown;
+    // PUBLISH the teardown before `work()` runs: its hooks start synchronously, and a re-entrant destroy/terminate
+    // or init from inside them must see this teardown (wait for it, or share its outcome), never a missing latch.
+    const settle: { resolve?: () => void; reject?: (error: unknown) => void } = {};
+    const teardown = new Promise<void>((resolve, reject) => { settle.resolve = resolve; settle.reject = reject; });
     this.teardownInFlight = teardown;
     this.lastTeardown = teardown;
     // Every caller awaits (or replays) this promise; this handler only keeps a failure from being reported as
     // unhandled before the first awaiter attaches. It does not swallow it for them.
     teardown.catch(() => undefined);
+    void (async () => {
+      try {
+        await work();
+        settle.resolve?.();
+      } catch (error) {
+        this.teardownFailure ??= error instanceof Error ? error : new Error(String(error));
+        settle.reject?.(error);
+      } finally {
+        // Synchronously after settling, before any awaiter resumes; a newer teardown is never cleared.
+        if (this.teardownInFlight === teardown) this.teardownInFlight = null;
+      }
+    })();
     return teardown;
   }
 
