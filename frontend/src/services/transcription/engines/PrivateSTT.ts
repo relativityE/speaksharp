@@ -1114,21 +1114,27 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     async terminate(): Promise<void> {
         // #1635: invalidate at ENTRY, before the awaited child terminate, so an init settling meanwhile is
         // cancelled and releases its engine instead of adopting it.
-        if (!this.beginTermination()) return;
+        if (!this.beginTermination()) return this.awaitTeardown();
         logger.info({ type: this.type, instanceId: this.instanceId }, `[STTEngine] 🛑 Nuclear termination requested for ${this.type}`);
 
         // #1476: a failed engine termination is reported, not swallowed — callers must not read it as "engine off".
         // Cleanup still completes first; every caller (TranscriptionService destroy/reset/mode switch) handles the throw.
-        let engineFailure: unknown = null;
-        const engine = this.engine;
-        const engineType = this._engineType;
-        this.engine = null;
-        this._engineType = null;
-        if (engine) {
-            try { await engine.terminate(); } catch (error) { logger.warn({ error, engineType }, '[PrivateSTT] Engine terminate failed during forced termination'); engineFailure = error; }
-        }
-        await this.stop();
-        await this.onDestroy();
+        // #1635: the whole teardown is THE teardown in progress, so a fresh init waits for it and this teardown
+        // can only ever act on the engine it detached here.
+        // A holder, not a `let`: the assignment happens inside the teardown closure.
+        const outcome: { engineFailure: unknown } = { engineFailure: null };
+        await this.runTeardown(async () => {
+            const engine = this.engine;
+            const engineType = this._engineType;
+            this.engine = null;
+            this._engineType = null;
+            if (engine) {
+                try { await engine.terminate(); } catch (error) { logger.warn({ error, engineType }, '[PrivateSTT] Engine terminate failed during forced termination'); outcome.engineFailure = error; }
+            }
+            await this.stop();
+            await this.onDestroy();
+        });
+        const { engineFailure } = outcome;
         if (engineFailure !== null) throw engineFailure instanceof Error ? engineFailure : new Error(String(engineFailure));
     }
 }

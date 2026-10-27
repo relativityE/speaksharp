@@ -531,6 +531,35 @@ describe('PrivateSTT (Routing Logic)', () => {
             expect(injected.onDestroy).toHaveBeenCalledTimes(1);
         });
 
+        it.each(['terminate', 'destroy'] as const)('Sam counterexample: a slow %s of engine A cannot destroy engine B adopted by a fresh init', async (teardown) => {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const first = pstt.init();
+            await vi.waitFor(() => expect(gates).toHaveLength(1));
+            gates[0](Result.ok(undefined));
+            expect((await first).isOk).toBe(true);
+
+            // Engine A's own teardown is slow: its child terminate/destroy waits on a gate.
+            let releaseA!: () => void;
+            created[0].onDestroy.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseA = resolve; }));
+            const tearingDown = pstt[teardown]();
+            const fresh = pstt.init(); // init B, requested while A's teardown is still in progress
+            await vi.waitFor(() => expect(created[0].onDestroy).toHaveBeenCalledTimes(1));
+            expect(created).toHaveLength(1); // B is not even constructed until A's teardown settles
+            releaseA();
+            await tearingDown;
+            await vi.waitFor(() => expect(gates).toHaveLength(2));
+            gates[1](Result.ok(undefined));
+            expect((await fresh).isOk).toBe(true);
+
+            expect(created).toHaveLength(2);
+            expect(created[1].onDestroy).not.toHaveBeenCalled(); // A's teardown never acted on B
+            await pstt.start(); // the facade is initialised with a live engine, not left with engine null
+            await pstt.terminate();
+            expect(created[1].onDestroy).toHaveBeenCalledTimes(1);
+            pstt = null;
+        });
+
         it('preservation: a completed destroy -> init reuses the facade with a fresh engine', async () => {
             const { PrivateSTT } = await import('../PrivateSTT');
             pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });

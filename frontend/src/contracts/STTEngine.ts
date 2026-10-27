@@ -98,6 +98,8 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   protected lifecycleGeneration: number = 0;
   /** #1635: the one init in flight; concurrent callers join it instead of starting a second acquisition. */
   private initInFlight: Promise<Result<void, Error>> | null = null;
+  /** #1635: the teardown in progress. A fresh init waits for it, so an old teardown can never act on a new engine. */
+  private teardownInFlight: Promise<void> | null = null;
 
   protected options: TranscriptionModeOptions | EngineCallbacks = {};
 
@@ -134,8 +136,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     // #1635: join an in-flight init BEFORE touching the termination fence, so a second caller can neither
     // start a second acquisition nor un-terminate a destroy that is cancelling the first.
     if (this.initInFlight) return this.initInFlight;
-    this.isTerminated = false;
-    const attempt = this.initForGeneration(this.lifecycleGeneration, timeoutMs, isMock);
+    const attempt = this.initAfterTeardown(this.lifecycleGeneration, timeoutMs, isMock);
     this.initInFlight = attempt;
     try {
       return await attempt;
@@ -143,6 +144,21 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
       // Cleared on success, Result failure and thrown rejection alike; a newer init is never cleared.
       if (this.initInFlight === attempt) this.initInFlight = null;
     }
+  }
+
+  /**
+   * #1635: a fresh init starts only after any teardown in progress has settled, and only if no destroy/terminate
+   * was requested meanwhile. With no teardown pending it runs synchronously into onInit, as before.
+   */
+  private async initAfterTeardown(generation: number, timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+    while (this.teardownInFlight) {
+      try { await this.teardownInFlight; } catch { /* a teardown failure is reported to its own caller */ }
+    }
+    if (generation !== this.lifecycleGeneration) {
+      return Result.err(new Error(`[STTEngine] ${this.type} init cancelled by destroy/terminate.`));
+    }
+    this.isTerminated = false;
+    return this.initForGeneration(generation, timeoutMs, isMock);
   }
 
   private async initForGeneration(generation: number, timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
@@ -168,15 +184,37 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
 
   /**
    * #1635: invalidate at the ENTRY of destroy/terminate, before any awaited child teardown, so an init that
-   * settles during that teardown sees it. Returns false when a termination already began.
+   * settles during that teardown sees it. EVERY call advances the generation (a destroy that arrives while an
+   * init is waiting cancels it); it returns false when a termination already began, so its work runs once.
    */
   protected beginTermination(): boolean {
-    if (this.isTerminated) return false;
-    this.isTerminated = true;
     this.lifecycleGeneration += 1;
     this.isInitialized = false;
     this.initInFlight = null;
+    if (this.isTerminated) return false;
+    this.isTerminated = true;
     return true;
+  }
+
+  /** #1635: run teardown work as THE teardown in progress; a fresh init waits until it settles. */
+  protected runTeardown(work: () => Promise<void>): Promise<void> {
+    // A holder: the promise is compared from inside its own body, which settles only after `work()` awaits.
+    const self: { teardown: Promise<void> | null } = { teardown: null };
+    const teardown = (async () => {
+      try {
+        await work();
+      } finally {
+        if (this.teardownInFlight === self.teardown) this.teardownInFlight = null;
+      }
+    })();
+    self.teardown = teardown;
+    this.teardownInFlight = teardown;
+    return teardown;
+  }
+
+  /** #1635: a destroy/terminate that found a termination already begun still waits for its teardown. */
+  protected async awaitTeardown(): Promise<void> {
+    if (this.teardownInFlight) await this.teardownInFlight;
   }
 
   /**
@@ -250,9 +288,11 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Implementation of destroy from IPrivateSTTEngine
    */
   async destroy(): Promise<void> {
-    if (!this.beginTermination()) return; // BLOCK RE-ENTRY AND INVALIDATE ANY IN-FLIGHT INIT IMMEDIATELY
-    await this.stop();
-    await this.onDestroy();
+    if (!this.beginTermination()) return this.awaitTeardown(); // INVALIDATE IMMEDIATELY; TEAR DOWN ONCE
+    await this.runTeardown(async () => {
+      await this.stop();
+      await this.onDestroy();
+    });
   }
 
   protected abstract onDestroy(): Promise<void>;
@@ -270,8 +310,11 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Hardened to ensure settlement by calling destroy().
    */
   async terminate(): Promise<void> {
-    if (this.isTerminated) return;
-    logger.info({ type: this.type, instanceId: this.instanceId }, `[STTEngine] 🛑 Nuclear termination requested for ${this.type}`);
+    // #1635: always routed through destroy(), so a terminate that arrives while an init waits on an earlier
+    // teardown still cancels that init.
+    if (!this.isTerminated) {
+      logger.info({ type: this.type, instanceId: this.instanceId }, `[STTEngine] 🛑 Nuclear termination requested for ${this.type}`);
+    }
     await this.destroy();
   }
 

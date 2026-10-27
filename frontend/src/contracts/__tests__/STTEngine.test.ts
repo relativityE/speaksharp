@@ -103,6 +103,9 @@ class GatedEngine extends STTEngine {
     public inits = 0;
     public destroys = 0;
     public readonly gates: Array<(result: Result<void, Error> | Error) => void> = [];
+    /** When set, the next onDestroy waits on a gate pushed here (a slow teardown). */
+    public holdTeardown = false;
+    public readonly teardownGates: Array<() => void> = [];
     protected onInit(): Promise<Result<void, Error>> {
         this.inits += 1;
         return new Promise((resolve, reject) => {
@@ -111,9 +114,16 @@ class GatedEngine extends STTEngine {
     }
     protected async onStart() {}
     protected async onStop() {}
-    protected async onDestroy() { this.destroys += 1; }
+    protected async onDestroy() {
+        this.destroys += 1;
+        if (this.holdTeardown) {
+            this.holdTeardown = false;
+            await new Promise<void>((resolve) => { this.teardownGates.push(resolve); });
+        }
+    }
     async transcribe() { return Result.ok('test'); }
 }
+const flush = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
 
 describe('#1635 STTEngine init/destroy lifecycle', () => {
     it('overlapping init() calls join ONE acquisition instead of starting a second', async () => {
@@ -153,17 +163,45 @@ describe('#1635 STTEngine init/destroy lifecycle', () => {
         expect(engine.destroys).toBe(2);
     });
 
-    it('an init begun after destroy started is a fresh attempt; the cancelled one still settles as cancelled', async () => {
+    it('a fresh init waits for a slow teardown, then starts; that teardown never touches it', async () => {
         const engine = new GatedEngine();
-        const old = engine.init();
-        const destroying = engine.destroy();
-        const joined = engine.init(); // destroy already invalidated the old attempt at entry
-        await destroying;
-        expect(engine.inits).toBe(2);
+        const first = engine.init();
         engine.gates[0](Result.ok(undefined));
+        expect((await first).isOk).toBe(true);
+        engine.holdTeardown = true;
+        const destroying = engine.destroy();
+        const fresh = engine.init();
+        await flush();
+        expect(engine.inits).toBe(1); // no onInit while the teardown is still in progress
+        engine.teardownGates[0]();
+        await destroying;
+        await flush();
+        expect(engine.inits).toBe(2);
         engine.gates[1](Result.ok(undefined));
-        expect((await old).isOk).toBe(false);
-        expect((await joined).isOk).toBe(true);
+        expect((await fresh).isOk).toBe(true);
+        expect(engine.destroys).toBe(1); // the old teardown ran once and did not destroy the fresh engine
+        await engine.start();
+    });
+
+    it('a destroy that arrives while an init waits on a teardown cancels that init', async () => {
+        const engine = new GatedEngine();
+        const first = engine.init();
+        engine.gates[0](Result.ok(undefined));
+        await first;
+        engine.holdTeardown = true;
+        const destroying = engine.destroy();
+        const waiting = engine.init();
+        const second = engine.destroy(); // already terminating: invalidates the waiting init, waits for the teardown
+        await flush(); // the first destroy reaches its held onDestroy
+        expect(engine.teardownGates).toHaveLength(1);
+        engine.teardownGates[0]();
+        await destroying;
+        await second;
+        const result = await waiting;
+        expect(result.isOk).toBe(false);
+        expect(engine.inits).toBe(1); // the cancelled init never reached onInit
+        expect(engine.destroys).toBe(1); // teardown ran exactly once
+        await expect(engine.start()).rejects.toThrow(/not initialized/);
     });
 
     it('preservation: a Result failure and a thrown rejection both clear single-flight, so a retry runs', async () => {
