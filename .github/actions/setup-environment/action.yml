@@ -47,7 +47,9 @@ runs:
     - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
-        node-version: '22'
+        # Receipt producers and collectors compare exact Node runtime identities.
+        # A floating major can resolve to different patches on rolling runner images.
+        node-version: '22.23.4'
 
     - name: Activate pnpm via Corepack (single source = packageManager)
       id: pnpm
