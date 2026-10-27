@@ -11,6 +11,7 @@ import { executionContext, testEnvironment, pilotAffectedByPaths, executionRoute
   executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONTRACTS,helperApplicability, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
 import {SOURCE_CONSUMER,sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
+import {selectNativeContracts,produceNativePhase,nativeChildTracker} from './lib/nativeTestExecutionEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -137,6 +138,10 @@ export function runVitestHelperExecution(options = {}) {
   return runTestEfficacy({...options, executionOnly: true, helpersOnly: true});
 }
 
+export function runNativeExecution(options = {}) {
+  return runTestEfficacy({...options,executionOnly:true,nativeOnly:true});
+}
+
 export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}={}) {
   const selected=(helpersOnly?[]:evidenceFiles
     .filter(file=>['vitest','vitest-fixture'].includes(executionRoute(file,root)?.runner) && !TEST_EFFICACY_CONTRACTS.some(c=>c.testFile===file))
@@ -158,7 +163,7 @@ export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}=
   return selected;
 }
 
-export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false } = {}) {
+export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_EFFICACY_BASE, provenance, executionOnly = false, helpersOnly = false, nativeOnly = false } = {}) {
   root = canonicalPath(root);
   const commit = git(root, ['rev-parse', 'HEAD']);
   const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
@@ -174,7 +179,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   const executionKind=helpersOnly?'registered-helpers':'changed-evidence';
   const evidenceFiles=executionOnly?executionRequiredFiles(root,base,executionKind):[];
   const unavailable=executionOnly?unavailableExecutionInputs(root,evidenceFiles):[];
-  const selected=executionOnly?selectExecutionContracts(root,evidenceFiles,{helpersOnly}):selectContracts(root,changed);
+  const selected=nativeOnly?selectNativeContracts(root,evidenceFiles):executionOnly?selectExecutionContracts(root,evidenceFiles,{helpersOnly}):selectContracts(root,changed);
   if (!executionOnly && (selected.length > 1 || selected.some(contract => contract.mutants.length !== 2 || contract.control?.length !== 2))) {
     throw new Error('Efficacy pilot budget: one contract, two mutants, one two-seam semantic control');
   }
@@ -183,7 +188,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   if (provenance.commit!==commit || provenance.tree!==tree || provenance.snapshotSha256!==before.digest) {
     throw new Error('Producer context differs from tested source');
   }
-  const receipt = { schemaVersion: 2, runId: randomUUID(), scope: executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
+  const receipt = { schemaVersion: 2, runId: randomUUID(), scope: nativeOnly?'changed Deno/Node execution; bounded planner/observer callable evidence only':executionOnly ? 'changed Vitest collection and execution only' : 'registered analytics-truth faults only',
     provenance,commit, tree, snapshotSha256: before.digest, base: base || null,
     selection: changed === null ? 'all-registered-no-base' : 'affected', changedPaths: changed,
     status: unavailable.length?'incomplete':selected.length?'executed':'not-applicable', contracts: [], tests: [],
@@ -193,6 +198,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
   const temporary = canonicalPath(fs.mkdtempSync(path.join(os.tmpdir(), 'speaksharp-efficacy-')));
   let primaryError;
   let ownedGroupsDrained=true;
+  const nativeChildren=nativeChildTracker(drainOwnedPhase);
   try {
     for (const [file, digest, mode] of before.entries) {
       if (digest === 'deleted') continue;
@@ -306,6 +312,16 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       }
     };
     for (const contract of selected) {
+      if(nativeOnly) {
+        const inputHashes=before.entries.filter(([,digest])=>digest!=='deleted').map(([file])=>
+          [file,hash(fs.readFileSync(path.join(temporary,file)))]);
+        const phase=produceNativePhase({root,cwd:temporary,contract,provenance,sourceCopyCommit,runId:receipt.runId,
+          inputSha256:hash(JSON.stringify(inputHashes)),environment:testEnvironment(temporary,null,''),
+          children:nativeChildren});
+        for(const [file,digest] of inputHashes)if(hash(fs.readFileSync(path.join(temporary,file)))!==digest)throw new Error(`Input changed during native execution: ${file}`);
+        receipt.tests.push({testFile:contract.testFile,testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),phase});
+        continue;
+      }
       if (executionOnly) {
         receipt.tests.push({testFile:contract.testFile,
           ...(contract.helper ? {helperFile:contract.helperFile} : {}),
@@ -362,6 +378,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
     if(primaryError?.diagnostics) error.diagnostics=primaryError.diagnostics;
     throw error;
   }
+  try{nativeChildren.assertDrained(temporary);}catch(error){error.cause=primaryError;
+    if(primaryError?.diagnostics)error.diagnostics=primaryError.diagnostics;throw error;}
   cleanupOwnedCopy(temporary,primaryError);
   if(primaryError)throw primaryError;
   return receipt;

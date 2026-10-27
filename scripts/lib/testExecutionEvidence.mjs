@@ -8,6 +8,7 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
+import {nativeTestRoute,validateNativeReceipt} from './nativeTestExecutionEvidence.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
@@ -179,6 +180,8 @@ export function executionRoute(file, root) {
     return {runner:'vitest-source-contract',consumer:SOURCE_CONSUMER,config:'frontend/vitest.config.mjs',liveExecution:'NOT RUN',
       applicable:availability.supported,...(!availability.supported?{unavailableReason:availability.reason}:{})};
   }
+  const native=nativeTestRoute(file,root);
+  if(native)return native;
   if (sqlConsumers[file]) return sqlConsumers[file];
   if (file.endsWith('.sql')) return null;
   if (/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file)) {
@@ -355,7 +358,7 @@ export function validateVitestExecution(receipt, expected, root) {
   return files;
 }
 
-export function executionCoverage(files, {root,expected,pilot,execution,playwright,base}={}) {
+export function executionCoverage(files, {root,expected,pilot,execution,native,playwright,base}={}) {
   const changes=changedPaths(root,base);
   const required=pilotAffectedByPaths(!base || base==='0'.repeat(40)?null:changes);
   let proven=null;
@@ -363,12 +366,21 @@ export function executionCoverage(files, {root,expected,pilot,execution,playwrig
   const executed=['executed','incomplete'].includes(execution?.status)?validateVitestExecution(execution,expected,root):new Set();
   const ordinary=files.filter(file=>executionRoute(file,root)?.runner==='playwright');
   const browser=playwright ? validatePlaywrightExecution(playwright,{root,expected,requiredFiles:ordinary}):new Set();
+  let nativeFiles=new Set();
+  if(native) {
+    assertProvenance(native.provenance,expected);
+    if(native.base!==(base||null))throw new Error('Wrong native execution comparison base');
+    const entries=sourceEntries(root);
+    if(hash(JSON.stringify(entries))!==expected.snapshotSha256)throw new Error('Native source snapshot changed');
+    nativeFiles=validateNativeReceipt(native,{root,provenance:expected,files,
+      inputSha256:hash(JSON.stringify(entries.filter(([,digest])=>digest!=='deleted').map(([file,digest])=>[file,digest])))});
+  }
   if ([...executed].some(file=>!files.includes(file))) throw new Error('Unexpected execution outside changed test selection');
   const rows=files.map(file=> {
     const route=executionRoute(file,root);
-    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':file===proven || executed.has(file) || browser.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
+    return {file,route,status:executed.has(file) && registeredSourceContract(file)?'SOURCE QUALIFIED':file===proven || executed.has(file) || browser.has(file)||nativeFiles.has(file)?'EXECUTED':route?'NOT RUN':'UNCOVERED',
       ...(registeredSourceContract(file)?{liveExecution:'NOT RUN'}:{}),
-      claim:file===proven?'registered analytics-truth faults only':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
+      claim:file===proven?'registered analytics-truth faults only':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
           :registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
@@ -381,7 +393,7 @@ export function executionCoverage(files, {root,expected,pilot,execution,playwrig
 export function readCurrentQuality(file, expected, root=process.cwd(), base=process.env.TEST_EFFICACY_BASE) {
   const evidence=JSON.parse(fs.readFileSync(file,'utf8'));
   assertProvenance(evidence.provenance,expected);
-  const actualCoverage=executionCoverage(changedEvidencePaths(root,base),{root,expected,pilot:evidence.testEfficacy,execution:evidence.testExecution,playwright:evidence.playwrightExecution,base});
+  const actualCoverage=executionCoverage(changedEvidencePaths(root,base),{root,expected,pilot:evidence.testEfficacy,execution:evidence.testExecution,native:evidence.nativeTestExecution,playwright:evidence.playwrightExecution,base});
   if (evidence.overallStatus!=='QUALIFIED' || actualCoverage.status!=='COMPLETE'
     || JSON.stringify(actualCoverage)!==JSON.stringify(evidence.executionCoverage)) {
     throw new Error('Quality execution coverage is UNCOVERED/NOT RUN');
