@@ -23,6 +23,8 @@ import {
     receiptBelongsToBoot,
 } from '../bootScopedReceipts';
 
+import { READBACK_COLUMNS, readbackRowsByName } from '../readbackColumns';
+
 const RECEIPTS = ['account_identified', 'telemetry_positive_control'];
 const row = (event: string, journeyId: string | null, bootId: string | null) =>
     ({ event, timestamp: '2026-09-09T10:00:00Z', journeyId, bootId });
@@ -217,6 +219,42 @@ describe('#1258 (#1563, Codex r4196394184) — the readback selects the outcome-
         const select = q.slice(q.indexOf('SELECT') + 'SELECT'.length, q.indexOf('FROM events'));
         const columns = select.split(',').map((c) => c.trim()).filter(Boolean);
         expect(columns.findIndex((c) => c.endsWith('AS producer_ts'))).toBe(35);
+    });
+    // #1593 (Sam 15:51): the interrupted repeat take reads the coaching lifecycle's request id, origin attempt and end reason.
+    it('appends the coaching lifecycle fields after every existing query column (37–44)', () => {
+        const q = buildReadbackQuery({ windowHours: 1, releaseSha: 'r', trafficType: 'canary', qualifyingIdentity: 'i', governedEvents: ['ai_coaching_lifecycle'], quote: (v) => `'${v}'` });
+        const select = q.slice(q.indexOf('SELECT') + 'SELECT'.length, q.indexOf('FROM events'));
+        const columns = select.split(',').map((c) => c.trim()).filter(Boolean);
+        expect(['persisted', 'diagnostic_request_id', 'origin_attempt_id', 'end_reason', 'origin_boot_id', 'intent_kind', 'intent_outcome',
+            'step', 'option_selected']
+            .map((k) => columns.findIndex((c) => c.endsWith(`AS ${k}`)))).toEqual([36, 37, 38, 39, 40, 41, 42, 43, 44]);
+    });
+
+    it.each(['query order', 'reversed response order'] as const)('decodes distinct lifecycle values by name in %s', (order) => {
+        const lifecycle = {
+            diagnostic_request_id: 'request-37',
+            origin_attempt_id: 'attempt-38',
+            end_reason: 'end-39',
+            origin_boot_id: 'boot-40',
+            intent_kind: 'intent-41',
+            intent_outcome: 'outcome-42',
+            step: 'step-43',
+            option_selected: 'option-44',
+        };
+        const values: Record<string, unknown> = {
+            event: 'ai_coaching_lifecycle', timestamp: '2026-10-24T21:55:00Z',
+            journey_id: 'journey-under-test', boot_id: 'boot-under-test', ...lifecycle,
+        };
+        const columns = order === 'query order' ? [...READBACK_COLUMNS] : [...READBACK_COLUMNS].reverse();
+        const result = readbackRowsByName(columns, [columns.map((name) => values[name] ?? null)]);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.rows).toHaveLength(1);
+        expect(result.rows[0]).toMatchObject({
+            event: values.event, timestamp: values.timestamp,
+            journeyId: values.journey_id, bootId: values.boot_id,
+            properties: lifecycle,
+        });
     });
 });
 

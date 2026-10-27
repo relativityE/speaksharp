@@ -1,7 +1,6 @@
 // #1294 — ephemeral, migrated PGlite backing the REAL stripe-webhook handler for the weekly billing
-// qualification. The handler's ENTIRE Supabase surface is a single RPC (apply_stripe_subscription_snapshot),
-// so this adapter is intentionally tiny. No production Supabase, no mocks — a real Postgres (PGlite) with the
-// production migrations applied verbatim, discarded when the run ends.
+// qualification. Only the canonical snapshot and checkout-settlement RPCs are exposed. No production
+// Supabase, no mocked settlement — real Postgres (PGlite) executes the checked-in migrations verbatim.
 import { PGlite } from "npm:@electric-sql/pglite";
 
 const REPO = new URL("../../", import.meta.url);
@@ -25,6 +24,9 @@ const MIGRATION_SQL: readonly string[] = [
   "backend/supabase/migrations/20260812041000_trial_expiry_fail_closed_1282.sql",
   "backend/supabase/migrations/20260812041500_flawless_launch_runtime_convergence_1290.sql",
   "backend/supabase/migrations/20260812041600_trial_commercial_grant_on_conflict_1294.sql",
+  // #1611 adds settlement after the canonical snapshot. Execute the real ownership/fence contract,
+  // including its reservation tables and signup/billing guards, rather than accepting the RPC by name.
+  "backend/supabase/migrations/20261013180000_account_closure_tokens.sql",
 ].map(read);
 
 export interface SnapshotResult {
@@ -39,10 +41,19 @@ export interface SnapshotResult {
 export function pgliteSupabase(db: PGlite) {
   return {
     rpc: async (fn: string, a: Record<string, unknown>): Promise<{ data: SnapshotResult | null; error: unknown }> => {
-      if (fn !== "apply_stripe_subscription_snapshot") {
+      if (fn !== "apply_stripe_subscription_snapshot" && fn !== "settle_account_checkout") {
         throw new Error(`billing qualification adapter refused an unexpected RPC: ${fn}`);
       }
       try {
+        if (fn === "settle_account_checkout") {
+          await db.query(
+            `SELECT public.settle_account_checkout(
+               p_user_id=>$1, p_session_id=>$2, p_customer_id=>$3, p_subscription_id=>$4, p_operation_id=>$5)`,
+            [a.p_user_id, a.p_session_id, a.p_customer_id, a.p_subscription_id, a.p_operation_id ?? null],
+          );
+          // The production RPC returns void. Only actual SQL completion can produce this response.
+          return { data: null, error: null };
+        }
         const r = await db.query<{ result: SnapshotResult }>(
           `SELECT public.apply_stripe_subscription_snapshot(
              p_event_id=>$1, p_subscription_id=>$2, p_customer_id=>$3, p_status=>$4, p_has_approved_price=>$5,
@@ -63,7 +74,10 @@ export function pgliteSupabase(db: PGlite) {
 export async function migratedDb(userId: string): Promise<{ db: PGlite; supabase: ReturnType<typeof pgliteSupabase>; userId: string }> {
   const db = new PGlite();
   for (const sql of MIGRATION_SQL) await db.exec(sql);
-  await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${userId}', 'free')`);
+  // A platform Auth row is required by the real reservation RPC. A null email deliberately keeps this
+  // existing Free fixture out of signup trial stamping; freshTrialProfile exercises that path separately.
+  await db.query("INSERT INTO auth.users (id) VALUES ($1)", [userId]);
+  await db.query("INSERT INTO public.user_profiles (id, subscription_status) VALUES ($1, 'free')", [userId]);
   return { db, supabase: pgliteSupabase(db), userId };
 }
 

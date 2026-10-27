@@ -28,6 +28,7 @@ import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { useSession } from '@/hooks/useSession';
 import { useQueryClient } from '@tanstack/react-query';
 import { resolveTranscriptView } from '@/lib/storage';
+import { useRepeatPracticeTarget } from '@/services/progress/repeatPracticeTarget';
 
 /**
  * #1258 PR 4: a `?review=` value is read only when it has a session id's shape (a UUID in production; the E2E double
@@ -54,7 +55,7 @@ export const SessionPage: React.FC = () => {
     // retained behind a never-true flag pending this test-migration ticket (#1231); it and its now-unused
     // imports have been removed. The live trial-unavailable notice it used to host was relocated into the
     // live chrome below (never silently dropped).
-    const { session: authSession } = useAuthProvider();
+    const { session: authSession, signedOutByUser } = useAuthProvider();
     // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
     // fail closed while it is unresolved — never an unscoped read.
     const authUserId = authSession?.user?.id ?? null;
@@ -92,6 +93,8 @@ export const SessionPage: React.FC = () => {
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
     const completedSessionId = useSessionStore(state => state.completedSessionId);
+    // #1258 RWT round 2 C — the recovered take's review licence (see useSessionLifecycle / SessionOverhaulView).
+    const recoveredSaveSessionId = useSessionStore(state => state.recoveredSaveSessionId);
     // #1306 Option A: the terminal review's word count + filler breakdown come from the FINAL snapshot (captured
     // before the transcript/chunks were purged), never from the now-empty live transcript or the live fillerData
     // (which the useFillerWords sync zeroes once the chunks are purged).
@@ -124,6 +127,7 @@ export const SessionPage: React.FC = () => {
     // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
     // Points works". null ⇒ an Open Mic session (unchanged).
     const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+    const practiceTarget = useRepeatPracticeTarget(authUserId, activeObjectiveBrief, signedOutByUser);
     // #1264 — the optional Open Mic Practice Focus (persists through a "Practice this next" repeat).
     const practiceFocus = useSessionStore(state => state.practiceFocus);
     // #1046 G6/G7 — the finished-brief snapshot, so the after-state review keeps its Focus Points coverage
@@ -601,6 +605,19 @@ export const SessionPage: React.FC = () => {
                 ...(startupSlow ? { detail: 'This is taking longer than usual.' } : {}),
             } as SttStatus;
         }
+
+        // 2a-bis. #1258 RWT round 2 C (Codex P1 r4300891532, Sam RETURN 6228898440) — while a RECOVERED save is under review,
+        // an error that belongs to no start (a queued engine-policy rejection applied when the recovery unlocked) stays in
+        // this bar. The review keeps the take's own surface (SessionOverhaulView no longer reads it as a failed start), so the
+        // bar is the error's one visible home, and it must not depend on the failure hold (FAILED) above, which expires on its
+        // own. A newer Start retires the licence, and a start in progress (2a) still owns the bar first. Without an error the
+        // bar says the take is saved: a recovered save never publishes `finalizedAnalysis`, so the pre-terminal branch (2d)
+        // would otherwise claim "Finalizing your transcript…" over a saved take for as long as the review stays open.
+        if (showAnalyticsPrompt && recoveredSaveSessionId !== null) {
+            return (sttStatus as SttStatus).type === 'error'
+                ? sttStatus as SttStatus
+                : { type: 'info', message: '✓ Session saved.' } as SttStatus;
+        }
         // Live capture of a NEW take: its own status, never the previous take's post-save copy (C10 row 4). PM 6205858358:
         // `Speak now` takes the live slot at the one real-frame boundary, in place of the generic `Recording active`.
         if (captureLive && runtimeState === 'RECORDING') {
@@ -702,7 +719,8 @@ export const SessionPage: React.FC = () => {
                 {!((displayStatus.type === 'ready' || displayStatus.type === 'idle') && !postSaveReady && !isListening) && (
                     <StatusNotificationBar
                         // #1047: the page owns the gap below the status bar, not the shared component.
-                        className="mb-[26px]"
+                        // #1474: 12px below md, where the fixed mobile bar leaves no room for the full prescription.
+                        className="mb-3 md:mb-[26px]"
                         status={displayStatus}
                         analyticsAction={postSaveReady && !startupWaiting ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
                         startupRetry={startupWaiting && startupSlow ? {
@@ -784,8 +802,11 @@ export const SessionPage: React.FC = () => {
                         data-recovery-state={recoveryDraft.recoveryState}
                     >
                         <span className="font-medium text-foreground/80" data-testid="session-recovery-message">
+                            {/* #1474 (Sam 1792278508): a finalized take's save is UNCONFIRMED (its answer may have been lost after the
+                                server committed), so no definite "not saved"/"no transcript was stored". An interrupted take sent no
+                                completion at all, so its "not saved" stays definite and true. */}
                             {recoveryDraft.recoveryState === 'finalized_pending_save'
-                                ? 'Your last session finished but was not saved. Its measurements were kept on this device; no transcript was stored.'
+                                ? 'Your last session finished, but we couldn’t confirm it was saved. Its measurements were kept on this device.'
                                 : (recoveryDraft.metrics?.totalWords ?? 0) > 0
                                     ? 'Your last session was interrupted before it was saved. No transcript was saved, and only partial measurements were captured.'
                                     : 'Your last session was interrupted before it was saved. No transcript was saved.'}
@@ -816,10 +837,11 @@ export const SessionPage: React.FC = () => {
                     access modals, mobile action bar — wraps it. This is the only session page. */}
                 {restoreId ? (
                     restoredSession
-                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/analytics')} />
+                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/progress')} ownerId={authUserId} />
                         : <div className="h-40 animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" data-testid="saved-session-return-loading" />
                 ) : (
                 <SessionOverhaulView
+                    practiceTarget={practiceTarget}
                     authUserId={authUserId}
                     isListening={isListening}
                     sttStatus={sttStatus}
@@ -914,7 +936,7 @@ export const SessionPage: React.FC = () => {
                         // replacement read by itself, and the chained refetch was a second request.
                         void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
                     }}
-                    onSeeAllSessions={() => navigate('/analytics')}
+                    onSeeAllSessions={() => navigate('/progress')}
                     beforeProgress={beforeProgress}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}

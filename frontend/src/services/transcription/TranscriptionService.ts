@@ -178,6 +178,14 @@ export function hasEngineNotConfirmedStopped(): boolean {
     return enginesNotConfirmedStopped.size > 0;
 }
 
+/**
+ * #1593 (live RWT cases 13/14; Browser PM counterexample 3) — the service whose Private model status the page shows.
+ * A live state (setup, download, ready, recording, failure) makes its service the owner; a teardown (CLEANING_UP,
+ * TERMINATED, IDLE) publishes only for the owner, so a late teardown of an old service never overwrites a successor's.
+ */
+let modelStatusOwner: string | null = null; // the owning service's `serviceId`
+const TEARDOWN_STATES = new Set<TranscriptionState>(['IDLE', 'CLEANING_UP', 'TERMINATED']);
+
 export default class TranscriptionService {
   public readonly serviceId: string;
   public fsm: TranscriptionFSM;
@@ -253,6 +261,13 @@ export default class TranscriptionService {
   private activeSubscriberId: string | null = null;
   private isTerminated: boolean = false;
   private isDestroyed: boolean = false;
+  /**
+   * #1593 (live RWT cases 13/14; Browser PM counterexamples 1-2): this service's setup FAILED (INIT_FAILED / FAILED) and
+   * nothing has recovered it. Its own teardown — destroy() or reset() — must not project an ordinary `idle` / "Ready"
+   * over that failure: the person would lose the failure and its Retry. Cleared only by an owned recovery (this service
+   * re-entering a live state, e.g. Retry's re-initialization) or by a successor service taking the page.
+   */
+  private unresolvedSetupFailure = false;
   /**
    * #1258 RWT round 2 finding A (run 38876581848) — a NEXT-TAKE preparation (`SpeechRuntimeController.prepareNextTake`)
    * builds and warms this service while the saved review is on screen. Its warm-up is not the user's: published, it
@@ -434,6 +449,8 @@ export default class TranscriptionService {
 
       const newStrategy = STTStrategyFactory.create(strategy.mode, this.strategyCallbacks, this.policy);
       this.strategy = newStrategy;
+      this.terminationConfirmed = false; // Sam (#1668): a new engine generation — an earlier stop proof never vouches for it
+      this.engineEpoch += 1;
       this.activeStrategyId = (newStrategy as unknown as { instanceId: string }).instanceId ?? Math.random().toString(36);
 
       // 2. Initialize
@@ -685,6 +702,11 @@ export default class TranscriptionService {
     this.idempotencyKey = this.idempotencyKey || Math.random().toString(STT_CONFIG.ALPHANUMERIC_RADIX).substring(7);
     this.mode = mode;
     if (!this.backgroundPreparation) syncForensicAnchors(mapToRuntimeState(this.fsm.getState()), this.mode);
+
+    // Sam (#1668): preparing an engine — a new instance OR the preserved one — is a new engine generation; an earlier
+    // stop's proof never vouches for it until it is itself proven off.
+    this.terminationConfirmed = false;
+    this.engineEpoch += 1;
 
     // 🏗️ 4. Strategy Lifecycle: Instantiate or Preserve
     if (!this.strategy) {
@@ -1121,6 +1143,8 @@ export default class TranscriptionService {
       this.attachMicFramePump(mode);
       // #1476: from here the engine may be running — it counts as live until a proven stop (a start that throws too).
       enginesNotConfirmedStopped.add(this);
+      this.terminationConfirmed = false; // a new run: an earlier proof never vouches for this engine
+      this.engineEpoch += 1;
       await this.strategy.start(this.mic!, this.options.userWords ?? []);
 
       // 🛡️ Step 4: Strict Success Coupling
@@ -1345,6 +1369,9 @@ export default class TranscriptionService {
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });
       enginesNotConfirmedStopped.delete(this); // the engine stopped normally
+      // Codex P2 r4315983017 (#1668): a normal stop is affirmative proof the engine is off — a later redundant terminate()
+      // that rejects inside destroy() must not erase it.
+      this.terminationConfirmed = true;
       this.isModeLocked = false; // 🔓 Release lock
       const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (m: string | null) => void; setModelLoadingProgress: (p: number | null) => void } }).getState?.();
       if (state) {
@@ -1422,6 +1449,25 @@ export default class TranscriptionService {
    * NUCLEAR CLEANUP: Forceful termination of all resources.
    * Idempotent and safe against concurrent calls.
    */
+  /**
+   * #1593 case 4 (Sam RETURN on 77780845): whether this service AFFIRMATIVELY proved its current engine off — a normal stop
+   * completed (Codex P2 r4315983017), or strategy.terminate() resolved, or there was never an engine. A rejected termination
+   * is caught inside destroy(), so a resolved destroy() alone is not that proof, and neither is the live-engine registry (a
+   * preparing engine is not in it). Bound to the engine generation: cleared whenever a new strategy is created (preparation)
+   * and when a run starts its engine.
+   */
+  private terminationConfirmed = false;
+  /**
+   * Sam (#1668 advisory): a monotonic engine epoch, advanced whenever an engine is prepared or started on this service. A
+   * delayed termination of an EARLIER engine may only publish its proof, or clear this service's live-engine entry, while
+   * no later engine has been prepared or started since — never on behalf of a successor.
+   */
+  private engineEpoch = 0;
+
+  public didConfirmTermination(): boolean {
+    return this.terminationConfirmed;
+  }
+
   public async destroy(): Promise<void> {
     this.isDestroyed = true;
     logger.info({ sId: this.serviceId, state: this.fsm.getState() }, '[TranscriptionService] destroy() invoked');
@@ -1432,6 +1478,7 @@ export default class TranscriptionService {
       if (this.fsm.is('TERMINATED')) {
         // Already terminal — ensure lock is released if it somehow wasn't
         this.lock.release();
+        if (!this.strategy) this.terminationConfirmed = true; // nothing left to terminate
         return;
       }
 
@@ -1451,6 +1498,7 @@ export default class TranscriptionService {
           await this.strategy.terminate(); // ← awaited; this is the only async gate
           logger.debug('[TranscriptionService] strategy.terminate() completed');
           enginesNotConfirmedStopped.delete(this); // termination RESOLVED: the engine is proven done
+          this.terminationConfirmed = true;
         } catch (error: unknown) {
           logger.error({ mode: this.mode, error: error as Error }, '[TranscriptionService] Strategy termination failed');
         }
@@ -1458,6 +1506,7 @@ export default class TranscriptionService {
         this.activeStrategyId = null;
       } else {
         enginesNotConfirmedStopped.delete(this); // no engine to terminate; the microphone is stopped above
+        this.terminationConfirmed = true;
       }
 
       this.runId = null;
@@ -1682,13 +1731,17 @@ export default class TranscriptionService {
       }
     }).getState?.();
 
-    if (state && !this.backgroundPreparation) {
+    // #1593 (Codex P2 on #1663): a late teardown of a service that no longer owns the page writes none of the page's
+    // shared state — not the live successor's engine identity, download progress or status.
+    const ownsPage = modelStatusOwner === null || modelStatusOwner === this.serviceId;
+    if (state && !this.backgroundPreparation && ownsPage) {
       state.setActiveEngine(null);
       state.setModelLoadingProgress(null);
-      state.setSTTStatus({
-        type: targetState === 'TERMINATED' ? 'idle' : 'idle',
-        message: targetState === 'TERMINATED' ? 'Ready' : 'Ready'
-      });
+      // #1593 (Browser PM counterexample 2): a reset is not a recovery. An unresolved setup failure keeps its status
+      // (and the page its Retry).
+      if (!this.unresolvedSetupFailure) {
+        state.setSTTStatus({ type: 'idle', message: 'Ready' });
+      }
     }
   }
 
@@ -1727,8 +1780,15 @@ export default class TranscriptionService {
     // Clear strategy reference
     if (this.strategy) {
       this.strategyVersion++;
+      const terminatedEpoch = this.engineEpoch;
       void this.strategy.terminate().then(
-        () => { enginesNotConfirmedStopped.delete(this); },
+        () => {
+          // Only for THIS engine: if a successor was prepared or started since, its live entry and its (absent) proof are
+          // its own — an earlier engine's late termination neither clears the entry nor vouches for it.
+          if (this.engineEpoch !== terminatedEpoch) return;
+          enginesNotConfirmedStopped.delete(this);
+          this.terminationConfirmed = true;
+        },
         (e) => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during reset'),
       );
       this.strategy = null;
@@ -1993,7 +2053,15 @@ export default class TranscriptionService {
   private handleStateChange(state: TranscriptionState): void {
     logger.debug(`[TRACE] STATE_TRANSITION ${state}`);
     if (this.backgroundPreparation) return; // #1258 A — a background preparation publishes nothing until claimed
-    if (typeof document !== 'undefined') {
+    // #1593 — who may publish this state, and whether a teardown would erase an unresolved failure.
+    const teardown = TEARDOWN_STATES.has(state);
+    if (state === 'INIT_FAILED' || state === 'FAILED') this.unresolvedSetupFailure = true;
+    else if (!teardown) this.unresolvedSetupFailure = false; // an owned recovery: setup, download or ready again
+    if (!teardown) modelStatusOwner = this.serviceId;
+    const publish = !teardown || ((modelStatusOwner === null || modelStatusOwner === this.serviceId) && !this.unresolvedSetupFailure);
+    // A clean teardown by the owner releases the page; a failed one keeps it, so the failure stays until a successor.
+    if (teardown && state === 'TERMINATED' && modelStatusOwner === this.serviceId && !this.unresolvedSetupFailure) modelStatusOwner = null;
+    if (publish && typeof document !== 'undefined') {
       const modelStatus: Record<TranscriptionState, string> = {
         IDLE: 'idle',
         ACTIVATING_MIC: 'loading',
@@ -2067,7 +2135,7 @@ export default class TranscriptionService {
     }
 
     this.options.onStatusChange?.(status);
-    if (store) {
+    if (store && publish) {
       const currentStatus = store.sttStatus;
       // 🛡️ SSOT GUARD: Never overwrite active recording or controller-managed errors with service-level pulses
       const recoveryStatusTypes = new Set<SttStatus['type']>(['download-required', 'downloading', 'ready', 'initializing', 'init-failed']);

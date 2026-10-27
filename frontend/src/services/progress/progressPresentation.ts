@@ -192,7 +192,9 @@ export function buildTakeaways(
     // ── Observation: a genuine positive when one exists, otherwise a NEUTRAL MEASURED fact. The fallback
     //    must never be participation/completion-based — §7c "completion is not performance". ──
     let whatWorked: string;
-    // "Clearer than your last session" is a COMPARISON claim, so it must clear the SAME two gates the
+    // #1254 (Sam 6243870280): "Clearer than your previous comparable session" — the comparison is the previous ELIGIBLE,
+    // same-cohort evaluation, which need not be the last recording (an intervening ineligible take is skipped), so the
+    // copy names exactly that. It is a COMPARISON claim, so it must clear the SAME two gates the
     // direction statement does: the previous session must be eligible and in the SAME cohort, and the
     // gain must reach the meaningful-movement threshold (§6). A sub-threshold or cross-cohort tick is not
     // a claimable improvement — otherwise takeaways and direction could disagree.
@@ -203,7 +205,7 @@ export function buildTakeaways(
         && (current.clarityRaw - previous.clarityRaw) >= (opts.meaningfulPoints ?? MEANINGFUL_MOVEMENT_POINTS);
 
     if (improvedVsPrevious) {
-        whatWorked = 'Clearer than your last session';
+        whatWorked = 'Clearer than your previous comparable session';
     } else if (fillerRate !== null && fillerRate < P.fillerTargetPercent) {
         whatWorked = 'Very few filler words';
     } else if (current.wpm !== null && current.wpm >= 130 && current.wpm <= 150) {

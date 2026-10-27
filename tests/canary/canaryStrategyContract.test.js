@@ -150,10 +150,18 @@ describe('canary terminal-state — executed bash (summary / failure / migration
     const summaryPath = join(dir, 'summary.md');
     writeFileSync(scriptPath, script);
     writeFileSync(summaryPath, '');
-    const res = spawnSync('bash', [scriptPath], { env: { ...process.env, GITHUB_STEP_SUMMARY: summaryPath, ...env }, encoding: 'utf8' });
+    const res = spawnSync('bash', [scriptPath], { env: { ...process.env, BINDING_RESULT: 'success', GITHUB_STEP_SUMMARY: summaryPath, ...env }, encoding: 'utf8' });
     return { code: res.status, out: (res.stdout ?? '') + (res.stderr ?? ''), summary: readFileSync(summaryPath, 'utf8') };
   };
   const READY = { READINESS_RESULT: 'success', MIGRATION_READY: 'true' };
+
+  it('missing or stale served binding is HOLD before any product qualification', () => {
+    const r = runTerminal({ ...READY, BINDING_RESULT: 'failure', PRODUCT_LANES_RESULT: 'success' });
+    expect(r.code).toBe(1);
+    expect(r.summary).toContain('last-served release binding');
+    expect(r.summary).toContain('NO product qualification ran');
+    expect(r.summary).not.toContain('Canary qualification passed');
+  });
 
   it('migration readiness unestablished → hard error, exit 1', () => {
     const r = runTerminal({ READINESS_RESULT: 'failure', MIGRATION_READY: 'false', PRODUCT_LANES_RESULT: 'skipped', BILLING_QUALIFICATION_RAN: 'false' });

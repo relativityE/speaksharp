@@ -4,7 +4,7 @@ import { RecorderBar, type RecorderBarProps } from './RecorderBar';
 import { TranscriptCard } from './TranscriptCard';
 import { LiveTranscript, type TranscriptToken } from './LiveTranscript';
 import { formatLiveMeta } from '@/utils/sessionFormat';
-import { CoachingCard } from './CoachingCard';
+import { CoachingCard, type CoachingCardProps } from './CoachingCard';
 
 /**
  * The **during** state on the shared slot map (Design Correction Brief G1):
@@ -15,6 +15,7 @@ import { CoachingCard } from './CoachingCard';
  * owned upstream; this state only places what it is given.
  */
 export interface SessionDuringStateProps {
+    practiceTarget?: CoachingCardProps['practiceTarget'];
     recorder: RecorderBarProps;
     transcript: {
         tokens: TranscriptToken[];
@@ -47,13 +48,13 @@ export interface SessionDuringStateProps {
     nudge?: string | null;
 }
 
-export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, rail, liveTip, nudge }) => {
+export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, rail, liveTip, nudge, practiceTarget }) => {
     const isSample = transcript.promptKind === 'sample';
     return (
         <SessionShell
             sessionState="during"
             slotA={<RecorderBar {...recorder} />}
-            slotB={<CoachingCard sessionState="during" liveTip={liveTip} nudge={nudge} />}
+            slotB={<CoachingCard sessionState="during" liveTip={liveTip} nudge={nudge} practiceTarget={practiceTarget} />}
             slotC={
                 <TranscriptCard
                     // Offer handlers are inert while recording — the offer never shows once content exists.

@@ -265,7 +265,7 @@ export function bindReadbackJourneys(
         const routeWasObserved = binding.entry === 'route_change'
             ? lastRoute !== undefined && lastRoute.journeyId === binding.journeyId
                 && lastRoute.releaseSha === binding.releaseSha && lastRoute.trafficType === 'canary'
-                && ['/analytics', '/analytics/id'].includes(lastRoute.toRoute ?? '')
+                && ['/progress', '/progress/id', '/analytics', '/analytics/id'].includes(lastRoute.toRoute ?? '')
             : binding.entry === 'boot_load' && bootRoutes.length === 0
                 && latestControl?.journeyId === binding.journeyId;
         const identityIsValid = Boolean(binding.journeyId && binding.bootId)
@@ -498,6 +498,15 @@ export function labelHeardIn(label: string, transcript: string): boolean {
  * exactly four readable statuses and a real `open_mic` source row; a marker the source never heard makes the row HOLD.
  * Stale coaching is observed at the Focus pre-Start boundary, where no current Focus review can exist yet.
  */
+export interface SwitchSourceSnapshot {
+    product: string | null;
+    digest: string | null;
+    /** Available means a positively read nonempty transcript; expired means explicit expired state + SQL NULL. */
+    state?: 'available' | 'expired' | 'missing' | 'query_error' | 'malformed';
+    sessionId?: string | null;
+    userId?: string | null;
+}
+
 export interface SwitchIsolationObservation {
     railPendingBefore: boolean;
     openMicId: string | null;
@@ -507,27 +516,49 @@ export interface SwitchIsolationObservation {
     staleCoachingBeforeStart: boolean;
     /** Points 2–4: did the earlier Open Mic take's saved transcript contain each label? */
     markerSupport: readonly boolean[];
-    openMicBefore: { product: string | null; digest: string | null };
-    openMicAfter: { product: string | null; digest: string | null };
+    openMicBefore: SwitchSourceSnapshot;
+    openMicAfter: SwitchSourceSnapshot;
+    /** Needed to prove a retention transition; legacy unchanged-row observations do not infer one. */
+    ownerId?: string;
 }
 
 export function switchIsolationVerdict(o: SwitchIsolationObservation): { verdict: 'PASS' | 'FAIL' | 'HOLD'; detail: string } {
     const fail = (detail: string) => ({ verdict: 'FAIL' as const, detail });
+    const hold = (detail: string) => ({ verdict: 'HOLD' as const, detail });
     if (!o.railPendingBefore) return fail('the Focus rail was not all-pending before the take (state carried over from Open Mic)');
-    if (!o.openMicId || o.openMicBefore.product !== 'open_mic' || !o.openMicBefore.digest) return fail('no saved Open Mic source take to switch from');
+    if (!o.openMicId) return fail('no saved Open Mic source take to switch from');
+    // Missing source proof cannot mask an independently observed identity, product or carry-over failure.
     if (o.staleCoachingBeforeStart) return fail('the Open Mic take\'s coaching was shown on Focus Points before the new take started');
     if (!o.focusId || o.focusId === o.openMicId) return fail('the take after the switch did not save as its own session');
     if (o.savedProduct !== 'focus_points') return fail('the take after the switch was not saved as Focus Points');
     if (o.finalStatuses.length !== 4 || o.finalStatuses.some((s) => s === null)) return fail('incomplete marker observation: the rail did not show exactly four readable point verdicts');
     if (o.finalStatuses[0] !== 'covered') return fail('no current-take recognition: point 1, the only point this take heard, was not detected');
     if (o.finalStatuses.slice(1).some((s) => s !== 'missing')) return fail('old-take carry-over: a point spoken only in the earlier Open Mic take was detected in the new take');
-    if (o.openMicBefore.product !== o.openMicAfter.product || o.openMicBefore.digest !== o.openMicAfter.digest) {
+    for (const source of [o.openMicBefore, o.openMicAfter]) {
+        if (source.state === 'malformed') return fail('the Open Mic source has contradictory transcript state');
+        if (source.state === 'expired' && source.digest !== null) return fail('the expired Open Mic source still has transcript content');
+        if (source.state && ((source.sessionId && source.sessionId !== o.openMicId) || (o.ownerId && source.userId && source.userId !== o.ownerId))) return fail('the Open Mic source identity changed');
+        if (source.product !== null && source.product !== 'open_mic') return fail('the earlier Open Mic session changed product');
+    }
+    for (const source of [o.openMicBefore, o.openMicAfter]) {
+        if (source.state === 'missing' || source.state === 'query_error') return hold('the Open Mic source row could not be read; retention and isolation are unproven');
+        if (source.state && (!o.ownerId || !source.sessionId || !source.userId)) return hold('the Open Mic source identity is incomplete');
+    }
+    if (o.openMicAfter.state === 'expired' && (o.openMicBefore.state !== 'available' || !o.openMicBefore.digest)) {
+        return hold('expiry without a prior positive saved transcript does not prove an unchanged source take');
+    }
+    if (o.openMicBefore.product !== 'open_mic' || !o.openMicBefore.digest) return fail('no saved Open Mic source take to switch from');
+    const expiredAfterWitness = o.openMicBefore.state === 'available' && o.openMicAfter.state === 'expired'
+        && o.openMicAfter.digest === null && o.openMicAfter.product === 'open_mic';
+    if (!expiredAfterWitness && (o.openMicBefore.product !== o.openMicAfter.product || o.openMicBefore.digest !== o.openMicAfter.digest)) {
         return fail('the earlier Open Mic session changed (product or transcript)');
     }
     if (o.markerSupport.length !== 3 || o.markerSupport.some((heard) => !heard)) {
         return { verdict: 'HOLD', detail: 'the earlier Open Mic take did not recognise every marker point, so their absence cannot prove isolation' };
     }
-    return { verdict: 'PASS', detail: 'the Focus take after Open Mic heard only its own audio (point 1 detected; the three points the Open Mic take recognised were absent), saved as Focus Points, and left the Open Mic take unchanged' };
+    return { verdict: 'PASS', detail: expiredAfterWitness
+        ? 'the Focus take heard only its own audio, saved as Focus Points, and the previously witnessed Open Mic transcript lawfully expired without changing its identity'
+        : 'the Focus take after Open Mic heard only its own audio (point 1 detected; the three points the Open Mic take recognised were absent), saved as Focus Points, and left the Open Mic take unchanged' };
 }
 
 /**
@@ -599,4 +630,27 @@ export function focusIdentityObservation(input: {
  */
 export function isNewPersistedSession(state: { persisted: string | null; id: string | null }, previous: string | null): boolean {
     return state.persisted === 'true' && typeof state.id === 'string' && state.id !== '' && state.id !== previous;
+}
+
+/**
+ * #1407 / #1491 6180077610 — the Focus FIRST take is saved EXACTLY ONCE, and the one completed save IS the take the page bound.
+ *
+ * Measured at the first take's own save, before any later legitimate take (Practice again, product switch), so a whole-run
+ * count is never used. `session saved` proves only that a save exists; a duplicate completed row under a different primary
+ * key would pass it. Fail closed: a query error or a missing page identity never passes.
+ */
+export interface FirstTakeSaveObservation {
+    /** The id the page bound (`data-session-persisted-id`), or null when none. */
+    persistedId: string | null;
+    /** Every completed session id for this run-owned account at the first take's save; null when the query failed. */
+    completedIds: readonly string[] | null;
+}
+
+export function firstTakeSavedExactlyOnceVerdict(o: FirstTakeSaveObservation): { verdict: 'PASS' | 'FAIL'; detail: string } {
+    if (o.completedIds === null) return { verdict: 'FAIL', detail: 'the completed-session read failed (fail closed)' };
+    if (!o.persistedId) return { verdict: 'FAIL', detail: 'the page bound no saved session for the first take' };
+    if (o.completedIds.length === 0) return { verdict: 'FAIL', detail: 'no completed session exists for the first take' };
+    if (o.completedIds.length > 1) return { verdict: 'FAIL', detail: `${o.completedIds.length} completed sessions exist after one take (a duplicate save)` };
+    if (o.completedIds[0] !== o.persistedId) return { verdict: 'FAIL', detail: 'the one completed session is not the take the page bound' };
+    return { verdict: 'PASS', detail: 'exactly one completed session, and it is the take the page bound' };
 }

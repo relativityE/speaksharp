@@ -413,8 +413,10 @@ export async function recordRunOwnedCleanup(
  * differ between valid configurations (Focus full-only feedback rows; partial-only cleanup). Required PRESENT; the
  * telemetry/cleanup singletons above stay exactly-once. Source: the suite files and the rwtJourney helpers they call.
  */
+// #1593 (Sam decision (a); Codex on #1655): the whole-scenario `coaching request budget` row is REQUIRED for Open Mic, both
+// Focus suites and returning-user navigation (maximum 0), so a receipt with the row stripped can never finalize PASS.
 const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
-    'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
+    'coaching request budget', 'base_q4 primary', 'signup', 'sign-in', 'session bears canary claim', 'Products → Open Mic', 'no mic on navigation',
     'model identity', 'new-account entitlement', 'live filler highlighting', 'session saved', 'saved exactly once',
     'coaching rendered', 'coaching length', 'coaching phrases distinct', 'coaching visible = saved', 'coaching server receipt',
     // #1258 R4: the coaching checks text can prove — ceiling, no contradiction with saved fillers, not identical across takes.
@@ -434,9 +436,9 @@ const OPEN_MIC_PRODUCT_ROWS = Object.freeze([
     'feedback diagnostic chain', 'coaching prompt binding',
 ]);
 const FOCUS_PRODUCT_ROWS = Object.freeze([
-    'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
+    'coaching request budget', 'base_q4 primary', 'session bears canary claim', 'Products → Focus Points', 'no mic on navigation', 'new-account entitlement',
     'pace guide', 'Head to session', 'rail legend', 'pending points labelled', 'rail before speaking', 'model identity',
-    'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved',
+    'live marker changes', 'next point marked', 'marker timing vs audio', 'no red before Stop', 'session saved', 'saved exactly once',
     'final point verdicts', 'not-detected explained', 'coverage count', 'average per point', 'final rail colours and words',
     'persisted verdicts', 'Focus coaching rendered', 'Focus coaching request marked focus_points', 'Focus coaching request bound to this take',
     'Focus coaching length',
@@ -508,6 +510,11 @@ const ABANDON_PRODUCT_ROWS = Object.freeze([
     'return does not resume the abandoned take', 'recovery notice is truthful', 'return Start is truthful',
     'next take saves only itself', 'no Cloud STT request', 'coaching request budget',
 ]);
+/**
+ * Navigate away also answers the product's in-app leave prompt (#1258 run 38876623812) and, because Leave is "Stop and
+ * save", requires the left take's saved row (Codex P1 r4296551953). Closing the tab has neither.
+ */
+const ABANDON_NAVIGATE_PRODUCT_ROWS = Object.freeze([...ABANDON_PRODUCT_ROWS, 'leave prompt answered Leave', 'leaving saved the left take']);
 const TWO_TAB_PRODUCT_ROWS = Object.freeze([
     ...SUPPLEMENTAL_ACCOUNT_ROWS, 'same-browser tab is refused', 'another device is refused by the account lease',
     'take-over moves the one engine',
@@ -531,6 +538,7 @@ const ADVERSE_DOWNLOAD_PRODUCT_ROWS = Object.freeze([
 const RETURNING_USER_PRODUCT_ROWS = Object.freeze([
     'returning-user sign-in', 'returning account state', 'Products → Open Mic', 'returning-user access', 'Products → Focus Points',
     'back to Open Mic', 'returning history', 'no mic on navigation', 'navigation writes nothing', 'journey_step sent',
+    'coaching request budget',
 ]);
 
 export function requiredAutomatedRows(suite: string): { required: readonly string[]; product: readonly string[]; absent: readonly string[] } | null {
@@ -556,6 +564,8 @@ export function requiredAutomatedRows(suite: string): { required: readonly strin
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: SAVE_RETRY_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case ABANDON_NAVIGATE_SUITE:
+            return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_NAVIGATE_PRODUCT_ROWS,
+                absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
         case ABANDON_CLOSE_TAB_SUITE:
             return { required: [...ALWAYS_AUTOMATED_ROWS, RUN_OWNED_CLEANUP_ROW], product: ABANDON_PRODUCT_ROWS,
                 absent: [...JOURNEY_READBACK_ROWS, ...NO_COACHING_RESULT_ROWS] };
@@ -843,6 +853,21 @@ function applyReadback(receipt: ReceiptForFinalization, readback: unknown, error
                     : 'the PostHog readback did not qualify every bound journey',
         evidence: { ...(r.evidence ?? {}), readbackJourneys: journeys.length, readbackQualified: journeys.filter((j) => j.verdict === 'QUALIFIED').length, readbackFailed: failed },
     }));
+}
+
+/**
+ * #1593 (Sam 1792317800 §1–2) — the AUTOMATED half of finalization, for the campaign's between-case admission: the same
+ * receipt validation and the same readback settlement `finalizeReceipt` applies, without a worksheet. Human observations
+ * are left out (they are the PO's human/device acceptance, never inferred here). Any error means the receipt or its
+ * readback cannot be trusted; a missing `readback` leaves `journey telemetry received` exactly as the receipt wrote it.
+ */
+export function automatedEvaluation(raw: unknown, readback?: unknown): { suite: string | null; release: string | null; errors: string[]; rows: ReceiptRow[] } {
+    const validated = validateReceipt(raw);
+    if (!validated.receipt) return { suite: null, release: null, errors: validated.errors, rows: [] };
+    const receipt = validated.receipt;
+    const errors = [...validated.errors];
+    const rows = readback === undefined ? receipt.rows : applyReadback(receipt, readback, errors);
+    return { suite: receipt.suite, release: receipt.release, errors, rows: rows.filter((r) => !isHumanObservation(r)) };
 }
 
 export function finalizeReceipt(raw: unknown, worksheet: ParsedWorksheet, readback?: unknown): FinalizationResult {

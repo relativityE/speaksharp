@@ -145,7 +145,7 @@ These dated proofs are retained under `evidence/retained/`. The current interpre
 | `evidence/retained/PUBLIC_LAUNCH_LEDGER.md` | Dated broad-launch gate proofs PL-001…PL-011: public signup, first Free session, test-mode Stripe checkout→entitlement journey, webhook/billing-lifecycle local proofs, trial lifecycle and historical provider-path evidence. | `ROADMAP.md` (open gates) + `RELEASE_STATUS.md` (current) |
 | `evidence/retained/2026-08-30-stt-selection-inventory.md` | Point-in-time mechanical inventory of the nine fragmented Private-STT model-selection mechanisms present on `main@024b574f` (URL parameters, localStorage keys, PostHog flags, build veto, default constants), plus the `getMetadata` default-variant defect. Carries an appended 2026-09-01 CORRECTION: several line numbers were attributed to the wrong file and the source/test split was wrong. All listed mechanisms are retired as of #1263. | `ROADMAP.md` (open gates) + the config plane in `services/transcription/candidateSelection.ts` |
 | `evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | Dated entitlement audit: former Pro cap reconciliation, AI-quota verification and fail-closed guard checks. | `ENTITLEMENTS_AND_BILLING.md` (requirement) + `ROADMAP.md` (open ops) |
-| `product_release/SCA_EXCEPTIONS.md` — pinned-audit execution result (2026-07-15) | Dated SCA pinned-audit result + the single ignored advisory rationale. | `OPERATIONS_AND_SECURITY.md` |
+| [`archive/superseded-docs-2026-08-29/SCA_EXCEPTIONS.md`](./archive/superseded-docs-2026-08-29/SCA_EXCEPTIONS.md) — pinned-audit execution result (2026-07-15) | Historical SCA pinned-audit result and advisory rationale; not a fresh vulnerability scan or current green verdict. | `OPERATIONS_AND_SECURITY.md` §8 owns current exception rationale. |
 | `evidence/retained/RELEASE_CLOSEOUT_LEDGER.md` — dated proof rows (§B doc-gap closures, §E DB-hygiene closeout) | Dated documentation-gap and DB-hygiene closeout records. | `ROADMAP.md` (open) + this index (dated) |
 | Manual hardware evidence logs (captured per the `TESTER_OPERATIONS.md` run; e.g. dated Chrome physical-mic proof) | Real-device Native/Private hardware run logs (browser/version, spoken sentence, stop/save/history/analytics). | `QUALITY.md` (protocol) + `TESTER_OPERATIONS.md` (run) |
 
@@ -153,8 +153,60 @@ These dated proofs are retained under `evidence/retained/`. The current interpre
 
 ## 8. Exploratory reference (`v4_work/`)
 
-`product_release/v4_work/**` holds v4 hard-off exploration material. It is **EVIDENCE_ONLY / retained reference**, not a release path — v4 remains OFF (see `TESTER_OPERATIONS.md` §7 and `STT.md`). Indexed here as reference, never as current posture.
+`product_release/v4_work/**` holds historical v4 exploration material. It is **EVIDENCE_ONLY / retained reference**, not a current release path or activation authority. Future model administration is described in [`TESTER_OPERATIONS.md` §6](./TESTER_OPERATIONS.md#6-private-v4-administration) and `STT.md`; current runtime posture belongs only in `RELEASE_STATUS.md`.
 
 ---
 
 *Historical evidence index. It records where dated proofs live and when they were captured; it never states current release status — that lives only in `RELEASE_STATUS.md`.*
+
+## Retained source and consumer inventory
+
+The following records are retained byte-for-byte for dated evidence, reproducibility, rejected-experiment history, test-consumer or bounded receiving role. They are not current product/deployment/operational instructions. Current policy follows canonical roots and the selected1593/1565/1304 queue. This explicit index is their current evidence consumer even when no executable references an individual file. No historical result is rewritten or promoted. The1314 context script remains bound to its frozen source; finance is unvalidated/separate; the merged1665 handoff is provenance, not a current assignment.
+
+- [evidence-runs/README.md](../evidence-runs/README.md) — retained dated source; evidence/provenance, not release authority.
+- [evidence-runs/frozen-600-contamination.md](../evidence-runs/frozen-600-contamination.md) — retained dated source; evidence/provenance, not release authority.
+- [local-packets/1593-case7-received-failure/ACTIVE_HANDOFF.md](../local-packets/1593-case7-received-failure/ACTIVE_HANDOFF.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/BETA_50_RELEASE_EVIDENCE_2026-07-09.md](evidence/BETA_50_RELEASE_EVIDENCE_2026-07-09.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/CODEBASE_VS_STRATEGY_2026-08-29.md](evidence/CODEBASE_VS_STRATEGY_2026-08-29.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/ISSUE_1265_PROGRESS_DEFINITION_MATRIX.md](evidence/ISSUE_1265_PROGRESS_DEFINITION_MATRIX.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md](evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/PRIVATE_SELECTION_PRODUCT_AUDIT_2026-06-17.md](evidence/PRIVATE_SELECTION_PRODUCT_AUDIT_2026-06-17.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/README.md](evidence/README.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/beta50_2026-07-09/README.md](evidence/beta50_2026-07-09/README.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/beta50_private_2026-07-10/OPTION_D_QA_SELLOFF.md](evidence/beta50_private_2026-07-10/OPTION_D_QA_SELLOFF.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/beta50_private_2026-07-10/PRIVATE_PATH_VALIDATION.md](evidence/beta50_private_2026-07-10/PRIVATE_PATH_VALIDATION.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/2026-08-30-moonshine-engine-runtime/README.md](evidence/retained/2026-08-30-moonshine-engine-runtime/README.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/2026-08-30-stt-selection-inventory.md](evidence/retained/2026-08-30-stt-selection-inventory.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/2026-09-11-test-estate-catalog.md](evidence/retained/2026-09-11-test-estate-catalog.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md](evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md](evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/PUBLIC_LAUNCH_LEDGER.md](evidence/retained/PUBLIC_LAUNCH_LEDGER.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/RELEASE_CLOSEOUT_LEDGER.md](evidence/retained/RELEASE_CLOSEOUT_LEDGER.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/SECRETS_ATTACK_SURFACE_AUDIT.md](evidence/retained/SECRETS_ATTACK_SURFACE_AUDIT.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/attribution-sanitation-crosswalk.md](evidence/retained/attribution-sanitation-crosswalk.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/retained/moonshine-windowed-ef.MANIFEST.md](evidence/retained/moonshine-windowed-ef.MANIFEST.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/README.md](evidence/stt/README.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/historical-browser/GATE_B_IDENTITY_FAILURE_ANALYSIS.md](evidence/stt/historical-browser/GATE_B_IDENTITY_FAILURE_ANALYSIS.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/historical-browser/NATIVE_BROWSER_SECOND_OPINION_PACKET_2026-05-25.md](evidence/stt/historical-browser/NATIVE_BROWSER_SECOND_OPINION_PACKET_2026-05-25.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/historical-browser/NATIVE_BROWSER_STT_SECOND_OPINION_REPORT_2026-05-26.md](evidence/stt/historical-browser/NATIVE_BROWSER_STT_SECOND_OPINION_REPORT_2026-05-26.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/historical-browser/STT_BROWSER_EVIDENCE_2026-05-25.md](evidence/stt/historical-browser/STT_BROWSER_EVIDENCE_2026-05-25.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/historical-browser/STT_BROWSER_TRACE_REVIEW_BRIEF.md](evidence/stt/historical-browser/STT_BROWSER_TRACE_REVIEW_BRIEF.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/historical-browser/STT_CONSTANTS_AUDIT.md](evidence/stt/historical-browser/STT_CONSTANTS_AUDIT.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/reports/CLOUD_STT_RELEASE_EVIDENCE_2026-06-02.md](evidence/stt/reports/CLOUD_STT_RELEASE_EVIDENCE_2026-06-02.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/reports/NATIVE_STT_RELEASE_EVIDENCE_2026-06-02.md](evidence/stt/reports/NATIVE_STT_RELEASE_EVIDENCE_2026-06-02.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/reports/PRIVATE_STT_RELEASE_EVIDENCE_2026-06-02.md](evidence/stt/reports/PRIVATE_STT_RELEASE_EVIDENCE_2026-06-02.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md](evidence/stt/reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/reports/stt_product_metrics_release_matrix_2026-06-02.md](evidence/stt/reports/stt_product_metrics_release_matrix_2026-06-02.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/retained-contracts/PRIVATE_STT_ACCURACY_LEVERS.md](evidence/stt/retained-contracts/PRIVATE_STT_ACCURACY_LEVERS.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/retained-contracts/STT_BASELINE_CONTRACTS.operational.md](evidence/stt/retained-contracts/STT_BASELINE_CONTRACTS.operational.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/evidence/stt/retained-contracts/stt-perf-proof-protocol.md](evidence/stt/retained-contracts/stt-perf-proof-protocol.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/v4_work/V4_APP_PATH_PROOF_RUNBOOK.md](v4_work/V4_APP_PATH_PROOF_RUNBOOK.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/v4_work/V4_COMPLETE_TEST_RUNBOOK.md](v4_work/V4_COMPLETE_TEST_RUNBOOK.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/v4_work/V4_DECODE_ROOT_CAUSE_EXPERIMENT.md](v4_work/V4_DECODE_ROOT_CAUSE_EXPERIMENT.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/v4_work/V4_POSTHOG_READINESS_PROOF.md](v4_work/V4_POSTHOG_READINESS_PROOF.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/v4_work/V4_RECOVERY.md](v4_work/V4_RECOVERY.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/work_items/1314-atomic-rpc-evidence-packet.md](work_items/1314-atomic-rpc-evidence-packet.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/work_items/1314-correction-design.md](work_items/1314-correction-design.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/work_items/1314-migration-apply-packet.md](work_items/1314-migration-apply-packet.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/work_items/P0_PRIVATE_STT_FINDINGS.md](work_items/P0_PRIVATE_STT_FINDINGS.md) — retained dated source; evidence/provenance, not release authority.
+- [product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-09-05.md](work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-09-05.md) — retained dated source; evidence/provenance, not release authority.

@@ -110,7 +110,15 @@ export async function releaseTakeLeaseOnUnmount(_wasListening: boolean): Promise
     // #1476 Codex P1 on 1414f0c89: bound to the retiring take's lease. A remounted page may acquire a new take's lease
     // while this retirement is still settling; that lease is never released (or reported as unresolved) from here.
     const leaseOfTake = currentTakeLeaseId();
-    const outcome = await speechRuntimeController.retireEngineForUnmount();
+    // #1593 case 4: a retirement that timed out and LATER proved the engine off releases this take's lease then — still
+    // only while this take owns it — and withdraws its own "could not confirm" status, never a newer one.
+    const onLateTerminal = () => {
+        if (currentTakeLeaseId() !== leaseOfTake) return;
+        void releaseTakeLease();
+        const store = useSessionStore.getState();
+        if (store.sttStatus.message === ENGINE_RETIRE_UNCONFIRMED_MESSAGE) store.setSTTStatus({ type: 'idle', message: 'Ready to record' });
+    };
+    const outcome = await speechRuntimeController.retireEngineForUnmount(undefined, onLateTerminal);
     if (currentTakeLeaseId() !== leaseOfTake) return false; // a newer take owns the lease now
     if (outcome === 'terminal') {
         await releaseTakeLease();
@@ -280,6 +288,19 @@ export const useSessionLifecycle = () => {
     useEffect(() => {
         isListeningRef.current = isListening;
     }, [isListening]);
+
+    /**
+     * #1258 RWT round 2 C — A RECOVERED SAVE ENTERS THE SAME REVIEW AS A SUCCESSFUL STOP.
+     *
+     * The Stop handler is the only writer of the after-state flag, and a Stop whose save failed ends in its catch, so a
+     * later successful Retry Save left the page outside its review: no saved-take review and no `Practice this again`.
+     * The controller publishes `recoveredSaveSessionId` only from its owner-fenced full-save settlement — never for a
+     * no-op, failed or superseded retry — and retires it when the next take begins, so it licenses exactly this.
+     */
+    const recoveredSaveSessionId = useSessionStore(state => state.recoveredSaveSessionId);
+    useEffect(() => {
+        if (recoveredSaveSessionId && !isListeningRef.current) setShowAnalyticsPrompt(true);
+    }, [recoveredSaveSessionId]);
 
     const metrics = useSessionMetrics({
         transcript: transcript.transcript,
@@ -870,6 +891,20 @@ export const useSessionLifecycle = () => {
                         ? (['ready', 'idle'].includes(privateModelStatus) ? 'cached' : 'cold')
                         : 'not_applicable',
                 );
+                /**
+                 * #1593 (live RWT case 4; Browser PM navigation counterexamples) — A RETIRED START THIS MOUNT NO LONGER OWNS
+                 * IS A CANCELLATION, NOT A SETUP FAILURE. Leaving the page (or a newer Start) retires the pending intent with
+                 * `RECORDING_INTENT_RETIRED:*`. Only the Try-again cancel was recognised, so a navigation fell through to a
+                 * failure: `recording_start_failed`, an error status and `reset('start_failed')` — written into whatever
+                 * attempt owns the page by then — and a lease proof that could query a successor's lease. The departed
+                 * attempt now reports nothing and touches nothing; the unmount path owns its engine and lease. A retirement
+                 * of the CURRENT, still-mounted attempt, and every genuine setup error, keep the failure path unchanged.
+                 */
+                const cancelledRetirement = (failure: unknown): boolean => {
+                    const message = (failure as { message?: unknown } | null)?.message;
+                    return typeof message === 'string' && message.startsWith('RECORDING_INTENT_RETIRED:')
+                        && (isRetryCancelled(startAttempt.id) || startCancelled() || currentStartAttempt()?.id !== startAttempt.id);
+                };
                 try {
                     await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                     if (speechRuntimeController.getState() !== 'RECORDING') {
@@ -880,6 +915,8 @@ export const useSessionLifecycle = () => {
                     }
                     startLatency.settle('recording_started');
                 } catch (error) {
+                    // A cancellation settles no outcome and leaves the lease to the unmount/successor that owns it.
+                    if (cancelledRetirement(error)) throw error;
                     startLatency.settle('failed');
                     // #1476 Codex P1 on 56cc5ad3: a Start can fail after the engine reached RECORDING (e.g. the placeholder
                     // save rejects), and the start_failed reset does not await its destroy — release only on proof.
@@ -928,8 +965,9 @@ export const useSessionLifecycle = () => {
                 // #1258 C10 — the user chose `Try again`, which cancels this start with a confirmed release before ONE
                 // new start. Its retired intent is that deliberate cancel, not an engine failure: no failure telemetry,
                 // no error status, no reset (the cancel already tore the engine down and proved it off).
-                if (isRetryCancelled(startAttempt.id)
-                    && typeof err?.message === 'string' && err.message.startsWith('RECORDING_INTENT_RETIRED:')) {
+                // #1593: likewise a retirement this mount no longer owns (the page was left, or a newer attempt is current).
+                if (typeof err?.message === 'string' && err.message.startsWith('RECORDING_INTENT_RETIRED:')
+                    && (isRetryCancelled(startAttempt.id) || startCancelled() || currentStartAttempt()?.id !== startAttempt.id)) {
                     isProcessingRef.current = false;
                     return;
                 }

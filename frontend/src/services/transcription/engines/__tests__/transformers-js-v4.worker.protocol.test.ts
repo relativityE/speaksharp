@@ -54,6 +54,28 @@ describe('transformers-js-v4.worker protocol contract', () => {
         });
     });
 
+    it.each(['onnx-community/whisper-base.en', 'onnx-community/distil-small.en'])(
+        'forces declared WASM on a GPU-capable worker for %s', async (model) => {
+            const detect = vi.fn(async () => ({ supported: true }));
+            vi.doMock('../../utils/webgpuSupport', () => ({ detectWebGPUSupport: detect }));
+            const pipeline = vi.fn(async () => vi.fn(async () => ({ text: 'warmup' })));
+            vi.doMock('@huggingface/transformers', () => ({ env: {}, LogLevel: { ERROR: 'error' }, pipeline }));
+            try {
+                await loadWorkerModule();
+                dispatchWorkerMessage({ id: 20, type: 'init', isE2E: false, model, device: 'wasm' });
+                await vi.waitFor(() => expect(postedMessages).toContainEqual(
+                    expect.objectContaining({ id: 20, type: 'loaded', device: 'wasm-default' }),
+                ));
+                expect(pipeline).toHaveBeenCalledTimes(1);
+                expect(pipeline.mock.calls[0]).toEqual([
+                    'automatic-speech-recognition', model,
+                    expect.not.objectContaining({ device: 'webgpu' }),
+                ]);
+                expect(detect).not.toHaveBeenCalled();
+            } finally { vi.doUnmock('../../utils/webgpuSupport'); }
+        },
+    );
+
     it('contract: warm-up failure does not fail init after the v4 model loads', async () => {
         const transcriber = vi.fn(async () => {
             throw new Error('warmup decode failed');

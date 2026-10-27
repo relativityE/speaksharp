@@ -22,6 +22,7 @@ import { expect, type Locator, type Page, type Request, type TestInfo } from '@p
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { COACHING_DEPENDENT_ANALYTICS_ROWS, guardReceiptOutput, humanWorksheet, receiptAcceptance, rowAfterHalt, type ReadbackActionBinding, type ReadbackActionStage, type ReceiptRow, type Verdict } from './rwtAcceptance';
 import { RWT_BROWSER_IDENTITY_ARGS } from './rwtBrowserIdentity';
+import { documentTrackerOf } from './rwtDocumentIdentity';
 import {
     coachingFailureReason, coachingParentVerdict, coachingRequestBindingRow, focusExternalDependentRows, providerStatusFrom, takeExchangeEvidence,
     UNAVAILABLE_HEADLINE,
@@ -36,6 +37,7 @@ import {
 } from './benchmark-utils';
 import { extractUidFromAuthStorage } from './proofAuthority';
 import { waitForAppVisibleReady } from '../../e2e/helpers';
+import { isProgressRoutePathname } from '../../e2e/canaryLanding';
 import {
     acquisitionTimingVerdict, feedbackRetentionVerdict, focusCoachingProvenanceVerdict, runJourneyIds, surfaceReadinessFailures,
     type AcquisitionTiming, type ReadbackPlan, isNewPersistedSession } from './rwtOracles';
@@ -43,6 +45,7 @@ import { evaluateThreeRecordingEntitlement } from './entitlementAuthority';
 import { readFeedbackUiState, readPracticeActionState, type PracticeActionState } from './rwtStepDiagnostics';
 import { activeHumanReflexMs } from './rwtHumanReflex';
 import { resolveProductsTrigger } from './productsMenu';
+import { WATCHED_FIELDS } from './rwtWatchdog';
 
 export const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 /** The disposable-account prefix these suites own; `runOwnedCleanup` refuses any other. */
@@ -384,8 +387,22 @@ export async function runOwnedIdentityFailures(
  * fields only), the same server authority `three-session-retention-proof` reads. A new account must be allowed to
  * start and must have room for this journey's recordings; the decision reuses `evaluateThreeRecordingEntitlement`.
  */
+/**
+ * One `check-usage-limit` response as the page received it. #1593 Case 15 follow-up (Sam 1792503928): the HTTP status and
+ * whether the body was a JSON object are kept, because an error body, a non-JSON body or a missing field used to be read
+ * as `false` (`=== true`), which made an unavailable answer look like an account that cannot start.
+ */
+export interface EntitlementResponse {
+    http: number;
+    parsed: boolean;
+    can_start?: unknown;
+    is_pro?: unknown;
+    trial_active?: unknown;
+    trial_seconds_remaining?: unknown;
+}
+
 export class EntitlementTap {
-    readonly responses: Array<{ can_start?: unknown; is_pro?: unknown; trial_active?: unknown; trial_seconds_remaining?: unknown }> = [];
+    readonly responses: EntitlementResponse[] = [];
     private readonly pending: Array<Promise<void>> = [];
 
     attach(page: Page): void {
@@ -393,9 +410,16 @@ export class EntitlementTap {
             let fn = '';
             try { fn = new URL(res.url()).pathname.split('/').pop() ?? ''; } catch { fn = ''; }
             if (fn !== 'check-usage-limit') return;
-            this.pending.push(res.json().then((b) => {
-                const body = (b ?? {}) as Record<string, unknown>;
-                this.responses.push({
+            const http = res.status();
+            // The position is reserved when the page RECEIVES the response, so readers of responses[0] see the first
+            // response the page got, not whichever body finished parsing first. A body that fails to parse stays unusable.
+            const entry: EntitlementResponse = { http, parsed: false };
+            this.responses.push(entry);
+            this.pending.push(res.json().then((b: unknown) => {
+                const parsed = b !== null && typeof b === 'object' && !Array.isArray(b);
+                const body = (parsed ? b : {}) as Record<string, unknown>;
+                Object.assign(entry, {
+                    parsed,
                     can_start: body.can_start, is_pro: body.is_pro,
                     trial_active: body.trial_active, trial_seconds_remaining: body.trial_seconds_remaining,
                 });
@@ -404,6 +428,48 @@ export class EntitlementTap {
     }
 
     async settle(): Promise<void> { await Promise.all(this.pending); }
+}
+
+/**
+ * What one entitlement response PROVES. Only a 2xx JSON object with a boolean `can_start` is an observation; anything
+ * else is `unavailable` (with a content-free reason) and must never be reported as an explicit "cannot start".
+ */
+export type EntitlementObservation =
+    | { state: 'unobserved' }
+    | { state: 'unavailable'; reason: string }
+    | { state: 'observed'; canStart: boolean; trialActive: boolean | null; isPro: boolean | null };
+
+export function observeEntitlement(response: EntitlementResponse | undefined): EntitlementObservation {
+    if (!response) return { state: 'unobserved' };
+    if (!Number.isInteger(response.http) || response.http < 200 || response.http > 299) return { state: 'unavailable', reason: `http_${response.http}` };
+    if (!response.parsed) return { state: 'unavailable', reason: 'body_not_json_object' };
+    if (typeof response.can_start !== 'boolean') {
+        return { state: 'unavailable', reason: `can_start_${response.can_start === null ? 'null' : typeof response.can_start}` };
+    }
+    const flag = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
+    return { state: 'observed', canStart: response.can_start, trialActive: flag(response.trial_active), isPro: flag(response.is_pro) };
+}
+
+/** Receipt evidence for an observation: tri-state (`null` = not observed), never a coerced `false`. */
+export function entitlementEvidence(o: EntitlementObservation): Record<string, string | boolean | null> {
+    return o.state === 'observed'
+        ? { entitlement: 'observed', canStart: o.canStart, trialActive: o.trialActive, isPro: o.isPro }
+        : { entitlement: o.state, canStart: null, trialActive: null, isPro: null, ...(o.state === 'unavailable' ? { reason: o.reason } : {}) };
+}
+
+/**
+ * The returning user's access as the session page received it (Case 15). The journey records nothing, so every outcome
+ * other than an observed `can_start: true` is a HOLD — but an unusable answer says eligibility is UNVERIFIED, distinct
+ * from an observed account that cannot start.
+ */
+export async function returningAccessRow(receipt: { row: RwtReceipt['row'] }, tap: EntitlementTap): Promise<void> {
+    await tap.settle();
+    const o = observeEntitlement(tap.responses[0]);
+    const detail = o.state === 'unobserved' ? 'no check-usage-limit response was observed'
+        : o.state === 'unavailable' ? `eligibility unverified: the check-usage-limit response was unusable (${o.reason})`
+            : o.canStart ? 'the server lets this returning user start a recording'
+                : 'this account cannot start a recording (expired or unentitled); not used for a recording journey';
+    receipt.row('returning-user access', o.state === 'observed' && o.canStart ? 'PASS' : 'HOLD', detail, entitlementEvidence(o));
 }
 
 /**
@@ -461,16 +527,30 @@ export async function installMicAcquisitionCounter(page: Page): Promise<void> {
     await page.addInitScript(() => {
         const marks: number[] = [];
         const streams: MediaStream[] = [];
-        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[] };
+        // #1593 (Sam, #1662 RETURN): the acquisition boundary's own REJECTIONS, by closed DOMException name only — the
+        // product learns "blocked" from a NotAllowedError here, so a denial case must observe one, not a permission query.
+        // Sam, #1662 RETURN on f527a033 (item 5): each audio acquisition gets its ID at INVOCATION, and its own settlement
+        // is recorded against that ID — an older pending acquisition rejecting later can never be read as this press's.
+        const log: { id: number; outcome: string }[] = [];
+        const NAMES = ['NotAllowedError', 'NotFoundError', 'NotReadableError', 'AbortError', 'SecurityError', 'OverconstrainedError', 'TypeError'];
+        const w = window as unknown as { __rwtMicAcquisitions__?: number[]; __rwtMicStreams__?: MediaStream[]; __rwtMicAcquisitionLog__?: { id: number; outcome: string }[] };
         w.__rwtMicAcquisitions__ = marks;
+        w.__rwtMicAcquisitionLog__ = log;
         w.__rwtMicStreams__ = streams; // references only, to read track readyState; never audio data
         const media = navigator.mediaDevices;
         if (!media?.getUserMedia) return;
         const original = media.getUserMedia.bind(media);
         media.getUserMedia = (constraints?: MediaStreamConstraints) => {
             const audio = Boolean(constraints && (constraints as { audio?: unknown }).audio);
-            if (audio) marks.push(Date.now());
-            return original(constraints).then((stream) => { if (audio) streams.push(stream); return stream; });
+            const entry = audio ? { id: log.length, outcome: 'pending' } : null;
+            if (entry) { marks.push(Date.now()); log.push(entry); }
+            return original(constraints).then((stream) => { if (entry) { streams.push(stream); entry.outcome = 'granted'; } return stream; }, (error: unknown) => {
+                if (entry) {
+                    const name = (error as { name?: unknown } | null)?.name;
+                    entry.outcome = typeof name === 'string' && NAMES.includes(name) ? name : 'other';
+                }
+                throw error;
+            });
         };
     });
 }
@@ -480,6 +560,12 @@ export async function liveMicTracks(page: Page): Promise<number> {
     return page.evaluate(() => ((window as unknown as { __rwtMicStreams__?: MediaStream[] }).__rwtMicStreams__ ?? [])
         .flatMap((stream) => stream.getAudioTracks())
         .filter((track) => track.readyState === 'live').length);
+}
+
+/** Every audio acquisition the page started, by invocation ID, with its own closed outcome (`pending`, `granted` or a DOMException name). */
+export async function micAcquisitionLog(page: Page): Promise<{ id: number; outcome: string }[]> {
+    return page.evaluate(() => ((window as unknown as { __rwtMicAcquisitionLog__?: { id: number; outcome: string }[] }).__rwtMicAcquisitionLog__ ?? [])
+        .map((a) => ({ id: a.id, outcome: a.outcome }))).catch(() => []);
 }
 
 export async function micAcquisitions(page: Page): Promise<number[]> {
@@ -529,6 +615,8 @@ export interface SentEvent {
     acquisition?: AcquisitionTiming;
     /** #1258: closed enum / integer fields of the outcome events (OUTCOME_FIELDS only) — never content. */
     fields?: Readonly<Record<string, string | number | boolean>>;
+    /** #1593 fail-early: the watched lifecycle events' closed enums (`WATCHED_FIELDS`). Memory only, never in a receipt. */
+    watch?: Readonly<Record<string, string>>;
 }
 
 /** #1258 (#1563): the ONLY properties kept from these events, so a press can be paired with its arrival and a feedback
@@ -547,6 +635,12 @@ function outcomeFields(event: string, props: Record<string, unknown>): SentEvent
         const v = props[key];
         if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') kept[key] = v;
     }
+    return kept;
+}
+
+function watchedFields(event: string, props: Record<string, unknown>): Record<string, string> {
+    const kept: Record<string, string> = {};
+    for (const key of WATCHED_FIELDS[event] ?? []) if (typeof props[key] === 'string') kept[key] = props[key] as string;
     return kept;
 }
 
@@ -598,9 +692,9 @@ export function exactCountVerdict(count: number, expected: number, tap: BlindTim
     return count === expected ? 'PASS' : 'FAIL';
 }
 
-/** An Analytics page path (`/analytics`, `/analytics/<id>`, or the app's normalized `/analytics/id`); anything else is not. */
+/** Canonical/legacy Progress paths, including normalized /id; internal Analytics identities stay unchanged. */
 export function analyticsRoute(path: string | null | undefined): boolean {
-    return typeof path === 'string' && /^\/analytics(\/[^/]+)?\/?$/.test(path);
+    return typeof path === 'string' && isProgressRoutePathname(path);
 }
 
 /**
@@ -635,6 +729,9 @@ function transportIdentityOf(e: SentEvent): { journeyId: string; attemptId: stri
 }
 
 /** Reads correlation keys from the page's own PostHog requests. "Sent", not "received". */
+// #1593 (Sam, #1662 RETURN on 2cab5b0c): document identity is proven by the browser — see rwtDocumentIdentity.ts.
+export { DocumentProvenance, trackDocuments, type DocumentRef } from './rwtDocumentIdentity';
+
 export class AnalyticsTap {
     /** #1258 smoke item 2: every event-carrying PostHog request and its outcome, in send order (retries are new entries). */
     readonly transports: BatchTransport[] = [];
@@ -656,6 +753,8 @@ export class AnalyticsTap {
     blindBeacons = 0;
     /** When each blind request was sent (ms), so uncertainty is scoped to the step that could have produced it. */
     readonly blindAt: number[] = [];
+    /** Codex P1 r4314310162: each blind beacon with the page that sent it (memory-only), so a watchdog can HOLD on its own pages' unknowns. */
+    readonly blindSent: { at: number; page: Page }[] = [];
     /** The latest main-frame document load (ms) and its path: every boot after it is the page the person is on now. */
     documentAt = 0;
     documentPath: string | null = null;
@@ -668,10 +767,19 @@ export class AnalyticsTap {
     attach(page: Page): void {
         // A repeated attach replaces the outcome listeners instead of stacking a second set.
         this.removeTransportListeners();
+        this.attachedPages.add(page);
         this.attachedTo = page;
         this.transportOpen = true;
         const generation = ++this.transportGeneration;
         const live = () => this.transportOpen && this.transportGeneration === generation;
+        // #1593 (Sam, #1662 RETURNs on f527a033 / 76a0bf6e / 46ebed0f / 814d2e25 / 2cab5b0c / 65dd8b8f): which document of
+        // this page sent each event — a boot IS a document load — from the browser's own record of each request
+        // (`documentTrackerOf`, rwtDocumentIdentity.ts), for the PAGE's lifetime and independently of the transport-outcome
+        // listeners below: re-attaching the tap to another page must never stop tracking this one.
+        const documents = documentTrackerOf(page);
+        const mainNavigation = (request: Request): boolean => {
+            try { return request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { return false; }
+        };
         // Smoke item 2: the outcome is read from the SAME request object the batch was decoded from.
         const onFinished = (request: Request) => {
             const transport = this.transportByRequest.get(request);
@@ -691,16 +799,14 @@ export class AnalyticsTap {
         page.on('requestfailed', onFailed);
         this.listeners.push(['requestfinished', onFinished as never], ['requestfailed', onFailed as never]);
         page.on('request', (request) => {
-            let mainDocument = false;
-            try { mainDocument = request.isNavigationRequest() && request.frame() === page.mainFrame(); } catch { mainDocument = false; }
-            if (mainDocument) { this.noteDocument(request.url()); return; }
+            if (mainNavigation(request)) { this.noteDocument(request.url()); return; }
             let host = '';
             try { host = new URL(request.url()).host; } catch { host = ''; }
             if (!/posthog\.com$/i.test(host)) return;
             const body = request.postDataBuffer();
             // A blind POST is an event beacon too, so it also marks a flush; non-event requests (flags, recorder) never do.
             if (request.method() === 'POST' && (!body || body.length === 0)) {
-                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.notePosthogRequest();
+                this.blindBeacons += 1; this.blindAt.push(Date.now()); this.blindSent.push({ at: Date.now(), page }); this.notePosthogRequest(Date.now(), page);
                 this.track(request, { batches: [], names: [], blind: true, outcome: 'pending' });
                 return;
             }
@@ -733,6 +839,7 @@ export class AnalyticsTap {
                     journeyStep: text('step'),
                     toRoute: text('to_route'),
                     ...(OUTCOME_FIELDS[record.event] ? { fields: outcomeFields(record.event, props) } : {}),
+                    ...(WATCHED_FIELDS[record.event] ? { watch: watchedFields(record.event, props) } : {}),
                     ...(record.event === 'private_model_acquisition_success' ? { acquisition: {
                         cacheResult: text('cache_result'), completeness: text('measurement_completeness'),
                         downloadMs: typeof props.download_ms === 'number' ? props.download_ms : null,
@@ -741,8 +848,21 @@ export class AnalyticsTap {
                     } } : {}),
                 });
             }
+            // #1593 (Sam, #1662 RETURN): which page SENT each event, so a watchdog can refuse evidence from pages it does not
+            // watch. Non-enumerable and memory-only: it never reaches a receipt, a log or JSON.
+            // Sam, #1662 RETURNs on b0dd763a / 65dd8b8f: the document is the loader the BROWSER says sent this request,
+            // read through a reference that settles when that record is joined (never the harness's clock or arrival order).
+            // Every bodied PostHog POST joins its record (flag and other non-event posts too, so none is left waiting).
+            const ref = body && body.length > 0 && request.method() === 'POST' ? documents.refFor(request.url(), body) : null;
+            for (let i = before; i < this.events.length; i += 1) {
+                Object.defineProperty(this.events[i], 'sourcePage', { value: page, enumerable: false });
+                if (!ref) continue;
+                Object.defineProperty(this.events[i], 'sourceDocumentRef', { value: ref, enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocument', { get: () => (ref.resolved ? ref.generation : undefined), enumerable: false });
+                Object.defineProperty(this.events[i], 'sourceDocumentAt', { get: () => (ref.resolved ? ref.committedAt : undefined), enumerable: false });
+            }
             if (this.events.length > before) {
-                this.notePosthogRequest();
+                this.notePosthogRequest(Date.now(), page);
                 this.track(request, { batches: [batch], names: this.events.slice(before).map((e) => e.event), blind: false, outcome: 'pending' });
             }
         });
@@ -843,7 +963,14 @@ export class AnalyticsTap {
 
     /** #1258 F3: when the page last sent a PostHog request (decoded or blind), so `settleQueuedTelemetry` sees a flush. */
     lastPosthogRequestAt = 0;
-    notePosthogRequest(at = Date.now()): void { this.lastPosthogRequestAt = at; }
+    /** Sam, #1662 review of 845401a5: when EACH attached page last sent an event-carrying PostHog request. */
+    private readonly lastPosthogRequestAtByPage = new Map<object, number>();
+    /** Every page the tap was attached to (memory-only), so a settle can wait for each one's own flush. */
+    private readonly attachedPages = new Set<Pick<Page, 'isClosed'>>();
+    notePosthogRequest(at = Date.now(), page?: object): void {
+        this.lastPosthogRequestAt = at;
+        if (page) this.lastPosthogRequestAtByPage.set(page, at);
+    }
 
     /**
      * #1258 F3 (run 38104864048, PostHog readback 6108757201): PostHog batches events for ~3 s, so right after a reload
@@ -868,6 +995,30 @@ export class AnalyticsTap {
             await wait(pollMs);
         }
         return 'quiet';
+    }
+
+    /**
+     * Sam, #1662 review of 845401a5 (Codex P2 r4313846488 follow-up): the settle before a watchdog verdict waits for EVERY
+     * attached, still-open page's own flush — one page's benign batch must not end the wait while another page's fatal is
+     * still queued. Returns `flushed` once each such page sent a request after the settle began (plus a grace for sibling
+     * batches), else `quiet` at the bound. A closed page cannot flush any more and is not waited on. Never throws.
+     */
+    async settleEveryPage(
+        wait: (ms: number) => Promise<unknown>,
+        opts: { quietMs?: number; graceMs?: number; pollMs?: number; now?: () => number } = {},
+    ): Promise<'flushed' | 'quiet'> {
+        const { quietMs = 5_000, graceMs = 500, pollMs = 100, now = Date.now } = opts;
+        const started = now();
+        const closed = (p: Pick<Page, 'isClosed'>) => { try { return p.isClosed(); } catch { return true; } };
+        const pending = () => [...this.attachedPages].filter((p) => !closed(p) && (this.lastPosthogRequestAtByPage.get(p) ?? Number.NEGATIVE_INFINITY) <= started);
+        while (now() - started < quietMs) {
+            if (pending().length === 0) {
+                await wait(graceMs);
+                return 'flushed';
+            }
+            await wait(pollMs);
+        }
+        return pending().length === 0 ? 'flushed' : 'quiet';
     }
 
     /**
@@ -1010,7 +1161,12 @@ export class RwtReceipt {
         this.haltedAt = step;
     }
 
+    /** #1593 (Sam, #1662 RETURN on f527a033 item 1): once written, the receipt is sealed — a late row can never change it. */
+    private sealed = false;
+
     row(step: string, verdict: Verdict, detail: string, evidence?: ReceiptRow['evidence']): void {
+        // A late FAIL still fails the test; it never edits the receipt already published.
+        if (this.sealed) { if (verdict === 'FAIL') expect.soft(verdict, `${step} (after the receipt was written): ${detail}`).toBe('PASS'); return; }
         const recorded = rowAfterHalt({ step, verdict, detail, evidence }, this.haltedAt);
         this.rows.push(recorded);
         if (recorded.verdict === 'FAIL') expect.soft(recorded.verdict, `${step}: ${recorded.detail}`).toBe('PASS');
@@ -1026,6 +1182,14 @@ export class RwtReceipt {
             const reasons = plan.missingBindings.map((label) => `${label}=${plan.bindingReasons?.[label] ?? 'unknown'}`).join(',');
             this.row('readback journey binding', 'HOLD', `no journey emitted the anchor for: ${plan.missingBindings.join(', ')}`,
                 { missingBindings: plan.missingBindings.join(','), reasons, sequence: plan.bindingSequence ?? '' });
+        }
+        // #1593 (live run 2026-10-18, cases 4/8) — the finalizer requires `receipt content-free` on EVERY suite
+        // (`ALWAYS_AUTOMATED_ROWS`), documented as written here; only the suites with their own content scan wrote it, so every
+        // other suite's receipt failed finalization on a missing row whatever the journey did. For those, the leak guard below
+        // IS the content check: any registered value replaces this whole receipt with the redacted failure receipt (no rows),
+        // so this PASS can only ever be published when the guard found nothing. A suite's own row is never duplicated.
+        if (!this.rows.some((r) => r.step === 'receipt content-free')) {
+            this.row('receipt content-free', 'PASS', 'the leak guard found no registered value in the receipt, worksheet or log line');
         }
         const journeyIds = runJourneyIds(plan);
         const dir = path.resolve('test-results', 'rwt');
@@ -1060,6 +1224,7 @@ export class RwtReceipt {
             forbidden: this.forbidden, testStatus: body.testStatus,
         });
         writeFileSync(path.join(dir, `${this.suite}.receipt.json`), out.receiptText);
+        this.sealed = true;
         const worksheetPath = path.join(dir, `${this.suite}.human-worksheet.md`);
         if (out.worksheetText === null) rmSync(worksheetPath, { force: true });
         else writeFileSync(worksheetPath, out.worksheetText);
@@ -1253,13 +1418,19 @@ export function stopIfPageTornDown(receipt: RwtReceipt, page: Page, afterStep: s
 export async function entitlementRow(receipt: RwtReceipt, tap: EntitlementTap, requiredSeconds: number): Promise<void> {
     await tap.settle();
     const first = tap.responses[0];
-    if (!first) { receipt.row('new-account entitlement', 'HOLD', 'no check-usage-limit response was observed'); return; }
-    const verdict = evaluateThreeRecordingEntitlement(first, requiredSeconds);
-    const canStart = first.can_start === true;
+    const o = observeEntitlement(first);
+    if (o.state === 'unobserved') { receipt.row('new-account entitlement', 'HOLD', 'no check-usage-limit response was observed'); return; }
+    // #1593 (Sam 1792503928): an unusable answer proves nothing about the account, so it is a HOLD, never "not entitled".
+    if (o.state === 'unavailable') {
+        receipt.row('new-account entitlement', 'HOLD', `entitlement unverified: the check-usage-limit response was unusable (${o.reason})`, entitlementEvidence(o));
+        return;
+    }
+    const verdict = evaluateThreeRecordingEntitlement(first as EntitlementResponse, requiredSeconds);
+    const canStart = o.canStart;
     receipt.row('new-account entitlement', canStart && verdict.ok ? 'PASS' : 'FAIL',
         canStart && verdict.ok ? 'the server let the new account start, with room for this journey'
             : `the server did not entitle the new account (${verdict.ok ? 'can_start false' : verdict.reason})`,
-        { canStart, trialActive: first.trial_active === true, isPro: first.is_pro === true });
+        entitlementEvidence(o));
 }
 
 /**
@@ -1395,6 +1566,18 @@ export interface PracticeAgainEvidence {
 }
 /** The save take's sub-steps, in order: mic ready → Start pressed → recording confirmed → Stop pressed → review shown. */
 export type PracticeSaveTakeStep = 'mic_ready' | 'start' | 'recording_started' | 'stop' | 'review';
+/**
+ * #1593 — the saved take's identity as the page reports it NOW (`data-session-persisted-id` / `data-session-persisted`).
+ * Read after the persistence wait; `saveTakeNewSession` is null while no id is reported.
+ */
+export async function savedTakeIdentity(
+    page: Pick<Page, 'evaluate'>, previousSessionId: string | null,
+): Promise<{ savedSessionId: string | null; saveTakePersisted: boolean; saveTakeNewSession: boolean | null }> {
+    const savedSessionId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+    const saveTakePersisted = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted') === 'true');
+    return { savedSessionId, saveTakePersisted, saveTakeNewSession: savedSessionId !== null ? savedSessionId !== previousSessionId : null };
+}
+
 export async function practiceAgainEvidence(
     page: Page, label: string, sessionId: string, product: 'open_mic' | 'focus_points', pointLabels: readonly string[] = [],
     /** #1532 Codex P1 r4124290575: called right after the SAVE take's Stop, so the caller can close that take's sent-stream window. */
@@ -1467,6 +1650,11 @@ export async function practiceAgainEvidence(
             .then(() => Date.now()).catch(() => null);
         ev.stopToSaveMs = stopClickedAt !== null && savedAt !== null ? savedAt - stopClickedAt : null;
         savedAtForGate = savedAt;
+        // #1593 (Sam case-1 diagnosis, run 39136771332): the identity read above is a snapshot taken when the review
+        // appeared — BEFORE persistence (`saveTakePersisted:false` there while the take saved 7.9 s later). Re-read it after
+        // the bounded persistence wait, so downstream readers (the two-take coaching read, product markers) bind the take
+        // that was actually saved, never a stale pre-save value.
+        Object.assign(ev, await savedTakeIdentity(page, sessionId));
     } catch {
         ev.reviewReached = false;
         ev.saveTakeFailedStep = step;
@@ -1718,12 +1906,18 @@ export async function analyticsThroughActions(page: Page, sessionId: string, sav
     const action = page.getByTestId('post-save-review-session-link').or(page.getByTestId('saved-session-return-see-all')).first();
     if (!(await action.waitFor({ state: 'visible', timeout: 60_000 }).then(() => true).catch(() => false))) return result;
     await action.click();
-    result.actionClicked = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.actionClicked = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === '/progress' || pathname === '/analytics';
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     const open = page.getByTestId(`open-session-detail-${sessionId}`).or(page.getByTestId(`open-session-detail-mobile-${sessionId}`)).first();
     result.listed = await open.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     if (!result.listed) return result;
     await open.click();
-    result.detailOpened = await page.waitForURL(new RegExp(`/analytics/${sessionId}`), { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.detailOpened = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === `/progress/${sessionId}` || pathname === `/analytics/${sessionId}`;
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     const detail = page.getByTestId('session-detail-transcript');
     const shown = await detail.waitFor({ state: 'visible', timeout: 45_000 }).then(() => true).catch(() => false);
     result.detailMatches = shown && savedDigest !== '' && sha256Hex(await detail.innerText()) === savedDigest;
@@ -1764,7 +1958,10 @@ export async function backFromProgressRestoresSession(page: Page, sessionId: str
     const result = { left: false, restored: false, idleShown: false, liveTracks: null as number | null, review: 'missing' as 'saved' | 'try_again' | 'not_available' | 'missing' };
     const progress = page.getByTestId('nav-analytics-link').first();
     if (!(await progress.click({ timeout: 20_000 }).then(() => true).catch(() => false))) return result;
-    result.left = await page.waitForURL(/\/analytics(\?|$|#)/, { timeout: 30_000 }).then(() => true).catch(() => false);
+    result.left = await page.waitForURL(url => {
+        const pathname = url.pathname.replace(/\/$/, '');
+        return pathname === '/progress' || pathname === '/analytics';
+    }, { timeout: 30_000 }).then(() => true).catch(() => false);
     if (!result.left) return result;
     await page.getByTestId('dashboard-heading').waitFor({ state: 'visible', timeout: 45_000 }).catch(() => undefined);
     await page.waitForTimeout(2_000); // past the session page's exit transition, as the person stayed on Progress
@@ -2105,8 +2302,8 @@ export async function focusCoachingRows(
     if (!(await settleCoachingReason(request.reasonRead))) request.reason = COACHING_REASON_UNKNOWN;
     // PM 6173420642 §3: THIS take's own exchange from the request-boundary tap, after a bounded wait for its body. An
     // exchange still unread at the bound is simply absent, so nothing is proved from it.
-    if (request.generations) await settleCoachingReason(request.generations.settle());
-    const take = takeExchangeEvidence(request.generations?.forSession(sessionId) ?? []);
+    // #1474 (Codex r4305107827, Sam 6243698211): read through the tap's own bounded settle; a 5 s cap read early.
+    const take = takeExchangeEvidence(request.generations ? await request.generations.settledForSession(sessionId) : []);
     // #1258 R3b (run 38308997906 hung 24 min here): read each phrase from the review pair's own test id, bounded. The old
     // heading → div → <p> walk waited without limit when its structure did not resolve. A phrase that is absent reads as
     // '' and the row below FAILs; the rendered-vs-saved check is unchanged.

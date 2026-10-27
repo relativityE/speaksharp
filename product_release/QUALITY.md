@@ -11,8 +11,10 @@
 
 <!-- pm-currentization:2026-09-15 -->
 > [!CAUTION]
-> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. Release evidence must compare **v2 and v4** under one corpus/identity/word-count/filler-completeness/WER contract, validating v4 as provisional primary against v2 as fallback. **Moonshine is deferred until after RWT or MVP and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
+> **Currentized 15 Sep 2026.** The prior RWT is incomplete: Stop B is partial, the official v2 cell did not run, and existing v2/v4 observations are descriptive. **Moonshine activation remains deferred pending qualification and is not required for current release evidence.** Its repeated long-form span, abrupt-stop tail loss, and live rewrite are the reason for that deferral and remain failures to investigate at the model-driving boundary whenever it is picked up; output cleanup is never evidence. Exact-head Code/Security review, full CI, user-visible proof, and received-event readback remain separate required layers.
 <!-- /pm-currentization:2026-09-15 -->
+
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 # SpeakSharp Quality (v1)
 
@@ -241,6 +243,7 @@ Each RC gate should report: **Gate ID** (1–5); **Definition of green** (binary
 ## 7. Interpretation & closure rules
 
 - **Raw artifacts win when summaries disagree.** Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, stress/endurance JSON, and browser traces are the source of truth until the aggregator is fixed and rerun on the same commit.
+- **Diagnosis does not waive required qualification.** Green shard jobs or manually interpreted raw artifacts do not establish a required aggregate/report PASS. Correct the aggregation, count or collector defect and obtain the required exact-head qualification result. Preserve each failed/cancelled attempt separately; neither a later rerun nor a high quality score rewrites the earlier evidence.
 - **Quality score cannot override red release gates.** A high quality/coverage number does not prove STT quality, billing safety, quota enforcement, or privacy behavior.
 - **Advisory metrics become blocking only when explicitly promoted** for a release in `RELEASE_PROCESS.md` gate definitions or `RELEASE_STATUS.md`.
 - **Local generated output helps debugging; GitHub-generated artifacts close release evidence.**

@@ -520,6 +520,43 @@ describe('#1431 — lifecycle work belongs to its originating attempt and servic
         expect(c.state, 'B must not be transitioned to FAILED by A').not.toBe('FAILED');
     });
 
+    /**
+     * #1258 RWT round 2 C — the superseded stop's own `failed` write is scoped to the EXACT pending retry session.
+     * The server never revives a failed leased take (#1476), so marking A failed while A's full save is still
+     * recoverable would turn A's Retry Save into a guaranteed refusal. An UNRELATED pending retry (B's) must not
+     * suppress A's genuine failure marker — the guard is the exact session, never "some retry exists".
+     */
+    const supersededStopFailedRows = async (pendingFor: string) => {
+        const c: ReturnType<typeof stoppingController> = stoppingController(
+            new Promise((_resolve, reject) => {
+                setTimeout(() => reject(new Error('A could not finish its stop')), 0);
+            }),
+            () => {
+                c.lifecycleVersion += 1;
+                c.serviceGeneration += 1;
+                c.sessionId = 'session-B';
+            },
+        );
+        (c as unknown as { pendingFullSaveRetry: { sessionId: string } }).pendingFullSaveRetry = { sessionId: pendingFor };
+        vi.mocked(completeSession).mockClear();
+        await c.stopRecording().catch(() => { /* A's own failure is the subject */ });
+        return vi.mocked(completeSession).mock.calls
+            .filter(([, args]) => (args as { status?: string } | undefined)?.status === 'failed')
+            .map(([id]) => id);
+    };
+
+    it('#1258 C: a superseded stop never closes its OWN session while that session holds a pending full-save retry', async () => {
+        const failedRows = await supersededStopFailedRows('session-A');
+        expect(failedRows, "A's recoverable save stays retryable").not.toContain('session-A');
+        expect(failedRows, "and B is still never touched").not.toContain('session-B');
+    });
+
+    it('#1258 C control: an UNRELATED pending retry (B) does not suppress A\'s genuine failure marker', async () => {
+        const failedRows = await supersededStopFailedRows('session-B');
+        expect(failedRows, 'A, with nothing recoverable, is still settled as failed').toContain('session-A');
+        expect(failedRows, 'B is never touched').not.toContain('session-B');
+    });
+
     it('CASUALTY P2-3: a late onReady during STOPPING cannot arm a watchdog that outlives its take', async () => {
         // A's engine can report ready while A is finalizing. Its generation is still current at that
         // point — the bump happens at detach — so the generation wrapper passes it through, and the

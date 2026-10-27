@@ -19,6 +19,7 @@ import { plural, shortDate, shortTime } from '@/lib/displayFormat';
 import type { PracticeSession } from '@/types/session';
 import { ThisRunCard } from './ThisRunCard';
 import { RestoredReviewRetry } from './RestoredReviewRetry';
+import { useOpenShareFeedback } from '@/contexts/feedbackOpener';
 
 // The Analytics session detail's approved copy, verbatim (one wording per transcript state).
 const TRANSCRIPT_STATE_COPY: Record<'expired' | 'not_captured' | 'unavailable', string> = {
@@ -30,9 +31,14 @@ const TRANSCRIPT_STATE_COPY: Record<'expired' | 'not_captured' | 'unavailable', 
 interface SavedSessionReturnProps {
     session: PracticeSession;
     onSeeAllSessions: () => void;
+    /** #1474 — the signed-in user, so "Count look wrong?" opens Share Feedback for this owner only. */
+    ownerId?: string | null;
 }
 
-export const SavedSessionReturn: React.FC<SavedSessionReturnProps> = ({ session, onSeeAllSessions }) => {
+export const SavedSessionReturn: React.FC<SavedSessionReturnProps> = ({ session, onSeeAllSessions, ownerId }) => {
+    // #1474 — the same owner-scoped opener the live review uses. The dialog keeps its own selector rules: this
+    // `/session?review=` view is NOT a route the selector reads as "the session being viewed".
+    const openShareFeedback = useOpenShareFeedback(ownerId);
     const metrics = getSessionAnalysisMetrics(session);
     const transcript = resolveTranscriptView(session);
     const words = typeof session.total_words === 'number' ? session.total_words : null;
@@ -67,7 +73,8 @@ export const SavedSessionReturn: React.FC<SavedSessionReturnProps> = ({ session,
                     )}
                 </div>
                 <div className="space-y-4">
-                    <ThisRunCard fillers={metrics.fillerCount} fillersPerMinute={fillersPerMinute} wordsPerMinute={wpm} words={words} />
+                    <ThisRunCard fillers={metrics.fillerCount} fillersPerMinute={fillersPerMinute} wordsPerMinute={wpm} words={words}
+                        onCountLookWrong={openShareFeedback ?? undefined} />
                     {/* The saved Focus Points result, read-only; renders nothing for Open Mic. */}
                     <SavedFocusPointsCoverage sessionId={session.id} />
                     <Button variant="outline" className="w-full" onClick={onSeeAllSessions} data-testid="saved-session-return-see-all">

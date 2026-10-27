@@ -2,11 +2,43 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import type { PracticeSession } from '@/types/session';
-import { PRACTICE_THIS_NEXT_LABEL } from '@/services/progress/progressPresentation';
+import { PRACTICE_THIS_NEXT_LABEL, type StructuredTarget } from '@/services/progress/progressPresentation';
 import { abandonRecommendationAttempt } from '@/services/progress/recordProgress';
 import { useLinkedRepeat } from '@/hooks/useLinkedRepeat';
 import { clearOpenAttemptIfMatches } from '@/services/progress/openAttempt';
 import type { ExclusionReason } from '@/services/progress/buildProgressEvaluation';
+
+const TARGET_METRIC_LABELS: Record<StructuredTarget['metric'], string> = {
+    filler_rate: 'Filler rate', pace: 'Pace', clear_delivery: 'Clear delivery',
+};
+const TARGET_DIRECTION_LABELS: Record<StructuredTarget['direction'], string> = {
+    decrease: 'decrease toward', increase: 'increase toward', maintain: 'maintain at',
+};
+
+// Match the existing clarity display; keep the persisted target untouched for comparisons.
+const formatTargetValue = (target: StructuredTarget) => target.metric === 'clear_delivery'
+    ? Math.round(target.targetValue) : target.targetValue;
+
+type StoredOutcome = 'moved' | 'did_not_move' | 'not_comparable' | 'not_completed' | null | undefined;
+
+/**
+ * #1548 A2: when the saved review owns the next action, the person practised the AI tip, but the stored attempt measured
+ * the recommendation's delivery metric. This copy names that metric and compares it with the original session in the
+ * server's own terms (`20260731130000` derivation: decrease = strictly lower, increase = strictly higher, maintain =
+ * same or higher). It never speaks of the practised direction, improvement or reaching a target.
+ */
+function reviewOwnedOutcome(target: StructuredTarget, lifecycle: string, outcome: StoredOutcome): string {
+    const metric = TARGET_METRIC_LABELS[target.metric];
+    if (lifecycle === 'pending') return 'Your linked repeat is pending.';
+    if (outcome === 'not_comparable') return `${metric} could not be compared for this repeat.`;
+    if (outcome !== 'moved' && outcome !== 'did_not_move') return 'The stored repeat was not completed.';
+    const moved = outcome === 'moved';
+    if (target.direction === 'maintain') return moved
+        ? `${metric} stayed the same or increased compared with the original session.`
+        : `${metric} decreased compared with the original session.`;
+    const comparative = target.direction === 'decrease' ? 'lower' : 'higher';
+    return `${metric} was ${moved ? '' : 'not '}${comparative} on the repeat than in the original session.`;
+}
 
 const REASON_LABELS: Record<ExclusionReason, string> = {
     not_completed: 'This session was not completed, so it cannot be compared.',
@@ -116,13 +148,31 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'>; nex
         <dl>
             <div data-testid="progress-what-worked"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground">Evidence-backed observation</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.whatWorked}</dd></div>
         </dl>
-        {view.latestAttempt && <p data-testid="progress-attempt-outcome" className="text-sm text-foreground/80">{
+        {view.latestAttempt && nextActionOwnedByReview && <div className="space-y-1">
+            <p data-testid="progress-attempt-target" className="text-sm text-foreground/80">
+                Separate delivery comparison: {TARGET_METRIC_LABELS[view.takeaways.target.metric]} (saved target:{' '}
+                {TARGET_DIRECTION_LABELS[view.takeaways.target.direction]} {formatTargetValue(view.takeaways.target)} {view.takeaways.target.units}).
+            </p>
+            <p data-testid="progress-attempt-outcome" className="text-sm text-foreground/80">
+                {reviewOwnedOutcome(view.takeaways.target, view.latestAttempt.lifecycle, outcome)}
+            </p>
+            <p data-testid="progress-attempt-scope" className="text-xs text-foreground/70">
+                This comparison measures delivery, not whether the coaching tip was followed.
+            </p>
+        </div>}
+        {view.latestAttempt && !nextActionOwnedByReview && <div className="space-y-1">
+            <p data-testid="progress-attempt-target" className="text-sm text-foreground/80">
+                Measured repeat target: {TARGET_METRIC_LABELS[view.takeaways.target.metric]};{' '}
+                {TARGET_DIRECTION_LABELS[view.takeaways.target.direction]} {formatTargetValue(view.takeaways.target)} {view.takeaways.target.units}.
+            </p>
+            <p data-testid="progress-attempt-outcome" className="text-sm text-foreground/80">{
             view.latestAttempt.lifecycle === 'pending' ? 'Your linked repeat is pending.'
                 : outcome === 'moved' ? 'The stored repeat shows movement in the practiced direction.'
                     : outcome === 'did_not_move' ? 'The stored repeat did not show movement in the practiced direction.'
                         : outcome === 'not_comparable' ? 'The stored repeat was not comparable.'
                             : 'The stored repeat was not completed.'
-        }</p>}
+            }</p>
+        </div>}
         {actionError && <div role="alert" className="space-y-2"><p>{actionError}</p>{!retryBlocked && <Button ref={retryRef} type="button" onClick={() => { void onAccept(); }}>Retry {PRACTICE_THIS_NEXT_LABEL}</Button>}</div>}
         {pendingAttemptId && <div role="alert" className="space-y-2">
             <p>A previous repeat is still pending. Close it before starting another.</p>

@@ -131,6 +131,13 @@ export interface SessionState {
      */
     completedSessionId: string | null;
     /**
+     * #1258 RWT round 2 C — the session a Retry Save has just RECOVERED, published only by the controller's
+     * owner-fenced full-save settlement. It is the page's one licence to enter the saved-take review after a
+     * failed Stop: a successful Stop enters it directly, but a recovered save arrives later, outside the Stop
+     * handler. A no-op or superseded retry never sets it. Retired with the take's other after-state identity.
+     */
+    recoveredSaveSessionId: string | null;
+    /**
      * #1046 slice 3b-ii: the Focus Points brief the CURRENT recording is being made against, or null for
      * a freeform (Open Mic) recording. Set at objective-session entry (slice 5); read at the stop seam
      * to finalize per-point coverage; CONSUMED (set null) immediately after finalize fires, so a stale
@@ -254,6 +261,7 @@ interface SessionActions {
     setNativeFormatting: (formatting: NativeFormattingUiState) => void;
     setFinalizedAnalysis: (analysis: FinalizedAnalysisState | null) => void;
     setCompletedSessionId: (sessionId: string | null) => void;
+    setRecoveredSaveSessionId: (sessionId: string | null) => void;
     setFinalizedWordCount: (wordCount: number | null) => void;
     setFinalizedFillerData: (data: FillerCounts | null) => void;
     setFinalizedFillerCount: (count: number | null) => void;
@@ -309,6 +317,7 @@ const initialState: SessionState = {
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
     completedSessionId: null,
+    recoveredSaveSessionId: null,
     activeObjectiveBrief: null,
     practiceFocus: readPracticeFocus(),
     completedObjectiveBrief: null,
@@ -585,6 +594,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
             captureLimitReached: null,
             completedSessionDurationSeconds: null,
             completedSessionId: null,
+            recoveredSaveSessionId: null,
             sessionSaved: false,
             pauseMetrics: initialState.pauseMetrics,
             finalizedAnalysis: null,
@@ -640,6 +650,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
 
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
     setCompletedSessionId: (completedSessionId) => set({ completedSessionId }),
+    setRecoveredSaveSessionId: (recoveredSaveSessionId) => set({ recoveredSaveSessionId }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
     setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),

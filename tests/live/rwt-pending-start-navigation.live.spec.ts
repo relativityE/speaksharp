@@ -19,7 +19,9 @@ import { bindReadbackJourneys } from './helpers/rwtOracles';
 import { CoachingGenerationTap } from './helpers/coachingGenerationTap';
 import { coachingRequestBudgetRow } from './helpers/rwtCoachingCollector';
 import { openProductsItem } from './helpers/productsMenu';
+import { RETURN_SETTLE_DEFAULTS, returnControlSample, settleReturnControlState, type ReturnControlState } from './helpers/rwtReturnControlState';
 import { selectBenchmarkMode } from './helpers/benchmark-utils';
+import { FINALIZE_SETTLE_MS, FinalizationSteps, OwnedCleanup, finalizeOwnedCleanup, JourneyFinalizer, armWatchdog, watchProfileFor } from './helpers/rwtWatchdog';
 
 const SUITE = 'pending-start-navigation';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? '';
@@ -65,6 +67,12 @@ test.use({
     launchOptions: { args: rwtLaunchArgs(fixture, { webgpu: false }) },
 });
 
+/** #1593 (live case 12): the journey's finalization must survive a test timeout — see `JourneyFinalizer`. */
+const finalizer = new JourneyFinalizer();
+test.afterEach(async () => {
+    await finalizer.drain();
+});
+
 test('leaving during a cold Start does not leave a recording or session behind @live', async ({ page }, testInfo) => {
     test.setTimeout(1_500_000);
     const receipt = new RwtReceipt(SUITE);
@@ -75,6 +83,31 @@ test('leaving during a cold Start does not leave a recording or session behind @
     let uid = '';
     let claimed = false;
     let accountDeleted = false;
+    const owner = { uid: '', email: '' };
+    // #1593 fail early: an unexpected failure, refusal or stall (case 4's dead Start) ends the journey in seconds.
+    const watch = armWatchdog({ page, tap, profile: watchProfileFor(SUITE), label: SUITE });
+    // #1593 (Sam, #1662 RETURN control 1): ONE owned finalization — the body's finally and the suite's afterEach
+    // (which Playwright runs after a timeout) run this same memoized closure exactly once.
+    const finish = finalizer.once(async () => {
+        // Sam, #1662 RETURN: every step is bounded and isolated, so cleanup and the receipt always run.
+        const steps = new FinalizationSteps();
+        // Codex P2 r4313846488: a failure still queued in PostHog reaches the tap BEFORE the watchdog's terminal scan
+        // (bounded; page-independent, since a finalizer may run after its tabs closed).
+        await steps.step('telemetry settle', () => tap.settleEveryPage((ms) => new Promise((resolve) => setTimeout(resolve, ms))));
+        await steps.step('watchdog', () => watch.record(receipt));
+        await steps.step('coaching settle', () => generations.settle(), FINALIZE_SETTLE_MS);
+        // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
+        await steps.step('coaching budget', () => coachingRequestBudgetRow(receipt, generations, { maximum: 0 }));
+        // A signup that died before its uid was read is still found by its created email.
+        if ((uid || email) && !accountDeleted) {
+            // Sam, #1662 RETURN on f527a033 (item 1): ONE owned deletion; its own settlement decides the row.
+            accountDeleted = (await finalizeOwnedCleanup(steps, receipt, new OwnedCleanup(
+                () => cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX })))) === 'deleted';
+        }
+        await steps.step('telemetry rows', () => telemetryClassRows(receipt, tap, claimed, false));
+        steps.report(receipt);
+        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+    });
     try {
         await suppressPageSnapshot(testInfo);
         const missing = rwtPreconditionFailures();
@@ -89,9 +122,11 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await page.goto('/auth/signup');
         await requireApprovedSurface(page, receipt);
         email = newDisposableEmail('pending-start');
+        owner.email = email;
         receipt.forbid(email, SERVICE_ROLE);
         const account = await signUpDisposableAccount(page, email);
         uid = account.uid;
+        owner.uid = uid;
         const identity = await runOwnedIdentityFailures(admin as never, uid, email);
         if (identity.length > 0) throw new Error(`run-owned identity preflight failed: ${identity.join('; ')}`);
         receipt.row('run-owned signup', 'PASS', 'fresh disposable account and profile verified');
@@ -124,6 +159,9 @@ test('leaving during a cold Start does not leave a recording or session behind @
 
         // This is the normal product CTA, not a synthetic network delay. Navigate away as soon as the real UI
         // reports its acquisition phase; the route change is the user's cancellation action under test.
+        // #1593 (Sam, #1662 RETURN control 3): the abandoned Start's own cancellation (and the return's gate) is this
+        // journey's expected fault — from the press until the return has been checked.
+        watch.setFaultPhase(true);
         await page.getByTestId('mic-download').click({ timeout: 15_000 });
         // Codex P1 r4247193674: TranscriptionService publishes BOTH DOWNLOADING and ENGINE_INITIALIZING as the root
         // `data-model-status="loading"`; `downloading`/`initializing` are never written, so only `loading` is the pending Start.
@@ -173,23 +211,46 @@ test('leaving during a cold Start does not leave a recording or session behind @
         await openProductsItem(page, 'open-mic');
         await page.waitForURL(/\/session/, { timeout: 45_000 });
         await expect(page.getByTestId('mic-card')).toBeVisible({ timeout: 30_000 });
-        const modelStatus = await page.getByTestId('mic-card').getAttribute('data-model-status');
-        const controlForStatus: Record<string, string> = {
-            'download-required': 'mic-download',
-            ready: 'mic-start',
-            idle: 'mic-start',
-            warming: 'mic-start',
-            error: 'mic-retry',
-            'init-failed': 'mic-retry',
+        // #1593 (case 4, run 39165065684): the FAIL named no cause. Record WHAT the return showed — which primary control
+        // exists, whether it is visible/enabled, its closed aria-label (`Starting…` = a stale start wait, `…unavailable while
+        // your last session finishes` = the Progress gate, plain `Start recording` disabled = runtime/finalizing state) and the
+        // session-shell state — so a failure classifies its own cause. Closed product copy and booleans only.
+        // #1593 (CLI audit 1792782759, Sam 1792798707): one read taken the moment the card appears can catch a healthy
+        // remount still resolving availability. The return is judged on a SETTLED state within a fixed deadline; a stuck
+        // or unknown state still FAILs. A read that throws is counted as a read error, never coerced into a verdict.
+        // Each read receives the remaining budget as its Playwright timeout (Sam HOLD on 81a442b2); the helper also races
+        // it against that budget, so a stalled locator can never outlive the deadline.
+        const controlState = async (id: string, timeout: number): Promise<ReturnControlState> => {
+            const el = page.getByTestId(id).first();
+            const present = (await page.getByTestId(id).count()) > 0;
+            return {
+                present,
+                visible: present ? await el.isVisible() : false,
+                enabled: present ? await el.isEnabled({ timeout }) : false,
+                ariaLabel: present ? await el.getAttribute('aria-label', { timeout }) : null,
+            };
         };
-        const expectedControl = modelStatus ? controlForStatus[modelStatus] : undefined;
-        const startControl = expectedControl ? page.getByTestId(expectedControl) : null;
-        const startAvailable = Boolean(startControl)
-            && await startControl!.isVisible().catch(() => false)
-            && await startControl!.isEnabled().catch(() => false);
-        receipt.row('return to Open Mic exposes truthful Start state', startAvailable ? 'PASS' : 'FAIL',
-            startAvailable ? `return shows the ${expectedControl} action for model state ${modelStatus}`
-                : `return did not expose an enabled Start/retry action consistent with model state ${modelStatus ?? 'unreadable'}`);
+        const returned = await settleReturnControlState(async (remainingMs) => {
+            const timeout = Math.max(1, remainingMs);
+            const modelStatus = await page.getByTestId('mic-card').getAttribute('data-model-status', { timeout });
+            const [start, download, retry] = await Promise.all([
+                controlState('mic-start', timeout), controlState('mic-download', timeout), controlState('mic-retry', timeout),
+            ]);
+            const shellState = await page.getByTestId('session-shell').first().getAttribute('data-session-state', { timeout });
+            return returnControlSample(modelStatus, shellState, { start, download, retry });
+        });
+        const last = returned.last;
+        receipt.row('return to Open Mic exposes truthful Start state', returned.settled ? 'PASS' : 'FAIL',
+            returned.settled ? `return settled on the ${last?.expectedControl} action for model state ${last?.modelStatus}`
+                : `return did not settle on an enabled Start/retry action consistent with model state ${last?.modelStatus ?? 'unreadable'} within ${RETURN_SETTLE_DEFAULTS.deadlineMs} ms`,
+            {
+                modelStatus: last?.modelStatus ?? null, expectedControl: last?.expectedControl ?? null, shellState: last?.shellState ?? null,
+                startPresent: last?.start.present ?? false, startVisible: last?.start.visible ?? false, startEnabled: last?.start.enabled ?? false, startAriaLabel: last?.start.ariaLabel ?? null,
+                downloadPresent: last?.download.present ?? false, downloadVisible: last?.download.visible ?? false, downloadEnabled: last?.download.enabled ?? false, downloadAriaLabel: last?.download.ariaLabel ?? null,
+                retryPresent: last?.retry.present ?? false, retryVisible: last?.retry.visible ?? false, retryEnabled: last?.retry.enabled ?? false, retryAriaLabel: last?.retry.ariaLabel ?? null,
+                settleSamples: returned.samples.length, settleElapsedMs: returned.elapsedMs, settleReadErrors: returned.readErrors,
+                firstModelStatus: returned.samples[0]?.modelStatus ?? null, firstActionable: returned.samples[0]?.actionable ?? false,
+            });
         const recorderAfterReturn = await page.getByTestId('recorder-stop').count().then((n) => n > 0);
         const micAfterReturn = await readMicEvidence(page);
         const sessionIdsAfterReturn = await readSessionIds(uid);
@@ -208,19 +269,6 @@ test('leaving during a cold Start does not leave a recording or session behind @
         receipt.row('scenario execution', 'FAIL', error instanceof Error ? error.name : 'scenario_error');
         throw error;
     } finally {
-        await generations.settle();
-        // Abandoning a pending Start and returning saves nothing, so the whole scenario sends no coaching request.
-        coachingRequestBudgetRow(receipt, generations, { maximum: 0 });
-        if (uid && !accountDeleted) {
-            try {
-                await cleanupRunOwnedAccount({ admin: admin as never, capturedUid: uid, createdEmail: email, runOwnedPrefix: RWT_ACCOUNT_PREFIX });
-                accountDeleted = true;
-                receipt.row('run-owned cleanup', 'PASS', 'the run-owned account was deleted and residue checks passed');
-            } catch {
-                receipt.row('run-owned cleanup', 'FAIL', 'run-owned account deletion or residue readback failed');
-            }
-        }
-        telemetryClassRows(receipt, tap, claimed, false);
-        receipt.write(testInfo, bindReadbackJourneys(tap.events, { recording: [], feedback: false }), tap.trafficTypes());
+        await finish();
     }
 });

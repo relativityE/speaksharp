@@ -9,6 +9,11 @@ import { getSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/se
 import { analyticsBuffer } from '../AnalyticsBuffer';
 import { completeSession } from '../../lib/storage';
 import { clearPrivateRecordingIdentity, getLastPrivateIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
+import posthog from 'posthog-js';
+import { markCompletionStage, __resetCompletionStagesForTests } from '../telemetry/completionStages';
+import { beginJourney, beginRecordingAttempt, __resetJourneyIdentityForTests } from '../telemetry/journeyIdentity';
+
+vi.mock('posthog-js', () => ({ default: { capture: vi.fn(), identify: vi.fn(), reset: vi.fn(), reloadFeatureFlags: vi.fn() } }));
 
 // Mock Dependencies
 vi.mock('../../lib/logger', () => ({
@@ -519,6 +524,44 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     );
 
+    it('#1593 UX-1: the saved next action rates the headline\'s counted fillers, not discourse markers it never showed', async () => {
+        // so×3 + like×2 in a minute is 5/min by the per-key map but 0 counted (discourse markers, not opted in). The
+        // next action must follow the headline (no REDUCE_FILLERS) while the saved per-key map keeps every word.
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
+        vi.mocked(storage.updateSession).mockClear();
+        const mode = 'private' as const;
+        (controller as unknown as { service: unknown }).service = {
+            getMode: vi.fn().mockReturnValue(mode),
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getStartTime: vi.fn().mockReturnValue(Date.now() - 60_000),
+            stopTranscription: vi.fn().mockResolvedValue({
+                success: true, transcript: '',
+                stats: { total_words: 0, filler_words: {}, speaking_rate: 0, duration: 60, accuracy: 1 },
+            }),
+            destroy: vi.fn().mockResolvedValue(undefined),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: mode, modelName: mode, deviceType: mode }),
+            setSessionId: vi.fn(),
+            isServiceDestroyed: () => false,
+        };
+        (controller as unknown as { state: string }).state = 'RECORDING';
+        (controller as unknown as { sessionId: string }).sessionId = 'sess-ux1';
+        useSessionStore.getState().setRuntimeState('RECORDING');
+        useSessionStore.getState().setSTTMode(mode);
+        (controller as unknown as { handleTranscriptUpdate: (data: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+            transcript: { partial: 'so we planned the trip so the kids could see it like we said so it went like clockwork' },
+        });
+
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        const payload = vi.mocked(storage.completeSession).mock.calls[0]?.[1];
+        expect(payload?.metrics?.fillerCounts).toMatchObject({ so: 3, like: 2 });
+        expect(payload?.nextActionSignal).toBeTruthy();
+        expect(payload?.nextActionSignal?.reasonCode).not.toBe('HIGH_FILLER_RATE');
+        expect(payload?.nextActionSignal?.actionCode).not.toBe('REDUCE_FILLERS');
+    });
+
     // #1033: one recording = one engine → finalization persists a VERIFIED identity tuple +
     // attribution_status atomically (row is 'pending' by DB default until then).
     const driveStopWithService = async (
@@ -549,6 +592,79 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         getMetadata: vi.fn().mockReturnValue(meta),
         setSessionId: vi.fn(),
         isServiceDestroyed: () => false,
+    });
+
+    // #1593 cases2/3: exercise REAL Stop -> completion -> objective evaluation -> terminal
+    // release. Only service/storage/provider seams are fakes. Never seed final_transcript.
+    const emittedStages = () => {
+        analyticsBuffer.push('session_started', { mode: 'private' }, 'CRITICAL');
+        return vi.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'stage_latency')
+            .map(([, props]) => props as { stage: string; attempt_id: string });
+    };
+    const beginOrderingTake = () => {
+        __resetCompletionStagesForTests();
+        __resetJourneyIdentityForTests();
+        beginJourney();
+        const attempt = beginRecordingAttempt();
+        analyticsBuffer.queue.length = 0;
+        analyticsBuffer.ready = true;
+        vi.mocked(posthog.capture).mockClear();
+        // The real Stop click's input marker; transcript/evaluation markers must
+        // come exclusively from the controller/store production path.
+        markCompletionStage('stop_intent');
+        return attempt;
+    };
+
+    it.each(['full', 'partial'] as const)('#1593 integrated Stop ordering: %s Focus final transcript precedes evaluation without releasing the latch early', async (kind) => {
+        const attempt = beginOrderingTake();
+        const sessionId = `ordering-${kind}`;
+        const brief = { projectId: `proj-${kind}`, briefId: `brief-${kind}`, points: ['First point', 'Second point'], topic: 'Synthetic test' };
+        useSessionStore.getState().setActiveObjectiveBrief(brief);
+        let releaseObjective: (value: unknown) => void = () => {};
+        let releaseDestroy: () => void = () => {};
+        finalizeObjectiveSessionOnSave.mockReturnValueOnce(new Promise((resolve) => { releaseObjective = resolve; }));
+        const service = mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' });
+        service.destroy = vi.fn(() => new Promise<void>((resolve) => { releaseDestroy = resolve; }));
+        const completion = driveStopWithService(service, sessionId, 'private', { mode: 'focus_points', brief });
+        for (let i = 0; i < 80; i += 1) await Promise.resolve();
+        const whileEvaluationPending = {
+            finalizing: useSessionStore.getState().isTranscriptFinalizing,
+            stages: emittedStages().map((row) => row.stage),
+        };
+        releaseObjective({ ok: true, registered: true, objectiveSessionId: `objective-${kind}`, evidenceCount: 1,
+            coverage: [{ briefPointId: 'p1', point: 'First point', status: 'covered' },
+                { briefPointId: 'p2', point: 'Second point', status: kind === 'full' ? 'covered' : 'not_covered' }] });
+        for (let i = 0; i < 80; i += 1) await Promise.resolve();
+        const whileDestroyPending = useSessionStore.getState().isTranscriptFinalizing;
+        releaseDestroy();
+        await completion;
+
+        expect(finalizeObjectiveSessionOnSave).toHaveBeenCalledWith(expect.objectContaining({ sourceSessionId: sessionId, idempotencyKey: sessionId }));
+        expect(completeSession).toHaveBeenCalledWith(sessionId, expect.objectContaining({ status: 'completed' }));
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        expect(wireProgressEvaluationOnSave).toHaveBeenCalledWith(expect.objectContaining({ sessionId }));
+        expect(whileEvaluationPending.finalizing, 'Start stays blocked while evaluation resolves').toBe(true);
+        expect(whileEvaluationPending.stages).not.toContain('evaluation_complete');
+        expect(whileDestroyPending, 'evaluation completion does not release the teardown latch').toBe(true);
+        expect(useSessionStore.getState().isTranscriptFinalizing).toBe(false);
+        const rows = emittedStages();
+        const stages = rows.map((row) => row.stage);
+        expect(rows.every((row) => row.attempt_id === attempt), 'all emitted stages belong to the same take').toBe(true);
+        expect(stages.filter((stage) => stage === 'final_transcript')).toHaveLength(1);
+        expect(stages.filter((stage) => stage === 'evaluation_complete')).toHaveLength(1);
+        // Intentionally RED on ecce3e8d: observed order is recording_terminated,
+        // evaluation_complete, final_transcript. This is the App correction target.
+        expect(stages, 'actual controller emission order').toEqual(['recording_terminated', 'final_transcript', 'evaluation_complete']);
+    });
+
+    it('#1593 integrated Stop ordering: Open Mic control produces its own final transcript without a Focus evaluation', async () => {
+        const attempt = beginOrderingTake();
+        await driveStopWithService(mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' }), 'ordering-open', 'private');
+        const rows = emittedStages();
+        expect(finalizeObjectiveSessionOnSave).not.toHaveBeenCalled();
+        expect(rows.map((row) => row.stage)).toEqual(['recording_terminated', 'final_transcript']);
+        expect(rows.every((row) => row.attempt_id === attempt)).toBe(true);
+        expect(completeSession).toHaveBeenCalledWith('ordering-open', expect.objectContaining({ status: 'completed' }));
     });
     // #1161: the client no longer writes attribution columns — it POSTs runtime evidence to the trusted
     // producer. These read the attest-session-engine invocations instead of updateSession patches.
@@ -1445,7 +1561,14 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { resetTranscriptLifecycle: () => void }).resetTranscriptLifecycle();
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
+        const storage = await import('../../lib/storage');
+        vi.mocked(storage.completeSession).mockClear();
         await doTransition('FAILED'); // heartbeat/engine failure lands here
+        // #1258 C: the retry armed by this very transition must not be closed by the transition's own `failed`
+        // marker — the server never revives a failed leased take (#1476), so the marker would void Retry Save.
+        expect(vi.mocked(storage.completeSession).mock.calls
+            .filter(([id, args]) => id === 'sess-hb' && (args as { status?: string } | undefined)?.status === 'failed'),
+        'the armed recovery is not closed by its own failure').toHaveLength(0);
         const pending = (controller as unknown as { pendingFullSaveRetry: { sessionId: string; completeArgs: { status: string; duration: number; metrics?: { totalWords?: number } }; attributionEvidence: unknown } | null }).pendingFullSaveRetry;
         expect(pending).toMatchObject({ sessionId: 'sess-hb' });
         // #1306: recovery is CONTENT-FREE — the retry replays the finalized draft's metrics, never a transcript.

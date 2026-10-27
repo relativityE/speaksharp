@@ -1,4 +1,5 @@
 import type { Browser, BrowserContext, Page } from '@playwright/test';
+import { trackDocuments } from './rwtDocumentIdentity';
 
 /**
  * RWT browser identity (#1258 PM 5932744381, Option A): the RWT Production browser is the real Chromium build on the real
@@ -95,13 +96,31 @@ export function rwtIdentityFor(browser: Browser): Promise<RwtIdentity> {
     return identity;
 }
 
+const applied = new WeakMap<Page, Promise<void>>();
+
 /**
  * Applies the identity to one page before it navigates. The CDP session stays attached for the page's life: the override
- * persists across navigations and reaches the page's dedicated workers.
+ * persists across navigations and reaches the page's dedicated workers. The same session is the page's proven document
+ * source (#1593, `trackDocuments`). Once per page: the fixture page is seen by both `context.on('page')` and the fixture.
  */
-export async function applyRwtIdentity(context: BrowserContext, page: Page, identity: RwtIdentity): Promise<void> {
-    const cdp = await context.newCDPSession(page);
-    await cdp.send('Emulation.setUserAgentOverride', identity);
+export function applyRwtIdentity(context: BrowserContext, page: Page, identity: RwtIdentity): Promise<void> {
+    const existing = applied.get(page);
+    if (existing) return existing;
+    const applying = (async () => {
+        const cdp = await context.newCDPSession(page);
+        await cdp.send('Emulation.setUserAgentOverride', identity);
+        await trackDocuments(page, cdp);
+    })();
+    applied.set(page, applying);
+    return applying;
+}
+
+/**
+ * Resolves once a page opened through the RWT context has its identity and proven document tracking. A spec that opens a
+ * page itself awaits this before the page's first navigation; a commit before it leaves the page's identity unproven.
+ */
+export function rwtPageReady(page: Page): Promise<void> {
+    return applied.get(page) ?? Promise.resolve();
 }
 
 /** The three signals as the page reports them (for the receipt and the regressions). */

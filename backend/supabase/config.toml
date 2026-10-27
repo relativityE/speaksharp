@@ -6,6 +6,10 @@ project_id = "yxlapjuovrsvjswkwnrk"
 [functions.stripe-billing-portal]
   entrypoint = "./functions/stripe-billing-portal/index.ts"
 
+[functions.account-closure]
+  entrypoint = "./functions/account-closure/index.ts"
+  verify_jwt = false
+
 [functions.create-user]
   entrypoint = "./functions/create-user/index.ts"
   verify_jwt = false

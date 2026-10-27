@@ -1,14 +1,14 @@
 # SpeakSharp Video Production Assets
 
-## Voice-Over Script (Copy to ElevenLabs)
+## Draft voice-over copy — release/publication approval required
 
 ---
 
 *"Filler words undermine your confidence. But how do you fix what you can't hear?*
 
-*SpeakSharp is a private speech coach in your browser. It catches every filler word the moment you say it. Your data never leaves your device—completely private. When you're done, get a clear summary to track your progress.*
+*SpeakSharp is a private speech coach in your browser. Review filler-word feedback and choose one thing to practise next. Private transcription processes speech audio on your device; saved transcript text and coaching have separate privacy boundaries. When you're done, get a clear summary to track your progress.*
 
-*Stop guessing. Start improving. Try SpeakSharp free—no install required."*
+*Try speaking, review your session, and practise again. The complete product is free for 30 days, then $10/month—no install required."*
 
 ---
 
@@ -25,7 +25,9 @@
 | `06_analytics.png` | Progress tracking | Act 3 - improvement |
 | `07_settings.png` | User filler words customization | Optional B-roll |
 
-## Quick Assembly Steps
+## Separately authorized production steps
+
+This is draft production reference, not approval for provider spending or publication. Validate assets/claims against the actual release before use.
 
 1. **ElevenLabs:** Paste script above → generate → download MP3
 2. **Descript:** Import all assets + audio

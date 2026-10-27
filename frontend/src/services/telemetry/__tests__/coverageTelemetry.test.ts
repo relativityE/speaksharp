@@ -243,11 +243,13 @@ describe('F06 — the verdict beside the numbers that produced it', () => {
         // session with recording time attributed to evaluation.
         expect(reachedStages()).not.toContain('evaluation_complete');
 
-        // ...and the settled one still reports, so suppressing the noise did not suppress the signal.
+        // ...and the settled one still reports its coverage telemetry, so suppressing the noise did not suppress the signal.
         deriveFocusCoverage(['quarterly revenue growth'], 'we talked about quarterly revenue growth today', 24, undefined, true);
         drain();
         expect(rows('coverage_evaluation')).toHaveLength(1);
-        expect(reachedStages()).toContain('evaluation_complete');
+        // #1258 item 5 (PM 6216341052): the STAGE is no longer a render's to mark — even the settled render. It is produced
+        // by the controller at the take's successful, owned Focus finalization, before `session_saved`.
+        expect(reachedStages()).not.toContain('evaluation_complete');
     });
 
     it('every field survives both schemas', () => {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { SessionBeforeState } from './SessionBeforeState';
+import type { RepeatPracticeTargetView } from '@/services/progress/repeatPracticeTarget';
 import { SessionDuringState } from './SessionDuringState';
 import { SessionAfterState } from './SessionAfterState';
 import { resolveSessionState } from '@/utils/sessionStateMachine';
@@ -40,6 +41,7 @@ import { emitMicObservability } from '@/services/telemetry/micObservation';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import type { TranscriptView } from '@/lib/storage';
 import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
+import { useOpenShareFeedback } from '@/contexts/feedbackOpener';
 
 /** #1258 — how long a settled review may wait for its saved transcript before reporting it as not shown. */
 const REVIEW_RECEIPT_UNBOUND_SETTLE_MS = 2_000;
@@ -66,6 +68,7 @@ const WAVEFORM_SOURCE_LEVELS = 480;
  * All values come from `useSessionLifecycle` (passed in by SessionPage) so this stays a pure view.
  */
 export interface SessionOverhaulViewProps {
+    practiceTarget?: RepeatPracticeTargetView;
     authUserId: string | null;
     isListening: boolean;
     sttStatus: SttStatus;
@@ -182,6 +185,7 @@ const gateBlocksStartFor = (
 ): boolean => resolvedFor !== (authUserId ?? '') || gate !== null;
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
+    practiceTarget,
     authUserId,
     isListening,
     sttStatus,
@@ -227,7 +231,18 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onNewSet,
     history,
 }) => {
-    const permissionError = sttStatus.type === 'error';
+    // #1474 — the owner-scoped opener for the Navigation-owned Share Feedback dialog ("Count look wrong?" in THIS RUN).
+    const openShareFeedback = useOpenShareFeedback(authUserId);
+    /*
+     * #1258 RWT round 2 C (Codex P1 r4300891532, Sam 6228507737) — an `error` is a failed START only when it can belong to
+     * one. While the page reviews a RECOVERED save, an error written afterwards (a queued engine-policy rejection applied when
+     * the recovery unlocked) belongs to no start and must not drop the saved take's review back to `before`; the error stays
+     * on screen in the status bar. The licence retires at the next admitted Start, so a newer failed start (a denied
+     * microphone) keeps its priority. Nothing else changes in `resolveSessionState`.
+     */
+    const recoveredSaveSessionId = useSessionStore((st) => st.recoveredSaveSessionId);
+    const reviewingRecoveredSave = showAnalyticsPrompt && recoveredSaveSessionId !== null;
+    const permissionError = sttStatus.type === 'error' && !reviewingRecoveredSave;
     const captureLiveForState = useSessionStore((st) => st.captureLive);
     const sessionState = resolveSessionState({
         // #1258 C10 — ONE definition of "recording begins": the take is live only when capture is live on real microphone
@@ -901,6 +916,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             );
         return (
             <SessionBeforeState
+                practiceTarget={practiceTarget}
                 mic={{
                     onStart: onStartStop,
                     error: permissionError ? sttStatus.message : null,
@@ -947,6 +963,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const showReopenChip = !isObjective && promptAutoHidden;
         return (
             <SessionDuringState
+                practiceTarget={practiceTarget}
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, onStop: onStartStop }}
                 transcript={{
                     tokens: isObjective ? fpDuringTokens : duringTokens,
@@ -1021,6 +1038,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <>{objectiveAfterSlotC}{objectiveAfterSlotD}</>
         : (
             <ThisRunCard
+                // #1474 — "Count look wrong?" opens the existing Share Feedback dialog for this signed-in user.
+                onCountLookWrong={openShareFeedback ?? undefined}
                 fillers={reviewFillerCount}
                 fillersPerMinute={reviewFillerCount !== null && effElapsed > 0
                     ? (reviewFillerCount / effElapsed) * 60

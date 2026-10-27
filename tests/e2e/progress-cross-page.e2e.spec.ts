@@ -118,6 +118,49 @@ async function screenshotMatrix(page: Page, surface: string): Promise<void> {
 
 
 test.describe('#1047 U3 canonical cross-page truth', () => {
+  for (const target of [
+    { metric: 'filler_rate', direction: 'decrease', value: 7, units: 'percent of words', label: 'Filler rate (saved target: decrease toward 7 percent of words)',
+      outcome: 'Filler rate was lower on the repeat than in the original session.' },
+    { metric: 'clear_delivery', direction: 'maintain', value: 98.78048780487805, units: 'points', label: 'Clear delivery (saved target: maintain at 99 points)',
+      outcome: 'Clear delivery stayed the same or increased compared with the original session.' },
+  ] as const) {
+  test(`stored repeat identifies its measured ${target.metric} target separately from saved AI advice after reopening`, async ({ page }) => {
+    const progress = eligibleProgressTruth(SESSION_ID, REFERENCE_ID);
+    progress.recommendations[0] = {
+      ...progress.recommendations[0], target_metric: target.metric, target_direction: target.direction,
+      target_value: target.value, target_units: target.units, shown_text: 'Practise the persisted target',
+    };
+    progress.attempts = [{
+      id: 'attempt-measured-repeat', recommendation_id: 'recommendation-u3',
+      lifecycle: 'completed', outcome: 'moved', accepted_at: '2025-01-17T14:01:00.000Z',
+    }];
+    await programmaticLoginWithRoutes(page, {
+      userType: 'free', progressFixtures: progress,
+      sessions: [{
+        id: SESSION_ID, user_id: 'test-user-123', created_at: '2025-01-17T14:00:00.000Z',
+        duration: 420, total_words: 245, engine: 'private', clarity_score: 88, wpm: 142,
+        status: 'completed', product: 'open_mic', transcript_state: 'available',
+        transcript: 'The price includes onboarding and support.', filler_counts: { um: 4 },
+        ai_suggestions: { version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'Name the price first.' },
+      }],
+    });
+    await navigateToRoute(page, `/analytics/${SESSION_ID}`);
+    for (const reopening of [false, true]) {
+      if (reopening) await page.reload();
+      await expect(page.getByTestId('saved-review')).toContainText('Name the price first.');
+      // #1548 A2: the saved review owns the action, so the stored metric reads as separate delivery evidence, never as a
+      // verdict on the practised AI tip.
+      await expect(page.getByTestId('progress-attempt-target')).toHaveText(`Separate delivery comparison: ${target.label}.`);
+      await expect(page.getByTestId('progress-attempt-outcome')).toHaveText(target.outcome);
+      await expect(page.getByTestId('progress-attempt-scope'))
+        .toHaveText('This comparison measures delivery, not whether the coaching tip was followed.');
+      await expect(page.getByTestId('saved-review-practice')).toHaveCount(1);
+      await expect(page.getByTestId('progress-accept')).toHaveCount(0);
+      await expect(page.getByTestId('progress-practice-next')).toHaveCount(0);
+    }
+  });
+  }
+
   test('Marketing is testimonial-free, accessible, and has no viewport overflow', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await setupE2EMocks(page, { userType: 'free' });
@@ -182,6 +225,9 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await navigateToRoute(page, `/analytics/${SESSION_ID}`);
     await expect(page.getByTestId('progress-panel')).toBeVisible();
     await expect(page.getByTestId('progress-what-worked')).toHaveCount(1);
+    // #1254 (Sam 6243870280): the takeaway names what was actually compared — the previous COMPARABLE session.
+    await expect(page.getByTestId('progress-what-worked')).toContainText('Clearer than your previous comparable session');
+    await expect(page.getByTestId('progress-what-worked')).not.toContainText('last session');
     // #1258 G20 (PM 2026-09-25): the saved review at the top owns the ONE next action; Progress keeps its metrics
     // and drops its competing sentence and button. The linked repeat runs through the review's control.
     await expect(page.getByTestId('progress-practice-next')).toHaveCount(0);

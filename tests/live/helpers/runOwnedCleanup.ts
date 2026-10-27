@@ -115,6 +115,19 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
  */
 const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
 
+/**
+ * A residue readback proves zero only when it returned a COUNTED zero. A `{ count: null, error: null }` read is an
+ * unknown, not an empty table (CLI Dev 2026-10-18: `count ?? 0` let all 23 null reads emit `residue=0`), so anything
+ * other than a non-negative safe integer fails closed, and a positive count is residue. Reason codes only: the table
+ * name is public schema, never a uid or row.
+ */
+export function requireZeroResidue(count: unknown, table: string): void {
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
+        throw new Error(`cleanup residue count on ${table} was not a counted integer — residue UNPROVEN (fail closed)`);
+    }
+    if (count !== 0) throw new Error(`cleanup found run-owned residue in ${table} (fail closed): count=${count}`);
+}
+
 export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-|rwt-journey-)/;
 
 /**
@@ -194,13 +207,13 @@ export async function cleanupRunOwnedAccount(params: {
         const { count, error: rErr } = await admin
             .from(table).select(column, { count: 'exact', head: true }).eq(column, capturedUid);
         if (rErr) throw new Error(`cleanup residue query on ${table} failed (fail closed): ${rErr.message}`);
-        expect(count ?? 0, `no run-owned residue in ${table}`).toBe(0);
+        requireZeroResidue(count, table);
     }
 
     const { count: teCount, error: teResErr } = await admin
         .from('trial_entitlements').select('email', { count: 'exact', head: true }).eq('email', createdEmail.toLowerCase());
     if (teResErr) throw new Error(`cleanup residue query on trial_entitlements failed (fail closed): ${teResErr.message}`);
-    expect(teCount ?? 0, 'no run-owned residue in trial_entitlements').toBe(0);
+    requireZeroResidue(teCount, 'trial_entitlements');
 
     // Emitted ONLY here — after auth deletion is proven and every residue readback returned zero.
     writeCleanupVerdict('cleanup_verified', RESIDUE_CHECKS.length + 1);

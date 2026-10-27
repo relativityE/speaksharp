@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { UnresolvedRecoveryBanner, DISCARD_CONFIRMATION_COPY } from '../UnresolvedRecoveryBanner';
+import { UnresolvedRecoveryBanner, DISCARD_CONFIRMATION_COPY, DISCARD_CONFIRMATION_COPY_METRICS_ONLY } from '../UnresolvedRecoveryBanner';
 
 // #1033 Part-2b (A3/A4). These assert HANDLER INVOCATION and STATE TRANSITIONS, not just text.
 // Boundary note: "unlocks" is a controller guarantee already proven in
@@ -47,7 +47,9 @@ describe('#1033 A3/A4 unresolved-recording recovery surface', () => {
         setup('full_save');
         expect(screen.getByTestId('session-retry-save')).toBeInTheDocument();
         expect(screen.getByTestId('session-discard')).toBeInTheDocument();
-        expect(screen.getByTestId('session-unresolved-message')).toHaveTextContent(/not fully saved/i);
+        // #1474: an UNCONFIRMED outcome — the server may already hold the take (a lost response), so never a definite loss.
+        expect(screen.getByTestId('session-unresolved-message')).toHaveTextContent(/couldn’t confirm that your last recording was fully saved/i);
+        expect(screen.getByTestId('session-unresolved-message')).not.toHaveTextContent(/not (fully )?saved/i);
     });
 
     it('3. attribution renders Retry verification and states the transcript IS saved', () => {
@@ -112,7 +114,7 @@ describe('#1033 A3/A4 unresolved-recording recovery surface', () => {
         const confirm = screen.getByTestId('session-discard-confirm');
         expect(confirm).toHaveTextContent(DISCARD_CONFIRMATION_COPY);
         expect(DISCARD_CONFIRMATION_COPY).toBe(
-            'Permanently discard this unsaved recording? Its recoverable transcript will be removed. This cannot be undone.',
+            'Discard this recording? If it wasn’t saved, its transcript on this device is removed and can’t be recovered. If it was already saved, it stays saved.',
         );
         await user.click(confirm);
         await waitFor(() => expect(onDiscard).toHaveBeenCalledTimes(1));
@@ -236,10 +238,11 @@ describe('#1360 metrics-only: no transcript claim without transcript text', () =
         await user.click(screen.getByTestId('session-discard'));
         const confirm = screen.getByTestId('session-discard-confirm').textContent ?? '';
         expect(confirm).not.toMatch(/transcript will be removed/i);
-        expect(confirm).toMatch(/measurements will be removed/i);
-        expect(confirm).toMatch(/no transcript was stored/i);
-        // Still a real confirmation: destructive and irreversible.
-        expect(confirm).toMatch(/cannot be undone/i);
+        expect(confirm).toMatch(/measurements on this device are removed/i);
+        // #1474: "No transcript was stored" is a server claim the page cannot make after a lost response.
+        expect(confirm).not.toMatch(/no transcript was stored/i);
+        // Still a real confirmation: destructive and irreversible for what it does remove.
+        expect(confirm).toMatch(/can’t be recovered/i);
     });
 
     it('WITH transcript text, the transcript wording returns — the rule is conditional, not a ban', async () => {
@@ -288,5 +291,43 @@ describe('#1360 metrics-only: no transcript claim without transcript text', () =
         await user.click(screen.getByTestId('session-discard'));
         expect(screen.getByTestId('session-discard-confirm').textContent)
             .not.toBe(DISCARD_CONFIRMATION_COPY);
+    });
+});
+
+/*
+ * #1474 (Sam 6242612760 / 1792277879) — the page cannot tell request-lost (the server saved nothing) from response-lost (the
+ * server committed; only its answer was lost), so every surface of a full-save failure must be true in BOTH. Live RWT
+ * runs 39075833843 (request lost) and 39076238188 (response lost, server-completed) are the two worlds this pins.
+ */
+describe('#1474 unconfirmed save: true for request-lost AND response-lost', () => {
+    const DEFINITE_LOSS = /not (?:fully )?saved|unsaved|no transcript was stored|permanently|will be removed/i;
+    const renderFor = (hasTranscriptText: boolean) => render(
+        <UnresolvedRecoveryBanner
+            pendingResolutionKind="full_save"
+            hasTranscriptText={hasTranscriptText}
+            hasMeasurementsOnly={!hasTranscriptText}
+            onRetry={async () => true}
+            onDiscard={async () => ({ outcome: 'discarded' as const })}
+        />,
+    );
+
+    it.each([['with transcript text', true], ['metrics only', false]] as const)('%s: headline and Discard confirmation assert no definite loss', async (_label, hasText) => {
+        const user = userEvent.setup();
+        renderFor(hasText);
+        const message = screen.getByTestId('session-unresolved-message').textContent ?? '';
+        expect(message).toMatch(/couldn’t confirm that your last recording was fully saved/i);
+        expect(message).not.toMatch(DEFINITE_LOSS);
+        await user.click(screen.getByTestId('session-discard'));
+        const confirm = screen.getByTestId('session-discard-confirm').textContent ?? '';
+        expect(confirm).toBe(hasText ? DISCARD_CONFIRMATION_COPY : DISCARD_CONFIRMATION_COPY_METRICS_ONLY);
+        // Response-lost: a server-saved take stays saved (the completed-row fence refuses Discard), so the confirmation
+        // must say so; request-lost: only this device's copy is removed, which it also says, conditionally.
+        expect(confirm).toMatch(/if it was already saved, it stays saved/i);
+        expect(confirm).toMatch(/if it wasn’t saved, .+ on this device (?:is|are) removed/i);
+        expect(confirm).not.toMatch(DEFINITE_LOSS);
+    });
+
+    it('metrics only: the confirmation still makes no transcript claim (#1360)', () => {
+        expect(DISCARD_CONFIRMATION_COPY_METRICS_ONLY).not.toMatch(/transcript/i);
     });
 });

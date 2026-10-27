@@ -73,9 +73,11 @@ describe('wiring — the hang site is guarded, the stop reaches finally, and act
         const finallyAt = focus.indexOf('    } finally {', guard);
         expect(tryAt).toBeGreaterThan(0);
         expect(finallyAt).toBeGreaterThan(guard);
-        const tail = focus.slice(finallyAt);
-        expect(tail).toMatch(/cleanupRunOwnedAccount/);
-        expect(tail).toMatch(/receipt\.write\(/);
+        // #1593 (Sam, #1662 RETURN): the finally runs the journey's ONE owned finalization, which cleans up and writes.
+        expect(focus.slice(finallyAt)).toMatch(/^ {4}\} finally \{\s*await finish\(\);/);
+        const finalization = focus.slice(focus.indexOf('const finish = finalizer.once('), tryAt);
+        expect(finalization).toMatch(/cleanupRunOwnedAccount/);
+        expect(finalization).toMatch(/receipt\.write\(/);
     });
 
     it('every RWT action and navigation without its own timeout is bounded well inside the shortest test timeout', () => {
