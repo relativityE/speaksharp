@@ -1822,7 +1822,7 @@ async function runFixture(page, mode, fixture) {
     if (document.querySelector('[data-testid="app-error"]')) return true;
     if (document.querySelector('[data-testid="app-loading"]')) return false;
     const body = document.body?.textContent ?? '';
-    return /No sessions yet|Error Loading Analytics|Session Not Found/i.test(body);
+    return /No sessions yet|Error Loading (?:Analytics|Progress)|Session Not Found/i.test(body);
   }, null, { timeout: 45_000 }).catch(() => undefined);
   const rawHistoryVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
   result.historyVisible = Boolean(result.sessionPersisted && rawHistoryVisible);
