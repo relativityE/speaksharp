@@ -23,6 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Require existing database password before preflight CLI setup
+        run: |
+          set -euo pipefail
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || { echo '::error::Preflight requires an existing database password; refusing preflight CLI setup'; exit 1; }
+          echo 'Preflight existing database password injection present'
+
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
