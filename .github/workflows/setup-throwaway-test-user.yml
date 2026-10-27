@@ -1,0 +1,34 @@
+name: Admin - One Throwaway Free User
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: setup-throwaway-free-user
+  cancel-in-progress: false
+
+jobs:
+  create-throwaway-free:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+      - name: Create one secret-backed throwaway Free account
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Exception to maintained email Variables: the throwaway identity must remain confidential.
+          THROWAWAY_TEST_EMAIL: ${{ secrets.THROWAWAY_TEST_EMAIL }}
+          THROWAWAY_TEST_PASSWORD: ${{ secrets.THROWAWAY_TEST_PASSWORD }}
+          # Identifiers only, for the shared helper's collision denylist. No maintained passwords.
+          CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
+          CANARY_PAID_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
+        run: node scripts/setup-throwaway-test-user.mjs
