@@ -37,6 +37,8 @@ of profitability. The historical two-attempt tables have **not** been recomputed
 three-attempt scenario. No workbook assumption, price, formula, layout, billing setting
 or provider behavior changes in this documentation correction. Cost measurement remains
 open; source support for diagnostics alone does not close it.
+`#1259` and `#1491` remain historical measurement references; `#1674` is the current
+receiving home for the release and evidence reconciliation.
 
 The October workbook remains byte-identical at SHA-256
 `0be91eb36743ff3260b651fe03fff039b01c4cff140618ce5b9ad3ba89e17575`.
