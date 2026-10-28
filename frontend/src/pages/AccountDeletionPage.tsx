@@ -356,7 +356,7 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
   const matchingExecution = retained && executionAttempt?.ownerId === retained.ownerId
     && executionAttempt.requestId === retained.requestId && signedInMatch ? executionAttempt : null;
   const submitted = !!retained && accountCompletionSubmitted(retained.ownerId, retained.requestId);
-  const executionNotice = shownCompletion?.outcome === 'completed' ? null : matchingExecution?.phase === 'submitting'
+  const executionNotice = shownCompletion ? null : matchingExecution?.phase === 'submitting'
     ? 'Checking your deletion result. Do not submit deletion again.'
     : matchingExecution?.phase === 'pending'
       ? 'Your deletion request is still pending. Check its status; do not submit deletion again.'
@@ -403,7 +403,11 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
           onClick={() => { void completePending(); }}>Complete permanent account deletion</Button>
       </div>}
       {currentStatus && !currentStatus.busy && (confirmationBlocked || currentStatus.value?.outcome === 'pending')
-        && attempt.phase !== 'pending' && <Button className="mt-6" onClick={() => { void refreshStatus(); }}>Check deletion status</Button>}
+        && attempt.phase !== 'pending' && <Button className="mt-6" onClick={() => {
+          // A submitted effect may already have deleted Auth. Recover only through the secured read capability.
+          if (submitted) refreshCompletion();
+          else void refreshStatus();
+        }}>Check deletion status</Button>}
     </>}
     {!user && !loading && !completed && recoverable && <>
       {executionNotice

@@ -189,6 +189,56 @@ describe('explicit pending completion — real page and effect/status transports
     expect(options?.headers).not.toHaveProperty('Authorization');
     expect(JSON.parse(String(options?.body))).toEqual({ action: 'completion_status_read', requestId, token: key });
   });
+  it.each([false, true])('a lost effect response recovers without live Auth; interim unavailable=%s', async (unavailableFirst) => {
+    const original = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => JSON.parse(String(options?.body)).action === 'completion_execute'
+      ? Promise.reject(new Error('response lost after account deletion')) : original(url, options));
+    renderPage(() => true);
+    await confirmCompletion();
+    await screen.findByText(/We could not verify the deletion result/);
+    const ownerId = mocks.user!.id;
+    mocks.session.mockResolvedValue({ data: { session: null }, error: new Error('Auth user no longer exists') });
+    const authCalls = mocks.session.mock.calls.length;
+    if (unavailableFirst) {
+      readReply = { outcome: 'unavailable', canRetry: false };
+      fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    }
+    await waitFor(() => expect(transport).toHaveBeenCalledTimes(unavailableFirst ? 5 : 4));
+    expect(completionCapabilities.get(ownerId, requestId, Date.now())?.acknowledged).toBe(true);
+    readReply = completed;
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    await screen.findByText('Your account has been deleted.');
+    expect(mocks.session).toHaveBeenCalledTimes(authCalls);
+    expect(effects()).toHaveLength(1);
+    expect(completionCapabilities.get(ownerId, requestId, Date.now())?.acknowledged).toBe(true);
+    const options = transport.mock.calls[transport.mock.calls.length - 1][1];
+    expect(options?.headers).not.toHaveProperty('Authorization');
+    expect(JSON.parse(String(options?.body))).toEqual({ action: 'completion_status_read', requestId, token: key });
+  });
+  it.each([
+    ['processing', false], ['processing', true],
+    ['verification_pending', false], ['verification_pending', true],
+  ] as const)('a fresh %s read supersedes the effect pending notice; signed out=%s', async (outcome, signedOut) => {
+    const original = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => JSON.parse(String(options?.body)).action === 'completion_execute'
+      ? Response.json({ outcome: 'pending', requestId, canRetry: false }, { status: 202 }) : original(url, options));
+    const view = renderPage(() => true);
+    await confirmCompletion();
+    await screen.findByText(/Your deletion request is still pending/);
+    if (signedOut) {
+      mocks.user = null;
+      view.rerender(<MemoryRouter><AccountDeletionPage completionReadiness={() => true} /></MemoryRouter>);
+    }
+    const authCalls = mocks.session.mock.calls.length;
+    readReply = outcome === 'processing' ? { outcome, requestId, canRetry: false }
+      : { outcome, requestId, canRetry: false, reason: 'auth_unknown' };
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    await screen.findByText(outcome === 'processing' ? /Your account is being deleted/ : /We cannot confirm the result of your deletion yet/);
+    expect(screen.queryByText(/Your deletion request is still pending/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
+    expect(mocks.session).toHaveBeenCalledTimes(authCalls);
+    expect(effects()).toHaveLength(1);
+  });
 });
 
 describe('deletion confirmation UI — real component, mocked provider boundary', () => {
