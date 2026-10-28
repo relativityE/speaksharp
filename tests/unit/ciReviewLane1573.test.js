@@ -12,6 +12,62 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import { evaluateEngineeringEvidence, ENGINEERING_HOLD } from '../../scripts/ci-engineering-evidence.mjs';
+import { DOCUMENTATION_EVIDENCE_ADMISSION } from '../../scripts/review-qualification.mjs';
+
+describe('#1674 documentation metadata reaches the actual collection CLI', () => {
+    it.each(['accepted', 'wrong blob', 'truncated tree', 'base drift'])('collects and refuses from the same shared reader: %s', scenario => {
+        const root = mkdtempSync(resolve(tmpdir(), 'documentation-collection-'));
+        const head = '985e45332313b2aaf27f9581e0df42be26e618df';
+        const base = '8a79eafa23bd3beeee6d087270acd9ed5a16eb1e';
+        const tree = 'f04e4e4a2cb1e8cdd9d10b0f4957c6a2a7f39b6d';
+        const repo = 'relativityE/speaksharp';
+        const pull = { number: 1674, headRefOid: head, baseRefOid: base, baseRefName: 'main', headRefName: 'docs',
+            baseRepository: { nameWithOwner: repo }, headRepository: { nameWithOwner: repo },
+            files: { nodes: DOCUMENTATION_EVIDENCE_ADMISSION.files.map(({ path }) => ({ path })), pageInfo: { hasNextPage: false } },
+            reviews: { nodes: [{ author: { login: 'chatgpt-codex-connector' }, state: 'COMMENTED', commit: { oid: head },
+                body: 'reviewed', submittedAt: '2026-10-28T17:34:11Z' }], pageInfo: { hasPreviousPage: false } },
+            reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } }, comments: { nodes: [], pageInfo: { hasPreviousPage: false } } };
+        const entries = DOCUMENTATION_EVIDENCE_ADMISSION.files.map(({ oid, ...row }) => ({ ...row, sha: oid, type: 'blob' }));
+        if (scenario === 'wrong blob') entries[0].sha = 'a'.repeat(40);
+        try {
+            writeFileSync(resolve(root, 'fixture.json'), JSON.stringify({ pull, entries, head, base, tree, scenario }));
+            writeFileSync(resolve(root, 'fetch.mjs'), `
+                import { readFileSync, writeFileSync } from 'node:fs';
+                const f=JSON.parse(readFileSync(new URL('./fixture.json',import.meta.url),'utf8'));const calls=[];
+                process.on('exit',()=>writeFileSync(new URL('./calls.json',import.meta.url),JSON.stringify(calls)));
+                globalThis.fetch=async(url,options)=>{
+                    const u=new URL(url);calls.push(u.pathname+u.search);
+                    if(u.origin!=='https://api.github.com'||options.headers.Authorization!=='Bearer synthetic')throw Error('unexpected network');
+                    let value;
+                    if(u.pathname==='/graphql'){
+                        const query=JSON.parse(options.body).query;const pull=structuredClone(f.pull);
+                        if(query.includes('documentationPostimageIdentity')&&f.scenario==='base drift')pull.baseRefOid='b'.repeat(40);
+                        value={data:{repository:{pullRequest:pull}}};
+                    }else if(u.pathname.endsWith('/git/commits/'+f.head))value={sha:f.head,tree:{sha:f.tree}};
+                    else if(u.pathname.endsWith('/git/trees/'+f.tree))value={sha:f.tree,truncated:f.scenario==='truncated tree',tree:f.entries};
+                    else if(u.pathname.endsWith('/activity'))value=[];
+                    else if(u.pathname.endsWith('/branches/main/protection'))value={required_conversation_resolution:{enabled:true},enforce_admins:{enabled:true}};
+                    else if(u.pathname.endsWith('/rules/branches/main'))value=[];
+                    else throw Error('unexpected API');
+                    return {ok:true,status:200,json:async()=>value};
+                };`);
+            const output = resolve(root, 'receipt.json');
+            const child = spawnSync(process.execPath, ['--import', resolve(root, 'fetch.mjs'),
+                resolve(process.cwd(), 'scripts/collect-review-qualification.mjs')], {
+                cwd: process.cwd(), encoding: 'utf8', timeout: 10000,
+                env: { GITHUB_REPOSITORY: repo, GITHUB_TOKEN: 'synthetic', PR_NUMBER: '1674',
+                    EXPECTED_HEAD_SHA: head, REVIEW_QUALIFICATION_FILE: output },
+            });
+            expect(child.error).toBeUndefined();
+            expect(child.status).toBe(scenario === 'accepted' ? 0 : 1);
+            const receipt = JSON.parse(readFileSync(output, 'utf8'));
+            expect(receipt.qualified).toBe(scenario === 'accepted');
+            const calls = JSON.parse(readFileSync(resolve(root, 'calls.json'), 'utf8'));
+            expect(calls).toContain('/repos/' + repo + '/git/commits/' + head);
+            expect(calls).toContain('/repos/' + repo + '/git/trees/' + tree + '?recursive=1');
+        } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+});
 
 const load = (f) => yaml.load(readFileSync(resolve(process.cwd(), '.github/workflows', f), 'utf8'));
 const REVIEW_EVENTS = ['pull_request_review', 'pull_request_review_comment'];

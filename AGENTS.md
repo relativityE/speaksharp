@@ -81,18 +81,20 @@ Treat merge, migration, deployment, activation, live proof, and tester invitatio
 separate decisions. Read-only inspection and dry-run evidence do not authorize the
 corresponding write.
 
-Repository automation can couple otherwise separate decisions. A push to `main` that
-changes `backend/supabase/functions/**`, `backend/supabase/config.toml`, or
-`backend/supabase/import_map.json` starts the path-filtered
-`deploy-supabase-edge-release.yml` caller. Before requesting or executing any merge,
-inspect the PR's Edge-function/config diff and disclose the resulting production action:
+Inspect the actual workflow conditions before describing a merge's effects. The
+path-filtered `deploy-supabase-edge-release.yml` caller currently has `if: false`
+and passes `deploy_production: false`. An ordinary merge does not authorize or perform
+production Edge mutation. Main CI/full-evidence qualification is a separate requirement
+from proof that the default-OFF production path performs no mutation.
 
-- if an Edge trigger path changes, merge and production deployment of the workflow's full
-  reviewed Edge Function list are inseparable; obtain explicit Product Owner authorization
-  for both before merging;
-- if no Edge trigger path changes, the path-filtered Edge caller does not run; still disclose
-  the inspected scope and do not infer frontend or migration deployment from the merge;
-- do not interpret migration or frontend deployment as authorized by that decision.
+Its trigger still matches a push that changes `backend/supabase/functions/**`,
+`backend/supabase/config.toml` or `backend/supabase/import_map.json`. A push without an Edge trigger path
+does not start that caller. A matching trigger does not override the disabled deployment job.
+
+For a separately authorized production action, use the exact source binding, operation,
+reviewed scope and explicit inputs in `product_release/RELEASE_PROCESS.md` §5.1.
+Read current workflow source again before execution; neither merge approval nor a
+successful default-OFF run authorizes migration, frontend deployment or activation.
 
 ## Work And Review Model
 
@@ -449,12 +451,11 @@ Before closing an **unmerged** superseded PR or deleting an unmerged branch, rec
 its requirements to shipped work, an open successor, an explicit rejection, or an
 archive. Preserve substantial unique code with immutable provenance when required.
 
-A push to `main` that changes an Edge trigger path starts `Deploy Supabase Edge release`
-and deploys the workflow's complete reviewed function list. Database migration application
-remains a separately confirmed manual workflow action. A push without an Edge trigger path
-does not start that caller. The frontend may remain undeployed because Vercel can ignore a
-build. Never infer that Edge, migration, or frontend deployed merely because a PR merged;
-inspect the changed paths, job breakdown, and live release identity.
+The path-filtered Edge caller is currently disabled and default-OFF; a merge does not
+deploy its reviewed function list. Database application, Edge deployment and frontend
+deployment require their separately authorized, exact-source procedures. Never infer a
+served release from a merge or green CI; inspect the job breakdown and retained served
+identity receipt under `product_release/RELEASE_PROCESS.md` §5.1.
 
 ## Speech-To-Text Integrity
 
@@ -465,8 +466,8 @@ inspect the changed paths, job breakdown, and live release identity.
   hand off between engines during a recording.
 - Only user-facing STT is Private; `native` remains an internal
   engine token and must not be exposed as the product label.
-- Cloud requires explicit user selection. Private must never silently fall back to Cloud
-  because that changes privacy and cost.
+- Cloud is not a customer engine or entitlement. Private must never fall back to a
+  provider transcription route because that changes privacy and cost.
 - Private model download requires visible user intent and truthful readiness/progress.
 - Only persisted `verified` attribution may support engine-specific analytics,
   benchmarks, or conclusions.

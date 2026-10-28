@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { evaluateReviewQualification, formatReviewQualification } from './review-qualification.mjs';
+import { evaluateReviewQualification, formatReviewQualification, DOCUMENTATION_EVIDENCE_ADMISSION } from './review-qualification.mjs';
 
 const CODEX_LOGINS = new Set(['chatgpt-codex-connector', 'chatgpt-codex-connector[bot]']);
 /**
@@ -278,6 +278,10 @@ export function buildReviewReceipt({ pullRequest, expectedHeadSha }) {
     + p2DispositionFindingIds.length;
 
   const evaluated = evaluateReviewQualification({
+    repository: pullRequest?.baseRepository?.nameWithOwner,
+    pullRequestNumber: pullRequest?.number,
+    baseSha: pullRequest?.baseRefOid,
+    documentationEvidence: pullRequest?.documentationEvidence,
     currentSha: head,
     // #1430 P1 — stamped so a merge decision can require a receipt produced immediately beforehand.
     // A thread reopened after this moment makes this receipt stale, which is how the reopen gap is
@@ -568,6 +572,40 @@ function commentIdentity(comment) {
   return String(comment?.id ?? `${comment?.createdAt ?? ''}\u0000${comment?.author?.login ?? ''}\u0000${comment?.body ?? ''}`);
 }
 
+// Immutable Git metadata only: no document bodies, candidate manifests or executable evidence.
+const DOCUMENTATION_POSTIMAGE_IDENTITY_QUERY = `query documentationPostimageIdentity($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefOid baseRefName headRepository{nameWithOwner} baseRepository{nameWithOwner}}}}`;
+
+async function readDocumentationPostimages({ repository, number, pullRequest, token }) {
+  const admission = DOCUMENTATION_EVIDENCE_ADMISSION;
+  const head = pullRequest.headRefOid, base = pullRequest.baseRefOid;
+  if (repository !== admission.repository || number !== admission.number || pullRequest.number !== number
+      || pullRequest.baseRepository?.nameWithOwner !== repository || pullRequest.headRepository?.nameWithOwner !== repository
+      || pullRequest.baseRefName !== 'main' || !/^[0-9a-f]{40}$/.test(head ?? '') || !/^[0-9a-f]{40}$/.test(base ?? '')
+      || pullRequest.files?.pageInfo?.hasNextPage !== false) return null;
+  const paths = pullRequest.files.nodes.map(row => row.path);
+  const expected = new Set(admission.files.map(row => row.path));
+  if (paths.length !== expected.size || new Set(paths).size !== paths.length || !paths.every(path => expected.has(path))) return null;
+  const commit = await githubRequest(`/repos/${repository}/git/commits/${head}`, token);
+  if (commit?.sha !== head || !/^[0-9a-f]{40}$/.test(commit?.tree?.sha ?? '')) return null;
+  const tree = await githubRequest(`/repos/${repository}/git/trees/${commit.tree.sha}?recursive=1`, token);
+  if (tree?.sha !== commit.tree.sha || tree.truncated !== false || !Array.isArray(tree.tree)) return null;
+  const seen = new Set();
+  const entries = [];
+  for (const row of tree.tree) {
+    if (typeof row?.path !== 'string' || row.path === '' || seen.has(row.path)) return null;
+    seen.add(row.path);
+    if (expected.has(row.path)) entries.push({ path: row.path, oid: row.sha, mode: row.mode, size: row.size, type: row.type });
+  }
+  const [owner, name] = repository.split('/');
+  const final = await githubRequest('/graphql', token, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: DOCUMENTATION_POSTIMAGE_IDENTITY_QUERY, variables: { owner, name, number } }) });
+  const finalPr = final?.data?.repository?.pullRequest;
+  if (final?.errors?.length || !finalPr || pageIdentity(finalPr) !== pageIdentity(pullRequest)
+      || finalPr.number !== number || finalPr.baseRefName !== 'main') return null;
+  return { repository, number, headRepository: repository, baseRef: 'main', headSha: head, baseSha: base,
+    treeSha: tree.sha, complete: true, entries };
+}
+
 export async function readPullRequest({ repository, number, token, pageCap = ISSUE_COMMENT_PAGE_CAP, filesPageCap = CHANGED_FILE_PAGE_CAP }) {
   const [owner, name] = repository.split('/');
   const query = PULL_REQUEST_REVIEW_QUERY;
@@ -624,6 +662,13 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
   });
   // #1438 PM RETURN `5639978861` — the branch moves the Ready-trigger binding is checked against.
   pullRequest.headRefHistory = await readHeadRefHistory({ pullRequest, token });
+  if (repository === DOCUMENTATION_EVIDENCE_ADMISSION.repository && number === DOCUMENTATION_EVIDENCE_ADMISSION.number) {
+    // All consumers (including the live merge guard) use this exported reader.
+    // Never retain an API-supplied/candidate field as evidence if acquisition fails.
+    pullRequest.documentationEvidence = null;
+    try { pullRequest.documentationEvidence = await readDocumentationPostimages({ repository, number, pullRequest, token }); }
+    catch { /* Unreadable metadata keeps the named carrier unqualified. */ }
+  }
   return pullRequest;
 }
 

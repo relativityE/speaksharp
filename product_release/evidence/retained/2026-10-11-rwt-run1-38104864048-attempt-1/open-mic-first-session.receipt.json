@@ -1,0 +1,725 @@
+{
+  "suite": "open-mic-first-session",
+  "release": "cc8e30b4710bf271d765d4bc549a0e534dedf53c",
+  "meta": {
+    "fixture": "open_mic_tts",
+    "fixtureKind": "synthetic",
+    "fixtureSha256": "7f4d6bb6073b580acca4630fef04b74e04279098458782b87598099ae8b19867",
+    "target": "deployed default (diagnostic)",
+    "webgpu": false,
+    "canaryClaim": true,
+    "switchOutcome": "not_requested",
+    "requestedModel": "deployed default",
+    "observedModel": "whisper-base.en",
+    "observedEngine": "transformers-js",
+    "runtimeVersion": "NOT_AVAILABLE",
+    "trace_state": "trace_summarized",
+    "trace_cleanup": "not_needed",
+    "trace_events": 14776,
+    "trace_window_ms": 49845,
+    "trace_main_tasks": 0,
+    "trace_worker_tasks": 0,
+    "trace_main_samples": 4948,
+    "trace_main_top_js": "(script) (fn) 15%; audioUtils.impl-CztclDiU.js:1:3208 I.l.port.onmessage 10%; main-BO8BMEL7.js:70:60018 updateNoiseFloor 6%; main-BO8BMEL7.js:70:85852 r 6%; main-BO8BMEL7.js:70:70871 zt 3%",
+    "trace_main_tail10s_samples": 980,
+    "trace_main_tail10s_top_js": "(script) (fn) 14%; audioUtils.impl-CztclDiU.js:1:3208 I.l.port.onmessage 10%; main-BO8BMEL7.js:70:85852 r 6%; main-BO8BMEL7.js:70:69643 ef 3%; vendor-react-BGN4S3ZQ.js:6:16942 qi 3%",
+    "trace_events_received": 305389,
+    "trace_events_dropped_cap": 0,
+    "fillerBreakdownRead": "read",
+    "transcriptWords": 128,
+    "diag_schema": "rwt-diagnostic-v1",
+    "diag_suite": "open-mic-first-session",
+    "diag_release": "cc8e30b4710bf271d765d4bc549a0e534dedf53c",
+    "diag_last_marker": "row5_stop_settled",
+    "diag_window": "completed",
+    "diag_elapsed_ms": 139535,
+    "proc_sampler": "stopped",
+    "proc_interval_ms": 5000,
+    "proc_samples": 16,
+    "proc_peak_mem_total_mb": 15990,
+    "proc_peak_mem_avail_mb": 12579,
+    "proc_peak_swap_used_mb": 0,
+    "proc_peak_psi_mem_some10": 0,
+    "proc_peak_psi_mem_full10": 0,
+    "proc_peak_psi_cpu_some10": 8.37,
+    "proc_peak_load1": 2.24,
+    "proc_peak_cg_mem_mb": 6602,
+    "proc_peak_cg_oom_kill": 0,
+    "proc_peak_br_procs": 8,
+    "proc_peak_br_rss_mb": 2516,
+    "proc_peak_rss_browser_mb": 186,
+    "proc_peak_rss_renderer_mb": 1750,
+    "proc_peak_rss_gpu_mb": 81,
+    "proc_peak_rss_utility_mb": 875,
+    "proc_peak_rss_zygote_mb": 95,
+    "proc_last_t_s": 82,
+    "proc_last_mem_total_mb": 15990,
+    "proc_last_mem_avail_mb": 13008,
+    "proc_last_swap_used_mb": 0,
+    "proc_last_psi_mem_some10": 0,
+    "proc_last_psi_mem_full10": 0,
+    "proc_last_psi_cpu_some10": 8.37,
+    "proc_last_load1": 2.24,
+    "proc_last_cg_mem_mb": 6042,
+    "proc_last_cg_max_mb": null,
+    "proc_last_cg_oom_kill": 0,
+    "proc_last_br_procs": 8,
+    "proc_last_br_rss_mb": 1862,
+    "proc_last_rss_browser_mb": 186,
+    "proc_last_rss_renderer_mb": 1285,
+    "proc_last_rss_gpu_mb": 70,
+    "proc_last_rss_utility_mb": 226,
+    "proc_last_rss_zygote_mb": 95,
+    "diag_at_row3_entered_ms": 10759,
+    "proc_peak_cpu_browser_pct": 28,
+    "proc_peak_cpu_renderer_pct": 229,
+    "proc_peak_cpu_gpu_pct": 3,
+    "proc_peak_cpu_utility_pct": 99,
+    "proc_last_cpu_browser_pct": 21,
+    "proc_last_cpu_renderer_pct": 193,
+    "proc_last_cpu_gpu_pct": 2,
+    "proc_last_cpu_utility_pct": 83,
+    "diag_at_row3_done_ms": 21642,
+    "diag_window_bound_ms": 529700,
+    "diag_at_trace_start_settled_ms": 21662,
+    "diag_at_row4_take_running_ms": 21663,
+    "diag_at_row4_speech_wait_done_ms": 71371,
+    "diag_at_row4_live_fillers_read_ms": 71382,
+    "diag_at_row4_done_ms": 71382,
+    "diag_at_row5_stop_entered_ms": 71383,
+    "diag_at_row5_stop_settled_ms": 81984
+  },
+  "rows": [
+    {
+      "step": "base_q4 primary",
+      "verdict": "HOLD",
+      "detail": "the one-run switch cannot select v4 base_q4 yet; this run is not base_q4 evidence"
+    },
+    {
+      "step": "signup",
+      "verdict": "PASS",
+      "detail": "fresh account created through the real form; UID, email and profile verified",
+      "evidence": {
+        "signupMs": 1924
+      }
+    },
+    {
+      "step": "session bears canary claim",
+      "verdict": "PASS",
+      "detail": "after the fresh sign-in the session carries the server-issued canary claim"
+    },
+    {
+      "step": "sign-in",
+      "verdict": "PASS",
+      "detail": "signed out and back in through the real form",
+      "evidence": {
+        "signinMs": 1579
+      }
+    },
+    {
+      "step": "Products → Open Mic",
+      "verdict": "PASS",
+      "detail": "the header Products menu opened Open Mic"
+    },
+    {
+      "step": "no mic on navigation",
+      "verdict": "PASS",
+      "detail": "reaching Open Mic did not open the microphone",
+      "evidence": {
+        "acquisitionsBeforeConsent": 0
+      }
+    },
+    {
+      "step": "model identity",
+      "verdict": "PASS",
+      "detail": "the deployed default ran and identified itself (diagnostic; not base_q4 evidence)",
+      "evidence": {
+        "requested": "deployed default",
+        "engine": "transformers-js",
+        "modelId": "whisper-base.en",
+        "runtimeVersion": "NOT_AVAILABLE",
+        "resolvedDevice": "cpu",
+        "backend": "wasm",
+        "fallback": false,
+        "acquisitionMs": 10876,
+        "cpu_hardwareConcurrency": 4,
+        "cpu_crossOriginIsolated": true,
+        "cpu_requestedThreads": 2,
+        "cpu_configuredThreads": 2,
+        "cpu_workerReportedThreads": null
+      }
+    },
+    {
+      "step": "new-account entitlement",
+      "verdict": "PASS",
+      "detail": "the server let the new account start, with room for this journey",
+      "evidence": {
+        "canStart": true,
+        "trialActive": true,
+        "isPro": true
+      }
+    },
+    {
+      "step": "live filler highlighting",
+      "verdict": "PASS",
+      "detail": "fillers were highlighted in the live transcript",
+      "evidence": {
+        "liveFillerMarks": 12
+      }
+    },
+    {
+      "step": "session saved",
+      "verdict": "PASS",
+      "detail": "the take saved",
+      "evidence": {
+        "saveMs": 12234
+      }
+    },
+    {
+      "step": "saved exactly once",
+      "verdict": "PASS",
+      "detail": "one completed session exists for this take",
+      "evidence": {
+        "completedSessions": 1
+      }
+    },
+    {
+      "step": "coaching rendered",
+      "verdict": "PASS",
+      "detail": "exactly two coaching phrases rendered without any click",
+      "evidence": {
+        "reviewState": "ready",
+        "httpStatus": 200,
+        "failureReason": null,
+        "stopToCoachingMs": 19432
+      }
+    },
+    {
+      "step": "coaching length",
+      "verdict": "PASS",
+      "detail": "both phrases within the 8-10-word target",
+      "evidence": {
+        "wellWords": 10,
+        "nextWords": 9,
+        "withinTarget": true
+      }
+    },
+    {
+      "step": "coaching phrases distinct",
+      "verdict": "PASS",
+      "detail": "the two phrases are different suggestions"
+    },
+    {
+      "step": "coaching visible = saved",
+      "verdict": "PASS",
+      "detail": "both visible phrases equal the saved coaching response",
+      "evidence": {
+        "wellMatchesSaved": true,
+        "nextMatchesSaved": true,
+        "savedResponsePresent": true
+      }
+    },
+    {
+      "step": "human: coaching is about this speech",
+      "verdict": "HUMAN",
+      "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize",
+      "evidence": {
+        "observationId": "open_mic_coaching_relevant",
+        "runbookRow": "Product 1 row 5",
+        "passCriterion": "each phrase relates to what was said in this take — not generic advice",
+        "recorded": "pending"
+      }
+    },
+    {
+      "step": "coaching server receipt",
+      "verdict": "PASS",
+      "detail": "the server recorded the provider request for this session"
+    },
+    {
+      "step": "filler \"um\": transcript / display / saved",
+      "verdict": "FAIL",
+      "detail": "the saved count differs from the words in the saved transcript",
+      "evidence": {
+        "transcript": 2,
+        "liveHighlighted": 6,
+        "displayed": 5,
+        "displayRendered": true,
+        "saved": 5
+      }
+    },
+    {
+      "step": "filler \"uh\": transcript / display / saved",
+      "verdict": "PASS",
+      "detail": "the transcript, the displayed breakdown and the saved count agree",
+      "evidence": {
+        "transcript": 0,
+        "liveHighlighted": 0,
+        "displayed": 0,
+        "displayRendered": true,
+        "saved": 0
+      }
+    },
+    {
+      "step": "filler \"ah\": transcript / display / saved",
+      "verdict": "PASS",
+      "detail": "the transcript, the displayed breakdown and the saved count agree",
+      "evidence": {
+        "transcript": 2,
+        "liveHighlighted": 6,
+        "displayed": 2,
+        "displayRendered": true,
+        "saved": 2
+      }
+    },
+    {
+      "step": "filler \"you know\": transcript / display / saved",
+      "verdict": "PASS",
+      "detail": "the transcript and the saved count agree (a discourse marker: tracked, not shown in the review by design)",
+      "evidence": {
+        "transcript": 1,
+        "liveHighlighted": 0,
+        "displayed": null,
+        "displayRendered": false,
+        "saved": 1
+      }
+    },
+    {
+      "step": "filler display matches saved (all words)",
+      "verdict": "PASS",
+      "detail": "every displayed word count equals its saved count",
+      "evidence": {
+        "mismatchedWords": 0
+      }
+    },
+    {
+      "step": "coachable filler headline",
+      "verdict": "PASS",
+      "detail": "the headline equals the saved um+uh+ah (you know excluded)",
+      "evidence": {
+        "headline": 7,
+        "coachable": 7,
+        "youKnowTracked": 1
+      }
+    },
+    {
+      "step": "filler \"um\" vs corpus",
+      "verdict": "FAIL",
+      "detail": "the transcript misses or adds instances",
+      "evidence": {
+        "expected": 4,
+        "transcript": 2
+      }
+    },
+    {
+      "step": "human: spoken \"uh\" detected and saved (human speech)",
+      "verdict": "HUMAN",
+      "detail": "named human RWT observation; record PASS/FAIL in this run's worksheet, then run pnpm rwt:finalize",
+      "evidence": {
+        "observationId": "open_mic_uh_detected",
+        "runbookRow": "Product 1 row 4",
+        "passCriterion": "every spoken \"uh\" (3) is marked live and saved",
+        "recorded": "pending"
+      }
+    },
+    {
+      "step": "filler \"you know\" vs corpus",
+      "verdict": "PASS",
+      "detail": "the transcript holds every spoken instance",
+      "evidence": {
+        "expected": 1,
+        "transcript": 1
+      }
+    },
+    {
+      "step": "Products menu opened in the session",
+      "verdict": "PASS",
+      "detail": "the header Products menu opened and closed on the session page"
+    },
+    {
+      "step": "Back from Progress restores the session",
+      "verdict": "PASS",
+      "detail": "browser Back from Progress restored this saved session read-only, microphone off",
+      "evidence": {
+        "liveTracksAfterBack": 0
+      }
+    },
+    {
+      "step": "restored review",
+      "verdict": "PASS",
+      "detail": "the restored session shows its saved coaching"
+    },
+    {
+      "step": "Back requests no coaching",
+      "verdict": "PASS",
+      "detail": "Progress and Back requested no review",
+      "evidence": {
+        "coachingRequestsBefore": 1,
+        "coachingRequestsAfter": 1
+      }
+    },
+    {
+      "step": "session PDF",
+      "verdict": "PASS",
+      "detail": "the exported PDF contains the saved session transcript",
+      "evidence": {
+        "pdfWords": 241
+      }
+    },
+    {
+      "step": "Analytics action",
+      "verdict": "PASS",
+      "detail": "the on-screen Analytics action opened Analytics and it lists this session"
+    },
+    {
+      "step": "analytics session detail",
+      "verdict": "PASS",
+      "detail": "the session opened from its own control with the saved transcript (digest equal)"
+    },
+    {
+      "step": "reopen after reload",
+      "verdict": "PASS",
+      "detail": "after a hard reload the detail still shows the saved transcript"
+    },
+    {
+      "step": "analytics detail shows both AI suggestions",
+      "verdict": "PASS",
+      "detail": "the session detail shows both saved suggestions, before and after reload",
+      "evidence": {
+        "wellBefore": true,
+        "nextBefore": true,
+        "wellAfterReload": true,
+        "nextAfterReload": true
+      }
+    },
+    {
+      "step": "saved review is the first block",
+      "verdict": "PASS",
+      "detail": "the saved review sits above the Progress panel"
+    },
+    {
+      "step": "\"From this session\" evidence",
+      "verdict": "PASS",
+      "detail": "a product-specific measured line is shown",
+      "evidence": {
+        "evidenceShown": true,
+        "evidenceMatches": true
+      }
+    },
+    {
+      "step": "one practice action",
+      "verdict": "PASS",
+      "detail": "exactly one practice action, with no competing Progress sentence or button"
+    },
+    {
+      "step": "Analytics generates no coaching",
+      "verdict": "PASS",
+      "detail": "opening and reloading Analytics requested no new review",
+      "evidence": {
+        "coachingRequestsBefore": 1,
+        "coachingRequestsAfter": 1
+      }
+    },
+    {
+      "step": "feedback",
+      "verdict": "PASS",
+      "detail": "acknowledged and stored once",
+      "evidence": {
+        "stored": 1
+      }
+    },
+    {
+      "step": "Progress evaluation",
+      "verdict": "PASS",
+      "detail": "the saved session has exactly one Progress evaluation"
+    },
+    {
+      "step": "Progress debt",
+      "verdict": "PASS",
+      "detail": "no completed session is still owed an evaluation",
+      "evidence": {
+        "owed": 0
+      }
+    },
+    {
+      "step": "Analytics Practice again opens the product",
+      "verdict": "FAIL",
+      "detail": "the practice action did not open the session page",
+      "evidence": {
+        "sameSetPending": null,
+        "beforeLinkState": "error",
+        "beforeLabel": "try_again",
+        "afterRoute": "analytics_detail",
+        "afterLinkState": "error",
+        "afterLabel": "try_again",
+        "afterEnabled": true,
+        "diagnosticTimedOut": false
+      }
+    },
+    {
+      "step": "review Practice again starts, no hold",
+      "verdict": "HOLD",
+      "detail": "the practice action did not open the session page"
+    },
+    {
+      "step": "repeated take stopped, microphone off",
+      "verdict": "HOLD",
+      "detail": "the practice action did not open the session page",
+      "evidence": {
+        "liveTracksAfterStop": null
+      }
+    },
+    {
+      "step": "saved product marker",
+      "verdict": "PASS",
+      "detail": "every session this journey saved carries product open_mic",
+      "evidence": {
+        "checked": 1,
+        "found": 1,
+        "matched": 1,
+        "expected": "open_mic"
+      }
+    },
+    {
+      "step": "next Start",
+      "verdict": "PASS",
+      "detail": "the next take started without \"Finishing up\"",
+      "evidence": {
+        "nextStartMs": 895,
+        "holdSeen": false
+      }
+    },
+    {
+      "step": "next take stopped, microphone off",
+      "verdict": "PASS",
+      "detail": "the take stopped and every microphone track ended",
+      "evidence": {
+        "stopped": true,
+        "liveTracksAfterStop": 0
+      }
+    },
+    {
+      "step": "telemetry decodable",
+      "verdict": "PASS",
+      "detail": "every analytics body decoded",
+      "evidence": {
+        "events": 200,
+        "undecodable": 0,
+        "blindBeacons": 0
+      }
+    },
+    {
+      "step": "signup-stage telemetry (user class)",
+      "verdict": "PASS",
+      "detail": "pre-claim signup events were sent as ordinary user traffic (sent, not yet received)",
+      "evidence": {
+        "userEvents": 8,
+        "userJourneys": 5
+      }
+    },
+    {
+      "step": "signup-stage telemetry received",
+      "verdict": "HOLD",
+      "detail": "reported by the report-only user-stage readback step (received counts per family; never qualifying)"
+    },
+    {
+      "step": "journey telemetry (canary class)",
+      "verdict": "PASS",
+      "detail": "post-claim journey events were sent as canary",
+      "evidence": {
+        "canaryEvents": 179,
+        "canaryJourneys": 5,
+        "otherClasses": ""
+      }
+    },
+    {
+      "step": "journey telemetry received",
+      "verdict": "HOLD",
+      "detail": "proven by the readback step and merged at finalization (pnpm rwt:finalize --readback)"
+    },
+    {
+      "step": "telemetry sent",
+      "verdict": "PASS",
+      "detail": "session_saved and feedback_submit left the page (sent, not yet received)",
+      "evidence": {
+        "sessionSaved": 1,
+        "feedbackSubmit": 2,
+        "receivedByStages": "session_after_open_mic,share_feedback",
+        "blindSinceStep": 0
+      }
+    },
+    {
+      "step": "Practice again press → arrival (sent)",
+      "verdict": "HOLD",
+      "detail": "no navigating Practice-again press was sent",
+      "evidence": {
+        "presses": 0,
+        "receivedByStages": "practice_again",
+        "blindSinceStep": 0
+      }
+    },
+    {
+      "step": "feedback outcome (sent)",
+      "verdict": "PASS",
+      "detail": "every Share Feedback attempt resolved to storage_ok with the same boot and submit_seq",
+      "evidence": {
+        "attempts": 1,
+        "stored": 1,
+        "failed": 0,
+        "unresolved": 0,
+        "errorCategory": "none",
+        "receivedByStages": "share_feedback",
+        "blindSinceStep": 0
+      }
+    },
+    {
+      "step": "coaching telemetry sent",
+      "verdict": "PASS",
+      "detail": "review completed, persisted and rendered left the page (sent; received is the session_after_open_mic readback)",
+      "evidence": {
+        "requested": 1,
+        "completed": 1,
+        "persisted": 1,
+        "rendered": 1,
+        "failed": 0,
+        "reviewRenderedStage": 1,
+        "blindBeacons": 0
+      }
+    },
+    {
+      "step": "inventory events sent",
+      "verdict": "PASS",
+      "detail": "products_menu_opened, session_pdf_downloaded and saved_review_revisited left the page (sent; received is qualified by the analytics_inventory stage in the recording journey and the session_pdf_export stage in the journey the PDF landed in)",
+      "evidence": {
+        "productsMenuOpened": 2,
+        "pdfDownloaded": 1,
+        "savedReviewRevisited": 4,
+        "reviewGenerationsRequested": 1,
+        "blindBeacons": 0,
+        "receivedByStages": "analytics_inventory,session_pdf_export",
+        "blindSinceStep": 0
+      }
+    },
+    {
+      "step": "revisit is not a generation",
+      "verdict": "PASS",
+      "detail": "one generated review for the take; the Analytics revisits added none",
+      "evidence": {
+        "reviewGenerationsRequested": 1,
+        "blindBeacons": 0
+      }
+    },
+    {
+      "step": "receipt content-free",
+      "verdict": "PASS",
+      "detail": "no credential, email or coaching text in the receipt"
+    },
+    {
+      "step": "model download vs setup timing",
+      "verdict": "PASS",
+      "detail": "the cold first-use model download and engine setup were measured separately by the app",
+      "evidence": {
+        "evidenceClass": "browser_sent",
+        "acquisitions": 2,
+        "cacheResult": "miss",
+        "completeness": "complete",
+        "downloadMs": 2136,
+        "initMs": 2727,
+        "totalMs": 4863
+      }
+    },
+    {
+      "step": "feedback retention",
+      "verdict": "PASS",
+      "detail": "after the account was deleted, the report is still stored with its user link cleared",
+      "evidence": {
+        "rows": 1,
+        "userLinkCleared": true
+      }
+    },
+    {
+      "step": "readback journey binding",
+      "verdict": "HOLD",
+      "detail": "no journey emitted the anchor for: repeat_recording, share_feedback, session_pdf_export",
+      "evidence": {
+        "missingBindings": "repeat_recording,share_feedback,session_pdf_export"
+      }
+    }
+  ],
+  "summary": {
+    "pass": 51,
+    "fail": 3,
+    "hold": 7,
+    "human": 2
+  },
+  "acceptance": "FAIL",
+  "automatedRowsAllPass": false,
+  "nonGating": [
+    {
+      "step": "base_q4 primary",
+      "verdict": "HOLD",
+      "reason": "PO 2026-09-28: v4 base_q4 activation is sequenced after RWT; the pre-v4 RWT may pass without it"
+    },
+    {
+      "step": "signup-stage telemetry received",
+      "verdict": "HOLD",
+      "reason": "PO 2026-09-28: pre-claim user-class traffic is report-only and never qualifies"
+    }
+  ],
+  "humanObservations": [
+    {
+      "id": "open_mic_coaching_relevant",
+      "runbookRow": "Product 1 row 5",
+      "result": "pending"
+    },
+    {
+      "id": "open_mic_uh_detected",
+      "runbookRow": "Product 1 row 4",
+      "result": "pending"
+    }
+  ],
+  "readback": {
+    "journeys": [
+      {
+        "journeyId": "6b29d535-c093-4969-a149-2018e6dafd74",
+        "stages": [
+          "session_during",
+          "session_after_open_mic",
+          "analytics_inventory"
+        ],
+        "firstDownload": true,
+        "attemptIds": [
+          "359a47eb-f4c1-4c85-b06c-5d497dbfe4a7"
+        ]
+      },
+      {
+        "journeyId": "14bcb70c-b6f3-4ca8-8020-59a810217ac4",
+        "stages": [
+          "practice_again"
+        ]
+      }
+    ],
+    "reportedJourneyIds": [
+      "ec94dd84-5bf7-4dc0-8f09-abbb3daed07e",
+      "ccf00555-1644-44c6-ac66-4d22755ddf77",
+      "14d748b4-a941-46d0-ab33-3cf7235870ee"
+    ],
+    "missingBindings": [
+      "repeat_recording",
+      "share_feedback",
+      "session_pdf_export"
+    ],
+    "trafficType": "canary",
+    "trafficTypes": [
+      "user",
+      "canary"
+    ],
+    "userStageJourneyIds": [
+      "b87fff60-dc85-4a89-a820-77bd16c3d8d1",
+      "385b988b-a182-4bd7-b6f9-b6d08ec0e0c8",
+      "4c411373-7659-4d72-b523-df83a888f9e3",
+      "e6d6e411-6273-481d-8df4-82f62ce79b62",
+      "4233c347-c344-4f9b-870d-2afe6e4f25b3"
+    ]
+  },
+  "testStatus": "failed"
+}

@@ -6,11 +6,20 @@
 **Current interpretation:** [`../../STT.md`](../../STT.md)
 **Global evidence index:** [`../../EVIDENCE_INDEX.md`](../../EVIDENCE_INDEX.md)
 
-This directory is the permanent home for SpeakSharp's speech-to-text model evaluations, benchmark reports, raw captures, rejected experiments, and model-selection history. It is deliberately outside `product_release/archive/`: the archive is disposable, while model evidence must remain available when a future runtime or model is compared with earlier work.
+This directory indexes SpeakSharp's speech-to-text model evaluations, raw captures,
+rejected experiments and model-selection history. Preserve original result identities
+and provenance when comparing a later runtime or model. A narrative's presence here
+does not by itself justify permanent retention: review its unique content and consumers,
+map surviving obligations to canonical headings, and obtain the required disposition
+before removing it. Archives remain untouched in the current documentation closeout.
 
 ## Retention rule
 
-Do not delete or rewrite an STT result because a newer result supersedes it. Record the later requalification beside the earlier result and name why the earlier interpretation changed: corpus, normalizer, runtime, assets, backend, harness defect, contamination, alias, or policy.
+Do not rewrite an STT result because a newer result supersedes it. Preserve raw outcomes,
+hashes and recoverable provenance; record later requalification separately and name why
+the interpretation changed: corpus, normalizer, runtime, assets, backend, harness defect,
+contamination, alias or policy. Consolidating a historical Markdown narrative must not
+erase a failed/rejected candidate, missing proof or an outstanding acceptance obligation.
 
 Every evaluated model/configuration must remain visible, including:
 
