@@ -76,6 +76,23 @@ test('retention128 keeps the actual successor identity over the unchanged seven 
   assert.equal(queries.length, 7);
 });
 
+test('billing129 preserves actual successor identity through seven historical snapshots', () => {
+  // Fake SQL protocol evidence only; settlement129 and native races have separate proofs.
+  const successor = { ...identity, profile: 'main-completion-billing-129' };
+  const { proof, saved, queries } = fixture(undefined, successor);
+  for (let n = 0; n < 7; n++) {
+    proof.record(n);
+    assert.equal(proof.report().status, 'INCOMPLETE');
+  }
+  const done = proof.finish();
+  assert.equal(done.status, 'PASS');
+  assert.deepEqual(done.stages.map(row => row.stage), [0, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(done.identity, successor);
+  assert.equal(saved.at(-1).identity.profile, successor.profile);
+  assert.equal(queries.length, 7);
+  assert.deepEqual(done.sourceHashes, fixture().proof.report().sourceHashes);
+});
+
 for (let broken = 0; broken < 7; broken++) {
   test(`stage${broken}: actual catalog digest drift is rejected and retained, later snapshots cannot repair it`, () => {
     const { proof, saved } = fixture((row, stage) => {

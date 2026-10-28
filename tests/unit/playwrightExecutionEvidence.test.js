@@ -86,7 +86,7 @@ function installedFixture() {
   const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'ordinary-playwright-receipt-')));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(path.join(directory,file)),{recursive:true});fs.writeFileSync(path.join(directory,file),bytes);};
   for(const file of ['scripts/efficacy-playwright-reporter.mjs','scripts/efficacy-reporter.mjs',
-    'scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/testExecutionEvidence.mjs',
+    'scripts/lib/playwrightExecutionEvidence.mjs','scripts/lib/testExecutionEvidence.mjs','scripts/lib/nativeTestExecutionEvidence.mjs',
     'scripts/lib/helperExecutionEvidence.mjs','scripts/lib/sourceContractEvidence.mjs',
     'scripts/lib/softwareQualityEvidenceQualification.mjs','scripts/coverage-thresholds.mjs']) {
     write(file,fs.readFileSync(path.join(root,file)));
