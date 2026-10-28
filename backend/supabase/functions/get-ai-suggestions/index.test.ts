@@ -114,6 +114,7 @@ let fetchErrorMessage = 'network unreachable';
 let geminiExtra: Record<string, unknown> = {};
 let lastPrompt = '';
 let lastRequestBody: Record<string, unknown> = {};
+const capturedProviderRequests: Array<{ url: string; body: Record<string, unknown> }> = [];
 let lastRequestUrl = '';
 /**
  * #1424 correction 1 — EVERY outbound request is recorded BEFORE it is classified.
@@ -165,6 +166,8 @@ globalThis.fetch = async (url, init) => {
   }
   fetchCount++;
   lastRequestUrl = requested;
+  const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
+  capturedProviderRequests.push({ url: requested, body: body as Record<string, unknown> });
   retryClock.mono += retryClock.providerCallMs;
   if (abortDuringFetch) {
     abortDuringFetch.abort();
@@ -172,7 +175,6 @@ globalThis.fetch = async (url, init) => {
     throw new DOMException('The signal has been aborted', 'AbortError');
   }
   if (fetchThrows || fetchFailuresRemaining-- > 0) throw new TypeError(fetchErrorMessage);
-  const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
   lastRequestBody = body as Record<string, unknown>;
   const thisStatus = fetchStatusQueue.length > 0 ? Number(fetchStatusQueue.shift()) : fetchStatus;
@@ -356,6 +358,7 @@ function resetProvider() {
   fetchCount = 0;
   fetchStatus = 200;
   fetchStatusQueue = [];
+  capturedProviderRequests.length = 0;
   geminiText = JSON.stringify(suggestionA);
   adaptiveGemini = false;
   geminiModelVersion = 'gemini-3.8-flash';
@@ -1035,6 +1038,29 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(mock.state.quotaCount, 1, 'exhausting the retry still costs exactly one slot');
   });
 
+  for (const statuses of [[200], [503, 200], [503, 503, 200], [503, 500, 502]]) {
+    await t.step(`explicit low thinking is sent on every actual mocked attempt: ${statuses.join('/')}`, async () => {
+      resetProvider();
+      fetchStatusQueue = [...statuses];
+      const mock = mockSupabase({ session: savedSession() });
+      const response = await handler(request(), mock.create);
+      assertEquals(response.status, statuses.at(-1) === 200 ? 200 : 502);
+      assertEquals(capturedProviderRequests.length, statuses.length, 'every initial/retry request was captured');
+      assertEquals(mock.state.quotaCount, 1, 'one coaching action still consumes one slot');
+      for (const sent of capturedProviderRequests) {
+        const url = new URL(sent.url);
+        assertEquals(url.origin, APPROVED_GEMINI_ORIGIN);
+        assertEquals(url.pathname, '/v1beta/models/gemini-3.8-flash:generateContent');
+        const config = sent.body.generationConfig as Record<string, unknown>;
+        // Literal wire expectation: changing the contract and sender together cannot hide a regression.
+        assertEquals(config.thinkingConfig, { thinkingLevel: 'low' });
+        assertEquals('maxOutputTokens' in config, false, 'the existing output-token default remains unchanged');
+        assertEquals(config.responseMimeType, 'application/json');
+        assertEquals(config.responseSchema, coachingContract.generationConfig.responseSchema);
+      }
+    });
+  }
+
   await t.step('CONTROL: a provider 4xx is not retried — a second identical ask cannot change it', async () => {
     resetProvider();
     fetchStatus = 400;
@@ -1358,6 +1384,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(diagnostics.provider_status, 429);
     assertEquals(diagnostics.provider_error_status, 'RESOURCE_EXHAUSTED');
     assertEquals(diagnostics.provider_error_reason, 'RATE_LIMIT_EXCEEDED');
+    assertEquals(JSON.parse(text).code, 'provider_http_4xx');
+    assertEquals(JSON.parse(text).error, 'The service rate limit was exceeded.');
+    assertEquals(diagnostics.error_descriptor, { origin: 'provider', http_status: 429,
+      canonical_status: 'RESOURCE_EXHAUSTED', local_code: null });
     // #1258 option A (PM 6156942445): a provider 429 is transient and retried inside the one app-quota charge.
     assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status, diagnostics.attempt_3_status],
       ['provider_http_4xx', 429, 429]);
@@ -1365,6 +1395,31 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(text.includes(echo), false, 'the response never carries provider text');
     assertEquals(logged.some((line) => line.includes(echo)), false, 'no log line carries provider text');
     assertEquals(logged.some((line) => line.includes('RESOURCE_EXHAUSTED')), true, 'the decoded code IS logged');
+  });
+
+  await t.step('#1742 received provider failures preserve origin, canonical meaning and safe text end to end', async () => {
+    for (const [http, canonical, expected, origin] of [
+      [402, 'RESOURCE_EXHAUSTED', 'The service credit balance is depleted.', 'provider'],
+      [500, 'UNKNOWN', 'Unknown error.', 'provider'],
+      [503, 'UNAVAILABLE', 'The service is temporarily unavailable.', 'provider'],
+      [503, 'SECRET_TRANSCRIPT_WORDS', 'Unknown error.', 'local_normalization'],
+    ] as const) {
+      resetProvider();
+      fetchStatus = http;
+      providerErrorBody = JSON.stringify({ error: { status: canonical, message: 'SECRET_TRANSCRIPT_WORDS' } });
+      const mock = mockSupabase({ session: savedSession() });
+      const response = await handler(request(), mock.create);
+      const body = await response.json();
+      assertEquals(response.status, 502, 'outer failure policy stays unchanged');
+      assertEquals(body.code, http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx');
+      assertEquals(body.error, expected);
+      assertEquals(body.diagnostics.error_descriptor, { origin, http_status: http,
+        canonical_status: origin === 'provider' ? canonical : 'UNKNOWN',
+        local_code: origin === 'provider' ? null : 'provider_http_5xx' });
+      assertEquals(JSON.stringify(body).includes('SECRET_TRANSCRIPT_WORDS'), false);
+      assertEquals(mock.state.rpcCount, 1, 'all internal retries share one quota charge');
+      assertEquals(mock.state.authorityRpcCount, 0, 'no failed answer is persisted');
+    }
   });
 
   await t.step('each attempt is recorded: a 503 then a success names both, with the answer\'s token counts', async () => {
@@ -1381,6 +1436,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
     assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
     assertEquals(diagnostics.provider_error_status, null, 'the codes describe the LAST attempt, which succeeded');
+    assertEquals('error_descriptor' in diagnostics, false, 'success wire format stays unchanged');
     assertEquals([diagnostics.provider_prompt_tokens, diagnostics.provider_output_tokens, diagnostics.provider_thinking_tokens,
       diagnostics.provider_total_tokens], [812, 46, 1903, 2761]);
   });
@@ -1404,6 +1460,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_timeout', null]);
       assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['provider_timeout', null]);
       assertEquals(diagnostics.provider_error_status, null, 'a timeout has no provider code to decode');
+      assertEquals(diagnostics.error_descriptor, { origin: 'local_timeout', http_status: null,
+        canonical_status: null, local_code: 'provider_timeout' });
     } finally {
       globalThis.fetch = original;
     }

@@ -53,7 +53,9 @@ Deno.test("get-ai-suggestions CORS: hostile normal → 403 BEFORE Supabase/AI", 
   const res = await handler(req("POST", HOSTILE, "Bearer x"), s.createSupabase);
   assertEquals(res.status, 403);
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), null);
-  assertEquals((await res.json()).error.code, "origin_not_allowed");
+  assertEquals(await res.json(), {
+    error: { code: "origin_not_allowed", message: "Origin not allowed" },
+  });
   assertEquals(s.calls.createSupabase, 0);
 });
 

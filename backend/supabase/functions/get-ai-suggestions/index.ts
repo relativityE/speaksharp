@@ -3,7 +3,8 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import {
-  decodeProviderAnswer, decodeProviderError, readBoundedBody, type ProviderAnswerCodes, type ProviderErrorCodes,
+  coachingErrorDescriptor, get_error_string, decodeProviderAnswer, decodeProviderError, readBoundedBody,
+  type ProviderAnswerCodes, type ProviderErrorCodes,
 } from './providerDecode.ts';
 import {
   attemptTimeoutMs, canAdmitAttempt, isRetryableProviderStatus, MAX_PROVIDER_ATTEMPTS, parseRetryAfter, planNextAttempt,
@@ -503,6 +504,8 @@ export async function handler(
   let coachingOutcomeUnknown = false;
   const finish = (payload: Record<string, unknown>, status: number): Response => {
     const rawReason = closedDiagnosticReason(payload, status, diagnosticPhase);
+    const errorDescriptor = status >= 200 && status < 300 ? null
+      : coachingErrorDescriptor(rawReason, providerStatus, providerErrorCodes);
     const diagnostic = {
       schema_version: 'coaching_diagnostic_v1',
       request_id: diagnosticRequestId,
@@ -552,10 +555,16 @@ export async function handler(
     };
     // Structured, content-free log line is the fallback diagnostic path when Sentry is absent.
     console.info('AI_COACHING_DIAGNOSTIC', JSON.stringify(diagnostic));
-    const responseDiagnostic = sessionBindingSha256
+    const boundDiagnostic = sessionBindingSha256
       ? { ...diagnostic, session_binding_sha256: sessionBindingSha256 }
       : diagnostic;
-    return new Response(JSON.stringify({ ...payload, diagnostics: responseDiagnostic }), {
+    const responseDiagnostic = errorDescriptor
+      ? { ...boundDiagnostic, error_descriptor: errorDescriptor } : boundDiagnostic;
+    // Preserve existing closed wire codes; the display string is always catalog-owned.
+    const responsePayload = errorDescriptor ? { ...payload,
+      code: typeof payload.code === 'string' ? payload.code : rawReason,
+      error: get_error_string(errorDescriptor) } : payload;
+    return new Response(JSON.stringify({ ...responsePayload, diagnostics: responseDiagnostic }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status,
     });
