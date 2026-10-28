@@ -25,7 +25,8 @@ export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
   const save = () => retain(structuredClone(receipt));
   let contract;
   try {
-  contract = t2ReleaseContract(root, sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`));
+  contract = t2ReleaseContract(root, sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`),
+    { catalogContext: 'native-replay' });
   receipt.profile = contract.profile;
   receipt.sourcePins = contract.pins;
   receipt.knownAbsent = contract.knownAbsent;
@@ -52,6 +53,36 @@ export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
     assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /known129 function family/);
     receipt.absenceNegatives.push({ name, refused: true, rows: changed, rollback: true });
     save();
+  }
+  receipt.inheritedAclContexts = [];
+  if (stage === 128) {
+    const production = t2ReleaseContract(root, contract.ledger, { catalogContext: 'retained-production' });
+    const progress = 'REVOKE EXECUTE ON FUNCTION public.record_progress_evaluation(uuid) FROM service_role;';
+    const state = 'REVOKE EXECUTE ON FUNCTION public.sessions_set_transcript_state() FROM anon,authenticated,service_role;';
+    // Fixture-only metadata reconstruction of the independently observed
+    // retained ACLs. Never run against Production or alter migration sources.
+    for (const [name, mutation, accepted] of [
+      ['retained-production-pair', progress + state, true],
+      ['mixed-progress-only', progress, false],
+      ['mixed-state-only', state, false],
+      ['retained-extra-role', progress + state + 'GRANT EXECUTE ON FUNCTION public.record_progress_evaluation(uuid) TO anon;', false],
+      ['retained-grantable', progress + state + 'GRANT EXECUTE ON FUNCTION public.record_progress_evaluation(uuid) TO authenticated WITH GRANT OPTION;', false],
+    ]) {
+      const changed = sql(`BEGIN; ${mutation}\n${snapshotInTransaction}\nROLLBACK;`).trim().split('\n');
+      let result;
+      if (accepted) {
+        result = assertT2ReleaseSnapshot(production, changed);
+        assert.equal(result.catalogContext, 'retained-production');
+      } else {
+        assert.throws(() => assertT2ReleaseSnapshot(production, changed), /T2 catalog mismatch/);
+      }
+      assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /T2 catalog mismatch/,
+        'retained or mixed ACLs must not masquerade as the native profile');
+      receipt.inheritedAclContexts.push({ name, accepted, result, rows: changed, rollback: true });
+      save();
+    }
+    assert.throws(() => assertT2ReleaseSnapshot(production, rows), /T2 catalog mismatch/,
+      'Production must not fall back to the complete native ACL pair');
   }
   const negatives = receipt.negatives;
   for (const [name, mutation] of [

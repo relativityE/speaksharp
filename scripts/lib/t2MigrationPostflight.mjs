@@ -363,6 +363,16 @@ const T2_C1_RELEASE_DELTAS = Object.freeze([
   }
 ].map(Object.freeze));
 
+// Both identities are independently reproduced by the same pinned migration
+// sources with their declared pre-existing function-default context. Expanded
+// Production/native comparison found ONLY these inherited ACL differences.
+// Never choose a context from an observed digest: the operational executable
+// explicitly selects retained-production; disposable replay selects native.
+const RETAINED_PRODUCTION_POST128 = Object.freeze({
+  'function:public.record_progress_evaluation(uuid)': '05303c002e98a6d7e74653464c3374fa',
+  'function:public.sessions_set_transcript_state()': '9f8558a346fc95825d9e6d2fbcef8c1f',
+});
+
 // Reviewed source is present in the release tree, but its installation is NOT
 // admitted by these profiles. Absence covers the family, not just one overload.
 const NEXT_RELEASE_SOURCE = Object.freeze({ version: '20261027192550',
@@ -427,7 +437,15 @@ export function t2ReleaseLedgerQuery() {
     FROM supabase_migrations.schema_migrations WHERE version >= '${T2_VERSIONS[0]}';`;
 }
 
-export function t2ReleaseContract(root, installed) {
+export function t2ReleaseContract(root, installed, options = {}) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)
+    || Object.keys(options).some(key => key !== 'catalogContext')) {
+    throw new Error('T2 release catalog context unknown');
+  }
+  const catalogContext = Object.hasOwn(options, 'catalogContext') ? options.catalogContext : 'native-replay';
+  if (!['native-replay', 'retained-production'].includes(catalogContext)) {
+    throw new Error('T2 release catalog context unknown');
+  }
   const ledger = typeof installed === 'string' ? JSON.parse(installed) : installed;
   const versions = [...T2_VERSIONS, ...C1_VERSIONS];
   if (!Array.isArray(ledger) || ![6, 7, 8].includes(ledger.length)
@@ -459,7 +477,8 @@ export function t2ReleaseContract(root, installed) {
     triggers: [...new Set([...T2_INVENTORY.triggers, ...c1Sources.flatMap(source =>
       [...source.matchAll(/CREATE TRIGGER ([a-z_0-9]+)/g)].map(match => match[1]))])].sort(),
   };
-  const expected = Object.assign({}, T2_CATALOG_STATES.at(-1), ...T2_C1_RELEASE_DELTAS.slice(0, stage));
+  const expected = Object.assign({}, T2_CATALOG_STATES.at(-1), ...T2_C1_RELEASE_DELTAS.slice(0, stage),
+    stage === 2 && catalogContext === 'retained-production' ? RETAINED_PRODUCTION_POST128 : {});
   // The independent source-derived C1 checker also refuses future/partial
   // objects and old body/ACL/trigger shapes, even before their ledger entry.
   const c1 = stage === 2 ? c1Contract(root, 'after', C1_VERSIONS[1])
@@ -476,7 +495,7 @@ export function t2ReleaseContract(root, installed) {
     throw new Error('T2 release future function shape unavailable');
   }
   const absentFamilies = futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
-  return { profile: `post-${126 + stage}`, stage, ledger: [...ledger], pins, inventory, expected, c1,
+  return { profile: `post-${126 + stage}`, catalogContext, stage, ledger: [...ledger], pins, inventory, expected, c1,
     knownAbsent: { ...NEXT_RELEASE_SOURCE, families: absentFamilies } };
 }
 
@@ -509,7 +528,7 @@ export function assertT2ReleaseSnapshot(contract, rows) {
       || !Number.isFinite(Date.parse(c1.activation[0].activated_at))))) {
     throw new Error('T2 release retention state unavailable');
   }
-  return { profile: contract.profile, catalog, disabled, c1Checks: names.length, passed: true };
+  return { profile: contract.profile, catalogContext: contract.catalogContext, catalog, disabled, c1Checks: names.length, passed: true };
 }
 
 export function t2ReleaseSnapshotQuery(contract) {

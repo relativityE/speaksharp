@@ -18,6 +18,7 @@ const read = path => readFileSync(join(root, path), 'utf8');
 for (const stage of [127, 128]) test(`post${stage} observer requires real validator results and separate restored negative controls`, () => {
   const ledger = [...T2_VERSIONS, '20261024083000', ...(stage === 128 ? ['20261025021046'] : [])];
   const contract = t2ReleaseContract(root, ledger);
+  const production = t2ReleaseContract(root, ledger, { catalogContext: 'retained-production' });
   const rows = [JSON.stringify(ledger), JSON.stringify(contract.expected),
     JSON.stringify({ billing_disabled: true, completion_disabled: true }), 'true',
     JSON.stringify({ checks: c1CatalogQuery(contract.c1).names.map(name => ({ name, ok: true })),
@@ -27,6 +28,18 @@ for (const stage of [127, 128]) test(`post${stage} observer requires real valida
   const queries = [], receipts = [];
   const sql = query => {
     queries.push(query);
+    if (query.includes('ROLLBACK') && (query.includes('REVOKE EXECUTE ON FUNCTION public.record_progress_evaluation')
+      || query.includes('REVOKE EXECUTE ON FUNCTION public.sessions_set_transcript_state'))) {
+      const catalog = { ...contract.expected };
+      for (const [name, signature] of [['record_progress_evaluation', 'uuid'], ['sessions_set_transcript_state', '']]) {
+        const key = `function:public.${name}(${signature})`;
+        if (query.includes(`REVOKE EXECUTE ON FUNCTION public.${name}`)) catalog[key] = production.expected[key];
+      }
+      if (query.includes('TO anon;') || query.includes('WITH GRANT OPTION')) {
+        catalog['function:public.record_progress_evaluation(uuid)'] = '0'.repeat(32);
+      }
+      const altered = [...rows]; altered[1] = JSON.stringify(catalog); return altered.join('\n');
+    }
     if (query.includes('ROLLBACK') && query.includes('CREATE FUNCTION public.settle_account_completion_billing_v1')) {
       const partial = [...rows]; partial[5] = 'false'; return partial.join('\n');
     }
@@ -42,8 +55,12 @@ for (const stage of [127, 128]) test(`post${stage} observer requires real valida
   assert.deepEqual(result.negatives.map(row => row.name), ['restored-service-execute', 'changed-delete-guard-body']);
   assert.equal(receipts.at(-1).status, 'PASS');
   assert.equal(receipts[0].status, 'INCOMPLETE');
-  assert.equal(queries.filter(query => query.includes('ROLLBACK')).length, 4);
-  assert.equal(queries.filter(query => query.includes('checks AS')).length, 4);
+  assert.equal(queries.filter(query => query.includes('ROLLBACK')).length, stage === 128 ? 9 : 4);
+  assert.equal(queries.filter(query => query.includes('checks AS')).length, stage === 128 ? 9 : 4);
+  assert.deepEqual(result.inheritedAclContexts.map(row => [row.name, row.accepted]), stage === 128 ? [
+    ['retained-production-pair', true], ['mixed-progress-only', false], ['mixed-state-only', false],
+    ['retained-extra-role', false], ['retained-grantable', false],
+  ] : []);
   assert.deepEqual(result.absenceNegatives.map(row => row.name), ['actual129-without-ledger', 'known129-family-overload']);
   const broken = [...rows]; broken[3] = 'false';
   const failed = [];
