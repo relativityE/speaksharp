@@ -207,6 +207,7 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
         || ownerAndRequest.current.requestId !== requestId) return;
       if (result.outcome === 'completed') {
         setCompletionView({ ownerId, requestId, value: result });
+        setCompletion({ ownerId, message: 'Your account has been deleted.' });
         setExecutionAttempt(null);
         try { await signOut(); } catch { /* retain the verified result and status recovery capability */ }
       } else {

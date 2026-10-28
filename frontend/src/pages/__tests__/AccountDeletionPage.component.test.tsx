@@ -86,6 +86,7 @@ describe('explicit pending completion — real page and effect/status transports
     renderPage(() => true);
     await confirmCompletion();
     await screen.findByText('Your account has been deleted.');
+    expect(screen.queryByText('Deleting your account is permanent. Your practice data and preferences will be removed.')).not.toBeInTheDocument();
     expect(effects()).toHaveLength(1);
     expect(transport.mock.calls.map(([, options]) => JSON.parse(String(options?.body)).action)).toEqual([
       'completion_status_issue', 'completion_status_ack', 'completion_status_read', 'completion_execute',
