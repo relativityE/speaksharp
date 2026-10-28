@@ -55,6 +55,22 @@ function reviewed1740Transition(input) {
         reviewWorkflowBlob: blobs.baseReview, authority: 'PO bounded #1740 transition, 2026-10-28' };
 }
 
+/** Separately selected #1747 only; the #1740 admission above remains unchanged. */
+function reviewed1747Transition(input) {
+    const blobs = input.workflowBlobs;
+    if (input.workflowUnchanged !== false || input.repository !== 'relativityE/speaksharp' || input.pr !== 1747
+        || input.baseRepository !== input.repository || input.headRepository !== input.repository || input.baseRef !== 'main'
+        || !fullSha(input.liveHeadSha) || !fullSha(input.liveBaseSha) || !fullSha(input.expectedHeadSha)
+        || input.headContainsBase !== true || input.runsComplete !== true || input.jobsComplete !== true
+        || !blobs || blobs.baseCi !== 'f2d3223191d8cbbb0ccfcc328270a1d51e54d491'
+        || blobs.headCi !== '8dd161fdee91ff4f3f9f1dcc3d635c047c590b54'
+        || blobs.baseReview !== '9c948004790029105bf437058d8913ecf7439c40'
+        || blobs.headReview !== blobs.baseReview) return null;
+    return { repository: input.repository, pr: input.pr, baseRef: input.baseRef,
+        baseCi: blobs.baseCi, headCi: blobs.headCi, reviewWorkflowUnchanged: true,
+        reviewWorkflowBlob: blobs.baseReview, authority: 'PO bounded #1747 generic transition, 2026-10-28' };
+}
+
 /**
  * `workflowUnchanged` (Codex Security P2 4233624706): a PR runs ITS OWN `ci.yml`, so a candidate that edits it could replace
  * the jobs with no-ops carrying the same names. Job names only prove anything when the head's `ci.yml` is the live base's.
@@ -67,7 +83,7 @@ export function evaluateEngineeringEvidence(input) {
         runsComplete, jobsComplete } = input;
     const hold = (reason, runId = null) => ({ qualified: false, runId, reasons: [reason] });
     if (expectedHeadSha && expectedHeadSha !== liveHeadSha) return hold(ENGINEERING_HOLD.HEAD_MOVED);
-    const workflowTransition = reviewed1740Transition(input);
+    const workflowTransition = reviewed1740Transition(input) || reviewed1747Transition(input);
     if (workflowUnchanged !== true && !workflowTransition) return hold(ENGINEERING_HOLD.WORKFLOW_MODIFIED);
     if (runsComplete === false || jobsComplete === false) return hold(ENGINEERING_HOLD.EVIDENCE_INCOMPLETE);
     const candidates = (runs ?? [])

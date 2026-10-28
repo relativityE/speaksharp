@@ -140,6 +140,134 @@ describe('owner-selected #1740 exact reviewed workflow transition', () => {
     });
 });
 
+describe('owner-selected #1747 exact reviewed workflow transition', () => {
+    const HEAD = 'a'.repeat(40), BASE = 'b'.repeat(40);
+    const oldCi = 'f2d3223191d8cbbb0ccfcc328270a1d51e54d491';
+    const newCi = '8dd161fdee91ff4f3f9f1dcc3d635c047c590b54';
+    const review = '9c948004790029105bf437058d8913ecf7439c40';
+    const run = (extra = {}) => ({ id: 174700, run_attempt: 1, event: 'pull_request', status: 'completed', conclusion: 'success',
+        head_sha: HEAD, created_at: '2026-10-28T00:00:00Z', pull_requests: [{ number: 1747, base: { sha: BASE } }], ...extra });
+    const jobs = () => ({ scope: 'success', 'full-evidence': 'success', report: 'success', build: 'success' });
+    const input = () => ({ repository: 'relativityE/speaksharp', baseRepository: 'relativityE/speaksharp',
+        headRepository: 'relativityE/speaksharp', baseRef: 'main', pr: 1747, liveHeadSha: HEAD, liveBaseSha: BASE,
+        expectedHeadSha: HEAD, headContainsBase: true, workflowUnchanged: false,
+        workflowBlobs: { baseCi: oldCi, headCi: newCi, baseReview: review, headReview: review },
+        runsComplete: true, jobsComplete: true, runs: [run()], jobsByRun: { 174700: jobs() } });
+    it('admits only the named real transition and records it rather than pretending the workflow is unchanged', () => {
+        const decision = evaluateEngineeringEvidence(input());
+        expect(decision).toMatchObject({ qualified: true, runId: 174700, reasons: [], workflowTransition: {
+            repository: 'relativityE/speaksharp', pr: 1747, baseRef: 'main', baseCi: oldCi, headCi: newCi,
+            reviewWorkflowUnchanged: true,
+        } });
+        expect(input().workflowUnchanged).toBe(false);
+    });
+    it.each([
+        ['wrong repository', { repository: 'other/speaksharp' }], ['wrong base repository', { baseRepository: 'other/speaksharp' }],
+        ['fork head', { headRepository: 'other/speaksharp' }], ['another PR', { pr: 1745 }],
+        ['missing PR', { pr: undefined }], ['non-main base', { baseRef: 'release' }],
+        ['missing base', { liveBaseSha: undefined }], ['missing head', { liveHeadSha: undefined }],
+        ['missing expected head', { expectedHeadSha: undefined }], ['unknown workflow identity', { workflowUnchanged: undefined }],
+        ['base not included', { headContainsBase: false }], ['incomplete run history', { runsComplete: false }],
+        ['incomplete jobs', { jobsComplete: false }], ['missing completeness', { jobsComplete: undefined }],
+    ])('holds %s despite successful jobs', (_name, extra) => {
+        expect(evaluateEngineeringEvidence({ ...input(), ...extra }).qualified).toBe(false);
+    });
+    it.each([
+        ['wrong old blob', { baseCi: 'c'.repeat(40) }], ['wrong new blob', { headCi: 'd'.repeat(40) }],
+        ['reversed transition', { baseCi: newCi, headCi: oldCi }], ['review workflow edited', { headReview: 'e'.repeat(40) }],
+        ['missing CI identity', { headCi: undefined }], ['missing review identity', { baseReview: undefined }],
+        ['malformed review identity', { baseReview: 'same', headReview: 'same' }],
+    ])('holds %s', (_name, extra) => {
+        const value = input(); value.workflowBlobs = { ...value.workflowBlobs, ...extra };
+        expect(evaluateEngineeringEvidence(value).qualified).toBe(false);
+    });
+    it('refuses a different review workflow even when both blobs agree', () => {
+        const value = input(); value.workflowBlobs.baseReview = 'f'.repeat(40); value.workflowBlobs.headReview = 'f'.repeat(40);
+        expect(evaluateEngineeringEvidence(value).qualified).toBe(false);
+    });
+    it('retains expected-head and stale-base refusals after the transition is admitted', () => {
+        expect(evaluateEngineeringEvidence({ ...input(), expectedHeadSha: 'f'.repeat(40) }).reasons).toContain(ENGINEERING_HOLD.HEAD_MOVED);
+        expect(evaluateEngineeringEvidence({ ...input(), runs: [run({ pull_requests: [{ number: 1747, base: { sha: 'f'.repeat(40) } }] })] }).reasons)
+            .toContain(ENGINEERING_HOLD.BASE_MISMATCH);
+    });
+    it('never chooses an older success over a newer pending or failed run', () => {
+        for (const state of ['in_progress', 'failure']) {
+            const value = input();
+            value.runs.push(run({ id: 174701, created_at: '2026-10-28T00:01:00Z', status: state === 'in_progress' ? state : 'completed',
+                conclusion: state === 'in_progress' ? null : 'failure' }));
+            value.jobsByRun[174701] = { ...jobs(), report: state === 'failure' ? 'failure' : null };
+            expect(evaluateEngineeringEvidence(value)).toMatchObject({ qualified: false, runId: 174701 });
+        }
+    });
+    it('still refuses missing, skipped or failed engineering evidence', () => {
+        for (const outcome of [undefined, 'skipped', 'failure']) {
+            const value = input(); value.jobsByRun[174700]['full-evidence'] = outcome;
+            expect(evaluateEngineeringEvidence(value).qualified).toBe(false);
+        }
+    });
+    it.each(['accepted', 'wrong-PR', 'wrong-CI', 'edited-review', 'missing-review', 'incomplete-history', 'incomplete-jobs'])(
+        'actual CLI binds API identities and records the real transition: %s', (scenario) => {
+        const dir = mkdtempSync(resolve(tmpdir(), 'engineering-transition-'));
+        try {
+            const pr = scenario === 'wrong-PR' ? 1745 : 1747;
+            const prefix = '/repos/relativityE/speaksharp';
+            const responses = {
+                [`${prefix}/pulls/${pr}`]: { head: { sha: HEAD, repo: { full_name: 'relativityE/speaksharp' } },
+                    base: { sha: BASE, ref: 'main', repo: { full_name: 'relativityE/speaksharp' } } },
+                [`${prefix}/actions/workflows/ci.yml/runs?head_sha=${HEAD}&per_page=50`]: {
+                    total_count: scenario === 'incomplete-history' ? 2 : 1, workflow_runs: [run()],
+                },
+                [`${prefix}/actions/runs/174700/jobs?filter=latest&per_page=100`]: {
+                    total_count: scenario === 'incomplete-jobs' ? 5 : 4,
+                    jobs: Object.entries(jobs()).map(([name, conclusion]) => ({ name, conclusion })),
+                },
+                [`${prefix}/compare/${BASE}...${HEAD}`]: { status: 'ahead' },
+                [`${prefix}/contents/.github/workflows/ci.yml?ref=${BASE}`]: { sha: oldCi },
+                [`${prefix}/contents/.github/workflows/ci.yml?ref=${HEAD}`]: { sha: scenario === 'wrong-CI' ? 'c'.repeat(40) : newCi },
+                [`${prefix}/contents/.github/workflows/review-qualification.yml?ref=${BASE}`]: { sha: review },
+                [`${prefix}/contents/.github/workflows/review-qualification.yml?ref=${HEAD}`]: {
+                    sha: scenario === 'missing-review' ? undefined : scenario === 'edited-review' ? 'e'.repeat(40) : review,
+                },
+            };
+            writeFileSync(resolve(dir, 'responses.json'), JSON.stringify(responses));
+            writeFileSync(resolve(dir, 'fetch.mjs'), `
+                import { readFileSync, writeFileSync } from 'node:fs';
+                const responses = JSON.parse(readFileSync(new URL('./responses.json', import.meta.url), 'utf8'));
+                const calls = [];
+                process.on('exit', () => writeFileSync(new URL('./calls.json', import.meta.url), JSON.stringify(calls)));
+                globalThis.fetch = async (url, options) => {
+                    const parsed = new URL(url);
+                    const key = parsed.pathname + parsed.search;
+                    if (parsed.origin !== 'https://api.github.com' || !Object.hasOwn(responses, key)
+                        || options?.headers?.Authorization !== 'Bearer synthetic-fixture-only') {
+                        throw new Error('Unexpected request; external networking is forbidden in this fixture');
+                    }
+                    calls.push(key);
+                    return { ok: true, status: 200, json: async () => responses[key] };
+                };
+            `);
+            const output = resolve(dir, 'receipt.json');
+            const child = spawnSync(process.execPath, ['--import', resolve(dir, 'fetch.mjs'),
+                resolve(process.cwd(), 'scripts/ci-engineering-evidence.mjs')], {
+                cwd: process.cwd(), encoding: 'utf8', timeout: 10000,
+                env: { GITHUB_REPOSITORY: 'relativityE/speaksharp', GITHUB_TOKEN: 'synthetic-fixture-only',
+                    PR_NUMBER: String(pr), EXPECTED_HEAD_SHA: HEAD, ENGINEERING_EVIDENCE_FILE: output },
+            });
+            expect(child.error).toBeUndefined();
+            const calls = JSON.parse(readFileSync(resolve(dir, 'calls.json'), 'utf8'));
+            expect(calls).toHaveLength(8);
+            expect(child.status).toBe(scenario === 'accepted' ? 0 : 1);
+            const receipt = existsSync(output) ? JSON.parse(readFileSync(output, 'utf8')) : null;
+            expect(receipt?.workflowUnchanged).toBe(scenario === 'missing-review' ? undefined : false);
+            expect(receipt?.qualified).toBe(scenario === 'missing-review' ? undefined : scenario === 'accepted');
+            const admitted = expect.objectContaining({ pr: 1747, baseCi: oldCi, headCi: newCi });
+            expect(receipt?.workflowTransition).toEqual(scenario === 'accepted' ? admitted : undefined);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});
+
 describe('engineering lane (ci.yml): review activity cannot start, force or cancel it', () => {
     const ci = load('ci.yml');
     it('does not subscribe to review or inline-comment events', () => {
