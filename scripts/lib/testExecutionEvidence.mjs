@@ -99,7 +99,18 @@ const workflowFixture = Object.freeze({
   assertion:'INSTALLED upload layout → workflow staging → maintained paired command preserves CI origin and new invocation',
   sha256:'bbe2873647d2c3f922c70d10fb9f05b4b4e360106a19bb0de00c64b771a0db56',
 });
-export const registeredFixture = file => file === workflowFixture.fixtureFile ? workflowFixture : null;
+const retentionPinsFixture = Object.freeze({
+  fixtureFile:'tests/db/retention-owner-matrix-pins.json',
+  testFile:'tests/unit/retentionCurrentContractMatrix.test.js',
+  assertion:'retention pin fixture is consumed by the actual workflow resolver with failure controls',
+  sha256:'e2284ebe3a3b499df71da7a5c24ab577e34affa3fe5e23c4cfa0955eaf22d95c',
+  consumerSha256:'a5284e74aae74495c7ddd747c437c1ee0dc5b2e2899c9220a31c5c90172dcbec',
+  workflowFile:'.github/workflows/retention-current-contract-matrix.yml', protocol:'retention-pins',
+  workflowSha256:'1531c95c1fa19558fba0eecf34a76e9c66073a1f5f41785d1461b7045a1d02b7',
+  resolverSha256:'63935ffc8708aba82aa2721b224cd4da3c3a2e3d19b748477ec469d6478fdfd3',
+});
+export const registeredFixture = file => file === workflowFixture.fixtureFile ? workflowFixture
+  : file === retentionPinsFixture.fixtureFile ? retentionPinsFixture : null;
 
 export function fixturePackageManagerIdentity(root, env=process.env) {
   const pin=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).packageManager;
@@ -126,12 +137,18 @@ export function fixturePackageManagerIdentity(root, env=process.env) {
 export function fixtureSourceBinding(root, fixtureFile) {
   const contract=registeredFixture(fixtureFile);
   if(!contract) throw new Error('Unregistered fixture input');
-  const sources=[contract.fixtureFile,contract.testFile].map(file=>{
+  const sources=[contract.fixtureFile,contract.testFile,...(contract.workflowFile?[contract.workflowFile]:[])].map(file=>{
     const target=path.join(root,file);
     if(!fs.lstatSync(target).isFile() || fs.realpathSync(target)!==target) throw new Error('Aliased fixture input or consumer');
     return {file,sha256:hash(fs.readFileSync(target))};
   });
   if(sources[0].sha256!==contract.sha256) throw new Error('Historical fixture bytes differ from the pinned input');
+  if(contract.protocol==='retention-pins') {
+    if(sources[1].sha256!==contract.consumerSha256)throw new Error('Reviewed retention fixture consumer bytes differ');
+    if(sources[2].sha256!==contract.workflowSha256)throw new Error('Reviewed retention workflow bytes differ');
+    const execPath=fs.realpathSync(process.execPath);
+    return {sources,node:{execPath,version:process.version,sha256:hash(fs.readFileSync(execPath))}};
+  }
   return {sources,packageManager:fixturePackageManagerIdentity(root)};
 }
 
@@ -146,8 +163,25 @@ export function validateFixtureWitness(raw,binding,root,report,envelope) {
   const matches=assertions.filter(test=>test.fullName===contract.assertion);
   const tasks=envelope?.finished?.files?.flatMap(file=>file.tasks || [])
     .filter(task=>task.type==='test' && task.name===contract.assertion) || [];
-  if(assertions.length!==1 || matches.length!==1 || matches[0].status!=='passed' || tasks.length!==1 || tasks[0].result?.state!=='pass') {
+  const validCount=contract.protocol==='retention-pins'
+    ? assertions.length>0 && assertions.every(test=>test.status==='passed') : assertions.length===1;
+  if(!validCount || matches.length!==1 || matches[0].status!=='passed' || tasks.length!==1 || tasks[0].result?.state!=='pass') {
     throw new Error('Registered fixture consumer was not executed successfully');
+  }
+  if(contract.protocol==='retention-pins') {
+    const pins=JSON.parse(fs.readFileSync(path.join(root,contract.fixtureFile),'utf8'));
+    const expected=pins.versions.map(pin=>({major:pin.major,status:0,signal:null,error:null,refused:false,
+      output:`version=${pin.version}\nsha256=${pin.sha256}\n`}));
+    const refused=major=>({major,status:1,signal:null,error:null,refused:true,output:null});
+    if(raw?.schemaVersion!==2 || raw.phaseId!==binding.phaseId || raw.bindingSha256!==hash(JSON.stringify(binding))
+      || raw.fixtureFile!==contract.fixtureFile || raw.fixtureSha256!==contract.sha256 || raw.assertion!==contract.assertion
+      || raw.workflowSha256!==contract.workflowSha256 || raw.resolverSha256!==contract.resolverSha256
+      || JSON.stringify(raw.observations)!==JSON.stringify(expected)
+      || JSON.stringify(raw.unknown)!==JSON.stringify(refused(99))
+      || JSON.stringify(raw.malformed)!==JSON.stringify(refused(pins.versions[0].major))) {
+      throw new Error('Missing or invalid actual retention pin consumption witness');
+    }
+    return contract.fixtureFile;
   }
   if(raw?.schemaVersion!==1 || raw.phaseId!==binding.phaseId || raw.bindingSha256!==hash(JSON.stringify(binding))
     || raw.fixtureFile!==contract.fixtureFile || raw.fixtureSha256!==contract.sha256 || raw.assertion!==contract.assertion
