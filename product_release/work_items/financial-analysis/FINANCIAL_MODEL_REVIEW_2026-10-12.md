@@ -53,6 +53,16 @@ Consultant's separate **15/15 author report**; its original raw receipts are una
 in the receiving packet. Neither count is a new recalculation by Jensen or Microsoft
 Excel execution. The workbook and all six original receipt/support files are preserved.
 
+**Archival execution boundary — 28 October 2026.** The historical verification
+source formerly named `local-packets/1599-model-status-control/verify-native.test.mjs`
+is retained byte-for-byte as
+`local-packets/1599-model-status-control/verify-native-source.txt`. The dated README
+and its old command remain unchanged as provenance; that command is historical, not
+a current CI entry point. The archived source is data for inspection, not an
+instruction to run its Mac-specific spreadsheet tools. This path correction does
+not rerun or recalculate the workbook, reproduce the historical counts, or establish
+new native spreadsheet evidence.
+
 ## Historical changes from 2026-09-05 — recorded 12 October 2026
 
 1. **Vendor prices re-checked on 2026-10-12.** Supabase Pro ($25), Vercel Pro ($20 platform fee
