@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { readFileSync } from 'node:fs';
 import { observeEditedTakeRace, finalizeEditedTakeProof, createEditedTakePeer, retentionSnapshotSql,
-  runRequiredEditedTakeProof } from './retention-edited-take-full-chain.mjs';
+  runRequiredEditedTakeProof, replacementTakeFixture, validateReplacementAdmission } from './retention-edited-take-full-chain.mjs';
 
 const finalState = () => ({ expired: true, plaintextAbsent: true, recoveryCopies: 0, snapshots: 1,
   markerCount: 1, nonblank: true, cohortMatches: true, replacementMatches: true,
@@ -203,4 +203,35 @@ test('a failed child is propagated; a leftover read cannot turn it into success'
   assert.throws(() => runRequiredEditedTakeProof({ run: () => { throw new Error('child refused'); },
     read: () => { reads++; return receipt(); }, owner: 'owned', testedCommit: 'source' }), /child refused/);
   assert.equal(reads, 0);
+});
+
+const admissionScope = () => ({ user: 'd1000000-0000-4000-8000-000000000001',
+  key: 'd1000000-0000-4000-8000-000000000002', fixture: replacementTakeFixture() });
+function admitted(scope) {
+  return { usage_exceeded: false, new_session: { id: 'd1000000-0000-4000-8000-000000000003',
+    user_id: scope.user, idempotency_key: scope.key, status: 'active', recording_fenced_reason: 'save_only',
+    recording_fenced_at: '2026-10-28T00:00:00.000Z', lease_id: null, transcript: null, duration: 60 } };
+}
+test('the actual native fixture bills its intended save before starting the concurrency schedule', () => {
+  const scope = admissionScope(), result = admitted(scope);
+  assert.ok(scope.fixture.createData.duration >= scope.fixture.completionDuration,
+    'actual fixture attempts a save beyond its admitted billed duration');
+  assert.equal(scope.fixture.createData.save_only, true);
+  assert.deepEqual(validateReplacementAdmission(result, scope), { id: result.new_session.id,
+    billedDuration: 60, completionDuration: 60 });
+});
+test('old zero-duration admission is refused before peers or replacement completion start', () => {
+  const scope = admissionScope(), result = admitted(scope);
+  result.new_session.duration = 0;
+  assert.throws(() => validateReplacementAdmission(result, scope), /exceeds billed duration/);
+});
+for (const [field, value, message] of [
+  ['user_id', 'foreign', /owner differs/], ['idempotency_key', 'foreign', /recording identity differs/],
+  ['status', 'completed', /pending save/], ['recording_fenced_reason', null, /not save-only/],
+  ['recording_fenced_at', null, /fence absent/], ['lease_id', 'other-lease', /engine lease/],
+  ['transcript', 'synthetic already saved', /already saved/],
+]) test(`admission rejects changed ${field}`, () => {
+  const scope = admissionScope(), result = admitted(scope);
+  result.new_session[field] = value;
+  assert.throws(() => validateReplacementAdmission(result, scope), message);
 });

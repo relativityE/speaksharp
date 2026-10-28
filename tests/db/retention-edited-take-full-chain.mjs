@@ -16,6 +16,31 @@ const nextAction = JSON.stringify({ reasonCode: 'ON_TRACK', actionCode: 'MAINTAI
   value: 100, comparator: 'within_target', templateVersion: 'rec_v1' });
 const quote = value => `'${String(value).replaceAll("'", "''")}'`;
 
+export function replacementTakeFixture() {
+  const completionDuration = 60;
+  return { createData: { title: 'synthetic replacement', save_only: true, duration: completionDuration, product: 'open_mic' },
+    completionDuration };
+}
+
+export function validateReplacementAdmission(created, { user, key, fixture }) {
+  assert.equal(created?.usage_exceeded, false, 'replacement usage admission refused');
+  const session = created.new_session;
+  assert.match(session?.id ?? '', /^[a-f0-9-]{36}$/, 'real save-only placeholder was refused');
+  assert.equal(session.user_id, user, 'replacement owner differs');
+  assert.equal(session.idempotency_key, key, 'replacement recording identity differs');
+  assert.equal(session.status, 'active', 'replacement is not a pending save');
+  assert.equal(session.recording_fenced_reason, 'save_only', 'replacement is not save-only');
+  assert.ok(typeof session.recording_fenced_at === 'string' && session.recording_fenced_at.length > 0,
+    'replacement recording fence absent');
+  assert.equal(session.lease_id, null, 'save-only replacement acquired an engine lease');
+  assert.equal(session.transcript, null, 'replacement was already saved before the race');
+  assert.ok(Number.isInteger(fixture.completionDuration) && fixture.completionDuration > 0
+    && fixture.completionDuration <= 600, 'invalid fixture completion duration');
+  assert.ok(Number.isInteger(session.duration) && session.duration >= fixture.completionDuration
+    && session.duration === fixture.createData.duration, 'replacement completion exceeds billed duration');
+  return { id: session.id, billedDuration: session.duration, completionDuration: fixture.completionDuration };
+}
+
 function peer(value, name) {
   assert.ok(Number.isSafeInteger(value.pid) && value.pid > 0, `${name} backend PID absent`);
   assert.equal(value.role, 'authenticated', `${name} is not the real authenticated writer`);
@@ -239,6 +264,7 @@ export async function runEditedTakeNative({ resourcesPath, receiptPath, root = p
   const retain = () => writeFileSync(receiptPath, JSON.stringify(receipt, null, 2));
   retain();
   const user = randomUUID(), old = randomUUID(), key = randomUUID();
+  const fixture = replacementTakeFixture();
   const prefix = `retention1610_${randomBytes(6).toString('hex')}`;
   const actors = [];
   let activated = false, failure, replacementResult, replacementError, settled = false, replacementPromise;
@@ -257,10 +283,13 @@ export async function runEditedTakeNative({ resourcesPath, receiptPath, root = p
       INSERT INTO public.sessions(id,user_id,status,created_at,transcript,total_words,duration,filler_counts,wpm,engine,engine_version,model_name,product)
       VALUES(${quote(old)},${quote(user)},'completed',now()-interval '1 hour','synthetic original',100,60,'{"um":2}',100,'private','v2','base','open_mic');`);
     const created = JSON.parse(await sql(`${auth}
-      SELECT public.create_session_and_update_usage('{"title":"synthetic replacement","save_only":true,"duration":0,"product":"open_mic"}',
+      SELECT public.create_session_and_update_usage(${quote(JSON.stringify(fixture.createData))}::jsonb,
         'private',${quote(key)},'v2','base','desktop')::text; COMMIT;`));
-    const replacement = created.new_session?.id;
-    assert.match(replacement ?? '', /^[a-f0-9-]{36}$/, 'real save-only placeholder was refused');
+    const admission = validateReplacementAdmission(created, { user, key, fixture });
+    const replacement = admission.id;
+    receipt.replacementAdmission = { billedDuration: admission.billedDuration,
+      completionDuration: admission.completionDuration, ownerBound: true, recordingIdentityBound: true, saveOnly: true };
+    retain();
     await sql('SELECT public.activate_transcript_retention_newest_one();'); activated = true;
     const refusal = JSON.parse(await sql(`DO $$ BEGIN
       BEGIN PERFORM public.expire_transcripts_newest_one(${quote(user)},500);
@@ -283,7 +312,7 @@ export async function runEditedTakeNative({ resourcesPath, receiptPath, root = p
       `(${identity})::jsonb || jsonb_build_object('markerCount',(SELECT regexp_count(transcript,'\\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\\]',1,'i') FROM public.sessions WHERE id=${quote(old)}))`),
       startReplacement: async () => {
         const peer = await replacementPeer.request(`SET client_min_messages=error; SET application_name=${quote(replacementPeer.application)}; ${auth}`, identity);
-        replacementPromise = replacementPeer.request('', `public.complete_session_v2(${quote(replacement)},'completed',60,NULL,
+        replacementPromise = replacementPeer.request('', `public.complete_session_v2(${quote(replacement)},'completed',${fixture.completionDuration},NULL,
           ${quote(nextAction)}::jsonb,120,NULL,100,'{"um":2}',NULL,'synthetic replacement')`)
           .then(value => { replacementResult = value; }, error => { replacementError = error; })
           .finally(() => { settled = true; });
