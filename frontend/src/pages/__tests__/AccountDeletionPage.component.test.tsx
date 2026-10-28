@@ -184,7 +184,7 @@ describe('explicit pending completion — real page and effect/status transports
     await screen.findByText('Your account has been deleted.');
     expect(mocks.session).toHaveBeenCalledTimes(authCalls);
     expect(effects()).toHaveLength(1);
-    const options = transport.mock.calls.at(-1)![1];
+    const options = transport.mock.calls[transport.mock.calls.length - 1][1];
     expect(options?.headers).not.toHaveProperty('Authorization');
     expect(JSON.parse(String(options?.body))).toEqual({ action: 'completion_status_read', requestId, token: key });
   });

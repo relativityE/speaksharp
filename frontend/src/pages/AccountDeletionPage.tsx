@@ -359,7 +359,7 @@ export default function AccountDeletionPage({ completionReadiness = unavailableR
     ? 'Checking your deletion result. Do not submit deletion again.'
     : matchingExecution?.phase === 'pending'
       ? 'Your deletion request is still pending. Check its status; do not submit deletion again.'
-      : matchingExecution || (submitted && shownCompletion?.outcome !== 'completed')
+      : matchingExecution || submitted
         ? 'We could not verify the deletion result. Do not assume your account was or was not deleted. Check status or contact support; do not submit deletion again.' : null;
   const canComplete = !!user && !!retained && retained.ownerId === user.id && signedInMatch && recoverable
     && readiness(user.id, retained.requestId) && !submitted && !matchingExecution

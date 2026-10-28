@@ -39,7 +39,8 @@ function targetFor(origin: unknown): string | null {
 function parseReply(status: number, value: unknown, requestId: string): CompletionExecutionResult {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return unavailable();
   const row = value as Record<string, unknown>;
-  const closed = (keys: string[]) => Object.keys(row).length === keys.length && keys.every(key => Object.hasOwn(row, key));
+  const closed = (keys: string[]) => Object.keys(row).length === keys.length
+    && keys.every(key => Object.prototype.hasOwnProperty.call(row, key));
   if (row.requestId !== requestId || row.canRetry !== false) return unavailable();
   if (status === 200 && row.outcome === 'completed' && row.accountDeleted === true
     && closed(['outcome', 'requestId', 'accountDeleted', 'canRetry'])) {
