@@ -131,26 +131,23 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
         const result = await db.exec(t2ReleaseSnapshotQuery(production));
         const rows = result.filter(value => value.rows?.length).map(value => String(Object.values(value.rows[0])[0]));
         snapshots.push(rows);
-        if (!platformFunctionDefaults) {
-          // Original executable rejects this real source-derived catalog at
-          // record_progress_evaluation, exactly as the Production readback did.
-          expect(assertT2ReleaseSnapshot(production, rows).passed).toBe(true);
-          expect(() => assertT2ReleaseSnapshot(native, rows)).toThrow('T2 catalog mismatch');
-          for (const [index, replacement] of [
-            [0, JSON.stringify(T2_VERSIONS)],
-            [2, JSON.stringify({ billing_disabled: false, completion_disabled: true })],
-            [3, 'false'], [4, JSON.stringify({ checks: [], activation: [] })], [5, 'false'],
-          ]) {
-            const broken = [...rows]; broken[index] = replacement;
-            expect(() => assertT2ReleaseSnapshot(production, broken)).toThrow();
-          }
-        } else {
-          expect(assertT2ReleaseSnapshot(native, rows).passed).toBe(true);
-          expect(() => assertT2ReleaseSnapshot(production, rows)).toThrow('T2 catalog mismatch');
-        }
+        // The original executable rejects the source-derived Production pair
+        // at record_progress_evaluation, just as the retained live read did.
+        const matching = platformFunctionDefaults ? native : production;
+        const opposite = platformFunctionDefaults ? production : native;
+        expect(assertT2ReleaseSnapshot(matching, rows).passed).toBe(true);
+        expect(() => assertT2ReleaseSnapshot(opposite, rows)).toThrow('T2 catalog mismatch');
       } finally { await db.close(); }
     }
     const retained = JSON.parse(snapshots[0][1]), replay = JSON.parse(snapshots[1][1]);
+    for (const [index, replacement] of [
+      [0, JSON.stringify(T2_VERSIONS)],
+      [2, JSON.stringify({ billing_disabled: false, completion_disabled: true })],
+      [3, 'false'], [4, JSON.stringify({ checks: [], activation: [] })], [5, 'false'],
+    ]) {
+      const broken = [...snapshots[0]]; broken[index] = replacement;
+      expect(() => assertT2ReleaseSnapshot(production, broken)).toThrow();
+    }
     const differences = Object.keys(replay).filter(key => retained[key] !== replay[key]).sort();
     expect(differences).toEqual(['function:public.record_progress_evaluation(uuid)', 'function:public.sessions_set_transcript_state()']);
     expect(Object.keys(retained)).toHaveLength(117);
@@ -289,9 +286,10 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
                   .replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
                 const results = await db.exec(query);
                 executableRows = results.filter(result => result.rows?.length).map(result => String(Object.values(result.rows[0])[0]));
-                expect(assertT2ReleaseSnapshot(production, executableRows).passed).toBe(true);
               } finally { await db.exec('ROLLBACK'); }
             }
+            const executableContract = t2ReleaseContract(process.cwd(), JSON.parse(rows[0]), { catalogContext: 'retained-production' });
+            expect(assertT2ReleaseSnapshot(executableContract, executableRows).passed).toBe(true);
             writeFileSync(join(dir, 'rows.json'), JSON.stringify(executableRows));
             writeFileSync(join(dir, 'psql'), `#!/usr/bin/env node\nimport('node:fs').then(fs=>{
 const rows=JSON.parse(fs.readFileSync(process.env.T2_TEST_ROWS,'utf8'));
@@ -310,10 +308,8 @@ console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
             const queries = readFileSync(join(dir, 'queries.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
             expect(queries).toHaveLength(2);
             expect(queries.every(row => row.query.includes('READ ONLY') && row.options.includes('default_transaction_read_only=on'))).toBe(true);
-            if (contract.stage === 2) {
-              writeFileSync(join(dir, 'rows.json'), JSON.stringify(rows));
-              expect(invoke().status).toBe(1); // No native-profile fallback in Production.
-            }
+            writeFileSync(join(dir, 'rows.json'), JSON.stringify(rows));
+            expect(invoke().status).toBe(contract.stage === 2 ? 1 : 0); // No native-profile fallback in Production.
             const corrupt = [...executableRows]; corrupt[1] = JSON.stringify({});
             writeFileSync(join(dir, 'rows.json'), JSON.stringify(corrupt));
             expect(invoke().status).toBe(1);
