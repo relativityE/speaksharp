@@ -39,7 +39,7 @@ const ActualFillBar: React.FC<{ actual: number; goal: number; max: number }> = (
 
 export const GoalsSection: React.FC = () => {
     const { weekly, allTime, loading, error } = useAnalytics();
-    const { goals, setGoals } = useGoals();
+    const { goals, setGoals, syncError, ownerId } = useGoals();
 
     if (loading) {
         return (
@@ -110,8 +110,14 @@ export const GoalsSection: React.FC = () => {
                     </div>
                     <CardTitle className="text-lg font-semibold text-foreground">Current Goals</CardTitle>
                 </div>
-                <EditGoalsDialog goals={goals} onSave={async (g) => { await setGoals(g); }} />
+                <EditGoalsDialog key={ownerId ?? 'anonymous'} goals={goals} onSave={setGoals} />
             </div>
+
+            {Boolean(syncError) && (
+                <p role="status" className="mb-4 text-sm text-muted-foreground">
+                    Account goal sync is unavailable. Showing local goals or defaults.
+                </p>
+            )}
 
             <div className="space-y-6">
                 <div className="space-y-3">

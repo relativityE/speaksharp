@@ -13,10 +13,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Settings2 } from 'lucide-react';
 import { type UserGoals } from '@/types/goals';
+import type { GoalSaveResult } from '@/hooks/useGoals';
 
 interface EditGoalsDialogProps {
     goals: UserGoals;
-    onSave: (goals: UserGoals) => void | Promise<void>;
+    onSave: (goals: UserGoals) => Promise<GoalSaveResult>;
 }
 
 export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave }) => {
@@ -26,6 +27,7 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
 
     const [isSaving, setIsSaving] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
     const handleSave = async () => {
         // Validate and clamp values
@@ -33,9 +35,23 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
         const validClarity = Math.min(Math.max(50, clarityGoal), 100);
 
         setIsSaving(true);
-        await onSave({ weeklyGoal: validWeekly, clarityGoal: validClarity });
-        setIsSaving(false);
-        setShowSuccess(true);
+        setShowSuccess(false);
+        setSaveMessage(null);
+        try {
+            const result = await onSave({ weeklyGoal: validWeekly, clarityGoal: validClarity });
+            if (result.status !== 'synced') {
+                setSaveMessage(result.syncError
+                    ? 'Saved on this device only. Account sync is unavailable.'
+                    : 'Saved on this device only.');
+                return;
+            }
+            setShowSuccess(true);
+        } catch {
+            setSaveMessage('Goals could not be saved. Please try again.');
+            return;
+        } finally {
+            setIsSaving(false);
+        }
 
         // Auto-close after success indicator is seen
         setTimeout(() => {
@@ -47,6 +63,8 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
     const handleOpenChange = (isOpen: boolean) => {
         setOpen(isOpen);
         if (isOpen) {
+            setShowSuccess(false);
+            setSaveMessage(null);
             // Reset to current goals when opening
             setWeeklyGoal(goals.weeklyGoal);
             setClarityGoal(goals.clarityGoal);
@@ -105,6 +123,7 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
                         />
                     </div>
                 </div>
+                {saveMessage && <p role="status" className="text-sm text-muted-foreground">{saveMessage}</p>}
                 <DialogFooter className="flex items-center justify-between sm:justify-between">
                     {showSuccess ? (
                         <span className="text-sm text-success font-medium" data-testid="goals-save-success">
