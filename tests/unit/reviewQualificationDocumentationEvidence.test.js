@@ -454,7 +454,7 @@ function mockGithub(change = () => {}) {
   }));
   return state;
 }
-describe('exported live reader used by collection and merge guard',()=>{
+describe('#1599 exported live reader used by collection and merge guard',()=>{
   it('acquires immutable head commit/tree metadata and rechecks the live tuple',async()=>{
     const state=mockGithub();
     const value=await readPullRequest({repository:REPO,number:1599,token:'synthetic'});
