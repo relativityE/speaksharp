@@ -188,7 +188,7 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
   fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
   try {
     const admitted=validateSyntheticSource(f.dir,entry);
-    assert.equal(admitted.id,'coaching-errors-35a8636d');
+    assert.equal(admitted.id,'coaching-errors-cors-compatible');
     assert.equal(Object.keys(admitted.files).length,10);
     assert.deepEqual(Object.keys(admitted.files).sort(),files.sort());
     for(const file of files) {
@@ -198,7 +198,7 @@ test('reviewed coaching error source admits exactly its ten pinned inputs and re
       assert.throws(()=>validateSyntheticSource(f.dir,entry),/Synthetic-key test\/import profile/,file);
       f.write(file,original);
     }
-    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-errors-35a8636d');
+    assert.equal(validateSyntheticSource(f.dir,entry).id,'coaching-errors-cors-compatible');
   }finally{f.clean();}
 });
 test('owned frozen import warmup is separate and cannot disappear, fail, drift or grant test permissions',()=>{

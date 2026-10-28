@@ -453,15 +453,7 @@ export async function handler(
   // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
   // auth or Supabase/AI provider access.
   const corsRejection = corsGuard(req);
-  if (corsRejection) {
-    // Keep OPTIONS semantics and the exact-origin refusal before every external effect.
-    if (req.method === 'OPTIONS') return corsRejection;
-    const descriptor = coachingErrorDescriptor('cors_denied', null, null);
-    return new Response(new TextEncoder().encode(JSON.stringify({ code: 'cors_denied',
-      error: get_error_string(descriptor), diagnostics: { error_descriptor: descriptor } })), {
-      status: corsRejection.status, headers: corsRejection.headers,
-    });
-  }
+  if (corsRejection) return corsRejection;
 
   const responseHeaders = buildCorsHeaders(req);
   const startedAt = performance.now();
