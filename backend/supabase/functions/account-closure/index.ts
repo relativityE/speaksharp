@@ -11,12 +11,23 @@ import { accountClosureConfigProbe, readAccountClosureEffectiveConfig, stripeKey
 import { readAccountClosureCompletionRuntimeBinding } from '../_shared/accountClosureCompletionRuntimeBinding.ts';
 import { createAccountCompletionStatus } from '../_shared/accountClosureCompletionStatus.ts';
 import { handleAccountCompletionRequest } from '../_shared/accountClosureCompletionRequest.ts';
+import { createAccountCompletionExecutor } from '../_shared/accountClosureCompletionExecutor.ts';
+import { createServerCompletionPolicyPorts, type CompletionPolicyPorts } from '../_shared/accountClosureCompletionPolicy.ts';
+import { ACCOUNT_COMPLETION_EXECUTION_PATH, handleAccountCompletionExecutionRequest } from '../_shared/accountClosureCompletionExecutionRequest.ts';
+import type { CompletionBinding } from '../_shared/accountClosureCompletionAdapter.ts';
 
 type Env = (key: string) => string | undefined;
 export const ACCOUNT_COMPLETION_STATUS_PATH = '/account-closure/completion-status';
 type CompletionClientFactory = (url: string, key: string, options: {
   auth: { persistSession: boolean; autoRefreshToken: boolean; detectSessionInUrl: boolean };
 }) => Pick<SupabaseClient, 'rpc' | 'auth'>;
+type CompletionPolicyFactory = (binding: CompletionBinding, client: Pick<SupabaseClient, 'rpc' | 'auth'>, env: Env) => CompletionPolicyPorts;
+const completionPolicy: CompletionPolicyFactory = (binding, client, env) => {
+  const key = env('STRIPE_SECRET_KEY');
+  const stripe = key ? new Stripe(key, { httpClient: Stripe.createFetchHttpClient(), timeout: 10_000, maxNetworkRetries: 0 }) : null;
+  // createClient supplies storage in production; a test's narrow client must inject its own policy.
+  return createServerCompletionPolicyPorts(binding, client as SupabaseClient, stripe);
+};
 
 function randomToken(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -301,11 +312,40 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
 }
 
 export async function handler(req: Request, env: Env = (key) => Deno.env.get(key),
-  completionClient: CompletionClientFactory = createClient): Promise<Response> {
+  completionClient: CompletionClientFactory = createClient, executionPolicy: CompletionPolicyFactory = completionPolicy): Promise<Response> {
   const rejected = corsGuard(req);
   if (rejected) return rejected;
   const headers = corsHeaders(req);
   const path = new URL(req.url).pathname;
+  if ([ACCOUNT_COMPLETION_EXECUTION_PATH, `/functions/v1${ACCOUNT_COMPLETION_EXECUTION_PATH}`].includes(path)) {
+    let response: Response;
+    try {
+      // Missing/mismatched binding refuses before SDK construction or body access.
+      const binding = await readAccountClosureCompletionRuntimeBinding(env);
+      const secret = env('SUPABASE_SERVICE_ROLE_KEY');
+      if (!secret) throw new Error('account_completion_unavailable');
+      const client = completionClient(binding.url, secret, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const executor = createAccountCompletionExecutor(binding, {
+        enabled: true, // Server composition only; SQL/config remains independently default-disabled.
+        createAdminClient: url => { if (url !== binding.url) throw new Error('completion_target_changed'); return client; },
+        currentBinding: () => readAccountClosureCompletionRuntimeBinding(env),
+        authenticate: (request, url) => {
+          if (url !== binding.url) throw new Error('completion_target_changed');
+          return client.auth.getUser((request.headers.get('authorization') ?? '').slice(7));
+        },
+        policy: executionPolicy(binding, client, env),
+      });
+      response = await handleAccountCompletionExecutionRequest(req, executor);
+    } catch {
+      response = new Response(JSON.stringify({ outcome: 'unavailable', canRetry: false }), {
+        status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
+    }
+    for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
+    return response;
+  }
   const completionPath = path === ACCOUNT_COMPLETION_STATUS_PATH
     || path === `/functions/v1${ACCOUNT_COMPLETION_STATUS_PATH}`;
   if (completionPath) {
