@@ -98,6 +98,16 @@ export interface E2EWindow {
 }
 
 /**
+ * CO016 — opt-in fault for the injected client's `user_profiles` read, armed per test through
+ * `programmaticLoginWithRoutes({ profileFault })`. `error` is a genuine fetch failure (a PostgREST-shaped
+ * error the profile service rethrows); `swallowed` is the negative control (no row and no error), which the
+ * app treats as a still-provisioning account, not a failure. Every `user_profiles` query is counted in
+ * `window.__E2E_PROFILE_QUERIES_CO016__`, and every injected error in `window.__E2E_PROFILE_FAILURES_CO016__`,
+ * so a spec can prove the failure it asserts on was actually consumed.
+ */
+export type ProfileFault = 'error' | 'swallowed';
+
+/**
  * setupE2EManifest — Atomic T=0 injection.
  */
 export async function setupE2EManifest(
@@ -122,9 +132,14 @@ export async function setupE2EManifest(
     sessions?: Array<Record<string, unknown>>;
     /** #1047 U3: seed the same in-browser Supabase authority used by the Progress product path. */
     progressFixtures?: ProgressFixtures;
+    /**
+     * A1-2: keep the app's own recovery draft across document loads, as a real browser does. Off by default, so every
+     * other spec keeps the strict per-load reset; only a spec that reloads during a live take opts in.
+     */
+    preserveRecoveryDraftAcrossLoads?: boolean;
   }
 ) {
-  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, progressFixtures, ...manifest } = config;
+  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, sessions, progressFixtures, preserveRecoveryDraftAcrossLoads = false, ...manifest } = config;
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
@@ -138,7 +153,7 @@ export async function setupE2EManifest(
     globalThis.__name = __name;
   `);
 
-  await page.addInitScript(({ m, s, ut, mp, es, seed, progress }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>>; progress?: ProgressFixtures }) => {
+  await page.addInitScript(({ m, s, ut, mp, es, seed, progress, keepDraft }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean; seed?: Array<Record<string, unknown>>; progress?: ProgressFixtures; keepDraft?: boolean }) => {
     // Playwright serializes this callback into the browser. Some TS/esbuild
     // transforms preserve function names by emitting __name(...) calls inside
     // the serialized body, but the helper itself is otherwise outside that
@@ -166,7 +181,8 @@ export async function setupE2EManifest(
         // #1476: the shared-lease double models ONE server shared by every tab of the context. This clear runs on every
         // document load of every page, so without this a second tab's load would wipe the first tab's lease — a thing
         // real tabs never do. Only these spec-owned keys survive; no other spec writes them.
-        const keep = ['__e2e_shared_lease_1476', '__e2e_progress_obligations_1476']
+        // A1-2: an opted-in spec also keeps the app's recovery draft, read here in the same callback before the clear.
+        const keep = ['__e2e_shared_lease_1476', '__e2e_progress_obligations_1476', ...(keepDraft ? ['speaksharp_unsaved_session_draft'] : [])]
           .map((k) => [k, win.localStorage.getItem(k)] as const)
           .filter(([, v]) => v !== null);
         win.localStorage.clear();
@@ -370,6 +386,17 @@ export async function setupE2EManifest(
       options: { count?: string; head?: boolean; range?: [number, number]; ascending?: boolean } = {}
     ) => {
       if (table === 'user_profiles') {
+        const profileWin = window as unknown as {
+          __E2E_PROFILE_FAULT_CO016__?: string; __E2E_PROFILE_QUERIES_CO016__?: number; __E2E_PROFILE_FAILURES_CO016__?: number;
+        };
+        profileWin.__E2E_PROFILE_QUERIES_CO016__ = (profileWin.__E2E_PROFILE_QUERIES_CO016__ ?? 0) + 1;
+        if (profileWin.__E2E_PROFILE_FAULT_CO016__ === 'error') {
+          profileWin.__E2E_PROFILE_FAILURES_CO016__ = (profileWin.__E2E_PROFILE_FAILURES_CO016__ ?? 0) + 1;
+          return Promise.resolve({ data: null, error: { code: '08006', message: 'E2E injected profile fetch failure (CO016)', details: null, hint: null }, count: null });
+        }
+        if (profileWin.__E2E_PROFILE_FAULT_CO016__ === 'swallowed') {
+          return Promise.resolve({ data: null, error: null, count: 0 });
+        }
         return Promise.resolve({ data: single ? e2eProfile : [e2eProfile], error: null, count: 1 });
       }
       if (table === 'user_goals') {
@@ -1158,5 +1185,5 @@ export async function setupE2EManifest(
       }
     };
     stampDuration();
-  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions, progress: progressFixtures });
+  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions, seed: sessions, progress: progressFixtures, keepDraft: preserveRecoveryDraftAcrossLoads });
 }

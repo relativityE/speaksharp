@@ -203,6 +203,60 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261018090000',
+        file: '20261018090000_analytics_summary_observed_filler_rate_1472.sql',
+        sha256: '72299dacc4bf2986b7d7e37299608de64fada0e4e70ba22aba4cee6d058d519f',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261018170000',
+        file: '20261018170000_account_closure_pending_checkout.sql',
+        sha256: '68eab9724083189f28eb7c048f259a80cedb9b3280801ee5f7b762c972f8dd19',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261019010000',
+        file: '20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql',
+        sha256: 'df02b867f5a4f29ee207a8b4359a82bb3b27abefd9eabe2eb5cd9960b4f0fb45',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261019055102',
+        file: '20261019055102_account_pending_recording_admission_1643.sql',
+        sha256: 'e1f0534de3ca9b8ce9af291903064a6cf7c9c220db3354ab851a21eb31bd8ac4',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261019202856',
+        file: '20261019202856_account_coaching_admission_1643.sql',
+        sha256: 'f4acb882ce9a5d259b02b349461667c0d6c7a1b6b2d6548f59599e44e53b812e',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        // T2 source pin only; exact dispatch and target catalog proof remain mandatory.
+        version: '20261020230653',
+        file: '20261020230653_account_pending_completion_journal_1643.sql',
+        sha256: '76bffe1f7dc15efe487cd33faffbfd8d1b6c654a7b09508d427e53b4b88d83cf',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20261024083000',
+        file: '20261024083000_account_coaching_unknown_fence_1643.sql',
+        sha256: '29548e27a0b33a303ff093569097367b1227251faff7e7df77af392cfa4b0d14',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20261025021046',
+        file: '20261025021046_content_free_retention_evidence.sql',
+        sha256: '37af792f8abeeb0e073e229ec25cd294a20050058632f793c4635ba3af37f47d',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -636,6 +690,14 @@ export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_20261016090000', targetFile: '20261016090000_account_closure_drain_persistence' }),
     Object.freeze({ id: 'postflight_20261016180000', targetFile: '20261016180000_account_closure_drain_enforcement' }),
     Object.freeze({ id: 'postflight_20261017200000', targetFile: '20261017200000_checkout_rejection_recovery' }),
+    Object.freeze({ id: 'postflight_20261018090000', targetFile: '20261018090000_analytics_summary_observed_filler_rate_1472' }),
+    Object.freeze({ id: 'postflight_20261018170000', targetFile: '20261018170000_account_closure_pending_checkout' }),
+    Object.freeze({ id: 'postflight_20261019010000', targetFile: '20261019010000_heartbeat_session_cap_keeps_take_open_1593' }),
+    Object.freeze({ id: 'postflight_20261019055102', targetFile: '20261019055102_account_pending_recording_admission_1643' }),
+    Object.freeze({ id: 'postflight_20261019202856', targetFile: '20261019202856_account_coaching_admission_1643' }),
+    Object.freeze({ id: 'postflight_20261020230653', targetFile: '20261020230653_account_pending_completion_journal_1643' }),
+    Object.freeze({ id: 'postflight_20261024083000', targetFile: '20261024083000_account_coaching_unknown_fence_1643' }),
+    Object.freeze({ id: 'postflight_20261025021046', targetFile: '20261025021046_content_free_retention_evidence' }),
 ]);
 
 /**

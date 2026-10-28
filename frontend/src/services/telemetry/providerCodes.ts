@@ -37,6 +37,70 @@ export const PROVIDER_ERROR_INFO_REASONS = [
 ] as const;
 export const PROVIDER_TOKEN_MAX = 10_000_000;
 
+/** Display-only fixed catalog. Never display a server/provider's free-text error. */
+export const COACHING_CANONICAL_ERROR_STRINGS = Object.freeze({
+    CANCELLED: 'The operation was cancelled.',
+    UNKNOWN: 'Unknown error.',
+    INVALID_ARGUMENT: 'The request contains an invalid argument.',
+    DEADLINE_EXCEEDED: 'The service deadline was exceeded.',
+    NOT_FOUND: 'The requested resource was not found.',
+    ALREADY_EXISTS: 'The requested resource already exists.',
+    PERMISSION_DENIED: 'The service denied permission for this request.',
+    RESOURCE_EXHAUSTED: 'A service resource limit was reached.',
+    FAILED_PRECONDITION: 'A required service precondition was not met.',
+    ABORTED: 'The operation was aborted.',
+    OUT_OF_RANGE: 'A request value is outside its allowed range.',
+    UNIMPLEMENTED: 'The requested operation is not supported.',
+    INTERNAL: 'The service reported an internal error.',
+    UNAVAILABLE: 'The service is temporarily unavailable.',
+    DATA_LOSS: 'The service reported unrecoverable data loss.',
+    UNAUTHENTICATED: 'The service could not authenticate the request.',
+});
+
+/** Closed provenance must agree with the outer verdict and existing scalar diagnostics. */
+export function coachingErrorMessage(server: Record<string, unknown> | null, wireCode: unknown, outerStatus: number | null): string | null {
+    if (outerStatus !== 502 || server?.status !== outerStatus || typeof wireCode !== 'string'
+        || server.reason !== wireCode) return null;
+    const value = server.error_descriptor;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const d = value as Record<string, unknown>;
+    const keys = Object.keys(d).sort();
+    if (keys.join(',') !== 'canonical_status,http_status,local_code,origin') return null;
+    const http = d.http_status;
+    const httpScalar = (value: unknown): boolean => value === null
+        || (typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599);
+    // Validate observed transport scalars before every origin branch, including local timeout.
+    // A local timeout can follow received headers, so retain a valid observed200 rather than erasing it.
+    if (!httpScalar(http) || !httpScalar(server.provider_status)
+        || !(server.provider_error_status === null || (typeof server.provider_error_status === 'string'
+            && (PROVIDER_ERROR_STATUSES as readonly string[]).includes(server.provider_error_status)))) return null;
+    if (d.origin === 'local_timeout') return wireCode === 'provider_timeout' && d.local_code === wireCode
+        && http === null && d.canonical_status === null && server.provider_error_status === null
+        ? 'provider_timeout: The local coaching deadline was exceeded.' : null;
+    if (http !== server.provider_status) return null;
+    if (d.origin === 'local_normalization') {
+        const reasons = ['provider_http_4xx', 'provider_http_5xx', 'missing_text', 'invalid_shape',
+            'over_character_ceiling', 'missing_model_version', 'provider_malformed_response'];
+        if (d.canonical_status !== 'UNKNOWN' || d.local_code !== wireCode || !reasons.includes(wireCode)) return null;
+        const httpFailure = wireCode === 'provider_http_4xx' || wireCode === 'provider_http_5xx';
+        if (httpFailure) {
+            if (typeof http !== 'number' || http < 400
+                || wireCode !== (http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx')
+                || (server.provider_error_status !== 'other' && server.provider_error_status !== 'unparseable')) return null;
+        } else if (typeof http !== 'number' || http < 200 || http >= 300 || server.provider_error_status !== null) return null;
+        return 'UNKNOWN (local normalization): Unknown error.';
+    }
+    if (d.origin !== 'provider' || d.local_code !== null || typeof d.canonical_status !== 'string'
+        || !Object.prototype.hasOwnProperty.call(COACHING_CANONICAL_ERROR_STRINGS, d.canonical_status)
+        || d.canonical_status !== server.provider_error_status || typeof http !== 'number' || http < 400
+        || wireCode !== (http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx')) return null;
+    if (d.canonical_status === 'RESOURCE_EXHAUSTED') {
+        if (http === 402) return 'RESOURCE_EXHAUSTED: The service credit balance is depleted.';
+        if (http === 429) return 'RESOURCE_EXHAUSTED: The service rate limit was exceeded.';
+    }
+    return `${d.canonical_status}: ${COACHING_CANONICAL_ERROR_STRINGS[d.canonical_status as keyof typeof COACHING_CANONICAL_ERROR_STRINGS]}`;
+}
+
 export interface ProviderCodeFields {
     provider_error_status: (typeof PROVIDER_ERROR_STATUSES)[number] | null;
     provider_error_reason: (typeof PROVIDER_ERROR_INFO_REASONS)[number] | null;

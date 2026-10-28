@@ -7,6 +7,27 @@ import logger from '../lib/logger';
 import { GOALS_STORAGE_KEY, DEFAULT_GOALS } from '@/config/env';
 import type { UserGoals } from '@/types/goals';
 
+export type GoalSaveResult = { goals: UserGoals; status: 'synced' | 'local-only'; syncError: boolean };
+type StoredGoals = { goals: UserGoals; pending: boolean };
+const isGoals = (value: unknown): value is UserGoals => {
+    if (!value || typeof value !== 'object') return false;
+    const goals = value as Partial<UserGoals>;
+    return Number.isInteger(goals.weeklyGoal) && Number.isInteger(goals.clarityGoal)
+        && Number(goals.weeklyGoal) >= 1 && Number(goals.weeklyGoal) <= 20
+        && Number(goals.clarityGoal) >= 50 && Number(goals.clarityGoal) <= 100;
+};
+const readStoredGoals = (key: string): StoredGoals => {
+    const cached = safeLocalStorageGetJSON<unknown>(key, null);
+    if (isGoals(cached)) return { goals: cached, pending: false };
+    if (cached && typeof cached === 'object') {
+        const record = cached as Partial<StoredGoals>;
+        if (isGoals(record.goals) && typeof record.pending === 'boolean') return { goals: record.goals, pending: record.pending };
+    }
+    return { goals: DEFAULT_GOALS, pending: false };
+};
+const storeGoals = (key: string, goals: UserGoals, pending: boolean) =>
+    safeLocalStorageSet(key, JSON.stringify({ goals, pending }));
+
 /**
  * Custom hook for managing user goals with Supabase sync and localStorage fallback.
  * 
@@ -20,53 +41,62 @@ import type { UserGoals } from '@/types/goals';
 export function useGoals() {
     const { user } = useAuthProvider();
     const queryClient = useQueryClient();
+    const userId = user?.id;
+    // The old shared key has no reliable owner. Never import it into any account.
+    const storageKey = userId ? `${GOALS_STORAGE_KEY}:user:${userId}` : `${GOALS_STORAGE_KEY}:anonymous`;
+    const stored = readStoredGoals(storageKey);
 
     // 1. Fetcher with localStorage fallback
-    const { data: goals = DEFAULT_GOALS, isLoading } = useQuery({
-        queryKey: ['userGoals', user?.id],
-        queryFn: async () => {
-            if (!user) {
-                return safeLocalStorageGetJSON(GOALS_STORAGE_KEY, DEFAULT_GOALS);
+    const { data, isLoading } = useQuery({
+        queryKey: ['userGoals', userId],
+        queryFn: async ({ signal }): Promise<GoalSaveResult> => {
+            const local = readStoredGoals(storageKey);
+            if (!userId || local.pending) {
+                return { goals: local.goals, status: 'local-only', syncError: Boolean(userId && local.pending) };
             }
 
             try {
-                const data = await goalsService.get(user.id);
-                if (data) {
-                    safeLocalStorageSet(GOALS_STORAGE_KEY, JSON.stringify(data));
-                    return data;
+                const remote = await goalsService.get(userId);
+                if (remote) {
+                    if (!signal.aborted) storeGoals(storageKey, remote, false);
+                    return { goals: remote, status: 'synced', syncError: false };
                 }
+                return { goals: local.goals, status: 'local-only', syncError: false };
             } catch (err) {
-                logger.info({ err }, '[useGoals] Fetch failed; falling back to local defaults');
+                logger.info({ err }, '[useGoals] Account goal read unavailable');
+                return { goals: local.goals, status: 'local-only', syncError: true };
             }
-
-            return safeLocalStorageGetJSON(GOALS_STORAGE_KEY, DEFAULT_GOALS);
         },
         staleTime: 5 * 60 * 1000,
+        retry: false,
+        placeholderData: undefined,
     });
+    const current: GoalSaveResult = data ?? { goals: stored.goals, status: 'local-only', syncError: Boolean(userId && stored.pending) };
 
     // 2. Mutation for updating goals
     const mutation = useMutation({
-        mutationFn: async (newGoals: UserGoals) => {
-            safeLocalStorageSet(GOALS_STORAGE_KEY, JSON.stringify(newGoals));
+        mutationFn: async ({ newGoals, ownerId, key }: { newGoals: UserGoals; ownerId: string | undefined; key: string }): Promise<GoalSaveResult> => {
+            storeGoals(key, newGoals, Boolean(ownerId));
 
-            if (user) {
+            if (ownerId) {
                 try {
-                    return await goalsService.upsert(user.id, newGoals);
+                    return { goals: await goalsService.upsert(ownerId, newGoals), status: 'synced', syncError: false };
                 } catch (err) {
                     logger.info({ err }, '[useGoals] Remote goal sync failed; keeping local goals');
-                    return newGoals;
+                    return { goals: newGoals, status: 'local-only', syncError: true };
                 }
             }
-            return newGoals;
+            return { goals: newGoals, status: 'local-only', syncError: false };
         },
-        onSuccess: (updatedGoals) => {
-            const userId = user?.id;
-            queryClient.setQueryData(['userGoals', userId], updatedGoals);
+        onSuccess: (settled, variables) => {
+            const ownerId = variables.ownerId;
+            storeGoals(variables.key, settled.goals, settled.syncError);
+            queryClient.setQueryData(['userGoals', ownerId], settled);
 
-            if (userId) {
-                void queryClient.invalidateQueries({ queryKey: ["userProfile", userId] });
-                void queryClient.invalidateQueries({ queryKey: ["sessionCount", userId] });
-                void queryClient.invalidateQueries({ queryKey: ["analyticsSummary", userId] });
+            if (ownerId) {
+                void queryClient.invalidateQueries({ queryKey: ["userProfile", ownerId] });
+                void queryClient.invalidateQueries({ queryKey: ["sessionCount", ownerId] });
+                void queryClient.invalidateQueries({ queryKey: ["analyticsSummary", ownerId] });
             }
         },
         onError: (err) => {
@@ -75,23 +105,28 @@ export function useGoals() {
     });
 
     const setGoals = useCallback(async (newGoals: UserGoals) => {
-        return await mutation.mutateAsync(newGoals);
-    }, [mutation]);
+        await queryClient.cancelQueries({ queryKey: ['userGoals', userId], exact: true });
+        const settled = await mutation.mutateAsync({ newGoals, ownerId: userId, key: storageKey });
+        return settled;
+    }, [mutation, userId, storageKey, queryClient]);
 
     const resetGoals = useCallback(async () => {
-        safeLocalStorageRemove(GOALS_STORAGE_KEY);
-        if (user) {
-            await mutation.mutateAsync(DEFAULT_GOALS);
+        await queryClient.cancelQueries({ queryKey: ['userGoals', userId], exact: true });
+        safeLocalStorageRemove(storageKey);
+        if (userId) {
+            await mutation.mutateAsync({ newGoals: DEFAULT_GOALS, ownerId: userId, key: storageKey });
         } else {
-            queryClient.setQueryData(['userGoals', undefined], DEFAULT_GOALS);
+            queryClient.setQueryData(['userGoals', undefined], { goals: DEFAULT_GOALS, status: 'local-only', syncError: false });
         }
-    }, [user, mutation, queryClient]);
+    }, [userId, storageKey, mutation, queryClient]);
 
     return {
-        goals,
+        ownerId: userId,
+        goals: current.goals,
         setGoals,
         resetGoals,
         isLoading,
+        syncError: current.syncError,
         defaultGoals: DEFAULT_GOALS,
     };
 }

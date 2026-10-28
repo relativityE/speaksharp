@@ -28,6 +28,7 @@ import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { useSession } from '@/hooks/useSession';
 import { useQueryClient } from '@tanstack/react-query';
 import { resolveTranscriptView } from '@/lib/storage';
+import { useRepeatPracticeTarget } from '@/services/progress/repeatPracticeTarget';
 
 /**
  * #1258 PR 4: a `?review=` value is read only when it has a session id's shape (a UUID in production; the E2E double
@@ -54,7 +55,7 @@ export const SessionPage: React.FC = () => {
     // retained behind a never-true flag pending this test-migration ticket (#1231); it and its now-unused
     // imports have been removed. The live trial-unavailable notice it used to host was relocated into the
     // live chrome below (never silently dropped).
-    const { session: authSession } = useAuthProvider();
+    const { session: authSession, signedOutByUser } = useAuthProvider();
     // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
     // fail closed while it is unresolved — never an unscoped read.
     const authUserId = authSession?.user?.id ?? null;
@@ -126,6 +127,7 @@ export const SessionPage: React.FC = () => {
     // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
     // Points works". null ⇒ an Open Mic session (unchanged).
     const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+    const practiceTarget = useRepeatPracticeTarget(authUserId, activeObjectiveBrief, signedOutByUser);
     // #1264 — the optional Open Mic Practice Focus (persists through a "Practice this next" repeat).
     const practiceFocus = useSessionStore(state => state.practiceFocus);
     // #1046 G6/G7 — the finished-brief snapshot, so the after-state review keeps its Focus Points coverage
@@ -835,10 +837,11 @@ export const SessionPage: React.FC = () => {
                     access modals, mobile action bar — wraps it. This is the only session page. */}
                 {restoreId ? (
                     restoredSession
-                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/analytics')} ownerId={authUserId} />
+                        ? <SavedSessionReturn session={restoredSession} onSeeAllSessions={() => navigate('/progress')} ownerId={authUserId} />
                         : <div className="h-40 animate-pulse rounded-2xl bg-muted/60" aria-hidden="true" data-testid="saved-session-return-loading" />
                 ) : (
                 <SessionOverhaulView
+                    practiceTarget={practiceTarget}
                     authUserId={authUserId}
                     isListening={isListening}
                     sttStatus={sttStatus}
@@ -933,7 +936,7 @@ export const SessionPage: React.FC = () => {
                         // replacement read by itself, and the chained refetch was a second request.
                         void queryClient.resetQueries({ queryKey: ['session', reviewSessionId] });
                     }}
-                    onSeeAllSessions={() => navigate('/analytics')}
+                    onSeeAllSessions={() => navigate('/progress')}
                     beforeProgress={beforeProgress}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}

@@ -2,7 +2,7 @@ import React from 'react';
 import { SessionShell } from './SessionShell';
 import { MicCard, type MicCardProps } from './MicCard';
 import { TranscriptCard, type TranscriptCardProps } from './TranscriptCard';
-import { CoachingCard } from './CoachingCard';
+import { CoachingCard, type CoachingCardProps } from './CoachingCard';
 
 /**
  * The **before** state on the shared slot map (Design Correction Brief S-1…S-7, F-1…F-6):
@@ -16,17 +16,18 @@ import { CoachingCard } from './CoachingCard';
  * Presentational only: every interaction is a prop the container wires.
  */
 export interface SessionBeforeStateProps {
+    practiceTarget?: CoachingCardProps['practiceTarget'];
     mic: MicCardProps;
     transcript: Omit<TranscriptCardProps, 'children'>;
     /** Slot D content. */
     rail: React.ReactNode;
 }
 
-export const SessionBeforeState: React.FC<SessionBeforeStateProps> = ({ mic, transcript, rail }) => (
+export const SessionBeforeState: React.FC<SessionBeforeStateProps> = ({ mic, transcript, rail, practiceTarget }) => (
     <SessionShell
         sessionState="before"
         slotA={<MicCard {...mic} />}
-        slotB={<CoachingCard sessionState="before" />}
+        slotB={<CoachingCard sessionState="before" practiceTarget={practiceTarget} />}
         slotC={<TranscriptCard {...transcript} />}
         slotD={rail}
     />

@@ -26,6 +26,12 @@ describe('navSections — route -> active section resolution', () => {
         expect(resolveNavSectionId('/session/abc123')).toBe('session');
     });
 
+    it('#1548: resolves the canonical /progress and a nested progress route to Analytics', () => {
+        expect(resolveNavSectionId('/progress')).toBe('analytics');
+        expect(resolveNavSectionId('/progress/session-42')).toBe('analytics');
+        expect(resolveNavSectionId('/progress-archive')).toBeNull();
+    });
+
     it('resolves /analytics and a nested analytics route to Analytics', () => {
         expect(resolveNavSectionId('/analytics')).toBe('analytics');
         expect(resolveNavSectionId('/analytics/session-42')).toBe('analytics');

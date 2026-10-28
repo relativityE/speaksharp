@@ -8,8 +8,26 @@ import { readAccountClosureRuntimeBinding } from '../_shared/accountClosureRunti
 import { createAccountClosureRecoveryAdapter } from '../_shared/accountClosureRecoveryAdapter.ts';
 import { recoverAccountClosure } from '../_shared/accountClosureRecovery.ts';
 import { accountClosureConfigProbe, readAccountClosureEffectiveConfig, stripeKeyMode } from '../_shared/accountClosureConfigProbe.ts';
+import { readAccountClosureCompletionRuntimeBinding } from '../_shared/accountClosureCompletionRuntimeBinding.ts';
+import { createAccountCompletionStatus } from '../_shared/accountClosureCompletionStatus.ts';
+import { handleAccountCompletionRequest } from '../_shared/accountClosureCompletionRequest.ts';
+import { createAccountCompletionExecutor } from '../_shared/accountClosureCompletionExecutor.ts';
+import { createServerCompletionPolicyPorts, type CompletionPolicyPorts } from '../_shared/accountClosureCompletionPolicy.ts';
+import { ACCOUNT_COMPLETION_EXECUTION_PATH, handleAccountCompletionExecutionRequest } from '../_shared/accountClosureCompletionExecutionRequest.ts';
+import type { CompletionBinding } from '../_shared/accountClosureCompletionAdapter.ts';
 
 type Env = (key: string) => string | undefined;
+export const ACCOUNT_COMPLETION_STATUS_PATH = '/account-closure/completion-status';
+type CompletionClientFactory = (url: string, key: string, options: {
+  auth: { persistSession: boolean; autoRefreshToken: boolean; detectSessionInUrl: boolean };
+}) => Pick<SupabaseClient, 'rpc' | 'auth'>;
+type CompletionPolicyFactory = (binding: CompletionBinding, client: Pick<SupabaseClient, 'rpc' | 'auth'>, env: Env) => CompletionPolicyPorts;
+const completionPolicy: CompletionPolicyFactory = (binding, client, env) => {
+  const key = env('STRIPE_SECRET_KEY');
+  const stripe = key ? new Stripe(key, { httpClient: Stripe.createFetchHttpClient(), timeout: 10_000, maxNetworkRetries: 0 }) : null;
+  // createClient supplies storage in production; a test's narrow client must inject its own policy.
+  return createServerCompletionPolicyPorts(binding, client as SupabaseClient, stripe);
+};
 
 function randomToken(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -93,10 +111,24 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
     },
     issue: async (userId, hash) => {
       currentBinding();
-      const rows = await drainRpc('issue_account_closure_token_with_drain', { p_user_id: userId, p_token_hash: hash });
+      const rows = await rpc('issue_account_closure_pending_token', { p_user_id: userId, p_token_hash: hash });
       return Array.isArray(rows) && rows.length === 1;
     },
     revoke: async (userId, hash) => { await rpc('revoke_account_closure_token', { p_user_id: userId, p_token_hash: hash }); },
+    pending: {
+      confirm: async (userId, hash) => {
+        currentBinding();
+        return await rpc('begin_account_closure_pending', {
+          p_user_id: userId, p_token_hash: hash, p_confirm_irreversible: true,
+        });
+      },
+      status: async () => {
+        currentBinding();
+        const { data, error } = await auth.rpc('account_closure_pending_status');
+        if (error) throw new Error('pending_status_unavailable');
+        return data;
+      },
+    },
     sendLink: async (email, redirect) => {
       // Supabase owns the single-use magic link and its configured SMTP transport. Never a no-op sender.
       const { error } = await auth.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: redirect } });
@@ -279,10 +311,81 @@ export function buildDependencies(env: Env, admin: SupabaseClient, auth: Supabas
   };
 }
 
-export async function handler(req: Request, env: Env = (key) => Deno.env.get(key)): Promise<Response> {
+export async function handler(req: Request, env: Env = (key) => Deno.env.get(key),
+  completionClient: CompletionClientFactory = createClient, executionPolicy: CompletionPolicyFactory = completionPolicy): Promise<Response> {
   const rejected = corsGuard(req);
   if (rejected) return rejected;
   const headers = corsHeaders(req);
+  const path = new URL(req.url).pathname;
+  if ([ACCOUNT_COMPLETION_EXECUTION_PATH, `/functions/v1${ACCOUNT_COMPLETION_EXECUTION_PATH}`].includes(path)) {
+    let response: Response;
+    try {
+      // Missing/mismatched binding refuses before SDK construction or body access.
+      const binding = await readAccountClosureCompletionRuntimeBinding(env);
+      const secret = env('SUPABASE_SERVICE_ROLE_KEY');
+      if (!secret) throw new Error('account_completion_unavailable');
+      const client = completionClient(binding.url, secret, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const executor = createAccountCompletionExecutor(binding, {
+        enabled: true, // Server composition only; SQL/config remains independently default-disabled.
+        createAdminClient: url => { if (url !== binding.url) throw new Error('completion_target_changed'); return client; },
+        currentBinding: () => readAccountClosureCompletionRuntimeBinding(env),
+        authenticate: (request, url) => {
+          if (url !== binding.url) throw new Error('completion_target_changed');
+          return client.auth.getUser((request.headers.get('authorization') ?? '').slice(7));
+        },
+        policy: executionPolicy(binding, client, env),
+      });
+      response = await handleAccountCompletionExecutionRequest(req, executor);
+    } catch {
+      response = new Response(JSON.stringify({ outcome: 'unavailable', canRetry: false }), {
+        status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
+    }
+    for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
+    return response;
+  }
+  const completionPath = path === ACCOUNT_COMPLETION_STATUS_PATH
+    || path === `/functions/v1${ACCOUNT_COMPLETION_STATUS_PATH}`;
+  if (completionPath) {
+    let response: Response;
+    try {
+      // No request body peek/clone and no SDK construction before verification.
+      const binding = await readAccountClosureCompletionRuntimeBinding(env);
+      const secret = env('SUPABASE_SERVICE_ROLE_KEY');
+      if (!secret) throw new Error('account_completion_unavailable');
+      const client = completionClient(binding.url, secret, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const status = createAccountCompletionStatus(binding, {
+        createAdminClient: url => {
+          if (url !== binding.url) throw new Error('account_completion_unavailable');
+          return client;
+        },
+        currentBinding: () => readAccountClosureCompletionRuntimeBinding(env),
+        authenticate: (request, url) => {
+          if (url !== binding.url) throw new Error('account_completion_unavailable');
+          // Explicit JWT; never adopt an SDK session, metadata or service identity.
+          return client.auth.getUser((request.headers.get('authorization') ?? '').slice(7));
+        },
+      });
+      response = await handleAccountCompletionRequest(req, status);
+    } catch {
+      response = new Response(JSON.stringify({ outcome: 'unavailable', canRetry: false }), {
+        status: 503, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
+    }
+    for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
+    return response;
+  }
+  // Keep canonical legacy entrypoints; unregistered/encoded status aliases must
+  // not fall through into legacy request/confirmation or create another client.
+  if (!['/', '/account-closure', '/functions/v1/account-closure'].includes(path)) {
+    return new Response(JSON.stringify({ error: 'not_found' }), {
+      status: 404, headers: { ...headers, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
+  }
   const probe = await accountClosureConfigProbe(req, env, 'account-closure', () =>
     readAccountClosureEffectiveConfig(env, stripeKeyMode(env('STRIPE_SECRET_KEY'))));
   if (probe) {

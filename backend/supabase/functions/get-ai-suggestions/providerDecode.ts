@@ -61,6 +61,115 @@ export interface ProviderAnswerCodes {
   total_tokens: number | null;
 }
 
+/** Closed response taxonomy. Observed Google codes stay separate from local failures. */
+export const COACHING_ERROR_ORIGINS = ['provider', 'local_normalization', 'local_timeout', 'application'] as const;
+export const LOCAL_COACHING_ERROR_STRINGS = Object.freeze({
+  invalid_request: 'The coaching request could not be validated.',
+  auth_failed: 'Sign in to request coaching.',
+  profile_unavailable: 'Account access could not be verified.',
+  session_not_found: 'This saved session could not be found.',
+  product_mismatch: 'The coaching request does not match the saved practice mode.',
+  focus_context_unavailable: 'The saved Focus Points evidence could not be verified.',
+  focus_results_pending: 'The saved Focus Points results are still being prepared.',
+  transcript_unavailable: 'This saved session has no transcript available for coaching.',
+  product_unknown: 'The saved practice mode could not be verified.',
+  service_configuration: 'Coaching is unavailable because its service configuration could not be verified.',
+  entitlement_unavailable: 'Coaching access could not be verified.',
+  access_denied: 'Your account cannot request coaching right now.',
+  quota_unavailable: 'The coaching allowance could not be verified.',
+  quota_exceeded: 'The coaching request allowance has been reached.',
+  provider_http_4xx: 'Unknown error.',
+  provider_http_5xx: 'Unknown error.',
+  provider_transport: 'The coaching service could not be reached.',
+  provider_timeout: 'The local coaching deadline was exceeded.',
+  missing_text: 'The coaching response contained no usable text.',
+  invalid_shape: 'The coaching response could not be validated.',
+  over_character_ceiling: 'The coaching response exceeded its response limit.',
+  missing_model_version: 'The coaching model identity could not be verified.',
+  authority_unverified: 'The coaching request authority could not be verified.',
+  persist_failed: 'The coaching response could not be saved.',
+  internal_error: 'The coaching request could not be completed.',
+  request_cancelled: 'The coaching request was cancelled.',
+  provider_malformed_response: 'The coaching response could not be read.',
+  cors_denied: 'Origin not allowed.',
+});
+export type LocalCoachingErrorCode = keyof typeof LOCAL_COACHING_ERROR_STRINGS;
+export interface CoachingErrorDescriptor {
+  origin: (typeof COACHING_ERROR_ORIGINS)[number];
+  /** Actual upstream HTTP response, never the application's outer response. */
+  http_status: number | null;
+  canonical_status: (typeof PROVIDER_ERROR_STATUSES)[number] | null;
+  local_code: LocalCoachingErrorCode | null;
+}
+
+// Short safe descriptions of the canonical meanings; never provider error.message.
+// References: ai.google.dev/gemini-api/docs/generate-content/api-errors and
+// googleapis/googleapis/google/rpc/code.proto. UNKNOWN is deliberately nonspecific.
+const CANONICAL_ERROR_STRINGS = Object.freeze({
+  CANCELLED: 'The operation was cancelled.',
+  UNKNOWN: 'Unknown error.',
+  INVALID_ARGUMENT: 'The request contains an invalid argument.',
+  DEADLINE_EXCEEDED: 'The service deadline was exceeded.',
+  NOT_FOUND: 'The requested resource was not found.',
+  ALREADY_EXISTS: 'The requested resource already exists.',
+  PERMISSION_DENIED: 'The service denied permission for this request.',
+  RESOURCE_EXHAUSTED: 'A service resource limit was reached.',
+  FAILED_PRECONDITION: 'A required service precondition was not met.',
+  ABORTED: 'The operation was aborted.',
+  OUT_OF_RANGE: 'A request value is outside its allowed range.',
+  UNIMPLEMENTED: 'The requested operation is not supported.',
+  INTERNAL: 'The service reported an internal error.',
+  UNAVAILABLE: 'The service is temporarily unavailable.',
+  DATA_LOSS: 'The service reported unrecoverable data loss.',
+  UNAUTHENTICATED: 'The service could not authenticate the request.',
+});
+
+/** Return fixed catalog text only, even if called with a forged runtime object. */
+export function get_error_string(descriptor: CoachingErrorDescriptor): string {
+  if (descriptor?.origin === 'local_normalization') return 'Unknown error.';
+  if (descriptor?.origin === 'local_timeout') return LOCAL_COACHING_ERROR_STRINGS.provider_timeout;
+  if (descriptor?.origin === 'application') {
+    return descriptor.local_code && Object.hasOwn(LOCAL_COACHING_ERROR_STRINGS, descriptor.local_code)
+      ? LOCAL_COACHING_ERROR_STRINGS[descriptor.local_code] : 'Unknown error.';
+  }
+  if (descriptor?.origin !== 'provider' || !descriptor.canonical_status
+    || !Object.hasOwn(CANONICAL_ERROR_STRINGS, descriptor.canonical_status)) return 'Unknown error.';
+  if (descriptor.canonical_status === 'RESOURCE_EXHAUSTED') {
+    if (descriptor.http_status === 402) return 'The service credit balance is depleted.';
+    if (descriptor.http_status === 429) return 'The service rate limit was exceeded.';
+  }
+  return CANONICAL_ERROR_STRINGS[descriptor.canonical_status];
+}
+
+/** Build provenance from the last observed attempt; never manufacture a Google status. */
+export function coachingErrorDescriptor(
+  reason: string, httpStatus: number | null, providerCodes: ProviderErrorCodes | null,
+): CoachingErrorDescriptor {
+  const localCode = Object.hasOwn(LOCAL_COACHING_ERROR_STRINGS, reason)
+    ? reason as LocalCoachingErrorCode : 'internal_error';
+  if (localCode === 'provider_timeout') return {
+    origin: 'local_timeout', http_status: null, canonical_status: null, local_code: localCode,
+  };
+  const actualStatus = Number.isInteger(httpStatus) && Number(httpStatus) >= 100 && Number(httpStatus) <= 599
+    ? httpStatus : null;
+  if (localCode === 'provider_http_4xx' || localCode === 'provider_http_5xx') {
+    const observed = providerCodes?.error_status;
+    if (actualStatus !== null && actualStatus >= 400 && observed
+      && (PROVIDER_ERROR_STATUSES as readonly string[]).includes(observed)) return {
+        origin: 'provider', http_status: actualStatus,
+        canonical_status: observed as CoachingErrorDescriptor['canonical_status'], local_code: null,
+      };
+    return { origin: 'local_normalization', http_status: actualStatus,
+      canonical_status: 'UNKNOWN', local_code: localCode };
+  }
+  if (['missing_text', 'invalid_shape', 'over_character_ceiling', 'missing_model_version',
+    'provider_malformed_response'].includes(localCode)) return {
+      origin: 'local_normalization', http_status: actualStatus,
+      canonical_status: 'UNKNOWN', local_code: localCode,
+    };
+  return { origin: 'application', http_status: null, canonical_status: null, local_code: localCode };
+}
+
 const member = <T extends string>(list: readonly T[], value: unknown): T | 'other' | null => {
   if (value === undefined || value === null) return null;
   return typeof value === 'string' && (list as readonly string[]).includes(value) ? value as T : 'other';

@@ -19,6 +19,13 @@
 
 # SpeakSharp Progress and Next Action (v1)
 
+The implementation and issue references above are historical source provenance.
+The [#1674 receiving register](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6459908560)
+now retains the uncompleted #1473/#1258/#1593 acceptance: one automatic request and
+terminal per eligible lifecycle, visible valid 1+1 output or cause-matched recovery,
+correct session/model/release binding and independently received evidence.
+Administrative transfers do not close those requirements or reopen past writer assignments.
+
 Canonical statement of how SpeakSharp tells a user **whether their own practice is moving**, **what evidence supports that**, and **what to practise next** — and of the claims it must never make.
 
 This is a **documentation** artifact. It defines the contract; it changes no application code, migration, or product behaviour on its own.

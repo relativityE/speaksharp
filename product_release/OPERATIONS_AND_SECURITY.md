@@ -271,3 +271,11 @@ Migration application, Edge release, secret synchronization and resulting closur
 ## Current canary scope
 
 Read exact canary.yml:push/daily active-trial product proof and weekly Stripe test-mode/test-clock billing qualification are distinct; manual dispatch cannot select weekly billing. Genuine live paid-customer continuity remains separate. Historical1288 synthetic cutover/1290 manual-both-lanes recipes are not current instructions. For selected commercial proof preserve exact customer/subscription/approved Price ownership, account ceiling, no maintained-user mutation, uncertain-response HOLD and separately authorized account/merge/deployment actions. Profile fields alone are not real provider outcome.
+
+<!-- clause-closeout:2026-10-28 -->
+## Consolidated predecessor controls and interpretation
+
+### Historical inventory does not authorize secret deletion
+
+Separate repository, environment, organization, frontend-build and Edge/DB runtime scopes. Zero workflow references do not establish that a runtime secret is unused, and an inaccessible organization inventory is unknown rather than empty. Duplicate Secret-to-Variable retirement requires the exact current consumer inventory, nonblank Variable resolution in the executing scope, terminal evidence that consumers used Variables without fallback, explicit deletion selection and post-change readback. Preserve least-privilege review for any credential capable of writing repository secrets; the historical GH_PAT finding is not proof of present permissions. Retired provider keys and exclusion-manifest changes require their own scoped disposition. No historical DELETED or still-present table establishes current configuration, and no values belong in this documentation.
+<!-- /clause-closeout:2026-10-28 -->

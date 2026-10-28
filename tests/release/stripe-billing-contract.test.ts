@@ -28,8 +28,11 @@ describe('paid soft-launch billing contract', () => {
     expect(reusable).not.toMatch(/edge_changes_present:\s*[\s\S]{0,80}type: boolean/);
     expect(scopeValidator).toMatch(/Edge source\/shared configuration changed but deploy_edge_functions=false/);
     expect(reusable).toMatch(/git diff --name-only "\$BEFORE_SHA" "\$HEAD_SHA"/);
-    // Backend context changes must revoke deletion authority before deployment.
-    expect(reusable).toMatch(/deploy-edge-functions:[\s\S]*needs: \[validate-edge-configuration, invalidate-account-closure-authority, deploy-production-db\][\s\S]*deploy_edge_functions == 'true'/);
+    // Backend context changes must revoke deletion authority before deployment, and both the revocation and the
+    // deployment wait for the verified T2 database prerequisites.
+    expect(reusable).toMatch(/invalidate-account-closure-authority:\n\s+needs: \[validate-edge-configuration, verify-t2-database-prerequisites\]\n\s+if: \$\{\{[^\n]*needs\.verify-t2-database-prerequisites\.result == 'success'/);
+    expect(reusable).toMatch(/deploy-edge-functions:[\s\S]*needs: \[validate-edge-configuration, verify-t2-database-prerequisites, invalidate-account-closure-authority, deploy-production-db\][\s\S]*deploy_edge_functions == 'true'/);
+    expect(reusable).toMatch(/deploy-edge-functions:\n\s+needs: \[[^\n]*\]\n\s+if: \$\{\{[^\n]*needs\.verify-t2-database-prerequisites\.result == 'success'[^\n]*needs\.invalidate-account-closure-authority\.result == 'success'/);
     expect(reusable).toMatch(/needs\.invalidate-account-closure-authority\.result == 'success'/);
     expect(reusable).toMatch(/needs\.deploy-production-db\.result == 'success'/);
     expect(reusable).toMatch(/verify-edge-functions:[\s\S]*deploy_edge_functions == 'true'/);

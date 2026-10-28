@@ -3,7 +3,8 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 import coachingContract from './contract.json' with { type: 'json' };
 import {
-  decodeProviderAnswer, decodeProviderError, readBoundedBody, type ProviderAnswerCodes, type ProviderErrorCodes,
+  coachingErrorDescriptor, get_error_string, decodeProviderAnswer, decodeProviderError, readBoundedBody,
+  type ProviderAnswerCodes, type ProviderErrorCodes,
 } from './providerDecode.ts';
 import {
   attemptTimeoutMs, canAdmitAttempt, isRetryableProviderStatus, MAX_PROVIDER_ATTEMPTS, parseRetryAfter, planNextAttempt,
@@ -164,12 +165,6 @@ const SESSION_EVIDENCE_COLUMNS =
 const isMissingProductColumn = (error: { code?: string; message?: string } | null | undefined): boolean =>
   Boolean(error && (error.code === '42703' || error.code === 'PGRST204') && /product/.test(error.message ?? ''));
 
-/** Only deployment skew (Edge published before its migration) may use the legacy authenticated write. */
-function authorityRpcUnavailable(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const code = (error as { code?: unknown }).code;
-  return code === 'PGRST202' || code === '42883';
-}
 /**
  * `enforceCharacterCeiling` separates two jobs this parser does, which are not the same contract (Codex P1).
  *
@@ -502,8 +497,15 @@ export async function handler(
   // Response-only binding for the private evidence collector. Do not include this in the content-free
   // diagnostic log or any telemetry: it is a stable pseudonymous link to the selected authenticated row.
   let sessionBindingSha256: string | null = null;
+  // A durable account admission precedes quota/provider work. Unknown external or commit
+  // outcomes remain fenced; a disconnected browser is not proof that work settled.
+  let coachingAdmission: { p_user_id: string; p_session_id: string; p_operation_id: string } | null = null;
+  let coachingPersisted = false;
+  let coachingOutcomeUnknown = false;
   const finish = (payload: Record<string, unknown>, status: number): Response => {
     const rawReason = closedDiagnosticReason(payload, status, diagnosticPhase);
+    const errorDescriptor = status >= 200 && status < 300 ? null
+      : coachingErrorDescriptor(rawReason, providerStatus, providerErrorCodes);
     const diagnostic = {
       schema_version: 'coaching_diagnostic_v1',
       request_id: diagnosticRequestId,
@@ -553,10 +555,16 @@ export async function handler(
     };
     // Structured, content-free log line is the fallback diagnostic path when Sentry is absent.
     console.info('AI_COACHING_DIAGNOSTIC', JSON.stringify(diagnostic));
-    const responseDiagnostic = sessionBindingSha256
+    const boundDiagnostic = sessionBindingSha256
       ? { ...diagnostic, session_binding_sha256: sessionBindingSha256 }
       : diagnostic;
-    return new Response(JSON.stringify({ ...payload, diagnostics: responseDiagnostic }), {
+    const responseDiagnostic = errorDescriptor
+      ? { ...boundDiagnostic, error_descriptor: errorDescriptor } : boundDiagnostic;
+    // Preserve existing closed wire codes; the display string is always catalog-owned.
+    const responsePayload = errorDescriptor ? { ...payload,
+      code: typeof payload.code === 'string' ? payload.code : rawReason,
+      error: get_error_string(errorDescriptor) } : payload;
+    return new Response(JSON.stringify({ ...responsePayload, diagnostics: responseDiagnostic }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status,
     });
@@ -778,6 +786,18 @@ export async function handler(
       return finish({ error: 'AI coaching is unavailable right now. Please try again.', code: 'service_configuration' }, 503);
     }
 
+    const operationIdentity = { p_user_id: userId, p_session_id: sessionId, p_operation_id: crypto.randomUUID() };
+    const { data: admission, error: admissionError } = await createServiceRoleSupabase().rpc(
+      'begin_account_coaching_v1', operationIdentity,
+    );
+    if (admissionError || admission?.admitted !== true || admission.operationId !== operationIdentity.p_operation_id) {
+      if (!admissionError && admission?.admitted === false && admission.reason === 'account_closure_pending') {
+        return finish({ error: 'Account closure is pending. New coaching is unavailable.', code: 'account_closure_pending', reason: 'access_denied' }, 423);
+      }
+      return finish({ error: 'Unable to verify account access for new coaching. Please try again.', code: 'account_admission_unverified', reason: 'authority_unverified' }, 503);
+    }
+    coachingAdmission = operationIdentity;
+
     diagnosticPhase = 'quota';
     const { data: quota, error: quotaError } = await supabaseClient.rpc('consume_ai_suggestion_quota', {
       p_limit: AI_SUGGESTION_DAILY_LIMIT,
@@ -864,6 +884,7 @@ export async function handler(
           try {
             responseData = await geminiResponse.json();
           } catch {
+            coachingOutcomeUnknown = true;
             if (callerSignal.aborted) {
               // PM 6206983551: the CALLER left while the received answer was being read — a cancellation, never a
               // retryable malformed answer. The received status stays in the attempt evidence.
@@ -894,6 +915,7 @@ export async function handler(
           }
         }
       } catch (error) {
+        coachingOutcomeUnknown = true;
         // #1258: the error NAME only. A fetch error's message can carry the request URL, and this URL carries the API key.
         const errorName = error instanceof Error ? error.name : 'unknown';
         console.error('Gemini API request failed.', JSON.stringify({ error: errorName, attempt: providerAttempt }));
@@ -960,8 +982,9 @@ export async function handler(
       }
     }
 
-    // The caller is gone: nothing more is attempted, and no coaching pair is persisted for a request no one awaits.
-    if (callerAborted || callerSignal.aborted) {
+    // Do not start more provider work after cancellation. A fully received valid answer,
+    // however, completes its already-admitted save even if the browser has since left.
+    if ((callerAborted || callerSignal.aborted) && (!suggestions || !observedProviderModel)) {
       return finish({ error: 'AI coaching request was cancelled.', reason: 'request_cancelled' }, 499);
     }
 
@@ -994,9 +1017,14 @@ export async function handler(
     diagnosticPhase = 'persist';
     // Persist the coaching value and its provider/quota authority in one service-role transaction.
     // The browser's authenticated client cannot execute this RPC or write the receipt table.
-    const { data: authoritySavedValue, error: authorityUpdateError } = await createServiceRoleSupabase().rpc(
-      'persist_ai_suggestion_with_authority_v1',
+    // A lost commit reply is unknown until the atomic database operation can be reconciled.
+    const providerSettled = !coachingOutcomeUnknown;
+    coachingOutcomeUnknown = true;
+    const { data: savedValue, error: updateError } = await createServiceRoleSupabase().rpc(
+      'persist_account_coaching_v1',
       {
+        p_operation_id: coachingAdmission.p_operation_id,
+        p_provider_settled: providerSettled,
         p_session_id: sessionId,
         p_user_id: userId,
         p_suggestions: suggestions,
@@ -1009,24 +1037,11 @@ export async function handler(
       },
     );
 
-    // Merging this function deploys Edge code before the separately authorized database migration.
-    // During that bounded skew, preserve the existing product save through the authenticated/RLS path.
-    // The trusted evidence collector still HOLDs because this path creates no authority receipt. Once
-    // the migration is present its ACL removes this browser write and the atomic RPC is mandatory.
-    let savedValue = authoritySavedValue;
-    let updateError = authorityUpdateError;
-    if (authorityRpcUnavailable(authorityUpdateError)) {
-      const legacy = await supabaseClient
-        .from('sessions')
-        .update({ ai_suggestions: suggestions })
-        .eq('id', sessionId)
-        .eq('user_id', userId)
-        .select('ai_suggestions')
-        .single();
-      savedValue = legacy.data?.ai_suggestions ?? null;
-      updateError = legacy.error;
-    }
-
+    // #1684 Codex P1 r4354653671: a returned check violation (SQLSTATE 23514) with no data is the atomic RPC's own
+    // definitive rejection before any write (e.g. the quota-ledger check), so the admission's uncertainty reverts to the
+    // provider's: a certain provider attempt settles `refused`. Any other code, a thrown error or returned data stays
+    // unknown, because an `unknown` admission can never settle again.
+    if (updateError?.code === '23514' && savedValue === null) coachingOutcomeUnknown = !providerSettled;
     const savedSuggestions = !updateError && savedValue
       ? parseSuggestions(JSON.stringify(savedValue))
       : null;
@@ -1034,6 +1049,7 @@ export async function handler(
       console.error('Failed to save and verify AI suggestions:', updateError);
       return finish({ error: 'AI coaching could not be saved. Please try again.', code: 'persist_failed' }, 503);
     }
+    coachingPersisted = true;
 
     // #1258 (PO 2026-10-02): every SERVED generation is measured, content-free — counts and flags, never phrases.
     // Emitted only here, after save verification (Codex r4189408877): a generation that ends in 503 was never served,
@@ -1045,6 +1061,19 @@ export async function handler(
   } catch (error) {
     console.error('Error getting AI suggestions:', error);
     return finish({ error: 'Failed to get AI suggestions. Please try again.' }, 500);
+  } finally {
+    if (coachingAdmission && !coachingPersisted) {
+      try {
+        const { data, error } = await createServiceRoleSupabase().rpc('finish_account_coaching_failure_v1', {
+          ...coachingAdmission,
+          p_outcome: coachingOutcomeUnknown ? 'unknown' : 'refused',
+        });
+        if (error || data !== true) console.error('Account coaching settlement remains unverified.');
+      } catch {
+        // The durable admission remains unsettled. Never turn a failed settlement write into permission to delete.
+        console.error('Account coaching settlement remains unverified.');
+      }
+    }
   }
 }
 

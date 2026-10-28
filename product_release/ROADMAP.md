@@ -1,7 +1,7 @@
 **Status:** Authoritative for the bounded current work routing below; wider canonical reconciliation remains open under #1318.
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-10-17 — Sam source-accepted the bounded corrections; successor review qualification remains separate.
-**Last Verified:** 2026-10-17 — linked current assignments and source checkpoints; operational state is recorded in `RELEASE_STATUS.md`.
+**Last Reviewed:** 2026-10-28 — bounded source/component currency correction; independent review and qualification remain required.
+**Last Verified:** 2026-10-28 — source baseline `250cffcc`; per-component observation times and operational HOLD are recorded in `RELEASE_STATUS.md`.
 **Applies To:** RWT/Alpha, MVP/Beta sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -11,14 +11,46 @@
 
 # SpeakSharp Roadmap
 
+## Receiving and acceptance ownership
+
+The [current #1674 receiving register](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6460190223)
+retains 33 known finding groups and their residual aliases. Sam owns disposition;
+source owners keep their acknowledged files. The 151 stable requirements, 15 journeys,
+204 R5 assertions, six human/device records and three accessibility records are
+separate inventories. Current results and audit qualifications are in
+[RELEASE_STATUS.md](./RELEASE_STATUS.md#28-october-2026-post-r5-receiving-addendum).
+All unresolved requirements remain open; transferring or closing an issue wrapper
+does not implement it, waive its original casualty or establish customer acceptance.
+
+Historical model queues and coordinator assignments below do not restart writers.
+Model research/promotion remains a separate selection; v2 may complete MVP.
+Jensen's #1488 observer work and #1752's bounded #1610 successor do not close the
+broader privacy, lease, bootstrap or cross-version requirements by association.
+Sam must disposition missing historical executed ledgers and tag chronology explicitly.
+
+### Finance documentation
+
+The September workbook below remains a historical planning artifact. The newer
+planning candidate is on [#1599](https://github.com/relativityE/speaksharp/pull/1599),
+outside the product implementation queue. Its accepted status-formula correction is
+already integrated into that candidate; it must not be rebuilt. Current source pins,
+hashes and qualification limits belong in its review record and PR evidence. Planning
+arithmetic does not validate prices, demand, measured coaching cost or profitability,
+and grants no billing activation or spend authority.
+
 **19 October receiving correction.** The [35-item owner/closure directive](https://app.slack.com/archives/C0C9RE8KNHG/p1792432639622239) supersedes older queue assignments: App owns11, CLI15, Browser PM3 and Sam6. RWT/Alpha and MVP/Beta overlap but remain separate milestones. Prepared source must pass integration, deployment and matching acceptance; a final human sitting cannot close branch-only or unapplied work. Routine account exit follows [account-scoped policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298); elapsed timeout or request acceptance is not deletion. This is routing, not release or operational approval. Dynamic source/deployment facts remain in RELEASE_STATUS.
 
-The fixed integration / qualification baseline is `5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf`, the reviewed #1650 mainline base integrated into #1648. The dated `bc1ea8ea` observation, deployed-release read and subsequent drift belong in [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), which remains the only current deployment authority. The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production or claim an evergreen current-main pointer.
+Changing component identities, configuration, migration state, blockers and observation
+receipts belong in the [post-R5 addendum in `RELEASE_STATUS.md`](./RELEASE_STATUS.md#28-october-2026-post-r5-receiving-addendum).
+That authority also preserves the fixed historical #1650 integration baseline. The
+machine-readable copy below exists for the shared currency guard; it mirrors the
+dated source/release receipt and does not independently verify GitHub or Production.
+Routing here grants no deployment, activation or acceptance authority.
 
 <!-- CURRENCY-BLOCK
-baseline: 5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf
-deployed-release: bc1ea8eaec3d410865b832319a0e855b299693e3
-verified-on: 2026-10-17
+baseline: 4c85b006ac05e180521fd6e7d807f736987cafe8
+deployed-release: 4c85b006ac05e180521fd6e7d807f736987cafe8
+verified-on: 2026-10-28
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
@@ -49,20 +81,23 @@ lane-moonshine: returned
 
 Legacy `task-1304-*` fields record merged source checkpoints, not model promotion or completion of the parent comparison program. The historical `onnxruntime-web` QDQ failures #28306/#28326 remain runtime observations, not model rejection: the 459-word preflight and 600-utterance selection are distinct evidence sets. Model evaluation and promotion retain their separate dispositions; no new model gate is created by this current-state correction.
 
-## Now — existing owner assignments
+## Historical owner assignments — retained acceptance boundaries
 
-Keep App Dev on RWT/Alpha and CLI Dev on MVP/Beta. Sam owns central routing, review, qualification and operational decisions; CLI PM supports monitoring/delivery. Production Dev reviews and GitHub work take precedence over Orch support. Preserve one writer per owned branch and serial guarded landings; independent source work does not wait for unrelated operational permission.
+The earlier App/CLI queue below preserves acceptance boundaries, not current writer assignments.
+Sam owns current routing, review, qualification and operational decisions through the receiving
+register above. Standing CLI PM/Consultant coordination is retired; it is not restarted here.
+Preserve one writer per acknowledged path and serial guarded landings.
 
 | Outcome / owning issue | Existing owner | Next bounded outcome / completion boundary |
 |---|---|---|
 | Full useful two-product RWT — #1258 / coordination #1593 | App Dev executes; Sam reviews; PO/named humans accept | Follow the existing nine-spec matrix and retain each case's PASS/FAIL/HOLD/not-run. Rebind the save/retry request-lost then response-lost packet to the actual served release with specific authority, receipt/cleanup review and stop conditions. Complete remaining received/human/device acceptance. Source merges do not close this outcome. |
 | Backend-only staging — #1611 | CLI Dev post-deployment evidence; App Dev assigned operations; Sam dispositions | #1611 source is landed; migration120 is applied and verified, and the coupled Edge release and canary are reported successful. Do not repeat source reconciliation, landing or deployment. Remaining work is the existing nonsecret effective deployment identity, generation/configuration and default-disabled readback, followed by the separate #1643 customer-exit evidence. Deletion registration/activation and full customer acceptance remain separate decisions. Exact heads, runs and operation receipts live in `RELEASE_STATUS.md`. |
-| Complete customer exit — #1643, with #1495 provider/fixture prerequisites | CLI Dev implementation/evidence; Sam scope/review; App Dev only assigned operations | Retain all nine existing acceptance items: cancellation versus deletion, account-bound email/UI, account-scoped admission and settlement under policy6251767298 (legacy cutover remains separately evidenced), registration/runtime binding, billing ownership/recovery, cleanup and terminal sign-in refusal, telemetry and controlled live proof. The authoritative registration/current-facts producer is SOURCE INCOMPLETE, separate from the missing operational drain/settlement evidence. Consolidate accepted preserved-source increments, integrate against current main and qualify before eligible controlled activation. Backend staging alone cannot close it. |
-| G10 presentation and acceptance — #1474 | App Dev final campaign release binding/live RWT; Browser PM evidence review; PO/named humans accept; Sam routing | [Sam's natural-growth ruling](https://github.com/relativityE/speaksharp/issues/1474#issuecomment-6240521998) supersedes the earlier pending recommendation. The Share Feedback opener is source-landed in #1649; #1652 source-landed the readable full prescription, unobscured repeat/retry controls and replacement rendered checks. [App's #1652 receipt6248196339](https://github.com/relativityE/speaksharp/pull/1652#issuecomment-6248196339) is recorded in the separately labelled post-snapshot addenda in [the deployment authority](./RELEASE_STATUS.md); do not repeat these repairs or that deployment. Remaining work is binding the final campaign to the actual served release, specifically authorized live RWT and human/mobile/device acceptance. Keep rejected reservations/unmet evidence; no clipping, hidden rows or weakened maximum-content oracle is approved here. |
+| Complete customer exit — #1643, with #1495 provider/fixture prerequisites | CLI Dev implementation/evidence; Sam scope/review; App Dev only assigned operations | Retain all nine existing acceptance items: cancellation versus deletion, account-bound email/UI, account-scoped admission and settlement under policy6251767298 (legacy cutover remains separately evidenced), registration/runtime binding, billing ownership/recovery, cleanup and terminal sign-in refusal, telemetry and controlled live proof. The authoritative registration/current-facts producer is SOURCE INCOMPLETE, separate from the missing operational drain/settlement evidence. Consolidate accepted preserved-source increments, integrate against current main and qualify before eligible controlled activation. Backend staging alone cannot close it. **23 Oct:** #1684 backend source (status read/issue/ACK) landed; completion execution is inactive, the producer is still SOURCE INCOMPLETE, runtime/schema is UNVERIFIED, and UI #1683 is inactive. |
+| G10 presentation and acceptance — #1474 | App Dev final campaign release binding/live RWT; Browser PM evidence review; PO/named humans accept; Sam routing | [Sam's natural-growth ruling](https://github.com/relativityE/speaksharp/issues/1474#issuecomment-6240521998) supersedes the earlier pending recommendation. The Share Feedback opener is source-landed in #1649; #1652 source-landed the readable full prescription, unobscured repeat/retry controls and replacement rendered checks. [App's #1652 receipt6248196339](https://github.com/relativityE/speaksharp/pull/1652#issuecomment-6248196339) is recorded in the separately labelled post-snapshot addenda in [the deployment authority](./RELEASE_STATUS.md); do not repeat these repairs or that deployment. Remaining work is binding the final campaign to the actual served release, specifically authorized live RWT and human/mobile/device acceptance. Keep rejected reservations/unmet evidence; no clipping, hidden rows or weakened maximum-content oracle is approved here. **23 Oct:** #1679 (N1/N2) landed as source; it is not in the served `29d7c7e5` read. |
 | Truthful download progress — #1491 / #1647 | App Dev | The bounded percentage-display fix is source-integrated and included in the later #1649 served-release receipt recorded in `RELEASE_STATUS.md`. Cold-download proof and mobile stale-label behavior retain their own evidence boundaries; do not repeat the old served-identity task. |
-| Canonical documentation — #1318 | Browser PM; Sam reviews | Publish this first bounded current-state docs diff with receipt-linked HOLD labels. Then continue the remaining canonical/current-document inventory and consolidated intake; do not recreate the accepted readiness packet or wait idle for release completion. This increment does not close the full inventory. |
+| Canonical documentation — #1318 | Browser PM; Sam reviews | Published via #1648/#1671; continue remaining reconciliation. Then continue the remaining canonical/current-document inventory and consolidated intake; do not recreate the accepted readiness packet or wait idle for release completion. This increment does not close the full inventory. |
 | Existing telemetry and test-identity requirements — #1259 / #1495 / owning journey issues | App/CLI implementation by existing assignment; Sam dispositions | Keep received versus sent evidence, AUTH/FULL_PRODUCT/PAID/expired/conversion fixtures and cleanup boundaries distinct. Do not turn the broader five-role redesign into a new core-RWT entry gate. |
-| Remaining product usefulness — #1548 | Existing product/engineering owners; Sam/PO adjudicate | Preserve the broader truthful/actionable coaching outcome. The narrow stored-target display integration is delivered source, not full product-effectiveness acceptance. |
+| Remaining product usefulness — #1548 | Existing product/engineering owners; Sam/PO adjudicate | Preserve the broader truthful/actionable coaching outcome. The narrow stored-target display integration is delivered source, not full product-effectiveness acceptance. **23 Oct:** #1681 practice-continuity source landed; it is not in the served `29d7c7e5` read. |
 
 ### Preserved sequencing and deferred intake
 
@@ -87,7 +122,7 @@ Keep App Dev on RWT/Alpha and CLI Dev on MVP/Beta. Sam owns central routing, rev
 
 ## Current parallel model work
 
-**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. Model evaluation and fallback work require a separate current selection and acknowledged file ownership. Preserved #1567/#1568 source and unresolved model obligations remain provenance, not an active writer assignment or a prerequisite for v2 MVP acceptance. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 ## Later — explicitly post-MVP
 
@@ -160,3 +195,15 @@ duplicate — for the parked enterprise/team and demand-validation workstreams, 
 - Do not treat the partial Stop B or the descriptive v2/v4 observations as the comparable evidence that confirms v4 over v2.
 - Do not treat CI, a transport 200, a generated artifact, or an installed observer as proof of received/user-visible behavior.
 - Do not let post-MVP debt displace the current product merge token.
+
+<!-- clause-closeout:2026-10-28 -->
+## Consolidated predecessor controls and interpretation
+
+### Predecessor decisions and remaining receiving ownership
+
+#1674 receives retained documentation and acceptance obligations from predecessor packets; transferred issue wrappers and completed prose do not complete product requirements. Jensen receives non-documentation controls with original IDs, evidence, next action and dependency; Cloud separately owns its harness. Old release/dev branch assignments, post-merge cleanup proposals and experimental tuning sequences are historical and confer no new work or operational authority. R01–R16 post-RWT ideas remain a distinct proposal register with original identifiers and explicit owner disposition; semantic coaching efficacy, felt progress and willingness to pay are not inferred from metric movement. Promotional draft copy and video assets require release-specific claim checking and separate publication/provider-spend authorization.
+
+### Strategy evidence and execution order
+
+The dated code/strategy audit found an implemented acceptance-to-next-session association and same-cohort movement calculation, not causal coaching efficacy. Preserve the distinction between browser-local STT and separately disclosed server-side text/coaching processing. Progress/source coverage, waitlist infrastructure, compliance tests and local-inference cost hypotheses do not establish demand, willingness to pay, lower churn or defensibility. Any derived longitudinal dataset must remain consented and privacy-preserving; technical availability does not grant reuse authority. Customer validation and independent qualification remain necessary, but strategic importance does not silently reorder the owner’s release sequence.
+<!-- /clause-closeout:2026-10-28 -->

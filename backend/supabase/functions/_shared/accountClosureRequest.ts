@@ -10,6 +10,20 @@ export interface ClosureRequestDependencies {
   sendLink(email: string, redirect: string): Promise<void>;
   closure(req: Request): ClosureDependencies;
   finish(userId: string, requestId: string): Promise<void>;
+  /** Inactive pending primitive: no provider mutation or destructive adapter. */
+  pending?: {
+    confirm(userId: string, tokenHash: string): Promise<unknown>;
+    status(): Promise<unknown>;
+  };
+}
+
+function pendingStatus(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return Object.keys(row).length === 4
+    && typeof row.requestId === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(row.requestId)
+    && row.phase === 'pending' && row.destructiveEnabled === false
+    && typeof row.checkoutPending === 'number' && Number.isSafeInteger(row.checkoutPending) && row.checkoutPending >= 0;
 }
 
 const reply = (status: number, data: object) => new Response(JSON.stringify(data), {
@@ -46,6 +60,12 @@ export async function handleClosureRequest(req: Request, deps: ClosureRequestDep
     try { body = JSON.parse(text) as Record<string, unknown>; }
     catch { return reply(400, { error: 'invalid_request' }); }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return reply(400, { error: 'invalid_request' });
+    if (body.action === 'status' && deps.pending) {
+      const status = await deps.pending.status();
+      if (status === null) return reply(200, { outcome: 'not_pending', destructiveEnabled: false });
+      if (!pendingStatus(status)) throw new Error('pending_status_unverified');
+      return reply(200, { outcome: 'pending', ...status });
+    }
     if (body.action === 'request') {
       const origin = new URL(deps.siteUrl);
       if (origin.protocol !== 'https:' || origin.username || origin.password || origin.search || origin.hash
@@ -66,6 +86,14 @@ export async function handleClosureRequest(req: Request, deps: ClosureRequestDep
     if (body.action !== 'confirm' || body.confirmIrreversible !== true
       || typeof body.token !== 'string' || !/^[a-f0-9]{64}$/.test(body.token)) {
       return reply(400, { error: 'explicit_confirmation_required' });
+    }
+    if (deps.pending) {
+      const status = await deps.pending.confirm(user.id, await deps.hashToken(body.token));
+      if (status === null) return reply(403, { outcome: 'refused', accountDeleted: false,
+        billingClosed: false, customerDeleted: false });
+      if (!pendingStatus(status)) throw new Error('pending_status_unverified');
+      return reply(202, { outcome: 'pending', requestId: status.requestId, phase: status.phase,
+        destructiveEnabled: false, checkoutPending: status.checkoutPending });
     }
     const adapters = deps.closure(req);
     const originalClaim = adapters.consumeProof.bind(adapters);

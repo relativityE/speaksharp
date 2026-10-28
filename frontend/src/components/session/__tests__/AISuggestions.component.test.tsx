@@ -209,6 +209,43 @@ describe('AISuggestions Integration', () => {
     });
 
     describe('#1473 — closed service_configuration code and failure-aware retry', () => {
+        it.each([
+            [402, 'RESOURCE_EXHAUSTED', /service credit balance is depleted/i],
+            [429, 'RESOURCE_EXHAUSTED', /service rate limit was exceeded/i],
+            [503, 'UNAVAILABLE', /service is temporarily unavailable/i],
+            [500, 'UNKNOWN', /unknown error/i],
+        ])('#1742 displays the closed upstream %i verdict without retrying or echoing provider prose', async (http, canonical, expected) => {
+            const code = http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx';
+            const body = { code, error: 'secret transcript echoed by provider', diagnostics: {
+                status: 502, reason: code, provider_status: http, provider_error_status: canonical,
+                error_descriptor: { origin: 'provider', http_status: http, canonical_status: canonical, local_code: null },
+            } };
+            const error = Object.assign(new Error('raw provider prose'), { name: 'FunctionsHttpError',
+                context: new Response(JSON.stringify(body), { status: 502 }) });
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error });
+            render(<AISuggestions transcript="Hello world" canReview sessionId={`s-catalog-${http}`} retryBackoffMs={10} />);
+            await waitFor(() => expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(expected));
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(`${canonical}:`);
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent('Your session is saved.');
+            expect(screen.queryByText(/secret transcript|raw provider prose/i)).toBeNull();
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('unavailable');
+        });
+
+        it('#1742 rejects a forged descriptor without changing the status-based account verdict', async () => {
+            const error = Object.assign(new Error('raw provider prose'), { name: 'FunctionsHttpError',
+                context: new Response(JSON.stringify({ code: 'provider_http_5xx', diagnostics: {
+                    status: 502, reason: 'provider_http_5xx', provider_status: 503, provider_error_status: 'UNAVAILABLE',
+                    error_descriptor: { origin: 'provider', http_status: 503, canonical_status: 'UNAVAILABLE', local_code: null },
+                } }), { status: 403 }) });
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-catalog-forged" />);
+            expect(await screen.findByText(/your account cannot request a new review/i)).toBeInTheDocument();
+            expect(screen.queryByText(/service is temporarily unavailable/i)).toBeNull();
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+            expect(trackPracticeLoopReviewFailed).toHaveBeenCalledWith('access_denied');
+        });
+
         const okResponse = {
             data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'Clear opening.', what_to_try_next: 'State the ask first.' } },
             error: null,

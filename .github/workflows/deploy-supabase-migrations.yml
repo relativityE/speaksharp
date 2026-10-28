@@ -124,9 +124,38 @@ jobs:
           fi
           echo "deploy_edge_functions=$deploy_edge" >> "$GITHUB_OUTPUT"
 
-  invalidate-account-closure-authority:
+  verify-t2-database-prerequisites:
     needs: validate-edge-configuration
-    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && (needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' || inputs.operation != 'edge-functions') }}
+    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' }}
+    environment: production-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify reviewed T2 database before authority invalidation
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client
+          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/t2-pooler.env"
+          set -a; . "$RUNNER_TEMP/t2-pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/assert-db-connectivity-tls.sh
+          node scripts/t2-migration-postflight.mjs verify release
+
+  invalidate-account-closure-authority:
+    needs: [validate-edge-configuration, verify-t2-database-prerequisites]
+    if: ${{ inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.verify-t2-database-prerequisites.result == 'success' && (needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' || inputs.operation != 'edge-functions') }}
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -152,8 +181,8 @@ jobs:
         run: node scripts/account-closure-invalidate.mjs
 
   deploy-edge-functions:
-    needs: [validate-edge-configuration, invalidate-account-closure-authority, deploy-production-db]
-    if: ${{ always() && inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.result == 'success' && needs.invalidate-account-closure-authority.result == 'success' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && (needs.deploy-production-db.result == 'success' || needs.deploy-production-db.result == 'skipped') }}
+    needs: [validate-edge-configuration, verify-t2-database-prerequisites, invalidate-account-closure-authority, deploy-production-db]
+    if: ${{ always() && inputs.deploy_production == true && needs.validate-edge-configuration.outputs.allowed == 'true' && needs.validate-edge-configuration.result == 'success' && needs.verify-t2-database-prerequisites.result == 'success' && needs.invalidate-account-closure-authority.result == 'success' && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && (needs.deploy-production-db.result == 'success' || needs.deploy-production-db.result == 'skipped') }}
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -176,19 +205,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/production-release-policy.mjs authorize
 
+      - name: Recheck T2 database immediately before Edge publication
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client
+          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/t2-pooler.env"
+          set -a; . "$RUNNER_TEMP/t2-pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          bash scripts/assert-db-connectivity-tls.sh
+          node scripts/t2-migration-postflight.mjs verify release
+
       - name: Deploy Edge Functions
         working-directory: backend/supabase
         run: |
-          supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy attest-session-engine --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy objective-register-source --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy attest-session-engine --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy objective-register-source --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
+          supabase functions deploy account-closure --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt --use-api
 
   verify-edge-functions:
     needs: [validate-edge-configuration, deploy-edge-functions]

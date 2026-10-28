@@ -1,0 +1,212 @@
+name: Service-Level Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      qualification_stages:
+        description: >-
+          Comma-separated UI stages this run exercises: share_feedback, session_during,
+          session_after_open_mic, session_after_focus_points. Falls back to the
+          TELEMETRY_QUALIFICATION_STAGES repository variable when omitted.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: service-level-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  service-level-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Setup test users
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
+          MODE: "soak"
+          NEW_FREE_COUNT: "0"
+          NEW_PRO_COUNT: "0"
+        run: node scripts/setup-test-users.mjs
+
+      - name: Fetch software quality evidence from CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p product_release/evidence
+
+          CI_RUN_ID=""
+          for attempt in {1..20}; do
+            CI_RUN_ID=$(gh run list \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')
+
+            if [ -n "$CI_RUN_ID" ]; then
+              break
+            fi
+
+            echo "CI software-quality evidence is not ready for ${GITHUB_SHA} yet; waiting..."
+            sleep 30
+          done
+
+          if [ -z "$CI_RUN_ID" ]; then
+            echo "No successful CI metrics artifact found for ${GITHUB_SHA}; service-level evidence will mark quality checks as missing."
+            exit 0
+          fi
+
+          echo "Downloading CI metrics artifact from run ${CI_RUN_ID}."
+          if ! gh run download "$CI_RUN_ID" --name ci-metrics --dir /tmp/speaksharp-ci-metrics; then
+            echo "Unable to download ci-metrics from CI run ${CI_RUN_ID}; service-level evidence will mark quality checks as missing."
+            exit 0
+          fi
+
+          cp /tmp/speaksharp-ci-metrics/product_release/evidence/software-quality.latest.json product_release/evidence/ 2>/dev/null || true
+          cp /tmp/speaksharp-ci-metrics/product_release/evidence/software-quality-summary.latest.md product_release/evidence/ 2>/dev/null || true
+          ls -la product_release/evidence
+
+      - name: Collect ops health snapshot
+        continue-on-error: true
+        env:
+          BASE_URL: https://speaksharp-public.vercel.app
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID || vars.VERCEL_ORG_ID }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # This step runs the same `pnpm ops:health` prod-monitoring command as ops-health.yml
+          # (BASE_URL = the deployed live app), so it mirrors that job's LIVE Stripe wiring — a
+          # test key here would snapshot the wrong (test) Stripe account. Step is continue-on-error.
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_LIVE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_LIVE_PRO_PRICE_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_API_BASE: ${{ secrets.SENTRY_API_BASE }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_INGEST_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          POSTHOG_PROJECT_API_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
+          OBSERVABILITY_SMOKE_SECRET: ${{ secrets.OBSERVABILITY_SMOKE_SECRET }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+        run: pnpm ops:health
+
+      - name: Run backend stress check
+        env:
+          SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
+          API_LOAD_CONCURRENCY: "15"
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: pnpm test:stress:backend
+
+      - name: Run browser endurance check
+        env:
+          VITE_TEST_MODE: "true"
+          VITE_USE_LIVE_DB: "true"
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          pnpm test:endurance:browser
+
+      - name: Generate service-level evidence
+        if: always()
+        run: pnpm metrics:service-levels
+
+      - name: Publish service-level summary
+        if: always()
+        run: cat product_release/evidence/service-levels-summary.latest.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assert service-level evidence verdict
+        if: always()
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = 'product_release/evidence/service-levels.latest.json';
+            if (!fs.existsSync(path)) {
+              console.error('Service-level evidence artifact is missing.');
+              process.exit(1);
+            }
+            const evidence = JSON.parse(fs.readFileSync(path, 'utf8'));
+            if (evidence.status !== 'pass' || evidence.countsAsReleaseEvidence !== true) {
+              console.error('Service-level evidence did not pass:', JSON.stringify({
+                status: evidence.status,
+                countsAsReleaseEvidence: evidence.countsAsReleaseEvidence,
+                summary: evidence.summary,
+                invalidEvidenceReasons: evidence.invalidEvidenceReasons,
+              }, null, 2));
+              process.exit(1);
+            }
+            console.log('Service-level evidence passed and counts as release evidence.');
+          "
+
+      - name: Qualify telemetry readback (fail closed)
+        env:
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          RELEASE_SHA: ${{ github.sha }}
+          # The controlled journey this qualification is scoped to. Completeness is a property of ONE
+          # pass through the product: without this the readback would union unrelated users, tabs and
+          # attempts into an apparently-complete set. Absent, the script HOLDs rather than guessing.
+          TELEMETRY_QUALIFICATION_JOURNEY_ID: ${{ vars.TELEMETRY_QUALIFICATION_JOURNEY_ID }}
+          # The class the controlled run ACTUALLY carries. `internal` is reserved for a build Production
+          # users never receive, so hard-coding it matched nothing on the deployment this qualifies and
+          # HELD even when the journey had been ingested perfectly. Named by the operator alongside the
+          # journey; an unrecognised class HOLDs rather than silently matching zero rows.
+          TELEMETRY_QUALIFICATION_TRAFFIC_TYPE: ${{ vars.TELEMETRY_QUALIFICATION_TRAFFIC_TYPE }}
+          # #1421 P1 — THE UI STAGES THIS RUN EXERCISED, or the qualification cannot start.
+          #
+          # The evaluator requires the run to DECLARE its stages: an Open Mic run legitimately produces
+          # no Focus Points coverage, so requiring every stage of every run would hold on honest
+          # evidence — while inferring the stage from what arrived is worse, because a run that silently
+          # produced nothing for a stage would qualify by appearing not to have exercised it.
+          #
+          # Supplied here because nothing else sets it. Without this line the script always took the
+          # empty-declaration branch and every otherwise-valid Service-Level Evidence run HELD before
+          # reading a single row. The dispatch input wins so an operator can scope one run; the
+          # repository variable is the standing default. Absent both, the script HOLDs — deliberately,
+          # because an undeclared run has claimed nothing.
+          QUALIFICATION_STAGES: ${{ inputs.qualification_stages || vars.TELEMETRY_QUALIFICATION_STAGES }}
+        # No `if: always()` and no `continue-on-error`. This step's exit status GOVERNS: the evaluator
+        # exits non-zero on HOLD, and a HOLD must fail the release evidence job rather than be recorded
+        # beside a green one. A qualification that cannot fail the build is a report, not a gate.
+        run: pnpm telemetry:readback-qualification
+
+      - name: Upload service-level evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: service-level-evidence
+          path: |
+            product_release/evidence/
+            test-results/stress/
+            test-results/endurance/
+            ops-health/
+          retention-days: 14

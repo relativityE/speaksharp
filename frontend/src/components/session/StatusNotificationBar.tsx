@@ -320,7 +320,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         - reduced-motion: skips the pulse and shows the persistent static emphasis at once. */}
                     {analyticsAction && (
                         <Link
-                            to="/analytics"
+                            to="/progress"
                             onClick={() => { clearCue(); analyticsAction.onSelect?.(); }}
                             // Middle-click (open-in-new-tab) does not fire onClick; clear the cue here too so
                             // no click variant leaves a live timer that could reactivate it. (Cmd/Ctrl-click

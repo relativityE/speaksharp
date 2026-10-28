@@ -41,7 +41,7 @@ test.describe('#1258 PR 4 — Back returns to the completed session', () => {
 
         // CASUALTY (run 37706942773): Progress, then browser Back — the completed session, never the idle recorder.
         await page.getByTestId('nav-analytics-link').first().click();
-        await page.waitForURL(/\/analytics(\?|$)/);
+        await page.waitForURL(/\/progress(\?|$)/);
         // Stay until Progress has rendered and the session page's exit transition is over: pressing Back mid-exit
         // returns the SAME still-mounted page (state intact) and would never exercise the remount the person hit
         // (they stayed ~64 s on Progress in run 37706942773).
@@ -67,7 +67,7 @@ test.describe('#1258 PR 4 — Back returns to the completed session', () => {
 
         // "See all sessions" leaves for Progress.
         await page.getByTestId('saved-session-return-see-all').click();
-        await page.waitForURL(/\/analytics(\?|$)/);
+        await page.waitForURL(/\/progress(\?|$)/);
     });
 
     // Durable RED for the Production defect (Browser PM 6050587122): no URL assertion first, so on a pre-fix build this
@@ -83,7 +83,7 @@ test.describe('#1258 PR 4 — Back returns to the completed session', () => {
         await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
         await page.getByTestId('nav-analytics-link').first().click();
-        await page.waitForURL(/\/analytics(\?|$)/);
+        await page.waitForURL(/\/progress(\?|$)/);
         await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15_000 });
         await page.waitForTimeout(2_000); // past the session page's exit transition (see the test above)
         await page.goBack();

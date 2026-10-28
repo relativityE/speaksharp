@@ -15,13 +15,13 @@ import {
 import { PracticeLoopReviewPair } from '@/components/review/PracticeLoopReviewPair';
 import { loadSavedSessionReview } from '@/services/review/savedSessionReview';
 import { deriveReviewState } from './reviewState';
-import { FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
+import { COACHING_ERROR_SESSION_ASSURANCE, FOCUS_POINTS_DISCLOSURE, OPEN_MIC_DISCLOSURE, UNAVAILABLE_MESSAGE } from './reviewCopy';
 import { createCoachingDiagnosticId, rememberCoachingDiagnostic } from '@/services/coachingDiagnosticLink';
 import {
   reportedProviderAttempts, snapshotCoachingOrigin, trackAiCoachingDiagnostic, trackAiCoachingLifecycle,
   type AiCoachingDiagnosticTelemetry, type CoachingLifecycleEndReason, type CoachingLifecycleOrigin, type CoachingLifecycleStage,
 } from '@/services/practiceLoopTelemetry';
-import { providerCodeFields } from '@/services/telemetry/providerCodes';
+import { coachingErrorMessage, providerCodeFields } from '@/services/telemetry/providerCodes';
 
 /**
  * #1538 (Codex P1 r4117321439): exactly two accepted versions — `gemini_coaching_focus_v1` marks a pair generated from
@@ -202,21 +202,29 @@ const diagnosticEvent = (
 const SERVICE_CONFIGURATION_CODE = 'service_configuration';
 
 /**
- * #1473 — read the allowlisted closed code from the edge function's JSON body, DEFENSIVELY.
+ * Read the allowlisted closed code and validated catalog verdict from one defensive body clone.
  *
  * `FunctionsHttpError.context` is the `Response`. It is CLONED before reading, so nothing else that inspects the
- * response finds a consumed body. Only the exact allowlisted value is returned: a missing, malformed or unknown body
- * yields null, and the caller falls back to the status classification it has always used.
+ * response finds a consumed body. Missing/malformed/unknown fields fall back to the existing status classification.
+ * The provider body/error prose is never returned, and catalog display adds no extra body read.
  */
-const readClosedCode = async (err: unknown): Promise<typeof SERVICE_CONFIGURATION_CODE | null> => {
+const readClosedFailure = async (err: unknown): Promise<{
+  code: typeof SERVICE_CONFIGURATION_CODE | null; coachingMessage: string | null;
+}> => {
+  const empty = { code: null, coachingMessage: null };
   const ctx = (err as { context?: unknown } | null)?.context as { clone?: unknown } | undefined;
-  if (!ctx || typeof ctx.clone !== 'function') return null;
+  if (!ctx || typeof ctx.clone !== 'function') return empty;
   try {
     const body: unknown = await (ctx.clone as () => { json: () => Promise<unknown> })().json();
-    return (body as { code?: unknown } | null)?.code === SERVICE_CONFIGURATION_CODE ? SERVICE_CONFIGURATION_CODE : null;
-  } catch {
-    return null;
-  }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return empty;
+    const payload = body as Record<string, unknown>;
+    const diagnostic = payload.diagnostics;
+    return {
+      code: payload.code === SERVICE_CONFIGURATION_CODE ? SERVICE_CONFIGURATION_CODE : null,
+      coachingMessage: diagnostic && typeof diagnostic === 'object' && !Array.isArray(diagnostic)
+        ? coachingErrorMessage(diagnostic as Record<string, unknown>, payload.code, errorStatus(err)) : null,
+    };
+  } catch { return empty; }
 };
 
 /**
@@ -269,6 +277,7 @@ export const AI_REVIEW_AUTO_RETRY_BACKOFF_MS = 2500;
 const getSafeAiSuggestionError = (
   err: unknown,
   closedCode: typeof SERVICE_CONFIGURATION_CODE | null = null,
+  coachingMessage: string | null = null,
 ): SafeSuggestionError => {
   if (isTransportFailure(err) && errorStatus(err) === null) {
     return { reason: 'network', message: 'The review could not connect. Check your connection and try again.' };
@@ -300,7 +309,8 @@ const getSafeAiSuggestionError = (
     // 400 bad request, 500/502/503 upstream or provider trouble, and anything unrecognised. All of them
     // mean "not now", and none of them licenses a claim about the user's account or their data.
     default:
-      return { reason: 'unavailable', message: UNAVAILABLE_MESSAGE };
+      return { reason: 'unavailable', message: coachingMessage
+        ? `${coachingMessage} ${COACHING_ERROR_SESSION_ASSURANCE}` : UNAVAILABLE_MESSAGE };
   }
 };
 
@@ -762,7 +772,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({
           continue;
         }
         logger.error({ err }, "Error fetching AI suggestions:");
-        failure = getSafeAiSuggestionError(err, await readClosedCode(err));
+        const closedFailure = await readClosedFailure(err);
+        failure = getSafeAiSuggestionError(err, closedFailure.code, closedFailure.coachingMessage);
       }
 
       if (!isCurrentRequest()) {

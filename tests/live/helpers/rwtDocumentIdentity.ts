@@ -84,6 +84,12 @@ export class DocumentProvenance {
     private readonly records = new Map<string, BrowserRecord[]>();
     private readonly refs = new Map<string, DocumentRef[]>();
     private readonly conflicted = new Set<string>();
+    /**
+     * #1593 Case 15 follow-up (Sam 1792503928): keys whose single request and single record are paired, waiting only for
+     * their committed loader's `init` start. The start used to be required at the moment of joining, so a browser that
+     * stated `init` after the commit and after the page's first requests left those requests ambiguous for good.
+     */
+    private readonly awaitingStart = new Map<string, Set<string>>();
 
     /** Whether everything this page sent can be attributed: a live source that was never lost. */
     get proven(): boolean {
@@ -126,6 +132,12 @@ export class DocumentProvenance {
         const known = this.loaders.get(loaderId);
         if (known) known.initMono = monotonicS * 1000;
         else this.loaders.set(loaderId, { generation: this.loaders.size, initMono: monotonicS * 1000 });
+        // The start arrived after requests of this document were paired: settle them now. Each record's loader and
+        // `replaced` fact stay as frozen when the browser reported it; only the document's stated start is filled in.
+        // Nothing settles once the source is lost or ended (their references are already ambiguous).
+        const waiting = this.awaitingStart.get(loaderId);
+        this.awaitingStart.delete(loaderId);
+        if (waiting && !this.lost && !this.ended) for (const key of waiting) this.join(key);
     }
 
     /** Any request record: pairs the browser's monotonic clock with its wall clock. */
@@ -169,11 +181,19 @@ export class DocumentProvenance {
             for (const ref of refs) Object.assign(ref, unresolvedRef(true));
             return;
         }
-        if (refs.length === 1 && records.length === 1) this.settle(refs[0], records[0]);
+        if (refs.length === 1 && records.length === 1) this.settle(refs[0], records[0], key);
     }
 
-    private settle(ref: DocumentRef, record: BrowserRecord): void {
+    private settle(ref: DocumentRef, record: BrowserRecord, key: string): void {
         const loader = record.known ? this.loaders.get(record.loaderId) : undefined;
+        if (loader && loader.initMono == null && record.offsetMs !== null) {
+            // A committed document whose start is not stated YET: wait for its `init` (still unresolved, so the page
+            // cannot finish clean while it waits). A start that never arrives leaves it unattributed.
+            const keys = this.awaitingStart.get(record.loaderId) ?? new Set<string>();
+            keys.add(key);
+            this.awaitingStart.set(record.loaderId, keys);
+            return;
+        }
         const start = loader?.initMono != null && record.offsetMs !== null ? loader.initMono + record.offsetMs : null;
         if (!loader || start === null) { ref.ambiguous = true; return; }
         Object.assign(ref, { resolved: true, ambiguous: false, replaced: record.replaced, generation: loader.generation, committedAt: start });

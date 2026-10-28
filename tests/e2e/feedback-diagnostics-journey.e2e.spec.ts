@@ -34,9 +34,19 @@ async function saveTake(page: Page, coaching: CoachingAnswer[]): Promise<string>
 
 /** Share Feedback: a "Something broke" report about `session` (a value of the session select, or 'none'). */
 async function sendFeedback(page: Page, session: string | 'none' | 'default', note: string): Promise<void> {
+    // The previous report's dialog must have finished closing before it is reopened, and the new one must own the keyboard
+    // before it is used: a type click 23 ms after it appeared, while the last one was still closing, never took effect
+    // and Send stayed disabled for the whole test timeout (run 40211203363).
+    const dialog = page.getByTestId('issue-report-dialog');
+    await expect(dialog, 'the previous feedback dialog finished closing').toBeHidden({ timeout: 5_000 });
     await page.getByTestId('nav-report-issue-button').first().click();
-    await expect(page.getByTestId('issue-report-dialog')).toBeVisible({ timeout: 15_000 });
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    await expect.poll(
+        () => dialog.evaluate((element) => element.contains(document.activeElement)),
+        { message: 'the feedback dialog has keyboard focus', timeout: 5_000 },
+    ).toBe(true);
     await page.getByTestId('feedback-type-broke').click();
+    await expect(page.getByTestId('feedback-type-broke'), 'the "Something broke" choice took effect').toHaveAttribute('aria-checked', 'true');
     await page.getByTestId('issue-report-description').fill(note);
     if (session !== 'default') {
         const select = page.getByTestId('feedback-session-select');
@@ -157,8 +167,16 @@ test.describe('#1258 MOCKED — coaching failure → Share Feedback journey', ()
         expect(current).not.toBe(older);
         await sendFeedback(page, older, 'MOCKED journey: about my earlier take.');
         await expect(acknowledged(page)).toBeVisible({ timeout: 15_000 });
+        // The first report's toast can still be on screen, so `.last()` alone could pass on it. Mark every toast already
+        // shown; the second report is acknowledged only by an UNMARKED one, after its own dialog has closed. (A count
+        // would race the first toast's own auto-dismissal.)
+        await page.locator('li[data-sonner-toast]').evaluateAll((toasts) => toasts.forEach((t) => t.setAttribute('data-e2e-earlier', '')));
         await sendFeedback(page, 'none', 'MOCKED journey: not about a session.');
-        await expect(acknowledged(page).last()).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('issue-report-dialog'), 'the second report\'s dialog closed').toBeHidden({ timeout: 15_000 });
+        await expect(
+            page.locator('li[data-sonner-toast]:not([data-e2e-earlier])').filter({ hasText: 'Thanks — we’ve got it.' }),
+            'the second report produced its own acknowledgement',
+        ).toBeVisible({ timeout: 15_000 });
         const stored = (await boundaryRecord(page)).storedReports.map((r) => r.sessionId);
         expect(stored).toEqual([older, null]);
     });

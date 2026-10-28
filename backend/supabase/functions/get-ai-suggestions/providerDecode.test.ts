@@ -1,10 +1,62 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
   decodeProviderAnswer, decodeProviderError, PROVIDER_ERROR_BODY_MAX_BYTES, readBoundedBody,
+  coachingErrorDescriptor, get_error_string, PROVIDER_ERROR_STATUSES, type CoachingErrorDescriptor,
 } from './providerDecode.ts';
 
 /** A provider message that echoes the request: it must never survive decoding. */
 const ECHO = 'my secret transcript words';
+
+Deno.test('#1742 descriptors retain observed upstream provenance without inventing it', () => {
+  assertEquals(coachingErrorDescriptor('provider_http_5xx', 500, { error_status: 'UNKNOWN', error_reason: null }),
+    { origin: 'provider', http_status: 500, canonical_status: 'UNKNOWN', local_code: null });
+  for (const error_status of ['other', 'unparseable'] as const) {
+    assertEquals(coachingErrorDescriptor('provider_http_5xx', 503, { error_status, error_reason: null }),
+      { origin: 'local_normalization', http_status: 503, canonical_status: 'UNKNOWN', local_code: 'provider_http_5xx' });
+  }
+  assertEquals(coachingErrorDescriptor('provider_timeout', 200, null),
+    { origin: 'local_timeout', http_status: null, canonical_status: null, local_code: 'provider_timeout' });
+  assertEquals(coachingErrorDescriptor('invalid_shape', 200, null),
+    { origin: 'local_normalization', http_status: 200, canonical_status: 'UNKNOWN', local_code: 'invalid_shape' });
+  assertEquals(coachingErrorDescriptor('quota_exceeded', null, null),
+    { origin: 'application', http_status: null, canonical_status: null, local_code: 'quota_exceeded' });
+  assertEquals(coachingErrorDescriptor(ECHO, 504, null),
+    { origin: 'application', http_status: null, canonical_status: null, local_code: 'internal_error' });
+});
+
+Deno.test('#1742 safe error catalog distinguishes provider, normalization and local timeout', () => {
+  const descriptor = (canonical_status: CoachingErrorDescriptor['canonical_status'], http_status: number): CoachingErrorDescriptor =>
+    ({ origin: 'provider', canonical_status, http_status, local_code: null });
+  assertEquals(get_error_string(descriptor('RESOURCE_EXHAUSTED', 402)), 'The service credit balance is depleted.');
+  assertEquals(get_error_string(descriptor('RESOURCE_EXHAUSTED', 429)), 'The service rate limit was exceeded.');
+  assertEquals(get_error_string(descriptor('UNAVAILABLE', 503)), 'The service is temporarily unavailable.');
+  assertEquals(get_error_string(descriptor('UNKNOWN', 500)), 'Unknown error.');
+  const normalized: CoachingErrorDescriptor = { origin: 'local_normalization', canonical_status: 'UNKNOWN',
+    http_status: 503, local_code: 'provider_http_5xx' };
+  assertEquals(get_error_string(normalized), 'Unknown error.');
+  assertEquals(normalized.origin, 'local_normalization');
+  const timeout: CoachingErrorDescriptor = { origin: 'local_timeout', canonical_status: null,
+    http_status: null, local_code: 'provider_timeout' };
+  assertEquals(get_error_string(timeout), 'The local coaching deadline was exceeded.');
+  assertEquals(timeout.http_status, null);
+  assertEquals(timeout.canonical_status, null);
+  for (const status of PROVIDER_ERROR_STATUSES) {
+    const text = get_error_string(descriptor(status, 500));
+    assertEquals(typeof text, 'string'); assertEquals(text.length > 0, true);
+  }
+});
+
+Deno.test('#1742 unknown fields and prototype names never become error prose', () => {
+  for (const value of [
+    { origin: 'provider', canonical_status: ECHO, http_status: 503, local_code: null },
+    { origin: 'application', canonical_status: null, http_status: null, local_code: '__proto__' },
+    { origin: 'application', canonical_status: null, http_status: null, local_code: 'constructor' },
+    { origin: ECHO, canonical_status: 'UNKNOWN', http_status: 500, local_code: null },
+  ]) assertEquals(get_error_string(value as CoachingErrorDescriptor), 'Unknown error.');
+  const value = { origin: 'provider', canonical_status: 'UNAVAILABLE', http_status: 503, local_code: null,
+    message: ECHO } as CoachingErrorDescriptor;
+  assertEquals(get_error_string(value).includes(ECHO), false);
+});
 
 Deno.test('#1258 decodeProviderError — closed codes in, free text out', async (t) => {
   await t.step('a Gemini rate limit decodes to RESOURCE_EXHAUSTED + its ErrorInfo reason', () => {
