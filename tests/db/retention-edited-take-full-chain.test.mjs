@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
-import { observeEditedTakeRace, finalizeEditedTakeProof, createEditedTakePeer } from './retention-edited-take-full-chain.mjs';
+import { readFileSync } from 'node:fs';
+import { observeEditedTakeRace, finalizeEditedTakeProof, createEditedTakePeer, retentionSnapshotSql } from './retention-edited-take-full-chain.mjs';
 
 const finalState = () => ({ expired: true, plaintextAbsent: true, recoveryCopies: 0, snapshots: 1,
   markerCount: 1, nonblank: true, cohortMatches: true, replacementMatches: true,
@@ -163,4 +164,19 @@ test('native transport forbids overlapping requests on the same peer', async () 
   const pending = p.peer.request('', "'fixed'");
   assert.throws(() => p.peer.request('', "'other'"), /native peer unavailable/);
   await pending; await p.peer.close();
+});
+
+test('snapshot grant references exist in the actual historical table and128 additive migration', () => {
+  // Schema wiring only, not execution of this query or a native database claim.
+  const original = readFileSync(new URL('../../backend/supabase/migrations/20261013120000_retention_expiry_without_superuser_1258.sql', import.meta.url), 'utf8');
+  const additive = readFileSync(new URL('../../backend/supabase/migrations/20261025021046_content_free_retention_evidence.sql', import.meta.url), 'utf8');
+  const definition = /CREATE TABLE IF NOT EXISTS public\.transcript_retention_expiry_grants \(([\s\S]*?)\n\);/.exec(original)?.[1];
+  assert.ok(definition, 'actual grant table declaration unavailable');
+  const columns = new Set([...definition.matchAll(/^\s+(\w+)\s+(?:bigint|uuid)\b/gm)].map(match => match[1]));
+  for (const match of additive.matchAll(/ALTER TABLE public\.transcript_retention_expiry_grants ADD COLUMN (\w+)\s+uuid/g)) columns.add(match[1]);
+  const query = retentionSnapshotSql({ user: 'd1000000-0000-4000-8000-000000000001',
+    old: 'd1000000-0000-4000-8000-000000000002', replacement: 'd1000000-0000-4000-8000-000000000003' });
+  const references = [...query.matchAll(/\bg\.(\w+)\b/g)].map(match => match[1]);
+  assert.ok(references.length > 0);
+  for (const column of references) assert.ok(columns.has(column), `actual grant table has no ${column} column`);
 });

@@ -77,6 +77,23 @@ export function finalizeEditedTakeProof(receipt, { owner, testedCommit, cleanupV
     status: complete && cleanupVerified === true && parentPassed === true ? 'PASS' : 'FAIL' };
 }
 
+export function retentionSnapshotSql({ user, old, replacement }) {
+  for (const id of [user, old, replacement]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  return `SELECT json_build_object(
+    'expired',s.transcript_state='expired','plaintextAbsent',s.transcript IS NULL,
+    'recoveryCopies',(SELECT count(*) FROM public.transcript_retention_tombstones WHERE user_id=${quote(user)}),
+    'snapshots',(SELECT count(*) FROM public.session_progress_content_evidence WHERE user_id=${quote(user)}),
+    'markerCount',e.error_marker_count,'nonblank',e.has_nonblank,
+    'cohortMatches',e.cohort_digest=public._ss_retention_content_cohort(s),
+    'replacementMatches',e.replacement_session_id=${quote(replacement)}::uuid,
+    'versionsMatch',e.format_version=1 AND e.formula_version='clarity_v1' AND e.marker_pattern_version='error_tags_v1',
+    'numericUnchanged',s.total_words=100 AND s.duration=60 AND s.wpm=100 AND s.filler_counts='{"um":2}'::jsonb,
+    'remainingContext',(SELECT count(*) FROM public.transcript_retention_replacement_context WHERE user_id=${quote(user)}),
+    'remainingGrants',(SELECT count(*) FROM public.transcript_retention_expiry_grants g WHERE g.session_id IN (${quote(old)},${quote(replacement)})))
+    FROM public.sessions s LEFT JOIN public.session_progress_content_evidence e ON e.session_id=s.id
+    WHERE s.id=${quote(old)} AND s.user_id=${quote(user)};`;
+}
+
 class PsqlPeer {
   constructor(container, application, env, spawnPeer) {
     this.application = application;
@@ -269,19 +286,7 @@ export async function runEditedTakeNative({ resourcesPath, receiptPath, root = p
         await replacementPeer.request('COMMIT;', 'json_build_object(\'committed\',true)');
         return replacementResult;
       },
-      inspect: async () => JSON.parse(await sql(`SELECT json_build_object(
-        'expired',s.transcript_state='expired','plaintextAbsent',s.transcript IS NULL,
-        'recoveryCopies',(SELECT count(*) FROM public.transcript_retention_tombstones WHERE user_id=${quote(user)}),
-        'snapshots',(SELECT count(*) FROM public.session_progress_content_evidence WHERE user_id=${quote(user)}),
-        'markerCount',e.error_marker_count,'nonblank',e.has_nonblank,
-        'cohortMatches',e.cohort_digest=public._ss_retention_content_cohort(s),
-        'replacementMatches',e.replacement_session_id=${quote(replacement)}::uuid,
-        'versionsMatch',e.format_version=1 AND e.formula_version='clarity_v1' AND e.marker_pattern_version='error_tags_v1',
-        'numericUnchanged',s.total_words=100 AND s.duration=60 AND s.wpm=100 AND s.filler_counts='{"um":2}'::jsonb,
-        'remainingContext',(SELECT count(*) FROM public.transcript_retention_replacement_context WHERE user_id=${quote(user)}),
-        'remainingGrants',(SELECT count(*) FROM public.transcript_retention_expiry_grants WHERE user_id=${quote(user)}))
-        FROM public.sessions s LEFT JOIN public.session_progress_content_evidence e ON e.session_id=s.id
-        WHERE s.id=${quote(old)} AND s.user_id=${quote(user)};`)),
+      inspect: async () => JSON.parse(await sql(retentionSnapshotSql({ user, old, replacement }))),
     });
     receipt.bodyComplete = true;
     receipt.phase = 'case-complete-awaiting-parent-teardown';
