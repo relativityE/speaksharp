@@ -1,4 +1,156 @@
-## 19 October 2026 bounded source/coordination addendum
+# Release Status
+
+**Status:** Authoritative for the bounded 28 October 2026 component snapshot below; earlier dated snapshots remain history. Release acceptance HOLD.
+**Owner:** Product Owner (relativityE)
+**Last Reviewed:** 2026-10-28 — specialist source review and current-main receiving; exact-head qualification remains a separate gate.
+**Last Verified:** 2026-10-28 — GitHub main `8a79eafa23bd3beeee6d087270acd9ed5a16eb1e` read during receiving; frontend and Edge `4c85` remain bound to Sam's retained release receipts below. No new Production query or end-to-end acceptance is claimed by this documentation change.
+**Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
+**Class:** Runtime fact.
+**Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
+**Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`), or documentation structure (→ `README.md`).
+**Supersedes:** the September current-status narrative and October baseline-only banner here. Historical evidence and archives remain unchanged.
+**Evidence Sources:** the exact GitHub PR, issue-comment and workflow receipts linked below.
+
+## 28 October 2026 post-R5 receiving addendum
+
+**HOLD — documentation receipt, not a new live verification.** This addendum supersedes
+older current-tense deployment and queue statements below. GitHub source was read at
+`4c85b006ac05e180521fd6e7d807f736987cafe8`; the earlier observations remain dated history.
+
+| Identity | Recorded value | Evidence boundary |
+|---|---|---|
+| Repository `main` currency-comparison baseline (fixed) | `4c85b006ac05e180521fd6e7d807f736987cafe8` | Matches the currency block below; a fixed comparison base, not an assertion that the moving branch still points here. |
+| Latest observed GitHub main during receiving | `8a79eafa23bd3beeee6d087270acd9ed5a16eb1e` | Source-only #1752 landing; no product deployment or customer acceptance inferred. Re-read before the next operational action. |
+| Latest retained frontend `__APP_RELEASE__ =` | `4c85b006ac05e180521fd6e7d807f736987cafe8` | Sam's frontend release/readback receipt below; no fresh Production read by this documentation task. Older deployed rows remain dated history. |
+
+Sam's release handoff reports frontend and backend on that source, from backend
+[40674315502](https://github.com/relativityE/speaksharp/actions/runs/40674315502) and frontend
+[40675011692](https://github.com/relativityE/speaksharp/actions/runs/40675011692), before R5.
+Sam separately verified generation 6, account completion OFF and migration 129 absent.
+No deployment since R5 is reported in that handoff. These are attributed release observations,
+not a new production read or proof of account completion by this documentation task.
+
+### R5 results and reviewed interpretation
+
+The Library `R5-REPORT.html` and `R5-SUMMARY.txt` retain the original results on the
+served baseline above. Their denominators must not be added together:
+
+| Inventory | PASS | FAIL | NOT RUN | Total |
+|---|---:|---:|---:|---:|
+| Stable requirements | 1 | 2 | 148 | 151 |
+| Journeys | 1 | 2 | 12 | 15 |
+| Assertions (Sam's export audit) | 90 | 2 | 112 | 204 |
+
+The twelve incomplete journeys are three planned-depth cases (05/06/09), two
+reader-blocked cases (07/08), two allowance-interrupted cases (10/11), and five cases
+without established core signals (01/04/12/13/14). Six human/device and three
+accessibility records remain unexecuted. Original failures are retained, not rewritten.
+
+Sam's later audit qualifies two analyst interpretations:
+
+- AHT-02/03's marker oracle incorrectly requires more than one distinct index.
+  At this source, `frontend/src/utils/focusCoverage.ts:228–236` chooses the first
+  `!covered` row. Sam's trace review found the first two points pending while later
+  points changed, so `nextIndex=0` is consistent with that selector. This neither
+  establishes a product failure nor upgrades either original FAIL to PASS.
+  Opening-phrase detection remains unresolved.
+- The coaching 502 / 30,039 ms appears in the analyst narrative; the raw request
+  receipt was not recovered in Sam's audit. Root cause is unverified. The current
+  low-thinking source is not evidence of a cure, and no timeout/provider fix is selected.
+
+Sam reports verification of all 235 evidence hashes, 15 summary digests, 75 CODE hashes
+and 32 frontend identity MATCHes for r13 harness SHA256
+`791847bfbb040811ed85d6bf328216d76b704fee3e156123d24e8e9bad1bffc9`.
+Last cleanup was 12:21:25.126Z, before the 13:43 hard stop, with no owned processes or
+errors in summaries. This specialist read the report but could not materialize
+`R5-FINAL-REPORT.zip`; the hash audit is attributed to Sam, not independently repeated.
+The expected ZIP SHA256 is
+`e9dc79aef61032bc4e0a301b2456a4a6445a3265a3c335fff2b3a99a8c30a6bf`.
+
+Exports reconcile 2,085 run requests, 14 Starts, nine takes and 32 identity reads.
+The cumulative 5,529 is conservative accounting from assumed prior 3,406 + 2,085 + 32
++ six reported account probes, not an exact audited historical total. Identity use
+94/98 leaves four. No new live window, counter reset or budget increase is authorized.
+
+### Remaining source and acceptance boundaries
+
+- [#1752](https://github.com/relativityE/speaksharp/pull/1752) merged at
+  14:56:33 UTC on 28 October, verified by GitHub's pull-request readback:
+  `8a79eafa23bd3beeee6d087270acd9ed5a16eb1e`, from head
+  `4564ab172660dc09289b5c4356aa21f459ea5a38`. This repository-only tooling landing
+  does not change the served `4c85` product baseline.
+  Native [40701123752](https://github.com/relativityE/speaksharp/actions/runs/40701123752)
+  completed SUCCESS; CI [40701123759](https://github.com/relativityE/speaksharp/actions/runs/40701123759)
+  completed FAILURE. Sam's audit attributes the latter to missing exact-head review
+  qualification, not engineering failure. The subsequent PR receipt records
+  independent Code/Security qualification PASS and trusted qualification run
+  [40706864771](https://github.com/relativityE/speaksharp/actions/runs/40706864771)
+  SUCCESS; the original CI failure remains historical evidence.
+  The native artifact is 12820988420, SHA256
+  `72bd40782bf60ce72555f8a7eb1facb8ff81efa7bffb2e260a8d8972cb4c3d4e`.
+  It is current-chain authenticated-actor/lock/edit-retention/cleanup evidence, not
+  Production or PostgreSQL 15/16 matrix proof. #1610's matrix and bootstrap obligations
+  remain open; no branch or historical proof is replaced by this note.
+- Jensen owns #1488's bounded privacy-observer implementation. No privacy PASS, merge
+  or deployment is established by that assignment.
+- The [33-group receiving register](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6460190223)
+  and its [nine-wrapper](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6459908560)
+  and [four-wrapper](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6459850817)
+  transfers remain acceptance obligations. Administrative closure, source credit and
+  incomplete journeys do not establish completed requirements. Keep paid journeys,
+  human/device/accessibility, feedback storage/association, lease/privacy/account,
+  and all unproven residuals open.
+- Historical executed R4C and R0/R1/R2 originals remain unavailable. Sam owns recovery
+  and explicit unavailable-evidence disposition. Historical tag chronology also needs
+  Sam's explicit administrative disposition; no tag deletion or rename is selected.
+- The documentation link audit on 28 October could not retrieve twelve historical
+  workflow runs linked below or by retained evidence (GitHub returned 404). Those links
+  preserve their original identifiers; they are not newly verified receipts. The accepted
+  #1588 files remain hash-bound despite run 38104864048 being unavailable. Sam owns
+  recovery or explicit unavailable-evidence disposition; no original result is upgraded.
+
+### Owner gate before another Cloud run
+
+The post-merge main CI run [40710933078](https://github.com/relativityE/speaksharp/actions/runs/40710933078)
+is completed/success at `8a79eafa23bd3beeee6d087270acd9ed5a16eb1e` in the GitHub readback;
+Sam reports all required gates passed. This does not change the served `4c85` product.
+The later R5/r14 report remains under independent review. A newly supplied R4C addendum
+distinguishes campaign R4 from true campaign 3-R4C; until the correct originals and
+identities are bound, overlay labels do not establish a baseline regression. No original
+R5 outcome is rewritten by this attributed update.
+
+All documentation must be complete and all PRs, including successors, must be landed
+or explicitly dispositioned without losing requirements before another Cloud GO.
+At the 28 October GitHub readback after #1752 landed, four PRs remained open:
+#1674, #1599, #1610 and #1488. This is a dated queue count, not authorization to close
+them. Jensen receives the remaining non-documentation requirements with their original
+IDs, evidence, acceptance controls, next actions and dependencies. Cloud retains separate
+harness ownership. Documentation completion, PR merge eligibility and product acceptance
+are separate decisions; no new run, spending or deployment is authorized here.
+
+### PR-associated documentation and closure receiving
+
+This is the 28 October documentation receiving map. The original PR heads and their
+reported tests are dated evidence, not qualification of Jensen's current prototypes.
+The documentation checkpoint `faf5a543` is preserved. No successor PR number or
+publication route has been selected for its changes.
+
+| PR / receiving lane | Documentation changes and evidence boundary | Preserved obligation and closure action |
+|---|---|---|
+| [#1488](https://github.com/relativityE/speaksharp/pull/1488) privacy observer | This addendum and ROADMAP retain Jensen's bounded ownership; QUALITY's boundary-debugging controls and OPERATIONS_AND_SECURITY's canary scope separate observer assertions from deployed evidence. The old PR body reports 55/55 focused tests and quality exit 0 for a historical tree; those results do not qualify the current prototype. | Preserve exact started/saved take identity, authoritative attribution, the pre-Start through saved-terminal observation window, worker/late-event settlement, fail-closed unsupported/opaque transport controls and content-free receipts. A prototype or offline classifier pass is not native execution, a live take or privacy PASS. Jensen supplies the exact successor and its actual evidence; Sam reviews each residual and selects landing/supersession. Retain unresolved review casualties and the finite-observer/covert-encoding limit rather than closing them by association. |
+| [#1610](https://github.com/relativityE/speaksharp/pull/1610) edited-take retention | This addendum distinguishes landed #1752 native proof from the original PostgreSQL matrix; ARCHITECTURE's completion/retention and database-proof sections preserve the acceptance boundaries. The original body reports matrix 38433654685 on PostgreSQL 15/16/17 and separate 40 wiring tests; these belong to its old source. | #1752's authenticated actors, observed lock, edited marker, retention and cleanup receipt do not close the full current-version matrix/bootstrap requirements. Preserve unique throwaway-database cleanup, NOSUPERUSER function ownership, database-scoped wait observation, fail-closed pipe handling, edited row-version interleavings and deferred trigger/dependency-surface P2 r4262556505. Jensen maps each residual to a reviewed receiving implementation or explicit deferral; Sam may then disposition the original PR. No offline result substitutes for native/live obligations or proves Production. |
+| [#1599](https://github.com/relativityE/speaksharp/pull/1599) finance | ROADMAP directs readers to the existing planning candidate. Proposed review-note and PR-body corrections are prepared locally for that owner's branch, including pinned low thinking, nullable diagnostic usage, three-attempt ceiling and distinct October 18/21 receipts. Workbook bytes and accepted formula correction remain untouched. | Preserve unmeasured cost/demand assumptions and unavailable original October 21 raw receipts; reported LibreOffice controls are historical, not a new recalculation or Excel proof. Sam selects the prose publication route and reviews the exact resulting diff/evidence before finance PR disposition. No successor is automatically necessary and no formula repair is repeated. |
+| [#1674](https://github.com/relativityE/speaksharp/pull/1674) documentation receiver | RELEASE_PROCESS and OPERATIONS_AND_SECURITY separate ordinary CI/full-evidence qualification from default-OFF proof; all 14 canonical documents are accounted for, 43 substantive receiving sections are drafted, and the evidence index binds the 50 consolidated sources. The handback retains exact clause/source hashes, negative controls, 151 requirements and 33 finding groups. | Sam reviews r4348541064/r4348541054 individually and selects the existing PR or a successor carrier. Required repository checks remain outstanding in a supported pinned-pnpm environment. Jensen must migrate protected readers before any selected source removal. Preserve all missing historical inputs and unresolved acceptance obligations; closing transferred wrappers or this documentation PR does not mark them complete. |
+
+A documentation successor, if selected, must name #1674 as its receiving predecessor,
+carry the complete reviewed patch and requirement/evidence mapping, and obtain its own
+exact-head checks and independent review. Its creation would add an open PR until it
+lands; it does not itself close #1674. The same rule applies to any #1488 or #1610
+successor: explicit residual transfer first, reviewed landing and administrative
+supersession afterward. #1752 is already a landed bounded successor, not an omnibus
+closure. The owner gate above continues to cover every such carrier.
+
+## 19 October 2026 bounded source/coordination addendum (historical)
 
 This addendum supersedes earlier present-tense queue and model-phase instructions, while retaining every historical outcome. GitHub main was independently read as c9d46b2d4ffef7530cb0cccaa533b5818d200320;24issues and11PRs were open in this reconciliation. App/CLI/Browser PM have personally acknowledged their assigned queues. The [35-item directive](https://app.slack.com/archives/C0C9RE8KNHG/p1792432639622239) and [current coordinator](https://github.com/relativityE/speaksharp/issues/1593) own later moving dispositions; these counts/pins are dated, not evergreen assignments.
 
@@ -7,19 +159,6 @@ The exact main commit's Vercel status was FAILURE at2026-10-19T14:20:06Z: “Dep
 The1662/1666/1667/1668 release queue and case10 correction remain separate qualification/integration boundaries. Copy1254's current receiver aac368a7 is source-accepted; Analytics1472's receiver ee9c9c42 has independently executed64-control client/PGlite parity evidence, not hosted migration/application or deployed proof. Neither patch is claimed shipped. Canonical-target continuity1548 and customer-exit1643 remain open beyond narrow landed1636 labels and1611 backend staging.
 
 Routine account deletion follows [PO policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298): durable pending for the verified confirmed account, no new admission, settlement of accepted saves/coaching/billing, then verified DB/storage/Auth final state. Other users continue; global shutdown/termination is not the routine contract. Historical global-drain claims below do not override this policy. Existing operational configuration/legacy-cutover guards remain until a reviewed successor replaces them.202 pending and timeout are not deleted; cancellation remains distinct. No migration, runtime/provider/account mutation or activation is authorized here.
-
-# Release Status
-
-**Status:** Authoritative for the bounded 28 October 2026 component snapshot below; earlier dated snapshots remain history. Release acceptance HOLD.
-**Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-10-28 — bounded source/component reconciliation; this documentation correction still requires its own independent review and qualification.
-**Last Verified:** 2026-10-28 — repository main at 04:47 UTC, frontend receipt/readback at 03:35:47 UTC, and Sam's separate read-only backend check at 04:41:08 UTC. These are separate observations, not one end-to-end acceptance run or a new Production query by this documentation change.
-**Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
-**Class:** Runtime fact.
-**Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
-**Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`), or documentation structure (→ `README.md`).
-**Supersedes:** the September current-status narrative and October baseline-only banner here. Historical evidence and archives remain unchanged.
-**Evidence Sources:** the exact GitHub PR, issue-comment and workflow receipts linked below.
 
 ## Disposition
 
@@ -150,8 +289,8 @@ The following addenda are later owner-reported history, outside the 17 October 2
 **Subsequent frontend disposition — 18 October 2026, 09:20–09:23 UTC:** [App Dev's #1652 landing/canary/served receipt6248196339](https://github.com/relativityE/speaksharp/pull/1652#issuecomment-6248196339) reports squash merge `3540103e8d86b5a284265443312c61e643bf5304` at 09:20:24 UTC after full-lane PR CI [39111739476](https://github.com/relativityE/speaksharp/actions/runs/39111739476) SUCCESS and clean exact-head Code/Security qualification. Canary [39114943038](https://github.com/relativityE/speaksharp/actions/runs/39114943038) is reported SUCCESS, including read-only migration readiness and active-trial checks. At 09:22:46 UTC App Dev observed `VITE_VERCEL_GIT_COMMIT_SHA = 3540103e8d86b5a284265443312c61e643bf5304` in the served bundle. This records delivered #1652 source/deployment and supersedes its earlier repair/deployment assignment; do not repeat that repair or deployment. It is a dated owner receipt, not a new Production read by Browser PM or a guarantee of the moving served identity. Final campaign release binding, specifically authorized full useful Open Mic/full and partial Focus RWT, received evidence/cleanup and human/device acceptance remain open. The Products-menu/dialog race remains open with CLI Dev. No live campaign or customer-exit acceptance follows.
 
 <!-- CURRENCY-BLOCK
-baseline: 250cffcc5b134bdb14682b52461114a4794c03f3
-deployed-release: a4dc9b70afddf6f601b8791a3077785a72d7f577
+baseline: 4c85b006ac05e180521fd6e7d807f736987cafe8
+deployed-release: 4c85b006ac05e180521fd6e7d807f736987cafe8
 verified-on: 2026-10-28
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
@@ -228,7 +367,7 @@ The [accepted readiness matrix](https://github.com/relativityE/speaksharp/issues
 
 #1643 and #1495 retain cancellation, account-bound verification, billing ownership, authoritative worker cutoff/termination/settlement, runtime/schema binding, cleanup and actual customer/provider acceptance. **#1643's authoritative registration/current-facts producer is SOURCE INCOMPLETE**, per [Sam's explicit source disposition](https://github.com/relativityE/speaksharp/pull/1648#issuecomment-6239898735), in addition to the missing authoritative global-drain/settlement evidence. This is not merely a remaining operational-test task. Backend staging is not full deletion or MVP completion. Responding-instance probes, complete provider lists and synthetic fixtures cannot establish authoritative global drain. Accepted preserved-source increments and their dated receipts remain valid within their original bounds.
 
-**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. Model evaluation and fallback work require a separate current selection and acknowledged file ownership. Preserved #1567/#1568 source and unresolved model obligations remain provenance, not an active writer assignment or a prerequisite for v2 MVP acceptance. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 ## Evidence and deployment interpretation
 

@@ -11,13 +11,45 @@
 
 # SpeakSharp Roadmap
 
+## Receiving and acceptance ownership
+
+The [current #1674 receiving register](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6460190223)
+retains 33 known finding groups and their residual aliases. Sam owns disposition;
+source owners keep their acknowledged files. The 151 stable requirements, 15 journeys,
+204 R5 assertions, six human/device records and three accessibility records are
+separate inventories. Current results and audit qualifications are in
+[RELEASE_STATUS.md](./RELEASE_STATUS.md#28-october-2026-post-r5-receiving-addendum).
+All unresolved requirements remain open; transferring or closing an issue wrapper
+does not implement it, waive its original casualty or establish customer acceptance.
+
+Historical model queues and coordinator assignments below do not restart writers.
+Model research/promotion remains a separate selection; v2 may complete MVP.
+Jensen's #1488 observer work and #1752's bounded #1610 successor do not close the
+broader privacy, lease, bootstrap or cross-version requirements by association.
+Sam must disposition missing historical executed ledgers and tag chronology explicitly.
+
+### Finance documentation
+
+The September workbook below remains a historical planning artifact. The newer
+planning candidate is on [#1599](https://github.com/relativityE/speaksharp/pull/1599),
+outside the product implementation queue. Its accepted status-formula correction is
+already integrated into that candidate; it must not be rebuilt. Current source pins,
+hashes and qualification limits belong in its review record and PR evidence. Planning
+arithmetic does not validate prices, demand, measured coaching cost or profitability,
+and grants no billing activation or spend authority.
+
 **19 October receiving correction.** The [35-item owner/closure directive](https://app.slack.com/archives/C0C9RE8KNHG/p1792432639622239) supersedes older queue assignments: App owns11, CLI15, Browser PM3 and Sam6. RWT/Alpha and MVP/Beta overlap but remain separate milestones. Prepared source must pass integration, deployment and matching acceptance; a final human sitting cannot close branch-only or unapplied work. Routine account exit follows [account-scoped policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298); elapsed timeout or request acceptance is not deletion. This is routing, not release or operational approval. Dynamic source/deployment facts remain in RELEASE_STATUS.
 
-The fixed integration / qualification baseline is `5f5f465a93a5c582ca0f2553a0781ecb5eb9dfbf`, the reviewed #1650 mainline base integrated into #1648. Changing component identities, configuration, migration state, blockers and observation receipts belong only in the [component reconciliation in `RELEASE_STATUS.md`](./RELEASE_STATUS.md#componentsource-reconciliation-d6be063f--250cffcc--28-october-2026). The machine-readable copy below exists for the shared currency guard; it does not independently verify GitHub or Production or claim an evergreen current-main pointer. Its `baseline` field records observed main `250cffcc5b134bdb14682b52461114a4794c03f3` after #1749, reconciled as merged source only in that dated addendum; the fixed #1650 base above is unchanged. Routing here grants no deployment, activation or acceptance authority.
+Changing component identities, configuration, migration state, blockers and observation
+receipts belong in the [post-R5 addendum in `RELEASE_STATUS.md`](./RELEASE_STATUS.md#28-october-2026-post-r5-receiving-addendum).
+That authority also preserves the fixed historical #1650 integration baseline. The
+machine-readable copy below exists for the shared currency guard; it mirrors the
+dated source/release receipt and does not independently verify GitHub or Production.
+Routing here grants no deployment, activation or acceptance authority.
 
 <!-- CURRENCY-BLOCK
-baseline: 250cffcc5b134bdb14682b52461114a4794c03f3
-deployed-release: a4dc9b70afddf6f601b8791a3077785a72d7f577
+baseline: 4c85b006ac05e180521fd6e7d807f736987cafe8
+deployed-release: 4c85b006ac05e180521fd6e7d807f736987cafe8
 verified-on: 2026-10-28
 release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
@@ -49,9 +81,12 @@ lane-moonshine: returned
 
 Legacy `task-1304-*` fields record merged source checkpoints, not model promotion or completion of the parent comparison program. The historical `onnxruntime-web` QDQ failures #28306/#28326 remain runtime observations, not model rejection: the 459-word preflight and 600-utterance selection are distinct evidence sets. Model evaluation and promotion retain their separate dispositions; no new model gate is created by this current-state correction.
 
-## Now — existing owner assignments
+## Historical owner assignments — retained acceptance boundaries
 
-Keep App Dev on RWT/Alpha and CLI Dev on MVP/Beta. Sam owns central routing, review, qualification and operational decisions; CLI PM supports monitoring/delivery. Production Dev reviews and GitHub work take precedence over Orch support. Preserve one writer per owned branch and serial guarded landings; independent source work does not wait for unrelated operational permission.
+The earlier App/CLI queue below preserves acceptance boundaries, not current writer assignments.
+Sam owns current routing, review, qualification and operational decisions through the receiving
+register above. Standing CLI PM/Consultant coordination is retired; it is not restarted here.
+Preserve one writer per acknowledged path and serial guarded landings.
 
 | Outcome / owning issue | Existing owner | Next bounded outcome / completion boundary |
 |---|---|---|
@@ -87,7 +122,7 @@ Keep App Dev on RWT/Alpha and CLI Dev on MVP/Beta. Sam owns central routing, rev
 
 ## Current parallel model work
 
-**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. Model evaluation and fallback work require a separate current selection and acknowledged file ownership. Preserved #1567/#1568 source and unresolved model obligations remain provenance, not an active writer assignment or a prerequisite for v2 MVP acceptance. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 ## Later — explicitly post-MVP
 
@@ -160,3 +195,15 @@ duplicate — for the parked enterprise/team and demand-validation workstreams, 
 - Do not treat the partial Stop B or the descriptive v2/v4 observations as the comparable evidence that confirms v4 over v2.
 - Do not treat CI, a transport 200, a generated artifact, or an installed observer as proof of received/user-visible behavior.
 - Do not let post-MVP debt displace the current product merge token.
+
+<!-- clause-closeout:2026-10-28 -->
+## Consolidated predecessor controls and interpretation
+
+### Predecessor decisions and remaining receiving ownership
+
+#1674 receives retained documentation and acceptance obligations from predecessor packets; transferred issue wrappers and completed prose do not complete product requirements. Jensen receives non-documentation controls with original IDs, evidence, next action and dependency; Cloud separately owns its harness. Old release/dev branch assignments, post-merge cleanup proposals and experimental tuning sequences are historical and confer no new work or operational authority. R01–R16 post-RWT ideas remain a distinct proposal register with original identifiers and explicit owner disposition; semantic coaching efficacy, felt progress and willingness to pay are not inferred from metric movement. Promotional draft copy and video assets require release-specific claim checking and separate publication/provider-spend authorization.
+
+### Strategy evidence and execution order
+
+The dated code/strategy audit found an implemented acceptance-to-next-session association and same-cohort movement calculation, not causal coaching efficacy. Preserve the distinction between browser-local STT and separately disclosed server-side text/coaching processing. Progress/source coverage, waitlist infrastructure, compliance tests and local-inference cost hypotheses do not establish demand, willingness to pay, lower churn or defensibility. Any derived longitudinal dataset must remain consented and privacy-preserving; technical availability does not grant reuse authority. Customer validation and independent qualification remain necessary, but strategic importance does not silently reorder the owner’s release sequence.
+<!-- /clause-closeout:2026-10-28 -->

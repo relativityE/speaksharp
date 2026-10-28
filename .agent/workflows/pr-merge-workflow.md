@@ -33,7 +33,7 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    gh pr create --base main --head <type>/<short-name> --title "…" --body-file <file>
    ```
    A PR = a pushed branch + a pull request opened against `main`. Nothing else is required.
-6. **CI runs automatically** on the PR (the push triggers `ci.yml`). Required checks (branch protection): `build`, `edge-tests`, `unit-shard-1..4`, `e2e-shard-1..4`.
+6. **CI runs automatically** on the PR (the push triggers `ci.yml`). Inspect current required checks and the exact-head qualification receipt; a fixed list of build, Edge, unit and E2E jobs is insufficient. Require the applicable full-evidence qualification and independent Code/Security review qualification. Follow `product_release/RELEASE_PROCESS.md` §5.1: ordinary CI qualification and default-OFF production no-mutation proof are separate. A default-OFF run does not replace CI or authorize deployment.
 7. **Watch CI to green:**
    ```bash
    gh pr checks <PR#> --watch --interval 30
