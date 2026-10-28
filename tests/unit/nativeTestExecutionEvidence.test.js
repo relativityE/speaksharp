@@ -22,8 +22,8 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,3);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,2);
+  assert.equal(contracts.length,4);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,3);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);
@@ -32,6 +32,35 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   assert.equal(nativeTestRoute('tests/db/unknown-runner.mjs',root),null);
   const sql=selectExecutionContracts(root,[...SQL_INPUTS,SQL_CONSUMER]);
   assert.equal(sql.length,1);assert.deepEqual(sql[0].sqlFiles,SQL_INPUTS);
+});
+
+test('edited-take helper maps only to its exact protocol test and refuses source/count drift',()=>{
+  const helper=NATIVE_HELPERS.find(item=>item.file==='tests/db/retention-edited-take-full-chain.mjs');
+  assert.deepEqual(helper.callables,['observeEditedTakeRace','finalizeEditedTakeProof','createEditedTakePeer']);
+  assert.equal(helper.consumer,'tests/db/retention-edited-take-full-chain.test.mjs');
+  assert.match(helper.claim,/fake-process transport controls only; native DB\/Docker replay NOT RUN/);
+  assert.equal(nativeTestRoute(helper.file.replace('full-chain','other'),root),null);
+  const f=fixture(`import test from 'node:test'; import assert from 'node:assert/strict';
+    import {observeEditedTakeRace,finalizeEditedTakeProof,createEditedTakePeer} from './retention-edited-take-full-chain.mjs';
+    test('all registered protocol callables execute',()=>{
+      assert.equal(observeEditedTakeRace(),1);assert.equal(finalizeEditedTakeProof(),2);assert.equal(createEditedTakePeer(),3);
+    });`);
+  try {
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
+    f.write(helper.file,'export function observeEditedTakeRace(){return 1;}\nexport function finalizeEditedTakeProof(){return 2;}\nexport function createEditedTakePeer(){return 3;}\n');
+    f.contract.helpers=[helper.file];
+    const phase=f.run();
+    assert.deepEqual(validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]),[helper.file]);
+    for(const change of [
+      rows=>{for(const report of rows)for(const script of report.result)for(const fn of script.functions)for(const range of fn.ranges)range.count=0;},
+      rows=>{for(const report of rows)for(const script of report.result)script.url=script.url.replace('edited-take','wrong-take');},
+    ]) {
+      const raw=structuredClone(phase.coverage);change(raw);
+      assert.throws(()=>validateNativeCallables(raw,phase.binding,f.dir,[helper.file]));
+    }
+    f.write(helper.file,'\n '+fs.readFileSync(path.join(f.dir,helper.file),'utf8'));
+    assert.throws(()=>validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]));
+  }finally{f.clean();}
 });
 
 function xml(cases='<testcase name="actual assertion" classname="./backend/supabase/functions/fixture.test.ts"/>',attrs='tests="1" failures="0" errors="0" disabled="0"') {
