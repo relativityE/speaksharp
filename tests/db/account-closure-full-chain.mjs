@@ -20,16 +20,40 @@ import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery, t2ExpectedCatalog, assertT2C
 // This uses the SAME contract/query/validator as the operational executable.
 export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
   assert.ok([127, 128].includes(stage), 'unreviewed C1 release observation');
-  const contract = t2ReleaseContract(root, sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`));
+  const receipt = { stage, status: 'INCOMPLETE', negatives: [],
+    scope: 'separate disposable native post-C1 release verification; no Production/apply/activation proof' };
+  const save = () => retain(structuredClone(receipt));
+  let contract;
+  try {
+  contract = t2ReleaseContract(root, sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`));
+  receipt.profile = contract.profile;
+  receipt.sourcePins = contract.pins;
+  receipt.knownAbsent = contract.knownAbsent;
   assert.equal(contract.profile, `post-${stage}`, 'native release stage/ledger differs');
   const rows = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+  receipt.rows = rows;
+  save(); // Preserve the actual readback even when the next assertion fails.
   const verified = assertT2ReleaseSnapshot(contract, rows);
   const legacy = JSON.parse(sql(`BEGIN READ ONLY; SET LOCAL search_path=public,pg_temp;
     ${t2CatalogQuery(T2_INVENTORY)} COMMIT;`));
   assert.throws(() => assertT2Catalog(legacy, t2ExpectedCatalog('verify', 'release')),
     /T2 catalog mismatch: function:public.persist_ai_suggestion_with_authority_v1/,
     'the old126 verifier must reject the real127 permission tightening');
-  const negatives = [];
+  const future = readFileSync(join(root, 'backend/supabase/migrations', contract.knownAbsent.file), 'utf8')
+    .replace(/^BEGIN;\s*/, '').replace(/COMMIT;\s*$/, '');
+  const snapshotInTransaction = t2ReleaseSnapshotQuery(contract)
+    .replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+  receipt.absenceNegatives = [];
+  for (const [name, mutation] of [
+    ['actual129-without-ledger', future],
+    ['known129-family-overload', 'CREATE FUNCTION public.settle_account_completion_billing_v1(text) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;'],
+  ]) {
+    const changed = sql(`BEGIN; ${mutation}\n${snapshotInTransaction}\nROLLBACK;`).trim().split('\n');
+    assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /known129 function family/);
+    receipt.absenceNegatives.push({ name, refused: true, rows: changed, rollback: true });
+    save();
+  }
+  const negatives = receipt.negatives;
   for (const [name, mutation] of [
     ['restored-service-execute', 'GRANT EXECUTE ON FUNCTION public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer) TO service_role'],
     ['changed-delete-guard-body', "CREATE OR REPLACE FUNCTION public.guard_unsettled_account_coaching_delete_v1() RETURNS trigger LANGUAGE plpgsql SET search_path='' AS $$ BEGIN RETURN OLD; END $$"],
@@ -40,15 +64,26 @@ export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
       ${t2CatalogQuery(contract.inventory)} ROLLBACK;`));
     assert.throws(() => assertT2Catalog(changed, contract.expected), /T2 catalog mismatch/);
     negatives.push({ name, refused: true, catalog: changed, rollback: true });
+    save();
   }
   const restored = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
   assertT2ReleaseSnapshot(contract, restored);
   assert.deepEqual(restored, rows, 'disposable negative controls must restore the exact catalog/authority');
-  const receipt = { stage, profile: contract.profile, sourcePins: contract.pins, rows,
-    result: verified, legacy126Rejected: true, negatives, restored: true,
-    scope: 'separate disposable native post-C1 release verification; no Production/apply/activation proof' };
-  retain(receipt);
+  Object.assign(receipt, { status: 'PASS', result: verified, legacy126Rejected: true, restored: true });
+  save();
   return receipt;
+  } catch (error) {
+    receipt.status = 'FAIL'; receipt.reason = error.message;
+    if (contract && receipt.rows && /^T2 catalog mismatch:/.test(error.message)) {
+      try {
+        receipt.expandedCatalog = JSON.parse(sql(`BEGIN READ ONLY; SET LOCAL search_path=public,pg_temp;
+          ${t2ExpandedCatalogQuery(contract.inventory)} COMMIT;`));
+      } catch (diagnosticError) { receipt.diagnosticError = diagnosticError.message; }
+    }
+    // Diagnostic/storage failure must not replace the original refusal.
+    try { save(); } catch { console.warn('post-C1 failure receipt unavailable'); }
+    throw error;
+  }
 }
 
 // P5 diagnostic: the same catalog query with its three per-object md5 wrappers removed, so a mismatched pin can be

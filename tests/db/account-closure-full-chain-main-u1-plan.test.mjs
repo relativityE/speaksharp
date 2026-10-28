@@ -21,12 +21,15 @@ for (const stage of [127, 128]) test(`post${stage} observer requires real valida
   const rows = [JSON.stringify(ledger), JSON.stringify(contract.expected),
     JSON.stringify({ billing_disabled: true, completion_disabled: true }), 'true',
     JSON.stringify({ checks: c1CatalogQuery(contract.c1).names.map(name => ({ name, ok: true })),
-      activation: [{ policy_version: 'newest_one_v1', activated_at: null }] })];
+      activation: [{ policy_version: 'newest_one_v1', activated_at: null }] }), 'true'];
   const changed = { ...contract.expected,
     'function:public.persist_ai_suggestion_with_authority_v1(uuid, uuid, jsonb, text, text, text, date, integer, integer)': '0'.repeat(32) };
   const queries = [], receipts = [];
   const sql = query => {
     queries.push(query);
+    if (query.includes('ROLLBACK') && query.includes('CREATE FUNCTION public.settle_account_completion_billing_v1')) {
+      const partial = [...rows]; partial[5] = 'false'; return partial.join('\n');
+    }
     if (query.includes('ROLLBACK')) return JSON.stringify(changed);
     if (!query.includes('objects AS')) return JSON.stringify(ledger);
     if (!query.includes('checks AS')) return JSON.stringify(contract.expected);
@@ -37,12 +40,18 @@ for (const stage of [127, 128]) test(`post${stage} observer requires real valida
   assert.equal(result.restored, true);
   assert.equal(result.legacy126Rejected, true);
   assert.deepEqual(result.negatives.map(row => row.name), ['restored-service-execute', 'changed-delete-guard-body']);
-  assert.equal(receipts.length, 1);
-  assert.equal(queries.filter(query => query.includes('ROLLBACK')).length, 2);
-  assert.equal(queries.filter(query => query.includes('checks AS')).length, 2);
+  assert.equal(receipts.at(-1).status, 'PASS');
+  assert.equal(receipts[0].status, 'INCOMPLETE');
+  assert.equal(queries.filter(query => query.includes('ROLLBACK')).length, 4);
+  assert.equal(queries.filter(query => query.includes('checks AS')).length, 4);
+  assert.deepEqual(result.absenceNegatives.map(row => row.name), ['actual129-without-ledger', 'known129-family-overload']);
   const broken = [...rows]; broken[3] = 'false';
-  assert.throws(() => observeC1ReleaseCatalog({ root, stage, retain: () => assert.fail('no failed PASS receipt'),
+  const failed = [];
+  assert.throws(() => observeC1ReleaseCatalog({ root, stage, retain: value => failed.push(value),
     sql: query => query.includes('objects AS') ? broken.join('\n') : JSON.stringify(ledger) }), /admission prerequisite/);
+  assert.equal(failed.at(-1).status, 'FAIL');
+  assert.deepEqual(failed.at(-1).rows, broken);
+  assert.ok(failed.every(value => value.status !== 'PASS'));
 });
 
 test('post-C1 native readbacks precede billing129 and do not relabel the historical seven-state observer', () => {

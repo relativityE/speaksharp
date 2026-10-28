@@ -363,6 +363,12 @@ const T2_C1_RELEASE_DELTAS = Object.freeze([
   }
 ].map(Object.freeze));
 
+// Reviewed source is present in the release tree, but its installation is NOT
+// admitted by these profiles. Absence covers the family, not just one overload.
+const NEXT_RELEASE_SOURCE = Object.freeze({ version: '20261027192550',
+  file: '20261027192550_account_completion_billing_settlement.sql',
+  sha256: '398aa50b8db168acc0cee68a11a433b40bd3101af03e3051dcdc2c87b2bef45d' });
+
 export function t2ExpectedCatalog(mode, version) {
   if (mode === 'verify' && version === 'release') return T2_CATALOG_STATES.at(-1);
   const index = T2_VERSIONS.indexOf(version);
@@ -458,13 +464,32 @@ export function t2ReleaseContract(root, installed) {
   // objects and old body/ACL/trigger shapes, even before their ledger entry.
   const c1 = stage === 2 ? c1Contract(root, 'after', C1_VERSIONS[1])
     : c1Contract(root, 'before', C1_VERSIONS[stage]);
-  return { profile: `post-${126 + stage}`, stage, ledger: [...ledger], pins, inventory, expected, c1 };
+  const futureFile = join(root, 'backend/supabase/migrations', NEXT_RELEASE_SOURCE.file);
+  if (!lstatSync(futureFile).isFile() || realpathSync(futureFile) !== futureFile) throw new Error('T2 release source alias');
+  const futureSource = readFileSync(futureFile, 'utf8');
+  if (createHash('sha256').update(futureSource).digest('hex') !== NEXT_RELEASE_SOURCE.sha256) {
+    throw new Error('T2 release future source mismatch');
+  }
+  const futureFunctions = functionDefinitions(futureSource);
+  if (futureFunctions.length !== 1
+    || futureFunctions[0].signature !== 'public.settle_account_completion_billing_v1(uuid,uuid,uuid,text,jsonb)') {
+    throw new Error('T2 release future function shape unavailable');
+  }
+  const absentFamilies = futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
+  return { profile: `post-${126 + stage}`, stage, ledger: [...ledger], pins, inventory, expected, c1,
+    knownAbsent: { ...NEXT_RELEASE_SOURCE, families: absentFamilies } };
+}
+
+export function t2KnownAbsentQuery(contract) {
+  return `SELECT (NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname IN (${contract.knownAbsent.families.map(literal).join(',')})))::text;`;
 }
 
 export function assertT2ReleaseSnapshot(contract, rows) {
-  if (!Array.isArray(rows) || rows.length !== 5) throw new Error('incomplete T2 release evidence');
+  if (!Array.isArray(rows) || rows.length !== 6) throw new Error('incomplete T2 release evidence');
   const ledger = JSON.parse(rows[0]);
   if (JSON.stringify(ledger) !== JSON.stringify(contract.ledger)) throw new Error('T2 release ledger changed');
+  if (rows[5] !== 'true') throw new Error('T2 release known129 function family must be absent');
   const catalog = assertT2Catalog(rows[1], contract.expected);
   const disabled = assertT2Disabled(rows[2], true);
   if (rows[3] !== 'true') throw new Error('T2 recording admission prerequisite failed');
@@ -494,5 +519,6 @@ ${t2CatalogQuery(contract.inventory)}
 ${t2DisabledQuery(true)}
 ${t2AdmissionQuery(true)}
 ${c1CatalogQuery(contract.c1).sql}
+${t2KnownAbsentQuery(contract)}
 COMMIT;`;
 }

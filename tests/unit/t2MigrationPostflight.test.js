@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { assertT2Sources, assertT2Catalog, t2CatalogQuery, T2_VERSIONS, T2_INVENTORY,
   t2ExpectedCatalog, t2DisabledQuery, assertT2Disabled, t2AdmissionQuery, t2LedgerQuery,
-  t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
+  t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot,
+  t2KnownAbsentQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
 import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
 
 const read = name => readFileSync(name, 'utf8');
@@ -145,6 +146,14 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
           INSERT INTO supabase_migrations.schema_migrations VALUES('${version}')`);
       }
       const old = t2ExpectedCatalog('verify', 'release');
+      const beforeC1 = t2ReleaseContract(process.cwd(), T2_VERSIONS);
+      const beforeRows = await readSnapshot(beforeC1);
+      const futureBeforeC1 = source(beforeC1.knownAbsent.file).replace(/^BEGIN;\s*/, '').replace(/COMMIT;\s*$/, '');
+      await db.exec('BEGIN'); await db.exec(futureBeforeC1);
+      const premature = [...beforeRows]; premature[5] = await scalar(t2KnownAbsentQuery(beforeC1));
+      expect(() => assertT2ReleaseSnapshot(beforeC1, premature)).toThrow('known129 function family');
+      await db.exec('ROLLBACK');
+      expect(assertT2ReleaseSnapshot(beforeC1, await readSnapshot(beforeC1)).passed).toBe(true);
       for (const version of c1Versions) {
         const prior = t2ReleaseContract(process.cwd(), JSON.parse(await scalar(t2ReleaseLedgerQuery())));
         expect(assertT2ReleaseSnapshot(prior, await readSnapshot(prior)).passed).toBe(true);
@@ -158,15 +167,28 @@ describe('T2 catalog gate rejects missing or changed evidence', () => {
         const contract = t2ReleaseContract(process.cwd(), JSON.parse(await scalar(t2ReleaseLedgerQuery())));
         const rows = await readSnapshot(contract);
         expect(assertT2ReleaseSnapshot(contract, rows).passed).toBe(true);
+        const future = source(contract.knownAbsent.file).replace(/^BEGIN;\s*/, '').replace(/COMMIT;\s*$/, '');
+        await db.exec('BEGIN');
+        await db.exec(future);
+        const partial129 = [...rows]; partial129[5] = await scalar(t2KnownAbsentQuery(contract));
+        expect(() => assertT2ReleaseSnapshot(contract, partial129)).toThrow('known129 function family');
+        await db.exec('ROLLBACK');
+        expect(assertT2ReleaseSnapshot(contract, await readSnapshot(contract)).passed).toBe(true);
+        await db.exec('BEGIN; CREATE FUNCTION public.settle_account_completion_billing_v1(text) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$');
+        const overload = [...rows]; overload[5] = await scalar(t2KnownAbsentQuery(contract));
+        expect(() => assertT2ReleaseSnapshot(contract, overload)).toThrow('known129 function family');
+        await db.exec('ROLLBACK');
         // Exercise the actual executable, not just its library. The fake psql
         // replays THESE real PGlite readbacks; it is CLI transport proof only.
-          const dir = mkdtempSync(join(tmpdir(), 't2-release-cli-'));
+          // Keep the executable inside the ESM package, as the isolated
+          // qualification runner does. An external system tmp hides that case.
+          const dir = mkdtempSync(join(process.cwd(), '.t2-release-cli-'));
           try {
             writeFileSync(join(dir, 'rows.json'), JSON.stringify(rows));
-            writeFileSync(join(dir, 'psql'), `#!/usr/bin/env node\nconst fs=require('node:fs');
+            writeFileSync(join(dir, 'psql'), `#!/usr/bin/env node\nimport('node:fs').then(fs=>{
 const rows=JSON.parse(fs.readFileSync(process.env.T2_TEST_ROWS,'utf8'));
 const query=process.argv.at(-1);fs.appendFileSync(process.env.T2_TEST_QUERIES,JSON.stringify({args:process.argv.slice(2),query,options:process.env.PGOPTIONS})+'\\n');
-console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);\n`);
+console.log(query.includes('objects AS')?rows.join('\\n'):rows[0]);});\n`);
             chmodSync(join(dir, 'psql'), 0o700);
             const invoke = () => spawnSync(process.execPath, ['scripts/t2-migration-postflight.mjs', 'verify', 'release'], {
               encoding: 'utf8', timeout: 10_000,
