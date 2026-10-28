@@ -1,19 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import AccountDeletionPage from '../AccountDeletionPage';
+import { completionCapabilities } from '@/services/accountCompletionStatus';
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(), signOut: vi.fn(async () => {}), token: null as string | null,
-  user: { id: 'owner' } as { id: string } | null, clear: vi.fn(),
+  user: { id: 'owner' } as { id: string } | null, clear: vi.fn(), session: vi.fn(), status: null as unknown,
 }));
 vi.mock('@/contexts/AuthProvider', () => ({
   useAuthProvider: () => ({ user: mocks.user, loading: false, signOut: mocks.signOut }),
 }));
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({
-  auth: { getSession: async () => ({ data: { session: { user: mocks.user, access_token: 'test-only' } }, error: null }) },
+  auth: { getSession: mocks.session },
   functions: { invoke: (name: string, options: { body: { action: string } }) => options.body.action === 'status'
-    ? Promise.resolve({ data: { outcome: 'not_pending', destructiveEnabled: false }, error: null })
+    ? Promise.resolve({ data: mocks.status ?? { outcome: 'not_pending', destructiveEnabled: false }, error: null })
     : mocks.invoke(name, options) },
 }) }));
 vi.mock('@/services/accountDeletionVerification', () => ({
@@ -35,8 +36,209 @@ let ownerSequence = 0;
 
 beforeEach(() => {
   vi.clearAllMocks(); mocks.token = null; mocks.user = { id: `owner-${++ownerSequence}` };
+  mocks.status = null;
+  mocks.session.mockImplementation(async () => ({ data: { session: { user: mocks.user, access_token: 'test-only' } }, error: null }));
   mocks.clear.mockImplementation(() => { mocks.token = null; });
   mocks.invoke.mockResolvedValue({ data: { outcome: 'email_requested' }, error: null });
+});
+
+describe('explicit pending completion — real page and effect/status transports', () => {
+  const requestId = '44444444-4444-4444-8444-444444444444';
+  const key = 'b'.repeat(64);
+  const pending = { outcome: 'pending', requestId, phase: 'pending', destructiveEnabled: false, checkoutPending: 0 };
+  const completed = { outcome: 'completed', requestId, accountDeleted: true, canRetry: false };
+  const effects = () => transport.mock.calls.filter(([, options]) => JSON.parse(String(options?.body)).action === 'completion_execute');
+  const transport = vi.fn<typeof fetch>();
+  let readReply: unknown;
+  beforeEach(() => {
+    mocks.user = { id: `11111111-1111-4111-8111-${String(ownerSequence).padStart(12, '0')}` };
+    mocks.status = pending;
+    completionCapabilities.clear();
+    readReply = { outcome: 'pending', requestId, reason: 'ready', canRetry: false };
+    transport.mockReset();
+    transport.mockImplementation(async (_url, options) => {
+      const body = JSON.parse(String(options?.body));
+      if (body.action === 'completion_status_issue') return Response.json({ outcome: 'status_capability', requestId, token: key, expiresAt: Date.now() + 60_000 });
+      if (body.action === 'completion_status_ack') return Response.json({ outcome: 'status_acknowledged', requestId });
+      if (body.action === 'completion_status_read') return Response.json(readReply);
+      if (body.action === 'completion_execute') return Response.json(completed);
+      throw new Error('unexpected synthetic transport call');
+    });
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://test.supabase.co');
+    vi.stubGlobal('fetch', transport);
+  });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); completionCapabilities.clear(); });
+  const renderPage = (ready?: () => boolean) => render(<MemoryRouter><AccountDeletionPage completionReadiness={ready} /></MemoryRouter>);
+  const confirmCompletion = async () => {
+    const button = await screen.findByRole('button', { name: 'Complete permanent account deletion' });
+    expect(button).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I confirm permanent account deletion now, with no refund.' }));
+    fireEvent.click(button);
+  };
+  it('default unavailable cannot become ready from a status reason, legacy flag or secured capability', async () => {
+    renderPage();
+    await screen.findByText(/Earlier work is settled/);
+    expect(completionCapabilities.get(mocks.user!.id, requestId, Date.now())?.acknowledged).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
+    expect(effects()).toHaveLength(0);
+  });
+  it('secures status first, then sends one explicitly confirmed owner effect and shows verified completion', async () => {
+    renderPage(() => true);
+    await confirmCompletion();
+    await screen.findByText('Your account has been deleted.');
+    expect(screen.queryByText('Deleting your account is permanent. Your practice data and preferences will be removed.')).not.toBeInTheDocument();
+    expect(effects()).toHaveLength(1);
+    expect(transport.mock.calls.map(([, options]) => JSON.parse(String(options?.body)).action)).toEqual([
+      'completion_status_issue', 'completion_status_ack', 'completion_status_read', 'completion_execute',
+    ]);
+    const [url, options] = effects()[0];
+    expect(url).toBe('https://test.supabase.co/functions/v1/account-closure/completion-execute');
+    expect(options).toMatchObject({ credentials: 'omit', redirect: 'error', cache: 'no-store', headers: { Authorization: 'Bearer test-only' } });
+    expect(JSON.parse(String(options?.body))).toEqual({ action: 'completion_execute', requestId, confirmIrreversible: true });
+    expect(String(options?.body)).not.toContain(key);
+    expect(mocks.signOut).toHaveBeenCalledOnce();
+  });
+  it('refuses readiness withdrawn during the owner-Auth await, without an effect call', async () => {
+    let ready = true;
+    renderPage(() => ready);
+    await screen.findByRole('button', { name: 'Complete permanent account deletion' });
+    let finish!: (value: unknown) => void;
+    mocks.session.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await confirmCompletion();
+    ready = false;
+    await act(async () => { finish({ data: { session: { user: mocks.user, access_token: 'test-only' } }, error: null }); });
+    await screen.findByText(/We could not verify the deletion result/);
+    expect(effects()).toHaveLength(0);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+  it('a failed status acknowledgment never enables an effect even if the independent port is ready', async () => {
+    const original = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => JSON.parse(String(options?.body)).action === 'completion_status_ack'
+      ? Response.json({ outcome: 'unavailable', canRetry: false }, { status: 503 }) : original(url, options));
+    renderPage(() => true);
+    await screen.findByText(/Outstanding checkout operations: 0/);
+    await waitFor(() => expect(transport).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
+    expect(effects()).toHaveLength(0);
+  });
+  it('a stalled owner-Auth check has a bounded uncertain result and cannot dispatch later', async () => {
+    renderPage(() => true);
+    const button = await screen.findByRole('button', { name: 'Complete permanent account deletion' });
+    vi.useFakeTimers();
+    let finish!: (value: unknown) => void;
+    mocks.session.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I confirm permanent account deletion now, with no refund.' }));
+    fireEvent.click(button);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(screen.getByText(/We could not verify the deletion result/)).toBeInTheDocument();
+    await act(async () => { finish({ data: { session: { user: mocks.user, access_token: 'test-only' } }, error: null }); });
+    expect(effects()).toHaveLength(0);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+  it('an uncertain effect cannot be replayed by remounting the page', async () => {
+    const original = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => {
+      if (JSON.parse(String(options?.body)).action === 'completion_execute') throw new Error('unknown outcome');
+      return original(url, options);
+    });
+    const first = renderPage(() => true);
+    await confirmCompletion();
+    await screen.findByText(/We could not verify the deletion result/);
+    first.unmount();
+    renderPage(() => true);
+    await screen.findByText(/We could not verify the deletion result/);
+    expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
+    expect(effects()).toHaveLength(1);
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+  it('late owner-A completion cannot display for B or sign B out', async () => {
+    const original = transport.getMockImplementation()!;
+    let finish!: (value: Response) => void;
+    transport.mockImplementation(async (url, options) => JSON.parse(String(options?.body)).action === 'completion_execute'
+      ? new Promise(resolve => { finish = resolve; }) : original(url, options));
+    const view = renderPage(() => true);
+    await confirmCompletion();
+    await waitFor(() => expect(effects()).toHaveLength(1));
+    mocks.user = { id: '99999999-9999-4999-8999-999999999999' };
+    mocks.status = { outcome: 'not_pending', destructiveEnabled: false };
+    view.rerender(<MemoryRouter><AccountDeletionPage completionReadiness={() => true} /></MemoryRouter>);
+    await act(async () => { finish(Response.json(completed)); });
+    expect(screen.queryByText('Your account has been deleted.')).not.toBeInTheDocument();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(effects()).toHaveLength(1);
+  });
+  it('after sign-out an uncertain effect recovers by capability-only status, with no second effect or Auth lookup', async () => {
+    const original = transport.getMockImplementation()!;
+    let finish!: (value: Response) => void;
+    transport.mockImplementation(async (url, options) => JSON.parse(String(options?.body)).action === 'completion_execute'
+      ? new Promise(resolve => { finish = resolve; }) : original(url, options));
+    const view = renderPage(() => true);
+    await confirmCompletion();
+    await waitFor(() => expect(effects()).toHaveLength(1));
+    mocks.user = null;
+    view.rerender(<MemoryRouter><AccountDeletionPage completionReadiness={() => true} /></MemoryRouter>);
+    await act(async () => { finish(Response.json(completed)); });
+    await screen.findByText(/We could not verify the deletion result/);
+    readReply = completed;
+    const authCalls = mocks.session.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    await screen.findByText('Your account has been deleted.');
+    expect(mocks.session).toHaveBeenCalledTimes(authCalls);
+    expect(effects()).toHaveLength(1);
+    const options = transport.mock.calls[transport.mock.calls.length - 1][1];
+    expect(options?.headers).not.toHaveProperty('Authorization');
+    expect(JSON.parse(String(options?.body))).toEqual({ action: 'completion_status_read', requestId, token: key });
+  });
+  it.each([false, true])('a lost effect response recovers without live Auth; interim unavailable=%s', async (unavailableFirst) => {
+    const original = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => JSON.parse(String(options?.body)).action === 'completion_execute'
+      ? Promise.reject(new Error('response lost after account deletion')) : original(url, options));
+    renderPage(() => true);
+    await confirmCompletion();
+    await screen.findByText(/We could not verify the deletion result/);
+    const ownerId = mocks.user!.id;
+    mocks.session.mockResolvedValue({ data: { session: null }, error: new Error('Auth user no longer exists') });
+    const authCalls = mocks.session.mock.calls.length;
+    if (unavailableFirst) {
+      readReply = { outcome: 'unavailable', canRetry: false };
+      fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    }
+    await waitFor(() => expect(transport).toHaveBeenCalledTimes(unavailableFirst ? 5 : 4));
+    expect(completionCapabilities.get(ownerId, requestId, Date.now())?.acknowledged).toBe(true);
+    readReply = completed;
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    await screen.findByText('Your account has been deleted.');
+    expect(mocks.session).toHaveBeenCalledTimes(authCalls);
+    expect(effects()).toHaveLength(1);
+    expect(completionCapabilities.get(ownerId, requestId, Date.now())?.acknowledged).toBe(true);
+    const options = transport.mock.calls[transport.mock.calls.length - 1][1];
+    expect(options?.headers).not.toHaveProperty('Authorization');
+    expect(JSON.parse(String(options?.body))).toEqual({ action: 'completion_status_read', requestId, token: key });
+  });
+  it.each([
+    ['processing', false], ['processing', true],
+    ['verification_pending', false], ['verification_pending', true],
+  ] as const)('a fresh %s read supersedes the effect pending notice; signed out=%s', async (outcome, signedOut) => {
+    const original = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => JSON.parse(String(options?.body)).action === 'completion_execute'
+      ? Response.json({ outcome: 'pending', requestId, canRetry: false }, { status: 202 }) : original(url, options));
+    const view = renderPage(() => true);
+    await confirmCompletion();
+    await screen.findByText(/Your deletion request is still pending/);
+    if (signedOut) {
+      mocks.user = null;
+      view.rerender(<MemoryRouter><AccountDeletionPage completionReadiness={() => true} /></MemoryRouter>);
+    }
+    const authCalls = mocks.session.mock.calls.length;
+    readReply = outcome === 'processing' ? { outcome, requestId, canRetry: false }
+      : { outcome, requestId, canRetry: false, reason: 'auth_unknown' };
+    fireEvent.click(screen.getByRole('button', { name: 'Check deletion status' }));
+    await screen.findByText(outcome === 'processing' ? /Your account is being deleted/ : /We cannot confirm the result of your deletion yet/);
+    expect(screen.queryByText(/Your deletion request is still pending/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Complete permanent account deletion' })).not.toBeInTheDocument();
+    expect(mocks.session).toHaveBeenCalledTimes(authCalls);
+    expect(effects()).toHaveLength(1);
+  });
 });
 
 describe('deletion confirmation UI — real component, mocked provider boundary', () => {
