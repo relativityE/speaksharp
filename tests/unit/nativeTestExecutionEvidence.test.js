@@ -229,6 +229,20 @@ test('full-evidence provisions Deno on its own runner; the Edge job is not its r
   assert.equal(steps[conformance].run,'node --test tests/unit/nativeTestExecutionEvidence.test.js');
 });
 
+test('service caller provisions Deno before any live setup and the paired quality writer',()=>{
+  const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');
+  const workflow=yaml.parse(fs.readFileSync(path.join(root,'.github/workflows/service-level-evidence.yml'),'utf8'));
+  const steps=workflow.jobs['service-level-evidence'].steps;
+  const deno=steps.findIndex(step=>step.uses==='denoland/setup-deno@v2');
+  assert.equal(steps.filter(step=>step.uses==='denoland/setup-deno@v2').length,1);
+  assert.equal(steps[deno].with['deno-version'],'v2.x');
+  assert.equal(deno,steps.findIndex(step=>step.name==='Setup Environment')+1);
+  assert.ok(deno<steps.findIndex(step=>step.name==='Setup test users'));
+  assert.ok(deno<steps.findIndex(step=>String(step.run??'').includes('pnpm metrics:service-levels')));
+  assert.equal(steps[deno].if,undefined);
+  assert.notEqual(steps[deno]['continue-on-error'],true);
+});
+
 // Explicit conformance evidence is independent of changed-file inventory. Unit shards do
 // not have Deno; full-evidence explicitly provisions it and selects this real test route.
 if(process.env.TEST_EFFICACY_DENO_REAL_RUNTIME==='1') {
