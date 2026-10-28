@@ -13,7 +13,109 @@ import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage
 
 import { pathToFileURL } from 'node:url';
 import { createNativeT2CatalogProof } from './t2-native-catalog-proof.mjs';
-import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery } from '../../scripts/lib/t2MigrationPostflight.mjs';
+import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery, t2ExpectedCatalog, assertT2Catalog,
+  t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
+
+// Separate post-C1 observations. The historical stage0..6 observer is unchanged.
+// This uses the SAME contract/query/validator as the operational executable.
+export function observeC1ReleaseCatalog({ sql, root, stage, retain }) {
+  assert.ok([127, 128].includes(stage), 'unreviewed C1 release observation');
+  const receipt = { stage, status: 'INCOMPLETE', negatives: [],
+    scope: 'separate disposable native post-C1 release verification; no Production/apply/activation proof' };
+  const save = () => retain(structuredClone(receipt));
+  let contract;
+  try {
+  contract = t2ReleaseContract(root, sql(`BEGIN READ ONLY; ${t2ReleaseLedgerQuery()} COMMIT;`),
+    { catalogContext: 'native-replay' });
+  receipt.profile = contract.profile;
+  receipt.sourcePins = contract.pins;
+  receipt.knownAbsent = contract.knownAbsent;
+  assert.equal(contract.profile, `post-${stage}`, 'native release stage/ledger differs');
+  const rows = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+  receipt.rows = rows;
+  save(); // Preserve the actual readback even when the next assertion fails.
+  const verified = assertT2ReleaseSnapshot(contract, rows);
+  const legacy = JSON.parse(sql(`BEGIN READ ONLY; SET LOCAL search_path=public,pg_temp;
+    ${t2CatalogQuery(T2_INVENTORY)} COMMIT;`));
+  assert.throws(() => assertT2Catalog(legacy, t2ExpectedCatalog('verify', 'release')),
+    /T2 catalog mismatch: function:public.persist_ai_suggestion_with_authority_v1/,
+    'the old126 verifier must reject the real127 permission tightening');
+  const future = readFileSync(join(root, 'backend/supabase/migrations', contract.knownAbsent.file), 'utf8')
+    .replace(/^BEGIN;\s*/, '').replace(/COMMIT;\s*$/, '');
+  const snapshotInTransaction = t2ReleaseSnapshotQuery(contract)
+    .replace(/^BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/, '').replace(/COMMIT;\s*$/, '');
+  receipt.absenceNegatives = [];
+  for (const [name, mutation] of [
+    ['actual129-without-ledger', future],
+    ['known129-family-overload', 'CREATE FUNCTION public.settle_account_completion_billing_v1(text) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;'],
+  ]) {
+    const changed = sql(`BEGIN; ${mutation}\n${snapshotInTransaction}\nROLLBACK;`).trim().split('\n');
+    assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /known129 function family/);
+    receipt.absenceNegatives.push({ name, refused: true, rows: changed, rollback: true });
+    save();
+  }
+  receipt.inheritedAclContexts = [];
+  if (stage === 128) {
+    const production = t2ReleaseContract(root, contract.ledger, { catalogContext: 'retained-production' });
+    const progress = 'REVOKE EXECUTE ON FUNCTION public.record_progress_evaluation(uuid) FROM service_role;';
+    const state = 'REVOKE EXECUTE ON FUNCTION public.sessions_set_transcript_state() FROM anon,authenticated,service_role;';
+    // Fixture-only metadata reconstruction of the independently observed
+    // retained ACLs. Never run against Production or alter migration sources.
+    for (const [name, mutation, accepted] of [
+      ['retained-production-pair', progress + state, true],
+      ['mixed-progress-only', progress, false],
+      ['mixed-state-only', state, false],
+      ['retained-extra-role', progress + state + 'GRANT EXECUTE ON FUNCTION public.record_progress_evaluation(uuid) TO anon;', false],
+      ['retained-grantable', progress + state + 'GRANT EXECUTE ON FUNCTION public.record_progress_evaluation(uuid) TO authenticated WITH GRANT OPTION;', false],
+    ]) {
+      const changed = sql(`BEGIN; ${mutation}\n${snapshotInTransaction}\nROLLBACK;`).trim().split('\n');
+      let result;
+      if (accepted) {
+        result = assertT2ReleaseSnapshot(production, changed);
+        assert.equal(result.catalogContext, 'retained-production');
+      } else {
+        assert.throws(() => assertT2ReleaseSnapshot(production, changed), /T2 catalog mismatch/);
+      }
+      assert.throws(() => assertT2ReleaseSnapshot(contract, changed), /T2 catalog mismatch/,
+        'retained or mixed ACLs must not masquerade as the native profile');
+      receipt.inheritedAclContexts.push({ name, accepted, result, rows: changed, rollback: true });
+      save();
+    }
+    assert.throws(() => assertT2ReleaseSnapshot(production, rows), /T2 catalog mismatch/,
+      'Production must not fall back to the complete native ACL pair');
+  }
+  const negatives = receipt.negatives;
+  for (const [name, mutation] of [
+    ['restored-service-execute', 'GRANT EXECUTE ON FUNCTION public.persist_ai_suggestion_with_authority_v1(uuid,uuid,jsonb,text,text,text,date,integer,integer) TO service_role'],
+    ['changed-delete-guard-body', "CREATE OR REPLACE FUNCTION public.guard_unsettled_account_coaching_delete_v1() RETURNS trigger LANGUAGE plpgsql SET search_path='' AS $$ BEGIN RETURN OLD; END $$"],
+  ]) {
+    // Mutation exists only inside this disposable rollback transaction. Retain
+    // its actual readback, and assert refusal after the database has rolled back.
+    const changed = JSON.parse(sql(`BEGIN; SET LOCAL search_path=public,pg_temp; ${mutation};
+      ${t2CatalogQuery(contract.inventory)} ROLLBACK;`));
+    assert.throws(() => assertT2Catalog(changed, contract.expected), /T2 catalog mismatch/);
+    negatives.push({ name, refused: true, catalog: changed, rollback: true });
+    save();
+  }
+  const restored = sql(t2ReleaseSnapshotQuery(contract)).trim().split('\n');
+  assertT2ReleaseSnapshot(contract, restored);
+  assert.deepEqual(restored, rows, 'disposable negative controls must restore the exact catalog/authority');
+  Object.assign(receipt, { status: 'PASS', result: verified, legacy126Rejected: true, restored: true });
+  save();
+  return receipt;
+  } catch (error) {
+    receipt.status = 'FAIL'; receipt.reason = error.message;
+    if (contract && receipt.rows && /^T2 catalog mismatch:/.test(error.message)) {
+      try {
+        receipt.expandedCatalog = JSON.parse(sql(`BEGIN READ ONLY; SET LOCAL search_path=public,pg_temp;
+          ${t2ExpandedCatalogQuery(contract.inventory)} COMMIT;`));
+      } catch (diagnosticError) { receipt.diagnosticError = diagnosticError.message; }
+    }
+    // Diagnostic/storage failure must not replace the original refusal.
+    try { save(); } catch { console.warn('post-C1 failure receipt unavailable'); }
+    throw error;
+  }
+}
 
 // P5 diagnostic: the same catalog query with its three per-object md5 wrappers removed, so a mismatched pin can be
 // compared field by field (names, types, constraints, policies, ACL roles; no rows). Diagnostic only — never a verdict.
@@ -1087,6 +1189,8 @@ export function runMainClosureProof() {
       assert.ok(completionAfterFence.includes('ACCOUNT COMPLETION REAL-SCHEMA INVARIANTS PASSED'),'completion proof after the fence');
       assert.equal(sql('SELECT enabled FROM public.account_completion_configuration;'),'f','completion proof must restore disabled configuration');
       assert.equal(sql('SELECT count(*) FROM public.account_coaching_fences;'),'0','the migration fences nothing');
+      observeC1ReleaseCatalog({ sql, root: process.cwd(), stage: 127,
+        retain: receipt => writeFileSync(join(evidence, 't2-release-post127.json'), JSON.stringify(receipt, null, 2)) });
       console.log('ACCOUNT COACHING UNKNOWN FENCE FULL-CHAIN INVARIANTS PASSED');
     }
     if(retentionT2) {
@@ -1117,6 +1221,8 @@ export function runMainClosureProof() {
       assert.equal(state.completionDisabled,true,'completion must remain disabled after retention');
       assert.deepEqual(state,{compatible:true,pinCount:8,evidenceRows:0,contextRows:0,privateRls:true,
         privatePrivileges:0,expiredGuardInvoker:true,expiredGuardEnabled:1,completionDisabled:true},'retention catalog/ACL');
+      observeC1ReleaseCatalog({ sql, root: process.cwd(), stage: 128,
+        retain: receipt => writeFileSync(join(evidence, 't2-release-post128.json'), JSON.stringify(receipt, null, 2)) });
       console.log('CONTENT-FREE RETENTION FULL-CHAIN CATALOG PASSED');
     }
     if(billingT2) {
