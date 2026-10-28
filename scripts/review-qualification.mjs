@@ -45,11 +45,34 @@ export const DOCUMENTATION_EVIDENCE_ADMISSION = Object.freeze({
   ]),
 });
 
+// Owner-selected #1599 receiver; approved archive correction frozen in 0124d8ed.
+// Historical verification source is archived as data; exact postimages are Git metadata only.
+export const FINANCIAL_EVIDENCE_ADMISSION = Object.freeze({
+  repository: 'relativityE/speaksharp', number: 1599,
+  reviewedSource: '0124d8ed1c83f7cb37b3acb04e870166d10bef18',
+  files: Object.freeze([
+    Object.freeze({"path":"local-packets/1599-model-status-control/README.md","oid":"23e345dea0da592e1c6a9cd9765d8ab22a21e57b","mode":"100644","size":2624}),
+    Object.freeze({"path":"local-packets/1599-model-status-control/edit.mjs","oid":"9942d9759b6ed2e09183fea1dff432212f1bb523","mode":"100644","size":1459}),
+    Object.freeze({"path":"local-packets/1599-model-status-control/inspect-native.py","oid":"e02ed0ca701232bdfa37eacbdebcd1f93b409363","mode":"100644","size":723}),
+    Object.freeze({"path":"local-packets/1599-model-status-control/native-receipts.json","oid":"058fbb2cb968b85d0cf66aee9aff08977064dc93","mode":"100644","size":3906}),
+    Object.freeze({"path":"local-packets/1599-model-status-control/preserve-package.py","oid":"ac271ead1d1c58d30a069a4b437cd6893eaf7acf","mode":"100644","size":2442}),
+    Object.freeze({"path":"local-packets/1599-model-status-control/verify-native-source.txt","oid":"f0808c29474edb983b46358ea8931037e85800aa","mode":"100644","size":6570}),
+    Object.freeze({"path":"product_release/ROADMAP.md","oid":"1769c07635ead0df59990bcdb6fb949e182e0838","mode":"100644","size":23129}),
+    Object.freeze({"path":"product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md","oid":"b14f1633eb5abdf72664e17d9990a0497e11e3a4","mode":"100644","size":20725}),
+    Object.freeze({"path":"product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx","oid":"c78f60fa0383ae2461f209bdb96a0a50b2909f5e","mode":"100644","size":76656}),
+  ]),
+});
+
+export function documentationEvidenceAdmission(repository, number) {
+  return [DOCUMENTATION_EVIDENCE_ADMISSION, FINANCIAL_EVIDENCE_ADMISSION]
+    .find(profile => profile.repository === repository && profile.number === number) ?? null;
+}
+
 export function isPinnedDocumentationEvidence({
   repository, pullRequestNumber, currentSha, baseSha, changedFiles, documentationEvidence: evidence,
 }) {
-  const admission = DOCUMENTATION_EVIDENCE_ADMISSION;
-  if (repository !== admission.repository || pullRequestNumber !== admission.number
+  const admission = documentationEvidenceAdmission(repository, pullRequestNumber);
+  if (!admission || repository !== admission.repository || pullRequestNumber !== admission.number
       || !FULL_SHA.test(currentSha ?? '') || !FULL_SHA.test(baseSha ?? '')
       || !Array.isArray(changedFiles) || changedFiles.length !== admission.files.length
       || new Set(changedFiles).size !== changedFiles.length
@@ -204,8 +227,7 @@ export function evaluateReviewQualification({
   const documentationFiles = files.filter(isCanonicalProductReleaseDocument);
   const canonicalDocumentationOnly = files.length > 0 && documentationFiles.length === files.length;
   const testIntegrityOnly = files.length > 0 && files.every(isTestIntegrityFile);
-  const namedDocumentationCarrier = repository === DOCUMENTATION_EVIDENCE_ADMISSION.repository
-    && pullRequestNumber === DOCUMENTATION_EVIDENCE_ADMISSION.number;
+  const namedDocumentationCarrier = documentationEvidenceAdmission(repository, pullRequestNumber) !== null;
   const pinnedDocumentation = isPinnedDocumentationEvidence({ repository, pullRequestNumber,
     currentSha: normalizedCurrent, baseSha, changedFiles: files, documentationEvidence });
   const reviewScope = namedDocumentationCarrier

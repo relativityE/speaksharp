@@ -305,3 +305,195 @@ describe('exported live reader used by collection and merge guard',()=>{
   });
 });
 
+
+
+// #1599's independent frozen postimages; candidate files never supply these expectations.
+{
+const HEAD = '0124d8ed1c83f7cb37b3acb04e870166d10bef18';
+const BASE = 'b80657dd40d87895d61a8aaf52bb9f63bb784443';
+const TREE = 'b578cef190889489e187aead500afed528e50fdd';
+const PINS = [
+  {
+    "path": "local-packets/1599-model-status-control/README.md",
+    "oid": "23e345dea0da592e1c6a9cd9765d8ab22a21e57b",
+    "mode": "100644",
+    "size": 2624
+  },
+  {
+    "path": "local-packets/1599-model-status-control/edit.mjs",
+    "oid": "9942d9759b6ed2e09183fea1dff432212f1bb523",
+    "mode": "100644",
+    "size": 1459
+  },
+  {
+    "path": "local-packets/1599-model-status-control/inspect-native.py",
+    "oid": "e02ed0ca701232bdfa37eacbdebcd1f93b409363",
+    "mode": "100644",
+    "size": 723
+  },
+  {
+    "path": "local-packets/1599-model-status-control/native-receipts.json",
+    "oid": "058fbb2cb968b85d0cf66aee9aff08977064dc93",
+    "mode": "100644",
+    "size": 3906
+  },
+  {
+    "path": "local-packets/1599-model-status-control/preserve-package.py",
+    "oid": "ac271ead1d1c58d30a069a4b437cd6893eaf7acf",
+    "mode": "100644",
+    "size": 2442
+  },
+  {
+    "path": "local-packets/1599-model-status-control/verify-native-source.txt",
+    "oid": "f0808c29474edb983b46358ea8931037e85800aa",
+    "mode": "100644",
+    "size": 6570
+  },
+  {
+    "path": "product_release/ROADMAP.md",
+    "oid": "1769c07635ead0df59990bcdb6fb949e182e0838",
+    "mode": "100644",
+    "size": 23129
+  },
+  {
+    "path": "product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md",
+    "oid": "b14f1633eb5abdf72664e17d9990a0497e11e3a4",
+    "mode": "100644",
+    "size": 20725
+  },
+  {
+    "path": "product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx",
+    "oid": "c78f60fa0383ae2461f209bdb96a0a50b2909f5e",
+    "mode": "100644",
+    "size": 76656
+  }
+];
+const files = () => PINS.map(({path}) => ({path}));
+const evidence = () => ({ repository: REPO, number: 1599, headRepository: REPO, baseRef: 'main', headSha: HEAD, baseSha: BASE, treeSha: TREE,
+  complete: true, entries: PINS.map(row => ({...row, type: 'blob'})) });
+const input = () => ({ repository: REPO, pullRequestNumber: 1599, baseSha: BASE, currentSha: HEAD,
+  reviewedSha: HEAD, reviewStatus: 'completed', findingCount: 0, generatedAt: new Date().toISOString(),
+  changedFiles: PINS.map(row => row.path), documentationEvidence: evidence() });
+const pull = () => ({ number:1599, headRefOid:HEAD, baseRefOid:BASE, baseRefName:'main',
+  headRefName:'pm-browser/served-release-binding-docs-20261021',
+  baseRepository:{nameWithOwner:REPO}, headRepository:{nameWithOwner:REPO},
+  files:{nodes:files(),pageInfo:{hasNextPage:false}}, reviews:{nodes:[{
+    author:{login:'chatgpt-codex-connector'},state:'COMMENTED',commit:{oid:HEAD},body:'reviewed',
+    submittedAt:'2026-10-28T17:34:11Z'}],pageInfo:{hasPreviousPage:false}},
+  reviewThreads:{nodes:[],pageInfo:{hasNextPage:false}},
+  comments:{nodes:[],pageInfo:{hasPreviousPage:false}}, documentationEvidence:evidence() });
+describe('#1599 reviewed documentation/evidence scope', () => {
+  it('refuses the obsolete executable-name and pre-archive note postimages together', () => {
+    const value = input();
+    value.changedFiles = value.changedFiles.map(path => path.replace('verify-native-source.txt', 'verify-native.test.mjs'));
+    for (const row of value.documentationEvidence.entries) {
+      row.path = row.path.replace('verify-native-source.txt', 'verify-native.test.mjs');
+      if (row.path.endsWith('/FINANCIAL_MODEL_REVIEW_2026-10-12.md')) {
+        row.oid = '0cc9545660dff6709a4d5171268bedf04982b0fb';
+        row.size = 20082;
+      }
+    }
+    expect(evaluateReviewQualification(value).qualified).toBe(false);
+  });
+
+  it.each(PINS.map(row => row.path))('refuses a changed postimage at %s', path => {
+    const value = input();
+    value.documentationEvidence.entries.find(row => row.path === path).oid = 'f'.repeat(40);
+    expect(evaluateReviewQualification(value).qualified).toBe(false);
+  });
+  it('admits the real 9 reviewed postimages without treating them as implementation', () => {
+    expect(evaluateReviewQualification(input())).toMatchObject({qualified:true,
+      reviewScope:'pinned_product_release_documentation_evidence',substantiveFiles:[]});
+  });
+  it('retains the actual pre-fix rejection when no live postimages are supplied', () => {
+    expect(evaluateReviewQualification({...input(),documentationEvidence:undefined})).toMatchObject({qualified:false});
+  });
+  it.each([
+    ['other PR', value => {value.pullRequestNumber=1675;}],
+    ['other repository', value => {value.repository='elsewhere/speaksharp';}],
+    ['invalid head', value => {value.currentSha='bad';}],
+    ['invalid base', value => {value.baseSha='bad';}],
+    ['missing path', value => {value.changedFiles.pop();}],
+    ['extra runtime path', value => {value.changedFiles.push('scripts/evil.mjs');}],
+    ['duplicate path', value => {value.changedFiles[1]=value.changedFiles[0];}],
+    ['changed blob', value => {value.documentationEvidence.entries[0].oid='a'.repeat(40);}],
+    ['missing blob', value => {delete value.documentationEvidence.entries[0].oid;}],
+    ['symlink', value => {value.documentationEvidence.entries[0].mode='120000';}],
+    ['executable', value => {value.documentationEvidence.entries[0].mode='100755';}],
+    ['submodule', value => {value.documentationEvidence.entries[0].type='commit';value.documentationEvidence.entries[0].mode='160000';}],
+    ['wrong size', value => {value.documentationEvidence.entries[0].size++;}],
+    ['string size', value => {value.documentationEvidence.entries[0].size=String(value.documentationEvidence.entries[0].size);}],
+    ['missing metadata', value => {value.documentationEvidence.entries.pop();}],
+    ['duplicate metadata', value => {value.documentationEvidence.entries[1]={...value.documentationEvidence.entries[0]};}],
+    ['truncated metadata', value => {value.documentationEvidence.complete=false;}],
+    ['stale head', value => {value.documentationEvidence.headSha='a'.repeat(40);}],
+    ['stale base', value => {value.documentationEvidence.baseSha='b'.repeat(40);}],
+    ['malformed tree', value => {value.documentationEvidence.treeSha='bad';}],
+    ['forged repository', value => {value.documentationEvidence.repository='elsewhere/speaksharp';}],
+    ['forged PR', value => {value.documentationEvidence.number=1675;}],
+    ['unfinished review', value => {value.reviewStatus='running';}],
+    ['blocking finding', value => {value.findingCount=1;}],
+    ['stale receipt', value => {value.generatedAt='2026-01-01T00:00:00Z';}],
+  ])('refuses %s', (_name, mutate) => {
+    const value=input();mutate(value);expect(evaluateReviewQualification(value).qualified).toBe(false);
+  });
+  it('carries the same verified metadata through buildReviewReceipt', () => {
+    expect(buildReviewReceipt({pullRequest:pull(),expectedHeadSha:HEAD})).toMatchObject({
+      qualified:true,reviewScope:'pinned_product_release_documentation_evidence'});
+    const value=pull();delete value.documentationEvidence;
+    expect(buildReviewReceipt({pullRequest:value,expectedHeadSha:HEAD}).qualified).toBe(false);
+  });
+});
+
+function mockGithub(change = () => {}) {
+  const state={tree:{sha:TREE,truncated:false,tree:PINS.map(({oid,...row})=>({...row,sha:oid,type:'blob'}))},
+    commit:{sha:HEAD,tree:{sha:TREE}},final:pull(),initial:pull(),calls:[]};
+  delete state.initial.documentationEvidence;delete state.final.documentationEvidence;
+  change(state);
+  vi.stubGlobal('fetch',vi.fn(async(url,options)=>{
+    const parsed=new URL(url);state.calls.push(parsed.pathname+parsed.search);
+    if(parsed.origin!=='https://api.github.com'||options?.headers?.Authorization!=='Bearer synthetic'){
+      throw Error('unexpected network');
+    }
+    let body;
+    if(parsed.pathname==='/graphql'){
+      const query=JSON.parse(options.body).query;
+      body={data:{repository:{pullRequest:query.includes('documentationPostimageIdentity')?state.final:state.initial}}};
+    }else if(parsed.pathname===`/repos/${REPO}/git/commits/${HEAD}`) body=state.commit;
+    else if(parsed.pathname===`/repos/${REPO}/git/trees/${TREE}`) body=state.tree;
+    else if(parsed.pathname===`/repos/${REPO}/activity`) body=[];
+    else throw Error('unexpected API '+parsed.pathname);
+    return {ok:true,status:200,json:async()=>structuredClone(body)};
+  }));
+  return state;
+}
+describe('#1599 exported live reader used by collection and merge guard',()=>{
+  it('acquires immutable head commit/tree metadata and rechecks the live tuple',async()=>{
+    const state=mockGithub();
+    const value=await readPullRequest({repository:REPO,number:1599,token:'synthetic'});
+    expect(buildReviewReceipt({pullRequest:value,expectedHeadSha:HEAD}).qualified).toBe(true);
+    expect(state.calls).toContain(`/repos/${REPO}/git/commits/${HEAD}`);
+    expect(state.calls).toContain(`/repos/${REPO}/git/trees/${TREE}?recursive=1`);
+    expect(state.calls.filter(path=>path==='/graphql')).toHaveLength(2);
+  });
+  it.each([
+    ['truncated tree',state=>{state.tree.truncated=true;}],
+    ['wrong commit',state=>{state.commit.sha='a'.repeat(40);}],
+    ['wrong tree',state=>{state.tree.sha='b'.repeat(40);}],
+    ['duplicate tree path',state=>{state.tree.tree.push({...state.tree.tree[0]});}],
+    ['missing postimage',state=>{state.tree.tree.pop();}],
+    ['changed live head',state=>{state.final.headRefOid='a'.repeat(40);}],
+    ['changed live base',state=>{state.final.baseRefOid='b'.repeat(40);}],
+    ['fork identity',state=>{state.initial.headRepository.nameWithOwner='elsewhere/speaksharp';}],
+  ])('refuses %s in the shared reader',async(_name,change)=>{
+    mockGithub(change);
+    let receipt;
+    try {const value=await readPullRequest({repository:REPO,number:1599,token:'synthetic'});
+      receipt=buildReviewReceipt({pullRequest:value,expectedHeadSha:HEAD});}
+    catch {receipt={qualified:false};}
+    expect(receipt.qualified).toBe(false);
+  });
+});
+
+
+}

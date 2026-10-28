@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { evaluateReviewQualification, formatReviewQualification, DOCUMENTATION_EVIDENCE_ADMISSION } from './review-qualification.mjs';
+import { evaluateReviewQualification, formatReviewQualification, documentationEvidenceAdmission } from './review-qualification.mjs';
 
 const CODEX_LOGINS = new Set(['chatgpt-codex-connector', 'chatgpt-codex-connector[bot]']);
 /**
@@ -576,9 +576,9 @@ function commentIdentity(comment) {
 const DOCUMENTATION_POSTIMAGE_IDENTITY_QUERY = `query documentationPostimageIdentity($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid baseRefOid baseRefName headRepository{nameWithOwner} baseRepository{nameWithOwner}}}}`;
 
 async function readDocumentationPostimages({ repository, number, pullRequest, token }) {
-  const admission = DOCUMENTATION_EVIDENCE_ADMISSION;
+  const admission = documentationEvidenceAdmission(repository, number);
   const head = pullRequest.headRefOid, base = pullRequest.baseRefOid;
-  if (repository !== admission.repository || number !== admission.number || pullRequest.number !== number
+  if (!admission || repository !== admission.repository || number !== admission.number || pullRequest.number !== number
       || pullRequest.baseRepository?.nameWithOwner !== repository || pullRequest.headRepository?.nameWithOwner !== repository
       || pullRequest.baseRefName !== 'main' || !/^[0-9a-f]{40}$/.test(head ?? '') || !/^[0-9a-f]{40}$/.test(base ?? '')
       || pullRequest.files?.pageInfo?.hasNextPage !== false) return null;
@@ -662,7 +662,7 @@ export async function readPullRequest({ repository, number, token, pageCap = ISS
   });
   // #1438 PM RETURN `5639978861` — the branch moves the Ready-trigger binding is checked against.
   pullRequest.headRefHistory = await readHeadRefHistory({ pullRequest, token });
-  if (repository === DOCUMENTATION_EVIDENCE_ADMISSION.repository && number === DOCUMENTATION_EVIDENCE_ADMISSION.number) {
+  if (documentationEvidenceAdmission(repository, number) !== null) {
     // All consumers (including the live merge guard) use this exported reader.
     // Never retain an API-supplied/candidate field as evidence if acquisition fails.
     pullRequest.documentationEvidence = null;
