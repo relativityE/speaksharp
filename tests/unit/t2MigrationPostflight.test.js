@@ -20,7 +20,7 @@ const c1Versions = ['20261024083000', '20261025021046'];
 
 // BEGIN BOUNDED FIXTURE. Platform tables/usage are the existing declared fixture;
 // application table/function definitions below are executed from real source.
-async function fixture({ historicalTableDefaults = true } = {}) {
+async function fixture({ historicalTableDefaults = true, platformFunctionDefaults = true } = {}) {
   const db = new PGlite();
   const bootstrap = read('tests/db/account-closure-tokens.integration.test.ts')
     .match(/await db\.exec\(`\n([\s\S]*?)`\);/);
@@ -38,6 +38,12 @@ async function fixture({ historicalTableDefaults = true } = {}) {
     if (grants?.length !== 1) throw new Error('exact historical table-default grant absent or ambiguous');
     await db.exec(grants[0]);
   }
+  // The immutable Supabase17.6.1.155 replay initializes these function defaults
+  // for its creating role. Field-by-field native/source comparison proved this
+  // inherited ACL difference in two CREATE OR REPLACE retention functions.
+  // This is fixture setup, never a migration or permission-policy correction.
+  if (platformFunctionDefaults) await db.exec(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated,service_role');
   for (const name of ['20260812041600_trial_commercial_grant_on_conflict_1294.sql',
     '20260812002000_webhook_lifecycle_completeness_1282.sql']) await db.exec(source(name));
   const canonical = source('20260812041500_flawless_launch_runtime_convergence_1290.sql');
@@ -81,6 +87,12 @@ async function fixture({ historicalTableDefaults = true } = {}) {
     '20260816223606_metrics_only_additive_1306.sql',
     '20260817140000_repoint_analytics_summary_flat_1306.sql',
   ]) await db.exec(source(name));
+  // This bounded fixture creates the save RPC from its earlier retention slice
+  // after reading the canonical baseline. Replay the latter's exact ACL slice
+  // in native chronology; otherwise a platform anon default incorrectly sticks.
+  const createAcl = [...canonical.matchAll(/REVOKE EXECUTE ON FUNCTION public\.create_session_and_update_usage\(JSONB, TEXT, UUID, TEXT, TEXT, TEXT\)[\s\S]*?TO authenticated, service_role;/g)];
+  if (createAcl.length !== 1) throw new Error('historical save-RPC ACL source absent or ambiguous');
+  await db.exec(createAcl[0][0]);
   // Real pre-C1 predecessors, needed by the separately observed release profiles.
   // None replaces a historical T2 object or changes its seven expected states.
   await db.exec(`ALTER TABLE public.sessions ADD COLUMN attribution_status text NOT NULL DEFAULT 'pending';
@@ -103,6 +115,29 @@ async function fixture({ historicalTableDefaults = true } = {}) {
 // END BOUNDED FIXTURE.
 
 describe('T2 catalog gate rejects missing or changed evidence', () => {
+  it('derives the two inherited-ACL identities from platform setup and rejects the omitted-default fixture', async () => {
+    const contract = t2ReleaseContract(process.cwd(), [...T2_VERSIONS, ...c1Versions]);
+    const results = [];
+    for (const platformFunctionDefaults of [false, true]) {
+      const db = await fixture({ platformFunctionDefaults });
+      try {
+        await db.exec('SET ROLE closure_owner');
+        for (const version of [...T2_VERSIONS, ...c1Versions]) {
+          await db.exec(source(EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version).file));
+        }
+        await db.exec('RESET ROLE; SET search_path=public,pg_temp');
+        const catalog = JSON.parse(Object.values((await db.query(t2CatalogQuery(contract.inventory))).rows[0])[0]);
+        let passed = false;
+        try { passed = assertT2Catalog(catalog, contract.expected).passed; } catch { /* Intentional omitted-platform negative. */ }
+        results.push({ catalog, passed });
+      } finally { await db.close(); }
+    }
+    const changed = Object.keys(results[1].catalog).filter(key => results[0].catalog[key] !== results[1].catalog[key]).sort();
+    expect(changed).toEqual(['function:public.record_progress_evaluation(uuid)', 'function:public.sessions_set_transcript_state()']);
+    expect(results.map(row => row.passed)).toEqual([false, true]);
+    expect(Object.keys(results[1].catalog)).toHaveLength(117);
+  }, 30_000);
+
   it('selects only exact installed126/127/128 ledger prefixes; rejects unknown, mixed and partial states', () => {
     const ledger = [...T2_VERSIONS, ...c1Versions];
     for (const count of [6, 7, 8]) {

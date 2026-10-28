@@ -338,13 +338,13 @@ const T2_C1_RELEASE_DELTAS = Object.freeze([
     "trigger:public.sessions.a_guard_account_coaching_ai_suggestions_insert": "9c7612f6b52ae2cf7c54a409783acff7"
   },
   {
-    "function:public.record_progress_evaluation(uuid)": "05303c002e98a6d7e74653464c3374fa",
+    "function:public.record_progress_evaluation(uuid)": "3d08b1874d4202a727e8c67d7c5b6378",
     "function:public.converge_transcript_retention(uuid)": "5eaaa68a4f4749d51f358e76b29ada1b",
     "function:public.spe_converge_retention()": "323ffda94b366fee86ce443d3925dd02",
     "function:public._ss_retention_expired_derived_guard()": "d8031a066da2c6b99f9e8593f77ae3b9",
     "function:public._ss_retention_recovery_write_guard()": "59d52c569c611786333e0b54b80089e3",
     "function:public.complete_session_v2(uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb, text)": "d4d5fa9ee94fddf6634acea7acf0f3ad",
-    "function:public.sessions_set_transcript_state()": "9f8558a346fc95825d9e6d2fbcef8c1f",
+    "function:public.sessions_set_transcript_state()": "aba4daf9abae1970987f36eaf8bf7d23",
     "function:public.arm_transcript_retention_for_save(uuid, uuid)": "dd34ab1692f7f65b92c8056357e58d48",
     "function:public.expire_transcripts_newest_one(uuid, integer)": "47abf83648384ae575060bc2c78369dd",
     "function:public.create_session_and_update_usage(jsonb, text, uuid, text, text, text)": "1b328206df8c69c34be7fe5f406ed3bd",
