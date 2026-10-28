@@ -2,7 +2,10 @@
 // calls an application RPC, activates deletion, or treats migration history as
 // proof that the deployed implementation matches its reviewed source.
 import { createHash } from 'node:crypto';
+import { readFileSync, lstatSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { EXACT_MIGRATION_ALLOWLIST } from './exactMigrationGate.mjs';
+import { C1_VERSIONS, c1Contract, c1CatalogQuery, functionDefinitions } from './c1MigrationPostflight.mjs';
 
 export const T2_VERSIONS = Object.freeze([
   '20261018090000', '20261018170000', '20261019010000',
@@ -316,6 +319,56 @@ export const T2_CATALOG_STATES = Object.freeze(T2_CATALOG_DELTAS.reduce((states,
   return states;
 }, []));
 
+// Separate forward release identities derived by executing the immutable C1 SQL.
+// Historical stage0..6 above is never rewritten. Native replay must confirm these.
+const T2_C1_RELEASE_DELTAS = Object.freeze([
+  {
+    "function:public.persist_ai_suggestion_with_authority_v1(uuid, uuid, jsonb, text, text, text, date, integer, integer)": "6ffe645c11f78b6c791b75a25599b36e",
+    "function:public.record_ai_suggestion_cache_read_v1(uuid, uuid)": "b34511cc78472f292fc6551e4ef68021",
+    "function:public.guard_unsettled_account_coaching_delete_v1()": "113e17795bee25f7f45024a43f0079c4",
+    "function:public.persist_account_coaching_v1(uuid, boolean, uuid, uuid, jsonb, text, text, text, date, integer, integer)": "cb462f9515c1e98dfa4783c43583cb4f",
+    "function:public.claim_account_pending_completion_v1(uuid, uuid, text)": "c56518f7af715dbcb77de3dbf585264b",
+    "function:public.read_account_completion_status_v1(uuid, text, text)": "89284690dc031017e44bd06aabab8591",
+    "function:public.fence_account_coaching_unknown_v1(uuid, uuid, uuid, uuid, text, text)": "274640d3e6b75cdb5b0be3af73a8ef45",
+    "function:public.guard_account_coaching_ai_suggestions_write_v1()": "ee00356a3ebc8745fe83b84713656611",
+    "table:public.account_coaching_fences": "dc85ef37535a4a5ee97dc01a3cd0afc3",
+    "table:public.account_coaching_operations": "8fe20db2fff83ec60ac618ddcd627610",
+    "table:public.ai_suggestion_authority_receipts": "8a930630dfb9928c7f88722432ffe3b7",
+    "trigger:public.sessions.a_guard_account_coaching_ai_suggestions_update": "29e4d8a5d12c82c53a8868742c910253",
+    "trigger:public.sessions.a_guard_account_coaching_ai_suggestions_insert": "9c7612f6b52ae2cf7c54a409783acff7"
+  },
+  {
+    "function:public.record_progress_evaluation(uuid)": "3d08b1874d4202a727e8c67d7c5b6378",
+    "function:public.converge_transcript_retention(uuid)": "5eaaa68a4f4749d51f358e76b29ada1b",
+    "function:public.spe_converge_retention()": "323ffda94b366fee86ce443d3925dd02",
+    "function:public._ss_retention_expired_derived_guard()": "d8031a066da2c6b99f9e8593f77ae3b9",
+    "function:public._ss_retention_recovery_write_guard()": "59d52c569c611786333e0b54b80089e3",
+    "function:public.complete_session_v2(uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb, text)": "d4d5fa9ee94fddf6634acea7acf0f3ad",
+    "function:public.sessions_set_transcript_state()": "aba4daf9abae1970987f36eaf8bf7d23",
+    "function:public.arm_transcript_retention_for_save(uuid, uuid)": "dd34ab1692f7f65b92c8056357e58d48",
+    "function:public.expire_transcripts_newest_one(uuid, integer)": "47abf83648384ae575060bc2c78369dd",
+    "function:public.create_session_and_update_usage(jsonb, text, uuid, text, text, text)": "1b328206df8c69c34be7fe5f406ed3bd",
+    "function:public._ss_retention_content_cohort(sessions)": "e04819fcd39355e7ec430a44ef002d76",
+    "function:public.retention_content_free_compatible()": "8409c2c6c4154d9312cab6cdc534e571",
+    "function:public._ss_retention_content_statement_lock()": "95fbbbfc161ca329413e13b3af4da520",
+    "function:public._ss_retention_content_row_guard()": "44b51b9dc40454218e9652d605f14181",
+    "table:public.transcript_retention_expiry_grants": "a8ca33f1b581b779e43e09b97da96745",
+    "table:public.session_progress_content_evidence": "fda946aa0841b143d02a49c135fbaa7a",
+    "table:public.transcript_retention_replacement_context": "897b8ae45db7fdf23f463139671193f5",
+    "table:public.transcript_retention_function_pins": "a115db920f2d9045ee05a8e8b596da9e",
+    "trigger:public.sessions.aa_retention_expired_derived_guard": "b17f6160ab9b40fd0d13e61bcdb34110",
+    "trigger:public.sessions.aa_retention_content_row_guard": "941ddb6e392c02d3604881e2f0f2b4c5",
+    "trigger:public.sessions.aa_retention_content_statement_lock": "0a4c5feeee5d71c44df4cf549dc70088",
+    "trigger:public.transcript_retention_tombstones.aa_retention_recovery_write_guard": "dc3637c01a38f2262ab1028e5245b99c"
+  }
+].map(Object.freeze));
+
+// Reviewed source is present in the release tree, but its installation is NOT
+// admitted by these profiles. Absence covers the family, not just one overload.
+const NEXT_RELEASE_SOURCE = Object.freeze({ version: '20261027192550',
+  file: '20261027192550_account_completion_billing_settlement.sql',
+  sha256: '398aa50b8db168acc0cee68a11a433b40bd3101af03e3051dcdc2c87b2bef45d' });
+
 export function t2ExpectedCatalog(mode, version) {
   if (mode === 'verify' && version === 'release') return T2_CATALOG_STATES.at(-1);
   const index = T2_VERSIONS.indexOf(version);
@@ -365,4 +418,107 @@ export function t2AdmissionQuery(enforced) {
       AND NOT EXISTS(SELECT 1 FROM (VALUES('anon'),('authenticated')) roles(name),
         (VALUES('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),('REFERENCES'),('TRIGGER')) privileges(name)
         WHERE has_table_privilege(roles.name,'public.active_recording_lease',privileges.name))` : ''})::text;`;
+}
+
+// The first read selects a candidate only. The executable repeats this ledger in
+// the SAME read-only snapshot as the actual catalog and rejects any drift.
+export function t2ReleaseLedgerQuery() {
+  return `SELECT coalesce(json_agg(version ORDER BY version),'[]'::json)::text
+    FROM supabase_migrations.schema_migrations WHERE version >= '${T2_VERSIONS[0]}';`;
+}
+
+export function t2ReleaseContract(root, installed) {
+  const ledger = typeof installed === 'string' ? JSON.parse(installed) : installed;
+  const versions = [...T2_VERSIONS, ...C1_VERSIONS];
+  if (!Array.isArray(ledger) || ![6, 7, 8].includes(ledger.length)
+    || ledger.some((version, index) => version !== versions[index])) {
+    throw new Error('T2 release ledger unknown, mixed or incomplete');
+  }
+  const stage = ledger.length - T2_VERSIONS.length;
+  // Bind all eight local sources, including absent successors. Installed state
+  // is proved independently by catalogs; the local source is not installation.
+  const sources = {};
+  const pins = versions.map(version => {
+    const pin = EXACT_MIGRATION_ALLOWLIST.find(row => row.version === version);
+    if (!pin) throw new Error('T2 release source pin absent');
+    const file = join(root, 'backend/supabase/migrations', pin.file);
+    if (!lstatSync(file).isFile() || realpathSync(file) !== file) throw new Error('T2 release source alias');
+    sources[version] = readFileSync(file, 'utf8');
+    if (createHash('sha256').update(sources[version]).digest('hex') !== pin.sha256) {
+      throw new Error(`T2 release source mismatch: ${version}`);
+    }
+    return { version, sha256: pin.sha256 };
+  });
+  const c1Sources = C1_VERSIONS.slice(0, stage).map(version => sources[version]);
+  const inventory = {
+    functions: [...new Set([...T2_INVENTORY.functions, ...c1Sources.flatMap(source =>
+      functionDefinitions(source).map(fn => fn.signature.split('(')[0].slice(7)))])].sort(),
+    tables: [...new Set([...T2_INVENTORY.tables, ...c1Sources.flatMap(source =>
+      [...source.matchAll(/CREATE TABLE public\.([a-z_0-9]+)/g)].map(match => match[1])),
+      ...(stage === 2 ? ['transcript_retention_expiry_grants'] : [])])].sort(),
+    triggers: [...new Set([...T2_INVENTORY.triggers, ...c1Sources.flatMap(source =>
+      [...source.matchAll(/CREATE TRIGGER ([a-z_0-9]+)/g)].map(match => match[1]))])].sort(),
+  };
+  const expected = Object.assign({}, T2_CATALOG_STATES.at(-1), ...T2_C1_RELEASE_DELTAS.slice(0, stage));
+  // The independent source-derived C1 checker also refuses future/partial
+  // objects and old body/ACL/trigger shapes, even before their ledger entry.
+  const c1 = stage === 2 ? c1Contract(root, 'after', C1_VERSIONS[1])
+    : c1Contract(root, 'before', C1_VERSIONS[stage]);
+  const futureFile = join(root, 'backend/supabase/migrations', NEXT_RELEASE_SOURCE.file);
+  if (!lstatSync(futureFile).isFile() || realpathSync(futureFile) !== futureFile) throw new Error('T2 release source alias');
+  const futureSource = readFileSync(futureFile, 'utf8');
+  if (createHash('sha256').update(futureSource).digest('hex') !== NEXT_RELEASE_SOURCE.sha256) {
+    throw new Error('T2 release future source mismatch');
+  }
+  const futureFunctions = functionDefinitions(futureSource);
+  if (futureFunctions.length !== 1
+    || futureFunctions[0].signature !== 'public.settle_account_completion_billing_v1(uuid,uuid,uuid,text,jsonb)') {
+    throw new Error('T2 release future function shape unavailable');
+  }
+  const absentFamilies = futureFunctions.map(fn => fn.signature.split('(')[0].slice(7));
+  return { profile: `post-${126 + stage}`, stage, ledger: [...ledger], pins, inventory, expected, c1,
+    knownAbsent: { ...NEXT_RELEASE_SOURCE, families: absentFamilies } };
+}
+
+export function t2KnownAbsentQuery(contract) {
+  return `SELECT (NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname IN (${contract.knownAbsent.families.map(literal).join(',')})))::text;`;
+}
+
+export function assertT2ReleaseSnapshot(contract, rows) {
+  if (!Array.isArray(rows) || rows.length !== 6) throw new Error('incomplete T2 release evidence');
+  const ledger = JSON.parse(rows[0]);
+  if (JSON.stringify(ledger) !== JSON.stringify(contract.ledger)) throw new Error('T2 release ledger changed');
+  if (rows[5] !== 'true') throw new Error('T2 release known129 function family must be absent');
+  const catalog = assertT2Catalog(rows[1], contract.expected);
+  const disabled = assertT2Disabled(rows[2], true);
+  if (rows[3] !== 'true') throw new Error('T2 recording admission prerequisite failed');
+  const c1 = JSON.parse(rows[4]);
+  const names = c1CatalogQuery(contract.c1).names.sort();
+  if (!c1 || !Array.isArray(c1.checks)
+    || JSON.stringify(c1.checks.map(row => row.name).sort()) !== JSON.stringify(names)) {
+    throw new Error('T2 release C1 evidence incomplete');
+  }
+  for (const check of c1.checks) if (check.ok !== true) throw new Error(`T2 release C1 mismatch: ${check.name}`);
+  // Verification reads the existing retention policy; it neither enables it nor
+  // pretends to have a before-apply receipt. Completion/billing remain disabled.
+  if (!Array.isArray(c1.activation) || c1.activation.length !== 1
+    || c1.activation[0].policy_version !== 'newest_one_v1'
+    || !Object.hasOwn(c1.activation[0], 'activated_at')
+    || (c1.activation[0].activated_at !== null && (typeof c1.activation[0].activated_at !== 'string'
+      || !Number.isFinite(Date.parse(c1.activation[0].activated_at))))) {
+    throw new Error('T2 release retention state unavailable');
+  }
+  return { profile: contract.profile, catalog, disabled, c1Checks: names.length, passed: true };
+}
+
+export function t2ReleaseSnapshotQuery(contract) {
+  return `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL search_path=public,pg_temp;
+${t2ReleaseLedgerQuery()}
+${t2CatalogQuery(contract.inventory)}
+${t2DisabledQuery(true)}
+${t2AdmissionQuery(true)}
+${c1CatalogQuery(contract.c1).sql}
+${t2KnownAbsentQuery(contract)}
+COMMIT;`;
 }
