@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { load } from 'js-yaml';
 import { PGlite } from '@electric-sql/pglite';
@@ -30,35 +30,29 @@ it('retention pin fixture is consumed by the actual workflow resolver with failu
     writeFileSync(join(copy, fixtureFile), bytes);
     const invoke = major => {
       const output = join(copy, `output-${major}-${++invocation}`);
-      let status = 0;
-      try {
-        execFileSync(process.execPath, ['--input-type=module', '-e', script], {
-          cwd: copy, env: { RETENTION_MATRIX_MAJOR: String(major), GITHUB_OUTPUT: output },
-          timeout: 5_000, maxBuffer: 64 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
-        });
-      } catch (error) {
-        expect(error.signal).toBeNull();
-        expect(error.status).toBe(1);
-        expect(String(error.stderr)).toContain('pin absent');
-        expect(existsSync(output)).toBe(false);
-        status = 1;
-      }
-      return { major, status, output: status === 0 ? readFileSync(output, 'utf8') : null };
+      const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        cwd: copy, env: { RETENTION_MATRIX_MAJOR: String(major), GITHUB_OUTPUT: output },
+        timeout: 5_000, maxBuffer: 64 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      return { major, status: child.status, signal: child.signal, error: child.error?.name ?? null,
+        refused: String(child.stderr).includes('pin absent'), output: existsSync(output) ? readFileSync(output, 'utf8') : null };
     };
     for (const p of pins.versions) {
       const observation = invoke(p.major);
-      expect(observation).toEqual({ major: p.major, status: 0, output: `version=${p.version}\nsha256=${p.sha256}\n` });
+      expect(observation).toEqual({ major: p.major, status: 0, signal: null, error: null, refused: false,
+        output: `version=${p.version}\nsha256=${p.sha256}\n` });
       observations.push(observation);
     }
-    const unknown = invoke(99); expect(unknown.status).toBe(1);
+    const unknown = invoke(99);
+    expect(unknown).toEqual({ major: 99, status: 1, signal: null, error: null, refused: true, output: null });
     const corrupt = structuredClone(pins); corrupt.versions[0].sha256 = 'invalid-source-sha';
     writeFileSync(join(copy, fixtureFile), JSON.stringify(corrupt));
-    const malformed = invoke(15); expect(malformed.status).toBe(1);
+    const malformed = invoke(15);
+    expect(malformed).toEqual({ major: 15, status: 1, signal: null, error: null, refused: true, output: null });
     const binding = JSON.parse(process.env.TEST_EFFICACY_BINDING || 'null');
     if (binding?.fixture) {
-      expect(binding.fixture.fixtureFile).toBe(fixtureFile);
-      expect(binding.fixture.testFile).toBe('tests/unit/retentionCurrentContractMatrix.test.js');
-      expect(resolve(binding.fixture.witnessFile)).toBe(resolve(binding.cwd, `.fixture-${binding.phaseId}.json`));
+      if (binding.fixture.fixtureFile !== fixtureFile || binding.fixture.testFile !== 'tests/unit/retentionCurrentContractMatrix.test.js'
+        || resolve(binding.fixture.witnessFile) !== resolve(binding.cwd, `.fixture-${binding.phaseId}.json`)) throw Error('wrong pin witness binding');
       writeFileSync(binding.fixture.witnessFile, JSON.stringify({ schemaVersion: 2, phaseId: binding.phaseId,
         bindingSha256: hash(JSON.stringify(binding)), fixtureFile, fixtureSha256: hash(bytes),
         assertion: 'retention pin fixture is consumed by the actual workflow resolver with failure controls',
