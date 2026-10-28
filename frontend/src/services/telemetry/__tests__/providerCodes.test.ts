@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { projectEventProps } from '@/services/telemetryAllowlist';
 import {
     PROVIDER_ATTEMPT_REASONS, PROVIDER_BLOCK_REASONS, PROVIDER_ERROR_INFO_REASONS, PROVIDER_ERROR_STATUSES, PROVIDER_FINISH_REASONS,
-    providerCodeFields,
+    COACHING_CANONICAL_ERROR_STRINGS, coachingErrorMessage, providerCodeFields,
 } from '../providerCodes';
 
 const EDGE_DIR = path.resolve(__dirname, '../../../../../backend/supabase/functions/get-ai-suggestions');
@@ -34,6 +34,13 @@ const decoded = {
 };
 
 describe('provider code vocabularies match the Edge decoder', () => {
+    it('#1742 fixed canonical display descriptions agree with the Edge catalog', () => {
+        const block = edgeDecode.match(/const CANONICAL_ERROR_STRINGS = Object.freeze\(\{([\s\S]*?)\}\);/)?.[1];
+        expect(block).toBeTruthy();
+        const actual = Object.fromEntries([...block!.matchAll(/([A-Z_]+): '([^']+)'/g)].map(m => [m[1], m[2]]));
+        expect(COACHING_CANONICAL_ERROR_STRINGS).toEqual(actual);
+        expect(Object.keys(actual)).toEqual(edgeList('PROVIDER_ERROR_STATUSES'));
+    });
     it('error statuses, finish and block reasons are the Edge lists plus the client fallbacks', () => {
         expect(PROVIDER_ERROR_STATUSES).toEqual([...edgeList('PROVIDER_ERROR_STATUSES'), 'other', 'unparseable']);
         expect(PROVIDER_FINISH_REASONS).toEqual([...edgeList('PROVIDER_FINISH_REASONS'), 'other']);
@@ -45,6 +52,48 @@ describe('provider code vocabularies match the Edge decoder', () => {
         const edgeReasons = [...union.matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
         expect(edgeReasons.length).toBeGreaterThan(5);
         expect([...PROVIDER_ATTEMPT_REASONS]).toEqual(['none', ...edgeReasons]);
+    });
+});
+
+describe('#1742 closed coaching display provenance', () => {
+    const provider = (http: number, canonical = 'RESOURCE_EXHAUSTED') => ({
+        status: 502, reason: http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx',
+        provider_status: http, provider_error_status: canonical,
+        error_descriptor: { origin: 'provider', http_status: http, canonical_status: canonical, local_code: null },
+    });
+    it('separates credit depletion, rate limits and provider availability from the outer 502', () => {
+        for (const [http, canonical, expected] of [
+            [402, 'RESOURCE_EXHAUSTED', 'The service credit balance is depleted.'],
+            [429, 'RESOURCE_EXHAUSTED', 'The service rate limit was exceeded.'],
+            [503, 'UNAVAILABLE', 'The service is temporarily unavailable.'],
+            [500, 'UNKNOWN', 'Unknown error.'],
+        ] as const) {
+            const server = provider(http, canonical);
+            expect(coachingErrorMessage(server, server.reason, 502)).toBe(expected);
+        }
+    });
+    it('keeps local normalization and timeout distinct from observed Google UNKNOWN', () => {
+        expect(coachingErrorMessage({ status: 502, reason: 'provider_http_5xx', provider_status: 503,
+            provider_error_status: 'unparseable', error_descriptor: { origin: 'local_normalization',
+                http_status: 503, canonical_status: 'UNKNOWN', local_code: 'provider_http_5xx' } }, 'provider_http_5xx', 502)).toBe('Unknown error.');
+        expect(coachingErrorMessage({ status: 502, reason: 'provider_timeout', error_descriptor: {
+            origin: 'local_timeout', http_status: null, canonical_status: null, local_code: 'provider_timeout',
+        } }, 'provider_timeout', 502)).toBe('The local coaching deadline was exceeded.');
+    });
+    it('rejects mismatched wire codes, scalar diagnostics, origins, extra keys and echoed prose', () => {
+        const good = provider(503, 'UNAVAILABLE');
+        for (const server of [
+            { ...good, provider_status: 429 }, { ...good, provider_error_status: 'UNKNOWN' },
+            { ...good, reason: ECHO }, { ...good, error_descriptor: { ...good.error_descriptor, origin: ECHO } },
+            { ...good, error_descriptor: { ...good.error_descriptor, canonical_status: ECHO } },
+            { ...good, error_descriptor: { ...good.error_descriptor, message: ECHO } },
+            { ...good, error_descriptor: { ...good.error_descriptor, local_code: '__proto__' } },
+        ]) expect(coachingErrorMessage(server, 'provider_http_5xx', 502)).toBeNull();
+        for (const outer of [401, 403, 404, 409, 429, 503, null]) {
+            expect(coachingErrorMessage(good, good.reason, outer)).toBeNull();
+        }
+        expect(coachingErrorMessage(good, ECHO, 502)).toBeNull();
+        expect(coachingErrorMessage(null, ECHO, 502)).toBeNull();
     });
 });
 

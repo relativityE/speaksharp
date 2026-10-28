@@ -1384,6 +1384,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(diagnostics.provider_status, 429);
     assertEquals(diagnostics.provider_error_status, 'RESOURCE_EXHAUSTED');
     assertEquals(diagnostics.provider_error_reason, 'RATE_LIMIT_EXCEEDED');
+    assertEquals(JSON.parse(text).code, 'provider_http_4xx');
+    assertEquals(JSON.parse(text).error, 'The service rate limit was exceeded.');
+    assertEquals(diagnostics.error_descriptor, { origin: 'provider', http_status: 429,
+      canonical_status: 'RESOURCE_EXHAUSTED', local_code: null });
     // #1258 option A (PM 6156942445): a provider 429 is transient and retried inside the one app-quota charge.
     assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status, diagnostics.attempt_3_status],
       ['provider_http_4xx', 429, 429]);
@@ -1391,6 +1395,31 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(text.includes(echo), false, 'the response never carries provider text');
     assertEquals(logged.some((line) => line.includes(echo)), false, 'no log line carries provider text');
     assertEquals(logged.some((line) => line.includes('RESOURCE_EXHAUSTED')), true, 'the decoded code IS logged');
+  });
+
+  await t.step('#1742 received provider failures preserve origin, canonical meaning and safe text end to end', async () => {
+    for (const [http, canonical, expected, origin] of [
+      [402, 'RESOURCE_EXHAUSTED', 'The service credit balance is depleted.', 'provider'],
+      [500, 'UNKNOWN', 'Unknown error.', 'provider'],
+      [503, 'UNAVAILABLE', 'The service is temporarily unavailable.', 'provider'],
+      [503, 'SECRET_TRANSCRIPT_WORDS', 'Unknown error.', 'local_normalization'],
+    ] as const) {
+      resetProvider();
+      fetchStatus = http;
+      providerErrorBody = JSON.stringify({ error: { status: canonical, message: 'SECRET_TRANSCRIPT_WORDS' } });
+      const mock = mockSupabase({ session: savedSession() });
+      const response = await handler(request(), mock.create);
+      const body = await response.json();
+      assertEquals(response.status, 502, 'outer failure policy stays unchanged');
+      assertEquals(body.code, http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx');
+      assertEquals(body.error, expected);
+      assertEquals(body.diagnostics.error_descriptor, { origin, http_status: http,
+        canonical_status: origin === 'provider' ? canonical : 'UNKNOWN',
+        local_code: origin === 'provider' ? null : 'provider_http_5xx' });
+      assertEquals(JSON.stringify(body).includes('SECRET_TRANSCRIPT_WORDS'), false);
+      assertEquals(mock.state.rpcCount, 1, 'all internal retries share one quota charge');
+      assertEquals(mock.state.authorityRpcCount, 0, 'no failed answer is persisted');
+    }
   });
 
   await t.step('each attempt is recorded: a 503 then a success names both, with the answer\'s token counts', async () => {
@@ -1407,6 +1436,7 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_http_5xx', 503]);
     assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['none', 200]);
     assertEquals(diagnostics.provider_error_status, null, 'the codes describe the LAST attempt, which succeeded');
+    assertEquals('error_descriptor' in diagnostics, false, 'success wire format stays unchanged');
     assertEquals([diagnostics.provider_prompt_tokens, diagnostics.provider_output_tokens, diagnostics.provider_thinking_tokens,
       diagnostics.provider_total_tokens], [812, 46, 1903, 2761]);
   });
@@ -1430,6 +1460,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       assertEquals([diagnostics.attempt_1_reason, diagnostics.attempt_1_status], ['provider_timeout', null]);
       assertEquals([diagnostics.attempt_2_reason, diagnostics.attempt_2_status], ['provider_timeout', null]);
       assertEquals(diagnostics.provider_error_status, null, 'a timeout has no provider code to decode');
+      assertEquals(diagnostics.error_descriptor, { origin: 'local_timeout', http_status: null,
+        canonical_status: null, local_code: 'provider_timeout' });
     } finally {
       globalThis.fetch = original;
     }
