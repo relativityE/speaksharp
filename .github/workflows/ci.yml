@@ -599,6 +599,11 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Prove owned cold Deno conformance
+        env:
+          TEST_EFFICACY_DENO_REAL_RUNTIME: '1'
+        run: node --test tests/unit/nativeTestExecutionEvidence.test.js
+
       - name: Download Named Artifacts
         uses: actions/download-artifact@v7
         with:
@@ -775,6 +780,8 @@ jobs:
             artifacts/ci-wall-clock.json
             artifacts/ci-job-timing.json
             artifacts/software-quality-input-origin.json
+            artifacts/metrics/native-deno-conformance.json
+            artifacts/metrics/native-coaching-policy-conformance.json
             test-results/metrics.json
             product_release/evidence/software-quality.latest.json
             product_release/evidence/software-quality-summary.latest.md

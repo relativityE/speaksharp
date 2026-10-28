@@ -75,13 +75,76 @@ export function nativeCommand(binding) {
   const file=binding.testFile;
   return binding.runtime.runner==='deno'
     ?[binding.runtime.execPath,'test','--config','backend/supabase/functions/deno.json','--cached-only','--frozen',
-      '--lock=backend/supabase/functions/deno.lock','--node-modules-dir=none','--no-prompt','--deny-net','--deny-env','--deny-read','--deny-write',
+      '--lock=backend/supabase/functions/deno.lock','--node-modules-dir=none','--no-prompt','--deny-net',
+      ...(nativeDenoPolicy(file).environment.names.length?['--allow-env=GEMINI_API_KEY']:['--deny-env']),
+      '--deny-read','--deny-write','--deny-run',
       '--reporter=junit',file]
     :[binding.runtime.execPath,'--test','--test-concurrency=1',`--test-reporter=./${NATIVE_REPORTER}`,file];
 }
 export function nativeWarmupCommand(binding) {
   if(binding.runtime.runner!=='deno')fail('Only Deno has an import warmup');
-  return nativeCommand(binding).filter(arg=>arg!=='--cached-only').toSpliced(2,0,'--no-run');
+  return nativeCommand(binding).map(arg=>arg==='--allow-env=GEMINI_API_KEY'?'--deny-env':arg)
+    .filter(arg=>arg!=='--cached-only').toSpliced(2,0,'--no-run');
+}
+const coachingTest='backend/supabase/functions/get-ai-suggestions/index.test.ts';
+const coachingClosure=Object.freeze({
+  'backend/supabase/functions/_shared/cors.ts':'74ab664c710d733534d8e0af433b0c4c48110a2dec1d5436f04f55147225e608',
+  'backend/supabase/functions/deno.json':'6e88bc8b0df10b78fb39e1c26492164a351f350d6d4046eca09df4ebebd681a0',
+  'backend/supabase/functions/deno.lock':'fdb2c5763d857063bde2fd3560f3f23c35bb11da5843ca2649cd961992c7bfdb',
+  'backend/supabase/functions/get-ai-suggestions/index.ts':'21ff4bb8060852777f91d75cb25f19db6495a10ba3c78ee5f03c0906c3ef9448',
+  'backend/supabase/functions/get-ai-suggestions/providerDecode.ts':'b4f98578977e13d9359bc843a4c286d37f530af49c3f208237317dbfb9f75f30',
+  'backend/supabase/functions/get-ai-suggestions/providerRetry.ts':'5f5fd7ad5c3e727a801b443429d1d967bfdf97677b497f9a64fd48f689b39fa5',
+  'package.json':'0363d0291c1725f9acce27578099a48195e463efd8def276a1282c72597d48c9',
+  'pnpm-lock.yaml':'847997ce69bb4fe97c27eafd0ca40c1021fef6ac32adbe4be240a56be3867b55',
+});
+// Deliberately closed profiles: source changes require explicit re-pinning and review.
+// Runtime/config/lock and every local import are included, so aliases/imported
+// setters cannot escape a syntax-only check by retaining the expected literal calls.
+const coachingProfiles=Object.freeze([
+  {id:'main-67d82',files:{...coachingClosure,
+    [coachingTest]:'895c8d6c4e92824b8f283b9f178d9781cc6ddecf21527fb597f6f2cd7e857c00',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'2cc6f3988b2dd7abd2efd978cfd3c052325a8b8a044c829a5cdc297c5c9a70e3'}},
+  {id:'low-thinking-013101',files:{...coachingClosure,
+    [coachingTest]:'658d118f7e82bed32f34f5d20d5d52196b1265eaefb8c64ded6da756d6625042',
+    'backend/supabase/functions/get-ai-suggestions/contract.json':'7398a3f7910eaab3d76ee2639989851a59c2b5a95996d99a726108ac33eec4e2'}},
+]);
+export function nativeDenoPolicy(file) {
+  return {schemaVersion:1,testFile:file,environment:{names:file===coachingTest?['GEMINI_API_KEY']:[],
+    initial:'absent',inherit:false,syntheticValue:file===coachingTest?'test-key':null,reinject:false},
+    network:'denied',read:'denied',write:'denied',run:'denied',prompt:'denied',warmupEnvironment:'denied'};
+}
+export function validateSyntheticSource(root,file) {
+  if(file!==coachingTest)return null;
+  const profile=coachingProfiles.find(candidate=>{
+    try{return Object.entries(candidate.files).every(([entry,digest])=>hash(fs.readFileSync(regular(root,entry)))===digest);}
+    catch{return false;}
+  });
+  if(!profile)fail('Synthetic-key test/import profile is not admitted');
+  const require=createRequire(path.join(root,'package.json')),ts=require('typescript');
+  const source=ts.createSourceFile(file,fs.readFileSync(regular(root,file),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+  if(source.parseDiagnostics.length)fail('Invalid synthetic-key test source');
+  const operations=[];
+  const visit=node=>{
+    if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)
+      &&node.expression.expression.getText(source)==='Deno.env') {
+      const operation=node.expression.name.text,args=node.arguments;
+      if(!['get','set','delete'].includes(operation)||!ts.isStringLiteral(args[0])||args[0].text!=='GEMINI_API_KEY'
+        ||args.length!==(operation==='set'?2:1)
+        ||(operation==='set'&&(!ts.isStringLiteral(args[1])||args[1].text!=='test-key')))fail('Synthetic-key source policy violation');
+      operations.push(operation);
+    }
+    ts.forEachChild(node,visit);
+  };visit(source);
+  if(!operations.includes('set')||!operations.includes('delete'))fail('Synthetic-key initialization/reset absent');
+  return {id:profile.id,files:{...profile.files}};
+}
+export function nativeEnvironment(cwd,environment) {
+  // Rebuild from a fixed allowlist even when a caller supplies an inherited secret.
+  if(environment?.DENO_DIR)fail('Unowned inherited Deno cache');
+  const home=path.join(cwd,'.native-home'),temporary=path.join(cwd,'.native-tmp');
+  fs.mkdirSync(home,{recursive:true});fs.mkdirSync(temporary,{recursive:true});
+  return {PATH:[path.dirname(process.execPath),'/usr/bin','/bin'].join(path.delimiter),HOME:home,USERPROFILE:home,
+    TMPDIR:temporary,TMP:temporary,TEMP:temporary,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',TZ:'UTC',CI:'true',NODE_ENV:'test'};
 }
 // Runs in Node's real test reporter, observing the runner's raw event stream.
 export default async function* nativeReporter(events) {
@@ -204,12 +267,25 @@ export function validateNativeCallables(raw,binding,root,helpers) {
   }
   return credited;
 }
+export function sqlSourceBinding(root) {
+  return SQL_INPUTS.map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))}));
+}
+export function validateSqlWitness(raw,binding,root) {
+  const consumed=sqlSourceBinding(root).map(item=>({...item,beforeSha256:item.sha256,afterSha256:item.sha256}));
+  if(raw?.schemaVersion!==1||raw.phaseId!==binding.phaseId||raw.bindingSha256!==hash(JSON.stringify(binding))
+    ||raw.consumer!==SQL_CONSUMER||JSON.stringify(raw.consumed)!==JSON.stringify(consumed))fail('Missing, stale or changed-SQL consumption witness');
+  return SQL_INPUTS;
+}
 export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sourceCopyCommit,runId,environment,drain,children=nativeChildTracker(drain)}) {
   const runtime=nativeRuntime(root,contract.runner),coverageDirectory=fs.mkdtempSync(path.join(cwd,'.native-coverage-'));
   const binding={phase:'native-execution',phaseId:randomUUID(),runId,provenance,cwd,testFile:contract.testFile,
     inputSha256,sourceCopyCommit,runtime,coverageDirectory,repoLockSha256:hash(fs.readFileSync(path.join(root,'pnpm-lock.yaml')))};
+  if(contract.runner==='deno') {
+    binding.syntheticSource=validateSyntheticSource(root,contract.testFile);
+    binding.permissionPolicy=nativeDenoPolicy(contract.testFile);
+  }
   binding.command=nativeCommand(binding);
-  const env={...environment,TEST_EFFICACY_BINDING:JSON.stringify(binding),NODE_V8_COVERAGE:contract.runner==='node-test'?coverageDirectory:''};
+  const env={...nativeEnvironment(cwd,environment),TEST_EFFICACY_BINDING:JSON.stringify(binding),NODE_V8_COVERAGE:contract.runner==='node-test'?coverageDirectory:''};
   let warmup;
   if(contract.runner==='deno') {
     // Frozen-lock import acquisition is a separate no-run phase in an owned cache.
@@ -246,7 +322,11 @@ export function validateNativePhase(phase,{root,provenance,inputSha256,runId,con
     ||JSON.stringify(b.command)!==JSON.stringify(nativeCommand(b)))fail('Wrong native source/runtime/provenance/command binding');
   if(phase.execution?.status!==0||phase.execution.signal!==null||phase.execution.error!==null
     ||phase.execution.processCleanup?.status!=='drained')fail('Native execution failed or did not drain');
-  if(contract.runner==='deno')validateWarmup(phase.warmup,b);
+  if(contract.runner==='deno') {
+    if(JSON.stringify(b.permissionPolicy)!==JSON.stringify(nativeDenoPolicy(contract.testFile)))fail('Wrong native test permission policy');
+    if(JSON.stringify(b.syntheticSource)!==JSON.stringify(validateSyntheticSource(root,contract.testFile)))fail('Wrong native synthetic source profile');
+    validateWarmup(phase.warmup,b);
+  }
   else if(phase.warmup||b.cacheDirectory)fail('Unexpected Node warmup/cache');
   const counts=contract.runner==='deno'?parseDenoJunit(phase.stdout,b,root):parseNodeEvents(phase.stdout,b);
   if(!counts.assertions)fail('Native zero-test execution');
@@ -276,13 +356,4 @@ export function validateNativeReceipt(receipt,{root,provenance,inputSha256,files
     phases.add(result.phase.binding.phaseId);
   }
   return credited;
-}
-export function sqlSourceBinding(root) {
-  return SQL_INPUTS.map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))}));
-}
-export function validateSqlWitness(raw,binding,root) {
-  const consumed=sqlSourceBinding(root).map(item=>({...item,beforeSha256:item.sha256,afterSha256:item.sha256}));
-  if(raw?.schemaVersion!==1||raw.phaseId!==binding.phaseId||raw.bindingSha256!==hash(JSON.stringify(binding))
-    ||raw.consumer!==SQL_CONSUMER||JSON.stringify(raw.consumed)!==JSON.stringify(consumed))fail('Missing, stale or changed-SQL consumption witness');
-  return SQL_INPUTS;
 }

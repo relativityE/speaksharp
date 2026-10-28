@@ -33,6 +33,11 @@ jobs:
         with:
           install-playwright: 'true'
 
+      - name: Setup Deno for quality evidence
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Setup test users
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
