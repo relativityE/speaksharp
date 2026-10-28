@@ -30,10 +30,11 @@ Sam must disposition missing historical executed ledgers and tag chronology expl
 
 ### Finance documentation
 
-The September workbook below remains a historical planning artifact. The newer
-planning candidate is on [#1599](https://github.com/relativityE/speaksharp/pull/1599),
-outside the product implementation queue. Its accepted status-formula correction is
-already integrated into that candidate; it must not be rebuilt. Current source pins,
+The September workbook remains unchanged as a historical planning artifact. The
+October workbook and review record listed below are the unvalidated planning
+artifacts received through [#1599](https://github.com/relativityE/speaksharp/pull/1599),
+outside the product implementation queue. The accepted status-formula correction is
+already integrated into that workbook; it must not be rebuilt. Current source pins,
 hashes and qualification limits belong in its review record and PR evidence. Planning
 arithmetic does not validate prices, demand, measured coaching cost or profitability,
 and grants no billing activation or spend authority.
