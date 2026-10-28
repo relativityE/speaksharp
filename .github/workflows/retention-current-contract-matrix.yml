@@ -1,0 +1,93 @@
+name: Retention current-contract NOSUPERUSER matrix
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/**'
+      - 'backend/supabase/functions/get-ai-suggestions/contract.json'
+      - 'tests/db/**'
+      - 'scripts/lib/**'
+      - 'tests/unit/retentionCurrentContractMatrix.test.js'
+      - 'tests/fixtures/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/retention-current-contract-matrix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retention-current-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-owner:
+    name: Current retention contract / PG${{ matrix.major }} NOSUPERUSER
+    runs-on: ubuntu-latest
+    # This is the hard external cap, including source build. node:test's 300s
+    # deadline is advisory around synchronous child commands, not a 5m wall cap.
+    # A killed/uncertain run has no valid owned-cleanup PASS receipt.
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        major: [15, 16, 17]
+    env:
+      RETENTION_MATRIX_MAJOR: ${{ matrix.major }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.4'
+      - name: Resolve reviewed source pin
+        id: pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const pins = JSON.parse(readFileSync('tests/db/retention-owner-matrix-pins.json'));
+          const p = pins.versions.find(p => p.major === Number(process.env.RETENTION_MATRIX_MAJOR));
+          if (!p || !/^1[567]\.\d+$/.test(p.version) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw Error('pin absent');
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${p.version}\nsha256=${p.sha256}\n`);
+          NODE
+      - name: Build exact PostgreSQL source in owned runner directory
+        shell: bash
+        env:
+          PG_SOURCE_VERSION: ${{ steps.pin.outputs.version }}
+          PG_SOURCE_SHA256: ${{ steps.pin.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          BUILD_ROOT=$(mktemp -d "$RUNNER_TEMP/retention-pg-build-XXXXXXXX")
+          printf 'RETENTION_BUILD_ROOT=%s\n' "$BUILD_ROOT" >> "$GITHUB_ENV"
+          cd "$BUILD_ROOT"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 180 \
+            "https://ftp.postgresql.org/pub/source/v${PG_SOURCE_VERSION}/postgresql-${PG_SOURCE_VERSION}.tar.bz2" -o source.tar.bz2
+          printf '%s  source.tar.bz2\n' "$PG_SOURCE_SHA256" | sha256sum --check --strict
+          tar --extract --bzip2 --file source.tar.bz2
+          cd "postgresql-${PG_SOURCE_VERSION}"
+          timeout --kill-after=10s 120 ./configure --prefix="$BUILD_ROOT/install" --without-icu --without-readline --without-zlib
+          timeout --kill-after=10s 900 make -j2
+          timeout --kill-after=10s 120 make install
+          printf 'RETENTION_MATRIX_BIN=%s\n' "$BUILD_ROOT/install/bin" >> "$GITHUB_ENV"
+          printf 'RETENTION_MATRIX_VERSION=%s\n' "$PG_SOURCE_VERSION" >> "$GITHUB_ENV"
+          "$BUILD_ROOT/install/bin/postgres" --version
+      - name: Run current nineteen cases plus owner catalog and committed-edit race
+        shell: bash
+        env:
+          RETENTION_MATRIX_NATIVE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/retention-owner-matrix
+          node --test tests/db/retention-owner-matrix.test.mjs
+      - name: Retain content-free receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retention-owner-pg${{ matrix.major }}-${{ github.sha }}
+          path: artifacts/retention-owner-matrix/*.json
+          if-no-files-found: error
+          retention-days: 7

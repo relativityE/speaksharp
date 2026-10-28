@@ -3,11 +3,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { join, resolve, isAbsolute } from 'node:path';
+import { tmpdir } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { completionBootstrap } from './account-completion-fixture.mjs';
+import { replacementTakeFixture, validateReplacementAdmission,
+  retentionSnapshotSql } from './retention-edited-take-full-chain.mjs';
 
 export const migrationPath = 'backend/supabase/migrations/20261025021046_content_free_retention_evidence.sql';
 export const candidate = () => readFileSync(migrationPath, 'utf8');
@@ -318,27 +322,277 @@ export const mutants = [
 ];
 
 // No inherited PG URL/credentials, TCP listener, linked Supabase target or network download.
-async function nativeFixture(t) {
-  const root = mkdtempSync('/private/tmp/rce-'); const data = join(root, 'data'); const socket = join(root, 'socket'); mkdirSync(socket);
-  const bin = '/opt/homebrew/opt/postgresql@17/bin'; const env = { PATH: `${bin}:/usr/bin:/bin`, LC_ALL: 'C', TMPDIR: root };
-  const receipt = { root, source: migrationPath, sha256: createHash('sha256').update(candidate()).digest('hex'), syntheticOnly: true, tcp: false, cases: [], cleanupVerified: false };
-  let started = false; let statement = 0;
-  const run = (name, args, timeout = 20_000) => execFileSync(join(bin, name), args, { env, encoding: 'utf8', timeout });
-  t.after(() => {
-    if (!started) { writeFileSync(join(root, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n'); return; }
-    run('pg_ctl', ['-D', data, '-w', '-t', '10', 'stop', '-m', 'immediate'], 15_000);
-    try { run('pg_ctl', ['-D', data, 'status'], 5_000); throw new Error('owned PostgreSQL still running'); }
-    catch (e) { if (e.status !== 3) throw e; }
-    rmSync(data, { recursive: true, force: true });
-    assert.equal(existsSync(join(socket, '.s.PGSQL.55477')), false, 'owned Unix socket is removed');
-    receipt.cleanupVerified = true; receipt.dataRemoved = !existsSync(data);
-    writeFileSync(join(root, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
-    process.stdout.write(`native retention receipt: ${join(root, 'receipt.json')}\n`);
+// Enumerated independently of pg_proc: INVOKER or missing functions must remain
+// visible in the expected set rather than disappear behind a prosecdef filter.
+export const REQUIRED_RETENTION_FUNCTIONS = Object.freeze([
+  ['public._ss_retention_content_cohort(public.sessions)', false],
+  ['public.retention_content_free_compatible()', true],
+  ['public._ss_retention_content_statement_lock()', true],
+  ['public._ss_retention_content_row_guard()', true],
+  ['public._ss_retention_expired_derived_guard()', false],
+  ['public._ss_retention_recovery_write_guard()', true],
+  ['public.arm_transcript_retention_for_save(uuid,uuid)', true],
+  ['public.sessions_set_transcript_state()', false],
+  ['public.expire_transcripts_newest_one(uuid,integer)', true],
+  ['public.converge_transcript_retention(uuid)', true],
+  ['public.spe_converge_retention()', true],
+  ['public.complete_session_v2(uuid,text,integer,text,jsonb,integer,double precision,double precision,jsonb,jsonb,text)', true],
+  ['public.create_session_and_update_usage(jsonb,text,uuid,text,text,text)', true],
+  ['public.record_progress_evaluation(uuid)', true],
+].map(([identity, securityDefiner]) => Object.freeze({ identity, securityDefiner })));
+
+export function retentionOwnerCatalogSql() {
+  const values = REQUIRED_RETENTION_FUNCTIONS.map(row => `('${row.identity}')`).join(',');
+  return `WITH required(identity) AS (VALUES ${values})
+    SELECT required.identity,p.oid IS NOT NULL AS present,r.rolname AS owner,r.rolsuper AS superuser,p.prosecdef AS "securityDefiner"
+    FROM required LEFT JOIN pg_proc p ON p.oid=to_regprocedure(required.identity)
+    LEFT JOIN pg_roles r ON r.oid=p.proowner ORDER BY required.identity`;
+}
+
+export function assertRetentionOwners(rows) {
+  assert.ok(Array.isArray(rows), 'retention catalog absent');
+  assert.equal(rows.length, REQUIRED_RETENTION_FUNCTIONS.length, 'required retention catalog incomplete');
+  for (const required of REQUIRED_RETENTION_FUNCTIONS) {
+    const matching = rows.filter(row => row.identity === required.identity);
+    assert.equal(matching.length, 1, 'required retention signature absent or duplicated');
+    const row = matching[0];
+    assert.equal(row.present, true, 'required retention function missing');
+    assert.equal(row.owner, 'closure_owner', 'security-definer owner differs');
+    assert.equal(row.superuser, false, 'security-definer owner must be NOSUPERUSER');
+    assert.equal(row.securityDefiner, required.securityDefiner, 'retention execution security mode differs');
+  }
+  return rows;
+}
+
+// These peers deliberately use the fixture's real NOSUPERUSER object owner.
+// This is an owner/trigger compatibility matrix, not full-chain authenticated RLS proof.
+export async function observeRetentionOwnerRace(io) {
+  const editor = await io.edit();
+  const replacement = await io.startReplacement();
+  for (const actor of [editor, replacement]) {
+    assert.ok(Number.isSafeInteger(actor.pid) && actor.pid > 1, 'native actor PID absent');
+    assert.equal(actor.role, 'closure_owner', 'fixture actor owner differs');
+    assert.equal(actor.superuser, false, 'fixture actor is privileged');
+  }
+  assert.notEqual(editor.pid, replacement.pid, 'race needs independent connections');
+  assert.equal(editor.markerCount, 1, 'edited marker was not observed');
+  const deadline = io.now() + 5_000;
+  let blocked;
+  while (io.now() < deadline) {
+    assert.equal(io.replacementSettled(), false, 'replacement finished before editor commit');
+    const observation = await io.observe(replacement.pid);
+    if (observation?.pid === replacement.pid && observation.application === replacement.application
+      && observation.waitType === 'Lock' && observation.state === 'active'
+      && observation.blockers.includes(editor.pid)) { blocked = observation; break; }
+    await io.pause();
+  }
+  assert.ok(blocked, 'replacement-to-editor PostgreSQL wait absent');
+  assert.equal(io.replacementSettled(), false, 'replacement escaped before fenced commit');
+  await io.commitEdit();
+  assert.equal((await io.finishReplacement()).success, true, 'replacement was refused');
+  const after = await io.inspect();
+  assert.deepEqual(after, { expired: true, plaintextAbsent: true, recoveryCopies: 0, snapshots: 1,
+    markerCount: 1, nonblank: true, cohortMatches: true, replacementMatches: true,
+    versionsMatch: true, numericUnchanged: true, remainingContext: 0, remainingGrants: 0 },
+  'committed edit was not preserved as content-free evidence');
+  return { editor, replacement, blocked, after };
+}
+
+export function createRetentionLocalPeer(bin, socket, env, application, spawnPeer = spawn) {
+  const child = spawnPeer(join(bin, 'psql'), ['-h', socket, '-p', '55477', '-U', 'retention_fixture_admin',
+    '-d', 'postgres', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  let pending, buffer = '', failed = false, closed = false;
+  const fail = () => {
+    failed = true;
+    if (pending) { const p = pending; pending = null; clearTimeout(p.timer); p.reject(new Error('owned native peer failed')); }
+  };
+  const exit = new Promise(resolveExit => {
+    child.on('error', () => { fail(); closed = true; resolveExit(false); });
+    child.on('close', (code, signal) => { closed = true; if (pending || code !== 0 || signal) fail(); resolveExit(!failed); });
   });
+  child.stdin.on('error', fail);
+  child.stderr.on('data', fail); // SQL/payload text is never retained in a peer receipt.
+  child.stdout.on('data', chunk => {
+    buffer += String(chunk);
+    if (buffer.length > 64 * 1024) return fail();
+    for (let end; (end = buffer.indexOf('\n')) !== -1;) {
+      const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+      if (pending && line.startsWith(pending.tag)) {
+        const p = pending; pending = null; clearTimeout(p.timer);
+        try { p.resolve(JSON.parse(line.slice(p.tag.length))); } catch { p.reject(new Error('malformed owned peer response')); fail(); }
+      }
+    }
+  });
+  return { application,
+    request(sql, expression) {
+      assert.equal(failed || closed || Boolean(pending), false, 'native peer unavailable');
+      return new Promise((resolveReply, reject) => {
+        const tag = randomBytes(12).toString('hex') + ':';
+        pending = { tag, resolve: resolveReply, reject, timer: setTimeout(fail, 20_000) };
+        child.stdin.write(`${sql}\nSELECT '${tag}' || (${expression})::text;\n`);
+      });
+    },
+    async close() {
+      if (!closed) child.stdin.end('\n\\q\n');
+      let timer;
+      try { return await Promise.race([exit, new Promise(resolveClose => { timer = setTimeout(() => resolveClose(false), 5_000); })]); }
+      finally { clearTimeout(timer); }
+    },
+  };
+}
+
+async function runOwnedEditedTakeRace({ db, exec, bin, socket, env }) {
+  const { user, ids: [old] } = await seed(db);
+  const fixture = replacementTakeFixture(), key = randomUUID();
+  const created = (await db.query(`SELECT create_session_and_update_usage($1::jsonb,'private',$2::uuid,'v2','base','desktop') AS r`,
+    [JSON.stringify(fixture.createData), key])).rows[0].r;
+  const { id: replacement } = validateReplacementAdmission(created, { user, key, fixture });
+  const name = `owner_matrix_${randomBytes(6).toString('hex')}`;
+  const editor = createRetentionLocalPeer(bin, socket, env, `${name}_editor`);
+  const saver = createRetentionLocalPeer(bin, socket, env, `${name}_replacement`);
+  const begin = app => `SET client_min_messages=error; SET application_name='${app}'; BEGIN;
+    SET LOCAL statement_timeout='15s'; SET LOCAL lock_timeout='8s';
+    SET LOCAL request.jwt.claim.sub='${user}'; SET LOCAL ROLE closure_owner;`;
+  const identity = `jsonb_build_object('pid',pg_backend_pid(),'role',current_user,
+    'superuser',(SELECT rolsuper FROM pg_roles WHERE rolname=current_user),'application',current_setting('application_name'))`;
+  let replacementPromise, settled = false, saved, saveError, primary;
+  try {
+    return await observeRetentionOwnerRace({
+      edit: () => editor.request(`${begin(editor.application)} UPDATE sessions SET transcript='synthetic edited [noise]' WHERE id='${old}';`,
+        `${identity} || jsonb_build_object('markerCount',(SELECT regexp_count(transcript,'\\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\\]',1,'i') FROM sessions WHERE id='${old}'))`),
+      startReplacement: async () => {
+        const actor = await saver.request(begin(saver.application), identity);
+        replacementPromise = saver.request('', `complete_session_v2('${replacement}','completed',${fixture.completionDuration},NULL,
+          '${JSON.stringify(nextAction)}'::jsonb,120,NULL,100,'{"um":2}',NULL,'synthetic replacement')`)
+          .then(value => { saved = value; }, error => { saveError = error; }).finally(() => { settled = true; });
+        return actor;
+      },
+      replacementSettled: () => settled, now: () => Date.now(), pause: () => delay(25),
+      observe: async pid => JSON.parse((await exec(`SELECT coalesce((SELECT json_build_object('pid',pid,'application',application_name,
+        'waitType',wait_event_type,'state',state,'blockers',pg_blocking_pids(pid)) FROM pg_stat_activity WHERE pid=${pid}),'null'::json);`)).trim().split('\n').at(-1)),
+      commitEdit: () => editor.request('COMMIT;', 'json_build_object(\'committed\',true)'),
+      finishReplacement: async () => {
+        await replacementPromise; if (saveError) throw saveError;
+        assert.equal(saved?.success, true, 'completion refused');
+        await saver.request('COMMIT;', 'json_build_object(\'committed\',true)'); return saved;
+      },
+      inspect: async () => JSON.parse((await exec(retentionSnapshotSql({ user, old, replacement }))).trim().split('\n').at(-1)),
+    });
+  } catch (error) { primary = error; throw error; }
+  finally {
+    const actorsClosed = (await Promise.all([editor.close(), saver.close()])).every(Boolean);
+    if (!actorsClosed && !primary) throw new Error('edited-take peer cleanup incomplete');
+    // The parent cluster teardown runs even if a peer cannot close cleanly.
+  }
+}
+
+// Called after EVERY init/start outcome, including a pg_ctl timeout after a
+// postmaster was created. A successful body cannot outrun owned teardown.
+export function cleanupOwnedRetentionFixture(io) {
+  assert.equal(io.ownershipKnown(), true, 'startup ownership unknown; retain owned resources');
+  const before = io.observe();
+  assert.equal(before.dataPresent, true, 'owned data disappeared before confirmed shutdown; retain resources');
+  // Empty PID samples cannot exclude a child born and reparented between samples.
+  // Require pg_ctl's successful waited shutdown; preserve any stop error and data.
+  io.stop();
+  const after = io.observe();
+  assert.equal(after.processes.length, 0, 'owned PostgreSQL processes remain');
+  assert.equal(after.socketPresent, false, 'owned PostgreSQL Unix socket remains');
+  assert.equal(after.pidFilePresent, false, 'owned postmaster identity remains');
+  io.removeData();
+  const final = io.observe();
+  assert.equal(final.dataPresent, false, 'owned data directory remains');
+  assert.equal(final.processes.length, 0, 'owned PostgreSQL process reappeared');
+  assert.equal(final.socketPresent || final.pidFilePresent, false, 'owned PostgreSQL endpoint reappeared');
+  return { cleanupVerified: true, dataRemoved: true, processesRemaining: 0, socketRemoved: true };
+}
+
+// Even a failed pg_ctl can leave a live postmaster. Observe/seed identity before
+// any test body and preserve that original error if ownership is also unknown.
+export function startOwnedRetentionFixture(io) {
+  let primary;
+  try { io.start(); } catch (error) { primary = error; }
+  let observation;
+  try {
+    observation = io.observe();
+    const known = Number.isSafeInteger(observation.postmasterPid) && observation.postmasterPid > 1
+      && observation.processes.includes(observation.postmasterPid);
+    io.record(observation, known);
+    assert.equal(known, true, 'startup postmaster identity not observed');
+  } catch (error) { primary ??= error; }
+  if (primary) throw primary;
+  return observation;
+}
+
+export function ownedRetentionProcessIds(rows, { bin, data, postmasterPid, seen }) {
+  const command = `${join(bin, 'postgres')} -D ${data}`;
+  const owned = new Set(rows.filter(row => seen.has(row.pid) || row.pid === postmasterPid
+    || row.command === command || row.command.startsWith(command + ' ')).map(row => row.pid));
+  for (let i = 0; i < rows.length; i++) for (const row of rows) if (owned.has(row.parent)) owned.add(row.pid);
+  for (const pid of owned) seen.add(pid);
+  return [...owned];
+}
+
+export async function nativeFixture(t, { bin = '/opt/homebrew/opt/postgresql@17/bin', expectedVersion,
+  ownerMatrix = false, receiptPath } = {}) {
+  assert.ok(isAbsolute(bin) && !/\s/.test(bin), 'absolute local PostgreSQL binary path required');
+  const root = mkdtempSync(join(tmpdir(), 'rce-')); const data = join(root, 'data'); const socket = join(root, 'socket'); mkdirSync(socket);
+  const env = { PATH: `${bin}:/usr/bin:/bin`, LC_ALL: 'C', TMPDIR: root };
+  const receipt = { root, source: migrationPath, sha256: createHash('sha256').update(candidate()).digest('hex'), syntheticOnly: true, tcp: false, cases: [], cleanupVerified: false,
+    bodyComplete: false, status: 'INCOMPLETE', ownerScope: ownerMatrix ? 'isolated NOSUPERUSER object-owner fixture; not authenticated full-chain RLS proof' : 'existing native fixture' };
+  receipt.testedCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 5_000 }).trim();
+  receipt.bootstrapSha256 = createHash('sha256').update(bootstrapSql()).digest('hex');
+  receipt.fixtureSha256 = createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex');
+  if (ownerMatrix) assert.equal(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8', timeout: 5_000 }).trim(), '', 'dirty native matrix source refused');
+  let statement = 0;
+  const run = (name, args, timeout = 20_000) => execFileSync(join(bin, name), args, { env, encoding: 'utf8', timeout });
+  let ownedPid;
+  let startupIdentityKnown = false;
+  const seenOwnedPids = new Set();
+  const observe = () => {
+    const pidFilePresent = existsSync(join(data, 'postmaster.pid'));
+    if (pidFilePresent) {
+      const lines = readFileSync(join(data, 'postmaster.pid'), 'utf8').split('\n');
+      assert.equal(resolve(lines[1]), data, 'postmaster data ownership differs');
+      const pid = Number(lines[0]);
+      assert.ok(Number.isSafeInteger(pid) && pid > 1, 'invalid owned postmaster PID');
+      if (ownedPid) assert.equal(pid, ownedPid, 'postmaster PID changed');
+      ownedPid = pid;
+    }
+    const processes = execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8', timeout: 5_000 })
+      .trim().split('\n').map(line => line.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/)).filter(Boolean)
+      .map(([, pid, parent, command]) => ({ pid: Number(pid), parent: Number(parent), command }));
+    return { dataPresent: existsSync(data), pidFilePresent, postmasterPid: ownedPid ?? null,
+      socketPresent: existsSync(join(socket, '.s.PGSQL.55477')) || existsSync(join(socket, '.s.PGSQL.55477.lock')),
+      processes: ownedRetentionProcessIds(processes, { bin, data, postmasterPid: ownedPid, seen: seenOwnedPids }) };
+  };
+  t.after(() => {
+    try {
+      Object.assign(receipt, cleanupOwnedRetentionFixture({ observe,
+        ownershipKnown: () => startupIdentityKnown,
+        stop: () => run('pg_ctl', ['-D', data, '-w', '-t', '10', 'stop', '-m', 'immediate'], 15_000),
+        removeData: () => rmSync(data, { recursive: true, force: true }) }));
+    } finally {
+      receipt.status = receipt.bodyComplete === true && receipt.cleanupVerified === true ? 'PASS' : 'FAIL';
+      const text = JSON.stringify(receipt, null, 2) + '\n';
+      writeFileSync(join(root, 'receipt.json'), text);
+      if (receiptPath) writeFileSync(receiptPath, text, { flag: 'wx' });
+      process.stdout.write(`native retention receipt: ${join(root, 'receipt.json')}\n`);
+    }
+  });
+  writeFileSync(join(root, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
   run('initdb', ['-D', data, '-U', 'retention_fixture_admin', '-A', 'trust', '--no-locale', '--encoding=UTF8']);
-  run('pg_ctl', ['-D', data, '-l', join(root, 'postgres.log'), '-w', '-t', '10', 'start', '-o', `-k ${socket} -p 55477 -c listen_addresses=''`]); started = true;
+  startOwnedRetentionFixture({
+    start: () => run('pg_ctl', ['-D', data, '-l', join(root, 'postgres.log'), '-w', '-t', '10', 'start', '-o', `-k ${socket} -p 55477 -c listen_addresses=''`]),
+    observe,
+    record: (observation, known) => {
+      startupIdentityKnown = known;
+      receipt.startup = { identityKnown: known, postmasterPid: observation.postmasterPid, processIds: observation.processes };
+      receipt.owner = { controllerPid: process.pid, postmasterPid: observation.postmasterPid, data, socket };
+      writeFileSync(join(root, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
+    },
+  });
   receipt.postgresBinaryVersion = run('postgres', ['--version']).trim();
-  receipt.owner = { controllerPid: process.pid, postmasterPid: Number(readFileSync(join(data, 'postmaster.pid'), 'utf8').split('\n')[0]), data, socket };
   const exec = async text => {
     const path = join(root, `statement-${++statement}.sql`); writeFileSync(path, text);
     try {
@@ -369,7 +623,16 @@ async function nativeFixture(t) {
     },
   };
   receipt.serverVersion = (await exec('SELECT version();')).trim();
+  if (expectedVersion) {
+    assert.match(expectedVersion, /^1[567]\.\d+$/);
+    assert.equal(receipt.postgresBinaryVersion, `postgres (PostgreSQL) ${expectedVersion}`, 'binary version differs');
+    assert.equal((await exec('SHOW server_version;')).trim(), expectedVersion, 'server version differs');
+  }
   await exec(bootstrapSql()); await exec(`SET ROLE closure_owner; ${candidate()}`);
+  if (ownerMatrix) {
+    const owners = await db.query(retentionOwnerCatalogSql());
+    receipt.securityDefinerOwners = assertRetentionOwners(owners.rows);
+  }
   for (const [name, body] of Object.entries(cases)) {
     let failure;
     await t.test(name, { timeout: 40_000 }, async () => {
@@ -438,6 +701,8 @@ async function nativeFixture(t) {
     assert.deepEqual(await inspect(db, user), { ...before, recovery: 0 }, 'same cleanup succeeds after release without altering live content or metrics');
     receipt.cases.push({ name: 'native-prelocked-recovery-delete-nowait-and-retry', status: 'PASS' });
   }
+  if (ownerMatrix) receipt.editedTake = await runOwnedEditedTakeRace({ db, exec, bin, socket, env, t });
+  receipt.bodyComplete = true;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
