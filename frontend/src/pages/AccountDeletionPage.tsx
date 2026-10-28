@@ -10,6 +10,10 @@ import { AccountCompletionStatusNotice } from '@/components/account/AccountCompl
 import { completionCapabilities, type AccountCompletionStatus } from '@/services/accountCompletionStatus';
 import { readCompletionStatus, secureStatusCapability } from '@/services/accountCompletionClient';
 import { createCompletionTransport } from '@/services/accountCompletionTransport';
+import { accountCompletionSubmitted, createAccountCompletionExecution, type CompletionExecutionState } from '@/services/accountCompletionExecution';
+
+type CompletionReadiness = (ownerId: string, requestId: string) => boolean;
+const unavailableReadiness: CompletionReadiness = () => false;
 
 interface DeletionResponse {
   outcome?: 'email_requested' | 'deleted' | 'refused' | 'incomplete' | 'verification_pending';
@@ -34,7 +38,8 @@ function closureResponse(value: unknown, action: 'request' | 'confirm'): Deletio
   return row as unknown as DeletionResponse;
 }
 
-export default function AccountDeletionPage() {
+export default function AccountDeletionPage({ completionReadiness = unavailableReadiness }:
+  { completionReadiness?: CompletionReadiness } = {}) {
   const { user, loading, signOut } = useAuthProvider();
   const token = accountDeletionToken();
   const [acknowledgement, setAcknowledgement] = useState<{ ownerId: string; checked: boolean } | null>(null);
@@ -71,6 +76,29 @@ export default function AccountDeletionPage() {
   const [completionView, setCompletionView] = useState<
     { ownerId: string; requestId: string; value: AccountCompletionStatus } | null>(null);
   const retainedOwner = useRef<string | null>(null);
+  const readinessRef = useRef(completionReadiness);
+  readinessRef.current = completionReadiness;
+  const ownerAndRequest = useRef<{ ownerId: string | null; requestId: string | null; loading: boolean }>(
+    { ownerId: null, requestId: null, loading: true });
+  ownerAndRequest.current = { ownerId: user?.id ?? null,
+    requestId: currentStatus?.value?.outcome === 'pending' ? currentStatus.value.requestId : null, loading };
+  const executionState = useRef<CompletionExecutionState | null>(null);
+  const executionFlight = useRef(false);
+  const [executionConfirmation, setExecutionConfirmation] = useState<{ ownerId: string; requestId: string; checked: boolean } | null>(null);
+  const [executionAttempt, setExecutionAttempt] = useState<{ ownerId: string; requestId: string; phase: 'submitting' | 'unknown' | 'pending' } | null>(null);
+  const readiness = useCallback((ownerId: string, requestId: string) => {
+    try { return readinessRef.current(ownerId, requestId) === true; } catch { return false; }
+  }, []);
+  const executeCompletion = useMemo(() => createAccountCompletionExecution({
+    supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+    current: () => {
+      const snapshot = executionState.current, current = ownerAndRequest.current;
+      if (!snapshot || current.loading || current.ownerId !== snapshot.ownerId || current.requestId !== snapshot.requestId) return null;
+      return { ...snapshot, generation: completionGeneration.current,
+        backendReady: readiness(snapshot.ownerId, snapshot.requestId),
+        statusSecured: completionCapabilities.get(snapshot.ownerId, snapshot.requestId, Date.now())?.acknowledged === true };
+    },
+  }), [readiness]);
   useLayoutEffect(() => {
     if (!user?.id) return; // Signed out (possibly because the account was deleted): keep the retained capability.
     if (retainedOwner.current !== null && retainedOwner.current !== user.id) {
@@ -132,6 +160,9 @@ export default function AccountDeletionPage() {
     operationEpoch.current += 1;
     statusGeneration.current += 1;
     setAcknowledgement(null);
+    setExecutionConfirmation(null);
+    executionState.current = null;
+    setExecutionAttempt(previous => previous?.phase === 'submitting' ? { ...previous, phase: 'unknown' } : previous);
     setEmail(null);
     return () => {
       operationEpoch.current += 1;
@@ -139,6 +170,54 @@ export default function AccountDeletionPage() {
       if (statusDeadline.current) clearTimeout(statusDeadline.current);
     };
   }, [user?.id]);
+
+  const completePending = async () => {
+    const current = ownerAndRequest.current;
+    if (executionFlight.current || !current.ownerId || !current.requestId || current.loading
+      || executionConfirmation?.ownerId !== current.ownerId || executionConfirmation.requestId !== current.requestId
+      || executionConfirmation.checked !== true || !readiness(current.ownerId, current.requestId)
+      || completionCapabilities.get(current.ownerId, current.requestId, Date.now())?.acknowledged !== true
+      || accountCompletionSubmitted(current.ownerId, current.requestId)) return;
+    const { ownerId, requestId } = current;
+    const epoch = operationEpoch.current;
+    executionFlight.current = true;
+    completionGeneration.current += 1;
+    setCompletionView(null);
+    setExecutionConfirmation(null);
+    setExecutionAttempt({ ownerId, requestId, phase: 'submitting' });
+    let authDeadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const client = getSupabaseClient();
+      const auth = await Promise.race([client?.auth.getSession(), new Promise<never>((_, reject) => {
+        authDeadline = setTimeout(() => reject(new Error('Owner verification timed out')), 10_000);
+      })]);
+      clearTimeout(authDeadline);
+      if (operationEpoch.current !== epoch || ownerAndRequest.current.ownerId !== ownerId
+        || ownerAndRequest.current.requestId !== requestId) return;
+      if (!auth || auth.error || auth.data.session?.user.id !== ownerId || !auth.data.session.access_token) {
+        setExecutionAttempt({ ownerId, requestId, phase: 'unknown' });
+        return;
+      }
+      executionState.current = { ownerId, requestId, bearer: auth.data.session.access_token,
+        generation: completionGeneration.current, statusSecured: true };
+      // The readiness port and status capability are checked again inside the transport,
+      // after this Auth await and immediately before the one effect dispatch.
+      const result = await executeCompletion({ ownerId, requestId, confirmIrreversible: true });
+      if (operationEpoch.current !== epoch || ownerAndRequest.current.ownerId !== ownerId
+        || ownerAndRequest.current.requestId !== requestId) return;
+      if (result.outcome === 'completed') {
+        setCompletionView({ ownerId, requestId, value: result });
+        setExecutionAttempt(null);
+        try { await signOut(); } catch { /* retain the verified result and status recovery capability */ }
+      } else {
+        setExecutionAttempt({ ownerId, requestId, phase: result.outcome === 'pending' ? 'pending' : 'unknown' });
+      }
+    } catch {
+      if (operationEpoch.current === epoch && ownerAndRequest.current.ownerId === ownerId) {
+        setExecutionAttempt({ ownerId, requestId, phase: 'unknown' });
+      }
+    } finally { clearTimeout(authDeadline); executionFlight.current = false; }
+  };
 
   const refreshStatus = useCallback(async () => {
     if (!statusOwnerId || loading) return;
@@ -273,6 +352,18 @@ export default function AccountDeletionPage() {
     ? completionView.value : null;
   // Signed-out recovery exists only with a retained, acknowledged, unexpired capability.
   const recoverable = !!retained && !!completionCapabilities.get(retained.ownerId, retained.requestId, Date.now())?.acknowledged;
+  const matchingExecution = retained && executionAttempt?.ownerId === retained.ownerId
+    && executionAttempt.requestId === retained.requestId && signedInMatch ? executionAttempt : null;
+  const submitted = !!retained && accountCompletionSubmitted(retained.ownerId, retained.requestId);
+  const executionNotice = shownCompletion?.outcome === 'completed' ? null : matchingExecution?.phase === 'submitting'
+    ? 'Checking your deletion result. Do not submit deletion again.'
+    : matchingExecution?.phase === 'pending'
+      ? 'Your deletion request is still pending. Check its status; do not submit deletion again.'
+      : matchingExecution || (submitted && shownCompletion?.outcome !== 'completed')
+        ? 'We could not verify the deletion result. Do not assume your account was or was not deleted. Check status or contact support; do not submit deletion again.' : null;
+  const canComplete = !!user && !!retained && retained.ownerId === user.id && signedInMatch && recoverable
+    && readiness(user.id, retained.requestId) && !submitted && !matchingExecution
+    && (!shownCompletion || shownCompletion.outcome === 'pending');
 
   return <main className="mx-auto max-w-2xl px-4 pb-24 pt-28" data-testid="account-deletion-page">
     <h1 className="text-3xl font-bold">Delete account</h1>
@@ -297,14 +388,26 @@ export default function AccountDeletionPage() {
     {user && !completed && <>
       {(!currentStatus || currentStatus.busy) && <p role="status" className="mt-6">Checking your account deletion status…</p>}
       {currentStatus && !currentStatus.busy && !currentStatus.value && <p role="status" className="mt-6">We could not verify your account deletion status. Confirmation is blocked. Check status again or contact support.</p>}
-      {currentStatus?.value?.outcome === 'pending' && (shownCompletion
+      {currentStatus?.value?.outcome === 'pending' && (executionNotice
+        ? <p role="status" className="mt-6">{executionNotice}</p>
+        : shownCompletion
         ? <div data-testid="account-completion-status"><AccountCompletionStatusNotice status={shownCompletion} /></div>
         : <p role="status" className="mt-6">Your deletion request is pending. Your account has not been deleted. Outstanding checkout operations: {currentStatus.value.checkoutPending}. No deletion will be retried from this page.</p>)}
+      {canComplete && retained && user && <div className="mt-6 space-y-4">
+        <label className="flex items-start gap-3"><input type="checkbox"
+          checked={executionConfirmation?.ownerId === user.id && executionConfirmation.requestId === retained.requestId && executionConfirmation.checked}
+          onChange={event => setExecutionConfirmation({ ownerId: user.id, requestId: retained.requestId, checked: event.target.checked })} />
+          <span>I confirm permanent account deletion now, with no refund.</span></label>
+        <Button variant="destructive" disabled={!executionConfirmation?.checked}
+          onClick={() => { void completePending(); }}>Complete permanent account deletion</Button>
+      </div>}
       {currentStatus && !currentStatus.busy && (confirmationBlocked || currentStatus.value?.outcome === 'pending')
         && attempt.phase !== 'pending' && <Button className="mt-6" onClick={() => { void refreshStatus(); }}>Check deletion status</Button>}
     </>}
     {!user && !loading && !completed && recoverable && <>
-      {shownCompletion
+      {executionNotice
+        ? <p role="status" className="mt-6">{executionNotice}</p>
+        : shownCompletion
         ? <div data-testid="account-completion-status"><AccountCompletionStatusNotice status={shownCompletion} /></div>
         : <p role="status" className="mt-6">Your deletion request is pending. Check its status here.</p>}
       <Button className="mt-6" onClick={refreshCompletion}>Check deletion status</Button>
