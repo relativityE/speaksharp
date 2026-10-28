@@ -6,7 +6,7 @@
  * separate, cheap review lane that reuses the exact-head engineering evidence and still fails closed on findings.
  */
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -77,8 +77,8 @@ describe('owner-selected #1740 exact reviewed workflow transition', () => {
             expect(evaluateEngineeringEvidence(value).qualified).toBe(false);
         }
     });
-    it.each(['accepted', 'wrong-PR', 'wrong-CI', 'edited-review', 'missing-review', 'incomplete-history', 'incomplete-jobs'])
-    ('actual CLI binds API identities and records the real transition: %s', (scenario) => {
+    it.each(['accepted', 'wrong-PR', 'wrong-CI', 'edited-review', 'missing-review', 'incomplete-history', 'incomplete-jobs'])(
+        'actual CLI binds API identities and records the real transition: %s', (scenario) => {
         const dir = mkdtempSync(resolve(tmpdir(), 'engineering-transition-'));
         try {
             const pr = scenario === 'wrong-PR' ? 1745 : 1740;
@@ -128,13 +128,12 @@ describe('owner-selected #1740 exact reviewed workflow transition', () => {
             expect(child.error).toBeUndefined();
             const calls = JSON.parse(readFileSync(resolve(dir, 'calls.json'), 'utf8'));
             expect(calls).toHaveLength(8);
-            expect(child.status, child.stderr).toBe(scenario === 'accepted' ? 0 : 1);
-            if (scenario !== 'missing-review') {
-                const receipt = JSON.parse(readFileSync(output, 'utf8'));
-                expect(receipt.workflowUnchanged).toBe(false);
-                expect(receipt.qualified).toBe(scenario === 'accepted');
-                if (scenario === 'accepted') expect(receipt.workflowTransition).toMatchObject({ pr: 1740, baseCi: oldCi, headCi: newCi });
-            }
+            expect(child.status).toBe(scenario === 'accepted' ? 0 : 1);
+            const receipt = existsSync(output) ? JSON.parse(readFileSync(output, 'utf8')) : null;
+            expect(receipt?.workflowUnchanged).toBe(scenario === 'missing-review' ? undefined : false);
+            expect(receipt?.qualified).toBe(scenario === 'missing-review' ? undefined : scenario === 'accepted');
+            const admitted = expect.objectContaining({ pr: 1740, baseCi: oldCi, headCi: newCi });
+            expect(receipt?.workflowTransition).toEqual(scenario === 'accepted' ? admitted : undefined);
         } finally {
             rmSync(dir, { recursive: true, force: true });
         }
