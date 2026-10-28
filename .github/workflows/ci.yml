@@ -594,6 +594,11 @@ jobs:
         uses: ./.github/actions/setup-environment
 
       # D1: named artifacts only (no unfiltered download). D2: no recursive `ls -R`.
+      - name: Setup Deno for fresh execution evidence
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Download Named Artifacts
         uses: actions/download-artifact@v7
         with:

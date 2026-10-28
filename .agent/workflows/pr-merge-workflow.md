@@ -40,6 +40,18 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    ```
    On red: `gh pr checks <PR#>` → open the failing job's log → fix on the same branch (pushing again re-runs CI).
 8. **Merge — only after green, and run the guard from the authorized base, never the PR checkout.**
+   Engineering qualification normally requires identical `ci.yml` blobs at head and live base.
+   The separately reviewed contract admits exactly one owner-selected transition: repository
+   `relativityE/speaksharp`, PR #1740, live `main` base, old CI blob
+   `9a45994600c44f35ec72e27998b20f313ab83e29` to reviewed blob
+   `f2d3223191d8cbbb0ccfcc328270a1d51e54d491`. Both full head/base identities, base ancestry,
+   unchanged review-qualification workflow and complete run/job reads are required. The receipt
+   records the real `workflowTransition` while `workflowUnchanged` remains false. Every unknown
+   transition holds; this is not a generic workflow exception, a #1430 bootstrap, or a merge waiver.
+   The contract-change PR itself keeps both workflow files unchanged and qualifies through the
+   old trusted-main collector/guard. Only after its guarded landing may #1740 receive actual main
+   and obtain fresh exact-head tests, independent reviews and receipts. Normal freshest-run,
+   thread/protection, freshness and drift checks still apply; production actions remain separate.
    The privileged token must not be exposed to candidate-controlled package scripts, hooks, loaders, or
    executables. Create a clean detached worktree at the exact authorized base SHA and run that trusted
    base's guard directly:

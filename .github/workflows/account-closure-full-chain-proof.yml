@@ -26,6 +26,7 @@ on:
       - 'tests/db/account-recording-admission-invariants.sql'
       - 'tests/db/account-coaching-admission-invariants.sql'
       - 'tests/db/account-completion-full-chain-invariants.sql'
+      - 'tests/db/account-completion-billing-full-chain-invariants.sql'
       # #1643 UNKNOWN-coaching fence: its native and PGlite proofs and every source they consume, so a test-only or
       # fixture-only change cannot skip the proof.
       - 'tests/db/account-coaching-fence.realpg.mjs'
@@ -97,10 +98,10 @@ jobs:
           node tests/db/account-closure-attestation-realpg.mjs
           node tests/db/account-coaching-fence.realpg.mjs
       - name: Replay actual baseline and closure migration; prove invariants
-        run: node tests/db/account-closure-full-chain.mjs --profile=main-t2-retention-128
+        run: node tests/db/account-closure-full-chain.mjs --profile=main-completion-billing-129
       - name: Recover owned disposable resources after interruption
         if: always()
-        run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-t2-retention-128
+        run: node tests/db/account-closure-full-chain.mjs --cleanup --profile=main-completion-billing-129
       - name: Retain bounded proof manifest
         if: always()
         uses: actions/upload-artifact@v6
