@@ -13,7 +13,45 @@ cohort size. The $7 and $5 columns are sensitivity cases, not proposed prices. T
 conversion, paid lifetime, usage, CAC, willingness to pay, and revenue remain unmeasured
 hypotheses.
 
-## What changed from 2026-09-05
+## Current-source reconciliation — 28 October 2026
+
+The forecast and cost tables below preserve the **12–21 October planning context**.
+Their default-medium, missing-usage-diagnostics and two-provider-attempt assumptions
+are historical estimates, not descriptions of the subsequently served source.
+
+The retained deployed source is
+[`4c85b006ac05e180521fd6e7d807f736987cafe8`](https://github.com/relativityE/speaksharp/commit/4c85b006ac05e180521fd6e7d807f736987cafe8):
+
+- [The pinned coaching contract](https://github.com/relativityE/speaksharp/blob/4c85b006ac05e180521fd6e7d807f736987cafe8/backend/supabase/functions/get-ai-suggestions/contract.json#L11)
+  explicitly requests `generationConfig.thinkingConfig.thinkingLevel = low`.
+- [Provider decoding](https://github.com/relativityE/speaksharp/blob/4c85b006ac05e180521fd6e7d807f736987cafe8/backend/supabase/functions/get-ai-suggestions/providerDecode.ts#L208)
+  reads numeric `usageMetadata` into prompt, output, thinking and total token fields.
+  [The handler](https://github.com/relativityE/speaksharp/blob/4c85b006ac05e180521fd6e7d807f736987cafe8/backend/supabase/functions/get-ai-suggestions/index.ts#L537)
+  emits nullable diagnostic usage fields. Missing values are unknown, not measured zero.
+- [The retry policy](https://github.com/relativityE/speaksharp/blob/4c85b006ac05e180521fd6e7d807f736987cafe8/backend/supabase/functions/get-ai-suggestions/providerRetry.ts#L16)
+  allows **at most three provider attempts** under one shared 45-second budget.
+  Three is a ceiling, not an observed attempt count or proof that failed attempts are billed.
+
+These are source facts, not measured provider cost, an invoice reconciliation or evidence
+of profitability. The historical two-attempt tables have **not** been recomputed as a
+three-attempt scenario. No workbook assumption, price, formula, layout, billing setting
+or provider behavior changes in this documentation correction. Cost measurement remains
+open; source support for diagnostics alone does not close it.
+
+The October workbook remains byte-identical at SHA-256
+`0be91eb36743ff3260b651fe03fff039b01c4cff140618ce5b9ad3ba89e17575`.
+Jensen's read-only package comparison against `764890c3` confirms that only
+`Checks!A18` in `xl/worksheets/sheet11.xml` differs; every other package part is unchanged.
+The original executable receipts remain in
+[`local-packets/1599-model-status-control/`](../../../local-packets/1599-model-status-control/).
+
+Keep the evidence populations distinct: the **18 October** retained package records
+**20 LibreOffice recalculations / 16 controls**. The **21 October** section below is
+Consultant's separate **15/15 author report**; its original raw receipts are unavailable
+in the receiving packet. Neither count is a new recalculation by Jensen or Microsoft
+Excel execution. The workbook and all six original receipt/support files are preserved.
+
+## Historical changes from 2026-09-05 — recorded 12 October 2026
 
 1. **Vendor prices re-checked on 2026-10-12.** Supabase Pro ($25), Vercel Pro ($20 platform fee
    with $20 usage credit), Sentry (Developer $0; Team $26/month billed annually), PostHog (free
@@ -81,7 +119,7 @@ hypotheses.
     the illustrative 1,000 thinking tokens to paid **and** trial users together. In the uncapped
     case this adds $37.50/month of trial coaching cost alone.
 
-## Results
+## Historical forecast results — unchanged planning assumptions
 
 Contribution uses the higher 2027 Gemini price. "All-in" means stack + AI coding tools + coaching
 for trial users. Unless a row says "with thinking", results **exclude Gemini thinking tokens and
@@ -128,7 +166,7 @@ At 2% conversion the 100-user cap settles at about 10.7 paying users and the 250
 For reference, the $200 pre-launch tool spend would make uncapped all-in break-even 30 / 43 / 61
 paid users.
 
-## Open risk recorded, not resolved
+## Historical open-risk record — superseded source assumptions, unmeasured cost remains
 
 The coaching function sets no `thinking_level`, so Gemini 3.8 Flash uses its default (`medium`),
 and thinking tokens are billed at the output rate. No code path records `usageMetadata` or
@@ -141,7 +179,7 @@ and thinking tokens are billed at the output rate. No code path records `usageMe
 The thinking cost is unknown and is not treated as negligible. Measurement is deferred under
 #1259/#1491. No pricing, cohort-size or `thinking_level` change is assigned.
 
-## Cost sensitivities — trials, retries, evaluator runs (21 October 2026)
+## Historical cost sensitivities — trials, retries, evaluator runs (21 October 2026)
 
 Every figure in this section is an **estimate**. **No coaching cost has been measured.** No code
 path records Gemini `usageMetadata`, and the evaluator has produced no paid results. The workbook
