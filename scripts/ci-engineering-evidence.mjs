@@ -23,6 +23,7 @@ export const ENGINEERING_HOLD = Object.freeze({
     JOB_NOT_SUCCESSFUL: 'engineering_required_job_not_successful',
     BASE_MISMATCH: 'engineering_base_mismatch',
     WORKFLOW_MODIFIED: 'engineering_workflow_modified',
+    EVIDENCE_INCOMPLETE: 'engineering_evidence_incomplete',
 });
 
 /**
@@ -37,6 +38,22 @@ export const ENGINEERING_EVENTS = Object.freeze(['pull_request', 'push', 'merge_
 export const REQUIRED_ENGINEERING_JOBS = Object.freeze(['scope', 'full-evidence', 'report']);
 
 const newestFirst = (a, b) => (Date.parse(b.created_at) - Date.parse(a.created_at)) || (b.id - a.id);
+const fullSha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+
+/** PO-selected #1740 only: an actual reviewed transition, never workflowUnchanged=true. */
+function reviewed1740Transition(input) {
+    const blobs = input.workflowBlobs;
+    if (input.workflowUnchanged !== false || input.repository !== 'relativityE/speaksharp' || input.pr !== 1740
+        || input.baseRepository !== input.repository || input.headRepository !== input.repository || input.baseRef !== 'main'
+        || !fullSha(input.liveHeadSha) || !fullSha(input.liveBaseSha) || !fullSha(input.expectedHeadSha)
+        || input.headContainsBase !== true || input.runsComplete !== true || input.jobsComplete !== true
+        || !blobs || blobs.baseCi !== '9a45994600c44f35ec72e27998b20f313ab83e29'
+        || blobs.headCi !== 'f2d3223191d8cbbb0ccfcc328270a1d51e54d491'
+        || !fullSha(blobs.baseReview) || blobs.headReview !== blobs.baseReview) return null;
+    return { repository: input.repository, pr: input.pr, baseRef: input.baseRef,
+        baseCi: blobs.baseCi, headCi: blobs.headCi, reviewWorkflowUnchanged: true,
+        reviewWorkflowBlob: blobs.baseReview, authority: 'PO bounded #1740 transition, 2026-10-28' };
+}
 
 /**
  * `workflowUnchanged` (Codex Security P2 4233624706): a PR runs ITS OWN `ci.yml`, so a candidate that edits it could replace
@@ -45,10 +62,14 @@ const newestFirst = (a, b) => (Date.parse(b.created_at) - Date.parse(a.created_a
  * @param {{ pr: number, liveHeadSha: string, liveBaseSha: string, expectedHeadSha?: string, runs: object[],
  *           jobsByRun: Record<string, Record<string, string>>, headContainsBase: boolean, workflowUnchanged: boolean }} input
  */
-export function evaluateEngineeringEvidence({ pr, liveHeadSha, liveBaseSha, expectedHeadSha, runs, jobsByRun, headContainsBase, workflowUnchanged }) {
+export function evaluateEngineeringEvidence(input) {
+    const { pr, liveHeadSha, liveBaseSha, expectedHeadSha, runs, jobsByRun, headContainsBase, workflowUnchanged,
+        runsComplete, jobsComplete } = input;
     const hold = (reason, runId = null) => ({ qualified: false, runId, reasons: [reason] });
     if (expectedHeadSha && expectedHeadSha !== liveHeadSha) return hold(ENGINEERING_HOLD.HEAD_MOVED);
-    if (workflowUnchanged !== true) return hold(ENGINEERING_HOLD.WORKFLOW_MODIFIED);
+    const workflowTransition = reviewed1740Transition(input);
+    if (workflowUnchanged !== true && !workflowTransition) return hold(ENGINEERING_HOLD.WORKFLOW_MODIFIED);
+    if (runsComplete === false || jobsComplete === false) return hold(ENGINEERING_HOLD.EVIDENCE_INCOMPLETE);
     const candidates = (runs ?? [])
         .filter((r) => r && r.head_sha === liveHeadSha && ENGINEERING_EVENTS.includes(r.event))
         .sort(newestFirst);
@@ -65,7 +86,7 @@ export function evaluateEngineeringEvidence({ pr, liveHeadSha, liveBaseSha, expe
     const prLink = (newest.pull_requests ?? []).find((p) => p && p.number === pr);
     const baseOk = prLink?.base?.sha ? prLink.base.sha === liveBaseSha : headContainsBase === true;
     if (!baseOk) return hold(ENGINEERING_HOLD.BASE_MISMATCH, newest.id);
-    return { qualified: true, runId: newest.id, reasons: [] };
+    return { qualified: true, runId: newest.id, reasons: [], ...(workflowTransition ? { workflowTransition } : {}) };
 }
 
 async function gh(path, token) {
@@ -88,20 +109,33 @@ async function main() {
     const pull = await gh(`/repos/${repository}/pulls/${pr}`, token);
     const liveHeadSha = pull.head.sha;
     const liveBaseSha = pull.base.sha;
-    const { workflow_runs: runs } = await gh(`/repos/${repository}/actions/workflows/ci.yml/runs?head_sha=${liveHeadSha}&per_page=50`, token);
+    const history = await gh(`/repos/${repository}/actions/workflows/ci.yml/runs?head_sha=${liveHeadSha}&per_page=50`, token);
+    const runs = history.workflow_runs;
+    const runsComplete = Array.isArray(runs) && Number.isSafeInteger(history.total_count) && history.total_count <= runs.length;
     const newest = (runs ?? []).filter((r) => r.head_sha === liveHeadSha && ENGINEERING_EVENTS.includes(r.event)).sort(newestFirst)[0];
     const jobsByRun = {};
+    let jobsComplete = !newest;
     if (newest) {
-        const { jobs } = await gh(`/repos/${repository}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`, token);
+        const result = await gh(`/repos/${repository}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`, token);
+        const jobs = result.jobs;
+        jobsComplete = Array.isArray(jobs) && Number.isSafeInteger(result.total_count) && result.total_count <= jobs.length;
         jobsByRun[newest.id] = Object.fromEntries((jobs ?? []).map((j) => [j.name, j.conclusion]));
     }
     const compare = await gh(`/repos/${repository}/compare/${liveBaseSha}...${liveHeadSha}`, token);
     const headContainsBase = compare.status === 'ahead' || compare.status === 'identical';
     // The engineering workflow file at the head must be byte-identical (same blob) to the live base's.
-    const ciBlob = async (ref) => (await gh(`/repos/${repository}/contents/.github/workflows/ci.yml?ref=${ref}`, token)).sha;
-    const workflowUnchanged = (await ciBlob(liveHeadSha)) === (await ciBlob(liveBaseSha));
-    const decision = evaluateEngineeringEvidence({ pr, liveHeadSha, liveBaseSha, expectedHeadSha, runs, jobsByRun, headContainsBase, workflowUnchanged });
-    const record = { pr, liveHeadSha, liveBaseSha, ...decision };
+    const blob = async (file, ref) => {
+        const sha = (await gh(`/repos/${repository}/contents/.github/workflows/${file}?ref=${ref}`, token)).sha;
+        if (!fullSha(sha)) throw new Error('Workflow identity unavailable');
+        return sha;
+    };
+    const workflowBlobs = { baseCi: await blob('ci.yml', liveBaseSha), headCi: await blob('ci.yml', liveHeadSha),
+        baseReview: await blob('review-qualification.yml', liveBaseSha), headReview: await blob('review-qualification.yml', liveHeadSha) };
+    const workflowUnchanged = workflowBlobs.baseCi === workflowBlobs.headCi;
+    const decision = evaluateEngineeringEvidence({ repository, baseRepository: pull.base.repo?.full_name,
+        headRepository: pull.head.repo?.full_name, baseRef: pull.base.ref, pr, liveHeadSha, liveBaseSha,
+        expectedHeadSha, runs, jobsByRun, headContainsBase, workflowUnchanged, workflowBlobs, runsComplete, jobsComplete });
+    const record = { pr, liveHeadSha, liveBaseSha, workflowUnchanged, workflowBlobs, runsComplete, jobsComplete, ...decision };
     console.log(JSON.stringify(record));
     if (process.env.ENGINEERING_EVIDENCE_FILE) writeFileSync(process.env.ENGINEERING_EVIDENCE_FILE, `${JSON.stringify(record, null, 2)}\n`);
     if (process.env.GITHUB_STEP_SUMMARY) {
