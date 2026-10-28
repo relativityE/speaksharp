@@ -446,7 +446,7 @@ const FINANCE_PINS = [
     "size": 2442
   },
   {
-    "path": "local-packets/1599-model-status-control/verify-native.test.mjs",
+    "path": "local-packets/1599-model-status-control/verify-native-source.txt",
     "oid": "f0808c29474edb983b46358ea8931037e85800aa",
     "mode": "100644",
     "size": 6570
@@ -459,9 +459,9 @@ const FINANCE_PINS = [
   },
   {
     "path": "product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md",
-    "oid": "0cc9545660dff6709a4d5171268bedf04982b0fb",
+    "oid": "b14f1633eb5abdf72664e17d9990a0497e11e3a4",
     "mode": "100644",
-    "size": 20082
+    "size": 20725
   },
   {
     "path": "product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx",

@@ -520,7 +520,7 @@ const FINANCE_PINS = [
     "size": 2442
   },
   {
-    "path": "local-packets/1599-model-status-control/verify-native.test.mjs",
+    "path": "local-packets/1599-model-status-control/verify-native-source.txt",
     "oid": "f0808c29474edb983b46358ea8931037e85800aa",
     "mode": "100644",
     "size": 6570
@@ -533,9 +533,9 @@ const FINANCE_PINS = [
   },
   {
     "path": "product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md",
-    "oid": "0cc9545660dff6709a4d5171268bedf04982b0fb",
+    "oid": "b14f1633eb5abdf72664e17d9990a0497e11e3a4",
     "mode": "100644",
-    "size": 20082
+    "size": 20725
   },
   {
     "path": "product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx",
@@ -547,9 +547,9 @@ const FINANCE_PINS = [
 describe('#1599 documentation metadata reaches the actual collection CLI', () => {
     it.each(['accepted', 'wrong blob', 'truncated tree', 'base drift'])('collects and refuses from the same shared reader: %s', scenario => {
         const root = mkdtempSync(resolve(tmpdir(), 'documentation-collection-'));
-        const head = 'c9747c6b9030045ec9303ec276f413b9c8d431bc';
-        const base = 'd2425ee700eb1f1875d84d4144b68a29302e6c0a';
-        const tree = 'ad14be301f760c1b776fa1597205d16b33028f9f';
+        const head = '0124d8ed1c83f7cb37b3acb04e870166d10bef18';
+        const base = 'b80657dd40d87895d61a8aaf52bb9f63bb784443';
+        const tree = 'b578cef190889489e187aead500afed528e50fdd';
         const repo = 'relativityE/speaksharp';
         const pull = { number: 1599, headRefOid: head, baseRefOid: base, baseRefName: 'main', headRefName: 'docs',
             baseRepository: { nameWithOwner: repo }, headRepository: { nameWithOwner: repo },

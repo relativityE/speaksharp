@@ -309,9 +309,9 @@ describe('exported live reader used by collection and merge guard',()=>{
 
 // #1599's independent frozen postimages; candidate files never supply these expectations.
 {
-const HEAD = 'c9747c6b9030045ec9303ec276f413b9c8d431bc';
-const BASE = 'd2425ee700eb1f1875d84d4144b68a29302e6c0a';
-const TREE = 'ad14be301f760c1b776fa1597205d16b33028f9f';
+const HEAD = '0124d8ed1c83f7cb37b3acb04e870166d10bef18';
+const BASE = 'b80657dd40d87895d61a8aaf52bb9f63bb784443';
+const TREE = 'b578cef190889489e187aead500afed528e50fdd';
 const PINS = [
   {
     "path": "local-packets/1599-model-status-control/README.md",
@@ -344,7 +344,7 @@ const PINS = [
     "size": 2442
   },
   {
-    "path": "local-packets/1599-model-status-control/verify-native.test.mjs",
+    "path": "local-packets/1599-model-status-control/verify-native-source.txt",
     "oid": "f0808c29474edb983b46358ea8931037e85800aa",
     "mode": "100644",
     "size": 6570
@@ -357,9 +357,9 @@ const PINS = [
   },
   {
     "path": "product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md",
-    "oid": "0cc9545660dff6709a4d5171268bedf04982b0fb",
+    "oid": "b14f1633eb5abdf72664e17d9990a0497e11e3a4",
     "mode": "100644",
-    "size": 20082
+    "size": 20725
   },
   {
     "path": "product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx",
@@ -383,6 +383,19 @@ const pull = () => ({ number:1599, headRefOid:HEAD, baseRefOid:BASE, baseRefName
   reviewThreads:{nodes:[],pageInfo:{hasNextPage:false}},
   comments:{nodes:[],pageInfo:{hasPreviousPage:false}}, documentationEvidence:evidence() });
 describe('#1599 reviewed documentation/evidence scope', () => {
+  it('refuses the obsolete executable-name and pre-archive note postimages together', () => {
+    const value = input();
+    value.changedFiles = value.changedFiles.map(path => path.replace('verify-native-source.txt', 'verify-native.test.mjs'));
+    for (const row of value.documentationEvidence.entries) {
+      row.path = row.path.replace('verify-native-source.txt', 'verify-native.test.mjs');
+      if (row.path.endsWith('/FINANCIAL_MODEL_REVIEW_2026-10-12.md')) {
+        row.oid = '0cc9545660dff6709a4d5171268bedf04982b0fb';
+        row.size = 20082;
+      }
+    }
+    expect(evaluateReviewQualification(value).qualified).toBe(false);
+  });
+
   it.each(PINS.map(row => row.path))('refuses a changed postimage at %s', path => {
     const value = input();
     value.documentationEvidence.entries.find(row => row.path === path).oid = 'f'.repeat(40);
