@@ -63,10 +63,10 @@ describe('#1742 closed coaching display provenance', () => {
     });
     it('separates credit depletion, rate limits and provider availability from the outer 502', () => {
         for (const [http, canonical, expected] of [
-            [402, 'RESOURCE_EXHAUSTED', 'The service credit balance is depleted.'],
-            [429, 'RESOURCE_EXHAUSTED', 'The service rate limit was exceeded.'],
-            [503, 'UNAVAILABLE', 'The service is temporarily unavailable.'],
-            [500, 'UNKNOWN', 'Unknown error.'],
+            [402, 'RESOURCE_EXHAUSTED', 'RESOURCE_EXHAUSTED: The service credit balance is depleted.'],
+            [429, 'RESOURCE_EXHAUSTED', 'RESOURCE_EXHAUSTED: The service rate limit was exceeded.'],
+            [503, 'UNAVAILABLE', 'UNAVAILABLE: The service is temporarily unavailable.'],
+            [500, 'UNKNOWN', 'UNKNOWN: Unknown error.'],
         ] as const) {
             const server = provider(http, canonical);
             expect(coachingErrorMessage(server, server.reason, 502)).toBe(expected);
@@ -75,10 +75,10 @@ describe('#1742 closed coaching display provenance', () => {
     it('keeps local normalization and timeout distinct from observed Google UNKNOWN', () => {
         expect(coachingErrorMessage({ status: 502, reason: 'provider_http_5xx', provider_status: 503,
             provider_error_status: 'unparseable', error_descriptor: { origin: 'local_normalization',
-                http_status: 503, canonical_status: 'UNKNOWN', local_code: 'provider_http_5xx' } }, 'provider_http_5xx', 502)).toBe('Unknown error.');
+                http_status: 503, canonical_status: 'UNKNOWN', local_code: 'provider_http_5xx' } }, 'provider_http_5xx', 502)).toBe('UNKNOWN (local normalization): Unknown error.');
         expect(coachingErrorMessage({ status: 502, reason: 'provider_timeout', error_descriptor: {
             origin: 'local_timeout', http_status: null, canonical_status: null, local_code: 'provider_timeout',
-        } }, 'provider_timeout', 502)).toBe('The local coaching deadline was exceeded.');
+        } }, 'provider_timeout', 502)).toBe('provider_timeout: The local coaching deadline was exceeded.');
     });
     it('rejects mismatched wire codes, scalar diagnostics, origins, extra keys and echoed prose', () => {
         const good = provider(503, 'UNAVAILABLE');

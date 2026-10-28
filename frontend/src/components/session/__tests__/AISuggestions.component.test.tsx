@@ -225,6 +225,7 @@ describe('AISuggestions Integration', () => {
             mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error });
             render(<AISuggestions transcript="Hello world" canReview sessionId={`s-catalog-${http}`} retryBackoffMs={10} />);
             await waitFor(() => expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(expected));
+            expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent(`${canonical}:`);
             expect(screen.getByTestId('ai-suggestions-headline')).toHaveTextContent('Your session is saved.');
             expect(screen.queryByText(/secret transcript|raw provider prose/i)).toBeNull();
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);

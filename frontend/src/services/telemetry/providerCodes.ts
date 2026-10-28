@@ -70,7 +70,7 @@ export function coachingErrorMessage(server: Record<string, unknown> | null, wir
     const validHttp = http === null || (Number.isInteger(http) && Number(http) >= 100 && Number(http) <= 599);
     if (!validHttp) return null;
     if (d.origin === 'local_timeout') return wireCode === 'provider_timeout' && d.local_code === wireCode
-        && http === null && d.canonical_status === null ? 'The local coaching deadline was exceeded.' : null;
+        && http === null && d.canonical_status === null ? 'provider_timeout: The local coaching deadline was exceeded.' : null;
     if (http !== server.provider_status) return null;
     if (d.origin === 'local_normalization') {
         const reasons = ['provider_http_4xx', 'provider_http_5xx', 'missing_text', 'invalid_shape',
@@ -78,17 +78,17 @@ export function coachingErrorMessage(server: Record<string, unknown> | null, wir
         if (d.canonical_status !== 'UNKNOWN' || d.local_code !== wireCode || !reasons.includes(wireCode)) return null;
         if ((wireCode === 'provider_http_4xx' || wireCode === 'provider_http_5xx')
             && server.provider_error_status !== 'other' && server.provider_error_status !== 'unparseable') return null;
-        return 'Unknown error.';
+        return 'UNKNOWN (local normalization): Unknown error.';
     }
     if (d.origin !== 'provider' || d.local_code !== null || typeof d.canonical_status !== 'string'
         || !Object.prototype.hasOwnProperty.call(COACHING_CANONICAL_ERROR_STRINGS, d.canonical_status)
         || d.canonical_status !== server.provider_error_status || typeof http !== 'number' || http < 400
         || wireCode !== (http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx')) return null;
     if (d.canonical_status === 'RESOURCE_EXHAUSTED') {
-        if (http === 402) return 'The service credit balance is depleted.';
-        if (http === 429) return 'The service rate limit was exceeded.';
+        if (http === 402) return 'RESOURCE_EXHAUSTED: The service credit balance is depleted.';
+        if (http === 429) return 'RESOURCE_EXHAUSTED: The service rate limit was exceeded.';
     }
-    return COACHING_CANONICAL_ERROR_STRINGS[d.canonical_status as keyof typeof COACHING_CANONICAL_ERROR_STRINGS];
+    return `${d.canonical_status}: ${COACHING_CANONICAL_ERROR_STRINGS[d.canonical_status as keyof typeof COACHING_CANONICAL_ERROR_STRINGS]}`;
 }
 
 export interface ProviderCodeFields {
