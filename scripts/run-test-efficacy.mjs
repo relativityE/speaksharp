@@ -11,7 +11,7 @@ import { executionContext, testEnvironment, pilotAffectedByPaths, executionRoute
   executionRequiredFiles,unavailableExecutionInputs,fixtureSourceBinding, validateFixtureWitness } from './lib/testExecutionEvidence.mjs';
 import {HELPER_CONTRACTS,helperApplicability, HELPER_CONFIG, helperSourceBinding, validateHelperCoverage} from './lib/helperExecutionEvidence.mjs';
 import {SOURCE_CONSUMER,sourceContractBinding,validateSourceContractWitness} from './lib/sourceContractEvidence.mjs';
-import {selectNativeContracts,produceNativePhase,nativeChildTracker} from './lib/nativeTestExecutionEvidence.mjs';
+import {selectNativeContracts,produceNativePhase,nativeChildTracker,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness} from './lib/nativeTestExecutionEvidence.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
@@ -150,6 +150,12 @@ export function selectExecutionContracts(root,evidenceFiles,{helpersOnly=false}=
     .concat(HELPER_CONTRACTS.filter(contract=>evidenceFiles.includes(contract.helperFile)
       && helperApplicability(root,contract.helperFile).supported)
       .map(contract=>({...contract,helper:true})));
+  const sqlFiles=helpersOnly?[]:evidenceFiles.filter(file=>SQL_INPUTS.includes(file));
+  if(sqlFiles.length) {
+    const ordinary=selected.find(item=>item.testFile===SQL_CONSUMER&&!item.helper);
+    if(ordinary)ordinary.sqlFiles=sqlFiles;
+    else selected.push({testFile:SQL_CONSUMER,sqlFiles});
+  }
   const sourceFiles=helpersOnly?[]:evidenceFiles.filter(file=>{
     const route=executionRoute(file,root);return route?.runner==='vitest-source-contract' && route.applicable;
   });
@@ -247,6 +253,8 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
       if(contract.sourceFiles) binding.sourceContract={files:contract.sourceFiles,
         sourceBinding:sourceContractBinding(temporary,contract.sourceFiles),
         witnessFile:path.join(temporary,`.source-contract-${binding.phaseId}.json`)};
+      if(contract.sqlFiles)binding.sql={files:contract.sqlFiles,sourceBinding:sqlSourceBinding(temporary),
+        witnessFile:path.join(temporary,`.sql-${binding.phaseId}.json`)};
       const environment=testEnvironment(temporary,binding,envelopeFile);
       if(contract.fixtureFile) environment.TEST_EFFICACY_SERVICE_CALLER_FIXTURE='1';
       ownedGroupsDrained=false;
@@ -296,11 +304,16 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
         sourceContractWitness=JSON.parse(fs.readFileSync(binding.sourceContract.witnessFile,'utf8'));
         validateSourceContractWitness(sourceContractWitness,binding,temporary,report,envelope);
       }
+      let sqlWitness;
+      if(contract.sqlFiles) {
+        sqlWitness=JSON.parse(fs.readFileSync(binding.sql.witnessFile,'utf8'));
+        validateSqlWitness(sqlWitness,binding,temporary);
+      }
       completedPhases.push(phase);
       return { names, binding, envelope, execution:{status:result.status,signal:result.signal,error:result.error?.message || null,processCleanup},
         inputSha256: binding.inputSha256, report, reportSha256: hash(JSON.stringify(report)),
         ...(helperCoverage ? {helperCoverage} : {}),...(fixtureWitness ? {fixtureWitness} : {}),
-        ...(sourceContractWitness?{sourceContractWitness}:{}) };
+        ...(sourceContractWitness?{sourceContractWitness}:{}),...(sqlWitness?{sqlWitness}:{}) };
       } catch (cause) {
         const error = new Error(`[${phase}] ${cause.message}`, {cause});
         Object.defineProperty(error,'diagnostics',{value:diagnostics});
@@ -327,6 +340,7 @@ export function runTestEfficacy({ root = process.cwd(), base = process.env.TEST_
           ...(contract.helper ? {helperFile:contract.helperFile} : {}),
           ...(contract.fixtureFile ? {fixtureFile:contract.fixtureFile} : {}),
           ...(contract.sourceFiles ? {sourceFiles:contract.sourceFiles} : {}),
+          ...(contract.sqlFiles?{sqlFiles:contract.sqlFiles}:{}),
           ...(contract.consumerExecution?{consumerExecution:true}:{}),
           testSha256:hash(fs.readFileSync(path.join(root,contract.testFile))),
           phase:execute(contract,'execution')});

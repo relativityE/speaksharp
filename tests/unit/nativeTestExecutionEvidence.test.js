@@ -6,10 +6,10 @@ import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
-import {NATIVE_REPORTER,NATIVE_HELPERS,nativeTestRoute,selectNativeContracts,
+import {NATIVE_REPORTER,NATIVE_HELPERS,SQL_INPUTS,SQL_CONSUMER,nativeTestRoute,selectNativeContracts,
   nativeCommand,nativeWarmupCommand,nativeRuntime,validateWarmup,nativeChildTracker,produceNativePhase,validateNativePhase,validateNativeReceipt,
-  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
-import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy} from '../../scripts/run-test-efficacy.mjs';
+  parseDenoJunit,validateNativeCallables,nativeDenoPolicy,nativeEnvironment,validateSyntheticSource,sqlSourceBinding,validateSqlWitness} from '../../scripts/lib/nativeTestExecutionEvidence.mjs';
+import {drainOwnedPhase,dependencyPaths,initializeCopyRepository,cleanupOwnedCopy,selectExecutionContracts} from '../../scripts/run-test-efficacy.mjs';
 import {testEnvironment,executionContext,sourceIdentity} from '../../scripts/lib/testExecutionEvidence.mjs';
 const {test}=process.env.NODE_TEST_CONTEXT?await import('node:test'):await import('vitest');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
@@ -18,7 +18,7 @@ const provenance={schemaVersion:1,invocation:randomUUID(),source:'github-actions
   commit:'a'.repeat(40),tree:'b'.repeat(40),snapshotSha256:'c'.repeat(64)};
 const inputSha256='d'.repeat(64),runId=randomUUID();
 
-test('bounded native routes retain explicit planner/protocol limits',()=>{
+test('bounded native routes retain explicit planner/protocol and fixture-only claims',()=>{
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
@@ -30,6 +30,8 @@ test('bounded native routes retain explicit planner/protocol limits',()=>{
     assert.ok(!item.callables.includes('runMainClosureProof'));
   }
   assert.equal(nativeTestRoute('tests/db/unknown-runner.mjs',root),null);
+  const sql=selectExecutionContracts(root,[...SQL_INPUTS,SQL_CONSUMER]);
+  assert.equal(sql.length,1);assert.deepEqual(sql[0].sqlFiles,SQL_INPUTS);
 });
 
 function xml(cases='<testcase name="actual assertion" classname="./backend/supabase/functions/fixture.test.ts"/>',attrs='tests="1" failures="0" errors="0" disabled="0"') {
@@ -216,6 +218,17 @@ test('import-only raw helper coverage cannot claim planner or observer execution
     assert.throws(()=>validateNativeCallables(raw,binding,root,[helper.file]),/callable NOT RUN/);
     assert.throws(()=>validateNativeCallables([],binding,root,[helper.file]),/Missing/);
   }
+});
+test('SQL execution witness binds both actual consumed sources and both sides of execution',()=>{
+  const binding={phaseId:randomUUID()};
+  const raw={schemaVersion:1,phaseId:binding.phaseId,bindingSha256:hash(JSON.stringify(binding)),consumer:SQL_CONSUMER,
+    consumed:sqlSourceBinding(root).map(item=>({...item,beforeSha256:item.sha256,afterSha256:item.sha256}))};
+  assert.deepEqual(validateSqlWitness(raw,binding,root),SQL_INPUTS);
+  for(const change of [r=>{r.phaseId=randomUUID();},r=>{r.bindingSha256='a'.repeat(64);},r=>{r.consumed=[];},
+    r=>{r.consumed[0].sha256='0'.repeat(64);},r=>{r.consumed[1].afterSha256='0'.repeat(64);},r=>{r.consumed.reverse();}]) {
+    const changed=structuredClone(raw);change(changed);assert.throws(()=>validateSqlWitness(changed,binding,root),/SQL consumption witness/);
+  }
+  assert.throws(()=>validateSqlWitness(null,binding,root),/SQL consumption witness/);
 });
 test('full-evidence provisions Deno on its own runner; the Edge job is not its runtime',()=>{
   const require=createRequire(path.join(root,'package.json')),yaml=require('yaml');

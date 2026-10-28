@@ -54,12 +54,16 @@ import {
 } from '@/services/sessionLatencyTelemetry';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
-    const err = error as { name?: string; message?: string } | null;
-    const rawMessage = err?.message?.trim() || '';
+    const err = error as { name?: string; message?: string; cause?: { name?: unknown } } | null;
+    const rawMessage = typeof err?.message === 'string' ? err.message.trim() : '';
+    // The controller retains the sanitized engine error as the canonical wrapper's
+    // cause. Use only its closed type name; never render arbitrary cause prose.
+    const deniedName = (name: unknown) => name === 'NotAllowedError' || name === 'PermissionDeniedError';
     const micPermissionError =
-        err?.name === 'NotAllowedError' ||
-        err?.name === 'PermissionDeniedError' ||
-        /permission|notallowed|mic_stream_unavailable|media devices/i.test(rawMessage);
+        deniedName(err?.name)
+        || (rawMessage.startsWith('TRANSCRIPTION_START_DID_NOT_RECORD:') && deniedName(err?.cause?.name))
+        || ((!err?.name || err.name === 'Error')
+            && /^(?:mic_stream_unavailable|NotAllowedError(?::.*)?|PermissionDeniedError(?::.*)?)$/.test(rawMessage));
 
     if (micPermissionError) {
         return 'Microphone access is blocked. Allow microphone access and try again.';

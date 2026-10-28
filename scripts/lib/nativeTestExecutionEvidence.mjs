@@ -8,6 +8,11 @@ import {spawnSync} from 'node:child_process';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 export const NATIVE_REPORTER='scripts/lib/nativeTestExecutionEvidence.mjs';
+export const SQL_CONSUMER='tests/unit/accountCompletionBillingSettlement.test.ts';
+export const SQL_INPUTS=Object.freeze([
+  'backend/supabase/migrations/20261027192550_account_completion_billing_settlement.sql',
+  'tests/db/account-completion-billing-full-chain-invariants.sql',
+]);
 export const NATIVE_HELPERS=Object.freeze([
   {file:'tests/db/account-closure-full-chain.mjs',consumer:'tests/db/account-closure-full-chain-main-u1-plan.test.mjs',
     callables:['buildMainU1ReplayPlan','parseMainProofArguments'],claim:'actual planner callables only; Docker replay NOT RUN'},
@@ -25,6 +30,7 @@ export const nativeHelper=file=>NATIVE_HELPERS.find(item=>item.file===file);
 export function nativeTestRoute(file,root) {
   const helper=nativeHelper(file);
   if(helper)return {runner:'node-test-helper',consumer:helper.consumer,claim:helper.claim};
+  if(SQL_INPUTS.includes(file))return {runner:'vitest-sql',consumer:SQL_CONSUMER,claim:'actual SQL consumed in PGlite fixture; native database NOT RUN'};
   if(/^backend\/supabase\/functions\/.*(?:\.test|_test)\.ts$/.test(file))return {runner:'deno',consumer:file};
   if(/\.test\.mjs$/.test(file)&&fs.existsSync(path.join(root,file))&&/\bfrom\s+['"]node:test['"]/.test(fs.readFileSync(regular(root,file),'utf8')))return {runner:'node-test',consumer:file};
   return null;
@@ -260,6 +266,15 @@ export function validateNativeCallables(raw,binding,root,helpers) {
     credited.push(file);
   }
   return credited;
+}
+export function sqlSourceBinding(root) {
+  return SQL_INPUTS.map(file=>({file,sha256:hash(fs.readFileSync(regular(root,file)))}));
+}
+export function validateSqlWitness(raw,binding,root) {
+  const consumed=sqlSourceBinding(root).map(item=>({...item,beforeSha256:item.sha256,afterSha256:item.sha256}));
+  if(raw?.schemaVersion!==1||raw.phaseId!==binding.phaseId||raw.bindingSha256!==hash(JSON.stringify(binding))
+    ||raw.consumer!==SQL_CONSUMER||JSON.stringify(raw.consumed)!==JSON.stringify(consumed))fail('Missing, stale or changed-SQL consumption witness');
+  return SQL_INPUTS;
 }
 export function produceNativePhase({root,cwd,contract,provenance,inputSha256,sourceCopyCommit,runId,environment,drain,children=nativeChildTracker(drain)}) {
   const runtime=nativeRuntime(root,contract.runner),coverageDirectory=fs.mkdtempSync(path.join(cwd,'.native-coverage-'));

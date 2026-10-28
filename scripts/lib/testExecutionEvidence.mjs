@@ -8,7 +8,7 @@ import { canonicalPath, runtimeIdentity } from '../efficacy-reporter.mjs';
 import {HELPER_CONTRACTS,registeredHelper,helperApplicability, HELPER_CONFIG, validateHelperCoverage} from './helperExecutionEvidence.mjs';
 import {registeredSourceContract,sourceContractApplicability,SOURCE_CONSUMER,validateSourceContractWitness} from './sourceContractEvidence.mjs';
 import {validatePlaywrightExecution} from './playwrightExecutionEvidence.mjs';
-import {nativeTestRoute,validateNativeReceipt} from './nativeTestExecutionEvidence.mjs';
+import {nativeTestRoute,validateNativeReceipt,SQL_CONSUMER,SQL_INPUTS,sqlSourceBinding,validateSqlWitness} from './nativeTestExecutionEvidence.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const git = (root, args) => execFileSync('git', args, {cwd:root,encoding:'utf8',maxBuffer:16*1024*1024}).trim();
@@ -312,6 +312,7 @@ export function validateVitestExecution(receipt, expected, root) {
     const helper = result.helperFile ? registeredHelper(result.helperFile) : null;
     const fixture = result.fixtureFile ? registeredFixture(result.fixtureFile) : null;
     const sourceFiles=result.sourceFiles;
+    const sqlFiles=result.sqlFiles;
     const creditedFile = result.helperFile || result.fixtureFile || testFile;
     if ((result.helperFile && (!helper || helper.testFile !== testFile))
       || (result.fixtureFile && (!fixture || fixture.testFile!==testFile || result.helperFile))
@@ -347,11 +348,20 @@ export function validateVitestExecution(receipt, expected, root) {
       validateSourceContractWitness(phase.sourceContractWitness,binding,root,phase.report,phase.envelope);
       for(const file of sourceFiles) files.add(file);
     } else if(binding.sourceContract || phase.sourceContractWitness) throw new Error('Unexpected source contract phase');
+    if(sqlFiles) {
+      if(helper||fixture||sourceFiles||testFile!==SQL_CONSUMER||!Array.isArray(sqlFiles)||!sqlFiles.length
+        ||new Set(sqlFiles).size!==sqlFiles.length||sqlFiles.some(file=>!SQL_INPUTS.includes(file)||!changedEvidencePaths(root,receipt.base).includes(file))
+        ||JSON.stringify(binding.sql?.files)!==JSON.stringify(sqlFiles)
+        ||JSON.stringify(binding.sql?.sourceBinding)!==JSON.stringify(sqlSourceBinding(root))
+        ||binding.sql?.witnessFile!==path.join(binding.cwd,`.sql-${binding.phaseId}.json`))throw new Error('Wrong SQL fixture source/phase binding');
+      validateSqlWitness(phase.sqlWitness,binding,root);
+      for(const file of sqlFiles)files.add(file);
+    }else if(binding.sql||phase.sqlWitness)throw new Error('Unexpected SQL fixture phase');
     // A helper/source-contract phase really executed its consumer. Share that
     // result only when the same ordinary test is in the changed selection.
     if(result.consumerExecution!==undefined && result.consumerExecution!==true) throw new Error('Invalid consumer execution claim');
     if(result.consumerExecution && (!helper && !sourceFiles || !changedEvidencePaths(root,receipt.base).includes(testFile))) throw new Error('Unselected consumer execution');
-    if(!sourceFiles || result.consumerExecution) files.add(creditedFile);
+    if((!sourceFiles && (!sqlFiles||changedEvidencePaths(root,receipt.base).includes(testFile))) || result.consumerExecution) files.add(creditedFile);
     if(result.consumerExecution) files.add(testFile);
     phases.add(binding.phaseId);
   }
@@ -383,7 +393,7 @@ export function executionCoverage(files, {root,expected,pilot,execution,native,p
       claim:file===proven?'registered analytics-truth faults only':nativeFiles.has(file)?route.claim??'actual native test collection and execution only; not database/live acceptance':browser.has(file)?'ordinary CI shard collection and execution only; not live acceptance':executed.has(file)
         ?registeredSourceContract(file)?'fault-sensitive wiring/fixture contract only; live test body not executed'
           :registeredHelper(file)?'registered source-mapped helper callables executed; not journey acceptance'
-          :registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
+          :SQL_INPUTS.includes(file)?'actual SQL consumed in PGlite fixture; native database NOT RUN':registeredFixture(file)?'pinned fixture consumed by its executed workflow control; not journey acceptance':'collection and execution only':null};
   });
   return {scope:'changed tests and fixtures; not a product requirement inventory',
     pilot:{required,status:proven?'EXECUTED':required?'NOT RUN':'NOT APPLICABLE'},

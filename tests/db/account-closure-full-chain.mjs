@@ -690,14 +690,19 @@ export const MAIN_T2_FENCE_MIGRATION=Object.freeze({name:'20261024083000_account
   version:'20261024083000',sha256:'29548e27a0b33a303ff093569097367b1227251faff7e7df77af392cfa4b0d14',stage:'coaching-unknown-fence'});
 export const MAIN_T2_RETENTION_MIGRATION=Object.freeze({name:'20261025021046_content_free_retention_evidence.sql',
   version:'20261025021046',sha256:'37af792f8abeeb0e073e229ec25cd294a20050058632f793c4635ba3af37f47d',stage:'content-free-retention'});
-const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128'];
-const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128'];
+// Independently reviewed corrected bytes (Sam); the historical 120..128 pins stay unchanged.
+export const MAIN_COMPLETION_BILLING_MIGRATION=Object.freeze({name:'20261027192550_account_completion_billing_settlement.sql',
+  version:'20261027192550',sha256:'398aa50b8db168acc0cee68a11a433b40bd3101af03e3051dcdc2c87b2bef45d',stage:'completion-billing'});
+const BILLING_PROFILE='main-completion-billing-129';
+const MAIN_PROFILES=['main-120','main-u1-121','main-analytics-u1-122','main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE];
+const T2_PROFILES=['main-t2-account-126','main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE];
 function selectedAdditions(profile) {
   const rows=[...(profile!=='main-120'?[{...MAIN_U1_MIGRATION,stage:'heartbeat-u1'}]:[]),
     ...(['main-analytics-u1-122',...T2_PROFILES].includes(profile)?[{...MAIN_ANALYTICS_MIGRATION,stage:'analytics-observed-rate'}]:[]),
     ...(T2_PROFILES.includes(profile)?MAIN_T2_ACCOUNT_MIGRATIONS:[]),
-    ...(['main-t2-fence-127','main-t2-retention-128'].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
-    ...(profile==='main-t2-retention-128'?[MAIN_T2_RETENTION_MIGRATION]:[])];
+    ...(['main-t2-fence-127','main-t2-retention-128',BILLING_PROFILE].includes(profile)?[MAIN_T2_FENCE_MIGRATION]:[]),
+    ...(['main-t2-retention-128',BILLING_PROFILE].includes(profile)?[MAIN_T2_RETENTION_MIGRATION]:[]),
+    ...(profile===BILLING_PROFILE?[MAIN_COMPLETION_BILLING_MIGRATION]:[])];
   return rows.sort((a,b)=>a.name.localeCompare(b.name,'en'));
 }
 const MAIN_DRAIN = '20261016180000_account_closure_drain_enforcement.sql';
@@ -737,7 +742,7 @@ export function buildMainU1ReplayPlan(rows, profile = 'main-120') {
   }
   for (const row of expected) assert.ok(actual.some(value => value.name === row.name), 'reviewed migration missing: ' + row.name);
   const history = excluded => versioned.filter(row => !excluded.includes(row.name)).map(row => row.version);
-  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name];
+  const late=[MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name];
   const stages = [
     { name: 'baseline-before-drain', versions: history([MAIN_DRAIN, MAIN_RECOVERY, ...late]) },
     { name: 'drain-enforcement', versions: history([MAIN_RECOVERY, ...late]) },
@@ -767,7 +772,8 @@ export function runMainClosureProof() {
   assert.equal(new Set(migrations.map((row) => row.version)).size, migrations.length, 'duplicate migration versions');
   const plan = buildMainU1ReplayPlan(manifest, args.profile);
   const completeT2=T2_PROFILES.includes(args.profile);
-  const retentionT2=args.profile==='main-t2-retention-128';
+  const billingT2=args.profile===BILLING_PROFILE;
+  const retentionT2=args.profile==='main-t2-retention-128'||billingT2;
   const fenceT2=args.profile==='main-t2-fence-127'||retentionT2;
   const hasAnalytics=['main-analytics-u1-122',...T2_PROFILES].includes(args.profile);
   if (args.plan) {
@@ -860,7 +866,7 @@ export function runMainClosureProof() {
     // Supported CLI selector; fresh staging only, never an installed/project DB.
     mkdirSync(join(directory, '.temp'), { recursive: true });
     writeFileSync(join(directory, '.temp', 'postgres-version'), postgresVersion);
-    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
+    for (const file of files.filter((name) => ![candidate,recovery,MAIN_U1_MIGRATION.name,MAIN_ANALYTICS_MIGRATION.name,...MAIN_T2_ACCOUNT_MIGRATIONS.map(row=>row.name),MAIN_T2_FENCE_MIGRATION.name,MAIN_T2_RETENTION_MIGRATION.name,MAIN_COMPLETION_BILLING_MIGRATION.name].includes(name))) cpSync(join(root, file), join(directory, 'migrations', file));
     // Internal-only bridges do not publish the localhost DB port used by the
     // pinned CLI. Use a loopback-published bridge with an owned egress DROP rule
     // established before starting any database/service container instead.
@@ -1112,6 +1118,28 @@ export function runMainClosureProof() {
       assert.deepEqual(state,{compatible:true,pinCount:8,evidenceRows:0,contextRows:0,privateRls:true,
         privatePrivileges:0,expiredGuardInvoker:true,expiredGuardEnabled:1,completionDisabled:true},'retention catalog/ACL');
       console.log('CONTENT-FREE RETENTION FULL-CHAIN CATALOG PASSED');
+    }
+    if(billingT2) {
+      const billing=MAIN_COMPLETION_BILLING_MIGRATION;
+      const existingAcl=()=>JSON.parse(sql(`SELECT json_build_object(
+        'tables',(SELECT json_agg(json_build_array(c.relname,c.relacl::text,c.relrowsecurity) ORDER BY c.relname)
+          FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
+          AND (c.relname='user_profiles' OR c.relname LIKE 'account_completion_%')),
+        'legacyRpcAcl',(SELECT proacl::text FROM pg_proc WHERE oid='public.settle_account_closure_billing(uuid,uuid,text,jsonb)'::regprocedure))::text;`));
+      const before=existingAcl();
+      cpSync(join(root,billing.name),join(directory,'migrations',billing.name));
+      cli(['migration','up','--local']);
+      assert.deepEqual(history(),plan.stages.find(stage=>stage.name===billing.stage).versions,'billing history is incomplete');
+      const after=existingAcl();
+      assert.deepEqual(after,before,'settlement must preserve existing table and base-RPC ACLs');
+      const result=sql(readFileSync('tests/db/account-completion-billing-full-chain-invariants.sql','utf8'));
+      assert.ok(result.includes('ACCOUNT COMPLETION BILLING REAL-SCHEMA INVARIANTS PASSED'),'completion billing oracle incomplete');
+      assert.equal(sql('SELECT NOT enabled AND scope_digest IS NULL FROM public.account_completion_configuration;'),'t',
+        'settlement proof must restore disabled unbound configuration');
+      writeFileSync(join(evidence,'completion-billing-catalog.json'),JSON.stringify({profile:args.profile,
+        migration:billing,existingAclBefore:before,existingAclAfter:after,oraclePassed:true,completionDisabled:true,
+        scope:'real-chain sequential SQL/ACL/replay compatibility; separate native race and provider/Production proof'},null,2));
+      console.log('ACCOUNT COMPLETION BILLING FULL-CHAIN CATALOG PASSED');
     }
   } catch (error) {
     primaryError = error;

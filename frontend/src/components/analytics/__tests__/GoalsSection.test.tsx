@@ -20,6 +20,17 @@ describe('GoalsSection (#1472 availability)', () => {
         (useGoals as Mock).mockReturnValue({ goals: { weeklyGoal: 5, clarityGoal: 80 }, setGoals: vi.fn() });
     });
 
+    it('shows a safe goal-sync warning rather than masking the permission error', () => {
+        (useGoals as Mock).mockReturnValue({ goals: { weeklyGoal: 5, clarityGoal: 80 }, setGoals: vi.fn(),
+            syncError: new Error('permission denied: private diagnostic text') });
+        (useAnalytics as Mock).mockReturnValue({
+            weekly: { status: 'complete', count: 6, activity: [] }, allTime: { status: 'complete', stats }, loading: false, error: null,
+        });
+        render(<GoalsSection />);
+        expect(screen.getByRole('status')).toHaveTextContent('Account goal sync is unavailable. Showing local goals or defaults.');
+        expect(screen.queryByText(/private diagnostic text/)).toBeNull();
+    });
+
     it('unavailable week and all-time: em dashes, no bars, no 0% or 0 sessions, and an honest message', () => {
         (useAnalytics as Mock).mockReturnValue({
             weekly: { status: 'unavailable' }, allTime: { status: 'unavailable', reason: 'summary_failed' }, loading: false, error: null,
