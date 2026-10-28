@@ -52,6 +52,15 @@ branch → commit → push → open PR → watch CI green → squash-merge → (
    old trusted-main collector/guard. Only after its guarded landing may #1740 receive actual main
    and obtain fresh exact-head tests, independent reviews and receipts. Normal freshest-run,
    thread/protection, freshness and drift checks still apply; production actions remain separate.
+   A separate owner-selected contract admits only PR #1747 in this repository, from live `main`
+   CI blob `f2d3223191d8cbbb0ccfcc328270a1d51e54d491` to reviewed generic-native blob
+   `8dd161fdee91ff4f3f9f1dcc3d635c047c590b54`, with review-qualification blob
+   `9c948004790029105bf437058d8913ecf7439c40` unchanged on both sides. It retains the same
+   exact live head/base, expected-head, ancestry, complete API/job, freshest-run and required-job
+   checks, and truthfully records `workflowUnchanged=false`. The #1740 contract is unchanged.
+   This additional rule changes neither workflow and must itself qualify through trusted main;
+   only after its guarded landing may #1747 receive actual main and qualify independently.
+   Neither rule admits another PR, another workflow transition, operational effects or bypasses.
    The privileged token must not be exposed to candidate-controlled package scripts, hooks, loaders, or
    executables. Create a clean detached worktree at the exact authorized base SHA and run that trusted
    base's guard directly:
