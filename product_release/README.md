@@ -18,6 +18,15 @@
 
 # SpeakSharp Documentation Portal
 
+**Reconciliation boundary.** September census figures below describe that dated
+review. The current nonarchive inventory must be regenerated from the selected
+source tree; old 82/92-file packets are not a current census. The
+[protected-set and disposition contract](https://github.com/relativityE/speaksharp/pull/1674#issuecomment-6429303961)
+retains exactly the 14 authorities below. Historical records remain evidence, not
+new writer assignments. Retaining an index link alone does not complete the required
+content/consumer review. Proposed removals and unresolved ownership decisions stay
+approval-dependent; archives remain unchanged.
+
 This is the entry point and authority map for SpeakSharp documentation. It defines the **precedence model** used to resolve conflicts and the **14 canonical documents**, which are the only active Markdown documents at the root of `product_release/`.
 
 It replaces the archived [`content_list.md`](./archive/superseded-docs-2026-08-29/content_list.md) as the index and **absorbs archived [`PRECEDENCE.md`](./archive/superseded-docs-2026-08-29/PRECEDENCE.md)** (its conflict-resolution rules live in §1 below). The completed source-by-source migration record is retained at [`archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md`](./archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md).

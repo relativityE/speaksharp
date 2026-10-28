@@ -16,7 +16,7 @@
 > **Deconflicted assigned work may proceed during review/CI waits.** Use the current coordination record for selected owners and queue order; dated ticket sequences are not standing assignments. Preserve isolated branch/file ownership, complete each selected increment's exact-head review before handoff, and keep merges serial on the one token. Any Product Owner exception to the default implementation-lane rule remains scoped to its named work; it does not become standing policy. Resume a held RWT only with an exact qualified deployed candidate and the applicable Product Owner authority. **Moonshine activation remains deferred pending qualification and is not required for the current RWT**, and its repetition failure is never something to sanitize. Merge, deployment, database migration, Edge/config change, credential repair, payment action, and Production RWT remain separate exact-action authorizations.
 <!-- /pm-currentization:2026-09-15 -->
 
-**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. Model evaluation and fallback work require a separate current selection and acknowledged file ownership. Preserved #1567/#1568 source and unresolved model obligations remain provenance, not an active writer assignment or a prerequisite for v2 MVP acceptance. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 # SpeakSharp Release Process (v1)
 
@@ -144,7 +144,80 @@ Current run IDs and pass/fail live only in `RELEASE_STATUS.md`.
 | `stress-endurance.yml` | Schedule/manual | Backend stress / browser endurance. | Advisory unless investigating stability. |
 | `setup-test-users.yml` | Manual | Test-user provisioning. | Utility, not a gate. |
 
-The test files that each gate/workflow enforces (RC-counted ledgers) and the script inventory live in `QUALITY.md`. Deployment mechanics: an Edge-path push to `main` can trigger `deploy-supabase-edge-release.yml`, but its deployment job is disabled; source integration does not authorize or perform an Edge deployment. A frontend- or docs-only merge does not trigger this caller. Deliberate production promotion uses `production-release.yml` with separate Product Owner authorization, `deploy_production=true`, the exact qualified current-main SHA, passing release-policy checks, and the exact operation confirmation. For a separately authorized Edge operation, the reusable workflow deploys every function in its reviewed list; disclose that complete list and verify its live readbacks; a merge receipt is not deployment evidence. Backend migrations are **forward-only** through the separately dispatched exact allowlisted migration operation after a read-only preflight. **No down-migrations exist** — consistent with the Forward-Fix doctrine. Canary uses two stable operator-controlled identities supplied only through protected secrets: primary active trial and secondary paid continuation. It first reads production migration history; while the required runtime convergence migration is pending it publishes `HOLD — migration pending; canary not executed` and claims no product evidence. Once applied, both lanes run `pnpm test:deploy:prod` against the public site and fail closed. The deployed release identity is `window.__APP_RELEASE__` (injected from `VERCEL_GIT_COMMIT_SHA`; the `__BUILD_ID__` JS define was removed in #1027 so the volatile SHA never rotates chunk hashes) — verification detail is in `OPERATIONS_AND_SECURITY.md`.
+The test files that each gate/workflow enforces (RC-counted ledgers) and the script inventory live in `QUALITY.md`. Deployment mechanics: an Edge-path push to `main` can trigger `deploy-supabase-edge-release.yml`, but its deployment job is disabled; source integration does not authorize or perform an Edge deployment. A frontend- or docs-only merge does not trigger this caller. Deliberate production promotion uses `production-release.yml` with separate Product Owner authorization, `deploy_production=true`, the exact qualified current-main SHA, passing release-policy checks, and the exact operation confirmation. For a separately authorized Edge operation, the reusable workflow deploys every function in its reviewed list; disclose that complete list and verify its live readbacks; a merge receipt is not deployment evidence. Backend migrations are **forward-only** through the separately dispatched exact allowlisted migration operation after a read-only preflight. **No down-migrations exist** — consistent with the Forward-Fix doctrine. Canary execution follows the current scope in `OPERATIONS_AND_SECURITY.md`: the scheduled product lane is active-trial, weekly billing qualification is test-mode, and genuine paid-continuation proof remains separately authorized. Account email identifiers are Variables; passwords are Secrets. An unavailable migration or required observation is HOLD, never product PASS. The deployed release identity is `window.__APP_RELEASE__` (injected from `VERCEL_GIT_COMMIT_SHA`; the `__BUILD_ID__` JS define was removed in #1027 so the volatile SHA never rotates chunk hashes) — verification detail is in `OPERATIONS_AND_SECURITY.md`.
+
+---
+
+### 5.1 Default-off integration and served-release binding
+
+The selected release policy separates serial source integration from production promotion.
+The workflow mechanics in §5 describe the installed default-off source controls and deliberate
+promotion route; they do not certify provider settings or the served-release variable.
+Verify actual source and provider trigger posture before landing any PR; source controls
+alone do not establish safe provider bootstrap or grant production permission.
+Until the bootstrap is safe, keep landings **HOLD** and
+continue independent source/tests/documentation work.
+
+**Integration order.** Finish the increment and its new feature/regression tests; obtain
+applicable runtime/test evidence and ordinary `ci.yml` full-evidence PASS on the exact
+candidate head; then obtain independent review of that head. Separately verify that the
+production mutation route remains OFF: `deploy_production=false` skips the production
+policy/validation/deployment jobs and supplies no test or full-evidence PASS. The ordinary
+CI workflow has no `deploy_production` input. Review-dependent qualification follows the
+review and must also be green before merge. Land one protected, latest-main PR at a time,
+verify main green, then advance the queue. A changed, rebased or conflict-resolved head
+requires renewed tests and review. Documentation-only work needs applicable documentation
+checks and independent review; workflow/configuration behavior is not a documentation-only
+exception. A no-deploy merge is source integration, not a production release or live proof.
+
+**Bootstrap prerequisite.** Before the first gate landing, the responsible operator must
+establish an explicitly authorized way to prevent unintended production deployment under
+the *existing* Actions and Vercel Git/build triggers. Adding a false-default workflow input
+does not itself control Vercel's separate Git integration. Identify the exact settings or
+bootstrap operation, its operator, authority and readback; missing evidence keeps landing
+**HOLD**. This procedure grants no settings or production permission.
+
+The scheduled-monitor binding is the non-secret repository Actions Variable
+`PRODUCTION_RELEASE_SHA`, catalogued in
+[OPERATIONS_AND_SECURITY.md §2.3](./OPERATIONS_AND_SECURITY.md#23-github-actions-env-home-d--secrets-vs-variables).
+Bootstrap requires a fresh observation of production's `window.__APP_RELEASE__`, reconciled
+with the last successful authorized release and its required qualification/readback evidence.
+Use the full 40-character SHA; do not infer it from repository `main`, a merge receipt or a
+successful build alone. Verify the selected workflow consumes this variable and obtain
+separate authority for its initial write. If identity or release evidence cannot be reconciled,
+leave bootstrap unverified and **HOLD** rather than inventing a value.
+
+**Promotion and advancement.** App is the selected production release operator. For an
+explicitly authorized promotion, select one exact qualified, independently reviewed,
+main-green SHA and the bounded operation. `deploy_production=true` expresses that selection;
+it does not replace separate frontend/Edge/migration/secrets/provider/account permissions,
+existing confirmations, drain invalidation or mandatory operation readbacks.
+
+1. Record the intended candidate SHA, operation, authorizations and prior verified binding.
+   Check current main/qualification and reject drift before any production action.
+2. Execute only the separately authorized promotion scope through the installed gated route.
+   Preserve the workflow/run attempt, source identity and terminal results.
+3. For a frontend promotion, independently observe the served frontend identity; require exact
+   equality to the intended SHA and successful readbacks for every selected operation. A frontend
+   SHA alone does not prove Edge generation/configuration, database state or account outcomes.
+   A backend-only operation requires its own exact-source/runtime readbacks and does not advance
+   the frontend binding to an unserved commit.
+4. Only after all required promotion/readback checks succeed, have the operator with separately
+   authorized repository-variable access advance `PRODUCTION_RELEASE_SHA` to that verified
+   served SHA and read the variable back. Retain its previous value until this point.
+5. Record the UTC observations, intended/observed SHA, variable readback and linked run/receipts
+   in `RELEASE_STATUS.md`. Scheduled monitoring binds to the verified served release; unserved
+   later main commits retain their own CI evidence and cannot replace this binding.
+
+**Failure and recovery.** Failed, cancelled, partial or uncertain promotion, or a failed/mismatched
+served readback, retains the prior variable and yields **HOLD**. This does not prove that a
+partially changed production environment still matches the old value. If deployment succeeds
+but the variable update/readback fails, keep the discrepancy visible as **HOLD**; do not claim
+monitoring is bound to the new release. Preserve failure history and request the precise
+authorized recovery step; no automatic retry, rollback or permission bypass is implied.
+Missing/malformed binding or served-identity drift must never silently use latest main or
+produce green qualification. Preserve daily/weekly health visibility and mark unavailable
+product evidence unexecuted. Serving the expected SHA does not close live/human acceptance.
 
 ---
 

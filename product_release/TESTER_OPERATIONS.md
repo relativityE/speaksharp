@@ -30,7 +30,7 @@
 > **Procedure currentized 15 Sep 2026.** Human qualification uses the canonical Production app only and remains governed by `RELEASE_STATUS.md`. Current-model qualification requires requested/observed identity equality, one word-count authority, filler completeness, WER, long-form repetition/tail/stability checks, and received-event receipts. Moonshine activation remains deferred pending qualification and is not a required row in the current matrix. Use the #1468 read-only verifier before declaring managed identities usable; account repair is a separate authorized write. Never run a Production take merely because CI or a local probe passed.
 <!-- /pm-currentization:2026-09-15 -->
 
-**Model evaluation and current release boundaries.** Private v2 may complete MVP. The current coordination record selects the near-term #1565 evaluator and #1304 model/fallback work; do not treat an older post-MVP label as permission to stop that assigned work. Reuse preserved #1567/#1568 source through the sole CLI integration lane. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+**Model evaluation and current release boundaries.** Private v2 may complete MVP. Model evaluation and fallback work require a separate current selection and acknowledged file ownership. Preserved #1567/#1568 source and unresolved model obligations remain provenance, not an active writer assignment or a prerequisite for v2 MVP acceptance. Evaluation is not promotion: v4 and any fallback configuration require comparable real evidence and explicit Product Owner selection. One producer remains locked for a take; full useful Open Mic/Focus and applicable device acceptance remain required for the selected customer configuration. This document grants no model acquisition, live execution or activation authority. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
 
 # SpeakSharp Tester Operations
 
@@ -259,3 +259,15 @@ qualifies no four-cell evidence, and it never replaces a Product Owner spoken ce
 Stop immediately on an unapproved mutation, unexpected account binding, content leak, wrong deployed SHA, ambiguous commercial state, alternate customer engine, entitlement bypass, or failure to clean up a disposable account.
 
 Report the exact contradiction, what remained read-only, the safe remaining work, and the required Product Owner decision. Do not improvise authority or soften a failed gate.
+
+<!-- clause-closeout:2026-10-28 -->
+## Consolidated predecessor controls and interpretation
+
+### Known-speech filler diagnostics
+
+Optional known-speech diagnostics compare canonical live/persisted counts, diagnostic transcript recount and an acoustically verified reference; a discrepancy does not authorize changing the count source. Retain three original controls: the static script has um×3, so×2, like×2, uh×1 and basically×1 (nine all-key occurrences); the honestly custom-word script has three occurrences; the no-filler script has zero. Nine all-key occurrences is not nine coachable um/uh/ah fillers. Raw custom words must be represented by custom_N identifiers in artifacts. Preserve completeness: missing or malformed observations are not measured zero. Historical clarity/score diagnostic fields do not revive the retired universal score. The original verbatim public fixture text is preserved in the clause receipt; use only the selected Private customer path and separately authorized operator execution, not the historical Cloud/Native mode matrix.
+
+### Journey execution and cleanup boundaries
+
+Before an authorized run, bind the selected served frontend, backend and schema evidence to the frozen execution manifest. Repository main may advance through tooling-only merges; do not require main to equal the served product without inspecting component scope. Keep run-owned accounts separate from maintained accounts. Record received, sent-only, unobservable and missing telemetry separately, including settled action binding for feedback. Cleanup needs a post-delete residue check; policy-retained feedback must have its user link cleared. Stop on identity drift, unplanned provider failure, interruption or uncertain cleanup. Historical runbook instructions to start now, repair credentials or retry do not authorize a new window, account mutation or fault injection.
+<!-- /clause-closeout:2026-10-28 -->

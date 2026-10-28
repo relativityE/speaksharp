@@ -1,0 +1,27 @@
+{
+  "suite": "open-mic-first-session",
+  "release": "cc8e30b4710bf271d765d4bc549a0e534dedf53c",
+  "journeys": [
+    {
+      "journeyId": "6b29d535-c093-4969-a149-2018e6dafd74",
+      "stages": [
+        "session_during",
+        "session_after_open_mic",
+        "analytics_inventory"
+      ],
+      "verdict": "QUALIFIED"
+    },
+    {
+      "journeyId": "14bcb70c-b6f3-4ca8-8020-59a810217ac4",
+      "stages": [
+        "practice_again"
+      ],
+      "verdict": "HOLD"
+    }
+  ],
+  "missingBindings": [
+    "repeat_recording",
+    "share_feedback",
+    "session_pdf_export"
+  ]
+}
