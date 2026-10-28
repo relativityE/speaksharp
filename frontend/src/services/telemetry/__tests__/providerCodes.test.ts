@@ -76,9 +76,29 @@ describe('#1742 closed coaching display provenance', () => {
         expect(coachingErrorMessage({ status: 502, reason: 'provider_http_5xx', provider_status: 503,
             provider_error_status: 'unparseable', error_descriptor: { origin: 'local_normalization',
                 http_status: 503, canonical_status: 'UNKNOWN', local_code: 'provider_http_5xx' } }, 'provider_http_5xx', 502)).toBe('UNKNOWN (local normalization): Unknown error.');
-        expect(coachingErrorMessage({ status: 502, reason: 'provider_timeout', error_descriptor: {
+        expect(coachingErrorMessage({ status: 502, reason: 'provider_timeout', provider_status: null, provider_error_status: null, error_descriptor: {
             origin: 'local_timeout', http_status: null, canonical_status: null, local_code: 'provider_timeout',
         } }, 'provider_timeout', 502)).toBe('provider_timeout: The local coaching deadline was exceeded.');
+    });
+    it('refuses local-normalized HTTP-class contradictions instead of treating an HTTP200 as a5xx', () => {
+        for (const [wireCode, http] of [['provider_http_5xx', 200], ['provider_http_4xx', 503],
+            ['provider_http_5xx', 429], ['provider_http_4xx', null]] as const) {
+            expect(coachingErrorMessage({ status: 502, reason: wireCode, provider_status: http,
+                provider_error_status: 'unparseable', error_descriptor: { origin: 'local_normalization',
+                    http_status: http, canonical_status: 'UNKNOWN', local_code: wireCode } }, wireCode, 502)).toBeNull();
+        }
+    });
+    it.each(['200', Number.NaN, 0, 700, undefined])('refuses malformed timeout scalar status %s before selecting prose', (provider_status) => {
+        expect(coachingErrorMessage({ status: 502, reason: 'provider_timeout', provider_status, provider_error_status: null,
+            error_descriptor: { origin: 'local_timeout', http_status: null, canonical_status: null, local_code: 'provider_timeout' },
+        }, 'provider_timeout', 502)).toBeNull();
+    });
+    it('refuses echoed timeout error-status scalars but preserves a genuine timeout after HTTP200 headers', () => {
+        const server = { status: 502, reason: 'provider_timeout', provider_status: 200, provider_error_status: ECHO,
+            error_descriptor: { origin: 'local_timeout', http_status: null, canonical_status: null, local_code: 'provider_timeout' } };
+        expect(coachingErrorMessage(server, 'provider_timeout', 502)).toBeNull();
+        expect(coachingErrorMessage({ ...server, provider_error_status: null }, 'provider_timeout', 502))
+            .toBe('provider_timeout: The local coaching deadline was exceeded.');
     });
     it('rejects mismatched wire codes, scalar diagnostics, origins, extra keys and echoed prose', () => {
         const good = provider(503, 'UNAVAILABLE');

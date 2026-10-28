@@ -67,17 +67,27 @@ export function coachingErrorMessage(server: Record<string, unknown> | null, wir
     const keys = Object.keys(d).sort();
     if (keys.join(',') !== 'canonical_status,http_status,local_code,origin') return null;
     const http = d.http_status;
-    const validHttp = http === null || (Number.isInteger(http) && Number(http) >= 100 && Number(http) <= 599);
-    if (!validHttp) return null;
+    const httpScalar = (value: unknown): boolean => value === null
+        || (typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599);
+    // Validate observed transport scalars before every origin branch, including local timeout.
+    // A local timeout can follow received headers, so retain a valid observed200 rather than erasing it.
+    if (!httpScalar(http) || !httpScalar(server.provider_status)
+        || !(server.provider_error_status === null || (typeof server.provider_error_status === 'string'
+            && (PROVIDER_ERROR_STATUSES as readonly string[]).includes(server.provider_error_status)))) return null;
     if (d.origin === 'local_timeout') return wireCode === 'provider_timeout' && d.local_code === wireCode
-        && http === null && d.canonical_status === null ? 'provider_timeout: The local coaching deadline was exceeded.' : null;
+        && http === null && d.canonical_status === null && server.provider_error_status === null
+        ? 'provider_timeout: The local coaching deadline was exceeded.' : null;
     if (http !== server.provider_status) return null;
     if (d.origin === 'local_normalization') {
         const reasons = ['provider_http_4xx', 'provider_http_5xx', 'missing_text', 'invalid_shape',
             'over_character_ceiling', 'missing_model_version', 'provider_malformed_response'];
         if (d.canonical_status !== 'UNKNOWN' || d.local_code !== wireCode || !reasons.includes(wireCode)) return null;
-        if ((wireCode === 'provider_http_4xx' || wireCode === 'provider_http_5xx')
-            && server.provider_error_status !== 'other' && server.provider_error_status !== 'unparseable') return null;
+        const httpFailure = wireCode === 'provider_http_4xx' || wireCode === 'provider_http_5xx';
+        if (httpFailure) {
+            if (typeof http !== 'number' || http < 400
+                || wireCode !== (http >= 500 ? 'provider_http_5xx' : 'provider_http_4xx')
+                || (server.provider_error_status !== 'other' && server.provider_error_status !== 'unparseable')) return null;
+        } else if (typeof http !== 'number' || http < 200 || http >= 300 || server.provider_error_status !== null) return null;
         return 'UNKNOWN (local normalization): Unknown error.';
     }
     if (d.origin !== 'provider' || d.local_code !== null || typeof d.canonical_status !== 'string'
