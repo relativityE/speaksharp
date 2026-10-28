@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { readFileSync } from 'node:fs';
-import { observeEditedTakeRace, finalizeEditedTakeProof, createEditedTakePeer, retentionSnapshotSql } from './retention-edited-take-full-chain.mjs';
+import { observeEditedTakeRace, finalizeEditedTakeProof, createEditedTakePeer, retentionSnapshotSql,
+  runRequiredEditedTakeProof } from './retention-edited-take-full-chain.mjs';
 
 const finalState = () => ({ expired: true, plaintextAbsent: true, recoveryCopies: 0, snapshots: 1,
   markerCount: 1, nonblank: true, cohortMatches: true, replacementMatches: true,
@@ -179,4 +180,27 @@ test('snapshot grant references exist in the actual historical table and128 addi
   const references = [...query.matchAll(/\bg\.(\w+)\b/g)].map(match => match[1]);
   assert.ok(references.length > 0);
   for (const column of references) assert.ok(columns.has(column), `actual grant table has no ${column} column`);
+});
+
+test('actual parent seam refuses a zero-exit child without a receipt', () => {
+  let exits = 0;
+  assert.throws(() => runRequiredEditedTakeProof({ run: () => { exits++; return ''; }, read: () => null,
+    owner: 'owned', testedCommit: 'source' }), /receipt absent/);
+  assert.equal(exits, 1);
+});
+test('parent validates completed child evidence before later migration or whole-run teardown', () => {
+  const complete = { ...receipt(), cleanupVerified: false };
+  assert.equal(runRequiredEditedTakeProof({ run: () => {}, read: () => complete,
+    owner: 'owned', testedCommit: 'source' }), complete);
+  for (const [field, value] of [['schemaVersion', 2], ['owner', 'other'], ['testedCommit', 'other'],
+    ['status', 'PASS'], ['bodyComplete', false], ['actorsClosed', false], ['activationRestored', false], ['cleanupVerified', true]]) {
+    assert.throws(() => runRequiredEditedTakeProof({ run: () => {}, read: () => ({ ...complete, [field]: value }),
+      owner: 'owned', testedCommit: 'source' }), undefined, field);
+  }
+});
+test('a failed child is propagated; a leftover read cannot turn it into success', () => {
+  let reads = 0;
+  assert.throws(() => runRequiredEditedTakeProof({ run: () => { throw new Error('child refused'); },
+    read: () => { reads++; return receipt(); }, owner: 'owned', testedCommit: 'source' }), /child refused/);
+  assert.equal(reads, 0);
 });

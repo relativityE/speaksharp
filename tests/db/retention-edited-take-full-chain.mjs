@@ -77,6 +77,23 @@ export function finalizeEditedTakeProof(receipt, { owner, testedCommit, cleanupV
     status: complete && cleanupVerified === true && parentPassed === true ? 'PASS' : 'FAIL' };
 }
 
+// A zero child exit is not evidence. This is the actual parent call seam, so
+// controls can exercise the missing-file outcome without spawning Docker.
+export function runRequiredEditedTakeProof({ run, read, owner, testedCommit }) {
+  run();
+  const receipt = read();
+  assert.ok(receipt && typeof receipt === 'object', 'edited-take child receipt absent');
+  assert.equal(receipt.schemaVersion, 1, 'unknown edited-take child receipt');
+  assert.equal(receipt.owner, owner, 'edited-take child owner differs');
+  assert.equal(receipt.testedCommit, testedCommit, 'edited-take child source differs');
+  assert.equal(receipt.status, 'AWAITING_OWNED_TEARDOWN', 'child cannot finalize its own teardown');
+  assert.equal(receipt.bodyComplete, true, 'edited-take body incomplete');
+  assert.equal(receipt.actorsClosed, true, 'edited-take peers not closed');
+  assert.equal(receipt.activationRestored, true, 'edited-take policy not restored');
+  assert.equal(receipt.cleanupVerified, false, 'child cannot claim parent teardown');
+  return receipt;
+}
+
 export function retentionSnapshotSql({ user, old, replacement }) {
   for (const id of [user, old, replacement]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   return `SELECT json_build_object(

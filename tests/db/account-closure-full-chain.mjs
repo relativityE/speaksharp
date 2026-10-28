@@ -13,7 +13,7 @@ import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage
 
 import { pathToFileURL } from 'node:url';
 import { createNativeT2CatalogProof } from './t2-native-catalog-proof.mjs';
-import { finalizeEditedTakeProof } from './retention-edited-take-full-chain.mjs';
+import { finalizeEditedTakeProof, runRequiredEditedTakeProof } from './retention-edited-take-full-chain.mjs';
 import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery, t2ExpectedCatalog, assertT2Catalog,
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
 
@@ -946,6 +946,7 @@ export function runMainClosureProof() {
   let cleanupError;
   let realSupabaseSchema = false;
   let nativeT2Catalog;
+  let editedTakeReached = false;
   let subnet;
   const cli = (args) => run('supabase', [...args, '--workdir', stage]);
   const sql = (text) => run('docker', ['exec', '-i', containerName, 'psql', '-X', '-qAt', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], {
@@ -1229,7 +1230,12 @@ export function runMainClosureProof() {
       // Observe the actual current profile-first edit/save race before129.
       // A child receipt cannot PASS until this parent's owned teardown succeeds.
       assert.equal(existsSync(editedTakeReceipt), false, 'stale edited-take receipt refused');
-      run(process.execPath, ['tests/db/retention-edited-take-full-chain.mjs']);
+      editedTakeReached = true;
+      runRequiredEditedTakeProof({
+        run: () => run(process.execPath, ['tests/db/retention-edited-take-full-chain.mjs']),
+        read: () => existsSync(editedTakeReceipt) ? JSON.parse(readFileSync(editedTakeReceipt, 'utf8')) : null,
+        owner: id, testedCommit: run('git', ['rev-parse', 'HEAD']),
+      });
     }
     if(billingT2) {
       const billing=MAIN_COMPLETION_BILLING_MIGRATION;
@@ -1269,8 +1275,9 @@ export function runMainClosureProof() {
     try {
       cleanupOwned({ id, stage, networkName, subnet });
     } catch (error) { cleanupError = error; }
-    if (retentionT2 && existsSync(editedTakeReceipt)) {
+    if (editedTakeReached) {
       try {
+        assert.equal(existsSync(editedTakeReceipt), true, 'reached edited-take stage is missing its receipt');
         const observed = finalizeEditedTakeProof(JSON.parse(readFileSync(editedTakeReceipt, 'utf8')), {
           owner: id, testedCommit: run('git', ['rev-parse', 'HEAD']), cleanupVerified: !cleanupError,
           parentPassed: !primaryError && !cleanupError,

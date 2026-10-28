@@ -84,7 +84,7 @@ test('post-C1 native readbacks precede billing129 and do not relabel the histori
 
 test('edited-take behavior uses the real post128 chain and cannot PASS before owned teardown', () => {
   const driver = read('tests/db/account-closure-full-chain.mjs');
-  const hook = driver.indexOf("run(process.execPath, ['tests/db/retention-edited-take-full-chain.mjs'])");
+  const hook = driver.indexOf('runRequiredEditedTakeProof({');
   assert.ok(hook > driver.indexOf('stage: 128,'));
   assert.ok(hook < driver.indexOf('const billing=MAIN_COMPLETION_BILLING_MIGRATION;'));
   const finalize = driver.lastIndexOf('const observed = finalizeEditedTakeProof(');
@@ -92,6 +92,9 @@ test('edited-take behavior uses the real post128 chain and cannot PASS before ow
   assert.ok(driver.includes("assert.equal(existsSync(editedTakeReceipt), false, 'stale edited-take receipt refused')"));
   assert.ok(driver.includes('parentPassed: !primaryError && !cleanupError'));
   assert.ok(driver.includes("assert.equal(observed.status, 'PASS'"));
+  assert.ok(driver.includes('editedTakeReached = true;'));
+  assert.ok(driver.includes('if (editedTakeReached) {'));
+  assert.ok(!driver.includes('if (retentionT2 && existsSync(editedTakeReceipt))'));
 });
 // Independent pins reviewed from99585/e772, not values read back from the planner.
 const U1 = Object.freeze({ name: '20261019010000_heartbeat_session_cap_keeps_take_open_1593.sql',
