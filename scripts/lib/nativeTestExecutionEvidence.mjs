@@ -18,6 +18,9 @@ export const NATIVE_HELPERS=Object.freeze([
     callables:['buildMainU1ReplayPlan','parseMainProofArguments'],claim:'actual planner callables only; Docker replay NOT RUN'},
   {file:'tests/db/t2-native-catalog-proof.mjs',consumer:'tests/db/t2-native-catalog-proof.test.mjs',
     callables:['createNativeT2CatalogProof','record','finish'],claim:'actual observer protocol callables with fake SQL; native database NOT RUN'},
+  {file:'tests/db/retention-edited-take-full-chain.mjs',consumer:'tests/db/retention-edited-take-full-chain.test.mjs',
+    callables:['observeEditedTakeRace','finalizeEditedTakeProof','createEditedTakePeer'],
+    claim:'actual retention controller/oracle and fake-process transport controls only; native DB/Docker replay NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {

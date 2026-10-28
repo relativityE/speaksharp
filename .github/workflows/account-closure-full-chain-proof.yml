@@ -5,6 +5,8 @@ on:
     paths:
       - 'backend/supabase/migrations/**'
       - 'tests/db/account-closure-full-chain*'
+      - 'tests/db/retention-edited-take-full-chain.mjs'
+      - 'tests/db/retention-edited-take-full-chain.test.mjs'
       - 'tests/db/t2-native-catalog-proof.mjs'
       - 'tests/db/t2-native-catalog-proof.test.mjs'
       - 'tests/db/t2-native-catalog-expanded.test.mjs'
@@ -71,7 +73,7 @@ jobs:
         with:
           node-version: '22'
       - name: Prove explicit main, Analytics, U1 and account replay plans offline
-        run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs tests/db/t2-native-catalog-proof.test.mjs tests/db/t2-native-catalog-expanded.test.mjs
+        run: node --test tests/db/account-closure-full-chain-main-u1-plan.test.mjs tests/db/t2-native-catalog-proof.test.mjs tests/db/t2-native-catalog-expanded.test.mjs tests/db/retention-edited-take-full-chain.test.mjs
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}

@@ -13,6 +13,7 @@ import { captureOwnedDatabaseDiagnostics, proofImageEvidence, proofPostgresImage
 
 import { pathToFileURL } from 'node:url';
 import { createNativeT2CatalogProof } from './t2-native-catalog-proof.mjs';
+import { finalizeEditedTakeProof } from './retention-edited-take-full-chain.mjs';
 import { T2_INVENTORY, T2_VERSIONS, t2CatalogQuery, t2ExpectedCatalog, assertT2Catalog,
   t2ReleaseLedgerQuery, t2ReleaseContract, t2ReleaseSnapshotQuery, assertT2ReleaseSnapshot } from '../../scripts/lib/t2MigrationPostflight.mjs';
 
@@ -893,6 +894,7 @@ export function runMainClosureProof() {
   const evidence = resolve('artifacts/account-closure-full-chain');
   mkdirSync(evidence, { recursive: true });
   const resourcesFile = join(evidence, 'resources.json');
+  const editedTakeReceipt = join(evidence, 'retention-edited-take.json');
   const run = (bin, args, options = {}) => {
     const result = spawnSync(bin, args, { env, encoding: 'utf8', timeout: 12 * 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
     if (result.error || result.status !== 0) {
@@ -1224,6 +1226,10 @@ export function runMainClosureProof() {
       observeC1ReleaseCatalog({ sql, root: process.cwd(), stage: 128,
         retain: receipt => writeFileSync(join(evidence, 't2-release-post128.json'), JSON.stringify(receipt, null, 2)) });
       console.log('CONTENT-FREE RETENTION FULL-CHAIN CATALOG PASSED');
+      // Observe the actual current profile-first edit/save race before129.
+      // A child receipt cannot PASS until this parent's owned teardown succeeds.
+      assert.equal(existsSync(editedTakeReceipt), false, 'stale edited-take receipt refused');
+      run(process.execPath, ['tests/db/retention-edited-take-full-chain.mjs']);
     }
     if(billingT2) {
       const billing=MAIN_COMPLETION_BILLING_MIGRATION;
@@ -1263,6 +1269,16 @@ export function runMainClosureProof() {
     try {
       cleanupOwned({ id, stage, networkName, subnet });
     } catch (error) { cleanupError = error; }
+    if (retentionT2 && existsSync(editedTakeReceipt)) {
+      try {
+        const observed = finalizeEditedTakeProof(JSON.parse(readFileSync(editedTakeReceipt, 'utf8')), {
+          owner: id, testedCommit: run('git', ['rev-parse', 'HEAD']), cleanupVerified: !cleanupError,
+          parentPassed: !primaryError && !cleanupError,
+        });
+        writeFileSync(editedTakeReceipt, JSON.stringify(observed, null, 2));
+        assert.equal(observed.status, 'PASS', 'edited-take proof or owned teardown did not complete');
+      } catch (error) { primaryError ??= error; }
+    }
     writeFileSync(join(evidence, 'verdict.json'), JSON.stringify({
       status: primaryError || cleanupError ? 'FAIL' : 'PASS',
       candidate: migrations.at(-1), migrations: migrations.length, realSupabaseSchema,
