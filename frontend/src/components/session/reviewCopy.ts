@@ -15,6 +15,8 @@ export const FOCUS_POINTS_DISCLOSURE =
 
 // #1258 punch list D3 (Rev 2 §2.1).
 export const UNAVAILABLE_MESSAGE = "The review didn't load. Your session is saved.";
+/** Fixed assurance appended only to a validated closed coaching failure. */
+export const COACHING_ERROR_SESSION_ASSURANCE = 'Your session is saved.';
 
 /** PO 2026-10-09: a reopened session whose transcript is no longer kept cannot be reviewed — terminal, no button. */
 export const NOT_AVAILABLE_FOR_SESSION_MESSAGE = "Review isn't available for this session.";
