@@ -1,8 +1,27 @@
+# Release Status
+
+**Status:** Authoritative for the bounded 28 October 2026 component snapshot below; earlier dated snapshots remain history. Release acceptance HOLD.
+**Owner:** Product Owner (relativityE)
+**Last Reviewed:** 2026-10-28 — specialist source review and current-main receiving; exact-head qualification remains a separate gate.
+**Last Verified:** 2026-10-28 — GitHub main `8a79eafa23bd3beeee6d087270acd9ed5a16eb1e` read during receiving; frontend and Edge `4c85` remain bound to Sam's retained release receipts below. No new Production query or end-to-end acceptance is claimed by this documentation change.
+**Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
+**Class:** Runtime fact.
+**Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
+**Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`), or documentation structure (→ `README.md`).
+**Supersedes:** the September current-status narrative and October baseline-only banner here. Historical evidence and archives remain unchanged.
+**Evidence Sources:** the exact GitHub PR, issue-comment and workflow receipts linked below.
+
 ## 28 October 2026 post-R5 receiving addendum
 
 **HOLD — documentation receipt, not a new live verification.** This addendum supersedes
 older current-tense deployment and queue statements below. GitHub source was read at
 `4c85b006ac05e180521fd6e7d807f736987cafe8`; the earlier observations remain dated history.
+
+| Identity | Recorded value | Evidence boundary |
+|---|---|---|
+| Repository `main` currency-comparison baseline (fixed) | `4c85b006ac05e180521fd6e7d807f736987cafe8` | Matches the currency block below; a fixed comparison base, not an assertion that the moving branch still points here. |
+| Latest observed GitHub main during receiving | `8a79eafa23bd3beeee6d087270acd9ed5a16eb1e` | Source-only #1752 landing; no product deployment or customer acceptance inferred. Re-read before the next operational action. |
+| Latest retained frontend `__APP_RELEASE__ =` | `4c85b006ac05e180521fd6e7d807f736987cafe8` | Sam's frontend release/readback receipt below; no fresh Production read by this documentation task. Older deployed rows remain dated history. |
 
 Sam's release handoff reports frontend and backend on that source, from backend
 [40674315502](https://github.com/relativityE/speaksharp/actions/runs/40674315502) and frontend
@@ -140,19 +159,6 @@ The exact main commit's Vercel status was FAILURE at2026-10-19T14:20:06Z: “Dep
 The1662/1666/1667/1668 release queue and case10 correction remain separate qualification/integration boundaries. Copy1254's current receiver aac368a7 is source-accepted; Analytics1472's receiver ee9c9c42 has independently executed64-control client/PGlite parity evidence, not hosted migration/application or deployed proof. Neither patch is claimed shipped. Canonical-target continuity1548 and customer-exit1643 remain open beyond narrow landed1636 labels and1611 backend staging.
 
 Routine account deletion follows [PO policy6251767298](https://github.com/relativityE/speaksharp/issues/1643#issuecomment-6251767298): durable pending for the verified confirmed account, no new admission, settlement of accepted saves/coaching/billing, then verified DB/storage/Auth final state. Other users continue; global shutdown/termination is not the routine contract. Historical global-drain claims below do not override this policy. Existing operational configuration/legacy-cutover guards remain until a reviewed successor replaces them.202 pending and timeout are not deleted; cancellation remains distinct. No migration, runtime/provider/account mutation or activation is authorized here.
-
-# Release Status
-
-**Status:** Authoritative for the bounded 28 October 2026 component snapshot below; earlier dated snapshots remain history. Release acceptance HOLD.
-**Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-10-28 — bounded source/component reconciliation; this documentation correction still requires its own independent review and qualification.
-**Last Verified:** 2026-10-28 — repository main at 04:47 UTC, frontend receipt/readback at 03:35:47 UTC, and Sam's separate read-only backend check at 04:41:08 UTC. These are separate observations, not one end-to-end acceptance run or a new Production query by this documentation change.
-**Applies To:** Current production deployment + RWT/Alpha and MVP/Beta release tracks.
-**Class:** Runtime fact.
-**Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
-**Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`), or documentation structure (→ `README.md`).
-**Supersedes:** the September current-status narrative and October baseline-only banner here. Historical evidence and archives remain unchanged.
-**Evidence Sources:** the exact GitHub PR, issue-comment and workflow receipts linked below.
 
 ## Disposition
 
