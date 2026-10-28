@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'backend/supabase/migrations/**'
+      - 'backend/supabase/functions/get-ai-suggestions/contract.json'
       - 'tests/db/**'
       - 'scripts/lib/**'
       - 'tests/unit/retentionCurrentContractMatrix.test.js'

@@ -60,6 +60,7 @@ describe('#1610 current-contract owner matrix wiring', () => {
         if (match[1].startsWith('.')) visit(resolve(dirname(path), match[1]).slice(process.cwd().length + 1));
       }
       for (const match of text.matchAll(/['"]([\w]+\.sql)['"]/g)) seen.add(`backend/supabase/migrations/${match[1]}`);
+      for (const match of text.matchAll(/readFileSync\(\s*['"]([^'"]+)['"]/g)) seen.add(match[1]);
     }
     visit('tests/db/content-free-retention-evidence.realpg.mjs');
     visit('tests/db/retention-owner-matrix.test.mjs');
