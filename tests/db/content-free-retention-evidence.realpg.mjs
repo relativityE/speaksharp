@@ -491,9 +491,10 @@ async function runOwnedEditedTakeRace({ db, exec, bin, socket, env }) {
 export function cleanupOwnedRetentionFixture(io) {
   assert.equal(io.ownershipKnown(), true, 'startup ownership unknown; retain owned resources');
   const before = io.observe();
-  if (before.dataPresent) {
-    try { io.stop(); } catch { /* Observe independently; a missing server needs no stop. */ }
-  }
+  assert.equal(before.dataPresent, true, 'owned data disappeared before confirmed shutdown; retain resources');
+  // Empty PID samples cannot exclude a child born and reparented between samples.
+  // Require pg_ctl's successful waited shutdown; preserve any stop error and data.
+  io.stop();
   const after = io.observe();
   assert.equal(after.processes.length, 0, 'owned PostgreSQL processes remain');
   assert.equal(after.socketPresent, false, 'owned PostgreSQL Unix socket remains');

@@ -88,6 +88,23 @@ test('failed startup still records known children and preserves primary error wh
   assert.throws(() => startOwnedRetentionFixture({ start: () => {},
     observe: () => ({ postmasterPid: null, processes: [] }), record: (_, known) => { assert.equal(known, false); } }), /not observed/);
 });
+test('late-born orphan after root loss cannot disappear behind empty owned snapshots and failed stop', () => {
+  const scope = { bin: '/owned/bin', data: '/owned/data', postmasterPid: 10, seen: new Set([10, 11]) };
+  let removed = false;
+  const stopFailure = Error('postmaster vanished before confirmed shutdown');
+  const observe = () => ({ dataPresent: !removed, pidFilePresent: false, socketPresent: false,
+    processes: ownedRetentionProcessIds([{ pid: 12, parent: 1, command: 'postgres orphan' }], scope) });
+  // PID12 was born during the body and reparented before the first teardown sample.
+  assert.deepEqual(observe().processes, []);
+  assert.throws(() => cleanupOwnedRetentionFixture({ ownershipKnown: () => true, observe,
+    stop: () => { throw stopFailure; }, removeData: () => { removed = true; } }), error => error === stopFailure);
+  assert.equal(removed, false);
+});
+test('missing owned data before shutdown is unknown, not independently verified cleanup', () => {
+  assert.throws(() => cleanupOwnedRetentionFixture({ ownershipKnown: () => true,
+    observe: () => ({ dataPresent: false, processes: [], pidFilePresent: false, socketPresent: false }),
+    stop: () => {}, removeData: () => {} }));
+});
 test('actual process ownership follows children after reparenting and excludes adjacent data roots', () => {
   const scope = { bin: '/owned/bin', data: '/owned/fixture/data', postmasterPid: 10, seen: new Set() };
   assert.deepEqual(ownedRetentionProcessIds([
