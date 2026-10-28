@@ -68,7 +68,6 @@ describe('#1674 documentation metadata reaches the actual collection CLI', () =>
         } finally { rmSync(root, { recursive: true, force: true }); }
     });
 });
-
 const load = (f) => yaml.load(readFileSync(resolve(process.cwd(), '.github/workflows', f), 'utf8'));
 const REVIEW_EVENTS = ['pull_request_review', 'pull_request_review_comment'];
 
@@ -486,5 +485,116 @@ describe('ci-engineering-evidence: only exact-head, complete, successful enginee
     });
     it('review-event runs are not engineering evidence', () => {
         expect(evaluate([run({ event: 'pull_request_review' })], { 100: jobs() }).reasons).toContain(ENGINEERING_HOLD.NO_RUN);
+    });
+});
+
+const FINANCE_PINS = [
+  {
+    "path": "local-packets/1599-model-status-control/README.md",
+    "oid": "23e345dea0da592e1c6a9cd9765d8ab22a21e57b",
+    "mode": "100644",
+    "size": 2624
+  },
+  {
+    "path": "local-packets/1599-model-status-control/edit.mjs",
+    "oid": "9942d9759b6ed2e09183fea1dff432212f1bb523",
+    "mode": "100644",
+    "size": 1459
+  },
+  {
+    "path": "local-packets/1599-model-status-control/inspect-native.py",
+    "oid": "e02ed0ca701232bdfa37eacbdebcd1f93b409363",
+    "mode": "100644",
+    "size": 723
+  },
+  {
+    "path": "local-packets/1599-model-status-control/native-receipts.json",
+    "oid": "058fbb2cb968b85d0cf66aee9aff08977064dc93",
+    "mode": "100644",
+    "size": 3906
+  },
+  {
+    "path": "local-packets/1599-model-status-control/preserve-package.py",
+    "oid": "ac271ead1d1c58d30a069a4b437cd6893eaf7acf",
+    "mode": "100644",
+    "size": 2442
+  },
+  {
+    "path": "local-packets/1599-model-status-control/verify-native.test.mjs",
+    "oid": "f0808c29474edb983b46358ea8931037e85800aa",
+    "mode": "100644",
+    "size": 6570
+  },
+  {
+    "path": "product_release/ROADMAP.md",
+    "oid": "1769c07635ead0df59990bcdb6fb949e182e0838",
+    "mode": "100644",
+    "size": 23129
+  },
+  {
+    "path": "product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md",
+    "oid": "0cc9545660dff6709a4d5171268bedf04982b0fb",
+    "mode": "100644",
+    "size": 20082
+  },
+  {
+    "path": "product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx",
+    "oid": "c78f60fa0383ae2461f209bdb96a0a50b2909f5e",
+    "mode": "100644",
+    "size": 76656
+  }
+];
+describe('#1599 documentation metadata reaches the actual collection CLI', () => {
+    it.each(['accepted', 'wrong blob', 'truncated tree', 'base drift'])('collects and refuses from the same shared reader: %s', scenario => {
+        const root = mkdtempSync(resolve(tmpdir(), 'documentation-collection-'));
+        const head = 'c9747c6b9030045ec9303ec276f413b9c8d431bc';
+        const base = 'd2425ee700eb1f1875d84d4144b68a29302e6c0a';
+        const tree = 'ad14be301f760c1b776fa1597205d16b33028f9f';
+        const repo = 'relativityE/speaksharp';
+        const pull = { number: 1599, headRefOid: head, baseRefOid: base, baseRefName: 'main', headRefName: 'docs',
+            baseRepository: { nameWithOwner: repo }, headRepository: { nameWithOwner: repo },
+            files: { nodes: FINANCE_PINS.map(({ path }) => ({ path })), pageInfo: { hasNextPage: false } },
+            reviews: { nodes: [{ author: { login: 'chatgpt-codex-connector' }, state: 'COMMENTED', commit: { oid: head },
+                body: 'reviewed', submittedAt: '2026-10-28T17:34:11Z' }], pageInfo: { hasPreviousPage: false } },
+            reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } }, comments: { nodes: [], pageInfo: { hasPreviousPage: false } } };
+        const entries = FINANCE_PINS.map(({ oid, ...row }) => ({ ...row, sha: oid, type: 'blob' }));
+        if (scenario === 'wrong blob') entries[0].sha = 'a'.repeat(40);
+        try {
+            writeFileSync(resolve(root, 'fixture.json'), JSON.stringify({ pull, entries, head, base, tree, scenario }));
+            writeFileSync(resolve(root, 'fetch.mjs'), `
+                import { readFileSync, writeFileSync } from 'node:fs';
+                const f=JSON.parse(readFileSync(new URL('./fixture.json',import.meta.url),'utf8'));const calls=[];
+                process.on('exit',()=>writeFileSync(new URL('./calls.json',import.meta.url),JSON.stringify(calls)));
+                globalThis.fetch=async(url,options)=>{
+                    const u=new URL(url);calls.push(u.pathname+u.search);
+                    if(u.origin!=='https://api.github.com'||options.headers.Authorization!=='Bearer synthetic')throw Error('unexpected network');
+                    let value;
+                    if(u.pathname==='/graphql'){
+                        const query=JSON.parse(options.body).query;const pull=structuredClone(f.pull);
+                        if(query.includes('documentationPostimageIdentity')&&f.scenario==='base drift')pull.baseRefOid='b'.repeat(40);
+                        value={data:{repository:{pullRequest:pull}}};
+                    }else if(u.pathname.endsWith('/git/commits/'+f.head))value={sha:f.head,tree:{sha:f.tree}};
+                    else if(u.pathname.endsWith('/git/trees/'+f.tree))value={sha:f.tree,truncated:f.scenario==='truncated tree',tree:f.entries};
+                    else if(u.pathname.endsWith('/activity'))value=[];
+                    else if(u.pathname.endsWith('/branches/main/protection'))value={required_conversation_resolution:{enabled:true},enforce_admins:{enabled:true}};
+                    else if(u.pathname.endsWith('/rules/branches/main'))value=[];
+                    else throw Error('unexpected API');
+                    return {ok:true,status:200,json:async()=>value};
+                };`);
+            const output = resolve(root, 'receipt.json');
+            const child = spawnSync(process.execPath, ['--import', resolve(root, 'fetch.mjs'),
+                resolve(process.cwd(), 'scripts/collect-review-qualification.mjs')], {
+                cwd: process.cwd(), encoding: 'utf8', timeout: 10000,
+                env: { GITHUB_REPOSITORY: repo, GITHUB_TOKEN: 'synthetic', PR_NUMBER: '1599',
+                    EXPECTED_HEAD_SHA: head, REVIEW_QUALIFICATION_FILE: output },
+            });
+            expect(child.error).toBeUndefined();
+            expect(child.status).toBe(scenario === 'accepted' ? 0 : 1);
+            const receipt = JSON.parse(readFileSync(output, 'utf8'));
+            expect(receipt.qualified).toBe(scenario === 'accepted');
+            const calls = JSON.parse(readFileSync(resolve(root, 'calls.json'), 'utf8'));
+            expect(calls).toContain('/repos/' + repo + '/git/commits/' + head);
+            expect(calls).toContain('/repos/' + repo + '/git/trees/' + tree + '?recursive=1');
+        } finally { rmSync(root, { recursive: true, force: true }); }
     });
 });

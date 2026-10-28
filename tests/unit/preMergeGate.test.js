@@ -413,6 +413,88 @@ describe('#1430 P1 `3988517243` — the merge proceeds only where GitHub itself 
   });
 });
 
+
+const FINANCE_PINS = [
+  {
+    "path": "local-packets/1599-model-status-control/README.md",
+    "oid": "23e345dea0da592e1c6a9cd9765d8ab22a21e57b",
+    "mode": "100644",
+    "size": 2624
+  },
+  {
+    "path": "local-packets/1599-model-status-control/edit.mjs",
+    "oid": "9942d9759b6ed2e09183fea1dff432212f1bb523",
+    "mode": "100644",
+    "size": 1459
+  },
+  {
+    "path": "local-packets/1599-model-status-control/inspect-native.py",
+    "oid": "e02ed0ca701232bdfa37eacbdebcd1f93b409363",
+    "mode": "100644",
+    "size": 723
+  },
+  {
+    "path": "local-packets/1599-model-status-control/native-receipts.json",
+    "oid": "058fbb2cb968b85d0cf66aee9aff08977064dc93",
+    "mode": "100644",
+    "size": 3906
+  },
+  {
+    "path": "local-packets/1599-model-status-control/preserve-package.py",
+    "oid": "ac271ead1d1c58d30a069a4b437cd6893eaf7acf",
+    "mode": "100644",
+    "size": 2442
+  },
+  {
+    "path": "local-packets/1599-model-status-control/verify-native.test.mjs",
+    "oid": "f0808c29474edb983b46358ea8931037e85800aa",
+    "mode": "100644",
+    "size": 6570
+  },
+  {
+    "path": "product_release/ROADMAP.md",
+    "oid": "1769c07635ead0df59990bcdb6fb949e182e0838",
+    "mode": "100644",
+    "size": 23129
+  },
+  {
+    "path": "product_release/work_items/financial-analysis/FINANCIAL_MODEL_REVIEW_2026-10-12.md",
+    "oid": "0cc9545660dff6709a4d5171268bedf04982b0fb",
+    "mode": "100644",
+    "size": 20082
+  },
+  {
+    "path": "product_release/work_items/financial-analysis/SpeakSharp_Updated_Financial_Model_2026-10-12.xlsx",
+    "oid": "c78f60fa0383ae2461f209bdb96a0a50b2909f5e",
+    "mode": "100644",
+    "size": 76656
+  }
+];
+describe('#1599 pinned documentation at the actual merge boundary', () => {
+  const makeLive = () => livePull([], { number: 1599, headRepository: { nameWithOwner: REPOSITORY },
+    files: { nodes: FINANCE_PINS.map(({ path }) => ({ path })), pageInfo: { hasNextPage: false } },
+    documentationEvidence: { repository: REPOSITORY, number: 1599, headRepository: REPOSITORY, baseRef: 'main',
+      headSha: HEAD, baseSha: BASE, treeSha: 'c'.repeat(40), complete: true,
+      entries: FINANCE_PINS.map(row => ({ ...row, type: 'blob' })) } });
+  it.each(['accepted', 'missing live metadata', 'changed content', 'extra runtime path', 'stale receipt', 'live P1', 'unenforced protection'])(
+    'retains guard requirements: %s', async scenario => {
+      const live = makeLive();
+      if (scenario === 'missing live metadata') delete live.documentationEvidence;
+      if (scenario === 'changed content') live.documentationEvidence.entries[0].oid = 'a'.repeat(40);
+      if (scenario === 'extra runtime path') live.files.nodes.push({ path: 'scripts/unreviewed.mjs' });
+      if (scenario === 'live P1') live.reviewThreads.nodes.push(thread(false, RELEASE_FINDING_BODY));
+      const mergeExecutor = vi.fn(async () => ({ sha: 'merged' }));
+      const outcome = await guardedMerge({ repository: REPOSITORY, prNumber: 1599,
+        expectedHeadSha: HEAD, expectedBaseSha: BASE, token: 'synthetic',
+        priorReceipt: receiptAgedMinutes(scenario === 'stale receipt' ? 90 : 1, { pullRequestNumber: 1599 }),
+        readPullRequest: async () => live,
+        readBaseProtection: async () => scenario === 'unenforced protection' ? 'not_enforced' : 'enforced', mergeExecutor });
+      expect(outcome.mergeInvoked).toBe(scenario === 'accepted');
+      expect(mergeExecutor).toHaveBeenCalledTimes(scenario === 'accepted' ? 1 : 0);
+    });
+});
+
+
 describe('#1430 fix-forward `3991388525` — a resolved same-head blocker does not merge without an authorized dismissal', () => {
   const sameHeadResolved = (reviewState = 'COMMENTED') => {
     const t = thread(true, 'P1 Badge — resolved without re-review', HEAD);
