@@ -21,6 +21,10 @@ export const NATIVE_HELPERS=Object.freeze([
   {file:'tests/db/retention-edited-take-full-chain.mjs',consumer:'tests/db/retention-edited-take-full-chain.test.mjs',
     callables:['observeEditedTakeRace','finalizeEditedTakeProof','createEditedTakePeer'],
     claim:'actual retention controller/oracle and fake-process transport controls only; native DB/Docker replay NOT RUN'},
+  {file:'tests/db/content-free-retention-evidence.realpg.mjs',consumer:'tests/db/retention-owner-matrix.test.mjs',
+    callables:['assertRetentionOwners','cleanupOwnedRetentionFixture','observeRetentionOwnerRace',
+      'ownedRetentionProcessIds','createRetentionLocalPeer','startOwnedRetentionFixture'],
+    claim:'actual owner/cleanup/transport protocol guards only; native database NOT RUN'},
 ]);
 const fail=message=>{throw new Error(message);};
 function regular(root,file) {

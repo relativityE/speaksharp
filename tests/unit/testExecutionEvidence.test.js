@@ -22,6 +22,44 @@ const test=(name,...args)=>{
 };
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 
+test('retention pin input requires its exact reviewed consumer and complete schema2 observations',()=>{
+  const file='tests/db/retention-owner-matrix-pins.json',contract=registeredFixture(file);
+  assert.equal(contract.testFile,'tests/unit/retentionCurrentContractMatrix.test.js');
+  assert.equal(executionRoute(file,root).runner,'vitest-fixture');
+  assert.equal(registeredFixture(file.replace('pins','unknown')),null);
+  const f=executionFixture(true);
+  try {
+    for(const name of [file,contract.testFile,contract.workflowFile])f.write(name,fs.readFileSync(path.join(root,name)));
+    const binding={cwd:f.dir,phaseId:randomUUID()};
+    binding.fixture={fixtureFile:file,testFile:contract.testFile,sourceBinding:fixtureSourceBinding(f.dir,file),
+      witnessFile:path.join(f.dir,`.fixture-${binding.phaseId}.json`)};
+    const bytes=fs.readFileSync(path.join(root,file)),pins=JSON.parse(bytes);
+    const workflow=fs.readFileSync(path.join(root,contract.workflowFile),'utf8');
+    const raw={schemaVersion:2,phaseId:binding.phaseId,bindingSha256:hash(JSON.stringify(binding)),
+      fixtureFile:file,fixtureSha256:hash(bytes),assertion:contract.assertion,
+      workflowSha256:hash(workflow),resolverSha256:'63935ffc8708aba82aa2721b224cd4da3c3a2e3d19b748477ec469d6478fdfd3',
+      observations:pins.versions.map(pin=>({major:pin.major,status:0,signal:null,error:null,refused:false,
+        output:`version=${pin.version}\nsha256=${pin.sha256}\n`})),
+      unknown:{major:99,status:1,signal:null,error:null,refused:true,output:null},
+      malformed:{major:15,status:1,signal:null,error:null,refused:true,output:null}};
+    const report={testResults:[{assertionResults:[{fullName:contract.assertion,status:'passed'}]}]};
+    const envelope={finished:{files:[{tasks:[{type:'test',name:contract.assertion,result:{state:'pass'}}]}]}};
+    const verify=(value=raw)=>validateFixtureWitness(value,binding,f.dir,report,envelope);
+    assert.equal(verify(),file);
+    for(const change of [value=>{value.schemaVersion=1;},value=>{value.phaseId='other';},
+      value=>{value.bindingSha256='a'.repeat(64);},value=>{value.workflowSha256='b'.repeat(64);},
+      value=>{value.resolverSha256='c'.repeat(64);},value=>{value.observations.pop();},
+      value=>{value.observations[0].output='invented output';},value=>{value.unknown.status=0;},
+      value=>{value.malformed.refused=false;}]) {
+      const changed=structuredClone(raw);change(changed);assert.throws(()=>verify(changed),/retention pin consumption witness/);
+    }
+    assert.throws(()=>verify(null),/retention pin consumption witness/);
+    assert.throws(()=>validateFixtureWitness(raw,binding,f.dir,{testResults:[]},envelope),/consumer was not executed/);
+    f.write(contract.testFile,'// forged consumer\n');
+    assert.throws(()=>verify(),/consumer bytes differ/);
+  }finally{fs.rmSync(f.dir,{recursive:true,force:true});}
+});
+
 test('routes approved source contracts separately from actual live execution',()=>{
   for(const file of ['tests/canary/smoke.canary.spec.ts',
     'tests/live/rwt-open-mic-first-session.live.spec.ts','tests/fixtures/rwt/rwt-fixtures.manifest.json']) {

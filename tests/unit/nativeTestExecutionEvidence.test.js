@@ -22,8 +22,8 @@ test('bounded native routes retain explicit planner/protocol and fixture-only cl
   const paths=[...NATIVE_HELPERS.map(item=>item.file),...NATIVE_HELPERS.map(item=>item.consumer),
     'backend/supabase/functions/account-closure/completion-execution.test.ts'];
   const contracts=selectNativeContracts(root,paths);
-  assert.equal(contracts.length,4);
-  assert.equal(contracts.filter(item=>item.runner==='node-test').length,3);
+  assert.equal(contracts.length,5);
+  assert.equal(contracts.filter(item=>item.runner==='node-test').length,4);
   for(const item of NATIVE_HELPERS) {
     assert.equal(nativeTestRoute(item.file,root).consumer,item.consumer);
     assert.match(nativeTestRoute(item.file,root).claim,/NOT RUN/);
@@ -60,6 +60,30 @@ test('edited-take helper maps only to its exact protocol test and refuses source
     }
     f.write(helper.file,'\n '+fs.readFileSync(path.join(f.dir,helper.file),'utf8'));
     assert.throws(()=>validateNativeCallables(phase.coverage,phase.binding,f.dir,[helper.file]));
+  }finally{f.clean();}
+});
+
+test('retention owner helper executes actual offline guards and rejects import-only coverage',()=>{
+  const helper=NATIVE_HELPERS.find(item=>item.file==='tests/db/content-free-retention-evidence.realpg.mjs');
+  assert.equal(helper.consumer,'tests/db/retention-owner-matrix.test.mjs');
+  assert.match(helper.claim,/protocol guards only; native database NOT RUN/);
+  const f=fixture(fs.readFileSync(path.join(root,helper.consumer),'utf8'));
+  try {
+    fs.symlinkSync(path.join(root,'node_modules'),path.join(f.dir,'node_modules'),'dir');
+    for(const file of dependencyPaths(root,helper.file))f.write(file,fs.readFileSync(path.join(root,file)));
+    f.contract.helpers=[helper.file];
+    const phase=f.run();
+    const checked=validateNativePhase(phase,{root:f.dir,provenance,inputSha256,runId,contract:f.contract});
+    assert.equal(checked.counts.assertions,56);
+    assert.deepEqual(checked.helpers,[helper.file]);
+    for(const change of [rows=>rows.splice(0),rows=>{
+      for(const report of rows)for(const script of report.result)for(const fn of script.functions)for(const range of fn.ranges)range.count=0;
+    }]) {
+      const raw=structuredClone(phase.coverage);change(raw);
+      assert.throws(()=>validateNativeCallables(raw,phase.binding,f.dir,[helper.file]));
+    }
+    f.write(f.file,"import test from 'node:test';import assert from 'node:assert/strict';import './content-free-retention-evidence.realpg.mjs';test('import alone is not callable execution',()=>assert.equal(1,1));");
+    assert.throws(f.run,/Native callable NOT RUN/);
   }finally{f.clean();}
 });
 
